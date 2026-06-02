@@ -21,6 +21,7 @@ import {
 import {
   channelsAvailableGetOptions,
   channelsReadinessGetOptions,
+  channelsReadinessGetQueryKey,
   contactchannelsByContactChannelIdPatchMutation,
   contactsGetOptions,
   contactsGetQueryKey,
@@ -47,8 +48,8 @@ import type {
   ContactPayload,
   ContactSelection,
 } from "@/domains/contacts/types";
-import { fetchAssistantIdentity } from "@/assistant/identity";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 /**
  * Hardcoded fallback for assistants that don't expose
@@ -105,27 +106,11 @@ const ASSISTANT_SETUP_PROMPTS: Record<AssistantChannelState["key"], string> = {
 
 const READINESS_REFETCH_MS = 15000;
 
+const EMPTY_CHANNELS: ChannelInfo[] = [];
+
 export interface ContactsPageProps {
   assistantId: string;
   onStartSetupConversation?: (prompt: string) => void;
-}
-
-function isContactsGetKey(queryKey: readonly unknown[]): boolean {
-  const first = queryKey[0];
-  return (
-    first !== null &&
-    typeof first === "object" &&
-    (first as { _id?: unknown })._id === "contactsGet"
-  );
-}
-
-function isReadinessGetKey(queryKey: readonly unknown[]): boolean {
-  const first = queryKey[0];
-  return (
-    first !== null &&
-    typeof first === "object" &&
-    (first as { _id?: unknown })._id === "channelsReadinessGet"
-  );
 }
 
 export function ContactsPage({
@@ -133,11 +118,8 @@ export function ContactsPage({
   onStartSetupConversation,
 }: ContactsPageProps) {
   const a2aChannel = useAssistantFeatureFlagStore.use.a2aChannel();
+  const identityName = useAssistantIdentityStore.use.name();
   const queryClient = useQueryClient();
-  const [loadedName, setLoadedName] = useState<{
-    assistantId: string;
-    name: string;
-  } | null>(null);
   const [selection, setSelection] = useState<ContactSelection>({
     kind: "assistant",
   });
@@ -160,29 +142,23 @@ export function ContactsPage({
     setMergeDialogOpen(true);
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    fetchAssistantIdentity(assistantId).then((identity) => {
-      if (cancelled) return;
-      if (identity?.name) {
-        setLoadedName({ assistantId, name: identity.name });
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [assistantId]);
-
-  const assistantName =
-    loadedName && loadedName.assistantId === assistantId
-      ? loadedName.name
-      : "your assistant";
+  const assistantName = identityName ?? "your assistant";
 
   // ---------------------------------------------------------------------------
   // Queries
   // ---------------------------------------------------------------------------
 
-  const contactsPathOpts = { path: { assistant_id: assistantId } };
+  const contactsPathOpts = useMemo(
+    () => ({ path: { assistant_id: assistantId } }),
+    [assistantId],
+  );
+  const contactsQueryKey = contactsGetQueryKey(contactsPathOpts);
+  const readinessPathOpts = useMemo(
+    () => ({ path: { assistant_id: assistantId } }),
+    [assistantId],
+  );
+  const readinessQueryKey = channelsReadinessGetQueryKey(readinessPathOpts);
+
   const contactsQuery = useQuery({
     ...contactsGetOptions(contactsPathOpts),
     enabled: Boolean(assistantId),
@@ -190,9 +166,7 @@ export function ContactsPage({
   });
 
   const readinessQuery = useQuery({
-    ...channelsReadinessGetOptions({
-      path: { assistant_id: assistantId },
-    }),
+    ...channelsReadinessGetOptions(readinessPathOpts),
     enabled: Boolean(assistantId),
     refetchInterval: READINESS_REFETCH_MS,
     select: (data) => data.snapshots,
@@ -220,10 +194,7 @@ export function ContactsPage({
     select: (data) => data.channels,
   });
 
-  const availableChannels = useMemo<ChannelInfo[]>(
-    () => availabilityQuery.data ?? [],
-    [availabilityQuery.data],
-  );
+  const availableChannels = availabilityQuery.data ?? EMPTY_CHANNELS;
 
   const contactsData = contactsQuery.data;
   const guardian = useMemo(
@@ -266,39 +237,40 @@ export function ContactsPage({
   // ---------------------------------------------------------------------------
 
   const invalidateContacts = useCallback(() => {
-    void queryClient.invalidateQueries({
-      predicate: (query) => isContactsGetKey(query.queryKey),
-    });
-  }, [queryClient]);
+    void queryClient.invalidateQueries({ queryKey: contactsQueryKey });
+  }, [queryClient, contactsQueryKey]);
 
   const invalidateReadiness = useCallback(() => {
-    void queryClient.invalidateQueries({
-      predicate: (query) => isReadinessGetKey(query.queryKey),
-    });
-  }, [queryClient]);
+    void queryClient.invalidateQueries({ queryKey: readinessQueryKey });
+  }, [queryClient, readinessQueryKey]);
 
   const createMutation = useMutation({
     mutationFn: () =>
       upsertContact(assistantId, { displayName: "New Contact" }),
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: contactsQueryKey });
+    },
     onSuccess: (contact) => {
       queryClient.setQueryData<ContactsGetResponse>(
-        contactsGetQueryKey(contactsPathOpts),
+        contactsQueryKey,
         (prev) =>
           prev
             ? { ...prev, contacts: [...prev.contacts, contact] }
             : undefined,
       );
-      invalidateContacts();
       setSelection({ kind: "contact", contactId: contact.id });
     },
+    onSettled: () => invalidateContacts(),
   });
 
   const deleteMutation = useMutation({
     mutationFn: (contactId: string) =>
       gatewayDeleteContact(assistantId, contactId),
-    onSuccess: (_data, contactId) => {
+    onMutate: async (contactId) => {
+      await queryClient.cancelQueries({ queryKey: contactsQueryKey });
+      const previous = queryClient.getQueryData<ContactsGetResponse>(contactsQueryKey);
       queryClient.setQueryData<ContactsGetResponse>(
-        contactsGetQueryKey(contactsPathOpts),
+        contactsQueryKey,
         (prev) =>
           prev
             ? {
@@ -308,8 +280,14 @@ export function ContactsPage({
             : undefined,
       );
       setSelection({ kind: "assistant" });
-      invalidateContacts();
+      return { previous };
     },
+    onError: (_error, _contactId, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData<ContactsGetResponse>(contactsQueryKey, context.previous);
+      }
+    },
+    onSettled: () => invalidateContacts(),
   });
 
   const updateMutation = useMutation({
@@ -325,33 +303,46 @@ export function ContactsPage({
         displayName: patch.displayName,
         notes: patch.notes,
       }),
-    onSuccess: (updatedContact) => {
+    onMutate: async ({ contactId, patch }) => {
+      await queryClient.cancelQueries({ queryKey: contactsQueryKey });
+      const previous = queryClient.getQueryData<ContactsGetResponse>(contactsQueryKey);
       queryClient.setQueryData<ContactsGetResponse>(
-        contactsGetQueryKey(contactsPathOpts),
+        contactsQueryKey,
         (prev) =>
           prev
             ? {
                 ...prev,
                 contacts: prev.contacts.map((c) =>
-                  c.id === updatedContact.id ? updatedContact : c,
+                  c.id === contactId
+                    ? { ...c, displayName: patch.displayName, notes: patch.notes }
+                    : c,
                 ),
               }
             : undefined,
       );
-      invalidateContacts();
+      return { previous };
     },
+    onError: (_error, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData<ContactsGetResponse>(contactsQueryKey, context.previous);
+      }
+    },
+    onSettled: () => invalidateContacts(),
   });
 
   const mergeMutation = useMutation({
     ...contactsMergePostMutation({
       path: { assistant_id: assistantId },
     }),
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: contactsQueryKey });
+    },
     onSuccess: (mergedData, variables) => {
       const mergedContact = mergedData.contact;
       const mergeId = variables.body.mergeId;
       if (mergedContact) {
         queryClient.setQueryData<ContactsGetResponse>(
-          contactsGetQueryKey(contactsPathOpts),
+          contactsQueryKey,
           (prev) =>
             prev
               ? {
@@ -366,7 +357,6 @@ export function ContactsPage({
         );
         setSelection({ kind: "contact", contactId: mergedContact.id });
       }
-      invalidateContacts();
       setMergeDialogOpen(false);
       setMergeError(null);
       toast.success("Contacts merged");
@@ -376,6 +366,7 @@ export function ContactsPage({
         err instanceof Error ? err.message : "Failed to merge contacts";
       setMergeError(message);
     },
+    onSettled: () => invalidateContacts(),
   });
 
   const handleCloseMerge = useCallback(() => {
@@ -417,40 +408,55 @@ export function ContactsPage({
     [revokeMutation, assistantId],
   );
 
-  const handleSaveTelegramToken = useCallback(
-    async (botToken: string) => {
-      await integrationsTelegramConfigPost({
+  const saveTelegramMutation = useMutation({
+    mutationFn: (botToken: string) =>
+      integrationsTelegramConfigPost({
         path: { assistant_id: assistantId },
         body: { botToken },
         throwOnError: true,
-      });
-      invalidateReadiness();
-    },
-    [assistantId, invalidateReadiness],
-  );
+      }),
+    onSettled: () => invalidateReadiness(),
+  });
 
-  const handleSaveSlackConfig = useCallback(
-    async (botToken: string, appToken: string) => {
-      await integrationsSlackChannelConfigPost({
+  const saveSlackMutation = useMutation({
+    mutationFn: ({ botToken, appToken }: { botToken: string; appToken: string }) =>
+      integrationsSlackChannelConfigPost({
         path: { assistant_id: assistantId },
         body: { botToken, appToken },
         throwOnError: true,
-      });
-      invalidateReadiness();
-    },
-    [assistantId, invalidateReadiness],
-  );
+      }),
+    onSettled: () => invalidateReadiness(),
+  });
 
-  const handleSaveTwilioCredentials = useCallback(
-    async (accountSid: string, authToken: string) => {
-      await integrationsTwilioCredentialsPost({
+  const saveTwilioMutation = useMutation({
+    mutationFn: ({ accountSid, authToken }: { accountSid: string; authToken: string }) =>
+      integrationsTwilioCredentialsPost({
         path: { assistant_id: assistantId },
         body: { accountSid, authToken },
         throwOnError: true,
-      });
-      invalidateReadiness();
+      }),
+    onSettled: () => invalidateReadiness(),
+  });
+
+  const handleSaveTelegramToken = useCallback(
+    async (botToken: string): Promise<void> => {
+      await saveTelegramMutation.mutateAsync(botToken);
     },
-    [assistantId, invalidateReadiness],
+    [saveTelegramMutation],
+  );
+
+  const handleSaveSlackConfig = useCallback(
+    async (botToken: string, appToken: string): Promise<void> => {
+      await saveSlackMutation.mutateAsync({ botToken, appToken });
+    },
+    [saveSlackMutation],
+  );
+
+  const handleSaveTwilioCredentials = useCallback(
+    async (accountSid: string, authToken: string): Promise<void> => {
+      await saveTwilioMutation.mutateAsync({ accountSid, authToken });
+    },
+    [saveTwilioMutation],
   );
 
   const handleAddContact = useCallback(() => {
