@@ -12,18 +12,17 @@
 //   - `tools/network/web-search.ts` — the app-side `backendFailureResult`
 //     helper routes 5xx/network/429 to the same copy.
 //
-// This file locks the cross-cutting acceptance criteria in one place by
-// driving the real handler + the real classifier end to end:
-//   - friendly copy surfaced to the client,
-//   - raw provider detail logged-not-shown,
-//   - per-turn dedup,
+// The single-layer native-handler invariants (friendly copy + isError + empty
+// results, raw-detail-logged-not-shown, per-turn dedup, successful-empty
+// search) are owned by `native-web-search.test.ts`. This file locks the
+// cross-cutting acceptance criteria that file does not cover:
 //   - honest continuation (the failure is a recoverable tool_result, not a
 //     thrown provider error; the search is never marked successful),
-//   - web_fetch DNS failures are NOT conflated with the search backend copy,
-//   - a successful empty search stays successful (no telemetry, no errorMessage).
+//   - web_fetch DNS failures are NOT conflated with the search backend copy.
 //
-// The native path reuses the handler harness from PR 2's
-// `native-web-search.test.ts`; the web_fetch invariant is exercised through
+// It genuinely reuses the shared handler harness in
+// `helpers/native-web-search-harness.ts` (the same harness driven by
+// `native-web-search.test.ts`); the web_fetch invariant is exercised through
 // the same `handleToolResult` path an app-executed fetch tool drives.
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -33,6 +32,7 @@ import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.
 // ---------------------------------------------------------------------------
 // Mock the daemon collaborators the handler module imports at load time so the
 // handler can be driven in isolation (mirrors native-web-search.test.ts).
+// `mock.module()` is file-scoped, so the shared harness cannot install these.
 // ---------------------------------------------------------------------------
 
 mock.module("../config/loader.js", () => ({
@@ -73,171 +73,21 @@ mock.module("../memory/llm-request-log-store.js", () => ({
 import {
   createEventHandlerState,
   dispatchAgentEvent,
-  type EventHandlerDeps,
   type EventHandlerState,
 } from "../daemon/conversation-agent-loop-handlers.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
 import { WEB_SEARCH_BACKEND_FAILURE_MESSAGE } from "../tools/network/web-search-error.js";
-
-// ---------------------------------------------------------------------------
-// Handler harness
-// ---------------------------------------------------------------------------
-
-type ToolResultEvent = Extract<ServerMessage, { type: "tool_result" }>;
-
-interface LogRecord {
-  obj: Record<string, unknown>;
-  msg?: string;
-}
-
-function createHandlerDeps(reqId = "req-web-search"): {
-  deps: EventHandlerDeps;
-  events: ServerMessage[];
-  warnings: LogRecord[];
-} {
-  const events: ServerMessage[] = [];
-  const warnings: LogRecord[] = [];
-  const rlog = {
-    warn: (obj: Record<string, unknown>, msg?: string) =>
-      warnings.push({ obj, msg }),
-    info: () => {},
-    error: () => {},
-    debug: () => {},
-    trace: () => {},
-    fatal: () => {},
-  };
-  const deps = {
-    ctx: {
-      conversationId: "conv-web-search",
-      provider: { name: "anthropic" },
-      traceEmitter: { emit: () => {} },
-      streamThinking: false,
-      emitActivityState: () => {},
-      markWorkspaceTopLevelDirty: () => {},
-      currentTurnSurfaces: [],
-    } as unknown as EventHandlerDeps["ctx"],
-    onEvent: (msg: ServerMessage) => events.push(msg),
-    reqId,
-    isFirstMessage: false,
-    shouldGenerateTitle: false,
-    rlog: rlog as unknown as EventHandlerDeps["rlog"],
-    turnChannelContext: {
-      userMessageChannel: "vellum",
-      assistantMessageChannel: "vellum",
-    } as EventHandlerDeps["turnChannelContext"],
-    turnInterfaceContext: {
-      userMessageInterface: "macos",
-      assistantMessageInterface: "macos",
-    } as EventHandlerDeps["turnInterfaceContext"],
-  } as EventHandlerDeps;
-  return { deps, events, warnings };
-}
-
-/** Drive one native (Anthropic) web_search start → complete pair. */
-async function completeNativeWebSearch(
-  state: EventHandlerState,
-  deps: EventHandlerDeps,
-  toolUseId: string,
-  event: {
-    isError: boolean;
-    errorCode?: string;
-    errorMessage?: string;
-    content?: unknown[];
-  },
-): Promise<void> {
-  await dispatchAgentEvent(state, deps, {
-    type: "server_tool_start",
-    name: "web_search",
-    toolUseId,
-    input: { query: "what is the weather" },
-  });
-  await dispatchAgentEvent(state, deps, {
-    type: "server_tool_complete",
-    toolUseId,
-    isError: event.isError,
-    ...(event.errorCode ? { errorCode: event.errorCode } : {}),
-    ...(event.errorMessage ? { errorMessage: event.errorMessage } : {}),
-    content: event.content ?? [],
-  });
-}
-
-function toolResults(events: ServerMessage[]): ToolResultEvent[] {
-  return events.filter((e): e is ToolResultEvent => e.type === "tool_result");
-}
-
-function lastToolResult(events: ServerMessage[]): ToolResultEvent | undefined {
-  const results = toolResults(events);
-  return results[results.length - 1];
-}
-
-function backendFailureLogs(warnings: LogRecord[]): LogRecord[] {
-  return warnings.filter((w) => w.obj.event === "web_search_backend_failure");
-}
+import {
+  backendFailureLogs,
+  completeNativeWebSearch,
+  createHandlerDeps,
+  lastToolResult,
+} from "./helpers/native-web-search-harness.js";
 
 describe("web_search backend-failure end-to-end (ATL-727)", () => {
   let state: EventHandlerState;
 
   beforeEach(() => {
     state = createEventHandlerState();
-  });
-
-  test("native backend failure surfaces friendly copy, empty results, and logs raw detail not shown to the user", async () => {
-    const { deps, events, warnings } = createHandlerDeps();
-
-    await completeNativeWebSearch(state, deps, "tu_native", {
-      isError: true,
-      errorCode: "unavailable",
-    });
-
-    const result = lastToolResult(events);
-    expect(result).toBeDefined();
-    expect(result?.isError).toBe(true);
-
-    const meta = result?.activityMetadata?.webSearch;
-    expect(meta?.errorMessage).toBe(WEB_SEARCH_BACKEND_FAILURE_MESSAGE);
-    expect(meta?.provider).toBe("anthropic-native");
-    expect(meta?.resultCount).toBe(0);
-    expect(meta?.results).toEqual([]);
-
-    // Raw provider detail is captured in telemetry only.
-    const failureLog = backendFailureLogs(warnings)[0];
-    expect(failureLog).toBeDefined();
-    expect(failureLog?.obj.errorCategory).toBe("backend_unavailable");
-    expect(failureLog?.obj.fallbackShown).toBe(true);
-    expect(String(failureLog?.obj.rawDetail)).toContain("unavailable");
-
-    // ...and never leaks into the user-facing copy.
-    expect(meta?.errorMessage).not.toContain("unavailable");
-    expect(result?.result).not.toContain("unavailable");
-  });
-
-  test("dedups two native backend failures in one turn to a single full notice", async () => {
-    const { deps, events, warnings } = createHandlerDeps("req-dedup-turn");
-
-    await completeNativeWebSearch(state, deps, "tu_dup_1", {
-      isError: true,
-      errorCode: "unavailable",
-    });
-    await completeNativeWebSearch(state, deps, "tu_dup_2", {
-      isError: true,
-      errorCode: "overloaded_error",
-    });
-
-    const results = toolResults(events);
-    expect(results).toHaveLength(2);
-
-    // First failure gets the full friendly notice; the second is terse.
-    expect(results[0]?.activityMetadata?.webSearch?.errorMessage).toBe(
-      WEB_SEARCH_BACKEND_FAILURE_MESSAGE,
-    );
-    expect(results[1]?.activityMetadata?.webSearch?.errorMessage).not.toBe(
-      WEB_SEARCH_BACKEND_FAILURE_MESSAGE,
-    );
-
-    // Both failures are still logged; exactly one reports fallbackShown.
-    const logs = backendFailureLogs(warnings);
-    expect(logs).toHaveLength(2);
-    expect(logs.filter((w) => w.obj.fallbackShown === true)).toHaveLength(1);
   });
 
   test("backend failure stays an honest, recoverable tool result (not a thrown provider error, never marked successful)", async () => {
@@ -311,26 +161,6 @@ describe("web_search backend-failure end-to-end (ATL-727)", () => {
     // No webSearch metadata is fabricated for a fetch failure.
     expect(result?.activityMetadata?.webSearch).toBeUndefined();
     // And the web_search backend-failure telemetry never fires for a fetch.
-    expect(backendFailureLogs(warnings)).toHaveLength(0);
-  });
-
-  test("successful empty native search stays successful with no telemetry and no errorMessage", async () => {
-    const { deps, events, warnings } = createHandlerDeps("req-no-results");
-
-    await completeNativeWebSearch(state, deps, "tu_empty", {
-      isError: false,
-      content: [],
-    });
-
-    const result = lastToolResult(events);
-    expect(result?.isError).toBe(false);
-
-    const meta = result?.activityMetadata?.webSearch;
-    expect(meta?.resultCount).toBe(0);
-    expect(meta?.results).toEqual([]);
-    expect(meta?.errorMessage).toBeUndefined();
-
-    // No-results is a success, not a backend failure: no telemetry fires.
     expect(backendFailureLogs(warnings)).toHaveLength(0);
   });
 });
