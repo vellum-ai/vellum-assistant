@@ -48,6 +48,22 @@ describe("timezoneDayStartEpoch", () => {
     expect(wallClock(epoch, "Australia/Sydney")).toBe("2027-04-04 00:00:00");
   });
 
+  test("spring-forward that skips local midnight resolves to the first valid instant", () => {
+    // 2026-09-06 is a DST-start date in Santiago where the clock jumps from
+    // 23:59:59 (Sep 5) straight to 01:00:00 (Sep 6): local midnight never
+    // exists. The two-pass guess lands on 2026-09-05 23:00 (prior day); the
+    // gap fix must instead return the first valid instant ON 2026-09-06.
+    const epoch = timezoneDayStartEpoch("2026-09-06", "America/Santiago");
+    // First valid local time on the requested date is 01:00:00.
+    expect(wallClock(epoch, "America/Santiago")).toBe("2026-09-06 01:00:00");
+    // The formatted calendar date is the requested date, not the prior day.
+    expect(toTimezoneDateString(new Date(epoch), "America/Santiago")).toBe(
+      "2026-09-06",
+    );
+    // And the instant is at/after the transition (not before it).
+    expect(epoch).toBe(Date.UTC(2026, 8, 6, 4, 0, 0));
+  });
+
   test("UTC date resolves to UTC midnight", () => {
     expect(timezoneDayStartEpoch("2026-06-02", UTC)).toBe(
       Date.UTC(2026, 5, 2, 0, 0, 0),
