@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { ArrowLeft, Coins, Loader2, Target } from "lucide-react";
 
@@ -24,8 +24,10 @@ import { BillingUsageChart, type ChartMetric } from "@/domains/settings/componen
 import {
   type BillingUsageSourceFilter,
   getDefaultDateRange,
+  reconcilePresetRange,
   useBillingUsageData,
 } from "@/domains/settings/components/billing-usage/use-billing-usage-data";
+import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 
 const METRIC_ITEMS: SegmentControlItem<ChartMetric>[] = [
   { value: "spend", label: "Spend ($)" },
@@ -55,7 +57,22 @@ function formatEventCount(count: number | undefined): string {
 }
 
 export function BillingUsagePanel() {
-  const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange);
+  const tz = useEffectiveTimezone();
+  const [dateRange, setDateRange] = useState<DateRange>(() =>
+    getDefaultDateRange(tz),
+  );
+  // Tracks the tz the active range was computed in, so a tz change can recompute
+  // whichever relative preset is active without clobbering an untracked range.
+  // Initialized to the current tz so the first effect run is a no-op.
+  const prevTzRef = useRef<string>(tz);
+
+  useEffect(() => {
+    const prevTz = prevTzRef.current;
+    prevTzRef.current = tz;
+    if (prevTz === tz) return;
+    setDateRange((current) => reconcilePresetRange(current, prevTz, tz));
+  }, [tz]);
+
   const [drilldown, setDrilldown] = useState<{
     usageSource: BillingUsageSourceFilter;
     llmDimension?: LlmUsageDimension;

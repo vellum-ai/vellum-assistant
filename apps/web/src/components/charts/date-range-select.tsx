@@ -19,13 +19,18 @@ interface DateRangeSelectProps {
   readonly onChange: (range: DateRange) => void;
 }
 
-type PresetDays = "7" | "30" | "90";
+/**
+ * Single source of truth for the relative presets this control exposes. Other
+ * modules (e.g. billing reconciliation) iterate this to recompute whichever
+ * preset is active when the effective timezone changes.
+ */
+export const PRESET_DAYS = [7, 30, 90] as const;
 
-const PRESET_OPTIONS: ReadonlyArray<DropdownOption<PresetDays>> = [
-  { value: "7", label: "Last 7 days" },
-  { value: "30", label: "Last 30 days" },
-  { value: "90", label: "Last 90 days" },
-];
+type PresetDays = `${(typeof PRESET_DAYS)[number]}`;
+
+const PRESET_OPTIONS: ReadonlyArray<DropdownOption<PresetDays>> = PRESET_DAYS.map(
+  (days) => ({ value: `${days}`, label: `Last ${days} days` }),
+);
 
 /**
  * Compute a "last N days" range whose calendar bounds are expressed in the

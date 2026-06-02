@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
+import { computeRangeInTimezone } from "@/components/charts/date-range-select";
+
 import {
   buildBillingUsageSeriesQuery,
   buildBillingUsageTotalsQuery,
   getDefaultDateRange,
+  reconcilePresetRange,
   type UsageChartState,
 } from "./use-billing-usage-data";
 
@@ -61,6 +64,36 @@ describe("getDefaultDateRange", () => {
       expect(r.to).toMatch(DATE_RE);
       expect(daysApart(r.from, r.to)).toBe(30);
     }
+  });
+});
+
+describe("reconcilePresetRange", () => {
+  // Pacific/Kiritimati (UTC+14) and Pacific/Niue (UTC-11) sit a full calendar
+  // day apart at most instants, so a preset's bounds differ between the zones.
+  const EAST = "Pacific/Kiritimati";
+  const WEST = "Pacific/Niue";
+
+  for (const days of [7, 30, 90]) {
+    test(`recomputes the active ${days}-day preset across a tz change`, () => {
+      const current = computeRangeInTimezone(days, EAST);
+      const result = reconcilePresetRange(current, EAST, WEST);
+      expect(result).toEqual(computeRangeInTimezone(days, WEST));
+    });
+  }
+
+  test("leaves a range that matches no preset unchanged", () => {
+    // 45 days apart matches none of the 7/30/90 presets.
+    const custom = { from: "2025-12-01", to: "2026-01-14" };
+    const result = reconcilePresetRange(custom, EAST, WEST);
+    expect(result).toBe(custom);
+  });
+
+  test("returns the same reference when the matched preset is unchanged", () => {
+    // Same tz on both sides: the preset's bounds are identical, so the helper
+    // must bail out referentially rather than allocate a new range.
+    const current = computeRangeInTimezone(7, EAST);
+    const result = reconcilePresetRange(current, EAST, EAST);
+    expect(result).toBe(current);
   });
 });
 
