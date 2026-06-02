@@ -9972,17 +9972,20 @@ paths:
           description:
             Scope to a single conversation by an external key (non-vellum channels) or the web idempotency key.
             Materializes a row on first use. Ignored when conversationId is also provided.
-        - name: lastSeenSeq
+        - name: lastSeenSeqs
           in: query
           required: false
           schema:
             type: string
           description:
-            "Optional reconnect cursor: the highest per-conversation event seq the client has already applied. When set
-            together with a conversation scope, the daemon replays any buffered events with seq > lastSeenSeq before
-            going live. If the cursor is older than the ring buffer's oldest entry the connection simply goes live; the
-            client is expected to detect the gap from the next event's seq and refetch via the messages API. Must be a
-            non-negative integer."
+            Optional reconnect cursor map, JSON-encoded as an object of conversation id -> highest per-conversation
+            event seq the client has already applied. On reconnect the daemon replays buffered events with seq greater
+            than the cursor for each listed conversation before going live, each conversation in its own seq order. This
+            resumes the single unfiltered (assistant-wide) stream, whose multiplexed conversations each own an
+            independent seq space and so cannot be resumed by one cursor. A scoped subscription replays only its own
+            conversation's entry. A conversation whose cursor predates its ring buffer is skipped (the client detects
+            the gap from the next event's seq and refetches via the messages API); other conversations still replay.
+            Seqs must be non-negative integers.
   /v1/events/emit:
     post:
       operationId: events_emit_post
