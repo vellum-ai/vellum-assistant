@@ -575,6 +575,7 @@ async function simulateInlineCompaction(
   turnContext: TurnContext | undefined,
   signal: AbortSignal | undefined,
   onEvent: (event: AgentEvent) => void | Promise<void>,
+  compactionCircuit: CompactionCircuit,
 ): Promise<Message[] | null> {
   await onEvent({ type: "context_compacting" });
   const { rawHistory, options } = compaction.prepare(history);
@@ -590,7 +591,15 @@ async function simulateInlineCompaction(
     );
   } catch (error) {
     if (error instanceof PluginTimeoutError) {
-      await onEvent({ type: "compaction_timed_out" });
+      await compactionCircuit.recordOutcome(
+        {
+          currentRequestId: turnContext?.requestId,
+          currentTurnTrustContext: turnContext?.trust,
+          turnCount: turnContext?.turnIndex ?? 0,
+        },
+        true,
+        onEvent,
+      );
       return null;
     }
     throw error;
@@ -611,6 +620,7 @@ async function simulateInlineCompaction(
  */
 const asAgentLoopRun = (
   fn: AgentLoopRun,
+  compactionCircuit: CompactionCircuit,
 ): ((
   messages: Message[],
   onEvent: (event: AgentEvent) => void | Promise<void>,
@@ -657,6 +667,7 @@ const asAgentLoopRun = (
                     options.turnContext,
                     options.signal,
                     onEvent,
+                    compactionCircuit,
                   )
                 : null;
               if (compacted) {
@@ -692,6 +703,8 @@ function makeCtx(
       },
     ]);
 
+  const compactionCircuit = new CompactionCircuit("test-conv");
+
   return {
     conversationId: "test-conv",
     messages: [
@@ -702,13 +715,13 @@ function makeCtx(
     currentRequestId: "test-req",
 
     agentLoop: {
-      run: asAgentLoopRun(agentLoopRun),
+      run: asAgentLoopRun(agentLoopRun, compactionCircuit),
       getToolTokenBudget: () => 0,
       getResolvedTools: () => [],
       // Tests here don't exercise calibration; returning undefined makes
       // the estimator use the per-provider aggregate key.
       getActiveModel: () => undefined,
-      compactionCircuit: new CompactionCircuit("test-conv"),
+      compactionCircuit,
     } as unknown as AgentLoopConversationContext["agentLoop"],
     provider: {
       name: "mock-provider",
@@ -1147,7 +1160,10 @@ describe("session-agent-loop", () => {
           },
         } as unknown as AgentLoopConversationContext["traceEmitter"],
       });
-      ctx.agentLoop.run = asAgentLoopRun(agentLoopRun);
+      ctx.agentLoop.run = asAgentLoopRun(
+        agentLoopRun,
+        ctx.agentLoop.compactionCircuit,
+      );
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
