@@ -3,8 +3,6 @@ import { describe, expect, test } from "bun:test";
 import {
   calculateMaxToolResultChars,
   HARD_MAX_TOOL_RESULT_CHARS,
-} from "../context/tool-result-truncation.js";
-import {
   MIN_KEEP_CHARS,
   truncateToolResultText,
   TRUNCATION_SUFFIX,

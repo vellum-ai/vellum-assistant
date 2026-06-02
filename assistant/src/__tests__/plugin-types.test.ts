@@ -12,10 +12,6 @@ import { describe, expect, test } from "bun:test";
 
 import type { TrustContext } from "../daemon/trust-context.js";
 import { RiskLevel } from "../permissions/types.js";
-import type {
-  ToolResultTruncateArgs,
-  ToolResultTruncateResult,
-} from "../plugins/defaults/tool-result-truncate/types.js";
 import {
   type CircuitBreakerArgs,
   type CircuitBreakerResult,
@@ -93,16 +89,6 @@ describe("plugin core types", () => {
       ToolExecuteArgs,
       ToolExecuteResult
     > = async (args, next, _ctx) => next(args);
-
-    // `toolResultTruncate` has a concrete args/result shape (PR 17) so we
-    // need a dedicated passthrough for that slot.
-    const truncatePassthrough: Middleware<
-      ToolResultTruncateArgs,
-      ToolResultTruncateResult
-    > = async (args, _next, _ctx) => ({
-      content: args.content,
-      truncated: false,
-    });
 
     // The `emptyResponse` slot has concrete args/result types; use a
     // dedicated passthrough so the `satisfies Plugin` check stays honest.
@@ -255,7 +241,6 @@ describe("plugin core types", () => {
         overflowReduce: overflowReducePassthrough,
         persistence: persistPassthrough,
         titleGenerate: titlePassthrough,
-        toolResultTruncate: truncatePassthrough,
         emptyResponse: emptyResponsePassthrough,
         toolError: toolErrorPassthrough,
         circuitBreaker: circuitPassthrough,

@@ -2103,10 +2103,10 @@ export async function runAgentLoopImpl(
 
     // Thread the orchestrator's canonical per-turn context into the agent
     // loop so its internal pipeline invocations (llmCall, emptyResponse,
-    // toolError, toolResultTruncate, toolExecute) see the real
-    // conversation identity / trust / contextWindowManager instead of the
-    // synthesized `"agent-loop"` placeholder. The loop clones this value
-    // and overwrites `turnIndex` with its own tool-use iteration counter.
+    // toolError, toolExecute) see the real conversation identity / trust /
+    // contextWindowManager instead of the synthesized `"agent-loop"`
+    // placeholder. The loop clones this value and overwrites `turnIndex`
+    // with its own tool-use iteration counter.
     const loopTurnCtx = buildPluginTurnContext(ctx, reqId);
 
     // Hooks for the loop-owned mid-loop compaction. The agent loop owns the
