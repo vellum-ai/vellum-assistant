@@ -14,6 +14,12 @@ import type {
   Surface,
 } from "@/domains/chat/types/types";
 import { client } from "@/generated/api/client.gen";
+import {
+  messagesPost,
+  messagesQueuedByIdSteerPost,
+  messagesQueuedByIdDelete,
+} from "@/generated/daemon/sdk.gen";
+import type { MessagesPostData } from "@/generated/daemon/types.gen";
 import { assertHasResponse, extractErrorMessage } from "@/utils/api-errors";
 import {
   normalizePreChatOnboardingContext,
@@ -105,18 +111,6 @@ export interface RuntimeMessage {
   thinkingSegments?: string[];
   /** Subagent notification attached to this history message by the daemon. */
   subagentNotification?: RuntimeSubagentNotification;
-}
-
-interface SendMessageResponse {
-  accepted: boolean;
-  messageId?: string;
-  queued?: boolean;
-  conversationId?: string;
-  assistantMessage?: RuntimeMessage;
-  /** Set when `queued` is true — the daemon's request id for the
-   *  queued message, used by the steer/cancel endpoints. Added by
-   *  #7484 (queue steering) but the interface field was missed. */
-  requestId?: string;
 }
 
 interface ListMessagesResponse {
@@ -503,7 +497,7 @@ export async function postChatMessage(
   // Pre-0.8.6 assistants always receive `conversationKey` — including
   // `conversationKey: null` for safety, since they have no mint branch
   // and need the legacy create-or-lookup path either way.
-  const body: Record<string, unknown> = {
+  const body: MessagesPostData["body"] = {
     content,
     sourceChannel: "vellum",
     interface: "vellum",
@@ -528,11 +522,12 @@ export async function postChatMessage(
     ? normalizePreChatOnboardingContext(onboarding)
     : undefined;
   if (normalizedOnboarding) {
-    const onboardingDict: Record<string, unknown> = {
-      tools: normalizedOnboarding.tools,
-      tasks: normalizedOnboarding.tasks,
-      tone: normalizedOnboarding.tone,
-    };
+    const onboardingDict: NonNullable<MessagesPostData["body"]["onboarding"]> =
+      {
+        tools: normalizedOnboarding.tools,
+        tasks: normalizedOnboarding.tasks,
+        tone: normalizedOnboarding.tone,
+      };
     if (normalizedOnboarding.userName !== undefined)
       onboardingDict.userName = normalizedOnboarding.userName;
     if (normalizedOnboarding.assistantName !== undefined)
@@ -571,8 +566,7 @@ export async function postChatMessage(
     data,
     error,
     response: sendResponse,
-  } = await client.post<SendMessageResponse, unknown>({
-    url: "/v1/assistants/{assistant_id}/messages/",
+  } = await messagesPost({
     path: { assistant_id: assistantId },
     body,
     throwOnError: false,
@@ -623,10 +617,7 @@ export async function postChatMessage(
     };
   }
 
-  const sendData =
-    data && typeof data === "object" && !Array.isArray(data)
-      ? (data as SendMessageResponse)
-      : undefined;
+  const sendData = data;
   if (!sendData?.accepted) {
     return {
       ok: false,
@@ -698,10 +689,8 @@ export async function steerToMessage(
   requestId: string,
 ): Promise<boolean> {
   try {
-    const encoded = encodeURIComponent(requestId);
-    const { response } = await client.post<unknown, unknown>({
-      url: `/v1/assistants/{assistant_id}/messages/queued/${encoded}/steer`,
-      path: { assistant_id: assistantId },
+    const { response } = await messagesQueuedByIdSteerPost({
+      path: { assistant_id: assistantId, id: requestId },
       query: { conversationId },
       throwOnError: false,
     });
@@ -722,10 +711,8 @@ export async function deleteQueuedMessage(
   requestId: string,
 ): Promise<boolean> {
   try {
-    const encoded = encodeURIComponent(requestId);
-    const { response } = await client.delete<unknown, unknown>({
-      url: `/v1/assistants/{assistant_id}/messages/queued/${encoded}`,
-      path: { assistant_id: assistantId },
+    const { response } = await messagesQueuedByIdDelete({
+      path: { assistant_id: assistantId, id: requestId },
       query: { conversationId },
       throwOnError: false,
     });

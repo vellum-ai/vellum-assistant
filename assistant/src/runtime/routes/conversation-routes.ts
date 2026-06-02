@@ -2536,17 +2536,60 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["messages"],
     responseStatus: "202",
     requestBody: z.object({
-      conversationKey: z.string().optional(),
+      conversationId: z
+        .string()
+        .nullable()
+        .optional()
+        .describe(
+          "Internal conversation id (0.8.6+ strict lookup). Omit both id and key to mint a new conversation server-side.",
+        ),
+      conversationKey: z.string().nullable().optional(),
       content: z.string().describe("Message text content"),
       attachments: z
         .array(z.unknown())
-        .describe("Optional file attachments")
+        .describe("Optional inline file attachments")
         .optional(),
+      attachmentIds: z
+        .array(z.string())
+        .describe("Ids of previously uploaded attachments to attach")
+        .optional(),
+      sourceChannel: z
+        .string()
+        .describe('Originating channel id (e.g. "vellum")'),
+      interface: z
+        .string()
+        .describe('Originating interface id (e.g. "vellum")'),
       conversationType: z.string().optional(),
       slashCommand: z.string().optional(),
       clientTimezone: z.string().optional(),
       inferenceProfile: z.string().nullable().optional(),
       riskThreshold: z.enum(VALID_RISK_THRESHOLDS).optional(),
+      onboarding: z
+        .object({
+          tools: z.array(z.string()),
+          tasks: z.array(z.string()),
+          tone: z.string(),
+          userName: z.string().optional(),
+          assistantName: z.string().optional(),
+          googleConnected: z.boolean().optional(),
+          googleScopes: z.array(z.string()).optional(),
+          priorAssistants: z.array(z.string()).optional(),
+          cohort: z.string().optional(),
+          websiteUrl: z.string().optional(),
+          contentSourceUrl: z.string().optional(),
+          bootstrapTemplate: z.string().optional(),
+          initialMessage: z.string().optional(),
+          skills: z.array(z.string()).optional(),
+        })
+        .describe("PreChat onboarding context, sent on the first message only")
+        .optional(),
+    }),
+    responseBody: z.object({
+      accepted: z.boolean(),
+      conversationId: z.string().optional(),
+      messageId: z.string().optional(),
+      queued: z.boolean().optional(),
+      requestId: z.string().optional(),
     }),
     handler: async (args) =>
       handleSendMessage(args, {
