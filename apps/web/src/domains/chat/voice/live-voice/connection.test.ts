@@ -24,11 +24,14 @@ import {
 } from "bun:test";
 
 import { client } from "@/generated/api/client.gen";
+import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 
 import {
   buildLiveVoiceWsUrl,
+  buildSelfHostedLiveVoiceWsUrl,
   LiveVoiceTokenError,
   mintLiveVoiceToken,
+  resolveLiveVoiceWsUrl,
 } from "./connection";
 
 // ---------------------------------------------------------------------------
@@ -55,10 +58,13 @@ beforeEach(() => {
     captured = options;
     return nextPostResult;
   }) as typeof client.post;
+  // Default to the cloud path; self-hosted tests prime this explicitly.
+  setSelfHostedConnection(null);
 });
 
 afterEach(() => {
   client.post = originalPost;
+  setSelfHostedConnection(null);
 });
 
 describe("mintLiveVoiceToken", () => {
@@ -146,5 +152,108 @@ describe("buildLiveVoiceWsUrl", () => {
     );
     expect(url.searchParams.get("token")).toBe("tok-abc");
     expect(url.searchParams.get("conversationId")).toBe("conv-xyz");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildSelfHostedLiveVoiceWsUrl
+// ---------------------------------------------------------------------------
+
+describe("buildSelfHostedLiveVoiceWsUrl", () => {
+  test("maps an https ingress to wss, no assistantId path prefix, actor token", () => {
+    const url = new URL(
+      buildSelfHostedLiveVoiceWsUrl({
+        ingressUrl: "https://x.ngrok-free.app",
+        token: "actor-tok",
+      }),
+    );
+    expect(url.protocol).toBe("wss:");
+    expect(url.host).toBe("x.ngrok-free.app");
+    // Gateway serves /v1/live-voice directly — no /<assistantId> prefix.
+    expect(url.pathname).toBe("/v1/live-voice");
+    expect(url.searchParams.get("token")).toBe("actor-tok");
+    expect(url.searchParams.has("conversationId")).toBe(false);
+  });
+
+  test("maps a plain-http local ingress to ws", () => {
+    const url = new URL(
+      buildSelfHostedLiveVoiceWsUrl({
+        ingressUrl: "http://localhost:8787",
+        token: "actor-tok",
+      }),
+    );
+    expect(url.protocol).toBe("ws:");
+    expect(url.host).toBe("localhost:8787");
+    expect(url.pathname).toBe("/v1/live-voice");
+  });
+
+  test("discards any path/query/hash on the ingress and appends conversationId", () => {
+    const url = new URL(
+      buildSelfHostedLiveVoiceWsUrl({
+        ingressUrl: "https://x.ngrok-free.app/some/path?a=1#frag",
+        conversationId: "conv-xyz",
+        token: "actor-tok",
+      }),
+    );
+    expect(url.pathname).toBe("/v1/live-voice");
+    expect(url.hash).toBe("");
+    expect(url.searchParams.get("a")).toBeNull();
+    expect(url.searchParams.get("token")).toBe("actor-tok");
+    expect(url.searchParams.get("conversationId")).toBe("conv-xyz");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveLiveVoiceWsUrl — transport routing (cloud vs self-hosted)
+// ---------------------------------------------------------------------------
+
+describe("resolveLiveVoiceWsUrl", () => {
+  test("cloud path: mints a velay token and builds the velay URL", async () => {
+    // GIVEN no self-hosted ingress (default)
+    const raw = await resolveLiveVoiceWsUrl({
+      assistantId: "assistant-1",
+      conversationId: "conv-xyz",
+    });
+
+    // THEN it mints and dials velay with the assistantId path prefix
+    expect(captured?.url).toBe("/v1/auth/live-voice-token/");
+    const url = new URL(raw);
+    expect(url.host).toBe("velay.vellum.ai");
+    expect(url.pathname).toBe("/assistant-1/v1/live-voice");
+    expect(url.searchParams.get("token")).toBe("tok-abc");
+    expect(url.searchParams.get("conversationId")).toBe("conv-xyz");
+  });
+
+  test("self-hosted path: dials the gateway with the actor token, no mint", async () => {
+    // GIVEN a primed self-hosted connection
+    setSelfHostedConnection({
+      url: "https://x.ngrok-free.app",
+      token: "actor-tok",
+    });
+
+    const raw = await resolveLiveVoiceWsUrl({
+      assistantId: "assistant-1",
+      conversationId: "conv-xyz",
+    });
+
+    // THEN no velay token is minted...
+    expect(captured).toBeNull();
+    // ...and the URL targets the gateway with the actor token
+    const url = new URL(raw);
+    expect(url.protocol).toBe("wss:");
+    expect(url.host).toBe("x.ngrok-free.app");
+    expect(url.pathname).toBe("/v1/live-voice");
+    expect(url.searchParams.get("token")).toBe("actor-tok");
+    expect(url.searchParams.get("conversationId")).toBe("conv-xyz");
+  });
+
+  test("self-hosted with no actor token yet throws (and does not mint)", async () => {
+    // GIVEN an ingress is known but the actor token hasn't been provisioned
+    setSelfHostedConnection({ url: "https://x.ngrok-free.app", token: null });
+
+    await expect(
+      resolveLiveVoiceWsUrl({ assistantId: "assistant-1" }),
+    ).rejects.toBeInstanceOf(LiveVoiceTokenError);
+    expect(captured).toBeNull();
   });
 });

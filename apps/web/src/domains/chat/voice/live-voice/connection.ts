@@ -1,12 +1,21 @@
 /**
- * Live-voice WebSocket connection + token-exchange client.
+ * Live-voice WebSocket connection + transport routing.
  *
- * Live voice streams audio to velay (`velay.vellum.ai`), which is cross-origin
- * from the `platform.vellum.ai` SPA. A same-origin cookie WS upgrade is NOT
- * viable: velay does no user auth, and the channel gateway only accepts a
- * local actor edge JWT. So the browser must first mint a short-lived,
- * org+assistant-scoped WS token from the platform and pass it to velay as a
- * `?token=` query param.
+ * Live voice picks its transport by deployment kind via
+ * {@link resolveLiveVoiceWsUrl}:
+ *
+ * - **Cloud** — streams audio to velay (`velay.vellum.ai`), which is
+ *   cross-origin from the `platform.vellum.ai` SPA. A same-origin cookie WS
+ *   upgrade is NOT viable: velay does no user auth, and the channel gateway
+ *   only accepts a local actor edge JWT. So the browser first mints a
+ *   short-lived, org+assistant-scoped WS token from the platform and passes it
+ *   to velay as a `?token=` query param.
+ * - **Self-hosted / local** — when {@link getSelfHostedIngressUrl} returns the
+ *   user's gateway ingress, the browser connects directly to that gateway's
+ *   `/v1/live-voice`, authenticated with the platform actor edge JWT
+ *   ({@link getSelfHostedActorToken}) in `?token=`. velay is the cloud ingress
+ *   only, so there is no token-exchange on this path — it mirrors how the
+ *   self-hosted HeyAPI interceptor already routes runtime calls to the gateway.
  *
  * ---------------------------------------------------------------------------
  * Mint-endpoint contract (the backend plan must match this verbatim)
@@ -32,6 +41,10 @@
  */
 
 import { client } from "@/generated/api/client.gen";
+import {
+  getSelfHostedActorToken,
+  getSelfHostedIngressUrl,
+} from "@/lib/self-hosted/connection";
 import { assertHasResponse } from "@/utils/api-errors";
 
 /** Production velay host (no scheme). Overridable via `VITE_VELAY_HOST`. */
@@ -113,12 +126,9 @@ export interface BuildLiveVoiceWsUrlArgs {
  * The token is URL-encoded. `conversationId` is appended as an additional
  * query param only when provided.
  *
- * TODO(self-hosted): when `getSelfHostedIngressUrl()` (see
- * `@/lib/self-hosted/connection`) returns a local gateway URL, live voice
- * should instead connect to that gateway over plain WS
- * (`ws://localhost:{port}/...`) authenticated with a `Bearer` actor token,
- * rather than to velay with a minted query token. Not implemented — cloud is
- * the target for this plan, so this builder is cloud-only for now.
+ * This is the cloud builder. The self-hosted/local path uses
+ * {@link buildSelfHostedLiveVoiceWsUrl}; {@link resolveLiveVoiceWsUrl} chooses
+ * between them.
  */
 export function buildLiveVoiceWsUrl({
   assistantId,
@@ -132,4 +142,87 @@ export function buildLiveVoiceWsUrl({
     url.searchParams.set("conversationId", conversationId);
   }
   return url.toString();
+}
+
+export interface BuildSelfHostedLiveVoiceWsUrlArgs {
+  /**
+   * The user's gateway ingress URL (e.g. `https://x.ngrok-free.app` or a plain
+   * `http://localhost:{port}`), from {@link getSelfHostedIngressUrl}.
+   */
+  ingressUrl: string;
+  /** Optional conversation to attach the live-voice session to. */
+  conversationId?: string;
+  /** Platform actor edge JWT from {@link getSelfHostedActorToken}. */
+  token: string;
+}
+
+/**
+ * Build the live-voice WebSocket URL for the self-hosted / local path:
+ *
+ *   ws(s)://<ingressHost>/v1/live-voice?token=<actorToken>[&conversationId=<id>]
+ *
+ * Differences from the cloud (velay) URL:
+ * - **No `/<assistantId>` path prefix.** That prefix is velay's tunnel routing;
+ *   the gateway serves `/v1/live-voice` directly.
+ * - **Scheme follows the ingress:** `https`→`wss`, `http`→`ws`, so a plain-HTTP
+ *   local gateway is reachable over `ws`.
+ * - **The token is the actor edge JWT**, not a minted velay token. It rides in
+ *   `?token=` because the browser WebSocket API can't set an `Authorization`
+ *   header; the gateway's non-managed `checkLiveVoiceAuth` reads it there.
+ *
+ * Any path/query/hash on the ingress URL is discarded — only its origin is used.
+ */
+export function buildSelfHostedLiveVoiceWsUrl({
+  ingressUrl,
+  conversationId,
+  token,
+}: BuildSelfHostedLiveVoiceWsUrlArgs): string {
+  const url = new URL(ingressUrl);
+  url.protocol = url.protocol === "http:" ? "ws:" : "wss:";
+  url.pathname = "/v1/live-voice";
+  url.search = "";
+  url.hash = "";
+  url.searchParams.set("token", token);
+  if (conversationId) {
+    url.searchParams.set("conversationId", conversationId);
+  }
+  return url.toString();
+}
+
+export interface ResolveLiveVoiceWsUrlArgs {
+  assistantId: string;
+  /** Optional conversation to attach the live-voice session to. */
+  conversationId?: string;
+}
+
+/**
+ * Resolve the live-voice WebSocket URL for the current assistant, choosing the
+ * transport by deployment kind (see the module doc comment):
+ *
+ * - **Self-hosted / local** — when {@link getSelfHostedIngressUrl} is primed,
+ *   connect straight to the user's gateway with the actor edge JWT. No velay
+ *   token-exchange happens. Throws {@link LiveVoiceTokenError} if the ingress is
+ *   known but the actor token hasn't been provisioned yet (a brief post-hatch
+ *   window), so the caller surfaces a connection failure rather than dialling an
+ *   unauthenticated socket.
+ * - **Cloud** — mint a short-lived velay WS token and build the velay URL.
+ */
+export async function resolveLiveVoiceWsUrl({
+  assistantId,
+  conversationId,
+}: ResolveLiveVoiceWsUrlArgs): Promise<string> {
+  const ingressUrl = getSelfHostedIngressUrl();
+  if (ingressUrl) {
+    const token = getSelfHostedActorToken();
+    if (!token) {
+      throw new LiveVoiceTokenError(
+        0,
+        "Self-hosted live voice has no actor token yet; the gateway isn't ready.",
+      );
+    }
+    return buildSelfHostedLiveVoiceWsUrl({ ingressUrl, conversationId, token });
+  }
+
+  const { token } = await mintLiveVoiceToken(assistantId);
+  return buildLiveVoiceWsUrl({ assistantId, conversationId, token });
 }

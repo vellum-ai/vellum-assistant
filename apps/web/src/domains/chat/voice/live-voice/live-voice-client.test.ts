@@ -27,23 +27,27 @@ let mintResult: Promise<{ token: string; expiresAt: string }> = Promise.resolve(
   { token: "tok-abc", expiresAt: "2026-06-01T00:05:00Z" },
 );
 
+// The client resolves its transport URL via `resolveLiveVoiceWsUrl`. Mock it to
+// the cloud (velay) path: await `mintResult` (so the mint-failure test still
+// exercises a rejected resolve) and compose the genuine velay URL the client
+// would dial. The connection.ts routing/builders are unit-tested separately in
+// connection.test.ts.
 mock.module("@/domains/chat/voice/live-voice/connection", () => ({
-  mintLiveVoiceToken: mock(() => mintResult),
-  // Keep a real builder so the client genuinely composes the velay URL.
-  buildLiveVoiceWsUrl: ({
-    assistantId,
-    conversationId,
-    token,
-  }: {
-    assistantId: string;
-    conversationId?: string;
-    token: string;
-  }) => {
-    const url = new URL(`wss://velay.vellum.ai/${assistantId}/v1/live-voice`);
-    url.searchParams.set("token", token);
-    if (conversationId) url.searchParams.set("conversationId", conversationId);
-    return url.toString();
-  },
+  resolveLiveVoiceWsUrl: mock(
+    async ({
+      assistantId,
+      conversationId,
+    }: {
+      assistantId: string;
+      conversationId?: string;
+    }) => {
+      const { token } = await mintResult;
+      const url = new URL(`wss://velay.vellum.ai/${assistantId}/v1/live-voice`);
+      url.searchParams.set("token", token);
+      if (conversationId) url.searchParams.set("conversationId", conversationId);
+      return url.toString();
+    },
+  ),
 }));
 
 import type { LiveVoiceChannelClient as LiveVoiceChannelClientType } from "@/domains/chat/voice/live-voice/live-voice-client";

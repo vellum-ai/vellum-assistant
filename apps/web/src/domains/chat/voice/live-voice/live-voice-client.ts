@@ -3,9 +3,10 @@
  *
  * Web-app counterpart to the macOS `LiveVoiceChannelClient`
  * (`clients/shared/Network/LiveVoiceChannelClient.swift`). One instance drives
- * one live-voice session: it mints a short-lived velay token, opens the velay
- * WebSocket, sends the `start` frame on open, streams microphone PCM as binary
- * frames, and dispatches parsed server frames as typed events.
+ * one live-voice session: it resolves the transport URL (cloud velay token or
+ * self-hosted gateway + actor token, via {@link resolveLiveVoiceWsUrl}), opens
+ * the WebSocket, sends the `start` frame on open, streams microphone PCM as
+ * binary frames, and dispatches parsed server frames as typed events.
  *
  * Wire contract (see `protocol.ts`, ported from
  * `assistant/src/live-voice/protocol.ts`):
@@ -20,10 +21,7 @@
  * distinctly from `error`.
  */
 
-import {
-  buildLiveVoiceWsUrl,
-  mintLiveVoiceToken,
-} from "@/domains/chat/voice/live-voice/connection";
+import { resolveLiveVoiceWsUrl } from "@/domains/chat/voice/live-voice/connection";
 import {
   type LiveVoiceArchivedServerFrame,
   type LiveVoiceAssistantTextDeltaServerFrame,
@@ -160,7 +158,8 @@ export class LiveVoiceChannelClient {
   }
 
   /**
-   * Mint a token, open the velay WebSocket, and send the `start` frame on open.
+   * Resolve the transport URL (cloud velay token or self-hosted gateway +
+   * actor token), open the WebSocket, and send the `start` frame on open.
    * Resolves once the socket is opening; session readiness is signalled via the
    * `ready` event (or `error` / `busy` if it never arrives).
    */
@@ -172,17 +171,18 @@ export class LiveVoiceChannelClient {
     this.state = "connecting";
     this.conversationId = conversationId;
 
-    let token: string;
+    let url: string;
     try {
-      ({ token } = await mintLiveVoiceToken(assistantId));
+      url = await resolveLiveVoiceWsUrl({ assistantId, conversationId });
     } catch (err) {
-      this.fail("connection-failed", messageOf(err, "Failed to mint live-voice token"));
+      this.fail(
+        "connection-failed",
+        messageOf(err, "Failed to start live-voice session"),
+      );
       return;
     }
     // A late close()/end() during the await must abort the connect.
     if (this.state !== "connecting") return;
-
-    const url = buildLiveVoiceWsUrl({ assistantId, conversationId, token });
 
     let ws: WebSocket;
     try {
