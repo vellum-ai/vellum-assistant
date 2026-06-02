@@ -45,7 +45,6 @@ import { QueuedMessagesDrawer } from "@/domains/chat/components/queued-messages-
 import { AppViewerContainer } from "@/components/app-viewer-container";
 import { DocumentViewerContainer } from "@/domains/chat/components/document-viewer-container";
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
-import { isProgressBadgeEnabled } from "@/lib/feature-flags/progress-badge-flag";
 import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";
 import { ContextWindowIndicator } from "@/domains/chat/components/context-window-indicator";
 const SubagentDetailPanel = lazy(() =>
@@ -518,13 +517,7 @@ export function ChatRouteContent({
     hasPendingAssistantResponse: activeConversationHasPendingAssistantResponse,
   };
 
-  // When the `useProgressBadge` debug flag is on, suppress the
-  // transcript-trailer thinking dots — the avatar badge takes over the
-  // "the assistant is working" affordance. Default (flag off) keeps the
-  // long-standing dots in charge.
-  const showThinking =
-    !isProgressBadgeEnabled() &&
-    shouldShowThinkingIndicator(turnState, uiContext);
+  const showThinking = shouldShowThinkingIndicator(turnState, uiContext);
   const isAssistantStreaming =
     showThinking || hasStreamingAssistantMessage;
   const canStopGenerating = canStopGeneration(turnState, uiContext);

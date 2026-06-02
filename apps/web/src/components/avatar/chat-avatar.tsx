@@ -1,11 +1,6 @@
 import { motion, useReducedMotion } from "motion/react";
 import { memo, useCallback, useMemo, useState, type CSSProperties } from "react";
 
-import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
-import {
-  getProgressBadgeVariant,
-  type ProgressBadgeVariant,
-} from "@/lib/feature-flags/progress-badge-flag";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { AnimatedAvatar } from "./animated-avatar";
 
@@ -18,56 +13,6 @@ export interface ChatAvatarProps {
   interactive?: boolean;
   isStreaming?: boolean;
   isProcessing?: boolean;
-}
-
-/** Tunable badge geometry. Sizes scale with avatar size for visual consistency. */
-const BADGE_DOT_RATIO = 0.1; // each dot diameter / avatar size — 56px avatar → ~6px dot
-const BADGE_GAP_RATIO = 0.05; // gap between dots / avatar size
-const BADGE_RING_RATIO = 0.04; // ring thickness / avatar size
-
-/**
- * `"dots"` progress affordance: a pulsing three-dot pill pinned to the
- * bottom-right corner of the avatar. Reuses `ThreeDotIndicator` so the badge
- * reads as the same typing affordance shown elsewhere in chat (a pill is wide
- * enough to fit all three dots; a single round dot was too narrow to convey
- * "thinking"). The surface-colored ring separates the badge from the avatar so
- * it reads cleanly against either a character avatar or a custom image.
- */
-function ProgressDotsBadge({ size }: { size: number }) {
-  const dot = Math.max(3, Math.round(size * BADGE_DOT_RATIO));
-  const gap = Math.max(2, Math.round(size * BADGE_GAP_RATIO));
-  const ring = Math.max(1, Math.round(size * BADGE_RING_RATIO));
-  return (
-    <span
-      aria-hidden="true"
-      className="absolute flex items-center justify-center rounded-full"
-      style={{
-        bottom: 0,
-        right: 0,
-        padding: ring,
-        backgroundColor: "var(--surface-base)",
-      }}
-    >
-      <ThreeDotIndicator dotSize={dot} gap={gap} />
-    </span>
-  );
-}
-
-/**
- * `"gradient"` progress affordance: a glistening highlight band that sweeps
- * across the whole avatar (clipped to its circular frame) as a loading state,
- * echoing the "working" shimmer used elsewhere. Unlike the dots variant this
- * is an overlay over the entire avatar rather than a corner badge, so there is
- * no bottom-right indicator. The sweep and reduced-motion fallback live in CSS
- * (`.avatar-glisten`).
- */
-function AvatarGlisten() {
-  return (
-    <span
-      aria-hidden="true"
-      className="avatar-glisten pointer-events-none absolute inset-0 overflow-hidden rounded-full"
-    />
-  );
 }
 
 /** Ring geometry. Thickness is a fixed 1px hairline; gap scales with size. */
@@ -103,21 +48,6 @@ function AvatarStreamingRing({ size }: { size: number }) {
   );
 }
 
-/** Render the active progress affordance for the configured badge variant. */
-function ProgressOverlay({
-  size,
-  variant,
-}: {
-  size: number;
-  variant: ProgressBadgeVariant;
-}) {
-  return variant === "gradient" ? (
-    <AvatarGlisten />
-  ) : (
-    <ProgressDotsBadge size={size} />
-  );
-}
-
 /**
  * Displays the assistant's avatar in chat messages.
  *
@@ -134,11 +64,6 @@ function ProgressOverlay({
  *   - For custom uploaded-image avatars, a spinning semicircular ring traces
  *     just outside the avatar's edge while `isStreaming`/`isProcessing` is on
  *     (character avatars already signal streaming via their morph animation).
- *   - When `isProcessing` and the `useProgressBadge` debug flag is on, the
- *     configured progress affordance renders: the `"dots"` variant shows a
- *     bottom-right three-dot badge, while the `"gradient"` variant glistens a
- *     sweep across the whole avatar (no corner badge). Default behavior (flag
- *     off) leaves the old transcript "thinking…" dots in charge.
  */
 function ChatAvatarComponent({
   components,
@@ -192,8 +117,6 @@ function ChatAvatarComponent({
     : { scale: 0.6, opacity: 0 };
   const animate = { scale: isPoking ? 1.15 : 1, opacity: 1 };
 
-  const badgeVariant = isProcessing ? getProgressBadgeVariant() : null;
-
   if (preferCharacter) {
     return (
       <motion.div
@@ -210,7 +133,6 @@ function ChatAvatarComponent({
           size={size}
           isStreaming={isStreaming}
         />
-        {badgeVariant && <ProgressOverlay size={size} variant={badgeVariant} />}
       </motion.div>
     );
   }
@@ -240,7 +162,6 @@ function ChatAvatarComponent({
           style={{ width: size, height: size, flexShrink: 0 }}
         />
         {(isStreaming || isProcessing) && <AvatarStreamingRing size={size} />}
-        {badgeVariant && <ProgressOverlay size={size} variant={badgeVariant} />}
       </motion.div>
     );
   }
@@ -254,7 +175,7 @@ function ChatAvatarComponent({
       animate={animate}
       transition={transition}
     >
-      V{badgeVariant && <ProgressOverlay size={size} variant={badgeVariant} />}
+      V
     </motion.div>
   );
 }
