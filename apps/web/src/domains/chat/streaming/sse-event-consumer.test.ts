@@ -17,7 +17,13 @@ mock.module("@/lib/feature-flags/seq-gap-detection-flag", () => ({
 const seqStore = new Map<string, number>();
 mock.module("@/lib/streaming/last-seen-seq", () => ({
   getLastSeenSeq: (cid: string) => seqStore.get(cid) ?? null,
-  setLastSeenSeq: (cid: string, seq: number) => seqStore.set(cid, seq),
+  // Monotonic — matches real implementation (won't lower the cursor).
+  setLastSeenSeq: (cid: string, seq: number) => {
+    const current = seqStore.get(cid);
+    if (current !== undefined && seq <= current) return;
+    seqStore.set(cid, seq);
+  },
+  // Unconditional — used for generation resets and reconnect reseeds.
   replaceLastSeenSeq: (cid: string, seq: number) => seqStore.set(cid, seq),
 }));
 

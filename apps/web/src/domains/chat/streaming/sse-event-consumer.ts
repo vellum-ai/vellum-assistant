@@ -115,11 +115,17 @@ export function createSseEventConsumer(
   let reconcileInFlight = false;
   let latestGapSeq: { conversationId: string; seq: number } | null = null;
 
+  // After reconnect the server's clientSeq restarts at 1. The first
+  // post-reconnect write must use `replaceLastSeenSeq` (unconditional)
+  // instead of `setLastSeenSeq` (monotonic, won't lower the cursor).
+  let pendingReseed = false;
+
   return {
     notifyReconnect() {
       seededSeqForConversation = false;
       reconcileInFlight = false;
       latestGapSeq = null;
+      pendingReseed = true;
     },
     handleSseEvent(envelope) {
       const event = envelope.message;
@@ -225,7 +231,12 @@ export function createSseEventConsumer(
         eventConversationId &&
         !gapDetected
       ) {
-        setLastSeenSeq(eventConversationId, eventSeq);
+        if (pendingReseed) {
+          replaceLastSeenSeq(eventConversationId, eventSeq);
+          pendingReseed = false;
+        } else {
+          setLastSeenSeq(eventConversationId, eventSeq);
+        }
       }
     },
   };
