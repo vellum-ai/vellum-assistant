@@ -25,6 +25,13 @@ export interface Conversation {
   source?: string;
   isPinned?: boolean;
   conversationType?: string;
+  /** Marks a conversation that never produces memories. */
+  incognito?: boolean;
+  /**
+   * Controls whether existing memories are recalled into an incognito
+   * conversation. Only meaningful when `incognito` is true.
+   */
+  factorInMemories?: boolean;
   scheduleJobId?: string;
   /**
    * Server-provided sort order for pinned and custom-group buckets. Set when
