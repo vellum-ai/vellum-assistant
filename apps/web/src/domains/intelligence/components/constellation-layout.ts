@@ -65,6 +65,7 @@ export const SUB_CATEGORY_MAP: Partial<Record<SkillCategory, SubCategoryDef[]>> 
 export interface OrbitItem {
   id: string;
   label: string;
+  icon?: string;
   emoji?: string;
   category: SkillCategory;
   description?: string;

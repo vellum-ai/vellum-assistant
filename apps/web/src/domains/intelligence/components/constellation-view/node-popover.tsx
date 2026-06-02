@@ -43,8 +43,9 @@ export function NodePopover({ item, color, onViewDetails }: NodePopoverProps) {
         ) : null}
       </div>
       <div className="mt-2 flex items-start gap-2">
-        {item.emoji ? (
-          // typography: emoji glyph sized to match header; intentionally off-scale
+        {item.icon ? (
+          <img src={`/assistant/skills/${item.id}/${item.icon}`} alt="" className="h-5 w-5 shrink-0" />
+        ) : item.emoji ? (
           <span className={"text-[20px] leading-none" /* typography: off-scale — 20px off-scale */}>{item.emoji}</span>
         ) : null}
         <div className="min-w-0 flex-1">

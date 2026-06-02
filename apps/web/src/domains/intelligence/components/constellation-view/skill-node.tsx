@@ -74,10 +74,13 @@ export function SkillNode({
         }}
       />
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        {/* typography: constellation skill node glyph + label, fitted to geometric shape, intentionally off-scale */}
-        <span className="text-[16px] leading-none" aria-hidden>
-          {item.emoji ?? fallbackEmoji}
-        </span>
+        {item.icon ? (
+          <img src={`/assistant/skills/${item.id}/${item.icon}`} alt="" className="h-4 w-4" aria-hidden />
+        ) : (
+          <span className="text-[16px] leading-none" aria-hidden>
+            {item.emoji ?? fallbackEmoji}
+          </span>
+        )}
         <span
           className="mt-0.5 max-w-[42px] truncate text-[9px] font-medium leading-tight text-[var(--content-default)]"
           title={item.label}
