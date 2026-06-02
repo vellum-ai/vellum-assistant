@@ -1849,13 +1849,21 @@ export async function dispatchAgentEvent(
         let errorMessage: string | undefined;
         let fallbackShown = false;
         if (event.isError) {
-          // Dedup the user-facing friendly notice per turn (request id) so a
-          // burst of backend failures surfaces at most one full notice. The raw
-          // provider error is preserved on every failure via telemetry below.
-          const alreadyNotified = state.webSearchBackendFailureNotified.has(
-            deps.reqId,
-          );
-          if (classification.isBackendFailure) {
+          // A genuine backend failure OR an unclassifiable, message-less native
+          // failure (e.g. `isError:true` with no `error_code`) both surface the
+          // friendly backend copy: a terse "Search failed" placeholder is the
+          // confusing copy this normalization exists to eliminate (ATL-727).
+          // Recoverable categories that carry a real user message
+          // (query_too_long, max_uses_exceeded) keep their own copy.
+          const useBackendCopy =
+            classification.isBackendFailure || !classification.userMessage;
+          if (useBackendCopy) {
+            // Dedup the user-facing friendly notice per turn (request id) so a
+            // burst of failures surfaces at most one full notice. The raw
+            // provider error is preserved on every failure via telemetry below.
+            const alreadyNotified = state.webSearchBackendFailureNotified.has(
+              deps.reqId,
+            );
             if (alreadyNotified) {
               errorMessage = "Search is still having trouble.";
             } else {
@@ -1866,22 +1874,25 @@ export async function dispatchAgentEvent(
 
             // Backend-failure telemetry (provider outages / rate limits) must
             // fire only for genuine backend classifications so it does not
-            // count recoverable input/quota errors as provider failures.
-            logWebSearchBackendFailure(deps.rlog, {
-              provider: isAnthropicNative
-                ? "anthropic-native"
-                : deps.ctx.provider.name,
-              requestId: deps.reqId,
-              errorCategory: classification.category,
-              rawDetail: classification.rawDetail,
-              fallbackShown,
-              queryLength: query.length,
-            });
+            // count recoverable input/quota errors — or a message-less unknown
+            // failure that merely borrows the friendly copy — as provider
+            // outages.
+            if (classification.isBackendFailure) {
+              logWebSearchBackendFailure(deps.rlog, {
+                provider: isAnthropicNative
+                  ? "anthropic-native"
+                  : deps.ctx.provider.name,
+                requestId: deps.reqId,
+                errorCategory: classification.category,
+                rawDetail: classification.rawDetail,
+                fallbackShown,
+                queryLength: query.length,
+              });
+            }
           } else {
-            // Recoverable, non-backend categories (query_too_long,
-            // max_uses_exceeded, unknown) are not deduped against the backend
-            // notice; fall back to a concise message when there is no copy.
-            errorMessage = classification.userMessage || "Search failed";
+            // Recoverable, non-backend categories with their own user-facing
+            // copy (query_too_long, max_uses_exceeded) keep that message.
+            errorMessage = classification.userMessage;
           }
         }
 
