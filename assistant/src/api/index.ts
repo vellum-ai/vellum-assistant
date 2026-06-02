@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { AssistantActivityStateEventSchema } from "./events/assistant-activity-state.js";
 import { AssistantTextDeltaEventSchema } from "./events/assistant-text-delta.js";
+import { AssistantThinkingDeltaEventSchema } from "./events/assistant-thinking-delta.js";
 import { AssistantTurnStartEventSchema } from "./events/assistant-turn-start.js";
 import { AvatarUpdatedEventSchema } from "./events/avatar-updated.js";
 import { CompactionCircuitClosedEventSchema } from "./events/compaction-circuit-closed.js";
@@ -68,6 +69,10 @@ export {
   type AssistantTextDeltaEvent,
   AssistantTextDeltaEventSchema,
 } from "./events/assistant-text-delta.js";
+export {
+  type AssistantThinkingDeltaEvent,
+  AssistantThinkingDeltaEventSchema,
+} from "./events/assistant-thinking-delta.js";
 export {
   type AssistantTurnStartEvent,
   AssistantTurnStartEventSchema,
@@ -396,6 +401,7 @@ export {
 export const AssistantEventSchema = z.discriminatedUnion("type", [
   AssistantActivityStateEventSchema,
   AssistantTextDeltaEventSchema,
+  AssistantThinkingDeltaEventSchema,
   AssistantTurnStartEventSchema,
   AvatarUpdatedEventSchema,
   CompactionCircuitClosedEventSchema,
