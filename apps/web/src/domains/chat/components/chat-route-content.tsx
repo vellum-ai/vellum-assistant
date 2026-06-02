@@ -1382,6 +1382,7 @@ export function ChatRouteContent({
             isDeploying={isDeploying}
             compileStatus={openedAppState.compileStatus}
             buildErrors={openedAppState.buildErrors}
+            reloadGeneration={openedAppState.reloadGeneration}
             isEditing
           />
         }
@@ -1413,6 +1414,7 @@ export function ChatRouteContent({
         isDeploying={isDeploying}
         compileStatus={openedAppState.compileStatus}
         buildErrors={openedAppState.buildErrors}
+        reloadGeneration={openedAppState.reloadGeneration}
       />
     );
   }

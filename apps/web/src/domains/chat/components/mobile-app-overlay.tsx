@@ -77,6 +77,7 @@ export function MobileAppOverlay({
         route={route}
         compileStatus={openedAppState.compileStatus}
         buildErrors={openedAppState.buildErrors}
+        reloadGeneration={openedAppState.reloadGeneration}
       />
     </div>
   );

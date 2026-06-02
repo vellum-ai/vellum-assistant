@@ -181,6 +181,78 @@ describe("updateOpenedAppPreview", () => {
     });
     expect(getState().openedAppState).toBeNull();
   });
+
+  it("persists reloadGeneration on an ok event", () => {
+    openSampleApp();
+    getState().updateOpenedAppPreview(SAMPLE_APP.appId, {
+      html: "<h1>v2</h1>",
+      compileStatus: "ok",
+      reloadGeneration: 5,
+    });
+    expect(getState().openedAppState?.reloadGeneration).toBe(5);
+  });
+
+  it("updates state on an ok event with identical html but a higher reloadGeneration", () => {
+    openSampleApp();
+    // First ok at generation 1.
+    getState().updateOpenedAppPreview(SAMPLE_APP.appId, {
+      html: SAMPLE_APP.html,
+      compileStatus: "ok",
+      reloadGeneration: 1,
+    });
+    const first = getState().openedAppState;
+    expect(first?.reloadGeneration).toBe(1);
+
+    // A successful recompile to byte-identical html, but a bumped generation:
+    // the backend bumps the generation so clients force-swap the iframe, so
+    // this must NOT be skipped by the no-op guard.
+    getState().updateOpenedAppPreview(SAMPLE_APP.appId, {
+      html: SAMPLE_APP.html,
+      compileStatus: "ok",
+      reloadGeneration: 2,
+    });
+    const second = getState().openedAppState;
+    expect(second?.html).toBe(SAMPLE_APP.html);
+    expect(second?.reloadGeneration).toBe(2);
+    // The state object is a fresh reference so subscribers re-render.
+    expect(second).not.toBe(first);
+  });
+
+  it("no-ops on a truly-identical ok event (same html, generation, and status)", () => {
+    openSampleApp();
+    getState().updateOpenedAppPreview(SAMPLE_APP.appId, {
+      html: SAMPLE_APP.html,
+      compileStatus: "ok",
+      reloadGeneration: 3,
+    });
+    const before = getState().openedAppState;
+    getState().updateOpenedAppPreview(SAMPLE_APP.appId, {
+      html: SAMPLE_APP.html,
+      compileStatus: "ok",
+      reloadGeneration: 3,
+    });
+    // Same reference: no set() fired, so no re-render / iframe churn.
+    expect(getState().openedAppState).toBe(before);
+  });
+
+  it("does not advance reloadGeneration on building/error (keep-last-good)", () => {
+    openSampleApp();
+    getState().updateOpenedAppPreview(SAMPLE_APP.appId, {
+      html: "<h1>good</h1>",
+      compileStatus: "ok",
+      reloadGeneration: 4,
+    });
+    // A failed recompile carries the daemon's unchanged generation; the stored
+    // generation must stay at the last-good value so the iframe is not swapped.
+    getState().updateOpenedAppPreview(SAMPLE_APP.appId, {
+      html: "<h1>good</h1>",
+      compileStatus: "error",
+      buildErrors: ["boom"],
+      reloadGeneration: 4,
+    });
+    expect(getState().openedAppState?.reloadGeneration).toBe(4);
+    expect(getState().openedAppState?.html).toBe("<h1>good</h1>");
+  });
 });
 
 describe("handleAppLoadFailed", () => {

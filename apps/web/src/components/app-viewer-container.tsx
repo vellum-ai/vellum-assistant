@@ -28,6 +28,12 @@ export interface AppViewerContainerProps {
   compileStatus?: "building" | "ok" | "error";
   /** Compile diagnostics surfaced in the build-error badge. */
   buildErrors?: string[];
+  /**
+   * Generation counter bumped by the daemon on every successful recompile.
+   * Folded into the iframe key so a bumped generation force-remounts the
+   * preview even when `html` is byte-identical to the prior render.
+   */
+  reloadGeneration?: number;
 }
 
 /**
@@ -109,6 +115,7 @@ export function AppViewerContainer({
   route,
   compileStatus,
   buildErrors,
+  reloadGeneration,
 }: AppViewerContainerProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
@@ -122,8 +129,8 @@ export function AppViewerContainer({
     for (let i = 0; i < html.length; i++) {
       hash = ((hash << 5) - hash + html.charCodeAt(i)) | 0;
     }
-    return `app-${appId}-${hash}`;
-  }, [html, appId]);
+    return `app-${appId}-${reloadGeneration ?? 0}-${hash}`;
+  }, [html, appId, reloadGeneration]);
 
   useSandboxFetchProxy(iframeRef, {
     frameId: appId,
