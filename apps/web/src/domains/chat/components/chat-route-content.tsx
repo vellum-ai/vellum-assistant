@@ -117,8 +117,8 @@ import { useInteractionActions } from "@/domains/chat/hooks/use-interaction-acti
 import { useGhostTextSuggestion } from "@/domains/chat/hooks/use-ghost-text-suggestion";
 import { useVoiceInput } from "@/domains/chat/hooks/use-voice-input";
 import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
+import { useEditApp } from "@/hooks/use-edit-app";
 import { lifecycleService } from "@/assistant/lifecycle-service";
-import { getEditChatConversationId, setEditChatConversationId } from "@/domains/chat/utils/edit-chat-session";
 
 // ---------------------------------------------------------------------------
 // Props — only values that cannot be owned locally
@@ -321,18 +321,11 @@ export function ChatRouteContent({
     useViewerStore.getState().exitAppEditing();
   }, []);
 
+  const editApp = useEditApp();
   const handleEditApp = useCallback(() => {
     const oas = useViewerStore.getState().openedAppState;
-    if (!oas || !assistantId) return;
-    const appId = oas.appId;
-    const convId = getEditChatConversationId(assistantId, appId) ?? crypto.randomUUID();
-    setEditChatConversationId(assistantId, appId, convId);
-    useConversationStore.getState().setEditingConversationId(convId);
-    useViewerStore.getState().enterAppEditing();
-    if (activeConversationId !== convId) {
-      void navigate(routes.conversation(convId));
-    }
-  }, [assistantId, activeConversationId, navigate]);
+    if (oas) editApp(oas);
+  }, [editApp]);
 
   const handleShareApp = useCallback(() => {
     const app = useViewerStore.getState().openedAppState;
