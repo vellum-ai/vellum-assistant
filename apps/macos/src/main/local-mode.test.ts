@@ -204,12 +204,11 @@ describe("lockfile IPC handlers", () => {
   });
 
   test("saveLockfileAssistant persists the assistant and makes it active", () => {
-    // Include an unmodeled field to pin the intended split: the on-disk file
-    // preserves everything the caller wrote (so a newer writer's fields survive
-    // a round-trip through an older build), while the validated wire value the
-    // bridge returns carries only the modeled shape. The two are deliberately
-    // NOT equal — asserting equality here would only hold for fixtures that
-    // happen to contain modeled fields and would hide that distinction.
+    // An unmodeled field pins the split between the two representations: the
+    // on-disk file preserves everything the caller wrote (so a newer writer's
+    // fields survive a round-trip through an older build), while the validated
+    // wire value the bridge returns carries only the modeled shape. The two are
+    // deliberately not equal.
     const result = saveLockfileAssistant(
       {
         assistantId: "asst-1",
