@@ -1,4 +1,4 @@
-import { SquarePen } from "lucide-react";
+import { EyeOff, SquarePen } from "lucide-react";
 
 import { Button, Typography } from "@vellum/design-library";
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
@@ -12,6 +12,8 @@ interface HomeGreetingHeaderProps {
   greeting?: string;
   isMobile?: boolean;
   onStartNewChat: () => void;
+  /** Flag-gated incognito new-chat entry. Omitted when the flag is off. */
+  onStartNewIncognitoChat?: () => void;
 }
 
 // Mirrors `computeGreeting` in assistant/src/runtime/routes/home-feed-routes.ts
@@ -32,6 +34,7 @@ export function HomeGreetingHeader({
   greeting,
   isMobile,
   onStartNewChat,
+  onStartNewIncognitoChat,
 }: HomeGreetingHeaderProps) {
   return (
     <div className="flex items-center justify-between gap-[var(--app-spacing-md)]">
@@ -47,24 +50,36 @@ export function HomeGreetingHeader({
         </Typography>
       </div>
 
-      {isMobile ? (
-        <Button
-          variant="primary"
-          iconOnly={<SquarePen />}
-          onClick={onStartNewChat}
-          aria-label="New Chat"
-          tooltip="New Chat"
-          className="!rounded-full"
-        />
-      ) : (
-        <Button
-          variant="primary"
-          leftIcon={<SquarePen />}
-          onClick={onStartNewChat}
-        >
-          New Chat
-        </Button>
-      )}
+      <div className="flex shrink-0 items-center gap-[var(--app-spacing-sm)]">
+        {onStartNewIncognitoChat ? (
+          <Button
+            variant="ghost"
+            iconOnly={<EyeOff />}
+            onClick={onStartNewIncognitoChat}
+            aria-label="New incognito chat"
+            tooltip="New incognito chat"
+            className={isMobile ? "!rounded-full" : undefined}
+          />
+        ) : null}
+        {isMobile ? (
+          <Button
+            variant="primary"
+            iconOnly={<SquarePen />}
+            onClick={onStartNewChat}
+            aria-label="New Chat"
+            tooltip="New Chat"
+            className="!rounded-full"
+          />
+        ) : (
+          <Button
+            variant="primary"
+            leftIcon={<SquarePen />}
+            onClick={onStartNewChat}
+          >
+            New Chat
+          </Button>
+        )}
+      </div>
     </div>
   );
 }
