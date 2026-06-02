@@ -274,6 +274,8 @@ function ManageProfilesModalInner({
   const [blockedDeleteReplacement, setBlockedDeleteReplacement] = useState("");
   const [blockedDeleteSaving, setBlockedDeleteSaving] = useState(false);
 
+  const queryComplexityRouting = useAssistantFeatureFlagStore.use.queryComplexityRouting();
+
   // Build ordered profile list
   const allOrderedProfiles: Profile[] = useMemo(() => {
     const ordered = profileOrder
@@ -285,9 +287,9 @@ function ManageProfilesModalInner({
       .map(([name, entry]) => profileEntryToProfile(name, entry));
     return gateAutoProfile(
       [...ordered, ...extras],
-      useAssistantFeatureFlagStore.use.queryComplexityRouting(),
+      queryComplexityRouting,
     );
-  }, [profiles, profileOrder]);
+  }, [profiles, profileOrder, queryComplexityRouting]);
 
   async function handleStatusToggle(
     profile: Profile,
