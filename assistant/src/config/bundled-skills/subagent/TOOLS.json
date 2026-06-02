@@ -33,6 +33,10 @@
             "type": "string",
             "enum": ["general", "researcher", "coder", "planner"],
             "description": "Agent specialization that controls tool access. 'researcher': read-only (web, files, memory). 'coder': file and bash access. 'planner': read-only analysis. 'general': full access (default). Ignored when fork: true (forks always use general)."
+          },
+          "override_profile": {
+            "type": "string",
+            "description": "Inference profile to run this subagent on, e.g. `quality-optimized` or `balanced`. Overrides the profile inherited from the parent. Use to route cheap, mechanical work (file-writing) to a faster tier while keeping judgment work on a strong model. Applies in both regular and fork modes."
           }
         },
         "required": ["label", "objective"]

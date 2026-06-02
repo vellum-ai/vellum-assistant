@@ -3,7 +3,10 @@ import { getConversationOverrideProfile } from "../../memory/conversation-crud.j
 import type { Message } from "../../providers/types.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import type { SubagentRole } from "../../subagent/types.js";
+import { getLogger } from "../../util/logger.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
+
+const log = getLogger("subagent-spawn");
 
 export async function executeSubagentSpawn(
   input: Record<string, unknown>,
@@ -14,6 +17,7 @@ export async function executeSubagentSpawn(
   const extraContext = input.context as string | undefined;
   const fork = input.fork === true;
   const role = (input.role as string | undefined) ?? undefined;
+  const overrideProfile = input.override_profile as string | undefined;
 
   // For fork mode, sendResultToUser defaults to false unless explicitly set to true.
   // For regular mode, sendResultToUser defaults to true (existing behavior).
@@ -88,6 +92,18 @@ export async function executeSubagentSpawn(
     context.overrideProfile ??
     getConversationOverrideProfile(context.conversationId);
 
+  // An explicit `override_profile` from the caller wins over the inherited
+  // value; omitting it preserves the inherited-fallback behavior. Unknown
+  // profile names are tolerated — the provider resolver no-ops them.
+  const resolvedOverrideProfile = overrideProfile ?? inheritedOverrideProfile;
+
+  if (overrideProfile) {
+    log.debug(
+      { overrideProfile, label, fork },
+      "subagent_spawn override_profile set explicitly",
+    );
+  }
+
   try {
     const subagentId = await manager.spawn(
       {
@@ -99,12 +115,10 @@ export async function executeSubagentSpawn(
         // For fork mode, role is ignored by the manager (forced to general),
         // but we still omit it from the config to signal intent.
         ...(!fork && role ? { role: role as SubagentRole } : {}),
-        ...(inheritedOverrideProfile
-          ? { overrideProfile: inheritedOverrideProfile }
+        ...(resolvedOverrideProfile
+          ? { overrideProfile: resolvedOverrideProfile }
           : {}),
-        ...(context.toolUseId
-          ? { parentToolUseId: context.toolUseId }
-          : {}),
+        ...(context.toolUseId ? { parentToolUseId: context.toolUseId } : {}),
         ...forkFields,
       },
       sendToClient as (msg: unknown) => void,
