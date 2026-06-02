@@ -422,6 +422,67 @@ describe("base_url SSRF on self-hosted vs platform", () => {
     ).rejects.toThrow(/cloud metadata or link-local/);
   });
 
+  test("self-hosted: rejects AWS IPv6 metadata endpoint (fd00:ec2::254)", async () => {
+    mockIsPlatform = false;
+    await expect(
+      handleCreate({
+        body: {
+          name: "self-hosted-aws-ipv6-metadata",
+          provider: "openai-compatible",
+          auth: { type: "api_key", credential: "cred-aws-ipv6" },
+          base_url: "http://[fd00:ec2::254]/latest/meta-data/",
+          models: [{ id: "m" }],
+        },
+      }),
+    ).rejects.toThrow(/cloud metadata or link-local/);
+  });
+
+  test("self-hosted: rejects AWS IPv6 metadata endpoint in uncompressed form", async () => {
+    mockIsPlatform = false;
+    await expect(
+      handleCreate({
+        body: {
+          name: "self-hosted-aws-ipv6-metadata-uncompressed",
+          provider: "openai-compatible",
+          auth: { type: "api_key", credential: "cred-aws-ipv6-uncompressed" },
+          base_url: "http://[fd00:ec2:0:0:0:0:0:254]/latest/meta-data/",
+          models: [{ id: "m" }],
+        },
+      }),
+    ).rejects.toThrow(/cloud metadata or link-local/);
+  });
+
+  test("self-hosted: allows a legitimate non-metadata ULA", async () => {
+    mockIsPlatform = false;
+    const result = await handleCreate({
+      body: {
+        name: "self-hosted-ula-allowed",
+        provider: "openai-compatible",
+        auth: { type: "api_key", credential: "cred-ula" },
+        base_url: "http://[fd12:3456:789a::1]:1234/v1",
+        models: [{ id: "local-model" }],
+      },
+    });
+    expect((result as { baseUrl: string }).baseUrl).toBe(
+      "http://[fd12:3456:789a::1]:1234/v1",
+    );
+  });
+
+  test("self-hosted: rejects IPv6 link-local (fe80::1)", async () => {
+    mockIsPlatform = false;
+    await expect(
+      handleCreate({
+        body: {
+          name: "self-hosted-ipv6-link-local",
+          provider: "openai-compatible",
+          auth: { type: "api_key", credential: "cred-ipv6-link-local" },
+          base_url: "http://[fe80::1]:1234/v1",
+          models: [{ id: "m" }],
+        },
+      }),
+    ).rejects.toThrow(/cloud metadata or link-local/);
+  });
+
   test("self-hosted: provider gate still rejects base_url on non-openai-compatible", async () => {
     mockIsPlatform = false;
     await expect(
