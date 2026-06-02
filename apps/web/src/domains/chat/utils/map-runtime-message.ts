@@ -1,3 +1,4 @@
+import type { ConversationMessageSurface } from "@vellumai/assistant-api";
 import { runtimeAttachmentsToDisplay } from "@/domains/chat/utils/attachment-mapping";
 import { parseAttachmentSummariesFromContent } from "@/domains/chat/utils/parse-attachment-summaries";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
@@ -5,8 +6,51 @@ import type {
   DisplayAttachment,
   DisplayMessage,
   SlackRuntimeMessage,
+  Surface,
 } from "@/domains/chat/types/types";
 import { mapRuntimeToolCalls, normalizeContentOrder, normalizeTextSegments, type RuntimeMessage } from "@/domains/chat/api/messages";
+
+/**
+ * Narrow a wire message `role` (an open string on the canonical contract) to
+ * the two roles the transcript renders. History and reconcile both pre-filter
+ * server rows to user/assistant before reaching here, so non-user rows can
+ * only be assistant turns.
+ */
+export function toDisplayRole(role: string): "user" | "assistant" {
+  return role === "user" ? "user" : "assistant";
+}
+
+/**
+ * Narrow the wire surface `display` (an open string) to the display union.
+ * The daemon only emits "inline" / "panel" (or omits it); any other value
+ * maps to undefined, which the renderer treats as an unset display mode.
+ */
+function narrowSurfaceDisplay(
+  display: string | undefined,
+): Surface["display"] {
+  return display === "inline" || display === "panel" ? display : undefined;
+}
+
+/**
+ * Adapt wire surfaces onto the display `Surface` shape. The client-only
+ * fields (`messageId`, `orphaned`) are populated later by the live SSE
+ * surface handlers, not from history.
+ */
+export function mapServerSurfaces(
+  surfaces: readonly ConversationMessageSurface[],
+): Surface[] {
+  return surfaces.map((s) => ({
+    surfaceId: s.surfaceId,
+    surfaceType: s.surfaceType,
+    title: s.title,
+    data: s.data,
+    actions: s.actions,
+    display: narrowSurfaceDisplay(s.display),
+    completed: s.completed,
+    completionSummary: s.completionSummary,
+    toolCallId: s.toolCallId,
+  }));
+}
 
 /**
  * Intermediate representation of a RuntimeMessage after all server-side fields
@@ -72,7 +116,7 @@ export function prepareServerMessage(m: RuntimeMessage): PreparedRuntimeMessage 
   // segments[0] (as a prior implementation did) left raw "[File attachment]"
   // text in trailing segments, which the transcript renderer then printed
   // into chat bubbles. LUM-1527.
-  const rawSegments = normalizeTextSegments(m.textSegments as unknown[]);
+  const rawSegments = normalizeTextSegments(m.textSegments);
   const parsedAttachmentsAccum: DisplayAttachment[] = [];
   const normalizedSegments = rawSegments
     ? rawSegments.map((seg) => {
@@ -97,9 +141,7 @@ export function prepareServerMessage(m: RuntimeMessage): PreparedRuntimeMessage 
         }))
       : undefined;
 
-  const normalizedContentOrder = normalizeContentOrder(
-    m.contentOrder as unknown[],
-  );
+  const normalizedContentOrder = normalizeContentOrder(m.contentOrder);
 
   const toolCalls =
     m.toolCalls && m.toolCalls.length > 0
@@ -137,14 +179,13 @@ export function mapRuntimeToDisplayMessage(m: RuntimeMessage): DisplayMessage {
 
   const msg: DisplayMessage = {
     id: m.id,
-    role: m.role,
+    role: toDisplayRole(m.role),
   };
   if (m.mergedMessageIds?.length) msg.mergedMessageIds = m.mergedMessageIds;
-  if (m.surfaces) msg.surfaces = m.surfaces;
+  if (m.surfaces) msg.surfaces = mapServerSurfaces(m.surfaces);
   if (prepared.normalizedSegments) msg.textSegments = prepared.normalizedSegments;
   if (prepared.normalizedContentOrder) msg.contentOrder = prepared.normalizedContentOrder;
   if (prepared.thinkingSegments) msg.thinkingSegments = prepared.thinkingSegments;
-  if (m.metadata) msg.metadata = m.metadata;
   if (m.subagentNotification) msg.isSubagentNotification = true;
   if (prepared.slackMessage) msg.slackMessage = prepared.slackMessage;
   if (prepared.toolCalls) msg.toolCalls = prepared.toolCalls;

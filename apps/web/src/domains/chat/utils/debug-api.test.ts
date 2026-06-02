@@ -26,7 +26,11 @@ import type { UIContext } from "@/domains/chat/turn-selectors";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useConversationStore } from "@/stores/conversation-store";
 
-import { textBody } from "@/domains/chat/utils/message-test-helpers";
+import {
+  makeServerMessage,
+  textBody,
+  wireTextBody,
+} from "@/domains/chat/utils/message-test-helpers";
 // ---------------------------------------------------------------------------
 //  Helpers
 // ---------------------------------------------------------------------------
@@ -42,13 +46,12 @@ function fakeDisplayMessage(overrides: Partial<DisplayMessage> = {}): DisplayMes
 }
 
 function fakeRuntimeMessage(overrides: Partial<RuntimeMessage> = {}): RuntimeMessage {
-  return {
+  return makeServerMessage({
     id: "msg-1",
     role: "assistant",
-    ...textBody("hello"),
-    timestamp: Date.now(),
+    ...wireTextBody("hello"),
     ...overrides,
-  };
+  });
 }
 
 const DEFAULT_UI_CONTEXT: UIContext = {
