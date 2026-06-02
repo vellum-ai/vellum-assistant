@@ -112,7 +112,7 @@ import { useConversationStore } from "@/stores/conversation-store";
 import { useConversationListQuery } from "@/hooks/conversation-queries";
 import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
-import { useDiskPressureMonitor } from "@/assistant/use-disk-pressure-monitor";
+import type { UseDiskPressureMonitorResult } from "@/assistant/use-disk-pressure-monitor";
 import { useAppNudges } from "@/domains/chat/hooks/use-app-nudges";
 import { useInteractionActions } from "@/domains/chat/hooks/use-interaction-actions";
 import { useGhostTextSuggestion } from "@/domains/chat/hooks/use-ghost-text-suggestion";
@@ -160,6 +160,10 @@ export interface ChatRouteContentProps {
   resetChatAttachments: () => void;
   dismissChatAttachmentError: () => void;
 
+  // Disk pressure (single instance lives in ActiveChatView; passed down to
+  // avoid duplicate polling intervals and bus subscriptions)
+  diskPressure: UseDiskPressureMonitorResult;
+
   // Upward signals to ActiveChatView local state
   setShowAddCreditsModal: Dispatch<SetStateAction<boolean>>;
   setRefreshEpoch: Dispatch<SetStateAction<number>>;
@@ -205,6 +209,7 @@ export function ChatRouteContent({
   removeChatAttachment,
   resetChatAttachments,
   dismissChatAttachmentError,
+  diskPressure,
   setShowAddCreditsModal,
   setRefreshEpoch,
   inputRef,
@@ -265,7 +270,7 @@ export function ChatRouteContent({
   const avatar = useAssistantAvatar(assistantId);
   const { components: avatarComponents, traits: avatarTraits, customImageUrl: avatarImageUrl } = avatar;
 
-  const diskPressure = useDiskPressureMonitor({ assistantId, enabled: true });
+
 
   const {
     voiceInputRef,

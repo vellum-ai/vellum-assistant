@@ -1042,6 +1042,9 @@ export function ActiveChatView() {
     resetChatAttachments,
     dismissChatAttachmentError,
 
+    // Disk pressure (single instance — avoids duplicate polling/subscriptions)
+    diskPressure,
+
     // Upward signals
     setShowAddCreditsModal,
     setRefreshEpoch,
