@@ -29,7 +29,6 @@ import { captureError } from "@/lib/sentry/capture-error";
 
 import { useStreamStore } from "@/domains/chat/stream-store";
 import {
-  bucketMessagesAdded,
   recordDiagnostic,
   recordLifecycleDiagnostic,
   resolvePlatformTag,
@@ -219,22 +218,8 @@ function recordWatchdogRescue(
       assistantProgress: reconcileResult.assistantProgress,
     },
   });
-  Sentry.captureMessage("sse_post_watchdog_reconcile_result", {
-    level: "info",
-    tags: {
-      context: "sse_watchdog",
-      platform: resolvePlatformTag(),
-      assistantProgress: String(reconcileResult.assistantProgress),
-      rescued: String(reconcileResult.messagesAdded > 0),
-      messagesAddedBucket: bucketMessagesAdded(reconcileResult.messagesAdded),
-    },
-    extra: {
-      latencyMs,
-      messagesAdded: reconcileResult.messagesAdded,
-      changed: reconcileResult.changed,
-      assistantProgress: reconcileResult.assistantProgress,
-      conversationId,
-      epoch,
-    },
-  });
+  // captureMessage removed — 94% of events had rescued=false (watchdog
+  // reconnected but no messages were lost), providing no actionable
+  // signal. The breadcrumb above still attaches to any nearby Sentry
+  // event for debugging context. See LUM-2190.
 }
