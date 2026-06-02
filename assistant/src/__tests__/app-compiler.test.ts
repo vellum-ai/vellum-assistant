@@ -548,6 +548,31 @@ render(<App />, document.body);`,
       expect(typeof result.errors[0].text).toBe("string");
       expect(result.errors[0].text.length).toBeGreaterThan(0);
     });
+
+    test("CLI fallback parses the location frame across the blank line", async () => {
+      __setEsbuildLoaderOverride(async () => null);
+
+      // A "Could not resolve" import error: esbuild prints a summary line, a
+      // blank line, then the "file:line:column:" frame. The import sits on
+      // line 2 so we can assert the parsed line number.
+      const appDir = await scaffold("cli-fallback-location", {
+        "main.tsx": `console.log("start");
+import { thing } from "./does-not-exist";
+console.log(thing);`,
+        "index.html": MINIMAL_HTML,
+      });
+
+      const result = await compileApp(appDir);
+      expect(result.ok).toBe(false);
+      expect(result.errors.length).toBeGreaterThan(0);
+
+      // The CLI path must populate location with the same { file, line,
+      // column } shape as the JS-API path — not drop it on the blank line.
+      const loc = result.errors[0].location;
+      expect(loc?.file).toContain("main.tsx");
+      expect(loc?.line).toBe(2);
+      expect(typeof loc?.column).toBe("number");
+    });
   });
 });
 
