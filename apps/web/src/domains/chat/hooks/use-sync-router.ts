@@ -12,7 +12,7 @@
  * exclusively by the sync router's tag handlers.
  */
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import {
@@ -50,7 +50,9 @@ export function useSyncRouter({
   const queryClient = useQueryClient();
   const syncRouterRef = useRef<WebSyncRouter | null>(null);
   const assistantIdRef = useRef(assistantId);
-  assistantIdRef.current = assistantId;
+  useLayoutEffect(() => {
+    assistantIdRef.current = assistantId;
+  }, [assistantId]);
 
   // Stable identity-invalidation callbacks used by the sync router's
   // tag handlers. Reading `assistantIdRef.current` at call time ensures

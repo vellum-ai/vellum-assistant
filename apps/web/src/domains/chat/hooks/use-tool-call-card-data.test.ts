@@ -20,7 +20,6 @@ import { describe, expect, test } from "bun:test";
 import {
   buildWebSearchErrorStep,
   computeToolCallCardData,
-  hasWebTool,
   WEB_SEARCH_BACKEND_FAILURE_MESSAGE,
 } from "@/domains/chat/hooks/use-tool-call-card-data";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
@@ -673,23 +672,4 @@ describe("computeToolCallCardData — web_search backend-failure copy", () => {
   });
 });
 
-describe("hasWebTool", () => {
-  test("returns true when any tool call is a web tool", () => {
-    expect(
-      hasWebTool([
-        makeToolCall({ id: "tc-1", toolName: "bash" }),
-        makeToolCall({ id: "tc-2", toolName: "web_search" }),
-      ]),
-    ).toBe(true);
-  });
 
-  test("returns false when no tool calls are web tools", () => {
-    expect(
-      hasWebTool([makeToolCall({ id: "tc-1", toolName: "bash" })]),
-    ).toBe(false);
-  });
-
-  test("returns false on an empty list", () => {
-    expect(hasWebTool([])).toBe(false);
-  });
-});

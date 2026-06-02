@@ -15,7 +15,7 @@
  *    the initial message. Consumed exactly once per mount.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 
 import type {
   ReachabilityProbeOptions,
@@ -43,7 +43,9 @@ export function useAutoSendEffects({
   getPendingInitialMessage,
 }: UseAutoSendEffectsOptions): void {
   const getPendingInitialMessageRef = useRef(getPendingInitialMessage);
-  getPendingInitialMessageRef.current = getPendingInitialMessage;
+  useLayoutEffect(() => {
+    getPendingInitialMessageRef.current = getPendingInitialMessage;
+  });
   // 1. URL ?prompt= auto-send.
   const promptConsumedRef = useRef<string | null>(null);
   useEffect(() => {
