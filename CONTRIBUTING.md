@@ -95,6 +95,26 @@ directories until the move is complete.
 | `apps/web/` | Active migration target — Vite + React Router v7 SPA for the assistant web app. Code is being incrementally migrated from a separate repo. See [`apps/web/README.md`](apps/web/README.md) for local dev setup, [`apps/web/docs/CONVENTIONS.md`](apps/web/docs/CONVENTIONS.md) and [`apps/web/docs/STATE_MANAGEMENT.md`](apps/web/docs/STATE_MANAGEMENT.md) for architecture and state, and [`apps/web/docs/STYLE_GUIDE.md`](apps/web/docs/STYLE_GUIDE.md) for coding style. |
 | `apps/chrome-extension/` | Move in progress from [`clients/chrome-extension/`](https://github.com/vellum-ai/vellum-assistant/tree/main/clients/chrome-extension). |
 
+## Personalizing your assistant vs. changing the core
+
+Before opening a PR, ask: **does this belong in everyone's assistant, or just mine?**
+
+A lot of "new feature" ideas are really *personal customization* — a morning briefing, a recurring cleanup, a custom routine, or stitching existing capabilities together. These belong in **your own workspace**, not in the shared runtime. You don't need to fork the repo or wait for a review to get them — just configure your assistant:
+
+- **Recurring or time-based behavior** (daily briefings, periodic checks, "every morning do X") → ask your assistant to set up a schedule. This is backed by the built-in `schedule_create` tool (`notify` / `execute` / `script` modes) — no code change required. The [`time-based-actions`](skills/time-based-actions) and [`start-the-day`](skills/start-the-day) skills already cover the common cases.
+- **New capabilities or routines** → author a **skill**. Skills are portable [`SKILL.md`](https://agentskills.io/specification) packages that live in your workspace and load on demand with `skill_load`. See [`skills/AGENTS.md`](skills/AGENTS.md) for how to write one, and the [`vellum-skills-catalog`](skills/vellum-skills-catalog) skill for discovering and installing community skills (`assistant skills add <owner>/<repo>@<skill-name>`).
+- **Composing existing tools** → skills can orchestrate the tools the assistant already has. Prefer this over adding a new tool that just wraps existing primitives.
+
+### When a core change *is* the right call
+
+Adding or changing a **core tool** (anything under `assistant/src/tools/` registered in the tool manifest) ships to **every** user and is loaded into the agent's context on every turn — always-loaded tools share a tight budget, so each one has to earn its place. Open a PR for core changes only when the change is:
+
+- a **new primitive** that can't be expressed as a skill composed from existing tools, or
+- broadly useful to most users (not a single-user preference or workflow), or
+- a bug fix, performance, security, or developer-experience improvement to existing behavior.
+
+If you can build it as a skill in your own workspace, do that first. If you think a personal skill would genuinely benefit others, contribute it to [`skills/`](skills/) (see [`skills/AGENTS.md`](skills/AGENTS.md)) rather than adding a core tool. When in doubt, [open an issue](https://github.com/vellum-ai/vellum-assistant/issues) or ask on [Discord](https://vellum.ai/community) before writing a new core tool.
+
 ## Submitting a pull request
 
 1. Fork the repo and create a branch from `main`.
@@ -116,6 +136,13 @@ directories until the move is complete.
 - Improves documentation or developer experience
 - Adds test coverage for untested paths
 - Implements a feature you've discussed in an issue or on Discord
+- Adds a broadly useful primitive or a reusable skill to [`skills/`](skills/)
+
+### What to build in your workspace instead
+
+- Personal automations and routines (e.g. a daily briefing, an inbox sweep) → a [skill](skills/AGENTS.md) plus a schedule, not a new core tool
+- Single-user preferences or workflows → a workspace skill
+- A tool that only wraps existing tools/primitives (e.g. `schedule_create`, `reminder_create`) → a skill that composes them
 
 ## Code of Conduct
 
