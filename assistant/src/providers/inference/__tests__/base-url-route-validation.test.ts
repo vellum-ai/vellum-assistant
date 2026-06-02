@@ -392,6 +392,21 @@ describe("base_url SSRF on self-hosted vs platform", () => {
     ).rejects.toThrow(/cloud metadata or link-local/);
   });
 
+  test("self-hosted: rejects trailing-dot FQDN metadata.google.internal.", async () => {
+    mockIsPlatform = false;
+    await expect(
+      handleCreate({
+        body: {
+          name: "self-hosted-metadata-fqdn",
+          provider: "openai-compatible",
+          auth: { type: "api_key", credential: "cred-metadata-fqdn" },
+          base_url: "http://metadata.google.internal./computeMetadata/v1/",
+          models: [{ id: "m" }],
+        },
+      }),
+    ).rejects.toThrow(/cloud metadata or link-local/);
+  });
+
   test("self-hosted: rejects 169.254.169.254 link-local metadata IP", async () => {
     mockIsPlatform = false;
     await expect(

@@ -184,7 +184,9 @@ export function isPrivateOrLocalHost(hostname: string): boolean {
  * includes the 169.254.169.254 metadata IP used by AWS/GCP/Azure.
  */
 export function isCloudMetadataOrLinkLocalHost(hostname: string): boolean {
-  const host = unwrapBracketedHostname(hostname).toLowerCase();
+  const host = unwrapBracketedHostname(hostname)
+    .toLowerCase()
+    .replace(/\.$/, "");
   if (host === "metadata.google.internal") return true;
 
   const checkIPv4 = (ip: string): boolean => {
