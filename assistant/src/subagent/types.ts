@@ -84,6 +84,12 @@ export interface SubagentState {
   status: SubagentStatus;
   /** The subagent's own conversationId (different from parentConversationId). */
   conversationId: string;
+  /**
+   * The role the manager actually resolved at spawn time (after fork→general
+   * coercion). Distinct from `config.role`, which is the *requested* role.
+   * Used by build-phase telemetry so plan/worker phases are distinguishable.
+   */
+  resolvedRole: SubagentRole;
   /** Whether this sub-agent is a fork (inherits parent context). Defaults to `false`. */
   isFork: boolean;
   /** Error message if status is 'failed'. */
