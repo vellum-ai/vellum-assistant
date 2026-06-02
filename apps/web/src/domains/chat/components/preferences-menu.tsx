@@ -186,7 +186,6 @@ function PreferencesMenuContent({
               onClose();
               onEarnCredits();
             }}
-            className="mx-2"
           />
           <MenuDivider />
         </>
