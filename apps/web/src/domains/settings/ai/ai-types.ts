@@ -62,6 +62,31 @@ export interface DaemonConfig {
   };
 }
 
+/**
+ * Typed body for daemon config PATCH requests.
+ *
+ * The daemon uses deep-merge semantics: omitted keys are left unchanged,
+ * `null` values delete the key. This type mirrors `DaemonConfig` but makes
+ * every level partial and allows `null` at record-entry positions where
+ * deletion is meaningful (individual profiles, individual call-site overrides).
+ *
+ * Replaces the previous `Record<string, unknown>` body, catching typos like
+ * `{ llm: { activeProfiIe: "..." } }` at compile time.
+ */
+export type DaemonConfigPatch = {
+  services?: {
+    "web-search"?: { mode?: string; provider?: string } | null;
+    "image-generation"?: { mode?: string } | null;
+  };
+  llm?: {
+    default?: { provider?: string; model?: string } | null;
+    activeProfile?: string | null;
+    profileOrder?: string[];
+    profiles?: Record<string, Partial<ProfileEntry> | null>;
+    callSites?: Record<string, CallSiteOverrideDraft | null>;
+  };
+};
+
 export interface DaemonConfigReconciliation {
   inferenceProvider?: string;
   selectedModel?: string;

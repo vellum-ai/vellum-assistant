@@ -28,7 +28,7 @@ import { configGet, configPatch, secretsPost, modelImagegenPut } from "@/generat
 import { captureError } from "@/lib/sentry/capture-error";
 import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
 import { assertProvisionSuccess, buildOrderedProfiles } from "@/domains/settings/ai/ai-utils";
-import type { CallSiteOverrideDraft, DaemonConfig, ProfileEntry } from "@/domains/settings/ai/ai-types";
+import type { CallSiteOverrideDraft, DaemonConfig, DaemonConfigPatch, ProfileEntry } from "@/domains/settings/ai/ai-types";
 
 /**
  * Hook providing the daemon config query and common mutation helpers.
@@ -126,7 +126,7 @@ export function useDaemonConfig() {
   );
 
   const patchDaemonConfig = useCallback(
-    async (partial: Record<string, unknown>): Promise<void> => {
+    async (partial: DaemonConfigPatch): Promise<void> => {
       const resolvedId = await resolveAssistantId();
       if (!resolvedId) {
         toast.error("No assistant found. Please hatch an assistant first.");
@@ -207,7 +207,7 @@ export function useDaemonConfigMutation() {
   const assistantId = assistantList?.results?.[0]?.id;
 
   return useMutation({
-    mutationFn: async (body: Record<string, unknown>) => {
+    mutationFn: async (body: DaemonConfigPatch) => {
       if (!assistantId) throw new Error("No assistant found");
       const { data } = await configPatch({
         path: { assistant_id: assistantId },
