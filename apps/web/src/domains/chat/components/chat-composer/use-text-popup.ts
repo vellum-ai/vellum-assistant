@@ -1,9 +1,18 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 
-import {
-  listIndexDown,
-  listIndexUp,
-} from "@/domains/chat/components/chat-composer/text-popup-utils";
+// ---------------------------------------------------------------------------
+// Pure helpers
+// ---------------------------------------------------------------------------
+
+function listIndexUp(current: number, listLength: number): number {
+  if (listLength === 0) return 0;
+  return current <= 0 ? listLength - 1 : current - 1;
+}
+
+function listIndexDown(current: number, listLength: number): number {
+  if (listLength === 0) return 0;
+  return current >= listLength - 1 ? 0 : current + 1;
+}
 
 // ---------------------------------------------------------------------------
 // Hook

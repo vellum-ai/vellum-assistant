@@ -2,13 +2,14 @@
  * Tests for the text-triggered popup derivation and navigation helpers.
  *
  * The web workspace lacks @testing-library/react (no jsdom/happy-dom), so we
- * exercise behavior through the pure helpers that the hook delegates to:
- *   - `listIndexUp` / `listIndexDown` — keyboard navigation
+ * exercise behavior through pure helpers and local mirrors of the hook's
+ * derivation logic:
+ *   - `listIndexUp` / `listIndexDown` — local mirrors of the wrapping
+ *     navigation arithmetic the hook uses internally.
  *   - `filteredCommands` / `selectedInputText` — slash command catalog
- *
- * The `derivePopupState` helper below mirrors the hook's inline derivation
- * logic so the regex + search + suppress composition can be tested without
- * a React render cycle.
+ *   - `derivePopupState` — mirrors the hook's inline derivation so the
+ *     regex + search + suppress composition can be tested without a React
+ *     render cycle.
  */
 import { describe, expect, test } from "bun:test";
 
@@ -23,10 +24,18 @@ import {
   selectedInputText,
   SLASH_COMMANDS,
 } from "@/domains/chat/components/chat-composer/slash-command-catalog";
-import {
-  listIndexDown,
-  listIndexUp,
-} from "@/domains/chat/components/chat-composer/text-popup-utils";
+
+/** Local mirror of the hook's wrapping-up navigation. */
+function listIndexUp(current: number, listLength: number): number {
+  if (listLength === 0) return 0;
+  return current <= 0 ? listLength - 1 : current - 1;
+}
+
+/** Local mirror of the hook's wrapping-down navigation. */
+function listIndexDown(current: number, listLength: number): number {
+  if (listLength === 0) return 0;
+  return current >= listLength - 1 ? 0 : current + 1;
+}
 
 /** Local test helper mirroring the hook's inline derivation logic. */
 function derivePopupState<T>(

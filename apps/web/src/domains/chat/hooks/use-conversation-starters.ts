@@ -17,9 +17,16 @@ import {
   type ConversationStartersStatus,
   type ListConversationStartersResult,
 } from "@/domains/chat/utils/conversation-starters";
-import { shouldPoll } from "@/domains/chat/hooks/conversation-starter-utils";
 
 const STALE_TIME_MS = 60_000;
+const POLL_INTERVAL_MS = 3_000;
+
+function shouldPoll(
+  status: ConversationStartersStatus | undefined,
+): number | false {
+  if (status === "generating" || status === "refreshing") return POLL_INTERVAL_MS;
+  return false;
+}
 
 export interface UseConversationStartersResult {
   starters: ConversationStarter[];
