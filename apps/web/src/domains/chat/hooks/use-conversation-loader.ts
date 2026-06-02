@@ -53,12 +53,6 @@ import {
 const CONVERSATION_LIST_INVALIDATED_DEBOUNCE_MS = 250;
 const CONVERSATION_LIST_LOAD_FAILED_CODE = "CONVERSATION_LIST_LOAD_FAILED";
 
-/** Minimal URL search-params reader (subset of `URLSearchParams`). */
-interface SearchParamsLike {
-  get: (key: string) => string | null;
-  toString: () => string;
-}
-
 interface UseConversationLoaderParams {
   // Identity / routing
   assistantId: string | null;
@@ -66,7 +60,7 @@ interface UseConversationLoaderParams {
   activeConversationId: string | null;
   /** Conversation id from the URL path param (e.g. `/assistant/conversations/:conversationId`). */
   urlConversationId: string | null;
-  searchParams: SearchParamsLike;
+  searchParams: URLSearchParams;
 
   // The resolved row for the currently-open conversation, drawn from either
   // list cache (or fetched on demand). Used to decide whether the active
