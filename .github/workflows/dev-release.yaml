@@ -1294,15 +1294,31 @@ jobs:
           echo "Current SHA: ${HEAD_SHA}"
 
           # Each line: "<first line of commit message> — @<author>", oldest first.
-          # Escape Slack mrkdwn metacharacters in the message text.
-          ESCAPE='gsub("&";"&amp;") | gsub("<";"&lt;") | gsub(">";"&gt;")'
-          LINKIFY='gsub("\\(#(?<n>[0-9]+)\\)"; "(<https://github.com/'"${REPO}"'/pull/\(.n)|#\(.n)>)")'
+          # When the commit author is a bot (e.g. devin-ai-integration[bot]),
+          # resolve to the human Co-authored-by email via email_to_github mapping.
+          EMAIL_MAP=$(yq -o=json '.email_to_github' .github/config/github_slack_mapping.yaml)
+
+          # jq filter: resolve bot authors to human co-authors, escape mrkdwn,
+          # and linkify PR references.
+          JQ_COMMIT_LINE='
+            def escape: gsub("&";"&amp;") | gsub("<";"&lt;") | gsub(">";"&gt;");
+            def linkify: gsub("\\(#(?<n>[0-9]+)\\)"; "(<https://github.com/\($repo)/pull/\(.n)|#\(.n)>)");
+            (
+              if ((.author.login // "") | test("\\[bot\\]$")) then
+                ([.commit.message | scan("(?i)co-authored-by:\\s*[^<]*<([^>]+)>")] | map(.[0]) | map(select(test("\\[bot\\]|noreply") | not)) | .[0]) as $email |
+                if $email then ($email_map[$email] // .author.login) else .author.login end
+              else
+                .author.login // .commit.author.name
+              end
+            ) as $author |
+            "\((.commit.message | split("\n")[0]) | escape | linkify) — @\($author)"
+          '
 
           if [ -n "$PREV_SHA" ] && [ "$PREV_SHA" != "$HEAD_SHA" ]; then
             COMPARE_URL="https://github.com/${REPO}/compare/${PREV_SHA}...${HEAD_SHA}"
             TOTAL=$(gh api "repos/${REPO}/compare/${PREV_SHA}...${HEAD_SHA}" --jq '.total_commits')
             mapfile -t LINES < <(gh api "repos/${REPO}/compare/${PREV_SHA}...${HEAD_SHA}" --paginate \
-              --jq ".commits[] | \"\((.commit.message | split(\"\n\")[0]) | ${ESCAPE} | ${LINKIFY}) — @\(.author.login // .commit.author.name)\"")
+              --jq '.commits[]' | jq -r --argjson email_map "$EMAIL_MAP" --arg repo "${REPO}" "$JQ_COMMIT_LINE")
           else
             # First tracked release (or no new commits): fall back to HEAD itself.
             COMPARE_URL="https://github.com/${REPO}/commit/${HEAD_SHA}"
@@ -1312,7 +1328,7 @@ jobs:
             else
               TOTAL=1
               mapfile -t LINES < <(gh api "repos/${REPO}/commits/${HEAD_SHA}" \
-                --jq "\"\((.commit.message | split(\"\n\")[0]) | ${ESCAPE} | ${LINKIFY}) — @\(.author.login // .commit.author.name)\"")
+                | jq -r --argjson email_map "$EMAIL_MAP" --arg repo "${REPO}" "$JQ_COMMIT_LINE")
             fi
           fi
 
