@@ -143,13 +143,18 @@ export function useActiveAssistantIsPlatformHosted(): boolean {
  * self-hosted, they're absent / broken. Don't gate them as "still
  * loading."
  *
- * Returns `true` ONLY for `kind: "loading"`. Returns `false` for every
- * other state, including transitional states (`initializing`,
- * `cleaning_up`) that already know which assistant they're acting on.
+ * Returns `true` for `kind: "loading"` and transitional states
+ * (`initializing`, `cleaning_up`) where we don't yet know the terminal
+ * outcome. Returns `false` only for already-resolved non-hosted states
+ * (`retired`, `error`, `awaiting_version_selection`).
  */
 export function useActiveAssistantLifecycleIsLoading(): boolean {
   const assistantState = useAssistantLifecycleStore.use.assistantState();
-  return assistantState.kind === "loading";
+  return (
+    assistantState.kind === "loading" ||
+    assistantState.kind === "initializing" ||
+    assistantState.kind === "cleaning_up"
+  );
 }
 
 export function usePlatformGate(
