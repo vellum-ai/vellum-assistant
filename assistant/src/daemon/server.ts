@@ -9,7 +9,12 @@ import type { CesClient } from "../credential-execution/client.js";
 import type { CesProcessManager } from "../credential-execution/process-manager.js";
 import { AssistantIpcServer } from "../ipc/assistant-server.js";
 import { SkillIpcServer } from "../ipc/skill-server.js";
-import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
+import {
+  getApp,
+  getAppDirPath,
+  isMultifileApp,
+  resolveEffectiveAppHtml,
+} from "../memory/app-store.js";
 import { syncIdentityNameToPlatform } from "../platform/sync-identity.js";
 import { initializeProviders } from "../providers/registry.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
@@ -26,6 +31,7 @@ import { updatePublishedAppDeployment } from "../services/published-app-updater.
 import { getSubagentManager } from "../subagent/index.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspacePromptPath } from "../util/platform.js";
+import { runAppLiveBuild } from "./app-live-build.js";
 import {
   AppSourceWatcher,
   setEnsureAppSourceWatcher,
@@ -236,10 +242,9 @@ export class DaemonServer {
     const app = getApp(appId);
     if (!app) return;
 
-    const doRefresh = () => {
-      for (const conversation of allConversations()) {
-        refreshSurfacesForApp(conversation, appId, { fileChange: true });
-      }
+    // Notify the app-list / publish pipeline (fires regardless of compile
+    // outcome, matching the prior behavior).
+    const settle = () => {
       broadcastMessage({ type: "app_files_changed", appId });
       publishAppsChanged();
       void updatePublishedAppDeployment(appId);
@@ -247,24 +252,34 @@ export class DaemonServer {
 
     if (isMultifileApp(app)) {
       const appDir = getAppDirPath(appId);
-      void compileApp(appDir)
-        .then((result) => {
-          if (!result.ok) {
+      void runAppLiveBuild(appId, app, appDir, {
+        compileApp,
+        resolveEffectiveAppHtml,
+        broadcast: (msg) => broadcastMessage(msg),
+        refreshSurfaces: (id, opts) => {
+          if (opts.compileStatus === "error") {
             log.warn(
-              { appId, errors: result.errors },
-              "Recompile failed on app source change",
+              { appId: id, errors: opts.buildErrors },
+              "Recompile failed on app source change — keeping last-good preview",
             );
           }
-          doRefresh();
-        })
-        .catch((err) => {
-          log.warn({ appId, err }, "Recompile threw on app source change");
-          doRefresh();
-        });
+          for (const conversation of allConversations()) {
+            refreshSurfacesForApp(conversation, id, opts);
+          }
+        },
+        onSettled: settle,
+      }).catch((err) => {
+        log.warn({ appId, err }, "Live build threw on app source change");
+        settle();
+      });
       return;
     }
 
-    doRefresh();
+    // Single-file apps: no recompile, just refresh surfaces and settle.
+    for (const conversation of allConversations()) {
+      refreshSurfacesForApp(conversation, appId, { fileChange: true });
+    }
+    settle();
   }
 
   // ── Server lifecycle ────────────────────────────────────────────────

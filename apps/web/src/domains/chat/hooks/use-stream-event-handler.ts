@@ -1,9 +1,4 @@
-import {
-  type Dispatch,
-  type SetStateAction,
-  useCallback,
-  useRef,
-} from "react";
+import { type Dispatch, type SetStateAction, useCallback, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useConversationStore } from "@/stores/conversation-store";
@@ -232,7 +227,8 @@ export function useStreamEventHandler(
         confirmationToolCallMap: store.confirmationToolCallMap,
         setAssetsRefreshKey,
         dismissedSurfaceIds: store.dismissedSurfaceIds,
-        contextWindowUsageByConversation: store.contextWindowUsageByConversation,
+        contextWindowUsageByConversation:
+          store.contextWindowUsageByConversation,
         setContextWindowUsage: store.setContextWindowUsage,
         scheduleConversationListRefetch,
         queryClient,
@@ -380,6 +376,7 @@ export function useStreamEventHandler(
         case "document_comment_reopened":
         case "document_comment_deleted":
         case "interaction_resolved":
+        case "app_preview_update":
           break;
         case "unknown":
           break;

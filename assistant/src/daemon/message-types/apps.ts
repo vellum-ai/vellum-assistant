@@ -1,5 +1,6 @@
 // App management, gallery, publishing, and sharing types.
 
+import type { AppPreviewUpdateEvent } from "../../api/events/app-preview-update.js";
 import type { GalleryManifest } from "../../gallery/gallery-manifest.js";
 
 // === Client → Server ===
@@ -333,6 +334,10 @@ export interface AppFilesChanged {
   appId: string;
 }
 
+// `app_preview_update` (the live-build preview broadcast) is now canonical:
+// its wire contract lives in `../../api/events/app-preview-update.js`. Daemon
+// emitters/consumers import `AppPreviewUpdateEvent` directly from there.
+
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
 export type _AppsClientMessages =
@@ -381,4 +386,5 @@ export type _AppsServerMessages =
   | AppPreviewResponse
   | PublishPageResponse
   | UnpublishPageResponse
-  | AppFilesChanged;
+  | AppFilesChanged
+  | AppPreviewUpdateEvent;

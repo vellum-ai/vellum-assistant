@@ -1,4 +1,7 @@
-import { type DisplayMessage, isSurfaceInteractive } from "@/domains/chat/types/types";
+import {
+  type DisplayMessage,
+  isSurfaceInteractive,
+} from "@/domains/chat/types/types";
 import type { IdentityGetResponse } from "@/generated/daemon/types.gen";
 import type { Conversation } from "@/types/conversation-types";
 import type { AssistantEvent } from "@/types/event-types";
@@ -29,6 +32,11 @@ const GLOBAL_STREAM_EVENT_TYPE_NAMES = [
   "disk_pressure_status_changed",
   "home_feed_updated",
   "relationship_state_updated",
+  // Live app-build preview broadcast — app-scoped (`appId`), carries no
+  // `conversationId`, so the conversation-id gate would otherwise drop it.
+  // The chat handler is a no-op for it today; the app-preview store wiring
+  // lives outside this domain.
+  "app_preview_update",
   // Workspace-scoped prompt — the `contacts/prompt` IPC route fires it
   // from settings or skill flows that have no conversation binding, so
   // the wire payload has no `conversationId` and the conversation gate

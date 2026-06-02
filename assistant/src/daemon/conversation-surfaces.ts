@@ -1798,16 +1798,37 @@ export async function handleSurfaceAction(
 
 /**
  * After an app_refresh, refresh any active surface that displays the updated app.
+ *
+ * Returns whether any surface was refreshed plus the `reloadGeneration` that was
+ * applied, so live-build callers (the source-change recompile path) can emit a
+ * broadcast event whose generation counter agrees with the surface state.
+ *
+ * Additive live-build opts (do not affect the existing macOS path):
+ * - `compileStatus: "error"` keeps the last-good html and does NOT bump
+ *   `reloadGeneration` (the preview iframe is not swapped on a transient error).
+ * - `reloadGeneration` overrides the per-surface bump with an explicit value so
+ *   the server can keep one source of truth shared with the broadcast event.
  */
 export function refreshSurfacesForApp(
   ctx: SurfaceConversationContext,
   appId: string,
-  opts?: { fileChange?: boolean; status?: string },
-): boolean {
+  opts?: {
+    fileChange?: boolean;
+    status?: string;
+    compileStatus?: "building" | "ok" | "error";
+    buildErrors?: string[];
+    reloadGeneration?: number;
+  },
+): { refreshed: boolean; reloadGeneration: number } {
   const app = getApp(appId);
-  if (!app) return false;
+  if (!app) return { refreshed: false, reloadGeneration: 0 };
+
+  // On a failed recompile, keep the last-good preview: do not swap html and do
+  // not bump the reload counter.
+  const isError = opts?.compileStatus === "error";
 
   let refreshed = false;
+  let appliedGeneration = opts?.reloadGeneration ?? 0;
   for (const [surfaceId, stored] of ctx.surfaceState.entries()) {
     if (stored.surfaceType !== "dynamic_page") continue;
     const data = stored.data as DynamicPageSurfaceData;
@@ -1816,14 +1837,23 @@ export function refreshSurfacesForApp(
     // Push current HTML onto the undo stack before overwriting
     pushUndoState(ctx.surfaceUndoStacks, surfaceId, data.html);
 
+    // Compute the next reload generation. An explicit override (live-build
+    // path) wins so web and macOS agree; otherwise keep the existing
+    // per-surface bump on file change. A failed compile never bumps.
+    const nextGeneration = isError
+      ? (data.reloadGeneration ?? 0)
+      : (opts?.reloadGeneration ?? (data.reloadGeneration ?? 0) + 1);
+    appliedGeneration = nextGeneration;
+
     // Update in-memory surface state so the next refinement gets fresh HTML.
     // For multifile apps, resolve the compiled dist/index.html with inlined
     // assets rather than the empty root index.html (app.htmlDefinition).
+    // On a failed compile, retain the existing html (last-good preview).
     const updatedData: DynamicPageSurfaceData = {
       ...data,
-      html: resolveEffectiveAppHtml(app),
-      ...(opts?.fileChange
-        ? { reloadGeneration: (data.reloadGeneration ?? 0) + 1 }
+      ...(isError ? {} : { html: resolveEffectiveAppHtml(app) }),
+      ...(opts?.fileChange && !isError
+        ? { reloadGeneration: nextGeneration }
         : {}),
       ...(opts?.status !== undefined ? { status: opts.status } : {}),
     };
@@ -1851,7 +1881,7 @@ export function refreshSurfacesForApp(
       "Auto-refreshed surface after app_refresh",
     );
   }
-  return refreshed;
+  return { refreshed, reloadGeneration: appliedGeneration };
 }
 
 export function buildCompletionSummary(
