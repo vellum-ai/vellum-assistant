@@ -208,7 +208,11 @@ function isPreChatOnboardingContext(
   value: unknown,
 ): value is PreChatOnboardingContext {
   if (value === null || typeof value !== "object") return false;
-  const candidate = value as Record<string, unknown>;
+
+  // After the object check, use `in` narrowing for required fields and a
+  // single record view for optional-field checks (TypeScript doesn't support
+  // `in` narrowing on dynamic/optional keys without this step).
+  const candidate = value as Record<string, unknown>; // narrowed from `object`
 
   if (!Array.isArray(candidate.tools)) return false;
   if (!candidate.tools.every((t) => typeof t === "string")) return false;
