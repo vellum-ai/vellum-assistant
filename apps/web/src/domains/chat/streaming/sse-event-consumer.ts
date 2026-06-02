@@ -160,15 +160,18 @@ export function createSseEventConsumer(
             latestGapSeq = { conversationId: eventConversationId, seq: eventSeq };
             if (!reconcileInFlight) {
               reconcileInFlight = true;
+              const reconcileEpoch = useStreamStore.getState().streamEpoch;
               deps.reconcileActive()
                 .then(() => {
-                  // Only advance the cursor if the conversation is still
-                  // active. A stale reconcile (user switched away) resolves
-                  // with empty — advancing the cursor would mark the gap
-                  // as repaired without authoritative data.
+                  // Only advance if both the conversation and epoch are
+                  // still current. A stale reconcile (user switched away,
+                  // or SSE reconnected during the fetch) resolves with
+                  // empty — advancing would mark the gap as repaired
+                  // without authoritative data.
                   if (
                     latestGapSeq &&
-                    deps.activeConversationIdRef.current === latestGapSeq.conversationId
+                    deps.activeConversationIdRef.current === latestGapSeq.conversationId &&
+                    useStreamStore.getState().streamEpoch === reconcileEpoch
                   ) {
                     replaceLastSeenSeq(latestGapSeq.conversationId, latestGapSeq.seq);
                     latestGapSeq = null;
