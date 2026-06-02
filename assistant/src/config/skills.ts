@@ -497,6 +497,7 @@ function readSkillFromDirectory(
       directoryPath,
       skillFilePath,
       body: parsed.body,
+      icon: parsed.icon,
       emoji: parsed.emoji,
 
       source,
