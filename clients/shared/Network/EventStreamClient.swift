@@ -133,6 +133,20 @@ public final class EventStreamClient {
     private var hasConnectedAtLeastOnce = false
     private let sseHandshakeDiagnostics = SSEHandshakeDiagnostics()
 
+    // MARK: - SSE Idle Watchdog
+    //
+    // The daemon emits SSE heartbeat comments (`:` prefix) every ~7 s
+    // (DEFAULT_HEARTBEAT_INTERVAL_MS in events-routes.ts). If no SSE
+    // traffic — data frames OR heartbeat comments — arrives within
+    // `sseIdleTimeoutSeconds`, the connection is presumed half-open
+    // (TCP silently died after sleep/wake or network change) and is
+    // torn down so the reconnect path can establish a fresh socket.
+    // Matches the web app's StreamWatchdog pattern.
+
+    private var lastSSETrafficAt: CFAbsoluteTime = 0
+    private var sseIdleWatchdogTask: Task<Void, Never>?
+    private let sseIdleTimeoutSeconds: TimeInterval = 30.0
+
     // MARK: - SSE Parse Time Tracking
 
     private var sseParseTimeAccumulator: TimeInterval = 0
@@ -192,6 +206,8 @@ public final class EventStreamClient {
     /// `withTaskCancellationHandler` to the underlying data task, so the Task-local
     /// `URLSession` is torn down by the `defer` block inside `startSSEStream`.
     public func stopSSE() {
+        sseIdleWatchdogTask?.cancel()
+        sseIdleWatchdogTask = nil
         tokenRotationTask?.cancel()
         tokenRotationTask = nil
         sseReconnectTask?.cancel()
@@ -475,8 +491,22 @@ public final class EventStreamClient {
                 }
                 self.hasConnectedAtLeastOnce = true
 
+                // Reset backoff on successful handshake so the next
+                // disconnect starts from the minimum delay. Without
+                // this, a reconnect storm (e.g. network blip causing
+                // 5 retries) leaves sseReconnectDelay elevated even
+                // after the connection stabilizes for hours.
+                self.sseReconnectDelay = 1.0
+
+                self.startSSEIdleWatchdog()
+
                 for try await line in bytes.lines {
                     if Task.isCancelled { break }
+
+                    // Every line — data frames AND heartbeat comments
+                    // — proves the socket is alive. Update the liveness
+                    // timestamp so the idle watchdog doesn't fire.
+                    self.lastSSETrafficAt = CFAbsoluteTimeGetCurrent()
 
                     if line.hasPrefix("data: ") {
                         let payload = String(line.dropFirst(6))
@@ -713,6 +743,43 @@ public final class EventStreamClient {
         }
     }
 
+    // MARK: - SSE Idle Watchdog
+
+    /// Periodically checks whether the SSE stream has gone silent.
+    /// If no traffic arrives within `sseIdleTimeoutSeconds`, cancels
+    /// the current stream task so `handleSSEDisconnect` triggers a
+    /// reconnect with fresh backoff.
+    private func startSSEIdleWatchdog() {
+        sseIdleWatchdogTask?.cancel()
+        lastSSETrafficAt = CFAbsoluteTimeGetCurrent()
+
+        sseIdleWatchdogTask = Task { @MainActor [weak self] in
+            // Check every 10 s — frequent enough to detect a 30 s
+            // idle within one check interval of the deadline.
+            let checkIntervalNs: UInt64 = 10_000_000_000
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(nanoseconds: checkIntervalNs)
+                } catch {
+                    return
+                }
+                guard let self, !Task.isCancelled else { return }
+                let elapsed = CFAbsoluteTimeGetCurrent() - self.lastSSETrafficAt
+                if elapsed > self.sseIdleTimeoutSeconds {
+                    log.warning(
+                        "SSE idle for \(String(format: "%.0f", elapsed), privacy: .public)s — forcing reconnect"
+                    )
+                    self.sseIdleWatchdogTask = nil
+                    self.sseReconnectDelay = 1.0
+                    self.sseTask?.cancel()
+                    self.sseTask = nil
+                    self.scheduleSSEReconnect()
+                    return
+                }
+            }
+        }
+    }
+
     // MARK: - SSE Reconnect
 
     private func handleSSEDisconnect() {
@@ -745,6 +812,7 @@ public final class EventStreamClient {
     }
 
     deinit {
+        sseIdleWatchdogTask?.cancel()
         tokenRotationTask?.cancel()
         sseReconnectTask?.cancel()
         sseTask?.cancel()
