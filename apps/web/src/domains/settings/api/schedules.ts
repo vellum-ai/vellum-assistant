@@ -5,6 +5,15 @@
  */
 import { client } from "@/generated/api/client.gen";
 import {
+  schedulesByIdDelete,
+  schedulesByIdPatch,
+  schedulesByIdRunPost,
+  schedulesByIdRunsGet,
+  schedulesByIdTogglePost,
+  schedulesGet,
+  schedulesPost,
+} from "@/generated/daemon/sdk.gen";
+import {
   ApiError,
   assertHasResponse,
   extractErrorMessage,
@@ -16,8 +25,7 @@ import type {
   HeartbeatRunsResponse,
   RunNowResponse,
   Schedule,
-  ScheduleRunsResponse,
-  SchedulesListResponse,
+  ScheduleRun,
 } from "@/domains/settings/types/schedules";
 
 export { ApiError };
@@ -34,15 +42,11 @@ export async function createSchedule(
   assistantId: string,
   payload: CreateSchedulePayload,
 ): Promise<void> {
-  const { error, response } = await client.post<SchedulesListResponse, unknown>(
-    {
-      url: "/v1/assistants/{assistant_id}/schedules/",
-      path: { assistant_id: assistantId },
-      body: payload,
-      headers: { "Content-Type": "application/json" },
-      throwOnError: false,
-    },
-  );
+  const { error, response } = await schedulesPost({
+    path: { assistant_id: assistantId },
+    body: payload,
+    throwOnError: false,
+  });
   assertHasResponse(response, error, "Failed to create schedule.");
   if (!response.ok) {
     throw new ApiError(
@@ -61,14 +65,9 @@ export async function updateSchedule(
   scheduleId: string,
   payload: UpdateSchedulePayload,
 ): Promise<void> {
-  const { error, response } = await client.patch<
-    SchedulesListResponse,
-    unknown
-  >({
-    url: "/v1/assistants/{assistant_id}/schedules/{schedule_id}/",
-    path: { assistant_id: assistantId, schedule_id: scheduleId },
+  const { error, response } = await schedulesByIdPatch({
+    path: { assistant_id: assistantId, id: scheduleId },
     body: payload,
-    headers: { "Content-Type": "application/json" },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to update schedule.");
@@ -81,11 +80,7 @@ export async function updateSchedule(
 }
 
 export async function fetchSchedules(assistantId: string): Promise<Schedule[]> {
-  const { data, error, response } = await client.get<
-    SchedulesListResponse,
-    unknown
-  >({
-    url: "/v1/assistants/{assistant_id}/schedules/",
+  const { data, error, response } = await schedulesGet({
     path: { assistant_id: assistantId },
     throwOnError: false,
   });
@@ -103,13 +98,9 @@ export async function fetchScheduleRuns(
   assistantId: string,
   scheduleId: string,
   limit = 10,
-): Promise<import("@/domains/settings/types/schedules").ScheduleRun[]> {
-  const { data, error, response } = await client.get<
-    ScheduleRunsResponse,
-    unknown
-  >({
-    url: "/v1/assistants/{assistant_id}/schedules/{schedule_id}/runs/",
-    path: { assistant_id: assistantId, schedule_id: scheduleId },
+): Promise<ScheduleRun[]> {
+  const { data, error, response } = await schedulesByIdRunsGet({
+    path: { assistant_id: assistantId, id: scheduleId },
     query: { limit },
     throwOnError: false,
   });
@@ -128,11 +119,9 @@ export async function toggleSchedule(
   scheduleId: string,
   enabled: boolean,
 ): Promise<void> {
-  const { error, response } = await client.post<unknown, unknown>({
-    url: "/v1/assistants/{assistant_id}/schedules/{schedule_id}/toggle/",
-    path: { assistant_id: assistantId, schedule_id: scheduleId },
+  const { error, response } = await schedulesByIdTogglePost({
+    path: { assistant_id: assistantId, id: scheduleId },
     body: { enabled },
-    headers: { "Content-Type": "application/json" },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to toggle schedule.");
@@ -148,9 +137,8 @@ export async function deleteSchedule(
   assistantId: string,
   scheduleId: string,
 ): Promise<void> {
-  const { error, response } = await client.delete<unknown, unknown>({
-    url: "/v1/assistants/{assistant_id}/schedules/{schedule_id}/",
-    path: { assistant_id: assistantId, schedule_id: scheduleId },
+  const { error, response } = await schedulesByIdDelete({
+    path: { assistant_id: assistantId, id: scheduleId },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to delete schedule.");
@@ -166,9 +154,8 @@ export async function runScheduleNow(
   assistantId: string,
   scheduleId: string,
 ): Promise<void> {
-  const { error, response } = await client.post<unknown, unknown>({
-    url: "/v1/assistants/{assistant_id}/schedules/{schedule_id}/run/",
-    path: { assistant_id: assistantId, schedule_id: scheduleId },
+  const { error, response } = await schedulesByIdRunPost({
+    path: { assistant_id: assistantId, id: scheduleId },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to run schedule.");
@@ -183,7 +170,7 @@ export async function runScheduleNow(
 export async function fetchHeartbeatRuns(
   assistantId: string,
   limit = 10,
-): Promise<import("@/domains/settings/types/schedules").ScheduleRun[]> {
+): Promise<ScheduleRun[]> {
   const { data, error, response } = await client.get<
     HeartbeatRunsResponse,
     unknown

@@ -369,8 +369,7 @@ function ScriptTimeoutField({
       <span className="text-[var(--content-secondary)]">Timeout</span>
       <div className="flex items-center gap-2">
         <span>
-          {effectiveSeconds}s
-          {schedule.timeoutMs == null ? " (default)" : ""}
+          {effectiveSeconds}s{schedule.timeoutMs == null ? " (default)" : ""}
         </span>
         <Button variant="outlined" size="compact" onClick={startEditing}>
           Edit
@@ -463,7 +462,7 @@ export function ScheduleDetailView({
 
       <DetailCard
         title={schedule.name}
-        subtitle={schedule.description}
+        subtitle={schedule.description ?? undefined}
         accessory={
           <div className="flex items-center gap-2">
             <Tag tone={MODE_TONE[schedule.mode] ?? "neutral"}>
