@@ -1,19 +1,17 @@
+/**
+ * SSE transport for terminal PTY output.
+ *
+ * The terminal events endpoint is not in the platform OpenAPI spec (it's a
+ * raw SSE stream), so there is no generated SDK function for it. This module
+ * provides the subscription primitive that {@link useTerminalSession} drives.
+ */
+
 import { client as platformClient } from "@/generated/api/client.gen";
-import {
-  assistantsTerminalSessionsCreate,
-  assistantsTerminalSessionsDestroy,
-  assistantsTerminalSessionsInputCreate,
-  assistantsTerminalSessionsResizeCreate,
-} from "@/generated/api/sdk.gen";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-export interface TerminalSession {
-  sessionId: string;
-}
 
 /** A single SSE event emitted by the terminal output stream. */
 export interface TerminalOutputEvent {
@@ -29,130 +27,13 @@ export interface TerminalOutputStream {
 }
 
 // ---------------------------------------------------------------------------
-// Create / destroy
-// ---------------------------------------------------------------------------
-
-/**
- * Open a new terminal session for the given assistant.
- * Returns the opaque session ID assigned by the backend.
- */
-export async function createTerminalSession(
-  assistantId: string,
-  options?: { service?: string },
-): Promise<TerminalSession> {
-  const body = options?.service ? { service: options.service } : undefined;
-
-  const result = await assistantsTerminalSessionsCreate({
-    path: { assistant_id: assistantId },
-    body,
-    throwOnError: false,
-  });
-
-  const { data, error, response } = result;
-
-  if (!response || !response.ok) {
-    const detail =
-      error && typeof error === "object" && !Array.isArray(error)
-        ? ((error as Record<string, unknown>).detail as string | undefined)
-        : undefined;
-    throw new Error(
-      detail ??
-        `Failed to create terminal session (HTTP ${response?.status ?? "unknown"})`,
-    );
-  }
-
-  const raw =
-    data && typeof data === "object" && !Array.isArray(data)
-      ? (data as Record<string, unknown>)
-      : {};
-  const sessionId =
-    typeof raw.session_id === "string"
-      ? raw.session_id
-      : typeof raw.id === "string"
-        ? raw.id
-        : undefined;
-
-  if (!sessionId) {
-    throw new Error("Backend did not return a session ID");
-  }
-
-  return { sessionId };
-}
-
-/**
- * Close a terminal session and release backend resources.
- * Errors are swallowed — callers should treat close as best-effort.
- */
-export async function destroyTerminalSession(
-  assistantId: string,
-  sessionId: string,
-): Promise<void> {
-  try {
-    await assistantsTerminalSessionsDestroy({
-      path: { assistant_id: assistantId, session_id: sessionId },
-      throwOnError: false,
-    });
-  } catch {
-    // Best-effort cleanup — ignore errors on close
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Input / resize
-// ---------------------------------------------------------------------------
-
-/**
- * Send keyboard input bytes to the PTY stdin.
- * `data` should be the raw key sequence (e.g. "\r" for Enter).
- */
-export async function sendTerminalInput(
-  assistantId: string,
-  sessionId: string,
-  data: string,
-): Promise<void> {
-  const result = await assistantsTerminalSessionsInputCreate({
-    path: { assistant_id: assistantId, session_id: sessionId },
-    body: { data },
-    throwOnError: false,
-  });
-
-  if (!result.response || !result.response.ok) {
-    throw new Error(
-      `Failed to send terminal input (HTTP ${result.response?.status ?? "unknown"})`,
-    );
-  }
-}
-
-/**
- * Notify vembda of a PTY window resize.
- */
-export async function resizeTerminal(
-  assistantId: string,
-  sessionId: string,
-  cols: number,
-  rows: number,
-): Promise<void> {
-  const result = await assistantsTerminalSessionsResizeCreate({
-    path: { assistant_id: assistantId, session_id: sessionId },
-    body: { cols, rows },
-    throwOnError: false,
-  });
-
-  if (!result.response || !result.response.ok) {
-    throw new Error(
-      `Failed to resize terminal (HTTP ${result.response?.status ?? "unknown"})`,
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// SSE output stream
+// SSE subscription
 // ---------------------------------------------------------------------------
 
 /**
  * Subscribe to the terminal SSE output stream.
  *
- * Events are delivered in order of arrival.  Callers are responsible for
+ * Events are delivered in order of arrival. Callers are responsible for
  * deduplicating / ordering by `seq` if reconnecting.
  *
  * Returns a handle with a `cancel()` method to tear down the stream.
@@ -198,7 +79,6 @@ export function subscribeTerminalEvents(
       for await (const payload of stream) {
         if (cancelled) return;
 
-        // Parse the raw SSE payload into a typed terminal output event.
         const raw =
           typeof payload === "string"
             ? (() => {
