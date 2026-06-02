@@ -13,9 +13,10 @@ import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { CatalogRow } from "@/domains/intelligence/components/plugins/catalog-row";
 import { PluginRow } from "@/domains/intelligence/components/plugins/plugin-row";
 import {
-  pluginsGetOptions,
+  pluginsGetQueryKey,
   pluginsSearchGetOptions,
 } from "@/generated/daemon/@tanstack/react-query.gen";
+import { pluginsGet } from "@/generated/daemon/sdk.gen";
 import type {
   PluginsGetResponse,
   PluginsSearchGetResponse,
@@ -44,10 +45,24 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
   const debouncedSearch = useDebouncedValue(searchValue.trim(), SEARCH_DEBOUNCE_MS);
 
   const pluginsQuery = useQuery({
-    ...pluginsGetOptions({
+    queryKey: pluginsGetQueryKey({
       path: { assistant_id: assistantId },
       query: { q: debouncedSearch || undefined },
     }),
+    queryFn: async ({ signal }) => {
+      const result = await pluginsGet({
+        path: { assistant_id: assistantId },
+        query: { q: debouncedSearch || undefined },
+        signal,
+        throwOnError: false,
+      });
+      const status = result.response?.status;
+      // Older daemons return 404 when the list endpoint isn't
+      // implemented yet — degrade to an empty installed list.
+      if (status === 404) return { plugins: [] } as PluginsGetResponse;
+      if (!result.response?.ok) throw new Error("Failed to load plugins");
+      return result.data ?? ({ plugins: [] } as PluginsGetResponse);
+    },
     enabled: Boolean(assistantId),
   });
 
