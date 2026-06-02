@@ -143,15 +143,15 @@ export function createAuthMiddleware(
     req: Request,
     server?: Server<unknown>,
   ): Promise<Response | null> {
+    if (isPlatformAuthBypassActive()) {
+      return requirePlatformUserHeader(req);
+    }
     const token = extractBearerToken(req);
     if (token) {
       return validateEdgeBearer(req, token);
     }
     if (hasAuthorizationHeader(req)) {
       return rejectMalformedAuthorization(req, "Edge auth");
-    }
-    if (isPlatformAuthBypassActive()) {
-      return requirePlatformUserHeader(req);
     }
     if (allowLegacyLoopbackFallback(req, server, "edge")) {
       return null;
@@ -170,15 +170,15 @@ export function createAuthMiddleware(
     scope: Scope,
     server?: Server<unknown>,
   ): Promise<Response | null> {
+    if (isPlatformAuthBypassActive()) {
+      return requirePlatformUserHeader(req);
+    }
     const token = extractBearerToken(req);
     if (token) {
       return validateScopedEdgeBearer(req, token, scope);
     }
     if (hasAuthorizationHeader(req)) {
       return rejectMalformedAuthorization(req, "Scoped edge auth", { scope });
-    }
-    if (isPlatformAuthBypassActive()) {
-      return requirePlatformUserHeader(req);
     }
     if (allowLegacyLoopbackFallback(req, server, "edge-scoped", { scope })) {
       return null;
@@ -203,11 +203,11 @@ export function createAuthMiddleware(
     req: Request,
     server?: Server<unknown>,
   ): Promise<Response | null> {
-    if (extractBearerToken(req) || hasAuthorizationHeader(req)) {
-      return requireEdgeGuardianAuthByActorPrincipal(req);
-    }
     if (isPlatformAuthBypassActive()) {
       return requirePlatformUserHeader(req);
+    }
+    if (extractBearerToken(req) || hasAuthorizationHeader(req)) {
+      return requireEdgeGuardianAuthByActorPrincipal(req);
     }
     if (allowLegacyLoopbackFallback(req, server, "edge-guardian")) {
       return null;

@@ -131,6 +131,20 @@ describe("requireEdgeGuardianAuth — platform header mode", () => {
     expect(res).toBeNull();
   });
 
+  test("uses platform header check when a platform bearer is also forwarded", async () => {
+    mockReadCredential = mock(async () => PLATFORM_USER_ID);
+    const { requireEdgeGuardianAuth } = makeMiddleware();
+    const res = await requireEdgeGuardianAuth(
+      makeReq({
+        "x-vellum-user-id": PLATFORM_USER_ID,
+        authorization: "Bearer vak_platform_key",
+      }),
+    );
+    expect(res).toBeNull();
+    expect(mockValidateEdgeToken).not.toHaveBeenCalled();
+    expect(mockFindVellumGuardian).not.toHaveBeenCalled();
+  });
+
   test("falls through to JWT mode when IS_PLATFORM is false (rejects missing bearer token)", async () => {
     // DISABLE_HTTP_AUTH=true but IS_PLATFORM=false → should use JWT path, not
     // platform header path. No JWT provided, so expect 401.

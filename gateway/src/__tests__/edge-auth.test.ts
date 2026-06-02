@@ -128,6 +128,19 @@ describe("requireEdgeAuth — DISABLE_HTTP_AUTH + IS_PLATFORM", () => {
     );
     expect(res).toBeNull();
   });
+
+  test("uses platform header check when a platform bearer is also forwarded", async () => {
+    mockReadCredential = mock(async () => PLATFORM_USER_ID);
+    const { requireEdgeAuth } = makeMiddleware();
+    const res = await requireEdgeAuth(
+      makeReq({
+        "x-vellum-user-id": PLATFORM_USER_ID,
+        authorization: "Bearer vak_platform_key",
+      }),
+    );
+    expect(res).toBeNull();
+    expect(mockValidateEdgeToken).not.toHaveBeenCalled();
+  });
 });
 
 // =========================================================================
@@ -239,6 +252,20 @@ describe("requireEdgeAuthWithScope — DISABLE_HTTP_AUTH + IS_PLATFORM", () => {
       "ingress.write",
     );
     expect(res).toBeNull();
+  });
+
+  test("uses platform header check when a platform bearer is also forwarded", async () => {
+    mockReadCredential = mock(async () => PLATFORM_USER_ID);
+    const { requireEdgeAuthWithScope } = makeMiddleware();
+    const res = await requireEdgeAuthWithScope(
+      makeReq({
+        "x-vellum-user-id": PLATFORM_USER_ID,
+        authorization: "Bearer vak_platform_key",
+      }),
+      "ingress.write",
+    );
+    expect(res).toBeNull();
+    expect(mockValidateEdgeToken).not.toHaveBeenCalled();
   });
 
   test("401 when X-Vellum-User-Id missing under bypass", async () => {
