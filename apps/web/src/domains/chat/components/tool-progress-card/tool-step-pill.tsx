@@ -8,10 +8,16 @@
  * interactive styling, so static / no-action contexts don't get a dead
  * button.
  *
+ * When both `onClick` and `onRiskBadgeClick` are provided, the pill renders
+ * as a `<div>` with `role="button"` so the risk badge can render its own
+ * `<button>` without nesting interactive elements (invalid per HTML spec).
+ *
  * Props are intentionally PRIMITIVE (icon name + strings) rather than coupled
  * to `ToolCallCardStep`, so the pill is independently testable and reusable
  * outside the card pipeline.
  */
+
+import type { KeyboardEvent } from "react";
 
 import { Bolt } from "lucide-react";
 
@@ -82,7 +88,7 @@ export function ToolStepPill({
       ? "text-[var(--system-negative-strong)]"
       : "text-[var(--content-tertiary)]";
 
-  const content = (
+  const labelContent = (
     <>
       <Glyph
         aria-hidden="true"
@@ -94,7 +100,6 @@ export function ToolStepPill({
       >
         {label}
       </Typography>
-      <RiskBadge level={riskLevel} onClick={onRiskBadgeClick} />
     </>
   );
 
@@ -105,6 +110,37 @@ export function ToolStepPill({
     const hoverClass = active
       ? "hover:bg-[var(--surface-active)]"
       : "hover:bg-[var(--surface-base)]";
+
+    // When onRiskBadgeClick is also provided, use a <div role="button"> as the
+    // outer wrapper so the RiskBadge can render its own <button> without
+    // nesting interactive elements (invalid per HTML spec). The div handles
+    // keyboard activation for the main action; the badge button stops event
+    // propagation to keep the two actions independent.
+    if (onRiskBadgeClick) {
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
+      };
+      return (
+        <div
+          role="button"
+          tabIndex={0}
+          data-testid="tool-step-pill"
+          data-active={active ? "" : undefined}
+          aria-pressed={active}
+          aria-label={ariaLabel ?? `View details: ${label}`}
+          onClick={onClick}
+          onKeyDown={handleKeyDown}
+          className={`${BASE_CLASSES} ${INTERACTIVE_BASE} ${hoverClass} ${colorClasses}`}
+        >
+          {labelContent}
+          <RiskBadge level={riskLevel} onClick={onRiskBadgeClick} />
+        </div>
+      );
+    }
+
     return (
       <button
         type="button"
@@ -115,7 +151,8 @@ export function ToolStepPill({
         onClick={onClick}
         className={`${BASE_CLASSES} ${INTERACTIVE_BASE} ${hoverClass} ${colorClasses}`}
       >
-        {content}
+        {labelContent}
+        <RiskBadge level={riskLevel} />
       </button>
     );
   }
@@ -125,7 +162,8 @@ export function ToolStepPill({
       data-testid="tool-step-pill"
       className={`${BASE_CLASSES} ${colorClasses}`}
     >
-      {content}
+      {labelContent}
+      <RiskBadge level={riskLevel} />
     </span>
   );
 }
