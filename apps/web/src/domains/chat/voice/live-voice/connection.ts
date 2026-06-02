@@ -110,6 +110,30 @@ function getVelayHost(): string {
   return import.meta.env.VITE_VELAY_HOST || DEFAULT_VELAY_HOST;
 }
 
+/**
+ * Pick the WebSocket scheme for a velay host. Production velay is TLS (`wss`),
+ * but the local `vel up` velay is plain HTTP on a loopback port
+ * (`localhost:8501`), which a `wss` dial can't reach. Detect a loopback host and
+ * downgrade to `ws` so local-dev (incl. cloud assistants tunnelled through the
+ * local velay) works without TLS. Everything else stays `wss`.
+ *
+ * Exported for direct unit testing (the env-driven host resolution is separate).
+ */
+export function getVelayWsScheme(host: string): "ws" | "wss" {
+  let hostname: string;
+  try {
+    ({ hostname } = new URL(`http://${host}`));
+  } catch {
+    return "wss";
+  }
+  const loopback =
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "[::1]" ||
+    hostname === "::1";
+  return loopback ? "ws" : "wss";
+}
+
 export interface BuildLiveVoiceWsUrlArgs {
   assistantId: string;
   /** Optional conversation to attach the live-voice session to. */
@@ -123,6 +147,8 @@ export interface BuildLiveVoiceWsUrlArgs {
  *
  *   wss://<velayHost>/<assistantId>/v1/live-voice?token=<token>[&conversationId=<id>]
  *
+ * The scheme is `wss` for the real velay host and `ws` when `VITE_VELAY_HOST`
+ * points at a loopback (local `vel up` velay) — see {@link getVelayWsScheme}.
  * The token is URL-encoded. `conversationId` is appended as an additional
  * query param only when provided.
  *
@@ -136,7 +162,8 @@ export function buildLiveVoiceWsUrl({
   token,
 }: BuildLiveVoiceWsUrlArgs): string {
   const host = getVelayHost();
-  const url = new URL(`wss://${host}/${assistantId}/v1/live-voice`);
+  const scheme = getVelayWsScheme(host);
+  const url = new URL(`${scheme}://${host}/${assistantId}/v1/live-voice`);
   url.searchParams.set("token", token);
   if (conversationId) {
     url.searchParams.set("conversationId", conversationId);

@@ -29,6 +29,7 @@ import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import {
   buildLiveVoiceWsUrl,
   buildSelfHostedLiveVoiceWsUrl,
+  getVelayWsScheme,
   LiveVoiceTokenError,
   mintLiveVoiceToken,
   resolveLiveVoiceWsUrl,
@@ -152,6 +153,26 @@ describe("buildLiveVoiceWsUrl", () => {
     );
     expect(url.searchParams.get("token")).toBe("tok-abc");
     expect(url.searchParams.get("conversationId")).toBe("conv-xyz");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getVelayWsScheme — TLS for prod, plain ws for the local loopback velay
+// ---------------------------------------------------------------------------
+
+describe("getVelayWsScheme", () => {
+  test("uses wss for the production velay host", () => {
+    expect(getVelayWsScheme("velay.vellum.ai")).toBe("wss");
+  });
+
+  test("uses ws for loopback hosts (local vel up velay)", () => {
+    expect(getVelayWsScheme("localhost:8501")).toBe("ws");
+    expect(getVelayWsScheme("127.0.0.1:8501")).toBe("ws");
+    expect(getVelayWsScheme("[::1]:8501")).toBe("ws");
+  });
+
+  test("uses wss for a non-loopback host without a scheme", () => {
+    expect(getVelayWsScheme("velay.staging.vellum.ai")).toBe("wss");
   });
 });
 
