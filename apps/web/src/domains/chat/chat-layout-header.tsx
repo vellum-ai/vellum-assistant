@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useCallback, type ReactNode } from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -8,6 +8,8 @@ import {
   Search,
 } from "lucide-react";
 import { Button } from "@vellum/design-library";
+
+import { useCommandPaletteStore } from "@/stores/command-palette-store";
 
 export interface ChatLayoutHeaderProps {
   isMobile: boolean;
@@ -21,7 +23,6 @@ export interface ChatLayoutHeaderProps {
   canGoForward?: boolean;
   onGoBack?: () => void;
   onGoForward?: () => void;
-  onSearchClick?: () => void;
   onOpenHome?: () => void;
   isHomeActive?: boolean;
   hasUnreadHome?: boolean;
@@ -39,11 +40,13 @@ export function ChatLayoutHeader({
   canGoForward,
   onGoBack,
   onGoForward,
-  onSearchClick,
   onOpenHome,
   isHomeActive,
   hasUnreadHome,
 }: ChatLayoutHeaderProps) {
+  const toggleCommandPalette = useCommandPaletteStore.use.toggle();
+  const handleSearchClick = useCallback(() => { toggleCommandPalette(); }, [toggleCommandPalette]);
+
   return (
     <header
       data-slot="chat-layout-header"
@@ -101,15 +104,13 @@ export function ChatLayoutHeader({
         ) : null}
         {!isMobile ? (
           <>
-            {onSearchClick ? (
-              <Button
-                variant="ghost"
-                iconOnly={<Search />}
-                aria-label="Search (Ctrl+K)"
-                tooltip="Search (Ctrl+K)"
-                onClick={onSearchClick}
-              />
-            ) : null}
+            <Button
+              variant="ghost"
+              iconOnly={<Search />}
+              aria-label="Search (Ctrl+K)"
+              tooltip="Search (Ctrl+K)"
+              onClick={handleSearchClick}
+            />
             <Button
               variant="ghost"
               iconOnly={<ChevronLeft />}
@@ -137,13 +138,13 @@ export function ChatLayoutHeader({
       </div>
 
       <div className="flex items-center gap-2">
-        {isMobile && onSearchClick ? (
+        {isMobile ? (
           <Button
             variant="ghost"
             iconOnly={<Search />}
             aria-label="Search (Ctrl+K)"
             tooltip="Search (Ctrl+K)"
-            onClick={onSearchClick}
+            onClick={handleSearchClick}
           />
         ) : null}
         {topBarRightSlot}

@@ -29,6 +29,7 @@ import {
   useOpenAppFromChat,
 } from "@/domains/chat/hooks/use-open-app-from-chat";
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
+import { useCommandPaletteStore } from "@/stores/command-palette-store";
 
 import { useVellumCommands } from "@/runtime/vellum-commands";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -137,12 +138,11 @@ interface SideMenuRenderArgs {
   width?: number;
   onWidthChange?: (width: number) => void;
   onClose?: () => void;
-  onSearch?: () => void;
 }
 
 /**
  * Chat-specific layout route providing sidebar rail, mobile drawer,
- * keyboard shortcuts (Ctrl+\, Ctrl+K, Ctrl+[/]), and the chat header
+ * keyboard shortcuts (Ctrl+\, Ctrl+[/], Ctrl+K), and the chat header
  * bar. Reads the resolved assistant from `useAssistantSelectionStore`,
  * the lifecycle phase from `useAssistantLifecycleStore`, and header
  * slot content from `useChatLayoutSlotsStore` (which child routes
@@ -242,7 +242,6 @@ export function ChatLayout() {
   const headerSupplements = useChatLayoutSlotsStore.use.headerSupplements();
   const topBarCenter = topBarCenterSlot ?? (headerSupplements ? <ChatConversationHeader /> : null);
   const topBarRightSlot = useChatLayoutSlotsStore.use.topBarRightSlot();
-  const onSearchClick = useChatLayoutSlotsStore.use.onSearchClick();
 
   // --- Assistant identity from store (written by ChatPage) ---
   const assistantName = useAssistantIdentityStore.use.name();
@@ -344,6 +343,18 @@ export function ChatLayout() {
       window.removeEventListener("keydown", onKeyDown);
     };
   }, [toggleSidebar]);
+
+  // Ctrl/Cmd+K shortcut for command palette
+  useEffect(() => {
+    const toggle = useCommandPaletteStore.getState().toggle;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!shouldHandleShortcut(event, document.activeElement, "k")) return;
+      event.preventDefault();
+      toggle();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => { window.removeEventListener("keydown", onKeyDown); };
+  }, []);
 
   // Ctrl/Cmd+[ and Ctrl/Cmd+] shortcuts for back/forward navigation
   useEffect(() => {
@@ -610,7 +621,6 @@ export function ChatLayout() {
           />
         }
         onClose={args.onClose}
-        onSearchClick={args.onSearch}
       />
     ),
     [
@@ -664,7 +674,6 @@ export function ChatLayout() {
         onOpenHome={handleOpenHome}
         isHomeActive={isHomeActive}
         hasUnreadHome={hasUnreadHome}
-        onSearchClick={onSearchClick ?? undefined}
       />
 
       <OfflineBanner />
@@ -700,7 +709,6 @@ export function ChatLayout() {
                   collapsed: false,
                   variant: "overlay",
                   onClose: () => setDrawerOpen(false),
-                  onSearch: onSearchClick ?? undefined,
                 })}
               </aside>
             </div>
@@ -713,7 +721,7 @@ export function ChatLayout() {
             className="shrink-0"
             aria-label="Navigation"
           >
-            {renderSideMenu({ collapsed, variant: "rail", width: sidebarWidth, onWidthChange: handleSidebarWidthChange, onSearch: onSearchClick ?? undefined })}
+            {renderSideMenu({ collapsed, variant: "rail", width: sidebarWidth, onWidthChange: handleSidebarWidthChange })}
           </aside>
           <main className="flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden">
             <Outlet  />

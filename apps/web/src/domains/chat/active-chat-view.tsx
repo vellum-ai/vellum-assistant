@@ -491,7 +491,7 @@ export function ActiveChatView() {
     });
 
   // -------------------------------------------------------------------------
-  // Layout header slot registration — supplements, top bar right, search
+  // Layout header slot registration — supplements, top bar right
   // -------------------------------------------------------------------------
   useChatHeaderRegistration({
     assetsRefreshKey,
@@ -501,7 +501,6 @@ export function ActiveChatView() {
     handleInspectConversation,
     handleCopyConversation,
     refreshLatestMessages,
-    commandPaletteToggle: commandPalette.toggle,
   });
 
   // -------------------------------------------------------------------------
