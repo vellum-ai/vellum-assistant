@@ -129,16 +129,6 @@ export function ContactsPage({
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
 
-  const handleSelect = useCallback((sel: ContactSelection) => {
-    setSelection(sel);
-    setDrawerOpen(false);
-    setMergeDialogOpen(false);
-  }, []);
-
-  const handleOpenMerge = useCallback(() => {
-    setMergeDialogOpen(true);
-  }, []);
-
   const assistantName = identityName ?? "your assistant";
 
   // ---------------------------------------------------------------------------
@@ -233,13 +223,15 @@ export function ContactsPage({
   // Mutations
   // ---------------------------------------------------------------------------
 
-  const invalidateContacts = useCallback(() => {
-    void queryClient.invalidateQueries({ queryKey: contactsQueryKey });
-  }, [queryClient, contactsQueryKey]);
+  const invalidateContacts = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: contactsQueryKey }),
+    [queryClient, contactsQueryKey],
+  );
 
-  const invalidateReadiness = useCallback(() => {
-    void queryClient.invalidateQueries({ queryKey: readinessQueryKey });
-  }, [queryClient, readinessQueryKey]);
+  const invalidateReadiness = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: readinessQueryKey }),
+    [queryClient, readinessQueryKey],
+  );
 
   const createMutation = useMutation({
     mutationFn: () =>
@@ -317,6 +309,21 @@ export function ContactsPage({
     },
     onSettled: () => invalidateContacts(),
   });
+
+  const handleSelect = useCallback(
+    (sel: ContactSelection) => {
+      setSelection(sel);
+      setDrawerOpen(false);
+      setMergeDialogOpen(false);
+      mergeMutation.reset();
+    },
+    [mergeMutation],
+  );
+
+  const handleOpenMerge = useCallback(() => {
+    mergeMutation.reset();
+    setMergeDialogOpen(true);
+  }, [mergeMutation]);
 
   const handleCloseMerge = useCallback(() => {
     if (mergeMutation.isPending) return;
