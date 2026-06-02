@@ -4302,6 +4302,25 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                  - ok
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              propertyNames:
+                type: string
+              additionalProperties: {}
   /v1/config/allowlist/validate:
     get:
       operationId: config_allowlist_validate_get

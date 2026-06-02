@@ -23,6 +23,7 @@ import {
   selectSeedProfileForOverride,
   type ProfilePickerEntry,
 } from "@/domains/settings/ai/profile-pickers";
+import { useDaemonConfig, useDaemonConfigMutation } from "@/domains/settings/ai/use-daemon-config";
 
 // ---------------------------------------------------------------------------
 // Sentinel value for the "Custom" profile picker option
@@ -62,18 +63,6 @@ export interface CallSiteOverridesModalProps {
   isOpen: boolean;
   onClose: () => void;
   assistantId: string;
-  /** The full ordered profile list, INCLUDING disabled entries. Each row's
-   *  picker filters disabled profiles out unless that row currently selects
-   *  one — needed so disabling the active profile doesn't strand an existing
-   *  override with an empty trigger label. */
-  orderedProfiles: ReadonlyArray<ProfilePickerEntry>;
-  persistedOverrides: Record<string, CallSiteOverrideDraft | null | undefined>;
-  /** Pass `!!daemonConfig` so the seeding effect waits for daemon config to load
-   *  before locking in drafts. Without this guard, if the catalog resolves before
-   *  daemonConfig, the modal seeds from an empty persistedOverrides and later
-   *  ignores real overrides when they arrive, causing silent data loss on Save. */
-  daemonConfigLoaded?: boolean;
-  onSaved: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -108,10 +97,6 @@ export function CallSiteOverridesModal({
   isOpen,
   onClose,
   assistantId,
-  orderedProfiles,
-  persistedOverrides,
-  daemonConfigLoaded,
-  onSaved,
 }: CallSiteOverridesModalProps) {
   const savingRef = useRef(false);
   return (
@@ -124,11 +109,7 @@ export function CallSiteOverridesModal({
       {isOpen ? (
         <CallSiteOverridesModalInner
           assistantId={assistantId}
-          orderedProfiles={orderedProfiles}
-          persistedOverrides={persistedOverrides}
-          daemonConfigLoaded={daemonConfigLoaded}
           onClose={onClose}
-          onSaved={onSaved}
           onSavingChange={(s) => { savingRef.current = s; }}
         />
       ) : null}
@@ -142,23 +123,18 @@ export function CallSiteOverridesModal({
 
 interface InnerProps {
   assistantId: string;
-  orderedProfiles: ReadonlyArray<ProfilePickerEntry>;
-  persistedOverrides: Record<string, CallSiteOverrideDraft | null | undefined>;
-  daemonConfigLoaded?: boolean;
   onClose: () => void;
-  onSaved: () => void;
   onSavingChange?: (isSaving: boolean) => void;
 }
 
 function CallSiteOverridesModalInner({
   assistantId,
-  orderedProfiles,
-  persistedOverrides,
-  daemonConfigLoaded,
   onClose,
-  onSaved,
   onSavingChange,
 }: InnerProps) {
+  const { profiles, profileOrder, callSites: persistedOverrides, config: daemonConfig } = useDaemonConfig();
+  const configMutation = useDaemonConfigMutation();
+
   const [search, setSearch] = useState("");
   const [drafts, setDrafts] = useState<Record<string, CallSiteOverrideDraft | null>>({});
   const [saving, setSaving] = useState(false);
@@ -182,35 +158,37 @@ function CallSiteOverridesModalInner({
     refetchOnWindowFocus: false,
   });
 
-  // mainAgent is controlled by the main inference card / Default Profile, not this
-  // modal. Filter it out here so we don't render a row whose edits we'd silently
-  // drop in Save/Reset (LUM-1830).
   const gatedCallSites = useMemo(() => {
     const all = (catalog?.callSites ?? []).filter((cs) => cs.id !== "mainAgent");
     if (analyzeConversationEnabled) return all;
     return all.filter((cs) => cs.id !== "analyzeConversation");
   }, [catalog, analyzeConversationEnabled]);
 
+  // Build ordered profile list from cache slices
+  const orderedProfiles: ReadonlyArray<ProfilePickerEntry> = useMemo(() => {
+    const ordered = profileOrder
+      .filter((name) => name in profiles)
+      .map((name) => ({ name, ...profiles[name]! }));
+    const inOrder = new Set(profileOrder);
+    const extras = Object.entries(profiles)
+      .filter(([name]) => !inOrder.has(name))
+      .map(([name, entry]) => ({ name, ...entry }));
+    return [...ordered, ...extras];
+  }, [profiles, profileOrder]);
+
+  const daemonConfigLoaded = !!daemonConfig;
+
   // Seed drafts once per open, but defer until BOTH the catalog and the daemon
-  // config have loaded. Without the daemonConfigLoaded gate, the catalog can
-  // resolve before daemonConfig, causing the effect to seal seeded.current=true
-  // on an empty persistedOverrides — later real overrides are then ignored, and
-  // clicking Save silently clears existing overrides (data loss).
+  // config have loaded.
   const catalogLoaded = !isLoading && !isError && !!catalog;
   const catalogCallSiteIds = useMemo(
     () => gatedCallSites.map((c) => c.id),
     [gatedCallSites],
   );
 
-  // Inner is only ever mounted when the modal is open, so no !isOpen branch needed.
-  // seeded.current resets to false automatically when the inner component unmounts.
   useEffect(() => {
     if (seeded.current) return;
     if (!catalogLoaded) return;
-    // If the caller explicitly signals that daemon config has not loaded yet,
-    // wait. When daemonConfigLoaded flips to true, persistedOverrides will
-    // have updated too, re-triggering this effect with real data.
-    // (undefined = caller didn't pass the flag; treat as loaded for compat.)
     if (daemonConfigLoaded === false) return;
     const initial: Record<string, CallSiteOverrideDraft | null> = {};
     for (const id of catalogCallSiteIds) {
@@ -244,13 +222,8 @@ function CallSiteOverridesModalInner({
   );
 
   const hasUnsavedDrafts = useMemo(() => {
-    // Guard: drafts haven't been seeded yet (catalog still loading) — Save must stay disabled.
-    // seeded.current is set synchronously before setDrafts, so this memo sees the correct
-    // value on the re-render triggered by setDrafts.
     // eslint-disable-next-line react-hooks/refs -- synchronous flag set before setState
     if (!seeded.current) return false;
-    // Use catalog IDs only (keys of drafts) — orphaned stale overrides in
-    // persistedOverrides that aren't in the catalog stay untouched.
     for (const id of Object.keys(drafts)) {
       if (!draftsEqual(drafts[id], persistedOverrides[id])) return true;
     }
@@ -265,12 +238,6 @@ function CallSiteOverridesModalInner({
     [drafts],
   );
 
-  // Builds the profile picker options for a single row. The currently
-  // selected profile (if any and currently disabled) stays in the option
-  // list so the trigger can render a label — otherwise the dropdown would
-  // show empty when an override targets a now-disabled profile. New
-  // selections of *other* disabled profiles are still blocked by the
-  // filter (they simply don't appear).
   const queryComplexityRoutingEnabled =
     useAssistantFeatureFlagStore.use.queryComplexityRouting();
 
@@ -394,7 +361,6 @@ function CallSiteOverridesModalInner({
     setSaving(true);
     onSavingChange?.(true);
     try {
-      // Use catalog IDs only (keys of drafts) — orphaned stale overrides stay untouched.
       const patch: Record<string, CallSiteOverrideDraft | null> = {};
       for (const id of Object.keys(drafts)) {
         const d = drafts[id] ?? null;
@@ -402,14 +368,7 @@ function CallSiteOverridesModalInner({
           ? { profile: d?.profile ?? null, provider: d?.provider ?? null, model: d?.model ?? null }
           : null;
       }
-      await client.patch({
-        url: `/v1/assistants/{assistant_id}/config`,
-        path: { assistant_id: assistantId },
-        body: { llm: { callSites: patch } },
-        headers: { "Content-Type": "application/json" },
-        throwOnError: true,
-      });
-      onSaved();
+      await configMutation.mutateAsync({ llm: { callSites: patch } });
       onClose();
       toast.success("Overrides saved.");
     } catch (error) {
@@ -419,25 +378,17 @@ function CallSiteOverridesModalInner({
       setSaving(false);
       onSavingChange?.(false);
     }
-  }, [assistantId, drafts, onClose, onSaved, persistedOverrides]);
+  }, [drafts, onClose, configMutation, onSavingChange]);
 
   const handleReset = useCallback(async () => {
     setSaving(true);
     onSavingChange?.(true);
     try {
-      // Use catalog IDs only (keys of drafts) — orphaned stale overrides stay untouched.
       const resetPatch: Record<string, null> = {};
       for (const id of Object.keys(drafts)) {
         resetPatch[id] = null;
       }
-      await client.patch({
-        url: `/v1/assistants/{assistant_id}/config`,
-        path: { assistant_id: assistantId },
-        body: { llm: { callSites: resetPatch } },
-        headers: { "Content-Type": "application/json" },
-        throwOnError: true,
-      });
-      onSaved();
+      await configMutation.mutateAsync({ llm: { callSites: resetPatch } });
       onClose();
       toast.success("Overrides reset.");
     } catch (error) {
@@ -447,7 +398,7 @@ function CallSiteOverridesModalInner({
       setSaving(false);
       onSavingChange?.(false);
     }
-  }, [assistantId, drafts, onClose, onSaved, persistedOverrides]);
+  }, [drafts, onClose, configMutation, onSavingChange]);
 
   // ---------------------------------------------------------------------------
   // Render
@@ -524,11 +475,6 @@ function CallSiteOverridesModalInner({
                         label: m.displayName,
                       }));
                       const hasModelError = !!draft?.provider && !draft?.model;
-                      // Row-specific profile options — keeps the row's
-                      // currently-selected profile visible even if it's now
-                      // disabled. profileVal is "" or CUSTOM_SENTINEL when
-                      // no profile is in play, so we pass null in those
-                      // cases (visibleProfilesForPicker ignores null).
                       const profileOptions = buildProfileOptionsForRow(
                         profileVal === "" || profileVal === CUSTOM_SENTINEL ? null : profileVal,
                       );
@@ -538,7 +484,6 @@ function CallSiteOverridesModalInner({
                           key={cs.id}
                           className="rounded-lg border border-[var(--border-base)] bg-[var(--surface-base)] p-3"
                         >
-                          {/* Row: name + description on left, picker + toggle on right */}
                           <div className="flex items-start gap-3">
                             <div className="min-w-0 flex-1">
                               {/* typography: off-scale — call-site name uses medium weight for visual hierarchy within card */}

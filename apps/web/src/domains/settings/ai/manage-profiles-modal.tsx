@@ -1,25 +1,25 @@
 import { GripVertical, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@vellum/design-library/components/button";
 import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Toggle } from "@vellum/design-library/components/toggle";
 import { Modal } from "@vellum/design-library/components/modal";
 import { Tag } from "@vellum/design-library/components/tag";
 import { Typography } from "@vellum/design-library/components/typography";
-import { client } from "@/generated/api/client.gen";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
-import type { ProfileEntry } from "@/domains/settings/ai/ai-types";
+import type { DaemonConfig, ProfileEntry } from "@/domains/settings/ai/ai-types";
 import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal";
 import {
   AUTO_PROFILE_NAME,
   gateAutoProfile,
 } from "@/domains/settings/ai/profile-pickers";
 import { inferenceProviderconnectionsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
-
 import { filterFlaggedConnections } from "@/domains/settings/ai/provider-connections-client";
+import { useDaemonConfig, useDaemonConfigMutation } from "@/domains/settings/ai/use-daemon-config";
+import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -32,18 +32,8 @@ export interface Profile {
   label?: string | null;
   description?: string | null;
   provider?: string | null;
-  /**
-   * Optional name of a `provider_connections` row this profile is bound to.
-   * Mirrors `ProfileEntry.provider_connection` — snake_case both on the
-   * wire AND on this in-memory shape (matches the daemon's Zod schema in
-   * `assistant/src/config/schemas/llm.ts` and the existing `ProfileEntry`
-   * convention in `page.tsx`). Used by `ProfileEditorModal` to populate
-   * the per-provider Connection sub-dropdown when re-opening a profile.
-   */
   provider_connection?: string | null;
   model?: string | null;
-  // Advanced inference params — passed through from the stored ProfileEntry
-  // so ProfileEditorModal can initialize them correctly in edit/view mode.
   maxTokens?: number;
   effort?: string;
   speed?: string;
@@ -62,18 +52,32 @@ interface BlockedDeleteState {
 
 interface ManageProfilesModalProps {
   isOpen: boolean;
-  profiles: Record<string, ProfileEntry>;
-  profileOrder: string[];
-  activeProfile: string | null;
   assistantId: string;
-  callSiteOverrides: Record<string, { profile?: string | null } | null | undefined>;
   onClose: () => void;
-  onProfilesChanged: (updates: {
-    profiles?: Record<string, ProfileEntry | null>;
-    profileOrder?: string[];
-    activeProfile?: string | null;
-    callSites?: Record<string, string>;
-  }) => void;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function profileEntryToProfile(name: string, entry: ProfileEntry): Profile {
+  return {
+    name,
+    source: entry.source,
+    status: entry.status ?? "active",
+    label: entry.label ?? undefined,
+    description: entry.description ?? undefined,
+    provider: entry.provider ?? undefined,
+    provider_connection: entry.provider_connection ?? undefined,
+    model: entry.model ?? undefined,
+    maxTokens: entry.maxTokens,
+    effort: entry.effort,
+    speed: entry.speed,
+    verbosity: entry.verbosity,
+    temperature: entry.temperature,
+    thinking: entry.thinking,
+    contextWindow: entry.contextWindow,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -82,22 +86,22 @@ interface ManageProfilesModalProps {
 
 export function ManageProfilesModal({
   isOpen,
-  profiles,
-  profileOrder,
-  activeProfile,
   assistantId,
-  callSiteOverrides,
   onClose,
-  onProfilesChanged,
 }: ManageProfilesModalProps) {
+  const {
+    profiles,
+    profileOrder,
+    activeProfile,
+    callSites,
+  } = useDaemonConfig();
+  const configMutation = useDaemonConfigMutation();
+
   const openAICompatibleEndpoints = useAssistantFeatureFlagStore.use.openAICompatibleEndpoints();
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState<Profile | null>(null);
 
   // Provider connections — shared TanStack Query cache with ManageProvidersModal.
-  // `undefined` vs `[]` is meaningful: `undefined` means the query hasn't
-  // resolved yet (editor falls back to the full catalog); `[]` means zero
-  // connections exist (editor shows empty-state hint).
   const { data: connectionsData } = useQuery({
     ...inferenceProviderconnectionsGetOptions({
       path: { assistant_id: assistantId },
@@ -125,163 +129,49 @@ export function ManageProfilesModal({
     // Merge mode (view-mode managed-profile policy edits): send a single
     // deep-merge PATCH so the caller's partial `entry` (typically just
     // `{label, status}`) layers on top of the existing record without
-    // wiping seed-owned fields. Skip the delete-then-recreate cycle that
-    // replace mode uses. Codex P1 / Devin 🔴 on PR #6543: without this
-    // branch, view-mode Save would destroy provider/model/advanced params
-    // because the recreate step writes back ONLY the partial entry.
+    // wiping seed-owned fields.
     if (mode === "merge" && !isNew) {
-      await client.patch({
-        url: `/v1/assistants/{assistant_id}/config`,
-        path: { assistant_id: assistantId },
-        body: { llm: { profiles: { [name]: entry } } },
-        headers: { "Content-Type": "application/json" },
-        throwOnError: true,
-      });
-      // Mirror the server's deep-merge in the in-memory state so the
-      // parent's profile map stays consistent with what's on disk.
-      const mergedEntry: ProfileEntry = {
-        ...profiles[name],
-        ...entry,
-      };
-      onProfilesChanged({ profiles: { [name]: mergedEntry } });
+      await configMutation.mutateAsync({ llm: { profiles: { [name]: entry } } });
       setEditorOpen(false);
       setEditingProfile(null);
       return;
     }
 
-    const updates: {
-      profiles: Record<string, ProfileEntry>;
-      profileOrder?: string[];
-    } = {
-      profiles: { [name]: entry },
-    };
-    // Build a single atomic PATCH so profile + profileOrder land together.
     const llmPatch: {
       profiles: Record<string, ProfileEntry>;
       profileOrder?: string[];
     } = { profiles: { [name]: entry } };
     if (isNew) {
-      // Dedup guard: skip append if name already in profileOrder (stale config).
       const newOrder = profileOrder.includes(name)
         ? profileOrder
         : [...profileOrder, name];
       llmPatch.profileOrder = newOrder;
-      updates.profileOrder = newOrder;
     }
+
     // For edits: delete the existing profile fragment first so the new entry
     // is a clean replacement rather than a deep-merge. This lets the user
-    // reset advanced params (maxTokens, effort, speed, etc.) back to "inherit"
-    // by using the Inherit button — without this step, deep-merge semantics
-    // in deepMergeOverwrite would silently preserve old values for omitted keys.
-    // deepMergeOverwrite treats { profiles: { [name]: null } } as a delete-sentinel
-    // for the object key, completely removing the profile fragment from config.
-    //
-    // Rollback: if the recreate PATCH fails after the delete succeeds, we
-    // attempt to restore the original entry to avoid data loss. If rollback
-    // also fails, the error is still re-thrown so the caller surfaces it.
+    // reset advanced params back to "inherit" — without this step, deep-merge
+    // semantics would silently preserve old values for omitted keys.
     if (!isNew) {
       const oldEntry = profiles[name];
-      await client.patch({
-        url: `/v1/assistants/{assistant_id}/config`,
-        path: { assistant_id: assistantId },
-        body: { llm: { profiles: { [name]: null } } },
-        headers: { "Content-Type": "application/json" },
-        throwOnError: true,
-      });
+      await configMutation.mutateAsync({ llm: { profiles: { [name]: null } } });
       try {
-        await client.patch({
-          url: `/v1/assistants/{assistant_id}/config`,
-          path: { assistant_id: assistantId },
-          body: { llm: llmPatch },
-          headers: { "Content-Type": "application/json" },
-          throwOnError: true,
-        });
+        await configMutation.mutateAsync({ llm: llmPatch });
       } catch (recreateErr) {
         // Best-effort rollback: restore old entry so the profile isn't lost
         if (oldEntry != null) {
-          await client
-            .patch({
-              url: `/v1/assistants/{assistant_id}/config`,
-              path: { assistant_id: assistantId },
-              body: { llm: { profiles: { [name]: oldEntry } } },
-              headers: { "Content-Type": "application/json" },
-              throwOnError: true,
-            })
-            .catch(() => {
-              /* rollback failed — original error still propagates */
-            });
+          await configMutation.mutateAsync({ llm: { profiles: { [name]: oldEntry } } }).catch(() => {
+            /* rollback failed — original error still propagates */
+          });
         }
         throw recreateErr;
       }
     } else {
-      await client.patch({
-        url: `/v1/assistants/{assistant_id}/config`,
-        path: { assistant_id: assistantId },
-        body: { llm: llmPatch },
-        headers: { "Content-Type": "application/json" },
-        throwOnError: true,
-      });
+      await configMutation.mutateAsync({ llm: llmPatch });
     }
-    onProfilesChanged(updates);
+
     setEditorOpen(false);
     setEditingProfile(null);
-  }
-
-  // `profiles` is captured at handler-definition time; we need the LATEST
-  // entry inside the rollback path so concurrent edits (e.g. user opens the
-  // editor mid-toggle and saves new fields) aren't clobbered when restoring
-  // `status`. The ref is updated on every render — reads are deferred to
-  // rollback so the closure stays fresh. (Codex P2, iter2 round 2.)
-  const profilesRef = useRef(profiles);
-  useEffect(() => {
-    profilesRef.current = profiles;
-  });
-
-  async function handleStatusToggle(
-    profile: Profile,
-    active: boolean,
-  ): Promise<boolean> {
-    const wireStatus: "active" | "disabled" = active ? "active" : "disabled";
-    const previousEntry = profiles[profile.name];
-    if (!previousEntry) return false;
-    const previousStatus = previousEntry.status;
-
-    // Optimistic update via the parent's onProfilesChanged. The parent
-    // owns the profiles state map and re-renders the modal with the
-    // flipped status; this mirrors how the editor save flow propagates
-    // changes upward.
-    onProfilesChanged({
-      profiles: {
-        [profile.name]: { ...previousEntry, status: wireStatus },
-      },
-    });
-    try {
-      await client.patch({
-        url: `/v1/assistants/{assistant_id}/config`,
-        path: { assistant_id: assistantId },
-        body: { llm: { profiles: { [profile.name]: { status: wireStatus } } } },
-        headers: { "Content-Type": "application/json" },
-        throwOnError: true,
-      });
-      return true;
-    } catch {
-      // Selective rollback: restore only `status` on top of whatever the
-      // LATEST profile entry is. If the user saved an edit while this
-      // PATCH was in flight, those new fields survive — we only undo our
-      // own optimistic status flip.
-      const latestEntry = profilesRef.current[profile.name];
-      if (!latestEntry) {
-        // Profile was deleted while toggle was in flight — nothing to
-        // restore.
-        return false;
-      }
-      onProfilesChanged({
-        profiles: {
-          [profile.name]: { ...latestEntry, status: previousStatus },
-        },
-      });
-      return false;
-    }
   }
 
   return (
@@ -298,9 +188,8 @@ export function ManageProfilesModal({
             profileOrder={profileOrder}
             activeProfile={activeProfile}
             assistantId={assistantId}
-            callSiteOverrides={callSiteOverrides}
+            callSiteOverrides={callSites}
             onClose={onClose}
-            onProfilesChanged={onProfilesChanged}
             onEditClick={(profile) => {
               setEditingProfile(profile);
               setEditorOpen(true);
@@ -309,7 +198,6 @@ export function ManageProfilesModal({
               setEditingProfile(null);
               setEditorOpen(true);
             }}
-            onStatusToggle={handleStatusToggle}
           />
         ) : null}
       </Modal.Root>
@@ -349,19 +237,8 @@ interface ManageProfilesModalInnerProps {
   assistantId: string;
   callSiteOverrides: Record<string, { profile?: string | null } | null | undefined>;
   onClose: () => void;
-  onProfilesChanged: (updates: {
-    profiles?: Record<string, ProfileEntry | null>;
-    profileOrder?: string[];
-    activeProfile?: string | null;
-    callSites?: Record<string, string>;
-  }) => void;
   onEditClick: (profile: Profile) => void;
   onNewClick: () => void;
-  /// Inline row-status toggle. Returns `true` on success, `false` on
-  /// failure (after the outer wrapper has already rolled back the
-  /// optimistic update). The inner uses this to surface a transient
-  /// error string when the daemon PATCH fails.
-  onStatusToggle: (profile: Profile, active: boolean) => Promise<boolean>;
 }
 
 function ManageProfilesModalInner({
@@ -371,48 +248,23 @@ function ManageProfilesModalInner({
   assistantId,
   callSiteOverrides,
   onClose,
-  onProfilesChanged,
   onEditClick,
   onNewClick,
-  onStatusToggle,
 }: ManageProfilesModalInnerProps) {
+  const configMutation = useDaemonConfigMutation();
+  const queryClient = useQueryClient();
+  const queryKey = assistantDaemonConfigQueryKey(assistantId);
+
   const [deleteErrors, setDeleteErrors] = useState<Record<string, string>>({});
   const [deleting, setDeleting] = useState<Record<string, boolean>>({});
-  /// Guards against overlapping toggles for the same profile so a rapid
-  /// off→on→off sequence can't produce out-of-order PATCH responses
-  /// that clobber the user's final intent. Mirrors `manage-providers-modal`.
   const [togglingNames, setTogglingNames] = useState<Set<string>>(new Set());
   const [toggleError, setToggleError] = useState<string | null>(null);
-
-  async function handleRowStatusToggle(profile: Profile, active: boolean) {
-    if (togglingNames.has(profile.name)) return;
-    setTogglingNames((prev) => new Set(prev).add(profile.name));
-    setToggleError(null);
-    try {
-      const ok = await onStatusToggle(profile, active);
-      if (!ok) {
-        setToggleError(
-          `Couldn't update "${profile.label ?? profile.name}". Please try again.`,
-        );
-      }
-    } finally {
-      setTogglingNames((prev) => {
-        const next = new Set(prev);
-        next.delete(profile.name);
-        return next;
-      });
-    }
-  }
 
   // Drag-and-drop state
   const [draggingName, setDraggingName] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<{ name: string; after: boolean } | null>(null);
   const [reorderError, setReorderError] = useState<string | null>(null);
-  // Tracks the last order successfully persisted to the server. Used for
-  // rollback so that a failed drag doesn't undo a concurrent successful one.
   const lastConfirmedOrderRef = useRef<string[]>(profileOrder);
-  // Refs allow the onDrop handler to read the latest drag state without
-  // depending on React's batched state flushing across fireEvent calls.
   const draggingNameRef = useRef<string | null>(null);
   const dropTargetRef = useRef<{ name: string; after: boolean } | null>(null);
 
@@ -422,56 +274,93 @@ function ManageProfilesModalInner({
   const [blockedDeleteReplacement, setBlockedDeleteReplacement] = useState("");
   const [blockedDeleteSaving, setBlockedDeleteSaving] = useState(false);
 
+  const queryComplexityRouting = useAssistantFeatureFlagStore.use.queryComplexityRouting();
+
   // Build ordered profile list
-  const orderedProfiles: Profile[] = profileOrder
-    .filter((name) => name in profiles)
-    .map((name) => {
-      const entry = profiles[name]!;
+  const allOrderedProfiles: Profile[] = useMemo(() => {
+    const ordered = profileOrder
+      .filter((name) => name in profiles)
+      .map((name) => profileEntryToProfile(name, profiles[name]!));
+    const inOrder = new Set(profileOrder);
+    const extras = Object.entries(profiles)
+      .filter(([name]) => !inOrder.has(name))
+      .map(([name, entry]) => profileEntryToProfile(name, entry));
+    return gateAutoProfile(
+      [...ordered, ...extras],
+      queryComplexityRouting,
+    );
+  }, [profiles, profileOrder, queryComplexityRouting]);
+
+  async function handleStatusToggle(
+    profile: Profile,
+    active: boolean,
+  ): Promise<boolean> {
+    if (togglingNames.has(profile.name)) return false;
+    setTogglingNames((prev) => new Set(prev).add(profile.name));
+    setToggleError(null);
+
+    const wireStatus: "active" | "disabled" = active ? "active" : "disabled";
+    const previousEntry = profiles[profile.name];
+    if (!previousEntry) {
+      setTogglingNames((prev) => {
+        const next = new Set(prev);
+        next.delete(profile.name);
+        return next;
+      });
+      return false;
+    }
+
+    // Cancel in-flight refetches so they don't overwrite the optimistic update.
+    // See: https://tkdodo.eu/blog/concurrent-optimistic-updates-in-react-query
+    await queryClient.cancelQueries({ queryKey });
+
+    const previousStatus = previousEntry.status ?? "active";
+    queryClient.setQueryData<DaemonConfig>(queryKey, (old) => {
+      if (!old?.llm?.profiles?.[profile.name]) return old;
       return {
-        name,
-        source: entry.source,
-        status: entry.status ?? "active",
-        label: entry.label ?? undefined,
-        description: entry.description ?? undefined,
-        provider: entry.provider ?? undefined,
-        provider_connection: entry.provider_connection ?? undefined,
-        model: entry.model ?? undefined,
-        maxTokens: entry.maxTokens,
-        effort: entry.effort,
-        speed: entry.speed,
-        verbosity: entry.verbosity,
-        temperature: entry.temperature,
-        thinking: entry.thinking,
-        contextWindow: entry.contextWindow,
+        ...old,
+        llm: {
+          ...old.llm,
+          profiles: {
+            ...old.llm.profiles,
+            [profile.name]: { ...old.llm.profiles[profile.name], status: wireStatus },
+          },
+        },
       };
     });
 
-  // Profiles not explicitly in profileOrder but in profiles map
-  const profileNames = new Set(profileOrder);
-  const extraProfiles: Profile[] = Object.entries(profiles)
-    .filter(([name]) => !profileNames.has(name))
-    .map(([name, entry]) => ({
-      name,
-      source: entry.source,
-      status: entry.status ?? "active",
-      label: entry.label ?? undefined,
-      description: entry.description ?? undefined,
-      provider: entry.provider ?? undefined,
-      provider_connection: entry.provider_connection ?? undefined,
-      model: entry.model ?? undefined,
-      maxTokens: entry.maxTokens,
-      effort: entry.effort,
-      speed: entry.speed,
-      verbosity: entry.verbosity,
-      temperature: entry.temperature,
-      thinking: entry.thinking,
-      contextWindow: entry.contextWindow,
-    }));
-
-  const allOrderedProfiles = gateAutoProfile(
-    [...orderedProfiles, ...extraProfiles],
-    useAssistantFeatureFlagStore.use.queryComplexityRouting(),
-  );
+    try {
+      await configMutation.mutateAsync({
+        llm: { profiles: { [profile.name]: { status: wireStatus } } },
+      });
+      return true;
+    } catch {
+      // Rollback only the toggled field to avoid overwriting concurrent cache updates
+      queryClient.setQueryData<DaemonConfig>(queryKey, (old) => {
+        if (!old?.llm?.profiles?.[profile.name]) return old;
+        return {
+          ...old,
+          llm: {
+            ...old.llm,
+            profiles: {
+              ...old.llm.profiles,
+              [profile.name]: { ...old.llm.profiles[profile.name], status: previousStatus },
+            },
+          },
+        };
+      });
+      setToggleError(
+        `Couldn't update "${profile.label ?? profile.name}". Please try again.`,
+      );
+      return false;
+    } finally {
+      setTogglingNames((prev) => {
+        const next = new Set(prev);
+        next.delete(profile.name);
+        return next;
+      });
+    }
+  }
 
   async function handleDelete(name: string) {
     setDeleting((prev) => ({ ...prev, [name]: true }));
@@ -482,16 +371,8 @@ function ManageProfilesModalInner({
     });
     try {
       const newOrder = profileOrder.filter((n) => n !== name);
-      await client.patch({
-        url: `/v1/assistants/{assistant_id}/config`,
-        path: { assistant_id: assistantId },
-        body: { llm: { profiles: { [name]: null }, profileOrder: newOrder } },
-        headers: { "Content-Type": "application/json" },
-        throwOnError: true,
-      });
-      onProfilesChanged({
-        profiles: { [name]: null },
-        profileOrder: newOrder,
+      await configMutation.mutateAsync({
+        llm: { profiles: { [name]: null }, profileOrder: newOrder },
       });
     } catch {
       setDeleteErrors((prev) => ({
@@ -546,27 +427,7 @@ function ManageProfilesModalInner({
 
     if (Object.keys(patches).length > 0) {
       try {
-        await client.patch({
-          url: `/v1/assistants/{assistant_id}/config`,
-          path: { assistant_id: assistantId },
-          body: { llm: patches },
-          headers: { "Content-Type": "application/json" },
-          throwOnError: true,
-        });
-        // Propagate all reassigned fields so the parent can invalidate its
-        // cache. This matters if the subsequent delete PATCH fails — without
-        // this call the parent's callSiteOverrides would stay stale and the
-        // user would see the blocked-delete modal again on retry.
-        const callSiteUpdate =
-          blockedDelete.callSiteIds.length > 0
-            ? Object.fromEntries(
-                blockedDelete.callSiteIds.map((id) => [id, blockedDeleteReplacement]),
-              )
-            : undefined;
-        onProfilesChanged({
-          ...(blockedDelete.isActive && { activeProfile: blockedDeleteReplacement }),
-          ...(callSiteUpdate && { callSites: callSiteUpdate }),
-        });
+        await configMutation.mutateAsync({ llm: patches });
       } catch {
         setBlockedDeleteError("Failed to reassign references. Please try again.");
         setBlockedDeleteSaving(false);
@@ -585,14 +446,10 @@ function ManageProfilesModalInner({
     target: { name: string; after: boolean },
   ) {
     if (sourceName === target.name) return;
-    // Clear any lingering error from a previous failed drag.
     setReorderError(null);
 
     const without = profileOrder.filter((n) => n !== sourceName);
     let insertAt = without.indexOf(target.name);
-    // Extra profiles (not in profileOrder) are valid drag targets but have no
-    // defined position — silently ignore drops onto them to avoid corrupting
-    // the order (indexOf would return -1 and slice(0, -1) would drop the last entry).
     if (insertAt === -1) return;
     if (target.after) insertAt += 1;
     const newOrder = [
@@ -601,31 +458,34 @@ function ManageProfilesModalInner({
       ...without.slice(insertAt),
     ];
 
-    // Optimistic update
-    onProfilesChanged({ profileOrder: newOrder });
+    // Cancel in-flight refetches so they don't overwrite the optimistic update.
+    await queryClient.cancelQueries({ queryKey });
+
+    queryClient.setQueryData<DaemonConfig>(queryKey, (old) => {
+      if (!old?.llm) return old;
+      return {
+        ...old,
+        llm: { ...old.llm, profileOrder: newOrder },
+      };
+    });
 
     try {
-      await client.patch({
-        url: `/v1/assistants/{assistant_id}/config`,
-        path: { assistant_id: assistantId },
-        body: { llm: { profileOrder: newOrder } },
-        headers: { "Content-Type": "application/json" },
-        throwOnError: true,
-      });
-      // Record the confirmed server state so concurrent-drag rollbacks
-      // don't accidentally undo a later successful reorder.
+      await configMutation.mutateAsync({ llm: { profileOrder: newOrder } });
       lastConfirmedOrderRef.current = newOrder;
     } catch {
-      // Roll back to last confirmed server state, not the pre-drag capture,
-      // so a failed drag doesn't undo a concurrent successful one.
-      onProfilesChanged({ profileOrder: lastConfirmedOrderRef.current });
+      // Rollback to last confirmed server state
+      queryClient.setQueryData<DaemonConfig>(queryKey, (old) => {
+        if (!old?.llm) return old;
+        return {
+          ...old,
+          llm: { ...old.llm, profileOrder: lastConfirmedOrderRef.current },
+        };
+      });
       setReorderError("Failed to reorder profiles. Please try again.");
     }
   }
 
-  // Prefer non-managed profiles as replacement targets. Fall back to managed
-  // profiles when there are no user profiles left — otherwise the modal could
-  // show an empty picker with no way for the user to proceed.
+  // Prefer non-managed profiles as replacement targets
   const userReplacements = allOrderedProfiles.filter(
     (p) => p.name !== blockedDelete?.name && p.source !== "managed",
   );
@@ -719,7 +579,7 @@ function ManageProfilesModalInner({
                         className={`h-4 w-4 shrink-0 ${isManaged ? "invisible" : "cursor-grab text-[var(--content-tertiary)]"}`}
                       />
 
-                      {/* Label — dimmed when disabled (matches macOS opacity) */}
+                      {/* Label — dimmed when disabled */}
                       <div
                         className={`min-w-0 flex-1${isActive ? "" : " opacity-55"}`}
                       >
@@ -762,8 +622,6 @@ function ManageProfilesModalInner({
 
                       {/* Actions */}
                       <div className="flex shrink-0 items-center gap-2">
-                        {/* Keep toggle first in the action order; align it by
-                            reserving a fixed-width slot for trailing buttons. */}
                         <div
                           className="flex shrink-0 items-center"
                           title={
@@ -775,7 +633,7 @@ function ManageProfilesModalInner({
                           <Toggle
                             checked={isActive}
                             onChange={(next) =>
-                              void handleRowStatusToggle(profile, next)
+                              void handleStatusToggle(profile, next)
                             }
                             disabled={isToggling}
                             aria-label={`${isActive ? "Disable" : "Enable"} ${profile.label ?? profile.name}`}

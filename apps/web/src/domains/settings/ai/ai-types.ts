@@ -54,9 +54,6 @@ export interface DaemonConfig {
 export interface DaemonConfigReconciliation {
   inferenceProvider?: string;
   selectedModel?: string;
-  activeProfile?: string | null;
-  profiles?: Record<string, ProfileEntry>;
-  profileOrder?: string[];
   webSearchMode?: ServiceMode;
   webSearchProvider?: string;
   imageGenMode?: ServiceMode;

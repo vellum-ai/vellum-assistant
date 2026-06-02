@@ -8,9 +8,15 @@
  * Uses the generated `configGetQueryKey` so that SSE-driven invalidation
  * (via `use-assistant-resource-sync`) and component-level invalidation all
  * target the same cache entry.
+ *
+ * The query cache is the single source of truth for daemon config state.
+ * Components derive profiles, profileOrder, activeProfile, and callSites
+ * directly from the cache — no `useState` copies. Mutations use
+ * `useDaemonConfigMutation` which automatically invalidates the cache
+ * on settle, propagating updates to all consumers.
  */
 
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -20,20 +26,24 @@ import {
 } from "@/generated/api/@tanstack/react-query.gen";
 import {
   configGet,
+  configPatch,
   secretsPost,
   modelImagegenPut,
 } from "@/generated/daemon/sdk.gen";
-import { client } from "@/generated/api/client.gen";
 import { captureError } from "@/lib/sentry/capture-error";
 import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
 import { assertProvisionSuccess } from "@/domains/settings/ai/ai-utils";
-import type { DaemonConfig } from "@/domains/settings/ai/ai-types";
+import type { DaemonConfig, ProfileEntry } from "@/domains/settings/ai/ai-types";
+import type { CallSiteOverrideDraft } from "@/domains/settings/ai/call-site-overrides-modal";
 
 /**
  * Hook providing the daemon config query and common mutation helpers.
  *
  * Each consumer gets the same TanStack Query cache entry (queries are
  * deduplicated by key). Cards that only read config pay no extra cost.
+ *
+ * Typed slices (profiles, profileOrder, etc.) are derived via `useMemo`
+ * from the raw config — no `useState` copies, no hydration effects.
  */
 export function useDaemonConfig() {
   const queryClient = useQueryClient();
@@ -58,6 +68,27 @@ export function useDaemonConfig() {
     staleTime: 30_000,
     refetchOnWindowFocus: false,
   });
+
+  const config = configQuery.data;
+
+  // Typed slices derived from the query cache — stable references when
+  // the underlying data hasn't changed.
+  const profiles: Record<string, ProfileEntry> = useMemo(
+    () => config?.llm?.profiles ?? {},
+    [config?.llm?.profiles],
+  );
+  const profileOrder: string[] = useMemo(
+    () => config?.llm?.profileOrder ?? [],
+    [config?.llm?.profileOrder],
+  );
+  const activeProfile: string | null = useMemo(
+    () => config?.llm?.activeProfile ?? null,
+    [config?.llm?.activeProfile],
+  );
+  const callSites: Record<string, CallSiteOverrideDraft | null | undefined> = useMemo(
+    () => config?.llm?.callSites ?? {},
+    [config?.llm?.callSites],
+  );
 
   const invalidateConfig = useCallback(() => {
     void queryClient.invalidateQueries({
@@ -96,22 +127,22 @@ export function useDaemonConfig() {
     [resolveAssistantId],
   );
 
-  // PATCHes `assistants/{id}/config`, which Django's RuntimeProxyWildcardView
-  // forwards to the daemon. The generated `configPatch` has `body?: never`
-  // because the OpenAPI spec doesn't define a request body yet, so we use the
-  // raw client for now.
   const patchConfigMutation = useMutation({
     mutationFn: async (vars: {
       assistantId: string;
       partial: Record<string, unknown>;
     }) => {
-      const { data } = await client.patch<Record<string, unknown>, unknown, true>({
-        url: `/v1/assistants/{assistant_id}/config`,
+      const { data } = await configPatch({
         path: { assistant_id: vars.assistantId },
         body: vars.partial,
         throwOnError: true,
       });
       return data;
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({
+        queryKey: assistantDaemonConfigQueryKey(assistantId),
+      });
     },
   });
 
@@ -145,6 +176,11 @@ export function useDaemonConfig() {
       });
       return data;
     },
+    onSettled: () => {
+      void queryClient.invalidateQueries({
+        queryKey: assistantDaemonConfigQueryKey(assistantId),
+      });
+    },
   });
 
   const setImageGenModelOnDaemon = useCallback(
@@ -173,9 +209,47 @@ export function useDaemonConfig() {
     assistantHandle,
     config: configQuery.data,
     configQuery,
+    profiles,
+    profileOrder,
+    activeProfile,
+    callSites,
     invalidateConfig,
     provisionProviderKey,
     patchDaemonConfig,
     setImageGenModelOnDaemon,
   };
+}
+
+/**
+ * Mutation hook for daemon config patches.
+ *
+ * Wraps `configPatch` in a `useMutation` with automatic cache invalidation
+ * on settle. Consumers get `isPending`, `error`, and `reset()` for free
+ * instead of maintaining parallel `useState` for loading/error state.
+ *
+ * For operations needing optimistic UI (toggle, reorder), callers use
+ * `onMutate` / `onError` with `queryClient.setQueryData` to write the
+ * cache optimistically and roll back on failure.
+ */
+export function useDaemonConfigMutation() {
+  const queryClient = useQueryClient();
+  const { data: assistantList } = useQuery(assistantsListOptions());
+  const assistantId = assistantList?.results?.[0]?.id;
+
+  return useMutation({
+    mutationFn: async (body: Record<string, unknown>) => {
+      if (!assistantId) throw new Error("No assistant found");
+      const { data } = await configPatch({
+        path: { assistant_id: assistantId },
+        body,
+        throwOnError: true,
+      });
+      return data;
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({
+        queryKey: assistantDaemonConfigQueryKey(assistantId),
+      });
+    },
+  });
 }
