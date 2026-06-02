@@ -2,8 +2,7 @@
  * Shared document persistence service.
  *
  * Extracted from documents-routes.ts so that both HTTP route handlers and
- * background jobs (e.g. proactive artifact generation) can persist documents
- * without going through the HTTP layer.
+ * background jobs can persist documents without going through the HTTP layer.
  */
 import { rawAll, rawGet, rawRun } from "../memory/raw-query.js";
 import { getLogger } from "../util/logger.js";

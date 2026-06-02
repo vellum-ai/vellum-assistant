@@ -324,8 +324,7 @@ describe("conversation sync tags", () => {
     // unseen, `addMessage` emits `conversation:<id>:metadata` so the web
     // sidebar picks up the attention state change without a full list
     // refetch. This is the fix for LUM-1907: background processes that
-    // add assistant messages (notification delivery, proactive artifacts)
-    // now automatically notify clients.
+    // add assistant messages now automatically notify clients.
     const conversation = createConversation("Attention sync");
 
     const received = await captureEvents(async () => {

@@ -536,17 +536,6 @@ mock.module("../memory/llm-request-log-store.js", () => ({
   setAgentLoopExitReasonOnLatestLog: setAgentLoopExitReasonOnLatestLogMock,
 }));
 
-let mockHasProactiveArtifactCompleted = true;
-let mockTryClaimProactiveArtifactTrigger = false;
-const runProactiveArtifactJobMock = mock(
-  async (_params: Record<string, unknown>) => {},
-);
-mock.module("../proactive-artifact/index.js", () => ({
-  hasProactiveArtifactCompleted: () => mockHasProactiveArtifactCompleted,
-  tryClaimProactiveArtifactTrigger: () => mockTryClaimProactiveArtifactTrigger,
-  runProactiveArtifactJob: runProactiveArtifactJobMock,
-}));
-
 // ── Imports (after mocks) ────────────────────────────────────────────
 
 import {
@@ -871,9 +860,6 @@ beforeEach(() => {
     title: null,
   };
   mockMessageById = null;
-  mockHasProactiveArtifactCompleted = true;
-  mockTryClaimProactiveArtifactTrigger = false;
-  runProactiveArtifactJobMock.mockClear();
   setConversationHistoryStrippedAtMock.mockClear();
   setConversationHistoryStrippedAtMock.mockImplementation(() => {});
   applyRuntimeInjectionsMock.mockClear();
@@ -956,88 +942,6 @@ describe("session-agent-loop", () => {
       await expect(
         runAgentLoopImpl(ctx, "hello", "msg-1", () => {}),
       ).rejects.toThrow("runAgentLoop called without prior persistUserMessage");
-    });
-  });
-
-  describe("proactive artifact trigger", () => {
-    test("does not start proactive artifact jobs after foreground user turns", async () => {
-      mockConversationRow = {
-        ...mockConversationRow,
-        id: "test-conv",
-        conversationType: "standard",
-      };
-      mockMessageById = {
-        id: "user-msg-1",
-        conversationId: "test-conv",
-        createdAt: 1000,
-      };
-      mockHasProactiveArtifactCompleted = false;
-      mockTryClaimProactiveArtifactTrigger = true;
-
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent, options) => {
-        // Prime the assistant row anchor for LLM call 1 — production code
-        // emits this from `AgentLoop.run` just before `provider.sendMessage`.
-        await onEvent({ type: "llm_call_started" });
-        await onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "I'll build that app." }],
-          },
-        });
-        await onEvent({
-          type: "tool_use",
-          id: "tool-1",
-          name: "app_create",
-          input: { name: "Flow" },
-        });
-        await onEvent({
-          type: "tool_result",
-          toolUseId: "tool-1",
-          content: "{}",
-          isError: false,
-        });
-        await options?.onCheckpoint?.({
-          turnIndex: 0,
-          toolCount: 1,
-          hasToolUse: true,
-          history: messages,
-        });
-        // Prime the anchor again for LLM call 2 — multi-call agent turns
-        // reserve a fresh assistant row per LLM call.
-        await onEvent({ type: "llm_call_started" });
-        await onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "Done." }],
-          },
-        });
-        return [
-          ...messages,
-          {
-            role: "assistant" as const,
-            content: [{ type: "text" as const, text: "Done." }],
-          },
-        ];
-      };
-
-      const ctx = makeCtx({
-        conversationId: "test-conv",
-        agentLoopRun,
-      });
-      await runAgentLoopImpl(
-        ctx,
-        "build a kanban app",
-        "user-msg-1",
-        () => {},
-        {
-          isUserMessage: true,
-        },
-      );
-      await new Promise((resolve) => setTimeout(resolve, 0));
-
-      expect(runProactiveArtifactJobMock).toHaveBeenCalledTimes(0);
     });
   });
 
