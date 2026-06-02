@@ -1,4 +1,4 @@
-import * as Sentry from "@sentry/react";
+import { captureError } from "@/lib/sentry/capture-error";
 import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -153,9 +153,7 @@ export function useAttentionTracking({
         lastSeenOnOpenConversationIdRef.current = null;
       })
       .catch((err) => {
-        Sentry.captureException(err, {
-          tags: { context: "mark_conversation_seen" },
-        });
+        captureError(err, { context: "mark_conversation_seen" });
       });
 
     return () => {

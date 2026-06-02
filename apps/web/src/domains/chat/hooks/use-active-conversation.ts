@@ -16,7 +16,7 @@
  */
 
 import { useEffect, useMemo, useRef } from "react";
-import * as Sentry from "@sentry/browser";
+import { captureError } from "@/lib/sentry/capture-error";
 import { useQueryClient } from "@tanstack/react-query";
 
 import type { Conversation } from "@/types/conversation-types";
@@ -81,9 +81,7 @@ export function useActiveConversation(
       // Clear the guard so a later dependency change can retry a row that
       // failed to fetch transiently.
       fetchedConversationIdRef.current = null;
-      Sentry.captureException(error, {
-        tags: { context: "useActiveConversation.refreshRow" },
-      });
+      captureError(error, { context: "useActiveConversation.refreshRow" });
     });
   }, [enabled, assistantId, conversationId, activeConversation, queryClient]);
 

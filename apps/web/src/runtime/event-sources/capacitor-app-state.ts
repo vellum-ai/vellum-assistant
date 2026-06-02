@@ -1,4 +1,4 @@
-import * as Sentry from "@sentry/browser";
+import { captureError } from "@/lib/sentry/capture-error";
 import type { PluginListenerHandle } from "@capacitor/core";
 
 import { publish } from "@/lib/event-bus";
@@ -47,10 +47,7 @@ export function publishCapacitorAppStateSource(): () => void {
       handle = registered;
     })
     .catch((err) => {
-      Sentry.captureException(err, {
-        level: "warning",
-        tags: { context: "event_bus_capacitor_init" },
-      });
+      captureError(err, { context: "event_bus_capacitor_init", level: "warning" });
     });
 
   return () => {

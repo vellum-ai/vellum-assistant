@@ -10,7 +10,7 @@
  * transforms from `send-message-utils`.
  */
 
-import * as Sentry from "@sentry/react";
+import { captureError } from "@/lib/sentry/capture-error";
 import {
   type Dispatch,
   type MutableRefObject,
@@ -693,9 +693,7 @@ export function useSendMessage({
 
         void refreshConversations();
       } catch (err) {
-        Sentry.captureException(err, {
-          tags: { context: "send_chat_message" },
-        });
+        captureError(err, { context: "send_chat_message" });
         setError({ message: "Something went wrong. Please try again." });
         // Multi-key processing-key cleanup: when a send is retargeted
         // (e.g. draft → new conversation), both the original active key

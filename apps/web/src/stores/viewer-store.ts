@@ -20,7 +20,7 @@
  * Reference: {@link https://zustand.docs.pmnd.rs/}
  */
 
-import * as Sentry from "@sentry/react";
+import { captureError } from "@/lib/sentry/capture-error";
 import { create } from "zustand";
 
 import { appsByIdOpenPost, documentsByIdGet } from "@/generated/daemon/sdk.gen";
@@ -269,7 +269,7 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
       // `{ code: "NOT_FOUND", message }` body — and let the UI fall
       // back to chat as below. Unexpected failures still report.
       if (!isAppNotFoundError(err)) {
-        Sentry.captureException(err, { tags: { context: "openApp" } });
+        captureError(err, { context: "openApp" });
       }
       set({ mainView: "chat", activeAppId: null, openedAppState: null });
     }

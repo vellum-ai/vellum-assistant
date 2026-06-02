@@ -165,6 +165,28 @@ References:
 - [React Router — Lazy Loading (Data Mode)](https://reactrouter.com/start/data/custom#3-lazy-loading)
 - [React Router — `lazy` property](https://reactrouter.com/start/data/route-object#lazy)
 
+### Manual error reporting from imperative code
+
+For errors caught in `try/catch` blocks, `onError` callbacks, and other
+imperative code paths (as opposed to errors caught by error boundaries),
+use `captureError()` from `lib/sentry/capture-error.ts`:
+
+```ts
+import { captureError } from "@/lib/sentry/capture-error";
+
+captureError(err, { context: "my_operation" });
+```
+
+`captureError` handles: transient network-error filtering (via
+`isTransientNetworkError` in `utils/`), `console.error` logging, and
+Sentry capture with structured `context` tags. Toast/UI display stays
+at the call site — `captureError` never shows user-facing UI.
+
+**Do not use bare `Sentry.captureException`.** The only exceptions are
+framework-level integration points that need raw Sentry scope
+manipulation: `RouteErrorBoundary`, `RouterProvider.onError`, and
+`LazyBoundary`.
+
 ---
 
 ## Code organization

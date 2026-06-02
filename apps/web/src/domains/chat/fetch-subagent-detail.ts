@@ -6,7 +6,7 @@
  * shape instead of the SDK's pre-schema `unknown` events.
  */
 
-import * as Sentry from "@sentry/browser";
+import { captureError } from "@/lib/sentry/capture-error";
 import {
   SubagentDetailResponseSchema,
   type SubagentDetailResponse,
@@ -30,14 +30,12 @@ export async function fetchSubagentDetail(
     }
     const parsed = SubagentDetailResponseSchema.safeParse(data);
     if (!parsed.success) {
-      Sentry.captureException(parsed.error, {
-        tags: { operation: "fetchSubagentDetail" },
-      });
+      captureError(parsed.error, { context: "fetchSubagentDetail" });
       return null;
     }
     return parsed.data;
   } catch (err) {
-    Sentry.captureException(err, { tags: { operation: "fetchSubagentDetail" } });
+    captureError(err, { context: "fetchSubagentDetail" });
     return null;
   }
 }

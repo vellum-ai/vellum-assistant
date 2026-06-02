@@ -1,4 +1,4 @@
-import * as Sentry from "@sentry/browser";
+import { captureError } from "@/lib/sentry/capture-error";
 import { useQuery } from "@tanstack/react-query";
 import {
   useCallback,
@@ -364,9 +364,7 @@ export function PreChatFlow() {
     try {
       setOnboardingCompleted(true);
     } catch (err) {
-      Sentry.captureException(err, {
-        tags: { context: "prechat_mark_onboarding_completed" },
-      });
+      captureError(err, { context: "prechat_mark_onboarding_completed" });
     }
     clearPrivacyConsent();
     // User finished pre-chat; the post-hatch greeting is forthcoming.

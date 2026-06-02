@@ -22,6 +22,7 @@
  */
 
 import * as Sentry from "@sentry/react";
+import { captureError } from "@/lib/sentry/capture-error";
 
 import { useStreamStore } from "@/domains/chat/stream-store";
 import {
@@ -92,14 +93,10 @@ export function createReconcileOnReopen(
           cause,
           message: err instanceof Error ? err.message : String(err),
         });
-        Sentry.captureException(err, {
+        captureError(err, {
+          context: "sse_resume_reconcile",
           level: "warning",
-          tags: {
-            context: "sse_resume_reconcile",
-            cause,
-            platform: resolvePlatformTag(),
-          },
-          extra: { assistantId, conversationId, epoch },
+          extra: { assistantId, conversationId, epoch, cause, platform: resolvePlatformTag() },
         });
       });
       deps.startReconciliationLoop(epoch);
@@ -143,14 +140,10 @@ async function runTransportRecoveryReconcile(
       cause,
       message: err instanceof Error ? err.message : String(err),
     });
-    Sentry.captureException(err, {
+    captureError(err, {
+      context: "sse_transport_recovery",
       level: "warning",
-      tags: {
-        context: "sse_transport_recovery",
-        cause,
-        platform: resolvePlatformTag(),
-      },
-      extra: { assistantId, conversationId, epoch },
+      extra: { assistantId, conversationId, epoch, cause, platform: resolvePlatformTag() },
     });
     return;
   }

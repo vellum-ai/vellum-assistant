@@ -1,4 +1,4 @@
-import * as Sentry from "@sentry/react";
+import { captureError } from "@/lib/sentry/capture-error";
 import {
   useCallback,
   useEffect,
@@ -455,9 +455,7 @@ export function ChatLayout() {
         queryKey: conversationsQueryKey(assistantId),
       });
     } catch (err) {
-      Sentry.captureException(err, {
-        tags: { context: "refresh_conversations" },
-      });
+      captureError(err, { context: "refresh_conversations" });
     }
   }, [assistantId, queryClient]);
 
@@ -763,9 +761,7 @@ function RenameDialogFromStore({ assistantId }: { assistantId: string | null }) 
         patchConversation(queryClient, assistantId, conversationId, {
           title: currentTitle,
         });
-        Sentry.captureException(err, {
-          tags: { context: "renameConversation" },
-        });
+        captureError(err, { context: "renameConversation" });
       }
     },
     [assistantId, queryClient, renameRequest, clearRename],
@@ -849,9 +845,7 @@ function ChatConversationHeader() {
         queryKey: conversationsQueryKey(assistantId),
       });
     } catch (err) {
-      Sentry.captureException(err, {
-        tags: { context: "refresh_conversations" },
-      });
+      captureError(err, { context: "refresh_conversations" });
     }
   }, [assistantId, queryClient]);
 

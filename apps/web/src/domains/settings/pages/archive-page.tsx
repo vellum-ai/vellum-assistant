@@ -12,7 +12,8 @@ import {
 } from "@/lib/sync/query-tags";
 import type { Conversation } from "@/types/conversation-types";
 import { conversationsByIdUnarchivePost } from "@/generated/daemon/sdk.gen";
-import { reportError } from "@/utils/error-report";
+import { toast } from "@vellum/design-library";
+import { captureError } from "@/lib/sentry/capture-error";
 
 function formatConversationDate(timestamp: number | undefined): string {
   if (timestamp == null) return "";
@@ -134,10 +135,8 @@ export function ArchivePage() {
           queryKey: archivedConversationsQueryKey(assistantId),
         });
       } catch (error) {
-        reportError(error, {
-          context: "archive_settings_unarchive_conversation",
-          userMessage: "Failed to unarchive conversation.",
-        });
+        captureError(error, { context: "archive_settings_unarchive_conversation" });
+        toast.error("Failed to unarchive conversation.");
       } finally {
         setPendingUnarchiveId(null);
       }

@@ -12,7 +12,7 @@ import {
   useActiveAssistantLifecycleIsLoading,
   usePlatformGate,
 } from "@/hooks/use-platform-gate";
-import { reportError } from "@/utils/error-report";
+import { captureError } from "@/lib/sentry/capture-error";
 
 interface RecoveryModeControlsProps {
   assistantId: string;
@@ -51,20 +51,14 @@ export function RecoveryModeControls({
       if (response?.ok) {
         await onMaintenanceModeChange();
       } else {
-        reportError(
+        captureError(
           new Error("Enter maintenance mode returned non-ok response"),
-          {
-            context: "enter_maintenance_mode",
-            userMessage: "Failed to enter maintenance mode",
-          },
+          { context: "enter_maintenance_mode" },
         );
         setError("Failed to enter Recovery Mode. Please try again.");
       }
     } catch (err) {
-      reportError(err, {
-        context: "enter_maintenance_mode",
-        userMessage: "Failed to enter maintenance mode",
-      });
+      captureError(err, { context: "enter_maintenance_mode" });
       setError("Failed to enter Recovery Mode. Please try again.");
     } finally {
       setLoading(false);
@@ -82,20 +76,14 @@ export function RecoveryModeControls({
       if (response?.ok) {
         await onMaintenanceModeChange();
       } else {
-        reportError(
+        captureError(
           new Error("Exit maintenance mode returned non-ok response"),
-          {
-            context: "exit_maintenance_mode",
-            userMessage: "Failed to exit maintenance mode",
-          },
+          { context: "exit_maintenance_mode" },
         );
         setError("Failed to exit Recovery Mode. Please try again.");
       }
     } catch (err) {
-      reportError(err, {
-        context: "exit_maintenance_mode",
-        userMessage: "Failed to exit maintenance mode",
-      });
+      captureError(err, { context: "exit_maintenance_mode" });
       setError("Failed to exit Recovery Mode. Please try again.");
     } finally {
       setLoading(false);

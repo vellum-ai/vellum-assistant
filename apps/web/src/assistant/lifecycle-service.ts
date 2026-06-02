@@ -21,6 +21,7 @@
  */
 
 import * as Sentry from "@sentry/react";
+import { captureError } from "@/lib/sentry/capture-error";
 import type { QueryClient } from "@tanstack/react-query";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
@@ -231,7 +232,7 @@ class AssistantLifecycleService {
       await this.applyServerStateUpdate(result);
     } catch (err) {
       console.error("Error checking assistant status:", err);
-      Sentry.captureException(err, { tags: { context: "check_assistant" } });
+      captureError(err, { context: "check_assistant" });
       if (generation !== this.generation) return;
       this.transition({
         kind: "error",
@@ -552,7 +553,7 @@ class AssistantLifecycleService {
       this.hatchRetryCount = 0;
     } catch (err) {
       this.hatchRetryCount += 1;
-      Sentry.captureException(err, { tags: { context: "hatch_assistant" } });
+      captureError(err, { context: "hatch_assistant" });
       if (generation !== this.generation) return;
       this.transition({ kind: "initializing" });
       // Network error during hatch behaves like a recoverable
@@ -662,9 +663,7 @@ class AssistantLifecycleService {
       await this.hatchAndCheck(this.hatchingVersion);
     } catch (err) {
       this.hatching = false;
-      Sentry.captureException(err, {
-        tags: { context: "recover_stuck_initializing_assistant" },
-      });
+      captureError(err, { context: "recover_stuck_initializing_assistant" });
       if (generation !== this.generation) return;
       this.transition(buildInitializingTimeoutError());
     }
