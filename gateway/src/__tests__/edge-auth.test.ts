@@ -129,6 +129,14 @@ describe("requireEdgeAuth — DISABLE_HTTP_AUTH + IS_PLATFORM", () => {
     expect(res).toBeNull();
   });
 
+  test("keeps tokenless loopback fallback ahead of platform header check", async () => {
+    const { requireEdgeAuth } = makeMiddleware();
+    const res = await requireEdgeAuth(makeReq(), makeLoopbackServer());
+    expect(res).toBeNull();
+    expect(mockReadCredential).not.toHaveBeenCalled();
+    expect(mockValidateEdgeToken).not.toHaveBeenCalled();
+  });
+
   test("uses platform header check when a platform bearer is also forwarded", async () => {
     mockReadCredential = mock(async () => PLATFORM_USER_ID);
     const { requireEdgeAuth } = makeMiddleware();
@@ -265,6 +273,18 @@ describe("requireEdgeAuthWithScope — DISABLE_HTTP_AUTH + IS_PLATFORM", () => {
       "ingress.write",
     );
     expect(res).toBeNull();
+    expect(mockValidateEdgeToken).not.toHaveBeenCalled();
+  });
+
+  test("keeps tokenless loopback fallback ahead of platform header check", async () => {
+    const { requireEdgeAuthWithScope } = makeMiddleware();
+    const res = await requireEdgeAuthWithScope(
+      makeReq(),
+      "ingress.write",
+      makeLoopbackServer(),
+    );
+    expect(res).toBeNull();
+    expect(mockReadCredential).not.toHaveBeenCalled();
     expect(mockValidateEdgeToken).not.toHaveBeenCalled();
   });
 

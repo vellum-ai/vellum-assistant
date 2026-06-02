@@ -131,6 +131,15 @@ describe("requireEdgeGuardianAuth — platform header mode", () => {
     expect(res).toBeNull();
   });
 
+  test("keeps tokenless loopback fallback ahead of platform header check", async () => {
+    const { requireEdgeGuardianAuth } = makeMiddleware();
+    const res = await requireEdgeGuardianAuth(makeReq(), makeLoopbackServer());
+    expect(res).toBeNull();
+    expect(mockReadCredential).not.toHaveBeenCalled();
+    expect(mockValidateEdgeToken).not.toHaveBeenCalled();
+    expect(mockFindVellumGuardian).not.toHaveBeenCalled();
+  });
+
   test("uses platform header check when a platform bearer is also forwarded", async () => {
     mockReadCredential = mock(async () => PLATFORM_USER_ID);
     const { requireEdgeGuardianAuth } = makeMiddleware();

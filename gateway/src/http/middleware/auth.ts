@@ -71,9 +71,10 @@ export function logAuthBypassState(): void {
 /**
  * Build edge-auth guard functions that share a rate limiter and IP resolver.
  *
- * All three guards prefer explicit auth first. When no Authorization header is
- * present, they retain a legacy loopback fallback for local-only clients and
- * log loudly so callers missing auth are visible during rollout. Beyond that:
+ * All three guards retain a tokenless legacy loopback fallback for local-only
+ * clients and log loudly so callers missing auth are visible during rollout.
+ * Requests that do send Authorization are never allowed through loopback
+ * fallback. Beyond that:
  *
  *   - `requireEdgeAuth` — validates a JWT bearer token (aud=vellum-gateway)
  *     OR (when bypass is active) cross-checks X-Vellum-User-Id against the
@@ -143,6 +144,10 @@ export function createAuthMiddleware(
     req: Request,
     server?: Server<unknown>,
   ): Promise<Response | null> {
+    const hasAuthHeader = hasAuthorizationHeader(req);
+    if (!hasAuthHeader && allowLegacyLoopbackFallback(req, server, "edge")) {
+      return null;
+    }
     if (isPlatformAuthBypassActive()) {
       return requirePlatformUserHeader(req);
     }
@@ -150,11 +155,8 @@ export function createAuthMiddleware(
     if (token) {
       return validateEdgeBearer(req, token);
     }
-    if (hasAuthorizationHeader(req)) {
+    if (hasAuthHeader) {
       return rejectMalformedAuthorization(req, "Edge auth");
-    }
-    if (allowLegacyLoopbackFallback(req, server, "edge")) {
-      return null;
     }
     return rejectMissingAuthorization(req, "Edge auth");
   }
@@ -170,6 +172,13 @@ export function createAuthMiddleware(
     scope: Scope,
     server?: Server<unknown>,
   ): Promise<Response | null> {
+    const hasAuthHeader = hasAuthorizationHeader(req);
+    if (
+      !hasAuthHeader &&
+      allowLegacyLoopbackFallback(req, server, "edge-scoped", { scope })
+    ) {
+      return null;
+    }
     if (isPlatformAuthBypassActive()) {
       return requirePlatformUserHeader(req);
     }
@@ -177,11 +186,8 @@ export function createAuthMiddleware(
     if (token) {
       return validateScopedEdgeBearer(req, token, scope);
     }
-    if (hasAuthorizationHeader(req)) {
+    if (hasAuthHeader) {
       return rejectMalformedAuthorization(req, "Scoped edge auth", { scope });
-    }
-    if (allowLegacyLoopbackFallback(req, server, "edge-scoped", { scope })) {
-      return null;
     }
     return rejectMissingAuthorization(req, "Scoped edge auth", { scope });
   }
@@ -203,14 +209,15 @@ export function createAuthMiddleware(
     req: Request,
     server?: Server<unknown>,
   ): Promise<Response | null> {
+    const hasAuthHeader = hasAuthorizationHeader(req);
+    if (
+      !hasAuthHeader &&
+      allowLegacyLoopbackFallback(req, server, "edge-guardian")
+    ) {
+      return null;
+    }
     if (isPlatformAuthBypassActive()) {
       return requirePlatformUserHeader(req);
-    }
-    if (extractBearerToken(req) || hasAuthorizationHeader(req)) {
-      return requireEdgeGuardianAuthByActorPrincipal(req);
-    }
-    if (allowLegacyLoopbackFallback(req, server, "edge-guardian")) {
-      return null;
     }
     return requireEdgeGuardianAuthByActorPrincipal(req);
   }
