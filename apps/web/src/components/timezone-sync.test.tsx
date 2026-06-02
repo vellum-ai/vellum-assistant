@@ -19,6 +19,7 @@ import { cleanup, render, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { publish } from "@/lib/event-bus";
 
 // Mutable zone returned by the mocked hook; tests flip it then re-render.
 interface PatchArgs {
@@ -31,8 +32,14 @@ let currentTz = "America/New_York";
 const patchMock = mock(async (_args: PatchArgs) => ({ data: {} }));
 const captureErrorMock = mock((_error: unknown, _opts: { context: string }) => {});
 
+// Both the reactive hook and the imperative resume/focus reader resolve
+// to the same mutable `currentTz`.
 mock.module("@/utils/use-effective-timezone", () => ({
   useEffectiveTimezone: () => currentTz,
+}));
+
+mock.module("@/utils/effective-timezone", () => ({
+  getEffectiveTimezone: () => currentTz,
 }));
 
 mock.module("@/generated/api/client.gen", () => ({
@@ -146,5 +153,48 @@ describe("TimezoneSync", () => {
     rerender(<TimezoneSync />);
     await waitFor(() => expect(patchMock).toHaveBeenCalledTimes(3));
     expect(lastBody()).toEqual({ ui: { detectedTimezone: "America/New_York" } });
+  });
+
+  test("retries on app.resume with the same zone after a failed initial sync", async () => {
+    // Initial sync rejects (e.g. resumed while offline). The guard ref
+    // stays unsynced because we only record the key on success.
+    patchMock.mockImplementationOnce(async () => {
+      throw new Error("offline");
+    });
+    renderSync();
+    await waitFor(() => expect(captureErrorMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(patchMock).toHaveBeenCalledTimes(1));
+
+    // Resume with the SAME zone — a retry must fire even though tz is
+    // unchanged (the offline-then-resume case).
+    publish("app.resume", { signal: "visibility" });
+    await waitFor(() => expect(patchMock).toHaveBeenCalledTimes(2));
+    expect(lastBody()).toEqual({ ui: { detectedTimezone: "America/New_York" } });
+  });
+
+  test("retries on window focus with the same zone after a failed initial sync", async () => {
+    patchMock.mockImplementationOnce(async () => {
+      throw new Error("offline");
+    });
+    renderSync();
+    await waitFor(() => expect(patchMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(captureErrorMock).toHaveBeenCalledTimes(1));
+
+    window.dispatchEvent(new Event("focus"));
+    await waitFor(() => expect(patchMock).toHaveBeenCalledTimes(2));
+    expect(lastBody()).toEqual({ ui: { detectedTimezone: "America/New_York" } });
+  });
+
+  test("does not re-PATCH on resume/focus after a successful sync with the same zone", async () => {
+    renderSync();
+    await waitFor(() => expect(patchMock).toHaveBeenCalledTimes(1));
+
+    // No zone flip: the prior success recorded the key, so both triggers
+    // are no-ops (no redundant PATCH).
+    publish("app.resume", { signal: "visibility" });
+    window.dispatchEvent(new Event("focus"));
+
+    await new Promise((r) => setTimeout(r, 10));
+    expect(patchMock).toHaveBeenCalledTimes(1);
   });
 });
