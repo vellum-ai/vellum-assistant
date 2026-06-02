@@ -8,7 +8,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 
-// TODO: auto-stamp in release workflow; bump manually until then.
+// TODO(LUM-2191): auto-stamp in release workflow; bump manually until then.
 export const PINNED_CLI_VERSION = "0.8.6";
 
 /** Directory where the pinned CLI version is installed. */
