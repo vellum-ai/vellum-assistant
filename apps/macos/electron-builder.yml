@@ -1,0 +1,17 @@
+appId: com.vellum.vellum-assistant-electron
+productName: Vellum
+directories:
+  output: dist
+extraResources:
+  - from: resources/bun
+    to: bun
+  # TODO: Stage the web renderer (apps/web/dist) here once the full
+  # packaging pipeline is built. The main process serves index.html from
+  # ../renderer/ in packaged mode; for now only the bun runtime is bundled
+  # and the renderer is loaded from the dev server during development.
+mac:
+  category: public.app-category.productivity
+  target:
+    - target: dmg
+      arch:
+        - arm64
