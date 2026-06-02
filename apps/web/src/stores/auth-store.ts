@@ -83,6 +83,14 @@ interface AuthState {
   isLoading: boolean;
   user: AuthUser | null;
   hasPlatformSession: boolean;
+  /**
+   * Whether the platform-session probe has settled. The local gateway path
+   * sets `isLoading: false` before probing `getSession()`, so `false` here
+   * means "unknown", not "no session" — consumers that gate on a missing
+   * session must wait for this to flip true before treating the absence as
+   * confirmed.
+   */
+  platformSessionResolved: boolean;
 }
 
 interface AuthActions {
@@ -127,6 +135,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
   isLoading: true,
   user: null,
   hasPlatformSession: false,
+  platformSessionResolved: false,
 
   initSession: async () => {
     if (isGatewayAuthEnabled()) {
@@ -143,7 +152,10 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
               set({ hasPlatformSession: true });
             }
           })
-          .catch(() => {});
+          .catch(() => {})
+          .finally(() => set({ platformSessionResolved: true }));
+      } else {
+        set({ platformSessionResolved: true });
       }
       return;
     }
@@ -163,20 +175,20 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
               if (apiAssistants.ok) {
                 await syncPlatformAssistantsToLockfile(apiAssistants.data);
                 if (getPlatformAssistants().length === 0 && getLocalAssistants().length === 0) {
-                  set({ isLoggedIn: true, isLoading: false, user, hasPlatformSession: true });
+                  set({ isLoggedIn: true, isLoading: false, user, hasPlatformSession: true, platformSessionResolved: true });
                   return;
                 }
               }
             } catch {
               // Sync failed — continue with cached data
             }
-            set({ isLoggedIn: true, isLoading: false, user, hasPlatformSession: true });
+            set({ isLoggedIn: true, isLoading: false, user, hasPlatformSession: true, platformSessionResolved: true });
             return;
           }
         } catch {
           // Session check failed — fall through to unauthenticated
         }
-        set({ isLoggedIn: false, isLoading: false, user: null });
+        set({ isLoggedIn: false, isLoading: false, user: null, platformSessionResolved: true });
         return;
       }
       set({ isLoggedIn: true, isLoading: false, user: GATEWAY_LOCAL_USER });
@@ -188,7 +200,10 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
               set({ hasPlatformSession: true, user });
             }
           })
-          .catch(() => {});
+          .catch(() => {})
+          .finally(() => set({ platformSessionResolved: true }));
+      } else {
+        set({ platformSessionResolved: true });
       }
       suppressPlatformProbe = false;
       return;
@@ -199,7 +214,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       if (result.ok && result.data.user) {
         const user = toAuthUser(result.data.user);
         syncUserScopedState(user?.id ?? null);
-        set({ isLoggedIn: true, isLoading: false, user, hasPlatformSession: true });
+        set({ isLoggedIn: true, isLoading: false, user, hasPlatformSession: true, platformSessionResolved: true });
         return;
       }
     } catch (err) {
@@ -218,7 +233,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
           if (retryResult.ok && retryResult.data.user) {
             const user = toAuthUser(retryResult.data.user);
             syncUserScopedState(user?.id ?? null);
-            set({ isLoggedIn: true, isLoading: false, user, hasPlatformSession: true });
+            set({ isLoggedIn: true, isLoading: false, user, hasPlatformSession: true, platformSessionResolved: true });
             return;
           }
         }
@@ -228,7 +243,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
     }
 
     syncUserScopedState(null);
-    set({ isLoggedIn: false, isLoading: false, user: null });
+    set({ isLoggedIn: false, isLoading: false, user: null, platformSessionResolved: true });
   },
 
   refreshSession: async () => {
@@ -245,7 +260,10 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
           .then((result) => {
             set({ hasPlatformSession: !!(result.ok && result.data.user) });
           })
-          .catch(() => set({ hasPlatformSession: false }));
+          .catch(() => set({ hasPlatformSession: false }))
+          .finally(() => set({ platformSessionResolved: true }));
+      } else {
+        set({ platformSessionResolved: true });
       }
       return true;
     }
@@ -255,14 +273,14 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       if (result.ok && result.data.user) {
         const user = toAuthUser(result.data.user);
         syncUserScopedState(user?.id ?? null);
-        set({ isLoggedIn: true, user, hasPlatformSession: true });
+        set({ isLoggedIn: true, user, hasPlatformSession: true, platformSessionResolved: true });
         return true;
       }
     } catch (err) {
       console.warn("auth.refreshSession failed", err);
     }
     syncUserScopedState(null);
-    set({ isLoggedIn: false, user: null, hasPlatformSession: false });
+    set({ isLoggedIn: false, user: null, hasPlatformSession: false, platformSessionResolved: true });
     return false;
   },
 
@@ -278,7 +296,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       // their first re-render. The `respondToInputs` `!isLoggedIn`
       // branch is the safety net for token-expiry-style flips.
       lifecycleService.resetForLogout();
-      set({ isLoggedIn: false, user: null, hasPlatformSession: false });
+      set({ isLoggedIn: false, user: null, hasPlatformSession: false, platformSessionResolved: true });
       broadcastAuthChange();
       return;
     }
@@ -295,7 +313,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       clearOrganization();
       clearUserScopedStorage();
       lifecycleService.resetForLogout();
-      set({ isLoggedIn: false, user: null, hasPlatformSession: false });
+      set({ isLoggedIn: false, user: null, hasPlatformSession: false, platformSessionResolved: true });
       broadcastAuthChange();
     }
   },

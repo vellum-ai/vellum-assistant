@@ -205,27 +205,74 @@ describe("nextStep / prevStep", () => {
 });
 
 describe("isPlatformFunnelAvailable", () => {
-  test("platform mode is always available, with or without a session", () => {
+  test("platform mode is always available, regardless of session state", () => {
+    for (const hasPlatformSession of [false, true]) {
+      for (const platformSessionResolved of [false, true]) {
+        for (const hasCachedPlatformAssistant of [false, true]) {
+          expect(
+            isPlatformFunnelAvailable({
+              localMode: false,
+              hasPlatformSession,
+              platformSessionResolved,
+              hasCachedPlatformAssistant,
+            }),
+          ).toBe(true);
+        }
+      }
+    }
+  });
+
+  test("local mode with a live platform session is available", () => {
     expect(
-      isPlatformFunnelAvailable({ localMode: false, hasPlatformSession: false }),
-    ).toBe(true);
-    expect(
-      isPlatformFunnelAvailable({ localMode: false, hasPlatformSession: true }),
+      isPlatformFunnelAvailable({
+        localMode: true,
+        hasPlatformSession: true,
+        platformSessionResolved: true,
+        hasCachedPlatformAssistant: false,
+      }),
     ).toBe(true);
   });
 
-  test("local mode requires a live platform session", () => {
+  test("local mode, probe resolved to no session: a cached id is not enough", () => {
+    // Once the probe has settled, a stale `cloud === "vellum"` lockfile entry
+    // can outlive the session, so the funnel must not light up on cached state
+    // alone — that is the LUM-2180 bug. Only a live session reaches the steps.
     expect(
-      isPlatformFunnelAvailable({ localMode: true, hasPlatformSession: true }),
+      isPlatformFunnelAvailable({
+        localMode: true,
+        hasPlatformSession: false,
+        platformSessionResolved: true,
+        hasCachedPlatformAssistant: true,
+      }),
+    ).toBe(false);
+  });
+
+  test("local mode, probe in flight with a cached id: funnel stays available", () => {
+    // The local gateway path sets `isLoading: false` before the session probe
+    // settles. While it is unresolved, a cached platform assistant is a strong
+    // signal a session exists, so a returning user keeps their platform steps
+    // instead of being raced past them on a slow probe.
+    expect(
+      isPlatformFunnelAvailable({
+        localMode: true,
+        hasPlatformSession: false,
+        platformSessionResolved: false,
+        hasCachedPlatformAssistant: true,
+      }),
     ).toBe(true);
   });
 
-  test("local mode with no session is unavailable — a cached id is not enough", () => {
-    // A stale `cloud === "vellum"` lockfile entry can outlive the session, so
-    // the funnel must not light up on cached state alone; only a live session
-    // makes the platform-backed steps reachable.
+  test("local mode, probe in flight with no cached id: funnel unavailable", () => {
+    // No cached platform assistant means there is no reason to expect a
+    // session, so a fresh local user is never optimistically shown the funnel
+    // while the probe is pending.
     expect(
-      isPlatformFunnelAvailable({ localMode: true, hasPlatformSession: false }),
+      isPlatformFunnelAvailable({
+        localMode: true,
+        hasPlatformSession: false,
+        platformSessionResolved: false,
+        hasCachedPlatformAssistant: false,
+      }),
     ).toBe(false);
   });
 });
