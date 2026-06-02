@@ -63,6 +63,7 @@ const CONNECTION_PROVIDERS: ConnectionProvider[] = [
   "ollama",
   "fireworks",
   "openrouter",
+  "minimax",
   "openai-compatible",
 ];
 
