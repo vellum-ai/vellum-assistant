@@ -176,6 +176,39 @@ export function isPrivateOrLocalHost(hostname: string): boolean {
   return false;
 }
 
+/**
+ * Cloud-metadata and link-local hosts that must never be reachable, even when
+ * private/loopback networks are otherwise allowed (self-hosted daemons reaching
+ * local model servers). Covers the well-known cloud metadata hostname plus
+ * IPv4 (169.254.0.0/16) and IPv6 (fe80::/10) link-local ranges — the latter
+ * includes the 169.254.169.254 metadata IP used by AWS/GCP/Azure.
+ */
+export function isCloudMetadataOrLinkLocalHost(hostname: string): boolean {
+  const host = unwrapBracketedHostname(hostname).toLowerCase();
+  if (host === "metadata.google.internal") return true;
+
+  const checkIPv4 = (ip: string): boolean => {
+    const [a, b] = ip.split(".").map((part) => Number(part));
+    return a === 169 && b === 254;
+  };
+
+  if (isIPv4(host)) return checkIPv4(host);
+  if (isIPv6(host)) {
+    const normalized = host.split("%")[0];
+    if (
+      normalized.startsWith("fe8") ||
+      normalized.startsWith("fe9") ||
+      normalized.startsWith("fea") ||
+      normalized.startsWith("feb")
+    ) {
+      return true;
+    }
+    const embedded = extractEmbeddedIPv4FromIPv6(host);
+    if (embedded) return checkIPv4(embedded);
+  }
+  return false;
+}
+
 export async function resolveHostAddresses(
   hostname: string,
 ): Promise<string[]> {

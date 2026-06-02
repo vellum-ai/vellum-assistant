@@ -61,6 +61,7 @@ mock.module("../../../config/env-registry.js", () => ({
 // Import the real url-safety module for use inside the mock.
 const {
   isPrivateOrLocalHost: realIsPrivateOrLocalHost,
+  isCloudMetadataOrLinkLocalHost: realIsCloudMetadataOrLinkLocalHost,
   isPrivateIPv4,
   isPrivateIPv6,
   isIPv4,
@@ -78,6 +79,7 @@ const {
 
 mock.module("../../../tools/network/url-safety.js", () => ({
   isPrivateOrLocalHost: realIsPrivateOrLocalHost,
+  isCloudMetadataOrLinkLocalHost: realIsCloudMetadataOrLinkLocalHost,
   isPrivateIPv4,
   isPrivateIPv6,
   isIPv4,
@@ -112,9 +114,8 @@ mock.module("../../../tools/network/url-safety.js", () => ({
   },
 }));
 
-const { ROUTES } = await import(
-  "../../../runtime/routes/inference-provider-connection-routes.js"
-);
+const { ROUTES } =
+  await import("../../../runtime/routes/inference-provider-connection-routes.js");
 
 const handleCreate = ROUTES.find(
   (r) => r.operationId === "inference_provider_connections_create",
@@ -292,7 +293,7 @@ describe("base_url SSRF protection (create)", () => {
           models: [{ id: "m" }],
         },
       }),
-    ).rejects.toThrow(/private or local network/);
+    ).rejects.toThrow(/cloud metadata or link-local/);
   });
 
   test("rejects hostname that resolves to a private IP", async () => {
@@ -375,6 +376,36 @@ describe("base_url SSRF on self-hosted vs platform", () => {
       ).rejects.toThrow(/private or local network/);
     });
   }
+
+  test("self-hosted: rejects metadata.google.internal even though private is allowed", async () => {
+    mockIsPlatform = false;
+    await expect(
+      handleCreate({
+        body: {
+          name: "self-hosted-metadata",
+          provider: "openai-compatible",
+          auth: { type: "api_key", credential: "cred-metadata" },
+          base_url: "http://metadata.google.internal/computeMetadata/v1/",
+          models: [{ id: "m" }],
+        },
+      }),
+    ).rejects.toThrow(/cloud metadata or link-local/);
+  });
+
+  test("self-hosted: rejects 169.254.169.254 link-local metadata IP", async () => {
+    mockIsPlatform = false;
+    await expect(
+      handleCreate({
+        body: {
+          name: "self-hosted-link-local",
+          provider: "openai-compatible",
+          auth: { type: "api_key", credential: "cred-link-local" },
+          base_url: "http://169.254.169.254/latest/meta-data/",
+          models: [{ id: "m" }],
+        },
+      }),
+    ).rejects.toThrow(/cloud metadata or link-local/);
+  });
 
   test("self-hosted: provider gate still rejects base_url on non-openai-compatible", async () => {
     mockIsPlatform = false;
