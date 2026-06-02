@@ -34,7 +34,6 @@ import { useMutation } from "@tanstack/react-query";
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import { client } from "@/generated/api/client.gen";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
-import { captureError } from "@/lib/sentry/capture-error";
 import { getBrowserTimezone } from "@/utils/browser-timezone";
 import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 
@@ -55,6 +54,8 @@ export function TimezoneSync(): null {
       });
       return data;
     },
+    retry: 3,
+    retryDelay: (attempt) => Math.min(1_000 * 2 ** attempt, 10_000),
   });
 
   // Dedupe key of the last *successful* sync (`${assistantId}:${detectedTimezone}`,
@@ -105,8 +106,10 @@ export function TimezoneSync(): null {
       .then(() => {
         lastSyncedRef.current = key;
       })
-      .catch((error) => {
-        captureError(error, { context: "timezone-sync" });
+      .catch(() => {
+        // Best-effort sync — transient failures (e.g. 503 during daemon
+        // startup) are retried by the mutation, and any remaining failures
+        // are retried on the next app.resume or window focus.
       })
       .finally(() => {
         inFlightRef.current = false;
