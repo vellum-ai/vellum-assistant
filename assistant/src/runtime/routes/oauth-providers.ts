@@ -7,6 +7,7 @@
  */
 
 import { loadConfig } from "../../config/loader.js";
+import { getOAuthCallbackUrl } from "../../inbound/public-ingress-urls.js";
 import {
   deleteApp,
   deleteConnection,
@@ -85,13 +86,24 @@ function handleGetProvider({ pathParams = {} }: RouteHandlerArgs) {
     );
   }
 
-  if (!isProviderVisible(row, loadConfig())) {
+  const config = loadConfig();
+  if (!isProviderVisible(row, config)) {
     throw new NotFoundError(
       `No OAuth provider registered for "${providerKey}"`,
     );
   }
 
-  return { provider: serializeProviderFull(row) };
+  let oauthCallbackUrl: string | null = null;
+  try {
+    oauthCallbackUrl = getOAuthCallbackUrl(config);
+  } catch {
+    // Ingress not configured or disabled — callback URL unavailable
+  }
+
+  return {
+    provider: serializeProviderFull(row),
+    oauth_callback_url: oauthCallbackUrl,
+  };
 }
 
 function handleRegisterProvider({ body = {} }: RouteHandlerArgs) {
