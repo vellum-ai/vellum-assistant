@@ -39,7 +39,6 @@ import {
   useConversationGroupsQuery,
   useConversationListQuery,
 } from "@/hooks/conversation-queries";
-import { conversationsQueryKey } from "@/lib/sync/query-tags";
 import { patchConversation } from "@/utils/conversation-cache";
 import { useAttentionTracking } from "@/domains/chat/hooks/use-attention-tracking";
 import { useConversationActions } from "@/domains/chat/hooks/use-conversation-actions";
@@ -465,19 +464,7 @@ export function ChatLayout() {
   // sidebar's action wiring stays live on every chat-layout child route
   // (home, library, contacts, identity) — not only inside a conversation
   // where ChatPage is mounted.
-  const queryClient = useQueryClient();
   const prePinGroupIdsRef = useRef<Map<string, string | undefined>>(new Map());
-
-  const refreshConversations = useCallback(async () => {
-    if (!assistantId) return;
-    try {
-      await queryClient.invalidateQueries({
-        queryKey: conversationsQueryKey(assistantId),
-      });
-    } catch (err) {
-      captureError(err, { context: "refresh_conversations" });
-    }
-  }, [assistantId, queryClient]);
 
   // `useConversationActions.handleArchiveConversation` calls
   // `startNewConversation({ silent: true })` when the active conversation
@@ -510,7 +497,6 @@ export function ChatLayout() {
     assistantId: assistantId,
     activeConversationId,
     conversations,
-    refreshConversations,
     switchConversation: handleSelectConversation,
     startNewConversation,
     prePinGroupIdsRef,
@@ -845,7 +831,6 @@ function ChatConversationHeader() {
   const authUser = useAuthStore.use.user();
   const showLlmInspector = canUseLlmInspector(authUser);
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
 
   const shouldRenderChat =
     assistantState.kind === "active" ||
@@ -885,16 +870,6 @@ function ChatConversationHeader() {
     [navigate],
   );
 
-  const refreshConversations = useCallback(async () => {
-    try {
-      await queryClient.invalidateQueries({
-        queryKey: conversationsQueryKey(assistantId),
-      });
-    } catch (err) {
-      captureError(err, { context: "refresh_conversations" });
-    }
-  }, [assistantId, queryClient]);
-
   const prePinGroupIdsRef = useRef<Map<string, string | undefined>>(new Map());
 
   const {
@@ -910,7 +885,6 @@ function ChatConversationHeader() {
     assistantId,
     activeConversationId,
     conversations,
-    refreshConversations,
     switchConversation,
     startNewConversation,
     prePinGroupIdsRef,

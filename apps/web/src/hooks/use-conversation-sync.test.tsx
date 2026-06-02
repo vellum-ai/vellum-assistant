@@ -3,12 +3,12 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
-import {
-  conversationGroupsQueryKey,
-} from "@/hooks/conversation-queries";
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import type { Conversation } from "@/types/conversation-types";
-import { conversationsQueryKey } from "@/lib/sync/query-tags";
+import {
+  conversationGroupsQueryKey,
+  conversationsQueryKey,
+} from "@/lib/sync/query-tags";
 import { SYNC_TAGS, type SyncChangedEvent } from "@/lib/sync/types";
 import {
   __resetForTesting,

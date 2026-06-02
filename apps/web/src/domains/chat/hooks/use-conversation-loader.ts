@@ -33,12 +33,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "@/utils/api-errors";
 import type { Conversation } from "@/types/conversation-types";
 import { isBackgroundConversation } from "@/utils/conversation-predicates";
-import {
-  conversationGroupsQueryKey,
-  useConversationListQuery,
-} from "@/hooks/conversation-queries";
+import { useConversationListQuery } from "@/hooks/conversation-queries";
 import {
   backgroundConversationsQueryKey,
+  conversationGroupsQueryKey,
   conversationsQueryKey,
   scheduledConversationsQueryKey,
 } from "@/lib/sync/query-tags";

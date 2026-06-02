@@ -22,11 +22,11 @@ import { useQueryClient } from "@tanstack/react-query";
 import type { Conversation } from "@/types/conversation-types";
 
 import {
-  refreshConversationRow,
   useBackgroundConversationListQuery,
   useConversationListQuery,
   useScheduledConversationListQuery,
 } from "@/hooks/conversation-queries";
+import { refreshConversationRow } from "@/utils/conversation-cache-mutations";
 
 export function useActiveConversation(
   assistantId: string | null,
