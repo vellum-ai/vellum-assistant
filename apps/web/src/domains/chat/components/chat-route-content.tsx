@@ -508,16 +508,28 @@ export function ChatRouteContent({
     lastCompleteAssistantMsgId,
   });
 
-  const uiContext: UIContext = {
-    hasStreamingAssistantMessage,
-    hasPendingSecret: !!pendingSecret,
-    hasPendingConfirmation: !!pendingConfirmation,
-    hasPendingQuestion: !!pendingQuestion,
-    hasPendingContactRequest: !!pendingContactRequest,
-    hasUncompletedVisibleSurface,
-    activeConversationIsProcessing,
-    hasPendingAssistantResponse: activeConversationHasPendingAssistantResponse,
-  };
+  const uiContext: UIContext = useMemo(
+    () => ({
+      hasStreamingAssistantMessage,
+      hasPendingSecret: !!pendingSecret,
+      hasPendingConfirmation: !!pendingConfirmation,
+      hasPendingQuestion: !!pendingQuestion,
+      hasPendingContactRequest: !!pendingContactRequest,
+      hasUncompletedVisibleSurface,
+      activeConversationIsProcessing,
+      hasPendingAssistantResponse: activeConversationHasPendingAssistantResponse,
+    }),
+    [
+      hasStreamingAssistantMessage,
+      pendingSecret,
+      pendingConfirmation,
+      pendingQuestion,
+      pendingContactRequest,
+      hasUncompletedVisibleSurface,
+      activeConversationIsProcessing,
+      activeConversationHasPendingAssistantResponse,
+    ],
+  );
 
   // Publish the rendered context (in an effect, after commit — never mutate a
   // ref during render) so the debug API reports on-screen state instead of a
