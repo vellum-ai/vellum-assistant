@@ -71,6 +71,7 @@ const {
   isCliInstalled,
   ensureCliInstalled,
   cleanupOldVersions,
+  _resetInstallLock,
 } = await import("./cli-installer");
 
 afterEach(() => {
@@ -80,6 +81,7 @@ afterEach(() => {
   mkdirSyncCalls.length = 0;
   rmSyncCalls.length = 0;
   spawnCalls.length = 0;
+  _resetInstallLock();
 });
 
 // --- Path helpers ---
@@ -196,6 +198,35 @@ describe("ensureCliInstalled", () => {
     expect(removedPaths).toContain(`${userDataPath}/cli/0.8.5`);
     const pinnedPath = `${userDataPath}/cli/${PINNED_CLI_VERSION}`;
     expect(removedPaths).not.toContain(pinnedPath);
+  });
+
+  test("concurrent calls share a single install", async () => {
+    existsSyncReturn = false;
+
+    const p1 = ensureCliInstalled();
+    const p2 = ensureCliInstalled();
+
+    // Only one spawn should have occurred.
+    expect(spawnCalls).toHaveLength(1);
+
+    lastChild.emit("close", 0);
+    await Promise.all([p1, p2]);
+  });
+
+  test("failed install resets the lock so retries are possible", async () => {
+    existsSyncReturn = false;
+
+    const p1 = ensureCliInstalled();
+    lastChild.stderr.emit("data", Buffer.from("disk full"));
+    lastChild.emit("close", 1);
+
+    await expect(p1).rejects.toThrow(/CLI install failed/);
+
+    // Second attempt should spawn a new process.
+    const p2 = ensureCliInstalled();
+    expect(spawnCalls).toHaveLength(2);
+    lastChild.emit("close", 0);
+    await p2;
   });
 });
 
