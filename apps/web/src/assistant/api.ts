@@ -3,7 +3,6 @@ import {
   DiskPressureStatusResponseSchema,
 } from "@vellumai/assistant-api";
 
-import { client } from "@/generated/api/client.gen";
 import {
   assistantsActivateCreate,
   assistantsBackupsCreate,
@@ -20,6 +19,12 @@ import type {
   Assistant as GeneratedAssistant,
   HatchAssistantRequest,
 } from "@/generated/api/types.gen";
+import {
+  diskpressureAcknowledgePost,
+  diskpressureStatusGet,
+  healthzGet,
+} from "@/generated/daemon/sdk.gen";
+import type { HealthzGetResponse } from "@/generated/daemon/types.gen";
 import { assertHasResponse, toErrorObject } from "@/utils/api-errors";
 import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
 import { getSelectedAssistant } from "@/lib/local-mode";
@@ -38,34 +43,8 @@ export type GetAssistantResult =
   | { ok: true; status: number; data: Assistant }
   | { ok: false; status: number; error: Record<string, unknown> };
 
-export interface AssistantDiskStatus {
-  path: string;
-  totalMb: number;
-  usedMb: number;
-  freeMb: number;
-}
-
-export interface AssistantMemoryStatus {
-  currentMb: number;
-  maxMb: number;
-}
-
-export interface AssistantCpuStatus {
-  currentPercent: number;
-  maxCores: number;
-}
-
-export interface AssistantHealthz {
-  status: string;
-  timestamp: string;
-  version?: string;
-  disk?: AssistantDiskStatus;
-  memory?: AssistantMemoryStatus;
-  cpu?: AssistantCpuStatus;
-}
-
 export type GetHealthzResult =
-  | { ok: true; status: number; data: AssistantHealthz }
+  | { ok: true; status: number; data: HealthzGetResponse }
   | { ok: false; status: number; error: Record<string, unknown> };
 
 export type GetAssistantDiskPressureStatusResult =
@@ -212,23 +191,18 @@ export async function getAssistant(
 export async function getAssistantHealthz(
   assistantId: string,
 ): Promise<GetHealthzResult> {
-  const { data, error, response } = await client.get<
-    Record<string, unknown>,
-    Record<string, unknown>,
-    false
-  >({
-    url: `/v1/assistants/{assistant_id}/healthz/`,
+  const { data, error, response } = await healthzGet({
     path: { assistant_id: assistantId },
     throwOnError: false,
   });
 
   assertHasResponse(response, error, "Failed to get assistant healthz.");
 
-  if (response.ok) {
+  if (response.ok && data) {
     return {
       ok: true,
       status: response.status,
-      data: data as unknown as AssistantHealthz,
+      data,
     };
   }
 
@@ -242,12 +216,7 @@ export async function getAssistantHealthz(
 export async function getAssistantDiskPressureStatus(
   assistantId: string,
 ): Promise<GetAssistantDiskPressureStatusResult> {
-  const { data, error, response } = await client.get<
-    Record<string, unknown>,
-    Record<string, unknown>,
-    false
-  >({
-    url: `/v1/assistants/{assistant_id}/disk-pressure/status/`,
+  const { data, error, response } = await diskpressureStatusGet({
     path: { assistant_id: assistantId },
     throwOnError: false,
   });
@@ -285,12 +254,7 @@ export async function getAssistantDiskPressureStatus(
 export async function acknowledgeAssistantDiskPressure(
   assistantId: string,
 ): Promise<AcknowledgeAssistantDiskPressureResult> {
-  const { data, error, response } = await client.post<
-    Record<string, unknown>,
-    Record<string, unknown>,
-    false
-  >({
-    url: `/v1/assistants/{assistant_id}/disk-pressure/acknowledge/`,
+  const { data, error, response } = await diskpressureAcknowledgePost({
     path: { assistant_id: assistantId },
     throwOnError: false,
   });

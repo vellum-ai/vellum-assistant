@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Check,
+  Copy,
   ExternalLink,
   Loader2,
   Plus,
@@ -38,6 +40,7 @@ import {
   type OAuthAppConnection,
 } from "@/domains/settings/api/oauth-apps";
 
+import { fetchOAuthProviderDetail } from "@/domains/settings/api/oauth-providers";
 import { IntegrationIcon } from "@/domains/settings/components/integration-icon";
 import {
   type OAuthCompletePayload,
@@ -46,18 +49,7 @@ import {
   getOAuthCompleteStoragePayload,
 } from "@/lib/auth/oauth-popup";
 
-function extractErrorDetail(error: unknown, fallback: string): string {
-  if (typeof error === "object" && error !== null && "detail" in error) {
-    const detail = (error as Record<string, unknown>).detail;
-    if (typeof detail === "string") {
-      return detail;
-    }
-  }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return fallback;
-}
+import { extractErrorMessage } from "@/utils/api-errors";
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -412,8 +404,9 @@ export function IntegrationDetailModal({
       setPendingDisconnectId(null);
     },
     onError(error) {
-      const detail = extractErrorDetail(
+      const detail = extractErrorMessage(
         error,
+        undefined,
         `Failed to disconnect ${displayName} account.`,
       );
       toast.error(detail);
@@ -460,8 +453,9 @@ export function IntegrationDetailModal({
           },
           onError(error) {
             clearPendingRequest();
-            const detail = extractErrorDetail(
+            const detail = extractErrorMessage(
               error,
+              undefined,
               `Failed to start ${displayName} authorization.`,
             );
             toast.error(detail);
@@ -570,8 +564,9 @@ export function IntegrationDetailModal({
         onError(error) {
           closePopupWindow();
           clearPendingRequest();
-          const detail = extractErrorDetail(
+          const detail = extractErrorMessage(
             error,
+            undefined,
             `Failed to start ${displayName} authorization.`,
           );
           toast.error(detail);
@@ -893,6 +888,8 @@ function YourOwnTab({
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
   const [creatingApp, setCreatingApp] = useState(false);
+  const [oauthCallbackUrl, setOauthCallbackUrl] = useState<string | null>(null);
+  const [callbackUrlCopied, setCallbackUrlCopied] = useState(false);
   const [deletingAppId, setDeletingAppId] = useState<string | null>(null);
   const [connectingAppId, setConnectingAppId] = useState<string | null>(null);
   const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
@@ -934,6 +931,17 @@ function YourOwnTab({
   useEffect(() => {
     void loadApps();
   }, [loadApps]);
+
+  useEffect(() => {
+    let active = true;
+    void fetchOAuthProviderDetail(assistantId, providerKey).then(
+      (detail) => {
+        if (active) setOauthCallbackUrl(detail.oauth_callback_url);
+      },
+      () => {},
+    );
+    return () => { active = false; };
+  }, [assistantId, providerKey]);
 
   const shouldShowForm = apps.length === 0 || isShowingAddAppForm;
 
@@ -1062,6 +1070,48 @@ function YourOwnTab({
               sent to Vellum.
             </p>
           </div>
+          {oauthCallbackUrl ? (
+            <div className="space-y-1">
+              <p className="text-body-small-default text-[var(--content-secondary)]">
+                Redirect URL
+              </p>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="text"
+                  value={oauthCallbackUrl}
+                  readOnly
+                  fullWidth
+                />
+                <Button
+                  type="button"
+                  variant="outlined"
+                  size="compact"
+                  onClick={() => {
+                    void navigator.clipboard
+                      .writeText(oauthCallbackUrl)
+                      .then(() => {
+                        setCallbackUrlCopied(true);
+                        toast.success("Copied to clipboard!");
+                        setTimeout(() => setCallbackUrlCopied(false), 2000);
+                      });
+                  }}
+                  aria-label={
+                    callbackUrlCopied ? "Copied" : "Copy redirect URL"
+                  }
+                  iconOnly={
+                    callbackUrlCopied ? (
+                      <Check aria-hidden />
+                    ) : (
+                      <Copy aria-hidden />
+                    )
+                  }
+                />
+              </div>
+              <p className="text-body-small-default text-[var(--content-tertiary)]">
+                Add this URL to your OAuth app&apos;s redirect settings.
+              </p>
+            </div>
+          ) : null}
           <Input
             label="Client ID"
             type="text"

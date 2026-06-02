@@ -192,13 +192,6 @@ mock.module("@/stores/client-feature-flag-store", () => ({
   useClientFeatureFlagStore: {
     use: {
       prechatOnboardingCondensedFlow: () => prechatOnboardingCondensedFlow,
-    },
-  },
-}));
-
-mock.module("@/stores/assistant-feature-flag-store", () => ({
-  useAssistantFeatureFlagStore: {
-    use: {
       selfIntroGreeting: () => selfIntroGreeting,
     },
   },

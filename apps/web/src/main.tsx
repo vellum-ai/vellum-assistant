@@ -20,8 +20,10 @@ import "@/lib/api-interceptors";
 import "./index.css";
 
 import { initSafeAreaBridge } from "@/runtime/native-safe-area";
+import { initInputModality } from "@vellum/design-library";
 
 async function boot() {
+  initInputModality();
   await initSafeAreaBridge();
   initSentry();
 

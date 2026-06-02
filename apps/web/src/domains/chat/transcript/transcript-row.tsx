@@ -72,6 +72,10 @@ export interface TranscriptRowProps {
   onSubagentClick?: (subagentId: string) => void;
   /** Callback to abort/stop a running subagent from an inline card. */
   onStopSubagent?: (subagentId: string) => void;
+  /** True when this row belongs to the actively-streaming turn. Forwarded to
+   *  `TranscriptMessageBody` so the streaming message's last tool-call group
+   *  defaults open. History rows leave it `false`. */
+  isStreaming?: boolean;
 }
 
 export const TranscriptRow = memo(function TranscriptRow({
@@ -102,6 +106,7 @@ export const TranscriptRow = memo(function TranscriptRow({
   assistantId,
   onSubagentClick,
   onStopSubagent,
+  isStreaming,
 }: TranscriptRowProps) {
   switch (item.kind) {
     case "message":
@@ -127,6 +132,7 @@ export const TranscriptRow = memo(function TranscriptRow({
           assistantId={assistantId}
           onSubagentClick={onSubagentClick}
           onStopSubagent={onStopSubagent}
+          isStreaming={isStreaming}
         />
       );
 

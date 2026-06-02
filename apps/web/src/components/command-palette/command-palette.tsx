@@ -171,6 +171,17 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
           ⌘K
         </kbd>
       )}
+      {isMobile ? (
+        <Button
+          variant="ghost"
+          size="compact"
+          iconOnly={<X />}
+          expandOnMobile={false}
+          aria-label="Close search"
+          onClick={onClose}
+          tintColor="var(--content-tertiary)"
+        />
+      ) : null}
     </div>
   );
 
@@ -231,6 +242,16 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
         aria-modal="true"
         aria-label="Search"
         onKeyDown={onKeyDown}
+        style={{
+          paddingTop:
+            "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",
+          paddingBottom:
+            "var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))",
+          paddingLeft:
+            "var(--safe-area-inset-left, env(safe-area-inset-left, 0px))",
+          paddingRight:
+            "var(--safe-area-inset-right, env(safe-area-inset-right, 0px))",
+        }}
       >
         {searchInputRow}
         {resultsList}

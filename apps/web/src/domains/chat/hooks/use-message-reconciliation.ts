@@ -23,7 +23,7 @@ const RECONCILE_MAX_MS = 60_000;
 const RECONCILE_STABLE_COUNT = 2;
 
 interface UseMessageReconciliationArgs {
-  initialPageOldestTsRef: { current: number | null };
+  latestPageOldestTimestamp: number | null;
 }
 
 /** Result of reconciling the active conversation against the server. */
@@ -121,8 +121,10 @@ function serverHasAssistantProgress(
 }
 
 export function useMessageReconciliation({
-  initialPageOldestTsRef,
+  latestPageOldestTimestamp,
 }: UseMessageReconciliationArgs): UseMessageReconciliationReturn {
+  const initialPageOldestTsRef = useRef<number | null>(latestPageOldestTimestamp);
+  initialPageOldestTsRef.current = latestPageOldestTimestamp;
   const setMessages = useChatSessionStore.use.setMessages();
   const reconcileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 

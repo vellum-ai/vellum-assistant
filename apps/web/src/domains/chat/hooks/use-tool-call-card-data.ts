@@ -29,6 +29,15 @@ import { useTurnStore } from "@/domains/chat/turn-store";
 /** Max favicon chips to render inside a single `web_search` step row. */
 const MAX_VISIBLE_RESULTS = 5;
 
+/**
+ * Friendly fallback copy for a `web_search` backend failure when the daemon
+ * omits `webSearch.errorMessage`. apps/web CANNOT import from `assistant/`, so
+ * this is a local mirror — keep in sync with WEB_SEARCH_BACKEND_FAILURE_MESSAGE
+ * in assistant/src/tools/network/web-search-error.ts.
+ */
+export const WEB_SEARCH_BACKEND_FAILURE_MESSAGE =
+  "Search is having trouble right now. You can try again in a moment, continue without web search, or paste the relevant details here and I'll use those.";
+
 /** Tool names whose presence triggers the web-search step path. */
 export const WEB_TOOL_NAMES = new Set(["web_search", "web_fetch"]);
 
@@ -229,14 +238,14 @@ function buildWebSearchStepFromResultText(
   };
 }
 
-function buildWebSearchErrorStep(
+export function buildWebSearchErrorStep(
   metadata: NonNullable<ToolActivityMetadata["webSearch"]>,
 ): ToolCallCardStep {
   return {
     kind: "web_search_error",
     title: "Web search failed",
     durationLabel: formatMs(metadata.durationMs),
-    errorMessage: metadata.errorMessage ?? "Search failed.",
+    errorMessage: metadata.errorMessage ?? WEB_SEARCH_BACKEND_FAILURE_MESSAGE,
   };
 }
 
@@ -259,6 +268,31 @@ function resolveMetadata(
 
 function isTerminalStatus(tc: ChatMessageToolCall): boolean {
   return tc.status === "completed" || tc.status === "error";
+}
+
+/**
+ * Classify a `web_search` whose metadata carried zero results as a *failure*
+ * (vs. a successful `no_results` search).
+ *
+ * The backend is the single centralization point and sets
+ * `webSearch.errorMessage` on every genuine failure (see
+ * `errorResult` in assistant/src/tools/network/web-search.ts), so a present
+ * `errorMessage` is the primary signal. As defensive depth for the case where
+ * the daemon ever omits that message on a failed search, we also treat the
+ * tool call's own terminal `status === "error"` (mapped from the tool_result
+ * `isError` flag in `applyToolResult`) as a failure signal.
+ *
+ * Crucially, a successful empty/`no_results` search lands as
+ * `status === "completed"` with no `errorMessage`, so it is NOT classified as
+ * a failure — ATL-727's core invariant (empty-but-successful must not render
+ * as a failure) is preserved.
+ */
+function isFailedEmptyWebSearch(
+  ws: NonNullable<ToolActivityMetadata["webSearch"]>,
+  tc: ChatMessageToolCall,
+): boolean {
+  if (ws.results.length > 0) return false;
+  return Boolean(ws.errorMessage) || tc.status === "error";
 }
 
 /**
@@ -334,8 +368,7 @@ function deriveCurrentStepTitle(
       const terminal = isTerminalStatus(tc);
       if (
         metadata?.webSearch &&
-        metadata.webSearch.errorMessage &&
-        metadata.webSearch.results.length === 0
+        isFailedEmptyWebSearch(metadata.webSearch, tc)
       ) {
         return "Web search failed";
       }
@@ -372,8 +405,8 @@ function deriveCurrentStepInfo(
 
     if (metadata?.webSearch) {
       const ws = metadata.webSearch;
-      if (ws.errorMessage && ws.results.length === 0) {
-        return ws.errorMessage;
+      if (isFailedEmptyWebSearch(ws, tc)) {
+        return ws.errorMessage ?? WEB_SEARCH_BACKEND_FAILURE_MESSAGE;
       }
       if (ws.results.length > 0) {
         return ws.results[ws.results.length - 1]!.title;
@@ -516,7 +549,7 @@ export function computeToolCallCardData(
     const terminal = isTerminalStatus(tc);
     if (metadata?.webSearch) {
       const ws = metadata.webSearch;
-      if (ws.errorMessage && ws.results.length === 0) {
+      if (isFailedEmptyWebSearch(ws, tc)) {
         steps.push(buildWebSearchErrorStep(ws));
       } else {
         steps.push(buildWebSearchStep(ws, terminal));

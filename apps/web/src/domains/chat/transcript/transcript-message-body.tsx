@@ -107,6 +107,15 @@ export interface TranscriptMessageBodyProps {
   onSubagentClick?: (subagentId: string) => void;
   /** Callback to abort/stop a running subagent from an inline card. */
   onStopSubagent?: (subagentId: string) => void;
+  /**
+   * True when this message belongs to the turn that is actively streaming.
+   * Set by `LatestTurnRow` for the in-progress response cluster; history
+   * rows leave it `false`. Keeps the message's last tool-call group expanded
+   * for the whole stream — not just the instants a tool reports `running` —
+   * so the latest activity stays visible while the model fills in the rest
+   * of the turn. Collapses back to the compact default once the turn ends.
+   */
+  isStreaming?: boolean;
 }
 
 /**
@@ -230,13 +239,23 @@ function resolveSpawnedSubagentIds(
 
 function shouldAutoExpandToolCallGroup({
   isCurrentGroup,
+  isStreaming,
   toolCalls,
 }: {
   isCurrentGroup: boolean;
+  isStreaming: boolean;
   toolCalls: ChatMessageToolCall[];
 }): boolean {
   if (!isCurrentGroup) {
     return false;
+  }
+  // While the turn streams, the message's last content group stays open for the
+  // whole turn — so a trailing tool-call card is visible until the model starts
+  // writing the answer below it, at which point the text group becomes last and
+  // the card collapses. Outside a stream (history) it only expands while a tool
+  // is running, which keeps completed turns collapsed and compact.
+  if (isStreaming) {
+    return true;
   }
   return toolCalls.some((toolCall) => toolCall.status === "running");
 }
@@ -325,6 +344,7 @@ export function TranscriptMessageBody({
   assistantId,
   onSubagentClick,
   onStopSubagent,
+  isStreaming = false,
 }: TranscriptMessageBodyProps) {
   const hasInterleavedToolCalls = message.contentOrder?.some(
     (e) => e.type === "toolCall" || e.type === "tool",
@@ -694,6 +714,7 @@ export function TranscriptMessageBody({
                       expandedCardIds={expandedCardIds}
                       autoExpand={shouldAutoExpandToolCallGroup({
                         isCurrentGroup: gi === groups.length - 1,
+                        isStreaming,
                         toolCalls,
                       })}
                       onOpenRuleEditor={onOpenRuleEditor}
@@ -960,6 +981,7 @@ export function TranscriptMessageBody({
               expandedCardIds={expandedCardIds}
               autoExpand={shouldAutoExpandToolCallGroup({
                 isCurrentGroup: !hasVisibleLegacyContent,
+                isStreaming,
                 toolCalls: legacyToolCalls,
               })}
               onOpenRuleEditor={onOpenRuleEditor}

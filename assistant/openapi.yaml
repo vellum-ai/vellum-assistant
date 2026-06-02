@@ -10847,21 +10847,59 @@ paths:
                   version:
                     type: string
                   disk:
-                    type: object
-                    properties: {}
-                    additionalProperties: {}
+                    anyOf:
+                      - type: object
+                        properties:
+                          path:
+                            type: string
+                          totalMb:
+                            type: number
+                          usedMb:
+                            type: number
+                          freeMb:
+                            type: number
+                        required:
+                          - path
+                          - totalMb
+                          - usedMb
+                          - freeMb
+                        additionalProperties: false
+                      - type: "null"
                   memory:
                     type: object
-                    properties: {}
-                    additionalProperties: {}
+                    properties:
+                      currentMb:
+                        type: number
+                      maxMb:
+                        type: number
+                    required:
+                      - currentMb
+                      - maxMb
+                    additionalProperties: false
                   cpu:
                     type: object
-                    properties: {}
-                    additionalProperties: {}
+                    properties:
+                      currentPercent:
+                        type: number
+                      maxCores:
+                        type: number
+                    required:
+                      - currentPercent
+                      - maxCores
+                    additionalProperties: false
                   migrations:
                     type: object
-                    properties: {}
-                    additionalProperties: {}
+                    properties:
+                      dbVersion:
+                        type: number
+                      lastWorkspaceMigrationId:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                    required:
+                      - dbVersion
+                      - lastWorkspaceMigrationId
+                    additionalProperties: false
                   ces:
                     type: object
                     properties:
@@ -10977,21 +11015,59 @@ paths:
                   version:
                     type: string
                   disk:
-                    type: object
-                    properties: {}
-                    additionalProperties: {}
+                    anyOf:
+                      - type: object
+                        properties:
+                          path:
+                            type: string
+                          totalMb:
+                            type: number
+                          usedMb:
+                            type: number
+                          freeMb:
+                            type: number
+                        required:
+                          - path
+                          - totalMb
+                          - usedMb
+                          - freeMb
+                        additionalProperties: false
+                      - type: "null"
                   memory:
                     type: object
-                    properties: {}
-                    additionalProperties: {}
+                    properties:
+                      currentMb:
+                        type: number
+                      maxMb:
+                        type: number
+                    required:
+                      - currentMb
+                      - maxMb
+                    additionalProperties: false
                   cpu:
                     type: object
-                    properties: {}
-                    additionalProperties: {}
+                    properties:
+                      currentPercent:
+                        type: number
+                      maxCores:
+                        type: number
+                    required:
+                      - currentPercent
+                      - maxCores
+                    additionalProperties: false
                   migrations:
                     type: object
-                    properties: {}
-                    additionalProperties: {}
+                    properties:
+                      dbVersion:
+                        type: number
+                      lastWorkspaceMigrationId:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                    required:
+                      - dbVersion
+                      - lastWorkspaceMigrationId
+                    additionalProperties: false
                   ces:
                     type: object
                     properties:
@@ -18821,11 +18897,37 @@ paths:
                 properties:
                   secrets:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        type:
+                          type: string
+                          enum:
+                            - api_key
+                            - credential
+                        name:
+                          type: string
+                      required:
+                        - type
+                        - name
+                      additionalProperties: false
                     description: List of secret metadata entries, each with type and name
                   accounts:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        type:
+                          type: string
+                          enum:
+                            - api_key
+                            - credential
+                        name:
+                          type: string
+                      required:
+                        - type
+                        - name
+                      additionalProperties: false
                     description: Alias for secrets (same data)
                 required:
                   - secrets

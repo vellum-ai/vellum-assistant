@@ -17,7 +17,7 @@
  * NOTE: this helper reads the version snapshot via
  * `useAssistantIdentityStore.getState()` rather than the `use.version()`
  * hook selector, so it's safe to call from non-hook contexts (event
- * handlers, async ops like `postChatMessage` / `subscribeChatEvents`).
+ * handlers, async ops like `postChatMessage`).
  * For React-render paths that should re-render when the version flips,
  * use `useAssistantSupports(MIN_VERSION)` from `./utils.ts` directly.
  */

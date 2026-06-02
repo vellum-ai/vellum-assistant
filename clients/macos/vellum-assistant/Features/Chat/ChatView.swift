@@ -2,7 +2,6 @@ import os
 import os.signpost
 import SwiftUI
 import VellumAssistantShared
-import UniformTypeIdentifiers
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ChatView")
 
@@ -775,12 +774,6 @@ struct ChatView: View {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
-        panel.allowedContentTypes = [
-            .png, .jpeg, .gif, .webP, .heic, .heif, .pdf, .plainText, .commaSeparatedText,
-            UTType("net.daringfireball.markdown") ?? .plainText,
-            .movie, .mpeg4Movie, .quickTimeMovie, .avi,
-            .mp3, .wav, .aiff, .audio,
-        ]
         guard let window = NSApp.keyWindow ?? NSApp.mainWindow else {
             guard panel.runModal() == .OK else { return }
             for url in panel.urls {

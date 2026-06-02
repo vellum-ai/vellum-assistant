@@ -20,11 +20,15 @@ const TIER_ERROR_CODES = new Set([
  * delegates to the shared `extractErrorMessage` (with `fallback`).
  */
 export function extractResizeError(error: unknown, fallback: string): string {
-  if (error && typeof error === "object" && !Array.isArray(error)) {
-    const code = (error as Record<string, unknown>).error;
-    if (typeof code === "string" && TIER_ERROR_CODES.has(code)) {
-      return "That size isn't available on your plan.";
-    }
+  if (
+    error &&
+    typeof error === "object" &&
+    !Array.isArray(error) &&
+    "error" in error &&
+    typeof error.error === "string" &&
+    TIER_ERROR_CODES.has(error.error)
+  ) {
+    return "That size isn't available on your plan.";
   }
   return extractErrorMessage(error, undefined, fallback);
 }

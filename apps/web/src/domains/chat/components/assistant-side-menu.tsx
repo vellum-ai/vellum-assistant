@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 
+import { useCommandPaletteStore } from "@/stores/command-palette-store";
+
 import {
   ConversationActionsMenu,
   renderConversationMenuItems,
@@ -62,7 +64,7 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onStartNewConversation?: () => void;
   footerAction?: ReactNode;
   onClose?: () => void;
-  onSearchClick?: () => void;
+
   onPinConversation?: (conversation: Conversation) => void;
   onRenameConversation?: (conversation: Conversation) => void;
   onArchiveConversation?: (conversation: Conversation) => void;
@@ -81,6 +83,23 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onOpenInNewWindow?: (conversation: Conversation) => void;
   onShareFeedback?: () => void;
   onInspect?: (conversation: Conversation) => void;
+}
+
+function SearchButton({ onClose }: { onClose?: () => void }) {
+  const toggle = useCommandPaletteStore.use.toggle();
+  const handleClick = useCallback(() => {
+    onClose?.();
+    toggle();
+  }, [onClose, toggle]);
+  return (
+    <Button
+      variant="ghost"
+      iconOnly={<Search />}
+      aria-label="Search (⌘K)"
+      title="Search (⌘K)"
+      onClick={handleClick}
+    />
+  );
 }
 
 /**
@@ -136,7 +155,6 @@ export function AssistantSideMenu({
   onMarkAllReadInGroup,
   onArchiveAllInGroup,
   onClose,
-  onSearchClick,
   processingConversationIds,
   attentionConversationIds,
   activeConversationProcessing,
@@ -401,18 +419,7 @@ export function AssistantSideMenu({
                 aria-label="Close navigation"
                 onClick={() => onClose?.()}
               />
-              {onSearchClick ? (
-                <Button
-                  variant="ghost"
-                  iconOnly={<Search />}
-                  aria-label="Search (⌘K)"
-                  title="Search (⌘K)"
-                  onClick={() => {
-                    onClose?.();
-                    onSearchClick();
-                  }}
-                />
-              ) : null}
+              <SearchButton onClose={onClose} />
             </div>
             <div className="flex items-center gap-2">{headerActions}</div>
           </div>

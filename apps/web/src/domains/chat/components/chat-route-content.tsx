@@ -28,7 +28,7 @@ import { useConversationStarters } from "@/domains/chat/hooks/use-conversation-s
 import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
 import type { TranscriptHandle, TranscriptProps } from "@/domains/chat/transcript/transcript";
 import { useTranscriptScroll } from "@/domains/chat/transcript/use-transcript-scroll";
-import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat";
+import { hasAnyInteractiveSurface, hasPendingAssistantResponse } from "@/domains/chat/utils/chat";
 import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone";
 import type { ChatAttachment } from "@/domains/chat/components/chat-attachments/use-chat-attachments";
 import type { ChatEmptyStateProps } from "@/domains/chat/components/chat-empty-state";
@@ -88,7 +88,6 @@ import {
   shouldShowThinkingIndicator,
   type UIContext,
 } from "@/domains/chat/turn-selectors";
-import { isSurfaceInteractive } from "@/domains/chat/types/types";
 import { getSlackConversationDisplay } from "@/domains/chat/utils/slack-conversation-display";
 
 import { useViewerStore } from "@/stores/viewer-store";
@@ -457,16 +456,10 @@ export function ChatRouteContent({
   // Derived values
   // -------------------------------------------------------------------------
 
-  const hasUncompletedVisibleSurface = useMemo(() => {
-    for (const msg of messages) {
-      if (msg.surfaces) {
-        for (const s of msg.surfaces) {
-          if (isSurfaceInteractive(s)) return true;
-        }
-      }
-    }
-    return false;
-  }, [messages]);
+  const hasUncompletedVisibleSurface = useMemo(
+    () => hasAnyInteractiveSurface(messages),
+    [messages],
+  );
 
   // Derive "is this conversation processing?" as an OR of the local
   // optimistic set (driven by `useSendMessage` and the SSE start
@@ -1058,6 +1051,34 @@ export function ChatRouteContent({
       </div>
     ) : undefined;
 
+  // Stable callback so the latest-turn avatar slot isn't rebuilt on every
+  // transcript render. Paired with `memo(ChatAvatar)`, the avatar re-renders
+  // only when its inputs actually change (avatar data, or the streaming /
+  // processing flags) rather than on each parent render.
+  const renderAvatar = useMemo(
+    () =>
+      avatarComponents || avatarImageUrl
+        ? () => (
+            <ChatAvatar
+              components={avatarComponents}
+              traits={avatarTraits}
+              customImageUrl={avatarImageUrl}
+              size={56}
+              interactive
+              isStreaming={isAssistantStreaming}
+              isProcessing={activeConversationIsProcessing}
+            />
+          )
+        : undefined,
+    [
+      avatarComponents,
+      avatarImageUrl,
+      avatarTraits,
+      isAssistantStreaming,
+      activeConversationIsProcessing,
+    ],
+  );
+
   const chatTranscriptProps: TranscriptProps = {
     items: transcriptItems,
     conversationId: activeConversationId,
@@ -1131,20 +1152,7 @@ export function ChatRouteContent({
           onCancel={handleContactPromptCancel}
         />
       ) : null,
-    renderAvatar:
-      avatarComponents || avatarImageUrl
-        ? () => (
-            <ChatAvatar
-              components={avatarComponents}
-              traits={avatarTraits}
-              customImageUrl={avatarImageUrl}
-              size={56}
-              interactive
-              isStreaming={isAssistantStreaming}
-              isProcessing={activeConversationIsProcessing}
-            />
-          )
-        : undefined,
+    renderAvatar,
     onPullRefresh: handlePullRefresh,
     pullRefreshEnabled: chatPullToRefreshEnabled && touchSupported,
     scrollCoordinatorState: {

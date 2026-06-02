@@ -1,5 +1,5 @@
 import { motion, useReducedMotion } from "motion/react";
-import { useCallback, useMemo, useState, type CSSProperties } from "react";
+import { memo, useCallback, useMemo, useState, type CSSProperties } from "react";
 
 import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
 import {
@@ -104,7 +104,7 @@ function ProgressOverlay({
  *     sweep across the whole avatar (no corner badge). Default behavior (flag
  *     off) leaves the old transcript "thinking…" dots in charge.
  */
-export function ChatAvatar({
+function ChatAvatarComponent({
   components,
   traits,
   customImageUrl,
@@ -221,3 +221,14 @@ export function ChatAvatar({
     </motion.div>
   );
 }
+
+/**
+ * Memoized so the avatar subtree only re-renders when its own props change
+ * (components/traits/image, size, the streaming/processing flags) rather than
+ * on every parent transcript re-render. `Transcript` is a `forwardRef` (not
+ * memoized) and re-renders frequently during streaming, while the avatar runs
+ * per-frame animation work — so skipping unrelated re-renders matters. All
+ * props are primitives or stable references (avatar data is React-Query-cached
+ * with `staleTime: Infinity`), so the default shallow comparison is correct.
+ */
+export const ChatAvatar = memo(ChatAvatarComponent);

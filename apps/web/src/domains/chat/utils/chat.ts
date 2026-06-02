@@ -1,4 +1,4 @@
-import type { DisplayMessage } from "@/domains/chat/types/types";
+import { type DisplayMessage, isSurfaceInteractive } from "@/domains/chat/types/types";
 import type { IdentityGetResponse } from "@/generated/daemon/types.gen";
 import type { Conversation } from "@/types/conversation-types";
 import type { AssistantEvent } from "@/types/event-types";
@@ -82,6 +82,46 @@ export function hasPendingAssistantResponse(
   }
 
   return lastNonQueuedUserIndex !== -1;
+}
+
+/** Whether any message carries a surface that still accepts user input. */
+export function hasAnyInteractiveSurface(messages: DisplayMessage[]): boolean {
+  for (const msg of messages) {
+    if (msg.surfaces) {
+      for (const s of msg.surfaces) {
+        if (isSurfaceInteractive(s)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+export function hasAssistantMessage(messages: DisplayMessage[]): boolean {
+  return messages.some((message) => message.role === "assistant");
+}
+
+export function shouldClearFirstMessageGateOnConversationChange({
+  previousConversationId,
+  nextConversationId,
+  onboardingDraftConversationId,
+  autoGreetPending,
+  assistantMessagePresent,
+}: {
+  previousConversationId: string | null;
+  nextConversationId: string | null;
+  onboardingDraftConversationId: string | null;
+  autoGreetPending: boolean;
+  assistantMessagePresent: boolean;
+}): boolean {
+  if (previousConversationId == null) return false;
+  if (nextConversationId == null) return false;
+  if (previousConversationId === nextConversationId) return false;
+
+  return !(
+    autoGreetPending &&
+    !assistantMessagePresent &&
+    previousConversationId === onboardingDraftConversationId
+  );
 }
 
 const VOICE_ERROR_MESSAGES: Readonly<Record<string, string>> = {
