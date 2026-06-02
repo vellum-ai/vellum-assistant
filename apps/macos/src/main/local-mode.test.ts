@@ -1,5 +1,4 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
-import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -30,11 +29,7 @@ mock.module("electron", () => ({
   },
 }));
 
-class FakeChild extends EventEmitter {
-  stdout = new EventEmitter();
-  stderr = new EventEmitter();
-  kill = mock(() => true);
-}
+import { FakeChild } from "./test-helpers";
 
 let lastChild: FakeChild;
 const spawnArgs: Array<[string, string[]]> = [];
