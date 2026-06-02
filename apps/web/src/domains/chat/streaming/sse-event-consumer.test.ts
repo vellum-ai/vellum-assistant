@@ -624,4 +624,36 @@ describe("sse-event-consumer — seq-gap detection", () => {
     expect(seqStore.get("conv-1")).toBe(2);
     expect(reconcileActive).not.toHaveBeenCalled();
   });
+
+  test("notifyReconnect preserves raw-seq gap detection when clientSeq absent (old daemon)", () => {
+    const { deps, reconcileActive } = makeDeps();
+    const consumer = createSseEventConsumer(deps);
+
+    // Establish cursor at seq=10 (no clientSeq — old daemon).
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 10,
+        message: { type: "assistant_text_delta", text: "a" },
+      }),
+    );
+    expect(seqStore.get("conv-1")).toBe(10);
+
+    // SSE reconnects.
+    consumer.notifyReconnect();
+
+    // First post-reconnect event: seq=13 (events 11, 12 lost). No
+    // clientSeq on the envelope. With raw seq, the seq space is stable
+    // across connections — the gap is real and should be detected.
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 13,
+        message: { type: "assistant_text_delta", text: "b" },
+      }),
+    );
+
+    // Gap detected (13 > 10 + 1) — reconcile should fire.
+    expect(reconcileActive).toHaveBeenCalledTimes(1);
+  });
 });

@@ -46,9 +46,14 @@
  * Reconnect handling:
  *   `clientSeq` resets to 1 on each new SSE subscription (the server
  *   creates a fresh counter map per subscriber). Callers must invoke
- *   `notifyReconnect()` on `sse.opened` so the first post-reconnect
- *   event re-seeds the cursor instead of triggering a false generation
- *   reset (clientSeq 1 < stored cursor from the previous connection).
+ *   `notifyReconnect()` on `sse.opened`. The consumer defers the
+ *   actual reset until the first post-reconnect event arrives:
+ *     - If the event carries `clientSeq` (new daemon): resets the
+ *       seed flag, in-flight state, and gap tracker so the event
+ *       re-seeds the cursor via `replaceLastSeenSeq`.
+ *     - If the event uses raw `seq` (old daemon): no reset — `seq`
+ *       is stable across connections and normal gap detection handles
+ *       reconnect correctly (a jump means genuinely missed events).
  */
 
 import { useStreamStore } from "@/domains/chat/stream-store";
@@ -92,9 +97,10 @@ export interface SseEventConsumerDeps {
 
 export interface SseEventConsumer {
   handleSseEvent(envelope: ConsumableEnvelope): void;
-  /** Reset seq tracking so the next event re-seeds the cursor.
-   *  Must be called on SSE reconnect — `clientSeq` restarts at 1
-   *  per subscription, so the old cursor is invalid. */
+  /** Signal that an SSE reconnect occurred. The actual seq-tracking
+   *  reset is deferred until the first post-reconnect event — only
+   *  applied when `clientSeq` is present (resets per subscription).
+   *  With raw `seq` (old daemon), gap detection proceeds normally. */
   notifyReconnect(): void;
 }
 
@@ -115,17 +121,18 @@ export function createSseEventConsumer(
   let reconcileInFlight = false;
   let latestGapSeq: { conversationId: string; seq: number } | null = null;
 
-  // After reconnect the server's clientSeq restarts at 1. The first
-  // post-reconnect write must use `replaceLastSeenSeq` (unconditional)
+  // Set on sse.opened — deferred until the first post-reconnect
+  // event so the reset only applies when clientSeq is present.
+  let pendingReconnect = false;
+
+  // Set when a reconnect is applied (clientSeq present). The first
+  // post-reconnect write uses `replaceLastSeenSeq` (unconditional)
   // instead of `setLastSeenSeq` (monotonic, won't lower the cursor).
   let pendingReseed = false;
 
   return {
     notifyReconnect() {
-      seededSeqForConversation = false;
-      reconcileInFlight = false;
-      latestGapSeq = null;
-      pendingReseed = true;
+      pendingReconnect = true;
     },
     handleSseEvent(envelope) {
       const event = envelope.message;
@@ -157,6 +164,18 @@ export function createSseEventConsumer(
       const eventSeq = envelope.clientSeq ?? envelope.seq;
       let gapDetected = false;
       if (seqGapEnabled && eventSeq != null && eventConversationId) {
+        // Deferred reconnect handling: clientSeq resets per
+        // subscription, so reseed. Raw seq is stable across
+        // connections — let normal gap detection handle it.
+        if (pendingReconnect) {
+          pendingReconnect = false;
+          if (envelope.clientSeq != null) {
+            seededSeqForConversation = false;
+            reconcileInFlight = false;
+            latestGapSeq = null;
+            pendingReseed = true;
+          }
+        }
         if (seededSeqForConversation) {
           const stored = getLastSeenSeq(eventConversationId) ?? 0;
           if (eventSeq < stored) {
