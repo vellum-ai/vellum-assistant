@@ -311,6 +311,23 @@ function UnifiedToolCallProgressCard({
                       durationLabel: step.durationLabel,
                     });
                   }}
+                  onRiskBadgeClick={
+                    onOpenRuleEditor
+                      ? () => {
+                          const tc = toolCallById.get(step.toolCallId);
+                          if (!tc) return;
+                          onOpenRuleEditor({
+                            toolName: tc.toolName,
+                            riskLevel: tc.riskLevel,
+                            riskReason: tc.riskReason,
+                            input: tc.input ?? {},
+                            allowlistOptions: tc.allowlistOptions ?? [],
+                            scopeOptions: tc.scopeOptions ?? [],
+                            directoryScopeOptions: tc.directoryScopeOptions ?? [],
+                          });
+                        }
+                      : undefined
+                  }
                 />
                 {nudgeTarget && onOpenRuleEditor && (
                   <UnknownCommandNudge

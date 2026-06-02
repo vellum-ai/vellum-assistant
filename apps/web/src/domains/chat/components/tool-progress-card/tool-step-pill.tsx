@@ -26,6 +26,8 @@ export interface ToolStepPillProps {
   label: string;
   riskLevel?: string;
   onClick?: () => void;
+  /** Click handler for the risk badge. Opens the trust-rule editor. */
+  onRiskBadgeClick?: () => void;
   tone?: "default" | "error";
   /**
    * Selected state — rendered when this pill's tool-detail drawer is open.
@@ -56,6 +58,7 @@ export function ToolStepPill({
   label,
   riskLevel,
   onClick,
+  onRiskBadgeClick,
   tone = "default",
   active = false,
   ariaLabel,
@@ -91,7 +94,7 @@ export function ToolStepPill({
       >
         {label}
       </Typography>
-      <RiskBadge level={riskLevel} />
+      <RiskBadge level={riskLevel} onClick={onRiskBadgeClick} />
     </>
   );
 
