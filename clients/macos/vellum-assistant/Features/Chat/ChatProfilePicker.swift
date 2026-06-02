@@ -70,9 +70,19 @@ struct ChatProfilePicker: View {
         return "Default (\(activeDisplay))"
     }
 
+    static func visibleProfilesForPicker(
+        _ profiles: [InferenceProfile],
+        autoRouting: Bool
+    ) -> [InferenceProfile] {
+        InferenceProfile.gateAutoProfile(
+            profiles.filter { !$0.isDisabled },
+            queryComplexityRoutingEnabled: autoRouting
+        )
+    }
+
     var body: some View {
-        let activeProfiles = profiles.filter { !$0.isDisabled }
         let autoRoutingEnabled = assistantFeatureFlagStore.isEnabled("query-complexity-routing")
+        let activeProfiles = Self.visibleProfilesForPicker(profiles, autoRouting: autoRoutingEnabled)
         let isAutoActive = autoRoutingEnabled && current == nil
         let pillLabel = Self.label(current: current, profiles: activeProfiles, activeProfile: activeProfile, autoRouting: autoRoutingEnabled)
         #if os(macOS)
