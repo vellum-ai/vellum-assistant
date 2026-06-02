@@ -89,7 +89,7 @@ describe("conversation-title-service", () => {
         systemPrompt: expect.stringContaining("conversation titles"),
         tools: [],
         callSite: "conversationTitle",
-        timeoutMs: 10_000,
+        timeoutMs: 15_000,
       }),
     );
     expect(mockUpdateConversationTitle).toHaveBeenCalledWith(
@@ -207,7 +207,7 @@ describe("conversation-title-service", () => {
         systemPrompt: expect.stringContaining("conversation titles"),
         tools: [],
         callSite: "conversationTitle",
-        timeoutMs: 10_000,
+        timeoutMs: 15_000,
       }),
     );
     expect(mockUpdateConversationTitle).toHaveBeenCalledWith(
