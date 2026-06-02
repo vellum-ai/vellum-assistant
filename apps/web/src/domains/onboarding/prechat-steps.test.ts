@@ -47,6 +47,27 @@ describe("resolveWebSteps", () => {
     ).toEqual(["name", "taskTone", "tools"]);
   });
 
+  test("local mode without a session still offers google for a cached assistant", () => {
+    // canOfferGoogleStep stays true when a platform assistant id is cached
+    // (e.g. a prior managed session), so a local user who picks a Google tool
+    // reaches the connect step even though prior-assistants is gated off. Back
+    // from google therefore lands on tools, never on the gated step.
+    const steps = resolveWebSteps({
+      ...CONTROL,
+      canOfferPriorAssistants: false,
+      hasGoogleTool: true,
+      canOfferGoogleStep: true,
+      showIOSAppStep: false,
+    });
+    expect(steps.map((s) => s.id)).toEqual([
+      "name",
+      "taskTone",
+      "tools",
+      "google",
+    ]);
+    expect(prevStep(steps, "google")).toBe("tools");
+  });
+
   test("local mode with a platform session keeps prior-assistants", () => {
     expect(
       ids({
