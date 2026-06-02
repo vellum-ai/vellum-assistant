@@ -12,7 +12,7 @@
  * `RuleEditorContext` from `useInteractionActions`.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@vellum/design-library/components/button";
 import { Modal } from "@vellum/design-library/components/modal";
@@ -26,21 +26,44 @@ import type { RuleEditorContext } from "@/domains/chat/hooks/use-interaction-act
 // ---------------------------------------------------------------------------
 
 /**
- * Ensures there is always at least one scope option for the "Apply to"
- * section. The caller (`handleOpenRuleEditorForToolCall`) already applies
- * the 3-tier fallback matching macOS `scopeOptions(from:)`:
- *   1. `riskAllowlistOptions` (glob patterns)
- *   2. `riskScopeOptions` (regex-flavored display-only patterns)
- *   3. Empty → this function synthesizes a wildcard "Any {toolName} call"
+ * Builds the "Apply to" option list.
+ *
+ * When the tool call shipped its own allowlist ladder (`handleOpenRuleEditor-
+ * ForToolCall`'s 3-tier `riskAllowlistOptions → riskScopeOptions` resolution),
+ * we use it verbatim — index 0 is the narrowest exact match, which the UI
+ * skips. Otherwise the ladder is synthesized from the LLM suggestion so its
+ * recommendation is selectable instead of a bare wildcard:
+ *   (a) the suggested `pattern` (pre-selected), then
+ *   (b) any `scopeOptions` ladder the suggestion returned,
+ *   then the broad "Any {toolName} call" wildcard as a fallback choice.
+ * Falls back to just the wildcard before the suggestion arrives.
  */
-function ensureAllowlistOptions(
-  options: AllowlistOption[],
+function buildApplyToOptions(
+  allowlistOptions: AllowlistOption[],
   toolName: string,
+  suggestion: RuleEditorContext["suggestion"],
 ): AllowlistOption[] {
-  if (options.length > 0) {
-    return options;
+  if (allowlistOptions.length > 0) {
+    return allowlistOptions;
   }
-  return [{ label: `Any ${toolName} call`, description: "", pattern: "*" }];
+  const synthesized: AllowlistOption[] = [];
+  const hasPattern = (p: string) => synthesized.some((o) => o.pattern === p);
+  if (suggestion?.pattern && !hasPattern(suggestion.pattern)) {
+    synthesized.push({
+      pattern: suggestion.pattern,
+      label: suggestion.description || suggestion.pattern,
+      description: suggestion.description ?? "",
+    });
+  }
+  for (const o of suggestion?.scopeOptions ?? []) {
+    if (!hasPattern(o.pattern)) {
+      synthesized.push({ pattern: o.pattern, label: o.label, description: "" });
+    }
+  }
+  if (!hasPattern("*")) {
+    synthesized.push({ label: `Any ${toolName} call`, description: "", pattern: "*" });
+  }
+  return synthesized;
 }
 
 /**
@@ -147,16 +170,23 @@ export function ChatRuleEditorModal({
   const { existingRule, suggestion } = context;
   const isEditMode = !!existingRule;
 
-  const effectiveOptions = ensureAllowlistOptions(
-    context.allowlistOptions,
-    context.toolName,
+  const optionsFromToolCall = context.allowlistOptions.length > 0;
+  const effectiveOptions = useMemo(
+    () => buildApplyToOptions(context.allowlistOptions, context.toolName, suggestion),
+    [context.allowlistOptions, context.toolName, suggestion],
   );
 
-  // Skip exact match (index 0) when multiple options exist — show only
+  // Index 0 is a skippable exact match only for tool-call ladders; synthesized
+  // (suggestion-derived) lists have no exact match to skip. This offset drives
+  // all the index math below so both shapes render the right rows.
+  const generalizationOffset =
+    optionsFromToolCall && effectiveOptions.length > 1 ? 1 : 0;
+
+  // Skip the exact match (index 0) for tool-call ladders — show only
   // generalized patterns, matching the macOS RuleEditorModal behavior.
   const generalizedOptions =
-    effectiveOptions.length > 1
-      ? effectiveOptions.slice(1)
+    generalizationOffset > 0
+      ? effectiveOptions.slice(generalizationOffset)
       : effectiveOptions;
 
   const isSingleOption = effectiveOptions.length === 1;
@@ -169,9 +199,9 @@ export function ChatRuleEditorModal({
 
   const showSaveAsNew = isEditMode && !!onSaveAsNew && narrowerOptions.length > 0;
 
-  const [selectedPatternIndex, setSelectedPatternIndex] = useState(() => {
-    return effectiveOptions.length > 1 ? 1 : 0;
-  });
+  const [selectedPatternIndex, setSelectedPatternIndex] = useState(
+    () => generalizationOffset,
+  );
 
   const [selectedRiskLevel, setSelectedRiskLevel] = useState(
     context.riskLevel || "medium",
@@ -220,7 +250,7 @@ export function ChatRuleEditorModal({
       // If suggestion arrived, pre-select its pattern for Save As New.
       if (suggestion && suggestion.pattern && suggestion.pattern !== existingRule.pattern) {
         const matchIdx = effectiveOptions.findIndex((o) => o.pattern === suggestion.pattern);
-        if (matchIdx >= 0 && (matchIdx > 0 || isSingleOption)) {
+        if (matchIdx >= generalizationOffset || (matchIdx >= 0 && isSingleOption)) {
           setSelectedPatternIndex(matchIdx);
         }
       }
@@ -238,7 +268,7 @@ export function ChatRuleEditorModal({
       }
       if (suggestion.pattern) {
         const matchIdx = effectiveOptions.findIndex((o) => o.pattern === suggestion.pattern);
-        if (matchIdx >= 0 && (matchIdx > 0 || isSingleOption)) {
+        if (matchIdx >= generalizationOffset || (matchIdx >= 0 && isSingleOption)) {
           setSelectedPatternIndex(matchIdx);
         }
       }
@@ -255,7 +285,7 @@ export function ChatRuleEditorModal({
         setSelectedPatternIndex(0);
       }
     }
-  }, [suggestionPattern, hasUserInteracted, existingRule, suggestion, effectiveOptions, isSingleOption, narrowerOptions, directoryScopeFiltered, context.riskLevel]);
+  }, [suggestionPattern, hasUserInteracted, existingRule, suggestion, effectiveOptions, isSingleOption, narrowerOptions, directoryScopeFiltered, context.riskLevel, generalizationOffset]);
 
   const handleUserInteraction = useCallback((setter: () => void) => {
     setHasUserInteracted(true);
@@ -439,8 +469,7 @@ export function ChatRuleEditorModal({
               ) : generalizedOptions.length > 1 ? (
                 <div className="space-y-1">
                   {generalizedOptions.map((option, i) => {
-                    const targetIndex =
-                      effectiveOptions.length > 1 ? i + 1 : i;
+                    const targetIndex = i + generalizationOffset;
                     return (
                       <RadioRow
                         key={option.pattern}
