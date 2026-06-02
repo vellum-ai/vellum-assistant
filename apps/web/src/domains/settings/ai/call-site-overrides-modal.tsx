@@ -10,8 +10,8 @@ import { Input } from "@vellum/design-library/components/input";
 import { Toggle } from "@vellum/design-library/components/toggle";
 import { Modal } from "@vellum/design-library/components/modal";
 import { toast } from "@vellum/design-library/components/toast";
-import { configLlmCallsitesGet } from "@/generated/daemon/sdk.gen";
 import type { ConfigLlmCallsitesGetResponse } from "@/generated/daemon/types.gen";
+import { configLlmCallsitesGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import {
@@ -59,12 +59,12 @@ export interface CallSiteOverridesModalProps {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function isDraftActive(d: CallSiteOverrideDraft | null | undefined): boolean {
+export function isDraftActive(d: CallSiteOverrideDraft | null | undefined): boolean {
   if (!d) return false;
   return !!(d.profile || d.provider || d.model);
 }
 
-function draftsEqual(
+export function draftsEqual(
   a: CallSiteOverrideDraft | null | undefined,
   b: CallSiteOverrideDraft | null | undefined,
 ): boolean {
@@ -148,14 +148,9 @@ function CallSiteOverridesModalInner({
     isError,
     refetch,
   } = useQuery({
-    queryKey: ["call-site-catalog", assistantId],
-    queryFn: async () => {
-      const { data } = await configLlmCallsitesGet({
-        path: { assistant_id: assistantId },
-        throwOnError: true,
-      });
-      return data;
-    },
+    ...configLlmCallsitesGetOptions({
+      path: { assistant_id: assistantId },
+    }),
     enabled: !!assistantId,
     staleTime: 60_000,
     refetchOnWindowFocus: false,
@@ -220,13 +215,12 @@ function CallSiteOverridesModalInner({
   );
 
   const hasUnsavedDrafts = useMemo(() => {
-    // eslint-disable-next-line react-hooks/refs -- synchronous flag set before setState
-    if (!seeded.current) return false;
+    if (!isSeeded) return false;
     for (const id of Object.keys(drafts)) {
       if (!draftsEqual(drafts[id], persistedOverrides[id])) return true;
     }
     return false;
-  }, [drafts, persistedOverrides]);
+  }, [isSeeded, drafts, persistedOverrides]);
 
   const hasValidationError = useMemo(
     () =>
@@ -501,6 +495,11 @@ function CallSiteOverridesModalInner({
                           ? null
                           : profileVal,
                       );
+                      const defaultProfileLabel = cs.defaultProfile
+                        ? (orderedProfiles.find(
+                            (op) => op.name === cs.defaultProfile,
+                          )?.label ?? cs.defaultProfile)
+                        : null;
 
                       return (
                         <div
@@ -516,19 +515,11 @@ function CallSiteOverridesModalInner({
                               {cs.description && (
                                 <p className="mt-0.5 text-body-small-default text-[var(--content-tertiary)]">
                                   {cs.description}
-                                  {cs.defaultProfile &&
-                                    (() => {
-                                      const p = orderedProfiles.find(
-                                        (op) => op.name === cs.defaultProfile,
-                                      );
-                                      const label =
-                                        p?.label ?? cs.defaultProfile;
-                                      return (
-                                        <span className="ml-1.5 text-body-small-default text-[var(--content-tertiary)] opacity-60">
-                                          &middot; Default: {label}
-                                        </span>
-                                      );
-                                    })()}
+                                  {defaultProfileLabel && (
+                                    <span className="ml-1.5 text-body-small-default text-[var(--content-tertiary)] opacity-60">
+                                      &middot; Default: {defaultProfileLabel}
+                                    </span>
+                                  )}
                                 </p>
                               )}
                             </div>
