@@ -3,7 +3,6 @@ import {
   ChartColumn,
   ChevronDown,
   ChevronUp,
-  Gift,
   LogOut,
   MessageSquareText,
   Settings as SettingsIcon,
@@ -15,7 +14,6 @@ import { useNavigate } from "react-router";
 
 import {
   BottomSheet,
-  Button,
   PanelItem,
   Popover,
   SideMenu,
@@ -33,6 +31,8 @@ import {
 import { adminUrl, routes } from "@/utils/routes";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { organizationsBillingSummaryRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
+
+import { CreditsCard } from "./credits-card";
 
 // Modal only opens when the user clicks "Share Feedback" — defer loading
 // until then to keep the modal's form deps (markdown editor, etc.) out of
@@ -172,34 +172,17 @@ function PreferencesMenuContent({
 
       {showBillingRows ? (
         <>
-          {effectiveBalance !== null ? (
-            <>
-              <div className="flex items-center justify-between gap-3 py-2 pl-[8px]">
-                <span
-                  className="text-body-medium-lighter"
-                  style={{ color: "var(--content-default)" }}
-                >
-                  {formatWholeCredits(effectiveBalance)} credits
-                </span>
-                <Button
-                  variant="ghost"
-                  size="compact"
-                  onClick={() => {
-                    onClose();
-                    navigate(routes.settings.billing);
-                  }}
-                >
-                  Add credits
-                </Button>
-              </div>
-              <MenuDivider />
-            </>
-          ) : null}
-
-          <PanelItem
-            icon={Gift}
-            label="Earn credits"
-            onSelect={() => {
+          <CreditsCard
+            balance={
+              effectiveBalance !== null
+                ? formatWholeCredits(effectiveBalance)
+                : null
+            }
+            onAddCredits={() => {
+              onClose();
+              navigate(routes.settings.billing);
+            }}
+            onEarnCredits={() => {
               onClose();
               onEarnCredits();
             }}
