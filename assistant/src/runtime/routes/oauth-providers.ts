@@ -7,6 +7,7 @@
  */
 
 import { loadConfig } from "../../config/loader.js";
+import { resolvePlatformCallbackRegistrationContext } from "../../inbound/platform-callback-registration.js";
 import { getOAuthCallbackUrl } from "../../inbound/public-ingress-urls.js";
 import {
   deleteApp,
@@ -77,7 +78,7 @@ function handleListProviders({ queryParams = {} }: RouteHandlerArgs) {
   return { providers: serialized };
 }
 
-function handleGetProvider({ pathParams = {} }: RouteHandlerArgs) {
+async function handleGetProvider({ pathParams = {} }: RouteHandlerArgs) {
   const { providerKey } = pathParams;
   const row = getProvider(providerKey);
   if (!row) {
@@ -97,7 +98,16 @@ function handleGetProvider({ pathParams = {} }: RouteHandlerArgs) {
   try {
     oauthCallbackUrl = getOAuthCallbackUrl(config);
   } catch {
-    // Ingress not configured or disabled — callback URL unavailable
+    // Self-hosted ingress not configured — fall back to platform URL
+    try {
+      const ctx = await resolvePlatformCallbackRegistrationContext();
+      if (ctx.enabled) {
+        const base = ctx.platformBaseUrl.replace(/\/+$/, "");
+        oauthCallbackUrl = `${base}/v1/gateway/callbacks/${ctx.assistantId}/webhooks/oauth/callback/`;
+      }
+    } catch {
+      // Platform context unavailable
+    }
   }
 
   return {
