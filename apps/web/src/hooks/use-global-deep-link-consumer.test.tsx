@@ -24,7 +24,7 @@ const sentryBreadcrumbMock = mock((_args: unknown) => undefined);
 // Full Sentry surface — `mock.module` is process-global in bun, so a
 // partial mock would shadow `captureException` (used by `runtime/event-sources/*`
 // and `sse-service`) for every later test file in the run.
-mock.module("@sentry/browser", () => ({
+mock.module("@sentry/react", () => ({
   addBreadcrumb: sentryBreadcrumbMock,
   captureException: () => {},
 }));

@@ -240,7 +240,7 @@ describe("sse-event-consumer — seq-gap detection", () => {
     );
 
     expect(reconcileActive).toHaveBeenCalledTimes(1);
-    expect(seqStore.get("conv-1")).toBe(5); // Cursor pinned at 5 — reconcile will deliver authoritative state.
+    expect(seqStore.get("conv-1")).toBe(10); // Cursor replaced to current event — prevents re-triggering on every subsequent event.
   });
 
   test("counter-reset (seq < stored) replaces the cursor and reconciles", () => {

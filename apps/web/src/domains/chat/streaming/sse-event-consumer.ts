@@ -34,10 +34,10 @@
  *     restarted (daemon restart). Replace the stale cursor and
  *     reconcile.
  *   - Subsequent events whose seq > stored + 1: gap in the live
- *     stream. Reconcile to fetch the missed events.
- *   - The cursor only advances AFTER the handler returns and only
- *     when no gap was detected. A thrown handler keeps the cursor
- *     pinned so the next event re-triggers the gap path.
+ *     stream. Replace the cursor and reconcile to fetch missed events.
+ *   - On the normal (no-gap) path the cursor advances AFTER the
+ *     handler returns. A thrown handler keeps the cursor pinned so the
+ *     next event re-triggers the gap path.
  */
 
 import { useStreamStore } from "@/domains/chat/stream-store";
@@ -142,6 +142,7 @@ export function createSseEventConsumer(
               observed: eventSeq,
               gap: eventSeq - stored,
             });
+            replaceLastSeenSeq(eventConversationId, eventSeq);
             gapDetected = true;
             deps.reconcileActive();
           }
@@ -154,9 +155,9 @@ export function createSseEventConsumer(
 
       // Advance the seq cursor AFTER the handler returns so a thrown
       // handler does not advance the cursor past unapplied work.
-      // Skip advancement when a gap was detected — the reconcile
-      // refetch will deliver authoritative state. If reconcile fails,
-      // the next contiguous event will re-detect the gap and retry.
+      // Skip advancement when a gap was detected — both gap paths
+      // (counter-reset and seq-gap) already called replaceLastSeenSeq
+      // to move the cursor to the current event before reconciling.
       if (
         seqGapEnabled &&
         eventSeq != null &&
