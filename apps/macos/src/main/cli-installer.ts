@@ -43,7 +43,7 @@ export function isCliInstalled(): boolean {
 /**
  * Install the pinned CLI version if it isn't already present.
  *
- * Uses the bundled bun runtime to `bun add vellum@<version>` into the
+ * Uses the bundled bun runtime to `bun add @vellumai/cli@<version>` into the
  * per-version install directory. After a successful install, stale
  * versions are cleaned up.
  */
@@ -56,7 +56,7 @@ export async function ensureCliInstalled(): Promise<void> {
   const bunPath = getBundledBunPath();
 
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(bunPath, ["add", `vellum@${PINNED_CLI_VERSION}`], {
+    const child = spawn(bunPath, ["add", `@vellumai/cli@${PINNED_CLI_VERSION}`], {
       cwd: installDir,
     });
 
