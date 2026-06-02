@@ -45,6 +45,8 @@ export const conversations = sqliteTable(
     inferenceProfileSessionId: text("inference_profile_session_id"),
     inferenceProfileExpiresAt: integer("inference_profile_expires_at"),
     lastNotifiedInferenceProfile: text("last_notified_inference_profile"),
+    incognito: integer("incognito").notNull().default(0),
+    factorInMemories: integer("factor_in_memories").notNull().default(1),
   },
   (table) => [
     index("idx_conversations_updated_at").on(table.updatedAt),
@@ -54,6 +56,7 @@ export const conversations = sqliteTable(
     index("idx_conversations_fork_parent_conversation_id").on(
       table.forkParentConversationId,
     ),
+    index("idx_conversations_incognito").on(table.incognito),
   ],
 );
 

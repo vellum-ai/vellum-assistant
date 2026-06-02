@@ -73,6 +73,7 @@ import {
   migrateConversationInferenceProfileSession,
   migrateConversationLastNotifiedProfile,
   migrateConversationsArchivedAt,
+  migrateConversationsIncognitoFlags,
   migrateConversationsLastMessageAt,
   migrateConversationsThreadTypeIndex,
   migrateCreateConversationGraphMemoryState,
@@ -474,6 +475,7 @@ export function initializeDb(): void {
     migrateAddMemoryV3Selections,
     migrateScheduleScriptTimeout,
     migrateMessagesRoleCreatedAtIndex,
+    migrateConversationsIncognitoFlags,
   ];
 
   // Run each migration step, catching and logging individual failures so one
