@@ -101,6 +101,19 @@ export function extractApiErrorDetail(
 const MAX_API_ERROR_DETAIL_CHARS = 2000;
 
 /**
+ * Fallback `content` for an assistant turn that has neither visible text nor
+ * tool calls (e.g. a reasoning-only turn truncated at the output-token limit).
+ *
+ * The OpenAI chat-completions schema requires an assistant message to carry
+ * `content` or `tool_calls`. OpenAI itself tolerates `content: null`/`""` here,
+ * but strict OpenAI-compatible backends do not: DeepSeek via OpenRouter rejects
+ * the request with `Invalid assistant message: content or tool_calls must be
+ * set`, and vLLM-style validators coerce empty-string content back to null and
+ * reject it the same way. The placeholder must therefore be a non-empty string.
+ */
+export const EMPTY_ASSISTANT_TURN_PLACEHOLDER = "[empty assistant turn]";
+
+/**
  * Read the first matching header from an SDK error's headers object,
  * tolerating both Map-like (`Headers.get()`) and plain-object shapes.
  * Mirrors the shape-tolerance already in `extractRetryAfterMs`.
@@ -792,6 +805,17 @@ export class OpenAIChatCompletionsProvider implements Provider {
 
     if (toolCalls.length > 0) {
       result.tool_calls = toolCalls;
+    }
+
+    // An assistant message must carry `content` or `tool_calls`. A turn with
+    // neither (e.g. reasoning-only) would serialize to null/empty content with
+    // no tool calls, which strict OpenAI-compatible backends reject. Reasoning
+    // lives in a separate field and does not satisfy this constraint.
+    if (
+      !result.tool_calls &&
+      (result.content === null || result.content === "")
+    ) {
+      result.content = EMPTY_ASSISTANT_TURN_PLACEHOLDER;
     }
 
     return result;
