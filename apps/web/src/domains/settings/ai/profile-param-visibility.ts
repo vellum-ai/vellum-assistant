@@ -80,7 +80,6 @@ function modelSupportsThinking(provider: string, modelId: string): boolean {
   return false;
 }
 
-
 function supportsEffort(provider: string, modelId: string, supportsThinking: boolean): boolean {
   if (provider === "anthropic") {
     return !modelId.includes("haiku") && supportsThinking;
