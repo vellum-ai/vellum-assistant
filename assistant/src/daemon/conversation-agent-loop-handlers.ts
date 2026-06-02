@@ -1868,7 +1868,9 @@ export async function dispatchAgentEvent(
             // fire only for genuine backend classifications so it does not
             // count recoverable input/quota errors as provider failures.
             logWebSearchBackendFailure(deps.rlog, {
-              provider: "anthropic-native",
+              provider: isAnthropicNative
+                ? "anthropic-native"
+                : deps.ctx.provider.name,
               requestId: deps.reqId,
               errorCategory: classification.category,
               rawDetail: classification.rawDetail,
