@@ -49,23 +49,29 @@ const APP: OpenedAppState = {
   html: "<html></html>",
 };
 const CONV_ID = "conv-edit";
-const INITIAL_PATH = "/assistant/library/app-42";
+const LIBRARY_PATH = "/assistant/library/app-42";
+const CONVERSATION_PATH = `/assistant/conversations/${CONV_ID}`;
 
 // Records the router's current path so tests can assert navigation without
-// reaching into router internals.
-let lastPath = INITIAL_PATH;
+// reaching into router internals. A mutable container (rather than a bare
+// reassigned variable) keeps the probe a pure render with no outer-scope
+// reassignment.
+const router = { path: "" };
 function LocationProbe(): null {
-  lastPath = useLocation().pathname;
+  router.path = useLocation().pathname;
   return null;
 }
-function wrapper({ children }: { children: ReactNode }) {
-  return (
-    <MemoryRouter initialEntries={[INITIAL_PATH]}>
-      {children}
-      <LocationProbe />
-    </MemoryRouter>
-  );
+function wrapperAt(initialPath: string) {
+  return function Wrapper({ children }: { children: ReactNode }) {
+    return (
+      <MemoryRouter initialEntries={[initialPath]}>
+        {children}
+        <LocationProbe />
+      </MemoryRouter>
+    );
+  };
 }
+const wrapper = wrapperAt(LIBRARY_PATH);
 
 beforeEach(() => {
   viewerSnapshot = useViewerStore.getState();
@@ -73,7 +79,7 @@ beforeEach(() => {
   selectionSnapshot = useAssistantSelectionStore.getState();
 
   mobileRef.current = false;
-  lastPath = INITIAL_PATH;
+  router.path = "";
   openAppMock.mockReset();
   setLoadedAppMock.mockReset();
   enterAppEditingMock.mockReset();
@@ -120,7 +126,7 @@ describe("useEditApp", () => {
     expect(openAppMock).not.toHaveBeenCalled();
     expect(setEditingConversationIdMock).not.toHaveBeenCalled();
     expect(enterAppEditingMock).not.toHaveBeenCalled();
-    expect(lastPath).toBe(INITIAL_PATH);
+    expect(router.path).toBe(LIBRARY_PATH);
   });
 
   test("loads the app into the viewer and opens the split edit view on desktop", () => {
@@ -136,7 +142,7 @@ describe("useEditApp", () => {
     expect(setLoadedAppMock).toHaveBeenCalledWith(APP);
     expect(setEditingConversationIdMock).toHaveBeenCalledWith(CONV_ID);
     expect(enterAppEditingMock).toHaveBeenCalledTimes(1);
-    expect(lastPath).toBe(routes.conversation(CONV_ID));
+    expect(router.path).toBe(routes.conversation(CONV_ID));
   });
 
   test("on a mobile viewport, binds the edit conversation and navigates but stays full-screen (no split)", () => {
@@ -149,7 +155,7 @@ describe("useEditApp", () => {
 
     // THEN the edit conversation is still bound and we navigate to it...
     expect(setEditingConversationIdMock).toHaveBeenCalledWith(CONV_ID);
-    expect(lastPath).toBe(routes.conversation(CONV_ID));
+    expect(router.path).toBe(routes.conversation(CONV_ID));
     // ...but the viewer is not upgraded to the split edit view
     expect(enterAppEditingMock).not.toHaveBeenCalled();
   });
@@ -166,19 +172,36 @@ describe("useEditApp", () => {
     expect(openAppMock).not.toHaveBeenCalled();
     expect(setLoadedAppMock).not.toHaveBeenCalled();
     expect(enterAppEditingMock).toHaveBeenCalledTimes(1);
-    expect(lastPath).toBe(routes.conversation(CONV_ID));
+    expect(router.path).toBe(routes.conversation(CONV_ID));
   });
 
-  test("skips navigation when already on the edit conversation route", () => {
-    // GIVEN the user is already viewing the edit conversation
+  test("navigates to the edit conversation from an off-chat route even when its id is already the active conversation", () => {
+    // GIVEN we're on the Library app route (which doesn't mount the viewer)
+    // AND the chat store still holds this app's edit conversation as active
+    // from a previous visit — so an id-only guard would wrongly skip nav
     useConversationStore.setState({ activeConversationId: CONV_ID });
     const { result } = renderHook(() => useEditApp(), { wrapper });
 
     // WHEN the user clicks Edit
     act(() => result.current(APP));
 
-    // THEN the split view still opens but no redundant navigation occurs
+    // THEN we still navigate to the conversation so the split view appears
     expect(enterAppEditingMock).toHaveBeenCalledTimes(1);
-    expect(lastPath).toBe(INITIAL_PATH);
+    expect(router.path).toBe(CONVERSATION_PATH);
+  });
+
+  test("skips redundant navigation when already on the edit conversation route", () => {
+    // GIVEN the user is already on this app's edit conversation route
+    useConversationStore.setState({ activeConversationId: CONV_ID });
+    const { result } = renderHook(() => useEditApp(), {
+      wrapper: wrapperAt(CONVERSATION_PATH),
+    });
+
+    // WHEN the user clicks Edit
+    act(() => result.current(APP));
+
+    // THEN the split view still opens but the path is unchanged
+    expect(enterAppEditingMock).toHaveBeenCalledTimes(1);
+    expect(router.path).toBe(CONVERSATION_PATH);
   });
 });

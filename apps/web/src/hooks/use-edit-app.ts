@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import { useIsMobile } from "@/hooks/use-is-mobile";
@@ -31,6 +31,7 @@ export function useEditApp(): (app: OpenedAppState) => void {
   const assistantId = useAssistantSelectionStore.use.activeAssistantId();
   const isMobile = useIsMobile();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
 
   return useCallback(
     (app) => {
@@ -48,10 +49,15 @@ export function useEditApp(): (app: OpenedAppState) => void {
       useConversationStore.getState().setEditingConversationId(convId);
       if (!isMobile) viewer.enterAppEditing();
 
-      if (useConversationStore.getState().activeConversationId !== convId) {
-        void navigate(routes.conversation(convId));
+      // The split edit view only renders on the conversation route. Navigate
+      // whenever we aren't already there — comparing the path rather than the
+      // active conversation id, since off-chat routes (e.g. the Library app
+      // view) can still hold a stale matching id without mounting the viewer.
+      const target = routes.conversation(convId);
+      if (pathname !== target) {
+        void navigate(target);
       }
     },
-    [assistantId, isMobile, navigate],
+    [assistantId, isMobile, navigate, pathname],
   );
 }
