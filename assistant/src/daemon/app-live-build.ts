@@ -23,10 +23,13 @@ export interface AppLiveBuildDeps {
   /** Broadcast an app_preview_update event to all connected clients. */
   broadcast: (msg: AppPreviewUpdateEvent) => void;
   /**
-   * Refresh in-memory/persisted surfaces for the app. Returns the applied
-   * reload generation so this orchestrator can keep one source of truth shared
-   * with the broadcast event. When `reloadGeneration` is supplied the caller is
-   * expected to use it verbatim.
+   * Refresh in-memory/persisted surfaces for the app. The per-surface
+   * `reloadGeneration` is the single source of truth for the macOS reload, so
+   * this returns the highest generation actually applied across surfaces.
+   * `reloadGeneration` is a monotonic floor: each surface advances to at least
+   * `floor` but never below `currentGeneration + 1`, so the broadcast can adopt
+   * the returned value and stay in agreement with — and strictly ahead of —
+   * what clients last saw.
    */
   refreshSurfaces: (
     appId: string,
@@ -36,15 +39,21 @@ export interface AppLiveBuildDeps {
       buildErrors?: string[];
       reloadGeneration?: number;
     },
-  ) => void;
+  ) => number;
   /** Notify the app-list / publish pipeline (existing side effects). */
   onSettled: () => void;
 }
 
 /**
- * Per-app reload generation counter — the single source of truth for the
- * `reloadGeneration` field shared by the broadcast event and the refreshed
- * surfaces. Bumped only on a successful recompile.
+ * Per-app reload generation counter for the `app_preview_update` broadcast.
+ *
+ * The per-surface counter (see `refreshSurfacesForApp`) is the authoritative
+ * source of truth for the macOS change-detection reload; this map mirrors the
+ * highest generation applied to any surface so overlapping live builds keep
+ * issuing strictly increasing broadcast generations even when no surface is
+ * currently mounted. It is reconciled from `refreshSurfaces`' return value on
+ * every successful recompile, so it can never collide with or regress below
+ * what a client last saw.
  */
 const appReloadGenerations = new Map<string, number>();
 
@@ -64,9 +73,8 @@ export async function runAppLiveBuild(
   deps: AppLiveBuildDeps,
 ): Promise<void> {
   // Snapshot the current generation for the non-bumping `building`/`error`
-  // outcomes. The successful `ok` outcome instead reads-and-bumps the counter
-  // AFTER the (serialized) compile resolves, so two overlapping builds that
-  // both succeed produce two distinct, monotonically increasing generations.
+  // outcomes (these never advance the counter, so they re-broadcast whatever
+  // generation a client already has).
   const generationAtStart = appReloadGenerations.get(appId) ?? 0;
 
   // Capture the last-good resolved html BEFORE compiling: compileApp begins
@@ -74,55 +82,70 @@ export async function runAppLiveBuild(
   // resolvable html) would otherwise be wiped.
   const lastGoodHtml = deps.resolveEffectiveAppHtml(app);
 
-  // Settle a terminal outcome: refresh surfaces, broadcast the preview update,
-  // and run the existing app-list/publish side effects.
-  const emit = (
+  // Broadcast the preview update and run the existing app-list/publish side
+  // effects. Surface refresh (the source of the reload generation) happens in
+  // the caller for the `ok` path, since its applied generation feeds the
+  // broadcast; the non-bumping `error` path refreshes here.
+  const broadcastUpdate = (
     update: Pick<
       AppPreviewUpdateEvent,
       "html" | "compileStatus" | "buildErrors" | "reloadGeneration"
     >,
   ) => {
-    if (update.compileStatus !== "building") {
-      deps.refreshSurfaces(appId, {
-        fileChange: true,
-        compileStatus: update.compileStatus,
-        buildErrors: update.buildErrors,
-        reloadGeneration: update.reloadGeneration,
-      });
-    }
     deps.broadcast({ type: "app_preview_update", appId, ...update });
     if (update.compileStatus !== "building") deps.onSettled();
   };
 
-  // Show a building overlay immediately without blanking the preview.
-  emit({
+  // Show a building overlay immediately without blanking the preview. No
+  // surface refresh: a building status must not bump the reload generation.
+  broadcastUpdate({
     html: lastGoodHtml,
     compileStatus: "building",
     reloadGeneration: generationAtStart,
   });
+
+  const settleError = (buildErrors: string[]) => {
+    // Failed compile: do NOT push broken/placeholder html and do NOT bump the
+    // reload generation. Re-broadcast the captured last-good html plus errors.
+    deps.refreshSurfaces(appId, {
+      fileChange: true,
+      compileStatus: "error",
+      buildErrors,
+    });
+    broadcastUpdate({
+      html: lastGoodHtml,
+      compileStatus: "error",
+      buildErrors,
+      reloadGeneration: generationAtStart,
+    });
+  };
 
   let result: CompileResult;
   try {
     result = await deps.compileApp(appDir);
   } catch {
     // Treat a thrown compile as a failed compile: keep the last-good preview.
-    emit({
-      html: lastGoodHtml,
-      compileStatus: "error",
-      buildErrors: ["Recompile failed"],
-      reloadGeneration: generationAtStart,
-    });
+    settleError(["Recompile failed"]);
     return;
   }
 
   if (result.ok) {
-    // Read-and-bump AFTER the compile resolves so overlapping successful
-    // builds each get a distinct, monotonically increasing generation. (Both
-    // the read and the write happen synchronously here with no intervening
-    // await, so they are atomic against other invocations.)
-    const nextGeneration = (appReloadGenerations.get(appId) ?? 0) + 1;
+    // Let the surface refresh advance the authoritative per-surface counter and
+    // tell us the generation it applied. We pass the module counter + 1 as a
+    // monotonic floor and adopt the returned value (which is also >= every
+    // surface's prior generation + 1), so the broadcast can never collide with
+    // or regress below what a client last saw, even across overlapping builds.
+    // The read-and-write of the module counter is synchronous (no intervening
+    // await), so it is atomic against other in-flight invocations.
+    const floor = (appReloadGenerations.get(appId) ?? 0) + 1;
+    const appliedGeneration = deps.refreshSurfaces(appId, {
+      fileChange: true,
+      compileStatus: "ok",
+      reloadGeneration: floor,
+    });
+    const nextGeneration = Math.max(floor, appliedGeneration);
     appReloadGenerations.set(appId, nextGeneration);
-    emit({
+    broadcastUpdate({
       html: deps.resolveEffectiveAppHtml(app),
       compileStatus: "ok",
       reloadGeneration: nextGeneration,
@@ -130,12 +153,5 @@ export async function runAppLiveBuild(
     return;
   }
 
-  // Failed compile: do NOT push broken/placeholder html and do NOT bump the
-  // reload generation. Re-broadcast the captured last-good html plus errors.
-  emit({
-    html: lastGoodHtml,
-    compileStatus: "error",
-    buildErrors: result.errors.map((e) => e.text),
-    reloadGeneration: generationAtStart,
-  });
+  settleError(result.errors.map((e) => e.text));
 }
