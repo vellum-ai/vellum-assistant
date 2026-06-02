@@ -22,6 +22,7 @@ import {
 } from "@/domains/chat/utils/stream-handlers/navigation-handlers";
 import {
   handleAssistantTextDelta,
+  handleAssistantThinkingDelta,
   handleAssistantTurnStart,
   handleAssistantActivityState,
   handleMessageComplete,
@@ -257,6 +258,9 @@ export function useStreamEventHandler(
           break;
         case "assistant_text_delta":
           handleAssistantTextDelta(event, ctx);
+          break;
+        case "assistant_thinking_delta":
+          handleAssistantThinkingDelta(event, ctx);
           break;
         case "assistant_activity_state":
           handleAssistantActivityState(event, ctx);

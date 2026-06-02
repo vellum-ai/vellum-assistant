@@ -221,6 +221,98 @@ export function appendTextDelta(
 }
 
 // ---------------------------------------------------------------------------
+// assistant_thinking_delta
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a new streaming assistant bubble whose first content entry is a
+ * thinking block. Reasoning-heavy models (e.g. Kimi) emit their entire
+ * chain of thought before any `assistant_text_delta`, so the row is often
+ * born from a thinking delta rather than a text one.
+ */
+export function createStreamingThinkingBubble(
+  prev: DisplayMessage[],
+  thinking: string,
+  messageId?: string,
+): DisplayMessage[] {
+  return [
+    ...prev,
+    {
+      id: messageId ?? crypto.randomUUID(),
+      ...(messageId ? {} : { isOptimistic: true }),
+      role: "assistant",
+      thinkingSegments: [thinking],
+      contentOrder: [{ type: "thinking", id: "0" }],
+      timestamp: Date.now(),
+    },
+  ];
+}
+
+/**
+ * Append `thinking` into the message at `prev[idx]`, extending its trailing
+ * thinking segment when the last `contentOrder` entry is `thinking`,
+ * otherwise opening a new thinking segment. Mirrors `appendTextIntoRow` so
+ * consecutive reasoning chunks coalesce into one block while reasoning that
+ * resumes after interleaved text/tool entries starts a fresh block.
+ */
+function appendThinkingIntoRow(
+  prev: DisplayMessage[],
+  idx: number,
+  thinking: string,
+  messageId?: string,
+): DisplayMessage[] {
+  const row = withMergedAlias(prev[idx]!, messageId);
+  const segments = [...(row.thinkingSegments ?? [])];
+  const order = [...(row.contentOrder ?? [])];
+  const lastOrderEntry = order[order.length - 1];
+
+  if (lastOrderEntry?.type === "thinking" && segments.length > 0) {
+    segments[segments.length - 1] = segments[segments.length - 1]! + thinking;
+  } else {
+    const newIndex = segments.length;
+    segments.push(thinking);
+    order.push({ type: "thinking", id: String(newIndex) });
+  }
+
+  const next = [...prev];
+  next[idx] = {
+    ...row,
+    thinkingSegments: segments,
+    contentOrder: order,
+  };
+  return next;
+}
+
+/**
+ * Apply an `assistant_thinking_delta` to the message array.
+ *
+ * Mirrors `appendTextDelta`'s identity resolution: identity-keyed on
+ * `messageId` (the assistant row's db id) when present, with a tail-based
+ * fallback for older daemons that don't stamp it. A thinking delta that
+ * arrives before any text/tool event opens a fresh assistant bubble via
+ * `createStreamingThinkingBubble`.
+ */
+export function appendThinkingDelta(
+  prev: DisplayMessage[],
+  thinking: string,
+  messageId?: string,
+): DisplayMessage[] {
+  if (messageId) {
+    const idx = findAssistantRowIndexByMessageId(prev, messageId);
+    if (idx >= 0) return appendThinkingIntoRow(prev, idx, thinking, messageId);
+    if (tailIsAssistant(prev)) {
+      return appendThinkingIntoRow(prev, prev.length - 1, thinking, messageId);
+    }
+    return createStreamingThinkingBubble(prev, thinking, messageId);
+  }
+
+  if (!tailIsAssistant(prev)) {
+    return createStreamingThinkingBubble(prev, thinking, messageId);
+  }
+  return appendThinkingIntoRow(prev, prev.length - 1, thinking);
+}
+
+// ---------------------------------------------------------------------------
 // assistant_activity_state (idle)
 // ---------------------------------------------------------------------------
 

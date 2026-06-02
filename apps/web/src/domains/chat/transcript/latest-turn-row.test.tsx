@@ -77,6 +77,7 @@ const noop = () => {};
 const sharedProps = {
   expandedToolCallIds: new Set<string>(),
   expandedCardIds: new Map<string, boolean>(),
+  expandedThinkingKeys: new Map<string, boolean>(),
   onSurfaceAction: noop,
   onSecretSubmit: noop,
   onConfirmationDecision: noop,

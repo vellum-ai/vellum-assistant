@@ -25,6 +25,7 @@ export interface TranscriptRowProps {
   assistantDisplayName?: string | null;
   expandedToolCallIds: Set<string>;
   expandedCardIds: Map<string, boolean>;
+  expandedThinkingKeys: Map<string, boolean>;
   onSurfaceAction: (
     surfaceId: string,
     actionId: string,
@@ -78,6 +79,7 @@ export const TranscriptRow = memo(function TranscriptRow({
   assistantDisplayName,
   expandedToolCallIds,
   expandedCardIds,
+  expandedThinkingKeys,
   onSurfaceAction,
   onSecretSubmit,
   onConfirmationDecision,
@@ -109,6 +111,7 @@ export const TranscriptRow = memo(function TranscriptRow({
           assistantDisplayName={assistantDisplayName}
           expandedToolCallIds={expandedToolCallIds}
           expandedCardIds={expandedCardIds}
+          expandedThinkingKeys={expandedThinkingKeys}
           onSurfaceAction={onSurfaceAction}
           onForkConversation={onForkConversation}
           onInspectMessage={onInspectMessage}

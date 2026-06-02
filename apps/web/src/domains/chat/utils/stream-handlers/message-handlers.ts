@@ -1,6 +1,7 @@
 import { recordDiagnostic } from "@/lib/diagnostics";
 import {
   appendTextDelta,
+  appendThinkingDelta,
   applyUserMessageEcho,
   finalizeMessageComplete,
   finalizeOnIdle,
@@ -14,6 +15,7 @@ import { useConversationStore } from "@/stores/conversation-store";
 import type {
   AssistantActivityStateEvent,
   AssistantTextDeltaEvent,
+  AssistantThinkingDeltaEvent,
   AssistantTurnStartEvent,
   GenerationCancelledEvent,
   GenerationHandoffEvent,
@@ -110,6 +112,34 @@ export function handleAssistantTextDelta(
     // Stamp the current-assistant ref to the assistant tail. Subagent
     // handlers read this to attribute nested notifications to the right
     // parent bubble.
+    if (tail?.role === "assistant") {
+      ctx.currentAssistantMessageIdRef.current = tail.id;
+    }
+    return next;
+  });
+}
+
+/**
+ * Apply an `assistant_thinking_delta` event — a streaming reasoning chunk
+ * from a thinking-capable model. Accumulates the chunk into the streaming
+ * assistant row's `thinkingSegments` and `contentOrder` so the reasoning
+ * block renders live instead of only after a history refresh.
+ *
+ * Reasoning-heavy models emit a long run of thinking deltas before any
+ * text/tool output, so this handler often opens the streaming bubble. It
+ * deliberately does not touch conversation processing state — that is
+ * driven by `assistant_turn_start` / `assistant_text_delta`; a thinking
+ * delta without a started turn is not a meaningful state on its own.
+ */
+export function handleAssistantThinkingDelta(
+  event: AssistantThinkingDeltaEvent,
+  ctx: StreamHandlerContext,
+): void {
+  ctx.cancelReconciliation();
+
+  ctx.setMessages((prev) => {
+    const next = appendThinkingDelta(prev, event.thinking, event.messageId);
+    const tail = next[next.length - 1];
     if (tail?.role === "assistant") {
       ctx.currentAssistantMessageIdRef.current = tail.id;
     }

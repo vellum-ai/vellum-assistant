@@ -15,6 +15,7 @@ export function messagesEqual(a: DisplayMessage[], b: DisplayMessage[]): boolean
       JSON.stringify(am.surfaces) !== JSON.stringify(bm.surfaces) ||
       JSON.stringify(am.textSegments) !== JSON.stringify(bm.textSegments) ||
       JSON.stringify(am.contentOrder) !== JSON.stringify(bm.contentOrder) ||
+      JSON.stringify(am.thinkingSegments) !== JSON.stringify(bm.thinkingSegments) ||
       JSON.stringify(am.metadata) !== JSON.stringify(bm.metadata) ||
       JSON.stringify(am.slackMessage) !== JSON.stringify(bm.slackMessage) ||
       JSON.stringify(am.toolCalls) !== JSON.stringify(bm.toolCalls) ||
@@ -31,6 +32,7 @@ export function messagesEqual(a: DisplayMessage[], b: DisplayMessage[]): boolean
       "surfaces",
       "textSegments",
       "contentOrder",
+      "thinkingSegments",
       "metadata",
       "slackMessage",
       "toolCalls",
@@ -183,6 +185,7 @@ function messageScore(message: DisplayMessage): number {
   let score = segmentsToPlainText(message.textSegments).length;
   score += (message.textSegments?.length ?? 0) * 100;
   score += (message.contentOrder?.length ?? 0) * 100;
+  score += (message.thinkingSegments?.length ?? 0) * 100;
   score += (message.toolCalls?.length ?? 0) * 100;
   score += (message.surfaces?.length ?? 0) * 50;
   score += (message.attachments?.length ?? 0) * 50;
@@ -245,6 +248,9 @@ export function mergeDuplicateMessages(
   }
   if (!merged.textSegments) {
     merged.textSegments = current.textSegments ?? incoming.textSegments;
+  }
+  if (!merged.thinkingSegments) {
+    merged.thinkingSegments = current.thinkingSegments ?? incoming.thinkingSegments;
   }
 
   return merged;
@@ -314,6 +320,12 @@ export function mergeLatestHistoryMessage(
     : pickMoreCompleteArray(current.textSegments, incoming.textSegments);
   if (textSegments) merged.textSegments = textSegments;
 
+  const thinkingSegments = pickMoreCompleteArray(
+    current.thinkingSegments,
+    incoming.thinkingSegments,
+  );
+  if (thinkingSegments) merged.thinkingSegments = thinkingSegments;
+
   if (current.metadata || incoming.metadata) {
     merged.metadata = {
       ...(current.metadata ?? {}),
@@ -380,6 +392,7 @@ function remapAdjacentContentOrder(
     attachment: number;
     toolCall: number;
     surface: number;
+    thinking: number;
   },
 ): Array<{ type: string; id: string }> | undefined {
   if (!entries || entries.length === 0) return entries;
@@ -387,7 +400,8 @@ function remapAdjacentContentOrder(
     offsets.text === 0 &&
     offsets.attachment === 0 &&
     offsets.toolCall === 0 &&
-    offsets.surface === 0
+    offsets.surface === 0 &&
+    offsets.thinking === 0
   ) {
     return entries;
   }
@@ -411,6 +425,7 @@ function pickContentOrderOffset(
     attachment: number;
     toolCall: number;
     surface: number;
+    thinking: number;
   },
 ): number {
   if (entryType === "text") return offsets.text;
@@ -419,6 +434,7 @@ function pickContentOrderOffset(
   // — `transcript-message-body.tsx` treats them as the same entry kind.
   if (entryType === "tool" || entryType === "toolCall") return offsets.toolCall;
   if (entryType === "surface") return offsets.surface;
+  if (entryType === "thinking") return offsets.thinking;
   return 0;
 }
 
@@ -450,6 +466,7 @@ function foldAdjacentAssistant(
     attachment: survivor.attachments?.length ?? 0,
     toolCall: survivor.toolCalls?.length ?? 0,
     surface: survivor.surfaces?.length ?? 0,
+    thinking: survivor.thinkingSegments?.length ?? 0,
   };
 
   const textSegments = concatOptionalArrays(
@@ -475,6 +492,10 @@ function foldAdjacentAssistant(
     survivor.attachments,
     donor.attachments,
   );
+  const thinkingSegments = concatOptionalArrays(
+    survivor.thinkingSegments,
+    donor.thinkingSegments,
+  );
 
   // Donor's id becomes a merged alias on the survivor so subsequent
   // reconcile / SSE lookups by donor id still resolve to the survivor.
@@ -493,6 +514,7 @@ function foldAdjacentAssistant(
   if (toolCalls) merged.toolCalls = toolCalls;
   if (surfaces) merged.surfaces = surfaces;
   if (attachments) merged.attachments = attachments;
+  if (thinkingSegments) merged.thinkingSegments = thinkingSegments;
   if (mergedMessageIds) merged.mergedMessageIds = mergedMessageIds;
   // metadata / slackMessage / timestamp come from the survivor (older
   // anchor) via the spread — matches the backend's
