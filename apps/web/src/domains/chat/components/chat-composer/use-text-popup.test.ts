@@ -24,7 +24,7 @@ import {
   derivePopupState,
   listIndexDown,
   listIndexUp,
-} from "@/domains/chat/components/chat-composer/use-text-popup";
+} from "@/domains/chat/components/chat-composer/text-popup-utils";
 
 // ---------------------------------------------------------------------------
 // Slash command catalog

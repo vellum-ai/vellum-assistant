@@ -17,8 +17,8 @@ import {
   type ConversationStartersStatus,
   type ListConversationStartersResult,
 } from "@/domains/chat/utils/conversation-starters";
+import { shouldPoll } from "@/domains/chat/hooks/conversation-starter-utils";
 
-const POLL_INTERVAL_MS = 3000;
 const STALE_TIME_MS = 60_000;
 
 export interface UseConversationStartersResult {
@@ -36,16 +36,6 @@ const IDLE_RESULT: UseConversationStartersResult = {
   isLoading: false,
   refetch: NOOP_REFETCH,
 };
-
-/** Polling decision (exposed for unit testing). */
-export function shouldPoll(
-  status: ConversationStartersStatus | undefined,
-): number | false {
-  if (status === "generating" || status === "refreshing") {
-    return POLL_INTERVAL_MS;
-  }
-  return false;
-}
 
 export function useConversationStarters(
   assistantId: string | null | undefined,

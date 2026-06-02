@@ -93,10 +93,10 @@ mock.module("@/domains/chat/utils/conversation-starters", () => ({
 // ---------------------------------------------------------------------------
 
 import {
-  shouldPoll,
   useConversationStarters,
   type UseConversationStartersResult,
 } from "@/domains/chat/hooks/use-conversation-starters";
+import { shouldPoll } from "@/domains/chat/hooks/conversation-starter-utils";
 
 // ---------------------------------------------------------------------------
 // Test harness — `renderToStaticMarkup` walks function components, so this

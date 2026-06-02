@@ -33,8 +33,7 @@ import { Fragment, type ReactNode } from "react";
 import { Typography } from "@vellum/design-library";
 
 import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
-import type { ToolCallCardStep } from "@/domains/chat/hooks/use-tool-call-card-data";
-import { formatMs } from "@/domains/chat/hooks/use-tool-call-card-data";
+import { formatMs, type ToolCallCardStep } from "@/domains/chat/hooks/tool-call-card-utils";
 import type { IconName } from "@/domains/chat/components/tool-progress-card/derive-step-label";
 
 /** Concrete lucide icon for each `IconName` produced by `deriveStepLabel`. */
