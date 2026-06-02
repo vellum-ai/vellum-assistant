@@ -349,6 +349,107 @@ describe("TranscriptMessageBody", () => {
     ).toBe("false");
   });
 
+  test("auto-expands the last tool-call group of a streaming message even after its tools complete", () => {
+    const { getByTestId } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m1",
+          role: "assistant",
+          contentOrder: [{ type: "tool", id: "tc-1" }],
+          toolCalls: [
+            {
+              id: "tc-1",
+              toolName: "bash",
+              input: {},
+              status: "completed",
+            },
+          ],
+        }}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        onSurfaceAction={noop}
+        isStreaming
+      />,
+    );
+
+    expect(
+      getByTestId("tool-progress-card").getAttribute("data-auto-expand"),
+    ).toBe("true");
+  });
+
+  test("only the last tool-call group of a streaming message auto-expands", () => {
+    const { getAllByTestId } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m1",
+          role: "assistant",
+          contentOrder: [
+            { type: "tool", id: "tc-1" },
+            { type: "text", id: "0" },
+            { type: "tool", id: "tc-2" },
+          ],
+          textSegments: [{ type: "text", content: "Next I will check logs." }],
+          toolCalls: [
+            {
+              id: "tc-1",
+              toolName: "bash",
+              input: {},
+              status: "completed",
+            },
+            {
+              id: "tc-2",
+              toolName: "bash",
+              input: {},
+              status: "completed",
+            },
+          ],
+        }}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        onSurfaceAction={noop}
+        isStreaming
+      />,
+    );
+
+    expect(
+      getAllByTestId("tool-progress-card").map((el) =>
+        el.getAttribute("data-auto-expand"),
+      ),
+    ).toEqual(["false", "true"]);
+  });
+
+  test("collapses a streaming message's tool-call group once answer text streams in below it", () => {
+    const { getByTestId } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m1",
+          role: "assistant",
+          contentOrder: [
+            { type: "tool", id: "tc-1" },
+            { type: "text", id: "0" },
+          ],
+          textSegments: [{ type: "text", content: "Here is what I found." }],
+          toolCalls: [
+            {
+              id: "tc-1",
+              toolName: "bash",
+              input: {},
+              status: "completed",
+            },
+          ],
+        }}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        onSurfaceAction={noop}
+        isStreaming
+      />,
+    );
+
+    expect(
+      getByTestId("tool-progress-card").getAttribute("data-auto-expand"),
+    ).toBe("false");
+  });
+
   test("collapses an interleaved tool-call group once response text follows", () => {
     const { getByTestId } = render(
       <TranscriptMessageBody

@@ -6,7 +6,10 @@ on:
     paths:
       - 'apps/web/**'
       - 'packages/design-library/**'
+      - 'packages/local-mode/**'
+      - 'packages/environments/**'
       - '.github/workflows/pr-web.yaml'
+      - '.github/actions/install-shared-packages/**'
 
 concurrency:
   group: pr-web-${{ github.event.pull_request.number }}
@@ -36,6 +39,11 @@ jobs:
 
       - name: Generate API clients
         run: bun run openapi-ts
+
+      - name: Install shared packages
+        uses: ./.github/actions/install-shared-packages
+        with:
+          packages: packages/environments packages/local-mode
 
       - name: Lint
         run: bun run lint
@@ -74,6 +82,11 @@ jobs:
       - name: Generate API clients
         run: bun run openapi-ts
 
+      - name: Install shared packages
+        uses: ./.github/actions/install-shared-packages
+        with:
+          packages: packages/environments packages/local-mode
+
       - name: Type check
         run: bun run typecheck
 
@@ -102,6 +115,11 @@ jobs:
       - name: Generate API clients
         run: bun run openapi-ts
 
+      - name: Install shared packages
+        uses: ./.github/actions/install-shared-packages
+        with:
+          packages: packages/environments packages/local-mode
+
       - name: Test
         run: bun run test:ci
 
@@ -125,6 +143,11 @@ jobs:
 
       - name: Generate API clients
         run: bun run openapi-ts
+
+      - name: Install shared packages
+        uses: ./.github/actions/install-shared-packages
+        with:
+          packages: packages/environments packages/local-mode
 
       - name: Build
         env:

@@ -1,7 +1,9 @@
 import os from "node:os";
 import path from "node:path";
 
-import { SEEDS } from "../environments/seeds";
+import { SEEDS } from "@vellumai/environments";
+
+import { resolveEnvironmentName } from "./environment";
 
 const PRODUCTION_ENVIRONMENT_NAME = "production";
 
@@ -13,11 +15,14 @@ export interface LocalEndpointConfig {
 }
 
 /**
- * Resolve config from environment variables (Vite plugin context, where
- * `env` comes from `loadEnv` and process.env).
+ * Resolve config from environment variables. Accepts any environment-shaped
+ * map, including `process.env` (whose values are `string | undefined`) and the
+ * Vite plugin's `loadEnv` result.
  */
-export function resolveLocalConfigFromEnv(env: Record<string, string>): LocalEndpointConfig {
-  const vellumEnv = env.VELLUM_ENVIRONMENT || PRODUCTION_ENVIRONMENT_NAME;
+export function resolveLocalConfigFromEnv(
+  env: Record<string, string | undefined>,
+): LocalEndpointConfig {
+  const vellumEnv = resolveEnvironmentName(env);
   const seed = SEEDS[vellumEnv] ?? SEEDS[PRODUCTION_ENVIRONMENT_NAME]!;
 
   return {
@@ -28,8 +33,10 @@ export function resolveLocalConfigFromEnv(env: Record<string, string>): LocalEnd
   };
 }
 
-export function resolveLockfilePaths(env: Record<string, string>): string[] {
-  const vellumEnv = env.VELLUM_ENVIRONMENT || PRODUCTION_ENVIRONMENT_NAME;
+export function resolveLockfilePaths(
+  env: Record<string, string | undefined>,
+): string[] {
+  const vellumEnv = resolveEnvironmentName(env);
   const lockfileDir = env.VELLUM_LOCKFILE_DIR;
 
   if (vellumEnv === PRODUCTION_ENVIRONMENT_NAME) {
@@ -46,8 +53,10 @@ export function resolveLockfilePaths(env: Record<string, string>): string[] {
   return [path.join(dir, "lockfile.json")];
 }
 
-export function resolveConfigDir(env: Record<string, string>): string {
-  const vellumEnv = env.VELLUM_ENVIRONMENT || PRODUCTION_ENVIRONMENT_NAME;
+export function resolveConfigDir(
+  env: Record<string, string | undefined>,
+): string {
+  const vellumEnv = resolveEnvironmentName(env);
   const xdgConfigHome =
     env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config");
   if (vellumEnv === PRODUCTION_ENVIRONMENT_NAME) {

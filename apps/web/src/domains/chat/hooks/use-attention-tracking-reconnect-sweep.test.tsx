@@ -31,10 +31,16 @@ import {
 // hook does not try to hit a real backend during renderHook.
 mock.module("@/hooks/conversation-queries", () => ({
   useConversationListQuery: () => ({ conversations: [] }),
-  markConversationSeenLocal: () => {},
   useBackgroundConversationListQuery: () => ({ conversations: [] }),
   useScheduledConversationListQuery: () => ({ conversations: [] }),
+}));
+
+mock.module("@/utils/conversation-cache-mutations", () => ({
+  markConversationSeenLocal: () => {},
   refreshConversationRow: async () => {},
+  prependConversation: () => {},
+  removeConversation: () => {},
+  resolveDraftKey: () => {},
 }));
 
 mock.module("@/utils/conversation-cache", () => ({

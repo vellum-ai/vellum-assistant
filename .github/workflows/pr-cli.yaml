@@ -5,7 +5,11 @@ on:
     types: [synchronize, opened, reopened]
     paths:
       - 'cli/**'
+      - 'packages/local-mode/**'
+      - 'packages/environments/**'
+      - 'clients/shared/App/VellumEnvironment.swift'
       - '.github/workflows/pr-cli.yaml'
+      - '.github/actions/install-shared-packages/**'
 
 concurrency:
   group: pr-cli-${{ github.event.pull_request.number }}
@@ -30,6 +34,11 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Install shared packages
+        uses: ./.github/actions/install-shared-packages
+        with:
+          packages: packages/environments packages/local-mode
 
       - name: Lint
         run: bun run lint

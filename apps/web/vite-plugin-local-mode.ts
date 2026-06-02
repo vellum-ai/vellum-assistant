@@ -5,7 +5,7 @@ import type { Plugin, Connect, ViteDevServer } from "vite";
 
 import {
   resolveLocalConfigFromEnv,
-  resolveCliPath,
+  resolveDevCliInvocation,
   isLoopbackAddr,
   getLockfileData,
   upsertLockfileAssistant,
@@ -15,7 +15,8 @@ import {
   getGuardianAccessToken,
   parseGatewayUrl,
   readAllowedGatewayPorts,
-} from "../../cli/src/lib/local-endpoints";
+  type CliInvocation,
+} from "@vellumai/local-mode";
 
 const GUARDIAN_TOKEN_PATTERN =
   /^(?:\/assistant)?\/__local\/guardian-token\/([^/]+)$/;
@@ -24,7 +25,10 @@ export function localModePlugin(env: Record<string, string>): Plugin {
   const config = resolveLocalConfigFromEnv(env);
   const baseDir = path.resolve(import.meta.dirname, "..", "..");
 
-  const configJson = JSON.stringify({ webUrl: config.webUrl, platformUrl: config.platformUrl });
+  const configJson = JSON.stringify({
+    webUrl: config.webUrl,
+    platformUrl: config.platformUrl,
+  });
 
   return {
     name: "vellum-local-mode",
@@ -36,11 +40,15 @@ export function localModePlugin(env: Record<string, string>): Plugin {
     },
     configureServer(server) {
       server.middlewares.use(loopbackCallbackMiddleware());
-      server.middlewares.use(configMiddleware(config.webUrl, config.platformUrl));
+      server.middlewares.use(
+        configMiddleware(config.webUrl, config.platformUrl),
+      );
       server.middlewares.use(lockfileMiddleware(config.lockfilePaths));
       server.middlewares.use(hatchMiddleware(baseDir));
       server.middlewares.use(retireMiddleware(baseDir));
-      server.middlewares.use(guardianTokenMiddleware(config.configDir, baseDir, env));
+      server.middlewares.use(
+        guardianTokenMiddleware(config.configDir, baseDir, env),
+      );
       server.middlewares.use(gatewayProxyMiddleware(config.lockfilePaths));
       server.middlewares.use(accountSpaFallback(server));
     },
@@ -70,11 +78,15 @@ function loopbackCallbackMiddleware(): Connect.NextHandleFunction {
   };
 }
 
-function configMiddleware(webUrl: string, platformUrl: string): Connect.NextHandleFunction {
+function configMiddleware(
+  webUrl: string,
+  platformUrl: string,
+): Connect.NextHandleFunction {
   const body = JSON.stringify({ webUrl, platformUrl });
 
   return (req, res, next) => {
-    if (req.url !== "/assistant/__config" && req.url !== "/__config") return next();
+    if (req.url !== "/assistant/__config" && req.url !== "/__config")
+      return next();
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(body);
   };
@@ -82,7 +94,12 @@ function configMiddleware(webUrl: string, platformUrl: string): Connect.NextHand
 
 function accountSpaFallback(server: ViteDevServer): Connect.NextHandleFunction {
   return (req, res, next) => {
-    if (!req.url?.startsWith("/account/") && !req.url?.startsWith("/account?") && req.url !== "/account") return next();
+    if (
+      !req.url?.startsWith("/account/") &&
+      !req.url?.startsWith("/account?") &&
+      req.url !== "/account"
+    )
+      return next();
 
     const indexPath = path.join(server.config.root, "index.html");
     fs.readFile(indexPath, "utf-8", (err, html) => {
@@ -98,9 +115,15 @@ function accountSpaFallback(server: ViteDevServer): Connect.NextHandleFunction {
   };
 }
 
-function lockfileMiddleware(lockfilePaths: string[]): Connect.NextHandleFunction {
+function lockfileMiddleware(
+  lockfilePaths: string[],
+): Connect.NextHandleFunction {
   return (req, res, next) => {
-    if (req.url !== "/assistant/__local/lockfile" && req.url !== "/__local/lockfile") return next();
+    if (
+      req.url !== "/assistant/__local/lockfile" &&
+      req.url !== "/__local/lockfile"
+    )
+      return next();
 
     if (rejectUnlessLoopback(req, res)) return;
 
@@ -119,7 +142,10 @@ function lockfileMiddleware(lockfilePaths: string[]): Connect.NextHandleFunction
       req.on("end", () => {
         let body: Record<string, unknown>;
         try {
-          body = JSON.parse(Buffer.concat(chunks).toString()) as Record<string, unknown>;
+          body = JSON.parse(Buffer.concat(chunks).toString()) as Record<
+            string,
+            unknown
+          >;
         } catch {
           res.statusCode = 400;
           res.setHeader("Content-Type", "application/json");
@@ -153,7 +179,8 @@ function lockfileMiddleware(lockfilePaths: string[]): Connect.NextHandleFunction
 
 function hatchMiddleware(baseDir: string): Connect.NextHandleFunction {
   return (req, res, next) => {
-    if (req.url !== "/assistant/__local/hatch" && req.url !== "/__local/hatch") return next();
+    if (req.url !== "/assistant/__local/hatch" && req.url !== "/__local/hatch")
+      return next();
 
     if (rejectUnlessLoopback(req, res)) return;
 
@@ -169,7 +196,9 @@ function hatchMiddleware(baseDir: string): Connect.NextHandleFunction {
       let species = "vellum";
       if (chunks.length > 0) {
         try {
-          const body = JSON.parse(Buffer.concat(chunks).toString()) as { species?: string };
+          const body = JSON.parse(Buffer.concat(chunks).toString()) as {
+            species?: string;
+          };
           if (body.species) species = body.species;
         } catch {
           res.statusCode = 400;
@@ -179,20 +208,31 @@ function hatchMiddleware(baseDir: string): Connect.NextHandleFunction {
         }
       }
 
-      let cliPath: string;
+      let invocation: CliInvocation;
       try {
-        cliPath = resolveCliPath(baseDir, import.meta.url);
+        invocation = resolveDevCliInvocation(baseDir, import.meta.url);
       } catch (err) {
         res.statusCode = 500;
         res.setHeader("Content-Type", "application/json");
-        res.end(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }));
+        res.end(
+          JSON.stringify({
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        );
         return;
       }
 
-      runHatch(species, cliPath).then((result) => {
+      runHatch(invocation, species).then((result) => {
         res.statusCode = result.ok ? 200 : result.status;
         res.setHeader("Content-Type", "application/json");
-        res.end(JSON.stringify(result.ok ? { ok: true, assistantId: result.assistantId } : { ok: false, error: result.error }));
+        res.end(
+          JSON.stringify(
+            result.ok
+              ? { ok: true, assistantId: result.assistantId }
+              : { ok: false, error: result.error },
+          ),
+        );
       });
     });
   };
@@ -200,7 +240,11 @@ function hatchMiddleware(baseDir: string): Connect.NextHandleFunction {
 
 function retireMiddleware(baseDir: string): Connect.NextHandleFunction {
   return (req, res, next) => {
-    if (req.url !== "/assistant/__local/retire" && req.url !== "/__local/retire") return next();
+    if (
+      req.url !== "/assistant/__local/retire" &&
+      req.url !== "/__local/retire"
+    )
+      return next();
 
     if (rejectUnlessLoopback(req, res)) return;
 
@@ -216,7 +260,9 @@ function retireMiddleware(baseDir: string): Connect.NextHandleFunction {
       let assistantId: string | undefined;
       if (chunks.length > 0) {
         try {
-          const body = JSON.parse(Buffer.concat(chunks).toString()) as { assistantId?: string };
+          const body = JSON.parse(Buffer.concat(chunks).toString()) as {
+            assistantId?: string;
+          };
           assistantId = body.assistantId;
         } catch {
           res.statusCode = 400;
@@ -233,20 +279,29 @@ function retireMiddleware(baseDir: string): Connect.NextHandleFunction {
         return;
       }
 
-      let cliPath: string;
+      let invocation: CliInvocation;
       try {
-        cliPath = resolveCliPath(baseDir, import.meta.url);
+        invocation = resolveDevCliInvocation(baseDir, import.meta.url);
       } catch (err) {
         res.statusCode = 500;
         res.setHeader("Content-Type", "application/json");
-        res.end(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }));
+        res.end(
+          JSON.stringify({
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        );
         return;
       }
 
-      runRetire(assistantId, cliPath).then((result) => {
+      runRetire(invocation, assistantId).then((result) => {
         res.statusCode = result.ok ? 200 : result.status;
         res.setHeader("Content-Type", "application/json");
-        res.end(JSON.stringify(result.ok ? { ok: true } : { ok: false, error: result.error }));
+        res.end(
+          JSON.stringify(
+            result.ok ? { ok: true } : { ok: false, error: result.error },
+          ),
+        );
       });
     });
   };
@@ -271,30 +326,38 @@ function guardianTokenMiddleware(
 
     const assistantId = decodeURIComponent(match[1]!);
 
-    let cliPath: string;
+    let invocation: CliInvocation;
     try {
-      cliPath = resolveCliPath(baseDir, import.meta.url);
+      invocation = resolveDevCliInvocation(baseDir, import.meta.url);
     } catch (err) {
       res.statusCode = 500;
       res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+      res.end(
+        JSON.stringify({
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
       return;
     }
 
-    getGuardianAccessToken(assistantId, configDir, cliPath, true, env).then((result) => {
-      if (result.ok) {
-        res.setHeader("Content-Type", "application/json");
-        res.end(JSON.stringify({ accessToken: result.accessToken }));
-      } else {
-        res.statusCode = result.status;
-        res.setHeader("Content-Type", "application/json");
-        res.end(JSON.stringify({ error: result.error }));
-      }
-    });
+    getGuardianAccessToken(assistantId, configDir, invocation, true, env).then(
+      (result) => {
+        if (result.ok) {
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ accessToken: result.accessToken }));
+        } else {
+          res.statusCode = result.status;
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ error: result.error }));
+        }
+      },
+    );
   };
 }
 
-function gatewayProxyMiddleware(lockfilePaths: string[]): Connect.NextHandleFunction {
+function gatewayProxyMiddleware(
+  lockfilePaths: string[],
+): Connect.NextHandleFunction {
   return (req, res, next) => {
     const result = parseGatewayUrl(req.url ?? "");
     if (!result.match) return next();

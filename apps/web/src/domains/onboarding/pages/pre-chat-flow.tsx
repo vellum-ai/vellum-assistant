@@ -61,7 +61,6 @@ import {
   getSelectedAssistant,
   isLocalMode,
 } from "@/lib/local-mode";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useIsNativePlatform } from "@/runtime/native-auth.js";
 import { useAuthStore } from "@/stores/auth-store.js";
@@ -133,7 +132,7 @@ export function PreChatFlow() {
   const condensedPrechatFlag =
     useClientFeatureFlagStore.use.prechatOnboardingCondensedFlow();
   const selfIntroGreetingEnabled =
-    useAssistantFeatureFlagStore.use.selfIntroGreeting();
+    useClientFeatureFlagStore.use.selfIntroGreeting();
   const preferredFunnelVariant =
     onboardingFunnelVariantFromCondensedFlag(condensedPrechatFlag);
   const webFunnelVariant =

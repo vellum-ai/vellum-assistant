@@ -1,6 +1,6 @@
 import { useCallback, useRef } from "react";
 
-import * as Sentry from "@sentry/browser";
+import * as Sentry from "@sentry/react";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useStreamStore } from "@/domains/chat/stream-store";
@@ -23,7 +23,7 @@ const RECONCILE_MAX_MS = 60_000;
 const RECONCILE_STABLE_COUNT = 2;
 
 interface UseMessageReconciliationArgs {
-  initialPageOldestTsRef: { current: number | null };
+  latestPageOldestTimestamp: number | null;
 }
 
 /** Result of reconciling the active conversation against the server. */
@@ -121,8 +121,10 @@ function serverHasAssistantProgress(
 }
 
 export function useMessageReconciliation({
-  initialPageOldestTsRef,
+  latestPageOldestTimestamp,
 }: UseMessageReconciliationArgs): UseMessageReconciliationReturn {
+  const initialPageOldestTsRef = useRef<number | null>(latestPageOldestTimestamp);
+  initialPageOldestTsRef.current = latestPageOldestTimestamp;
   const setMessages = useChatSessionStore.use.setMessages();
   const reconcileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -449,15 +451,17 @@ export function useMessageReconciliation({
           snapshotTurnId,
           ctx.conversationId,
         );
-      } catch {
-        // Non-fatal: a fetch failure doesn't prove the turn completed.
-        // The .finally() nonce bump reopens SSE to deliver terminal events.
+      } catch (err) {
+        // Re-throw so callers that observe the promise (e.g. gap-detection
+        // cursor advancement) can distinguish "fetch succeeded, nothing new"
+        // from "fetch failed." Callers that fire-and-forget already have
+        // their own .catch() handlers.
         recordDiagnostic("reconciliation_active_fetch_error", {
           assistantId: ctx.assistantId,
           conversationId: ctx.conversationId,
           epoch: snapshotEpoch,
         });
-        return empty;
+        throw err;
       }
     },
     [

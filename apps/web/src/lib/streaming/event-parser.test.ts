@@ -3189,17 +3189,4 @@ describe("RuntimeMessage metadata types", () => {
     expect(msg.contentOrder).toBeUndefined();
     expect(msg.metadata).toBeUndefined();
   });
-
-  test("ChatMessage interface accepts optional metadata fields", () => {
-    const msg: import("@/domains/chat/api/event-types").ChatMessage = {
-      id: "msg-3",
-      role: "assistant",
-      surfaces: [{ surfaceId: "s-2", surfaceType: "form", data: {} }],
-      textSegments: [{ type: "markdown", content: "# Header" }],
-      contentOrder: [{ type: "surface", id: "s-2" }],
-      metadata: { source: "test" },
-    };
-    expect(msg.surfaces).toHaveLength(1);
-    expect(msg.metadata).toEqual({ source: "test" });
-  });
 });

@@ -31,3 +31,28 @@ export async function fetchOAuthProviders(
   const data: OAuthProviderCatalogResponse = await res.json();
   return data.providers ?? [];
 }
+
+/** Subset of the full provider detail response that the web UI consumes. */
+export interface OAuthProviderDetail {
+  oauth_callback_url: string | null;
+}
+
+interface OAuthProviderDetailResponse {
+  provider: Record<string, unknown>;
+  oauth_callback_url: string | null;
+}
+
+export async function fetchOAuthProviderDetail(
+  assistantId: string,
+  providerKey: string,
+): Promise<OAuthProviderDetail> {
+  const res = await fetch(
+    `/v1/assistants/${assistantId}/oauth/providers/${encodeURIComponent(providerKey)}`,
+    { headers: buildVellumHeaders() },
+  );
+  if (!res.ok) {
+    throw new Error(`Failed to fetch OAuth provider detail (HTTP ${res.status})`);
+  }
+  const data: OAuthProviderDetailResponse = await res.json();
+  return { oauth_callback_url: data.oauth_callback_url ?? null };
+}

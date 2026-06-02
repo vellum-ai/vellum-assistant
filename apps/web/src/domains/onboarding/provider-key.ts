@@ -26,11 +26,23 @@ export function setPendingProviderKey(value: PendingProviderKey | null): void {
   }
 }
 
+function isPendingProviderKey(value: unknown): value is PendingProviderKey {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    "provider" in value &&
+    typeof value.provider === "string" &&
+    "key" in value &&
+    typeof value.key === "string"
+  );
+}
+
 export function peekPendingProviderKey(): PendingProviderKey | null {
   try {
     const raw = sessionStorage.getItem(PENDING_KEY_STORAGE);
     if (!raw) return null;
-    return JSON.parse(raw) as PendingProviderKey;
+    const parsed: unknown = JSON.parse(raw);
+    return isPendingProviderKey(parsed) ? parsed : null;
   } catch {
     return null;
   }

@@ -321,10 +321,10 @@ describe("useActiveAssistantLifecycleIsLoading", () => {
     }
   });
 
-  test("returns false for transitional kinds that already know their assistant (initializing, cleaning_up)", () => {
-    // `initializing` / `cleaning_up` are post-resolution transitions —
-    // the daemon has an assistant in hand, it's just busy. Hosting is
-    // known. Treat them like resolved states.
+  test("returns true for transitional kinds (initializing, cleaning_up)", () => {
+    // `initializing` / `cleaning_up` are transitional states during setup
+    // and teardown. The hosting outcome (active vs error/retired) is not yet
+    // determined. Treat as resolving until terminal.
     const kinds: AssistantState[] = [
       { kind: "initializing" },
       { kind: "cleaning_up" },
@@ -334,7 +334,7 @@ describe("useActiveAssistantLifecycleIsLoading", () => {
       const { result, unmount } = renderHook(() =>
         useActiveAssistantLifecycleIsLoading(),
       );
-      expect(result.current).toBe(false);
+      expect(result.current).toBe(true);
       unmount();
     }
   });

@@ -6,7 +6,6 @@
  * composer, and interaction-handler modules within the chat domain.
  */
 
-import type { Surface } from "@/domains/chat/types/types";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
 import type {
   AllowlistOption,
@@ -69,22 +68,6 @@ export interface ChatMessageToolCall {
    * `web-activity-types.ts`.
    */
   activityMetadata?: ToolActivityMetadata;
-}
-
-export interface ChatMessage {
-  id?: string;
-  role: "user" | "assistant";
-  surfaces?: Surface[];
-  textSegments?: Array<{
-    type: string;
-    content: string;
-    [key: string]: unknown;
-  }>;
-  contentOrder?: Array<{ type: string; id: string }>;
-  metadata?: Record<string, unknown>;
-  toolCalls?: ChatMessageToolCall[];
-  /** Server-provided timestamp in milliseconds since epoch. */
-  timestamp?: number;
 }
 
 // ---------------------------------------------------------------------------

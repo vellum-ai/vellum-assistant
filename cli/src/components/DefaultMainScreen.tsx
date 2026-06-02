@@ -13,6 +13,7 @@ import { SPECIES_CONFIG, type Species } from "../lib/constants";
 import { checkHealth } from "../lib/health-check";
 import { appendHistory, loadHistory } from "../lib/input-history";
 import { tuiLog } from "../lib/tui-log";
+import { segmentsToPlainText } from "../lib/segments-to-plain-text";
 import { statusEmoji, withStatusEmoji } from "../lib/status-emoji";
 import {
   getTerminalCapabilities,
@@ -230,13 +231,20 @@ async function pollMessages(
   auth?: Record<string, string>,
 ): Promise<ListMessagesResponse> {
   const params = new URLSearchParams({ conversationKey: assistantId });
-  return runtimeRequest<ListMessagesResponse>(
+  const response = await runtimeRequest<ListMessagesResponse>(
     baseUrl,
     assistantId,
     `/messages?${params.toString()}`,
     undefined,
     auth,
   );
+  return {
+    ...response,
+    messages: response.messages.map((msg) => ({
+      ...msg,
+      content: segmentsToPlainText(msg.textSegments),
+    })),
+  };
 }
 
 async function sendMessage(
@@ -626,6 +634,13 @@ export interface RuntimeMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
+  /**
+   * Ordered text segments from the daemon's history payload, split at
+   * tool_use/surface boundaries. The flat `content` body is derived from
+   * these (see `segmentsToPlainText`); the daemon no longer sends a
+   * redundant flattened `content` field on the wire.
+   */
+  textSegments?: string[];
   timestamp: string;
   toolCalls?: ToolCallInfo[];
   label?: string;

@@ -11,7 +11,6 @@ import { client } from "@/generated/api/client.gen";
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import { parseAssistantEvent } from "@/lib/streaming/event-parser";
 
-import { pickConversationIdWireField } from "@/lib/backwards-compat/conversation-id-wire-field";
 import { isSeqGapDetectionEnabled } from "@/lib/feature-flags/seq-gap-detection-flag";
 import { getSeqCursors } from "@/lib/streaming/last-seen-seq";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
@@ -28,7 +27,7 @@ import { createStreamWatchdog } from "@/lib/streaming/stream-watchdog";
 // Public types
 // ---------------------------------------------------------------------------
 
-export interface ChatEventStream {
+export interface EventStream {
   /** Cancel the stream. Safe to call multiple times. */
   cancel: () => void;
 }
@@ -38,13 +37,13 @@ export interface ChatEventStream {
  * the SDK surfacing a fetch failure or the iterator ending; `"watchdog"`
  * means the client-side idle timer fired because no SSE traffic
  * (events or heartbeat comments) arrived within the configured window.
- * Threaded through to {@link ChatEventStreamOptions.onReconnect} so
+ * Threaded through to {@link EventStreamOptions.onReconnect} so
  * callers can distinguish silent-stall recoveries from ordinary
  * transport errors when recording telemetry.
  */
-export type ChatStreamReconnectCause = "error" | "watchdog";
+export type StreamReconnectCause = "error" | "watchdog";
 
-export interface ChatEventStreamOptions {
+export interface EventStreamOptions {
   /**
    * Called after the SSE transport successfully reconnects. The events
    * endpoint is live-only, so callers should use this hook to reconcile
@@ -52,7 +51,7 @@ export interface ChatEventStreamOptions {
    * offline. The `cause` argument indicates whether the previous attempt
    * ended via a transport error or because the idle watchdog fired.
    */
-  onReconnect?: (cause: ChatStreamReconnectCause) => void | Promise<void>;
+  onReconnect?: (cause: StreamReconnectCause) => void | Promise<void>;
   /**
    * Maximum interval, in milliseconds, with no SSE traffic from the
    * server (events OR heartbeat comments) before the client treats the
@@ -124,14 +123,8 @@ const SEQ_CURSORS_WIRE_FIELD = "lastSeenSeqs";
  * unfiltered stream rather than forcing a refetch. A fresh connect has
  * nothing buffered to resume, so the cursor map is omitted there.
  */
-function buildEventsQuery(
-  requestedConversationId: string | undefined,
-  isReconnect: boolean,
-): Record<string, string> {
+function buildEventsQuery(isReconnect: boolean): Record<string, string> {
   const query: Record<string, string> = {};
-  if (requestedConversationId) {
-    query[pickConversationIdWireField()] = requestedConversationId;
-  }
   if (isReconnect && isSeqGapDetectionEnabled()) {
     const cursors = getSeqCursors();
     if (Object.keys(cursors).length > 0) {
@@ -151,13 +144,12 @@ function buildEventsQuery(
  *
  * Returns a handle with a `cancel()` method to tear down the stream.
  */
-export function subscribeChatEvents(
+export function subscribeEvents(
   assistantId: string,
-  conversationId: string | null | undefined,
   onEvent: (envelope: AssistantEventEnvelope) => void,
   onError: (err: Error) => void,
-  options: ChatEventStreamOptions = {},
-): ChatEventStream {
+  options: EventStreamOptions = {},
+): EventStream {
   const idleTimeoutMs = options.idleTimeoutMs ?? STREAM_IDLE_TIMEOUT_MS;
   const reconnectBaseDelayMs =
     options.reconnectBaseDelayMs ?? STREAM_RECONNECT_BASE_DELAY_MS;
@@ -171,12 +163,10 @@ export function subscribeChatEvents(
   // The top-level cancel() targets whichever attempt is currently
   // active.
   let activeAbortController: AbortController | null = null;
-  const requestedConversationId = conversationId ?? undefined;
 
   const watchdog = createStreamWatchdog({
     idleTimeoutMs,
     assistantId,
-    conversationId: requestedConversationId,
     getActiveTurnSending: options.getActiveTurnSending,
   });
 
@@ -207,22 +197,14 @@ export function subscribeChatEvents(
     if (cancelled) return;
     const abortController = new AbortController();
     activeAbortController = abortController;
-    const sseDebugClientId = registerSseClient(
-      abortController.signal,
-      requestedConversationId,
-    );
+    const sseDebugClientId = registerSseClient(abortController.signal);
     // Reset per-attempt liveness counters so each watchdog fire
     // reports state for ITS attempt, not for the entire subscribe
     // lifetime.
     watchdog.resetCounters();
     let streamError: Error | null = null;
     try {
-      // The wire-field gate prefers `conversationId` on daemons that
-      // mint ids before the first client send, falling back to
-      // `conversationKey` (create-or-lookup) so locally-minted draft
-      // ids still resolve. See
-      // `lib/backwards-compat/conversation-id-wire-field.ts`.
-      const query = buildEventsQuery(requestedConversationId, isReconnect);
+      const query = buildEventsQuery(isReconnect);
       const { stream } = await client.sse.get<Record<string, unknown> | string>(
         {
           url: "/v1/assistants/{assistant_id}/events/",
@@ -258,7 +240,7 @@ export function subscribeChatEvents(
       );
 
       if (isReconnect && !cancelled) {
-        const cause: ChatStreamReconnectCause =
+        const cause: StreamReconnectCause =
           watchdog.consumeLastAbortCause() ?? "error";
         try {
           await options.onReconnect?.(cause);

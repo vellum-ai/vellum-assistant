@@ -34,10 +34,11 @@ import {
   parseGatewayUrl,
   readAllowedGatewayPorts,
   isLoopbackAddr,
-  resolveCliPath,
+  resolveDevCliInvocation,
   resolveLockfilePaths,
   resolveConfigDir,
-} from "../lib/local-endpoints";
+  type CliInvocation,
+} from "@vellumai/local-mode";
 import { parseAssistantTargetArg } from "../lib/assistant-target-args.js";
 import {
   fetchOrganizationId,
@@ -349,7 +350,8 @@ function findWebSourceDir(): string | null {
 const LOCKFILE_PATTERN = /^(?:\/assistant)?\/__local\/lockfile$/;
 const HATCH_PATTERN = /^(?:\/assistant)?\/__local\/hatch$/;
 const RETIRE_PATTERN = /^(?:\/assistant)?\/__local\/retire$/;
-const GUARDIAN_TOKEN_PATTERN = /^(?:\/assistant)?\/__local\/guardian-token\/([^/]+)$/;
+const GUARDIAN_TOKEN_PATTERN =
+  /^(?:\/assistant)?\/__local\/guardian-token\/([^/]+)$/;
 
 function getEnvRecord(): Record<string, string> {
   const result: Record<string, string> = {};
@@ -403,7 +405,10 @@ async function handleLocalEndpoints(
       try {
         body = (await req.json()) as Record<string, unknown>;
       } catch {
-        return Response.json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
+        return Response.json(
+          { ok: false, error: "Invalid JSON body" },
+          { status: 400 },
+        );
       }
       let result;
       if (body.syncPlatform && Array.isArray(body.platformAssistants)) {
@@ -434,22 +439,31 @@ async function handleLocalEndpoints(
         const body = (await req.json()) as { species?: string };
         if (body.species) species = body.species;
       } catch {
-        return Response.json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
+        return Response.json(
+          { ok: false, error: "Invalid JSON body" },
+          { status: 400 },
+        );
       }
     }
 
-    let cliPath: string;
+    let invocation: CliInvocation;
     try {
-      cliPath = resolveCliPath(_baseDir);
+      invocation = resolveDevCliInvocation(_baseDir);
     } catch (err) {
-      return Response.json({ ok: false, error: err instanceof Error ? err.message : String(err) }, { status: 500 });
+      return Response.json(
+        { ok: false, error: err instanceof Error ? err.message : String(err) },
+        { status: 500 },
+      );
     }
 
-    const result = await runHatch(species, cliPath);
+    const result = await runHatch(invocation, species);
     if (result.ok) {
       return Response.json({ ok: true, assistantId: result.assistantId });
     }
-    return Response.json({ ok: false, error: result.error }, { status: result.status });
+    return Response.json(
+      { ok: false, error: result.error },
+      { status: result.status },
+    );
   }
 
   // Retire
@@ -461,25 +475,37 @@ async function handleLocalEndpoints(
       const body = (await req.json()) as { assistantId?: string };
       assistantId = body.assistantId;
     } catch {
-      return Response.json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
+      return Response.json(
+        { ok: false, error: "Invalid JSON body" },
+        { status: 400 },
+      );
     }
 
     if (!assistantId) {
-      return Response.json({ ok: false, error: "Missing assistantId" }, { status: 400 });
+      return Response.json(
+        { ok: false, error: "Missing assistantId" },
+        { status: 400 },
+      );
     }
 
-    let cliPath: string;
+    let invocation: CliInvocation;
     try {
-      cliPath = resolveCliPath(_baseDir);
+      invocation = resolveDevCliInvocation(_baseDir);
     } catch (err) {
-      return Response.json({ ok: false, error: err instanceof Error ? err.message : String(err) }, { status: 500 });
+      return Response.json(
+        { ok: false, error: err instanceof Error ? err.message : String(err) },
+        { status: 500 },
+      );
     }
 
-    const result = await runRetire(assistantId, cliPath);
+    const result = await runRetire(invocation, assistantId);
     if (result.ok) {
       return Response.json({ ok: true });
     }
-    return Response.json({ ok: false, error: result.error }, { status: result.status });
+    return Response.json(
+      { ok: false, error: result.error },
+      { status: result.status },
+    );
   }
 
   // Guardian token
@@ -489,14 +515,23 @@ async function handleLocalEndpoints(
 
     const assistantId = decodeURIComponent(guardianMatch[1]!);
 
-    let cliPath: string;
+    let invocation: CliInvocation;
     try {
-      cliPath = resolveCliPath(_baseDir);
+      invocation = resolveDevCliInvocation(_baseDir);
     } catch (err) {
-      return Response.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 });
+      return Response.json(
+        { error: err instanceof Error ? err.message : String(err) },
+        { status: 500 },
+      );
     }
 
-    const result = await getGuardianAccessToken(assistantId, configDir, cliPath, true, _localEnv);
+    const result = await getGuardianAccessToken(
+      assistantId,
+      configDir,
+      invocation,
+      true,
+      _localEnv,
+    );
     if (result.ok) {
       return Response.json({ accessToken: result.accessToken });
     }
@@ -507,12 +542,16 @@ async function handleLocalEndpoints(
   const gatewayResult = parseGatewayUrl(pathname);
   if (gatewayResult.match) {
     if (!gatewayResult.valid) {
-      return new Response("Port must be between 1024 and 65535", { status: 400 });
+      return new Response("Port must be between 1024 and 65535", {
+        status: 400,
+      });
     }
     const { target: gatewayTarget } = gatewayResult;
     const allowedPorts = readAllowedGatewayPorts(lockfilePaths);
     if (!allowedPorts.has(gatewayTarget.port)) {
-      return new Response("Gateway port is not active in lockfile", { status: 403 });
+      return new Response("Gateway port is not active in lockfile", {
+        status: 403,
+      });
     }
     const targetUrl = `http://127.0.0.1:${gatewayTarget.port}${gatewayTarget.path}${url.search}`;
     const headers = new Headers(req.headers);
@@ -638,7 +677,10 @@ async function runWebInterface(): Promise<void> {
           req.headers.get("Cookie") ?? "",
         )?.[1];
         if (sessionToken) {
-          headers.set("Cookie", `sessionid=${sessionToken}; __Secure-sessionid=${sessionToken}`);
+          headers.set(
+            "Cookie",
+            `sessionid=${sessionToken}; __Secure-sessionid=${sessionToken}`,
+          );
           headers.set("X-Session-Token", sessionToken);
         }
 

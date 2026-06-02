@@ -1,15 +1,13 @@
 
 import { Check, Copy, ExternalLink, FileCode, GitBranch } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 
 type MessageHoverActionsProps = {
-  /** The message text content for copy functionality. */
-  content: string;
-  /** Epoch-ms timestamp. Sourced from the server API when available,
-   *  otherwise set client-side when the message is first created. */
-  timestamp?: number;
-  /** The role of the message sender. */
-  role: "user" | "assistant";
+  /** The message whose text is copied and whose role/timestamp drive the row. */
+  message: DisplayMessage;
   /** Slack permalink for the message, shown as a hover action when present. */
   openInSlackUrl?: string;
   /** Callback when "Fork from here" is clicked. */
@@ -50,14 +48,54 @@ function formatDetailedTimestamp(epoch: number): string {
   });
 }
 
+/**
+ * Latest activity timestamp for a message: the max of the message's own
+ * timestamp and any tool-call start/completion times, so the displayed time
+ * reflects when the row last did something rather than when it was created.
+ */
+function latestMessageActivityTimestamp(
+  message: DisplayMessage,
+): number | undefined {
+  const latestToolTimestamp = message.toolCalls?.reduce<number | undefined>(
+    (latest, toolCall) => {
+      const toolTimestamp = toolCall.completedAt ?? toolCall.startedAt;
+      if (toolTimestamp == null) {
+        return latest;
+      }
+      return latest == null ? toolTimestamp : Math.max(latest, toolTimestamp);
+    },
+    undefined,
+  );
+
+  if (latestToolTimestamp == null) {
+    return message.timestamp;
+  }
+
+  if (message.timestamp == null) {
+    return latestToolTimestamp;
+  }
+
+  return Math.max(message.timestamp, latestToolTimestamp);
+}
+
 export function MessageHoverActions({
-  content,
-  timestamp,
-  role,
+  message,
   openInSlackUrl,
   onFork,
   onInspect,
 }: MessageHoverActionsProps) {
+  const { role } = message;
+  // Flat plain-text body derived from the ordered text segments; this is the
+  // copy payload and mirrors the daemon's `joinWithSpacing`.
+  const content = useMemo(
+    () => segmentsToPlainText(message.textSegments),
+    [message.textSegments],
+  );
+  const timestamp = useMemo(
+    () => latestMessageActivityTimestamp(message),
+    [message],
+  );
+
   const [showCopied, setShowCopied] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Stable fallback so history messages (which lack a client-side timestamp)

@@ -100,6 +100,15 @@ export interface TranscriptMessageBodyProps {
   onSubagentClick?: (subagentId: string) => void;
   /** Callback to abort/stop a running subagent from an inline card. */
   onStopSubagent?: (subagentId: string) => void;
+  /**
+   * True when this message belongs to the turn that is actively streaming.
+   * Set by `LatestTurnRow` for the in-progress response cluster; history
+   * rows leave it `false`. Keeps the message's last tool-call group expanded
+   * for the whole stream — not just the instants a tool reports `running` —
+   * so the latest activity stays visible while the model fills in the rest
+   * of the turn. Collapses back to the compact default once the turn ends.
+   */
+  isStreaming?: boolean;
 }
 
 /**
@@ -223,40 +232,25 @@ function resolveSpawnedSubagentIds(
 
 function shouldAutoExpandToolCallGroup({
   isCurrentGroup,
+  isStreaming,
   toolCalls,
 }: {
   isCurrentGroup: boolean;
+  isStreaming: boolean;
   toolCalls: ChatMessageToolCall[];
 }): boolean {
   if (!isCurrentGroup) {
     return false;
   }
+  // While the turn streams, the message's last content group stays open for the
+  // whole turn — so a trailing tool-call card is visible until the model starts
+  // writing the answer below it, at which point the text group becomes last and
+  // the card collapses. Outside a stream (history) it only expands while a tool
+  // is running, which keeps completed turns collapsed and compact.
+  if (isStreaming) {
+    return true;
+  }
   return toolCalls.some((toolCall) => toolCall.status === "running");
-}
-
-function latestMessageActivityTimestamp(
-  message: DisplayMessage,
-): number | undefined {
-  const latestToolTimestamp = message.toolCalls?.reduce<number | undefined>(
-    (latest, toolCall) => {
-      const toolTimestamp = toolCall.completedAt ?? toolCall.startedAt;
-      if (toolTimestamp == null) {
-        return latest;
-      }
-      return latest == null ? toolTimestamp : Math.max(latest, toolTimestamp);
-    },
-    undefined,
-  );
-
-  if (latestToolTimestamp == null) {
-    return message.timestamp;
-  }
-
-  if (message.timestamp == null) {
-    return latestToolTimestamp;
-  }
-
-  return Math.max(message.timestamp, latestToolTimestamp);
 }
 
 function fallbackRoleLabel(
@@ -342,6 +336,7 @@ export function TranscriptMessageBody({
   assistantId,
   onSubagentClick,
   onStopSubagent,
+  isStreaming = false,
 }: TranscriptMessageBodyProps) {
   const hasInterleavedToolCalls = message.contentOrder?.some(
     (e) => e.type === "toolCall" || e.type === "tool",
@@ -450,7 +445,6 @@ export function TranscriptMessageBody({
   const isSuppressedUiTool = (tc: ChatMessageToolCall) =>
     !tc.pendingConfirmation &&
     (tc.toolName === "ui_show" || tc.toolName === "ui_update" || tc.toolName === "ui_dismiss");
-  const messageTimestamp = latestMessageActivityTimestamp(message);
 
   // Hard line breaks are enabled for every transcript message regardless of
   // role: single `\n`s in assistant output (not just user Shift+Enter input)
@@ -690,6 +684,7 @@ export function TranscriptMessageBody({
                       expandedCardIds={expandedCardIds}
                       autoExpand={shouldAutoExpandToolCallGroup({
                         isCurrentGroup: gi === groups.length - 1,
+                        isStreaming,
                         toolCalls,
                       })}
                       onOpenRuleEditor={onOpenRuleEditor}
@@ -801,9 +796,7 @@ export function TranscriptMessageBody({
           />
           <div className="h-6 opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100 has-[:focus-visible]:opacity-100 group-data-[revealed=true]/msg:opacity-100">
             <MessageHoverActions
-              content={messageText}
-              timestamp={messageTimestamp}
-              role={message.role}
+              message={message}
               openInSlackUrl={slackMessageUrl}
               onFork={forkHandler}
               onInspect={inspectHandler}
@@ -904,6 +897,7 @@ export function TranscriptMessageBody({
               expandedCardIds={expandedCardIds}
               autoExpand={shouldAutoExpandToolCallGroup({
                 isCurrentGroup: !hasVisibleLegacyContent,
+                isStreaming,
                 toolCalls: legacyToolCalls,
               })}
               onOpenRuleEditor={onOpenRuleEditor}
@@ -977,9 +971,7 @@ export function TranscriptMessageBody({
         />
         <div className="h-6 opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100 has-[:focus-visible]:opacity-100 group-data-[revealed=true]/msg:opacity-100">
           <MessageHoverActions
-            content={messageText}
-            timestamp={messageTimestamp}
-            role={message.role}
+            message={message}
             openInSlackUrl={slackMessageUrl}
             onFork={forkHandler}
             onInspect={inspectHandler}

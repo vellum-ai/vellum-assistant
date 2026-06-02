@@ -4,6 +4,19 @@ import path from "node:path";
 
 const CLI_PACKAGE_NAME = "@vellumai/cli";
 
+/**
+ * How to invoke the Vellum CLI as a child process: a base command plus the
+ * leading arguments that precede the subcommand. Each host resolves its own
+ * invocation — the dev hosts run the CLI from source via `bun run <entry>`,
+ * a packaged host would point at its bundled runtime — and the shared
+ * lifecycle ops (`runHatch`, `runRetire`, guardian-token refresh) append
+ * their subcommand args to `baseArgs`.
+ */
+export interface CliInvocation {
+  command: string;
+  baseArgs: string[];
+}
+
 const SENSITIVE_FIELDS = [
   "signingKey",
   "bearerToken",
@@ -46,7 +59,7 @@ let _resolvedCliPath: string | undefined;
  * 1. Source tree — `<baseDir>/cli/src/index.ts` (dev mode in monorepo).
  * 2. Installed package — `require.resolve("@vellumai/cli/package.json")`.
  */
-export function resolveCliPath(baseDir: string, importMetaUrl?: string): string {
+function resolveCliPath(baseDir: string, importMetaUrl?: string): string {
   if (_resolvedCliPath) return _resolvedCliPath;
 
   const sourceTreePath = path.join(baseDir, "cli", "src", "index.ts");
@@ -76,6 +89,14 @@ export function resolveCliPath(baseDir: string, importMetaUrl?: string): string 
   );
 }
 
-export function resetCliPathCache(): void {
-  _resolvedCliPath = undefined;
+/**
+ * Build the CLI invocation used by the dev hosts (CLI client server and the
+ * web dev-server middleware), which run the CLI from source via Bun:
+ * `bun run <cli-entry> <subcommand> …`.
+ */
+export function resolveDevCliInvocation(
+  baseDir: string,
+  importMetaUrl?: string,
+): CliInvocation {
+  return { command: "bun", baseArgs: ["run", resolveCliPath(baseDir, importMetaUrl)] };
 }

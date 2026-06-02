@@ -51,6 +51,7 @@ mock.module("../../memory/llm-request-log-store.js", () => ({
 }));
 
 // ── Imports (after mocks) ─────────────────────────────────────────────────────
+import { WEB_SEARCH_BACKEND_FAILURE_MESSAGE } from "../../tools/network/web-search-error.js";
 import type {
   EventHandlerDeps,
   EventHandlerState,
@@ -270,7 +271,7 @@ describe("native server_tool_complete metadata", () => {
     expect(durB).toBeGreaterThanOrEqual(durA);
   });
 
-  test("forwards provider error codes instead of generic 'Search failed'", async () => {
+  test("maps recoverable error codes to friendly copy, not the raw code", async () => {
     const { deps, events } = createCollectorDeps();
     const toolUseId = "tu_err_code";
 
@@ -292,9 +293,11 @@ describe("native server_tool_complete metadata", () => {
     const toolResultEvent = events.find(
       (e): e is ToolResultEvent => e.type === "tool_result",
     );
-    expect(toolResultEvent?.activityMetadata?.webSearch?.errorMessage).toBe(
-      "max_uses_exceeded",
-    );
+    const errorMessage =
+      toolResultEvent?.activityMetadata?.webSearch?.errorMessage;
+    // The raw provider code is never user-visible.
+    expect(errorMessage).not.toBe("max_uses_exceeded");
+    expect(errorMessage).toContain("web-search limit");
   });
 
   test("does NOT emit activityMetadata for non-Anthropic providers", async () => {
@@ -350,7 +353,7 @@ describe("native server_tool_complete metadata", () => {
       (e): e is ToolResultEvent => e.type === "tool_result",
     );
     const meta = toolResultEvent?.activityMetadata?.webSearch;
-    expect(meta?.errorMessage).toBe("Search failed");
+    expect(meta?.errorMessage).toBe(WEB_SEARCH_BACKEND_FAILURE_MESSAGE);
     expect(meta?.resultCount).toBe(0);
     expect(meta?.results).toEqual([]);
     expect(toolResultEvent?.isError).toBe(true);

@@ -210,7 +210,7 @@ export function PhaseGroupedStepList({
               durationLabel={totalDuration}
               status={status}
             />
-            <div className="flex min-w-0 flex-wrap items-start gap-1 pl-[24px]">
+            <div className="flex min-w-0 flex-col items-start gap-1 pl-[24px]">
               {section.steps.map((step) => {
                 const key = stepKey(step, globalIndex);
                 globalIndex += 1;

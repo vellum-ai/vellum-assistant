@@ -12,6 +12,10 @@ import { describe, expect, test } from "bun:test";
 
 import type { TrustContext } from "../daemon/trust-context.js";
 import { RiskLevel } from "../permissions/types.js";
+import type {
+  ToolResultTruncateArgs,
+  ToolResultTruncateResult,
+} from "../plugins/defaults/tool-result-truncate/types.js";
 import {
   type CircuitBreakerArgs,
   type CircuitBreakerResult,
@@ -42,8 +46,6 @@ import {
   type ToolErrorDecision,
   type ToolExecuteArgs,
   type ToolExecuteResult,
-  type ToolResultTruncateArgs,
-  type ToolResultTruncateResult,
   type TurnContext,
 } from "../plugins/types.js";
 import type { Tool } from "../tools/types.js";

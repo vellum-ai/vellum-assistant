@@ -32,6 +32,9 @@ mock.module("@/hooks/conversation-queries", () => ({
   useConversationListQuery: () => ({ conversations: foregroundImpl }),
   useBackgroundConversationListQuery: () => ({ conversations: backgroundImpl }),
   useScheduledConversationListQuery: () => ({ conversations: scheduledImpl }),
+}));
+
+mock.module("@/utils/conversation-cache-mutations", () => ({
   refreshConversationRow: async (
     _queryClient: unknown,
     assistantId: string | null,
@@ -39,6 +42,10 @@ mock.module("@/hooks/conversation-queries", () => ({
   ) => {
     refreshConversationRowCalls.push({ assistantId, conversationId });
   },
+  markConversationSeenLocal: () => {},
+  prependConversation: () => {},
+  removeConversation: () => {},
+  resolveDraftKey: () => {},
 }));
 
 const { useActiveConversation } = await import(

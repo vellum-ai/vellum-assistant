@@ -2,6 +2,8 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
+import type { CliInvocation } from "./util";
+
 const GUARDIAN_TOKEN_REFRESH_TIMEOUT_MS = 15_000;
 
 interface GuardianTokenData {
@@ -30,7 +32,7 @@ export type TokenResult =
 export function getGuardianAccessToken(
   assistantId: string,
   configDir: string,
-  cliPath: string,
+  invocation: CliInvocation,
   isLoopback: boolean,
   env?: Record<string, string>,
 ): Promise<TokenResult> {
@@ -66,18 +68,18 @@ export function getGuardianAccessToken(
     });
   }
 
-  return refreshToken(assistantId, cliPath, env);
+  return refreshToken(assistantId, invocation, env);
 }
 
 function refreshToken(
   assistantId: string,
-  cliPath: string,
+  invocation: CliInvocation,
   env?: Record<string, string>,
 ): Promise<TokenResult> {
   return new Promise((resolve) => {
     const child = spawn(
-      "bun",
-      ["run", cliPath, "gateway", "token", "refresh", assistantId],
+      invocation.command,
+      [...invocation.baseArgs, "gateway", "token", "refresh", assistantId],
       { stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ...env } },
     );
 

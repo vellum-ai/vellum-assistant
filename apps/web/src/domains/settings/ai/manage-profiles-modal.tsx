@@ -1,6 +1,7 @@
 import { GripVertical, Trash2 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@vellum/design-library/components/button";
 import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Toggle } from "@vellum/design-library/components/toggle";
@@ -16,18 +17,9 @@ import {
   AUTO_PROFILE_NAME,
   gateAutoProfile,
 } from "@/domains/settings/ai/profile-pickers";
-import {
-  listConnections,
-  type ProviderConnection,
-} from "@/domains/settings/ai/provider-connections-client";
+import { inferenceProviderconnectionsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 
-function filterFlaggedConnections(
-  connections: ProviderConnection[],
-  openAICompatibleEndpointsEnabled: boolean,
-): ProviderConnection[] {
-  if (openAICompatibleEndpointsEnabled) return connections;
-  return connections.filter((c) => c.provider !== "openai-compatible");
-}
+import { filterFlaggedConnections } from "@/domains/settings/ai/provider-connections-client";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -101,47 +93,24 @@ export function ManageProfilesModal({
   const openAICompatibleEndpoints = useAssistantFeatureFlagStore.use.openAICompatibleEndpoints();
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState<Profile | null>(null);
-  // Provider connections, fetched alongside the modal so ProfileEditorModal can
-  // render the per-provider Connection sub-dropdown without dragging the
-  // entire SettingsStore into the editor. Mirrors the macOS pattern where
-  // `InferenceProfilesSheet` owns the connections list and passes it down to
-  // `InferenceProfileEditor` as a `connections` prop. Re-fetches whenever the
-  // editor closes so cross-surface additions (e.g. user creates a connection
-  // from another tab) are picked up before the user opens another profile.
-  //
-  // `undefined` vs `[]` is meaningful:
-  // - `undefined` → `listConnections` has not yet resolved (pre-load window).
-  //   The editor's provider picker falls back to the full catalog so the
-  //   trigger isn't empty during that gap.
-  // - `[]` → fetch returned zero connections. Fresh workspace with nothing
-  //   configured. The editor's filter runs and yields empty, the empty-state
-  //   hint fires, and the user is steered to Providers instead of being
-  //   allowed to bind a profile to a non-dispatchable provider.
-  //
-  // Mirrors macOS `InferenceProfilesSheet.connections: [ProviderConnection]?`
-  // (PR #30330 follow-up). The web sibling had the same nil-vs-empty trap.
-  const [connections, setConnections] = useState<ProviderConnection[] | undefined>(undefined);
 
-  useEffect(() => {
-    if (!isOpen) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const fresh = await listConnections(assistantId);
-        if (!cancelled) {
-          setConnections(
-            filterFlaggedConnections(fresh, openAICompatibleEndpoints),
-          );
-        }
-      } catch {
-        // Tolerate failure — keep stale list so the editor still has options
-        // if the backend hiccups. Matches macOS `refreshConnections()`.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [isOpen, assistantId, editorOpen, openAICompatibleEndpoints]);
+  // Provider connections — shared TanStack Query cache with ManageProvidersModal.
+  // `undefined` vs `[]` is meaningful: `undefined` means the query hasn't
+  // resolved yet (editor falls back to the full catalog); `[]` means zero
+  // connections exist (editor shows empty-state hint).
+  const { data: connectionsData } = useQuery({
+    ...inferenceProviderconnectionsGetOptions({
+      path: { assistant_id: assistantId },
+    }),
+    enabled: isOpen,
+  });
+  const connections = useMemo(
+    () =>
+      connectionsData
+        ? filterFlaggedConnections(connectionsData.connections, openAICompatibleEndpoints)
+        : undefined,
+    [connectionsData, openAICompatibleEndpoints],
+  );
 
   const existingNames = Object.keys(profiles);
 

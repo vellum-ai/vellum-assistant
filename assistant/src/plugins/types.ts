@@ -46,6 +46,10 @@ import type {
 import type { SkillRoute } from "../runtime/skill-route-registry.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
+import type {
+  ToolResultTruncateArgs,
+  ToolResultTruncateResult,
+} from "./defaults/tool-result-truncate/types.js";
 
 // ─── Manifest ────────────────────────────────────────────────────────────────
 
@@ -570,26 +574,6 @@ export type TitleGenerateArgs = TitleArgs;
  * @deprecated Alias kept for the M1 scaffolding era. Prefer {@link TitleResult}.
  */
 export type TitleGenerateResult = TitleResult;
-
-/**
- * Input to the `toolResultTruncate` pipeline: the raw tool-result text and
- * the character budget the caller computed from the context-window share
- * (see `calculateMaxToolResultChars` in `context/tool-result-truncation.ts`).
- */
-export type ToolResultTruncateArgs = {
-  readonly content: string;
-  readonly maxChars: number;
-};
-
-/**
- * Output of the `toolResultTruncate` pipeline: the (possibly truncated)
- * content and a boolean flag indicating whether the pipeline actually
- * shortened the input. Callers use `truncated` for telemetry / warnings.
- */
-export type ToolResultTruncateResult = {
-  readonly content: string;
-  readonly truncated: boolean;
-};
 
 /**
  * Snapshot of the just-completed assistant turn plus retry/context counters

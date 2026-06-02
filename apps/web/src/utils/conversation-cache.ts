@@ -29,11 +29,101 @@
 import type { QueryClient } from "@tanstack/react-query";
 
 import {
+  archivedConversationsQueryKey,
   backgroundConversationsQueryKey,
   conversationsQueryKey,
   scheduledConversationsQueryKey,
 } from "@/lib/sync/query-tags";
 import type { Conversation } from "@/types/conversation-types";
+
+// ---------------------------------------------------------------------------
+// Query lifecycle helpers — cancel, snapshot, restore, invalidate
+//
+// Optimistic updates require a three-step lifecycle:
+//   1. Cancel outgoing refetches so they don't overwrite the optimistic value
+//   2. Snapshot the current cache for rollback
+//   3. After the mutation settles, invalidate so TanStack Query refetches
+//
+// References:
+// - https://tanstack.com/query/latest/docs/framework/react/guides/optimistic-updates
+// ---------------------------------------------------------------------------
+
+/** All conversation query keys for the given assistant. */
+function allConversationQueryKeys(assistantId: string) {
+  return [
+    conversationsQueryKey(assistantId),
+    backgroundConversationsQueryKey(assistantId),
+    scheduledConversationsQueryKey(assistantId),
+    archivedConversationsQueryKey(assistantId),
+  ] as const;
+}
+
+/**
+ * Cancel any in-flight refetches for conversation caches. Call this before
+ * applying an optimistic update so a concurrent refetch doesn't overwrite
+ * the optimistic value with stale server data.
+ */
+export async function cancelConversationQueries(
+  queryClient: QueryClient,
+  assistantId: string,
+): Promise<void> {
+  await Promise.all(
+    allConversationQueryKeys(assistantId).map((key) =>
+      queryClient.cancelQueries({ queryKey: key }),
+    ),
+  );
+}
+
+/**
+ * Snapshot of all conversation caches for a given assistant, used for
+ * rollback in `onError` after a failed optimistic mutation.
+ */
+export type ConversationCacheSnapshot = Array<
+  [queryKey: readonly unknown[], data: Conversation[] | undefined]
+>;
+
+/**
+ * Capture the current state of all conversation caches. The returned
+ * snapshot can be passed to `restoreConversationCaches` to undo an
+ * optimistic update.
+ */
+export function snapshotConversationCaches(
+  queryClient: QueryClient,
+  assistantId: string,
+): ConversationCacheSnapshot {
+  return allConversationQueryKeys(assistantId).map((key) => [
+    key,
+    queryClient.getQueryData<Conversation[]>(key),
+  ]);
+}
+
+/**
+ * Restore conversation caches from a snapshot, undoing an optimistic update.
+ */
+export function restoreConversationCaches(
+  queryClient: QueryClient,
+  snapshot: ConversationCacheSnapshot,
+): void {
+  for (const [key, data] of snapshot) {
+    queryClient.setQueryData(key, data);
+  }
+}
+
+/**
+ * Invalidate all conversation caches so TanStack Query refetches from the
+ * server. Used in `onSettled` to reconcile optimistic values with the
+ * server-authoritative state regardless of mutation success or failure.
+ */
+export async function invalidateConversationQueries(
+  queryClient: QueryClient,
+  assistantId: string,
+): Promise<void> {
+  await Promise.all(
+    allConversationQueryKeys(assistantId).map((key) =>
+      queryClient.invalidateQueries({ queryKey: key }),
+    ),
+  );
+}
 
 type ConversationUpdater = (conversations: Conversation[]) => Conversation[];
 

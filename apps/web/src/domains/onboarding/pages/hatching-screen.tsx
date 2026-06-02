@@ -1,4 +1,4 @@
-import * as Sentry from "@sentry/browser";
+import * as Sentry from "@sentry/react";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
@@ -267,8 +267,13 @@ export function HatchingScreen() {
               try {
                 const res = await fetch(`${gatewayUrl}/readyz`);
                 if (res.ok) {
-                  const body = await res.json() as { status: string };
-                  if (body.status === "ok") {
+                  const body: unknown = await res.json();
+                  if (
+                    body &&
+                    typeof body === "object" &&
+                    "status" in body &&
+                    body.status === "ok"
+                  ) {
                     await primeLocalGatewayConnection();
                     gatewayReady = true;
                     break;

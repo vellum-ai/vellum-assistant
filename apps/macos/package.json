@@ -29,6 +29,7 @@
     "wait-on": "8.0.1"
   },
   "dependencies": {
+    "@vellumai/local-mode": "file:../../packages/local-mode",
     "electron-store": "11.0.2"
   }
 }

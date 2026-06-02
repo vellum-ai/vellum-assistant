@@ -18,7 +18,6 @@
  */
 
 import {
-  type MutableRefObject,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -36,7 +35,7 @@ import { endTurn } from "@/domains/chat/turn-coordinator";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 import { subscribe } from "@/lib/event-bus";
 import { recordLifecycleDiagnostic } from "@/lib/diagnostics";
-import type { ChatEventStream } from "@/lib/streaming/stream-transport";
+import type { EventStream } from "@/lib/streaming/stream-transport";
 import type {
   ActiveConversationMessagesRefreshResult,
   WebSyncReconnectResult,
@@ -69,10 +68,8 @@ export interface UseEventStreamParams {
   // Sync router dispatch for post-reconnect reconcile
   dispatchReconnect: () => Promise<WebSyncReconnectResult | undefined>;
 
-  // Conversation list invalidated timer ref — cleaned up on unmount
-  conversationListInvalidatedTimerRef: MutableRefObject<ReturnType<
-    typeof setTimeout
-  > | null>;
+  /** Cancel any pending debounced conversation list refetch on unmount. */
+  cancelScheduledRefetch: () => void;
 }
 
 export function useEventStream({
@@ -88,7 +85,7 @@ export function useEventStream({
   reachabilityPhase,
   reachabilityReset,
   dispatchReconnect,
-  conversationListInvalidatedTimerRef,
+  cancelScheduledRefetch,
 }: UseEventStreamParams): void {
   // ---- Ref-stabilize unstable callback params ----
   const handleStreamEventRef = useRef(handleStreamEvent);
@@ -181,24 +178,31 @@ export function useEventStream({
     // whether SSE will deliver the response. We write a sentinel whose
     // `cancel()` is a no-op — the real teardown is the bus unsubscribe
     // in the cleanup function below.
-    const presence: ChatEventStream = { cancel: () => {} };
+    const presence: EventStream = { cancel: () => {} };
     ss.setStream(presence);
 
     const consumer = createSseEventConsumer({
       activeConversationIdRef: activeConversationIdLatestRef,
       handleStreamEvent: (event, epoch) =>
         handleStreamEventRef.current(event, epoch),
-      reconcileActive: () => {
-        void reconcileActiveConversationRef.current();
-      },
+      reconcileActive: () => reconcileActiveConversationRef.current(),
     });
 
     const unsubEvent = subscribe("sse.event", (envelope) =>
       consumer.handleSseEvent(envelope),
     );
 
+    // clientSeq resets to 1 on each new SSE subscription (fresh
+    // server-side counter map). Reset the consumer's seq tracking on
+    // reconnect so the first post-reconnect event re-seeds the cursor
+    // instead of triggering a false generation reset.
+    const unsubOpened = subscribe("sse.opened", () =>
+      consumer.notifyReconnect(),
+    );
+
     return () => {
       unsubEvent();
+      unsubOpened();
       useStreamStore.getState().bumpEpoch();
       // Clear stream/context only if they still belong to this
       // subscription — a newer subscription may have already replaced
@@ -346,10 +350,7 @@ export function useEventStream({
   useEffect(() => {
     return () => {
       cancelReconciliationRef.current();
-      if (conversationListInvalidatedTimerRef.current) {
-        clearTimeout(conversationListInvalidatedTimerRef.current);
-        conversationListInvalidatedTimerRef.current = null;
-      }
+      cancelScheduledRefetch();
     };
-  }, [conversationListInvalidatedTimerRef]);
+  }, [cancelScheduledRefetch]);
 }

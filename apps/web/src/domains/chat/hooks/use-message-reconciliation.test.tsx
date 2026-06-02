@@ -15,7 +15,7 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { createElement, type RefObject } from "react";
+import { createElement } from "react";
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
@@ -129,7 +129,7 @@ type HookReturn = ReturnType<typeof useMessageReconciliation>;
 // ---------------------------------------------------------------------------
 
 interface HarnessProps {
-  initialPageOldestTsRef?: RefObject<number | null>;
+  latestPageOldestTimestamp?: number | null;
   collect: (result: HookReturn) => void;
 }
 
@@ -139,7 +139,7 @@ let hookModule: typeof import("./use-message-reconciliation") | null = null;
 function HookHarness(props: HarnessProps): null {
   if (!hookModule) throw new Error("hookModule not loaded");
   const result = hookModule.useMessageReconciliation({
-    initialPageOldestTsRef: props.initialPageOldestTsRef ?? makeRef(null),
+    latestPageOldestTimestamp: props.latestPageOldestTimestamp ?? null,
   });
   props.collect(result);
   return null;
@@ -158,9 +158,7 @@ let messages: DisplayMessage[] = [];
 let unsubscribeMessages: (() => void) | null = null;
 let onPollReconciledSpy: ReturnType<typeof mock>;
 
-function makeRef<T>(value: T): RefObject<T> {
-  return { current: value };
-}
+
 
 function makeMessage(
   overrides: Omit<DisplayMessage, "id"> & { id?: string },
@@ -848,18 +846,13 @@ describe("reconcileActiveConversation", () => {
     expect(onPollReconciledSpy).not.toHaveBeenCalled();
   });
 
-  test("returns no-change on fetch error", async () => {
+  test("rejects on fetch error so callers can distinguish failure from no-change", async () => {
     mockFetchError = new Error("Network error");
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
       activeConversationId: "conv-1",
     });
-    const result = await reconcileActiveConversation();
-    expect(result).toEqual({
-      changed: false,
-      messagesAdded: 0,
-      assistantProgress: false,
-    });
+    await expect(reconcileActiveConversation()).rejects.toThrow("Network error");
     expect(onPollReconciledSpy).not.toHaveBeenCalled();
   });
 
@@ -916,8 +909,7 @@ describe("reconcileActiveConversation — fetch failure", () => {
       activeConversationId: "conv-1",
       turnState,
     });
-    const result = await reconcileActiveConversation();
-    expect(result.changed).toBe(false);
+    await expect(reconcileActiveConversation()).rejects.toThrow("network timeout");
     expect(onPollReconciledSpy).not.toHaveBeenCalled();
   });
 });

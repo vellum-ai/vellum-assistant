@@ -464,14 +464,37 @@ const cesHealthSchema = z.object({
   connected: z.boolean(),
 });
 
+const healthDiskSchema = z.object({
+  path: z.string(),
+  totalMb: z.number(),
+  usedMb: z.number(),
+  freeMb: z.number(),
+});
+
+const healthMemorySchema = z.object({
+  currentMb: z.number(),
+  maxMb: z.number(),
+});
+
+const healthCpuSchema = z.object({
+  currentPercent: z.number(),
+  maxCores: z.number(),
+});
+
+const healthMigrationsSchema = z.object({
+  dbVersion: z.number(),
+  lastWorkspaceMigrationId: z.string().nullable(),
+});
+
 const detailedHealthSchema = z.object({
   status: z.string(),
   timestamp: z.string(),
   version: z.string(),
-  disk: z.object({}).passthrough(),
-  memory: z.object({}).passthrough(),
-  cpu: z.object({}).passthrough(),
-  migrations: z.object({}).passthrough(),
+  // `getDiskUsageInfo()` returns null when usage can't be measured.
+  disk: healthDiskSchema.nullable(),
+  memory: healthMemorySchema,
+  cpu: healthCpuSchema,
+  migrations: healthMigrationsSchema,
   ces: cesHealthSchema,
   profiler: profilerStatusSchema.optional(),
 });

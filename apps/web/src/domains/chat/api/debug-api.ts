@@ -21,6 +21,7 @@ import {
   getSseClients,
   getSseEvents,
 } from "@/lib/streaming/stream-debug";
+import { requestSseReconnect } from "@/lib/streaming/sse-reconnect-control";
 import { getSeqCursors } from "@/lib/streaming/last-seen-seq";
 
 export interface ChatDebugEventsApi {
@@ -30,6 +31,14 @@ export interface ChatDebugEventsApi {
   getEvents: () => SseDebugEventEntry[];
   /** Per-conversation seq cursors tracked by gap detection. */
   getSeqCursors: () => Record<string, number>;
+  /**
+   * Force the live SSE connection to disconnect and reconnect, optionally
+   * staying down for `timeoutMs` (default 0) so the reconnection and
+   * post-reconnect catch-up path can be exercised on demand. Returns
+   * `true` if an assistant connection was live to service the request,
+   * `false` if none was attached.
+   */
+  reconnectClient: (timeoutMs?: number) => boolean;
 }
 
 /**
@@ -40,4 +49,5 @@ export const eventsDebugApi: ChatDebugEventsApi = {
   getClients: getSseClients,
   getEvents: getSseEvents,
   getSeqCursors,
+  reconnectClient: (timeoutMs) => requestSseReconnect(timeoutMs),
 };

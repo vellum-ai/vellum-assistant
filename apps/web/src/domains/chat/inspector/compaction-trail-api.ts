@@ -20,7 +20,7 @@
 
 import { queryOptions, useQuery } from "@tanstack/react-query";
 
-import type { CompactionTrailResponse } from "./compaction-trail-types";
+import type { ConversationsByIdCompactionGetResponse } from "@/generated/daemon/types.gen";
 import {
   CompactionTrailRequestError,
   fetchCompactionTrail,
@@ -43,7 +43,9 @@ export function compactionTrailQueryOptions(
       "compaction",
       { callId },
     ] as const,
-    queryFn: async ({ signal }): Promise<CompactionTrailResponse> => {
+    queryFn: async ({
+      signal,
+    }): Promise<ConversationsByIdCompactionGetResponse> => {
       if (!assistantId) {
         throw new CompactionTrailRequestError(0, "Missing assistantId");
       }
