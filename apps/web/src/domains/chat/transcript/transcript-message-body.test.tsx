@@ -418,7 +418,7 @@ describe("TranscriptMessageBody", () => {
     ).toEqual(["false", "true"]);
   });
 
-  test("keeps a streaming message's last tool-call group open once trailing answer text streams in", () => {
+  test("collapses a streaming message's tool-call group once answer text streams in below it", () => {
     const { getByTestId } = render(
       <TranscriptMessageBody
         message={{
@@ -447,7 +447,7 @@ describe("TranscriptMessageBody", () => {
 
     expect(
       getByTestId("tool-progress-card").getAttribute("data-auto-expand"),
-    ).toBe("true");
+    ).toBe("false");
   });
 
   test("collapses an interleaved tool-call group once response text follows", () => {
