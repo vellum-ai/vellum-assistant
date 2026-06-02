@@ -116,8 +116,8 @@ import { useInteractionActions } from "@/domains/chat/hooks/use-interaction-acti
 import { useGhostTextSuggestion } from "@/domains/chat/hooks/use-ghost-text-suggestion";
 import { useVoiceInput } from "@/domains/chat/hooks/use-voice-input";
 import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
+import { useEditApp } from "@/hooks/use-edit-app";
 import { lifecycleService } from "@/assistant/lifecycle-service";
-import { getEditChatConversationId, setEditChatConversationId } from "@/domains/chat/utils/edit-chat-session";
 
 // ---------------------------------------------------------------------------
 // Props — only values that cannot be owned locally
@@ -171,6 +171,7 @@ export interface ChatRouteContentProps {
   sanitizedMessagesRef: MutableRefObject<DisplayMessage[]>;
   transcriptItemsRef: MutableRefObject<TranscriptItem[]>;
   transcriptRef: RefObject<TranscriptHandle | null>;
+  uiContextRef: MutableRefObject<UIContext | null>;
 
   // Onboarding (local state in ActiveChatView)
   onboardingTasksEmpty: boolean;
@@ -214,6 +215,7 @@ export function ChatRouteContent({
   sanitizedMessagesRef,
   transcriptItemsRef,
   transcriptRef,
+  uiContextRef,
   onboardingTasksEmpty,
   didOnboarding,
   onboardingConversationId,
@@ -320,18 +322,11 @@ export function ChatRouteContent({
     useViewerStore.getState().exitAppEditing();
   }, []);
 
+  const editApp = useEditApp();
   const handleEditApp = useCallback(() => {
     const oas = useViewerStore.getState().openedAppState;
-    if (!oas || !assistantId) return;
-    const appId = oas.appId;
-    const convId = getEditChatConversationId(assistantId, appId) ?? crypto.randomUUID();
-    setEditChatConversationId(assistantId, appId, convId);
-    useConversationStore.getState().setEditingConversationId(convId);
-    useViewerStore.getState().enterAppEditing();
-    if (activeConversationId !== convId) {
-      void navigate(routes.conversation(convId));
-    }
-  }, [assistantId, activeConversationId, navigate]);
+    if (oas) editApp(oas);
+  }, [editApp]);
 
   const handleShareApp = useCallback(() => {
     const app = useViewerStore.getState().openedAppState;
@@ -506,16 +501,41 @@ export function ChatRouteContent({
     lastCompleteAssistantMsgId,
   });
 
-  const uiContext: UIContext = {
-    hasStreamingAssistantMessage,
-    hasPendingSecret: !!pendingSecret,
-    hasPendingConfirmation: !!pendingConfirmation,
-    hasPendingQuestion: !!pendingQuestion,
-    hasPendingContactRequest: !!pendingContactRequest,
-    hasUncompletedVisibleSurface,
-    activeConversationIsProcessing,
-    hasPendingAssistantResponse: activeConversationHasPendingAssistantResponse,
-  };
+  const uiContext: UIContext = useMemo(
+    () => ({
+      hasStreamingAssistantMessage,
+      hasPendingSecret: !!pendingSecret,
+      hasPendingConfirmation: !!pendingConfirmation,
+      hasPendingQuestion: !!pendingQuestion,
+      hasPendingContactRequest: !!pendingContactRequest,
+      hasUncompletedVisibleSurface,
+      activeConversationIsProcessing,
+      hasPendingAssistantResponse: activeConversationHasPendingAssistantResponse,
+    }),
+    [
+      hasStreamingAssistantMessage,
+      pendingSecret,
+      pendingConfirmation,
+      pendingQuestion,
+      pendingContactRequest,
+      hasUncompletedVisibleSurface,
+      activeConversationIsProcessing,
+      activeConversationHasPendingAssistantResponse,
+    ],
+  );
+
+  // Publish the rendered context (in an effect, after commit — never mutate a
+  // ref during render) so the debug API reports on-screen state instead of a
+  // separate recomputation (see useChatDebugRegistration). Clear it on unmount
+  // so the debug API falls back to its empty default instead of reporting the
+  // last rendered frame (which could claim a badge is processing) while no chat
+  // content is on screen.
+  useEffect(() => {
+    uiContextRef.current = uiContext;
+    return () => {
+      uiContextRef.current = null;
+    };
+  }, [uiContextRef, uiContext]);
 
   const showThinking = shouldShowThinkingIndicator(turnState, uiContext);
   const isAssistantStreaming =

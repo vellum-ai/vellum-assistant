@@ -1,6 +1,7 @@
 import * as Sentry from "@sentry/node";
 
 import type { LLMCallSite } from "../config/schemas/llm.js";
+import { stripInjectionsForCompaction } from "../context/strip-injections.js";
 import {
   estimatePromptTokensRaw,
   estimateToolsTokens,
@@ -11,7 +12,10 @@ import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.
 import { HOOKS } from "../plugin-api/constants.js";
 import type { PostToolUseContext } from "../plugin-api/types.js";
 import { defaultCompactionTerminal } from "../plugins/defaults/compaction/terminal.js";
-import { defaultEmptyResponseTerminal } from "../plugins/defaults/empty-response/terminal.js";
+import {
+  defaultEmptyResponseTerminal,
+  NUDGE_TEXT,
+} from "../plugins/defaults/empty-response/terminal.js";
 import { defaultTokenEstimateTerminal } from "../plugins/defaults/token-estimate/terminal.js";
 import { defaultToolErrorTerminal } from "../plugins/defaults/tool-error/terminal.js";
 import { DEFAULT_TIMEOUTS, runHook, runPipeline } from "../plugins/pipeline.js";
@@ -462,9 +466,12 @@ export interface ResolvedSystemPrompt {
  * in a future change.
  */
 export interface MidLoopCompaction {
-  /** Strip runtime injections, commit stripped messages, and resolve pipeline options. */
-  prepare: (history: Message[]) => {
-    rawHistory: Message[];
+  /**
+   * Commit the loop-stripped history to durable state and resolve pipeline
+   * options. Receives the history already stripped of runtime injections by
+   * the loop, so durable state records the raw persistent messages.
+   */
+  prepare: (rawHistory: Message[]) => {
     options: CompactionArgs["options"];
   };
   /** Re-apply runtime injections and return the history to continue from. */
@@ -732,7 +739,11 @@ export class AgentLoop {
     onEvent: (event: AgentEvent) => void | Promise<void>,
   ): Promise<Message[] | null> {
     await onEvent({ type: "context_compacting" });
-    const { rawHistory, options } = compaction.prepare(history);
+    // Strip runtime injections so the compactor summarizes the raw persistent
+    // messages; the orchestrator then commits the stripped set to durable
+    // state and resolves the pipeline options.
+    const rawHistory = stripInjectionsForCompaction(history);
+    const { options } = compaction.prepare(rawHistory);
     let result: CompactionResult;
     try {
       result = await runPipeline<CompactionArgs, CompactionResult>(
@@ -1229,123 +1240,88 @@ export class AgentLoop {
           break;
         }
 
-        // Detect empty responses: no user-visible text and no tool calls.
-        // This can happen when the model fails to produce output after
-        // receiving a large tool result. Retry once with a nudge before
-        // the message is persisted.
-        //
-        // Only nudge when the model hasn't already delivered text to the user
-        // earlier in this tool-use chain. If a prior assistant turn in history
-        // contained visible text (e.g. the model said its piece before calling
-        // a side-effect tool like `remember`), an empty follow-up is the model
-        // correctly ending its turn — nudging would mislead it into thinking
-        // its earlier text didn't land and cause a verbatim re-send.
-        //
-        // Note: we check ANY prior assistant turn from this run()
-        // invocation, not just the most recent one. In multi-step tool-use
-        // chains (say-something → call-tool → call-another-tool → end),
-        // the "say-something" text lives on an earlier assistant turn while
-        // the most recent assistant turn is a pure tool_use with no text.
-        // Restricting the check to the most recent assistant turn would
-        // falsely nudge in that case and trigger a duplicate re-send of
-        // text the user already saw.
-        //
-        // Scope the scan to messages appended during this run() call only.
-        // Assistant text from prior conversation turns (earlier run()
-        // invocations passed in via `messages`) must NOT suppress the
-        // nudge — those turns completed long ago and have no bearing on
-        // whether the current tool-use chain has delivered text yet.
-        //
-        // The actual decision (nudge vs. accept vs. error) is delegated to
-        // the `emptyResponse` plugin pipeline. The pipeline returns a
-        // decision; the loop carries out the side-effect (pushing the nudge
-        // or surfacing the error). See `plugins/defaults/empty-response/register.ts`
-        // for the default decision logic.
+        // The model's "stop" moment: a response with no tool calls is about to
+        // yield to the user, so the loop decides whether to accept the turn or
+        // re-query it with a nudge (decision logic in the `emptyResponse` plugin).
         const hasVisibleText = response.content.some(
           (block) => block.type === "text" && block.text.trim().length > 0,
         );
-        // Track whether the model produced visible text earlier in this
-        // run() invocation. Run-scoped rather than derived from `history` so
-        // it survives inline compaction rewriting the message array: an empty
-        // completion after a compaction must not be nudged into re-sending
-        // text the user already saw.
         const priorAssistantHadVisibleText = producedVisibleTextThisRun;
         if (hasVisibleText) {
           producedVisibleTextThisRun = true;
         }
 
-        const emptyResponseArgs: EmptyResponseArgs = {
-          responseContent: response.content,
-          toolUseBlocksLength: toolUseBlocks.length,
-          toolUseTurns,
-          emptyResponseRetries,
-          maxEmptyResponseRetries: MAX_EMPTY_RESPONSE_RETRIES,
-          priorAssistantHadVisibleText,
-          stopReason: response.stopReason,
-        };
-        const emptyResponseCtx = resolveLoopTurnContext(
-          turnContext,
-          requestId,
-          toolUseTurns,
-        );
-        const emptyResponseDecision: EmptyResponseDecision = await runPipeline(
-          "emptyResponse",
-          getMiddlewaresFor("emptyResponse"),
-          async (args) => defaultEmptyResponseTerminal(args),
-          emptyResponseArgs,
-          emptyResponseCtx,
-          DEFAULT_TIMEOUTS.emptyResponse,
-        );
+        if (toolUseBlocks.length === 0) {
+          const emptyResponseArgs: EmptyResponseArgs = {
+            responseContent: response.content,
+            toolUseTurns,
+            emptyResponseRetries,
+            maxEmptyResponseRetries: MAX_EMPTY_RESPONSE_RETRIES,
+            priorAssistantHadVisibleText,
+            stopReason: response.stopReason,
+          };
+          const emptyResponseCtx = resolveLoopTurnContext(
+            turnContext,
+            requestId,
+            toolUseTurns,
+          );
+          const emptyResponseDecision: EmptyResponseDecision =
+            await runPipeline(
+              "emptyResponse",
+              getMiddlewaresFor("emptyResponse"),
+              async (args) => defaultEmptyResponseTerminal(args),
+              emptyResponseArgs,
+              emptyResponseCtx,
+              DEFAULT_TIMEOUTS.emptyResponse,
+            );
 
-        if (emptyResponseDecision.action === "nudge") {
-          // Fall back to the canonical nudge text if the plugin returned
-          // `action: "nudge"` but forgot `nudgeText`. Keeps a misbehaving
-          // plugin from silently breaking the loop invariant that the
-          // model sees a coherent prompt.
-          const nudgeText =
-            emptyResponseDecision.nudgeText ??
-            "<system_notice>Your previous response was empty. You must respond to the user with a summary of what you found or did. Do not use any tools — just respond with text.</system_notice>";
-          emptyResponseRetries++;
-          rlog.warn(
-            { turn: toolUseTurns, retry: emptyResponseRetries },
-            "Model returned empty response after tool results — retrying",
-          );
-          history.push({
-            role: "user",
-            content: [{ type: "text", text: nudgeText }],
-          });
-          continue;
-        }
+          if (emptyResponseDecision.action === "nudge") {
+            // Fall back to the canonical nudge text if the plugin returned
+            // `action: "nudge"` but forgot `nudgeText`. Keeps a misbehaving
+            // plugin from silently breaking the loop invariant that the
+            // model sees a coherent prompt.
+            const nudgeText = emptyResponseDecision.nudgeText ?? NUDGE_TEXT;
+            emptyResponseRetries++;
+            rlog.warn(
+              { turn: toolUseTurns, retry: emptyResponseRetries },
+              "Model returned empty response after tool results — retrying",
+            );
+            history.push({
+              role: "user",
+              content: [{ type: "text", text: nudgeText }],
+            });
+            continue;
+          }
 
-        if (emptyResponseDecision.action === "error") {
-          rlog.error(
-            { turn: toolUseTurns, retries: emptyResponseRetries },
-            "emptyResponse pipeline requested error surface",
-          );
-          // Stamp the specific exit reason *before* throwing. The catch
-          // handler below will see the rethrown error and attempt to stamp
-          // "error" — guarded by `exitReasonEmitted`, that becomes a no-op
-          // and the more specific reason wins.
-          await emitExit("empty_response_exhausted");
-          throw new AssistantError(
-            "Model returned empty response after tool results",
-            ErrorCode.INTERNAL_ERROR,
-          );
-        }
+          if (emptyResponseDecision.action === "error") {
+            rlog.error(
+              { turn: toolUseTurns, retries: emptyResponseRetries },
+              "emptyResponse pipeline requested error surface",
+            );
+            // Stamp the specific exit reason *before* throwing. The catch
+            // handler below will see the rethrown error and attempt to stamp
+            // "error" — guarded by `exitReasonEmitted`, that becomes a no-op
+            // and the more specific reason wins.
+            await emitExit("empty_response_exhausted");
+            throw new AssistantError(
+              "Model returned empty response after tool results",
+              ErrorCode.INTERNAL_ERROR,
+            );
+          }
 
-        // action === "accept" — fall through. Emit a dedicated log line for
-        // the specific "empty turn after tool results, retries exhausted"
-        // case so ops dashboards that grep on this line keep working.
-        if (
-          !hasVisibleText &&
-          toolUseBlocks.length === 0 &&
-          toolUseTurns > 0 &&
-          !priorAssistantHadVisibleText
-        ) {
-          rlog.error(
-            { turn: toolUseTurns, retries: emptyResponseRetries },
-            "Model returned empty response after tool results — retries exhausted",
-          );
+          // action === "accept" — fall through. Emit a dedicated log line for
+          // the specific "empty turn after tool results, retries exhausted"
+          // case so ops dashboards that grep on this line keep working.
+          if (
+            !hasVisibleText &&
+            toolUseTurns > 0 &&
+            !priorAssistantHadVisibleText
+          ) {
+            rlog.error(
+              { turn: toolUseTurns, retries: emptyResponseRetries },
+              "Model returned empty response after tool results — retries exhausted",
+            );
+          }
         }
 
         history.push(assistantMessage);

@@ -2465,6 +2465,42 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Return messages for a conversation, including attachments and interface file metadata.",
     tags: ["messages"],
+    queryParams: [
+      {
+        name: "conversationId",
+        type: "string",
+        required: false,
+        description:
+          "Conversation UUID. One of conversationId or conversationKey is required.",
+      },
+      {
+        name: "conversationKey",
+        type: "string",
+        required: false,
+        description:
+          "Channel/external conversation key. One of conversationId or conversationKey is required.",
+      },
+      {
+        name: "page",
+        type: "string",
+        required: false,
+        description:
+          "When set to 'latest', returns the most recent page of messages with pagination metadata.",
+      },
+      {
+        name: "beforeTimestamp",
+        type: "integer",
+        required: false,
+        description:
+          "Return messages older than this timestamp (ms since epoch). Used for paging older history.",
+      },
+      {
+        name: "limit",
+        type: "integer",
+        required: false,
+        description: "Maximum number of messages to return.",
+      },
+    ],
     responseBody: z.object({
       messages: z.array(z.unknown()).describe("Array of message objects"),
       hasMore: z

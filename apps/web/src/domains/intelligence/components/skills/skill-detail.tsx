@@ -10,6 +10,7 @@ import {
 import { useMemo, useState } from "react";
 
 import { Button, Card } from "@vellum/design-library";
+import { SkillIcon } from "@/domains/intelligence/components/skills/skill-icon";
 import { SkillOriginBadge } from "@/domains/intelligence/components/skills/skill-origin-badge";
 import {
   FileMarkdown,
@@ -93,7 +94,7 @@ export function SkillDetail({
         />
         <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-center">
           <div className="flex min-w-0 flex-1 items-center gap-3">
-            <div className="text-3xl">{skill.emoji ?? "🧩"}</div>
+            <SkillIcon skill={skill} className="h-8 w-8 text-3xl" />
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <h2

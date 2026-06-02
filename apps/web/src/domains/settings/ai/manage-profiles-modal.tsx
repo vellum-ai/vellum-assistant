@@ -172,7 +172,6 @@ export function ManageProfilesModal({
         }
         profileName={editingProfile?.name}
         initialValues={editingProfile ?? undefined}
-        assistantId={assistantId}
         existingNames={existingNames}
         connections={connections}
         openAICompatibleEndpointsEnabled={openAICompatibleEndpoints}

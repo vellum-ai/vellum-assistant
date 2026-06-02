@@ -41,6 +41,7 @@ const slimSkillBase = {
   id: z.string(),
   name: z.string(),
   description: z.string(),
+  icon: z.string().optional(),
   emoji: z.string().optional(),
   kind: z.enum(["bundled", "installed", "catalog"]),
   status: z.enum(["enabled", "disabled", "available"]),
