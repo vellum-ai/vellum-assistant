@@ -266,9 +266,19 @@ export class DaemonServer {
               "Recompile failed on app source change — keeping last-good preview",
             );
           }
+          // Return the highest generation applied across all conversations'
+          // surfaces so the live-build orchestrator can keep its broadcast
+          // generation in agreement with — and ahead of — every surface.
+          let maxGeneration = opts.reloadGeneration ?? 0;
           for (const conversation of allConversations()) {
-            refreshSurfacesForApp(conversation, id, opts);
+            const { reloadGeneration } = refreshSurfacesForApp(
+              conversation,
+              id,
+              opts,
+            );
+            maxGeneration = Math.max(maxGeneration, reloadGeneration);
           }
+          return maxGeneration;
         },
         onSettled: settle,
       }).catch((err) => {

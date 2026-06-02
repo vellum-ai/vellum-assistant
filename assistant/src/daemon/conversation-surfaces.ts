@@ -1799,15 +1799,20 @@ export async function handleSurfaceAction(
 /**
  * After an app_refresh, refresh any active surface that displays the updated app.
  *
- * Returns whether any surface was refreshed plus the `reloadGeneration` that was
- * applied, so live-build callers (the source-change recompile path) can emit a
- * broadcast event whose generation counter agrees with the surface state.
+ * The per-surface `reloadGeneration` is the single source of truth for the
+ * macOS change-detection reload. This function read-modify-writes it and
+ * returns the highest generation it applied so live-build callers (the
+ * source-change recompile path) can reconcile their per-app counter and emit a
+ * broadcast event whose `reloadGeneration` agrees with the surface state.
  *
  * Additive live-build opts (do not affect the existing macOS path):
  * - `compileStatus: "error"` keeps the last-good html and does NOT bump
  *   `reloadGeneration` (the preview iframe is not swapped on a transient error).
- * - `reloadGeneration` overrides the per-surface bump with an explicit value so
- *   the server can keep one source of truth shared with the broadcast event.
+ * - `reloadGeneration` is a monotonic floor from live-build's per-app counter:
+ *   each surface advances to `max(floor, currentGeneration + 1)`, so the value
+ *   is always strictly greater than what the client last saw (never a collision
+ *   that would suppress a reload) while still honoring the live-build counter
+ *   when it is already ahead.
  */
 export function refreshSurfacesForApp(
   ctx: SurfaceConversationContext,
@@ -1837,13 +1842,15 @@ export function refreshSurfacesForApp(
     // Push current HTML onto the undo stack before overwriting
     pushUndoState(ctx.surfaceUndoStacks, surfaceId, data.html);
 
-    // Compute the next reload generation. An explicit override (live-build
-    // path) wins so web and macOS agree; otherwise keep the existing
-    // per-surface bump on file change. A failed compile never bumps.
+    // Compute the next reload generation. A failed compile never bumps. On a
+    // bump, always go strictly above this surface's current generation so the
+    // macOS change-detection fires; an explicit floor from live-build's per-app
+    // counter raises it further so web and macOS stay in agreement.
+    const bumped = (data.reloadGeneration ?? 0) + 1;
     const nextGeneration = isError
       ? (data.reloadGeneration ?? 0)
-      : (opts?.reloadGeneration ?? (data.reloadGeneration ?? 0) + 1);
-    appliedGeneration = nextGeneration;
+      : Math.max(opts?.reloadGeneration ?? 0, bumped);
+    appliedGeneration = Math.max(appliedGeneration, nextGeneration);
 
     // Update in-memory surface state so the next refinement gets fresh HTML.
     // For multifile apps, resolve the compiled dist/index.html with inlined

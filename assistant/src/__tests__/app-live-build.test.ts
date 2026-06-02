@@ -29,13 +29,31 @@ interface Harness {
   settledCount: () => number;
 }
 
+/**
+ * Default `refreshSurfaces` stub: models the real surface counter as the
+ * single source of truth. Tracks a per-app generation and, on a successful
+ * recompile, advances it to at least the supplied floor (`max(floor, gen + 1)`)
+ * and returns it. A failed compile does not bump and returns the current value.
+ */
+function makeSurfaceCounter() {
+  const generations = new Map<string, number>();
+  const refreshSurfaces: AppLiveBuildDeps["refreshSurfaces"] = (id, opts) => {
+    const current = generations.get(id) ?? 0;
+    if (opts.compileStatus === "error") return current;
+    const next = Math.max(opts.reloadGeneration ?? 0, current + 1);
+    generations.set(id, next);
+    return next;
+  };
+  return { refreshSurfaces, peek: (id: string) => generations.get(id) ?? 0 };
+}
+
 function makeHarness(opts: { compile: () => Promise<CompileResult> }): Harness {
   let settled = 0;
   const deps: AppLiveBuildDeps = {
     compileApp: opts.compile,
     resolveEffectiveAppHtml: () => LAST_GOOD_HTML,
     broadcast: () => {},
-    refreshSurfaces: () => {},
+    refreshSurfaces: makeSurfaceCounter().refreshSurfaces,
     onSettled: () => {
       settled++;
     },
@@ -71,11 +89,15 @@ describe("runAppLiveBuild", () => {
     const refreshCalls: Array<
       Parameters<AppLiveBuildDeps["refreshSurfaces"]>[1]
     > = [];
+    const surface = makeSurfaceCounter();
     const deps: AppLiveBuildDeps = {
       compileApp: compile,
       resolveEffectiveAppHtml: () => (distFresh ? FRESH_HTML : LAST_GOOD_HTML),
       broadcast: (msg) => broadcasts.push(msg),
-      refreshSurfaces: (_id, o) => refreshCalls.push(o),
+      refreshSurfaces: (id, o) => {
+        refreshCalls.push(o);
+        return surface.refreshSurfaces(id, o);
+      },
       onSettled: () => {},
     };
 
@@ -92,12 +114,15 @@ describe("runAppLiveBuild", () => {
     expect(okMsg.reloadGeneration).toBe(1); // bumped
     expect(okMsg.buildErrors).toBeUndefined();
 
+    // Only the terminal `ok` outcome refreshes surfaces; the broadcast
+    // generation equals the one the surface applied.
     expect(refreshCalls).toHaveLength(1);
     expect(refreshCalls[0].compileStatus).toBe("ok");
-    expect(refreshCalls[0].reloadGeneration).toBe(1);
+    expect(okMsg.reloadGeneration).toBe(surface.peek(APP_ID));
   });
 
   test("failed compile keeps last-good html and an unchanged reloadGeneration", async () => {
+    const surface = makeSurfaceCounter();
     // First do a clean build to advance the generation to 1.
     {
       const compile = async () => ok();
@@ -106,7 +131,7 @@ describe("runAppLiveBuild", () => {
         compileApp: compile,
         resolveEffectiveAppHtml: () => FRESH_HTML,
         broadcast: (msg) => broadcasts.push(msg),
-        refreshSurfaces: () => {},
+        refreshSurfaces: surface.refreshSurfaces,
         onSettled: () => {},
       };
       await runAppLiveBuild(APP_ID, fakeApp, "/tmp/app", deps);
@@ -130,7 +155,10 @@ describe("runAppLiveBuild", () => {
       resolveEffectiveAppHtml: () =>
         compiled ? "<p>App compilation failed.</p>" : LAST_GOOD_HTML,
       broadcast: (msg) => broadcasts.push(msg),
-      refreshSurfaces: (_id, o) => refreshCalls.push(o),
+      refreshSurfaces: (id, o) => {
+        refreshCalls.push(o);
+        return surface.refreshSurfaces(id, o);
+      },
       onSettled: () => {},
     };
 
@@ -154,7 +182,9 @@ describe("runAppLiveBuild", () => {
 
     expect(refreshCalls).toHaveLength(1);
     expect(refreshCalls[0].compileStatus).toBe("error");
-    expect(refreshCalls[0].reloadGeneration).toBe(1);
+    // The error path does not pass a generation floor; the surface owns its
+    // (unchanged) generation on a failed compile.
+    expect(refreshCalls[0].reloadGeneration).toBeUndefined();
     expect(refreshCalls[0].buildErrors).toEqual([
       "Could not resolve 'foo'",
       "Unexpected token",
@@ -169,7 +199,7 @@ describe("runAppLiveBuild", () => {
       },
       resolveEffectiveAppHtml: () => LAST_GOOD_HTML,
       broadcast: (msg) => broadcasts.push(msg),
-      refreshSurfaces: () => {},
+      refreshSurfaces: makeSurfaceCounter().refreshSurfaces,
       onSettled: () => {},
     };
 
@@ -184,12 +214,14 @@ describe("runAppLiveBuild", () => {
   });
 
   test("two overlapping successful compiles yield distinct increasing generations", async () => {
-    // Both invocations capture the same starting generation BEFORE awaiting
-    // their (serialized) compile. The generation must be read-and-bumped AFTER
-    // each compile succeeds so the second successful build does not reuse the
-    // first's reloadGeneration — otherwise clients drop the latest output.
+    // Both invocations are in-flight at once. The generation is read-and-bumped
+    // (through the shared surface counter) AFTER each compile succeeds, so the
+    // second successful build cannot reuse the first's reloadGeneration —
+    // otherwise the macOS change-detection would drop the latest output.
     const okBroadcasts: AppPreviewUpdateEvent[] = [];
     const okRefreshGenerations: number[] = [];
+    // A single surface counter shared by both invocations, as in production.
+    const surface = makeSurfaceCounter();
 
     let releaseFirst!: () => void;
     const firstGate = new Promise<void>((resolve) => {
@@ -203,8 +235,8 @@ describe("runAppLiveBuild", () => {
 
     let compileCount = 0;
     const deps: AppLiveBuildDeps = {
-      // First compile blocks until both invocations are in-flight, so they both
-      // captured the same starting generation before either bumps it.
+      // First compile blocks until both invocations are in-flight, so they
+      // overlap before either advances the generation.
       compileApp: async () => {
         compileCount += 1;
         if (compileCount === 1) {
@@ -217,17 +249,17 @@ describe("runAppLiveBuild", () => {
       broadcast: (msg) => {
         if (msg.compileStatus === "ok") okBroadcasts.push(msg);
       },
-      refreshSurfaces: (_id, o) => {
-        if (o.reloadGeneration !== undefined)
-          okRefreshGenerations.push(o.reloadGeneration);
+      refreshSurfaces: (id, o) => {
+        const applied = surface.refreshSurfaces(id, o);
+        if (o.compileStatus === "ok") okRefreshGenerations.push(applied);
+        return applied;
       },
       onSettled: () => {},
     };
 
     const first = runAppLiveBuild(APP_ID, fakeApp, "/tmp/app", deps);
     await firstStartedGate;
-    // Second invocation starts (and snapshots the same generation) while the
-    // first is still awaiting its compile.
+    // Second invocation starts while the first is still awaiting its compile.
     const second = runAppLiveBuild(APP_ID, fakeApp, "/tmp/app", deps);
     releaseFirst();
     await Promise.all([first, second]);
@@ -238,6 +270,43 @@ describe("runAppLiveBuild", () => {
     expect(generations).toEqual([1, 2]);
     // Broadcast generations match the ones written to surfaces.
     expect([...okRefreshGenerations].sort((a, b) => a - b)).toEqual([1, 2]);
+  });
+
+  test("first live-build after an app_create surface bump does not collide", async () => {
+    // Reproduces the Gap-1 collision: `app_create` bumped the surface to 1
+    // (via the non-live-build +1 path) while the live-build module counter is
+    // still 0. The first successful live-build must NOT reuse generation 1 —
+    // the macOS client uses change-detection (gen != lastGen), so reusing the
+    // value it already saw would suppress a legitimate reload.
+    const surface = makeSurfaceCounter();
+    // Simulate the app_create surface bump (no live-build floor → +1 to 1).
+    expect(
+      surface.refreshSurfaces(APP_ID, {
+        fileChange: true,
+        // Cast: app_create/app_refresh path has no compileStatus, modeled here
+        // as a non-error bump.
+        compileStatus: "ok",
+      } as Parameters<AppLiveBuildDeps["refreshSurfaces"]>[1]),
+    ).toBe(1);
+
+    const okBroadcasts: AppPreviewUpdateEvent[] = [];
+    const deps: AppLiveBuildDeps = {
+      compileApp: async () => ok(),
+      resolveEffectiveAppHtml: () => FRESH_HTML,
+      broadcast: (msg) => {
+        if (msg.compileStatus === "ok") okBroadcasts.push(msg);
+      },
+      refreshSurfaces: surface.refreshSurfaces,
+      onSettled: () => {},
+    };
+
+    await runAppLiveBuild(APP_ID, fakeApp, "/tmp/app", deps);
+
+    expect(okBroadcasts).toHaveLength(1);
+    // Strictly greater than the 1 the surface (and client) already had.
+    expect(okBroadcasts[0].reloadGeneration).toBeGreaterThan(1);
+    // Broadcast equals the surface's current generation (single source).
+    expect(okBroadcasts[0].reloadGeneration).toBe(surface.peek(APP_ID));
   });
 
   test("settle/onSettled fires on every outcome", async () => {
