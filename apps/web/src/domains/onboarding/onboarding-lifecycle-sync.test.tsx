@@ -66,6 +66,8 @@ let isIOSWeb = false;
 let isMacOSWeb = false;
 let iosAppDownloaded = true;
 let macOsAppDownloaded = true;
+let isLocalModeValue = false;
+let hasPlatformSessionValue = false;
 let fetchOnboardingRecipeImpl: () => Promise<TestOnboardingRecipe | null> =
   async () => null;
 const fetchOnboardingRecipeMock = mock(() => fetchOnboardingRecipeImpl());
@@ -173,7 +175,7 @@ mock.module("@/runtime/native-auth", () => ({
 }));
 
 mock.module("@/lib/local-mode", () => ({
-  isLocalMode: () => false,
+  isLocalMode: () => isLocalModeValue,
   hasAssistants: () => false,
   getPlatformAssistants: () => [],
   getSelectedAssistant: () => undefined,
@@ -207,7 +209,7 @@ mock.module("@/stores/auth-store", () => ({
       }),
       isLoggedIn: () => true,
       isLoading: () => false,
-      hasPlatformSession: () => false,
+      hasPlatformSession: () => hasPlatformSessionValue,
     },
   },
 }));
@@ -309,6 +311,8 @@ beforeEach(() => {
   isMacOSWeb = false;
   iosAppDownloaded = true;
   macOsAppDownloaded = true;
+  isLocalModeValue = false;
+  hasPlatformSessionValue = false;
   fetchOnboardingRecipeImpl = async () => null;
   sessionStorage.clear();
   localStorage.clear();
@@ -542,6 +546,51 @@ describe("onboarding lifecycle sync", () => {
 
     await waitFor(() => expect(fetchOnboardingRecipeMock).toHaveBeenCalled());
     expect(await screen.findByTestId("name-continue")).toBeTruthy();
+    expect(checkAssistantMock).not.toHaveBeenCalled();
+  });
+
+  test("local mode never fetches the platform-only onboarding recipe", async () => {
+    isLocalModeValue = true;
+
+    render(<PreChatFlow />);
+
+    expect(await screen.findByTestId("name-continue")).toBeTruthy();
+    expect(fetchOnboardingRecipeMock).not.toHaveBeenCalled();
+  });
+
+  test("local mode without a platform session gates the prior-assistants step", async () => {
+    prechatOnboardingCondensedFlow = false;
+    isLocalModeValue = true;
+    hasPlatformSessionValue = false;
+
+    render(<PreChatFlow />);
+
+    fireEvent.click(await screen.findByTestId("name-continue"));
+    fireEvent.click(await screen.findByTestId("task-continue"));
+    fireEvent.click(await screen.findByTestId("tools-continue"));
+
+    expect(screen.queryByTestId("prior-continue")).toBeNull();
+    await waitFor(() => expect(checkAssistantMock).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(navigateMock).toHaveBeenCalledWith(
+        `${routes.assistant}?onboarding=1`,
+        { replace: true },
+      ),
+    );
+  });
+
+  test("local mode with a platform session shows the prior-assistants step", async () => {
+    prechatOnboardingCondensedFlow = false;
+    isLocalModeValue = true;
+    hasPlatformSessionValue = true;
+
+    render(<PreChatFlow />);
+
+    fireEvent.click(await screen.findByTestId("name-continue"));
+    fireEvent.click(await screen.findByTestId("task-continue"));
+    fireEvent.click(await screen.findByTestId("tools-continue"));
+
+    expect(await screen.findByTestId("prior-continue")).toBeTruthy();
     expect(checkAssistantMock).not.toHaveBeenCalled();
   });
 });

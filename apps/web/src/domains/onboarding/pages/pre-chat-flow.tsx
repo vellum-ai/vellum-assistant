@@ -194,6 +194,12 @@ export function PreChatFlow() {
     activeAssistant?.id ?? activeAssistantId ?? localPlatformAssistantId;
   const canOfferGoogleStep =
     !localMode || hasPlatformSession || localPlatformAssistantId !== null;
+  // Prior-assistants import belongs to the platform-backed onboarding funnel.
+  // In pure local mode there is no platform account behind onboarding, so the
+  // step falls out; when a platform session exists (managed mode, including
+  // Electron) the full funnel runs. Local mode is gated by capability here
+  // rather than special-cased downstream.
+  const canOfferPriorAssistants = !localMode || hasPlatformSession;
 
   const navigateToChatAfterLifecycleRefresh = useCallback(async () => {
     await lifecycleService.checkAssistant();
@@ -231,7 +237,10 @@ export function PreChatFlow() {
       setRecipeLoadState("loading");
       return;
     }
-    // In local mode, the gateway doesn't serve the recipe endpoint. (LUM-2000)
+    // The onboarding recipe is platform-only marketing-funnel data, resolved
+    // on the platform from a UTM campaign cookie / stored attribution. Local
+    // and native runtimes have no marketing cohort, so a null recipe is the
+    // correct, complete behavior — there is no recipe endpoint to fetch here.
     if (isNative || localMode) {
       setRecipe(null);
       setRecipeLoadState("ready");
@@ -519,19 +528,7 @@ export function PreChatFlow() {
     GOOGLE_TOOL_IDS.has(id),
   );
 
-  const advancePastToolSelection = () => {
-    emitWebFunnelStep(ONBOARDING_FUNNEL_STEPS.controlTools);
-    if (localMode) {
-      void finish();
-      return;
-    }
-    setScreen(3);
-  };
-
-  const advancePastPriorAssistants = (
-    nextPriorAssistants = selectedPriorAssistants,
-  ) => {
-    emitWebFunnelStep(ONBOARDING_FUNNEL_STEPS.controlPriorAssistants);
+  const goToStepAfterPriorAssistants = (nextPriorAssistants: Set<string>) => {
     if (hasGoogleTool && canOfferGoogleStep) {
       setScreen(4);
     } else if (showIOSAppStep) {
@@ -541,6 +538,22 @@ export function PreChatFlow() {
         selectedPriorAssistants: nextPriorAssistants,
       });
     }
+  };
+
+  const advancePastToolSelection = () => {
+    emitWebFunnelStep(ONBOARDING_FUNNEL_STEPS.controlTools);
+    if (canOfferPriorAssistants) {
+      setScreen(3);
+      return;
+    }
+    goToStepAfterPriorAssistants(selectedPriorAssistants);
+  };
+
+  const advancePastPriorAssistants = (
+    nextPriorAssistants = selectedPriorAssistants,
+  ) => {
+    emitWebFunnelStep(ONBOARDING_FUNNEL_STEPS.controlPriorAssistants);
+    goToStepAfterPriorAssistants(nextPriorAssistants);
   };
 
   if (screen === 1) {
