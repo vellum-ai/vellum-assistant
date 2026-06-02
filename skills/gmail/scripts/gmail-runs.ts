@@ -30,9 +30,7 @@ function listCmd(args: Record<string, string | boolean>) {
     return;
   }
 
-  const runs = runIds
-    .map((id) => summarizeRun(id))
-    .filter((s) => s !== null);
+  const runs = runIds.map((id) => summarizeRun(id)).filter((s) => s !== null);
 
   ok({ runs });
 }

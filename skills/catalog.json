@@ -31,7 +31,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-02T16:56:28.000Z"
+      "updatedAt": "2026-06-02T16:58:51.000Z"
     },
     {
       "id": "assistant-migration",
@@ -223,7 +223,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-02T16:56:28.000Z"
+      "updatedAt": "2026-06-02T16:58:51.000Z"
     },
     {
       "id": "google-calendar",
@@ -295,7 +295,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-02T16:56:28.000Z"
+      "updatedAt": "2026-06-02T16:58:51.000Z"
     },
     {
       "id": "inbox-management",
@@ -323,7 +323,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-02T16:56:28.000Z"
+      "updatedAt": "2026-06-02T16:58:51.000Z"
     },
     {
       "id": "influencer",
@@ -386,7 +386,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-02T16:56:28.000Z"
+      "updatedAt": "2026-06-02T16:58:51.000Z"
     },
     {
       "id": "mailgun-setup",
@@ -674,7 +674,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-02T16:56:28.000Z"
+      "updatedAt": "2026-06-02T16:58:51.000Z"
     },
     {
       "id": "stripe-app-setup",
