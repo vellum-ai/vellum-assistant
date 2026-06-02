@@ -1,6 +1,7 @@
 import * as Sentry from "@sentry/node";
 
 import type { LLMCallSite } from "../config/schemas/llm.js";
+import { stripInjectionsForCompaction } from "../context/strip-injections.js";
 import {
   estimatePromptTokensRaw,
   estimateToolsTokens,
@@ -462,9 +463,12 @@ export interface ResolvedSystemPrompt {
  * in a future change.
  */
 export interface MidLoopCompaction {
-  /** Strip runtime injections, commit stripped messages, and resolve pipeline options. */
-  prepare: (history: Message[]) => {
-    rawHistory: Message[];
+  /**
+   * Commit the loop-stripped history to durable state and resolve pipeline
+   * options. Receives the history already stripped of runtime injections by
+   * the loop, so durable state records the raw persistent messages.
+   */
+  prepare: (rawHistory: Message[]) => {
     options: CompactionArgs["options"];
   };
   /** Re-apply runtime injections and return the history to continue from. */
@@ -732,7 +736,11 @@ export class AgentLoop {
     onEvent: (event: AgentEvent) => void | Promise<void>,
   ): Promise<Message[] | null> {
     await onEvent({ type: "context_compacting" });
-    const { rawHistory, options } = compaction.prepare(history);
+    // Strip runtime injections so the compactor summarizes the raw persistent
+    // messages; the orchestrator then commits the stripped set to durable
+    // state and resolves the pipeline options.
+    const rawHistory = stripInjectionsForCompaction(history);
+    const { options } = compaction.prepare(rawHistory);
     let result: CompactionResult;
     try {
       result = await runPipeline<CompactionArgs, CompactionResult>(

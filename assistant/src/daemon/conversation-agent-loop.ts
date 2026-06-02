@@ -2110,14 +2110,12 @@ export async function runAgentLoopImpl(
     // state the loop is intentionally blind to. Durable persistence and
     // re-injection stay orchestrator-supplied for now.
     const midLoopCompaction: MidLoopCompaction = {
-      prepare: (history) => {
-        // Strip injected context so the compactor summarizes the raw
-        // persistent messages, and commit the stripped set to durable state.
-        const rawHistory = stripInjectionsForCompaction(history);
+      prepare: (rawHistory) => {
+        // The loop already stripped runtime injections; commit the raw
+        // persistent messages to durable state and resolve pipeline options.
         ctx.messages = rawHistory;
         markHistoryStrippedBestEffort(ctx.conversationId, Date.now(), rlog);
         return {
-          rawHistory,
           options: {
             lastCompactedAt: ctx.contextCompactedAt ?? undefined,
             force: true,
