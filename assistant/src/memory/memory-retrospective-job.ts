@@ -208,6 +208,7 @@ async function runLegacyRetrospective(
       source: MEMORY_RETROSPECTIVE_SOURCE,
       trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
       callSite: "memoryRetrospective",
+      allowedTools: ["remember"],
       // The background conversation's title already reads "Memory
       // Retrospective", and `hint` is the full retrospective prompt — surfacing
       // it verbatim as a "Conversation Woke" card body is noisy internal
@@ -409,6 +410,7 @@ async function runForkBasedRetrospective(
       source: MEMORY_RETROSPECTIVE_SOURCE,
       trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
       callSite: "memoryRetrospective",
+      allowedTools: ["remember"],
       hintRole: "user",
       skipHintInjection: true,
       suppressAutoCompaction: true,
