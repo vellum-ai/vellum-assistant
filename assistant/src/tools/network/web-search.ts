@@ -399,6 +399,29 @@ function errorResult(
  * Raw provider JSON / status text must never reach `content` or `errorMessage`;
  * only `rawDetail` (internal-only) captures it for the log.
  */
+/**
+ * Wrap an already-read provider response body so {@link backendFailureResult}
+ * forwards it into the classifier's internal-only `rawDetail` (telemetry). The
+ * classifier reads `error.message`; `buildRawDetail` truncates to ≤500 chars.
+ * Returns `undefined` for an empty body so we don't pad `rawDetail` with noise.
+ * The body must NEVER reach user-facing `content`/`errorMessage`.
+ */
+function rawBodyDetail(body: unknown): { message: string } | undefined {
+  if (body == null) return undefined;
+  const text =
+    typeof body === "string" ? body : safeStringifyBody(body);
+  const trimmed = text.trim();
+  return trimmed ? { message: trimmed } : undefined;
+}
+
+function safeStringifyBody(body: unknown): string {
+  try {
+    return JSON.stringify(body);
+  } catch {
+    return String(body);
+  }
+}
+
 function backendFailureResult(
   query: string,
   provider: WebSearchProvider,
@@ -495,7 +518,7 @@ async function executeBraveSearch(
       return successfulBraveResult(data, query, startedAt);
     }
 
-    await response.text();
+    const bodyText = await response.text();
 
     if (response.status === 401 || response.status === 403) {
       return errorResult(
@@ -525,7 +548,7 @@ async function executeBraveSearch(
       query,
       "brave",
       startedAt,
-      { statusCode: response.status },
+      { statusCode: response.status, error: rawBodyDetail(bodyText) },
       response.status === 429
         ? "Brave Search rate limit exceeded after retries. Try again shortly."
         : `Brave Search API returned status ${response.status}`,
@@ -575,7 +598,10 @@ async function executeManagedBraveSearch(
         query,
         "brave",
         startedAt,
-        { statusCode: proxyResult.status },
+        {
+          statusCode: proxyResult.status,
+          error: rawBodyDetail(proxyResult.body),
+        },
         managedSearchProxyErrorMessage(proxyResult),
       );
     }
@@ -609,7 +635,10 @@ async function executeManagedBraveSearch(
       query,
       "brave",
       startedAt,
-      { statusCode: proxyResult.status },
+      {
+        statusCode: proxyResult.status,
+        error: rawBodyDetail(proxyResult.body),
+      },
       proxyResult.status === 429
         ? "Managed Brave Search rate limit exceeded. Try again shortly."
         : `Managed Brave Search provider returned status ${proxyResult.status}`,
@@ -683,7 +712,7 @@ async function executePerplexitySearch(
       };
     }
 
-    await response.text();
+    const bodyText = await response.text();
 
     if (response.status === 401 || response.status === 403) {
       return errorResult(
@@ -713,7 +742,7 @@ async function executePerplexitySearch(
       query,
       "perplexity",
       startedAt,
-      { statusCode: response.status },
+      { statusCode: response.status, error: rawBodyDetail(bodyText) },
       response.status === 429
         ? "Perplexity rate limit exceeded after retries. Try again shortly."
         : `Perplexity API returned status ${response.status}`,
@@ -781,7 +810,7 @@ async function executeTavilySearch(
       };
     }
 
-    await response.text();
+    const bodyText = await response.text();
 
     if (response.status === 401 || response.status === 403) {
       return errorResult(
@@ -811,7 +840,7 @@ async function executeTavilySearch(
       query,
       "tavily",
       startedAt,
-      { statusCode: response.status },
+      { statusCode: response.status, error: rawBodyDetail(bodyText) },
       response.status === 429
         ? "Tavily Search rate limit exceeded after retries. Try again shortly."
         : `Tavily Search API returned status ${response.status}`,

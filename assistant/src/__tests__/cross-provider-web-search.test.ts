@@ -701,6 +701,9 @@ describe("Cross-Provider Web Search — app-side backend failure normalization",
     expect(logEntry!.fallbackShown).toBe(true);
     expect(logEntry!.queryLength).toBe("needle in a haystack".length);
     expect(String(logEntry!.rawDetail)).toContain("503");
+    // Provider diagnostic body is preserved in internal telemetry rawDetail.
+    expect(String(logEntry!.rawDetail)).toContain("upstream exploded");
+    expect(String(logEntry!.rawDetail)).toContain("do-not-leak");
 
     // Raw provider body must never reach user-facing fields.
     expect(result.content).not.toContain("upstream exploded");
@@ -757,9 +760,10 @@ describe("Cross-Provider Web Search — app-side backend failure normalization",
     expect(backendFailureLog()).toBeUndefined();
   });
 
-  test("post-retry 429 yields the friendly recoverable copy", async () => {
+  test("post-retry 429 yields the friendly recoverable copy and preserves body in rawDetail", async () => {
+    const rawBody = '{"error":"quota burned","retryHint":"do-not-leak-429"}';
     globalThis.fetch = (async () =>
-      new Response("Too Many Requests", {
+      new Response(rawBody, {
         status: 429,
         headers: { "retry-after": "0" },
       })) as unknown as typeof fetch;
@@ -768,11 +772,20 @@ describe("Cross-Provider Web Search — app-side backend failure normalization",
 
     expect(result.isError).toBe(true);
     expect(result.content).toBe(WEB_SEARCH_BACKEND_FAILURE_MESSAGE);
-    expect(result.activityMetadata?.webSearch?.errorMessage).toBe(
-      WEB_SEARCH_BACKEND_FAILURE_MESSAGE,
-    );
+    const meta = result.activityMetadata?.webSearch;
+    expect(meta?.errorMessage).toBe(WEB_SEARCH_BACKEND_FAILURE_MESSAGE);
     const logEntry = backendFailureLog();
     expect(logEntry).toBeDefined();
     expect(logEntry!.errorCategory).toBe("rate_limited");
+    expect(String(logEntry!.rawDetail)).toContain("429");
+    // Provider diagnostic body is preserved in internal telemetry rawDetail.
+    expect(String(logEntry!.rawDetail)).toContain("quota burned");
+    expect(String(logEntry!.rawDetail)).toContain("do-not-leak-429");
+
+    // Raw provider body must never reach user-facing fields.
+    expect(result.content).not.toContain("quota burned");
+    expect(result.content).not.toContain("do-not-leak-429");
+    expect(meta?.errorMessage).not.toContain("quota burned");
+    expect(meta?.errorMessage).not.toContain("do-not-leak-429");
   });
 });
