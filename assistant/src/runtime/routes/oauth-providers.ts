@@ -8,6 +8,7 @@
 
 import { loadConfig } from "../../config/loader.js";
 import { getOAuthCallbackUrl } from "../../inbound/public-ingress-urls.js";
+import { resolveCallbackUrl } from "../../inbound/platform-callback-registration.js";
 import {
   deleteApp,
   deleteConnection,
@@ -77,7 +78,7 @@ function handleListProviders({ queryParams = {} }: RouteHandlerArgs) {
   return { providers: serialized };
 }
 
-function handleGetProvider({ pathParams = {} }: RouteHandlerArgs) {
+async function handleGetProvider({ pathParams = {} }: RouteHandlerArgs) {
   const { providerKey } = pathParams;
   const row = getProvider(providerKey);
   if (!row) {
@@ -95,9 +96,13 @@ function handleGetProvider({ pathParams = {} }: RouteHandlerArgs) {
 
   let oauthCallbackUrl: string | null = null;
   try {
-    oauthCallbackUrl = getOAuthCallbackUrl(config);
+    oauthCallbackUrl = await resolveCallbackUrl(
+      () => getOAuthCallbackUrl(config),
+      "webhooks/oauth/callback",
+      "oauth",
+    );
   } catch {
-    // Ingress not configured or disabled — callback URL unavailable
+    // Ingress not configured and platform callbacks unavailable
   }
 
   return {
