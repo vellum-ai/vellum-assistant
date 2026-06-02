@@ -8,8 +8,6 @@
  */
 
 import {
-  type Dispatch,
-  type SetStateAction,
   lazy,
   useCallback,
   useEffect,
@@ -20,10 +18,8 @@ import {
 import { createPortal } from "react-dom";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 
-import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useAuthStore } from "@/stores/auth-store";
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
-import { lifecycleService } from "@/assistant/lifecycle-service";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -42,7 +38,6 @@ import { useViewerStore } from "@/stores/viewer-store";
 import { useDeployStore } from "@/stores/deploy-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
@@ -50,7 +45,6 @@ import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import type { TranscriptHandle } from "@/domains/chat/transcript/transcript";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
-import type { TranscriptPaginationState } from "@/domains/chat/transcript/types";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
 import { type UIContext } from "@/domains/chat/turn-selectors";
@@ -61,13 +55,10 @@ import type { SyncChangedEvent } from "@/lib/sync/types";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { useChatAttachments } from "@/domains/chat/components/chat-attachments/use-chat-attachments";
-import { useVoiceInput } from "@/domains/chat/hooks/use-voice-input";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useAssistantReachability } from "@/assistant/use-assistant-reachability";
 import { useDiskPressureMonitor } from "@/assistant/use-disk-pressure-monitor";
 import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
-import { useAppNudges } from "@/domains/chat/hooks/use-app-nudges";
-import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
 import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
 import { useConversationLoader } from "@/domains/chat/hooks/use-conversation-loader";
 import { useMobileOverlayTarget } from "@/domains/chat/hooks/use-mobile-overlay-target";
@@ -78,7 +69,6 @@ import { useCommandPaletteSections } from "@/domains/chat/hooks/use-command-pale
 import { useMessageReconciliation } from "@/domains/chat/hooks/use-message-reconciliation";
 import { useStreamEventHandler } from "@/domains/chat/hooks/use-stream-event-handler";
 import { useSendMessage } from "@/domains/chat/hooks/use-send-message";
-import { useInteractionActions } from "@/domains/chat/hooks/use-interaction-actions";
 import { useEventStream } from "@/domains/chat/hooks/use-event-stream";
 import { hydrateLastSeenSeqFromStorage } from "@/lib/streaming/last-seen-seq";
 import { isSeqGapDetectionEnabled } from "@/lib/feature-flags/seq-gap-detection-flag";
@@ -89,7 +79,7 @@ import { useRefreshLatestMessages } from "@/domains/chat/hooks/use-refresh-lates
 import { useChatDebugApi } from "@/domains/chat/utils/debug-api";
 
 import { ConnectingToAssistant } from "@/domains/chat/components/connecting-to-assistant";
-import { useGhostTextSuggestion } from "@/domains/chat/hooks/use-ghost-text-suggestion";
+
 import { createWebSyncRouter } from "@/lib/sync/web-sync-router";
 import {
   assistantIdentityIntroQueryKey,
@@ -100,7 +90,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat";
 import { isSurfaceInteractive } from "@/domains/chat/types/types";
 import { useTurnStore } from "@/domains/chat/turn-store";
-import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
+
 import {
   formatSlackConversationDisplayLabel,
 } from "@/domains/chat/utils/slack-conversation-display";
@@ -126,12 +116,12 @@ const CommandPalette = lazy(() =>
 );
 import { shouldHandleShortcut } from "@/domains/chat/chat-layout";
 import { subagentsByIdAbortPost } from "@/generated/daemon/sdk.gen";
+import { lifecycleService } from "@/assistant/lifecycle-service";
 import { MobileAppOverlay } from "@/domains/chat/components/mobile-app-overlay";
 import { MobileDocumentOverlay } from "@/domains/chat/components/mobile-document-overlay";
 import { MobileSubagentDetailOverlay } from "@/domains/chat/components/mobile-subagent-detail-overlay";
 import { MobileToolDetailOverlay } from "@/domains/chat/components/mobile-tool-detail-overlay";
 
-import { getEditChatConversationId, setEditChatConversationId } from "@/domains/chat/utils/edit-chat-session";
 import { routes } from "@/utils/routes";
 import { haptic } from "@/utils/haptics";
 
@@ -147,7 +137,6 @@ import {
 export function ActiveChatView() {
   const authUser = useAuthStore.use.user();
   const showLlmInspector = canUseLlmInspector(authUser);
-  const isMobile = useIsMobile();
   const isNative = useIsNativePlatform();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -157,31 +146,15 @@ export function ActiveChatView() {
   const setOnSearchClick = useChatLayoutSlotsStore.use.setOnSearchClick();
   const assistantId = useAssistantSelectionStore.use.activeAssistantId();
   const assistantState = useAssistantLifecycleStore.use.assistantState();
-  // Wrap the service methods in stable `useCallback`s so they can flow
-  // through prop boundaries (downstream effects' dep arrays stay
-  // stable) and the `this` binding is preserved on call.
-  const checkAssistant = useCallback(
-    () => lifecycleService.checkAssistant(),
-    [],
-  );
-  const chatPullToRefreshEnabled = useClientFeatureFlagStore.use.chatPullToRefreshEnabled();
   const deployToVercel = useAssistantFeatureFlagStore.use.deployToVercel();
-  const doctor = useClientFeatureFlagStore.use.doctor();
   const conversationGroupsUI = useAssistantFeatureFlagStore.use.conversationGroupsUI();
 
   // -------------------------------------------------------------------------
   // Chat session store — reactive selectors for per-conversation state
   // -------------------------------------------------------------------------
   const messages = useChatSessionStore.use.messages();
-  const error = useChatSessionStore.use.error();
-  const isLoadingHistory = useChatSessionStore.use.isLoadingHistory();
-  const contextWindowUsage = useChatSessionStore.use.contextWindowUsage();
-  const compactionCircuitOpenUntil = useChatSessionStore.use.compactionCircuitOpenUntil();
-  const transcriptPagination = useChatSessionStore.use.transcriptPagination();
-  const setMessages = useChatSessionStore.use.setMessages();
   const setError = useChatSessionStore.use.setError();
-  const setCompactionCircuitOpenUntil = useChatSessionStore.use.setCompactionCircuitOpenUntil();
-  const setTranscriptPagination = useChatSessionStore.use.setTranscriptPagination();
+  const transcriptPagination = useChatSessionStore.use.transcriptPagination();
 
   // -------------------------------------------------------------------------
   // Local state (not store-backed)
@@ -233,7 +206,6 @@ export function ActiveChatView() {
   // Zustand store selectors
   // -------------------------------------------------------------------------
   const activeConversationId = useConversationStore.use.activeConversationId();
-  const editingConversationId = useConversationStore.use.editingConversationId();
   const processingConversationIds = useConversationStore.use.processingConversationIds();
   const mainView = useViewerStore.use.mainView();
   const openedAppState = useViewerStore.use.openedAppState();
@@ -410,50 +382,7 @@ export function ActiveChatView() {
     dismissError: dismissChatAttachmentError,
   } = useChatAttachments(assistantId);
 
-  // -------------------------------------------------------------------------
-  // Voice input
-  // -------------------------------------------------------------------------
-  const {
-    voiceInputRef,
-    voiceInterim,
-    voiceError,
-    clearVoiceError,
-    setVoiceError,
-    showPrimer: _showPrimer,
-    handleVoiceBeforeStart,
-    handleVoiceTranscript,
-    setVoiceInterim,
-    handleRetryMicPermission,
-  } = useVoiceInput({ assistantId, inputRef, setInput });
 
-  // -------------------------------------------------------------------------
-  // Avatar
-  // -------------------------------------------------------------------------
-  const avatar = useAssistantAvatar(assistantId);
-
-  // -------------------------------------------------------------------------
-  // Live assistant row — the not-yet-finalized streaming bubble of the active
-  // turn, derived from message position and the conversation's processing
-  // state. `null` when nothing is streaming.
-  // -------------------------------------------------------------------------
-  const liveAssistantMessageId = useMemo(
-    () =>
-      liveAssistantRowId(
-        messages,
-        activeConversationId != null &&
-          processingConversationIds.has(activeConversationId),
-      ),
-    [messages, activeConversationId, processingConversationIds],
-  );
-
-  // -------------------------------------------------------------------------
-  // Nudges
-  // -------------------------------------------------------------------------
-  const nudges = useAppNudges(
-    messages,
-    conversations.length,
-    liveAssistantMessageId,
-  );
 
   // -------------------------------------------------------------------------
   // Derived state
@@ -467,7 +396,10 @@ export function ActiveChatView() {
     activeConversationId,
     true,
   );
-  const isChannelReadonly = isChannelConversation(activeConversation);
+
+  // Avatar — called here for sync-router invalidation; ChatRouteContent
+  // has its own call (TanStack Query deduplicates the fetch).
+  const avatar = useAssistantAvatar(assistantId);
 
   // -------------------------------------------------------------------------
   // Conversation loader
@@ -820,11 +752,6 @@ export function ActiveChatView() {
   }, [assistantId, unfetchedSubagentKey]);
 
   // -------------------------------------------------------------------------
-  // Interaction actions
-  // -------------------------------------------------------------------------
-  const interactionActions = useInteractionActions();
-
-  // -------------------------------------------------------------------------
   // Event stream (SSE lifecycle)
   // -------------------------------------------------------------------------
   useEventStream({
@@ -852,20 +779,13 @@ export function ActiveChatView() {
 
   // Debug API — dev-facing surface for in-the-moment chat inspection.
   // Unconditionally attached; negligible production overhead.
-  //
-  // `getTurnState` / `getUIContext` read fresh values on every call via the
-  // `latestRefs` indirection inside `useChatDebugApi`, so DevTools sees the
-  // same snapshot the React render path is computing. `_uiContext` is
-  // declared further down in this component but the lambda is only invoked
-  // asynchronously (from `window._vellumDebug.chat.thinkingIndicator()`),
-  // by which point initialization is complete.
   useChatDebugApi({
     sanitizedMessagesRef,
     transcriptItemsRef,
     transcriptRef,
     getAssistantId: () => assistantIdRef.current,
     getTurnState: () => useTurnStore.getState(),
-    getUIContext: () => _uiContext,
+    getUIContext: () => _debugUiContext,
     // The chat domain isn't allowed to import the interactions store
     // directly (cross-domain rule). chat-page.tsx is the composition
     // root with an allowlist exemption for `interactions`, so the
@@ -1045,64 +965,31 @@ export function ActiveChatView() {
   const overlayTarget = useMobileOverlayTarget();
 
   // -------------------------------------------------------------------------
-  // Ghost-text suggestion (server state via TanStack Query — LUM-2009)
+  // Debug API — UIContext snapshot (read lazily by useChatDebugApi closure)
   // -------------------------------------------------------------------------
-  // Derive the scalar the query keys on; the hook stays pure w.r.t.
-  // composer input — `ChatComposer.computeGhostSuffix` is the single
-  // source of truth for "what part of the suggestion is visible right
-  // now given the user's typed prefix".
-  const lastCompleteAssistantMsgId = useMemo<string | null>(() => {
-    const last = messages[messages.length - 1];
-    return last &&
-      last.role === "assistant" &&
-      last.id !== liveAssistantMessageId
-      ? last.id ?? null
-      : null;
-  }, [messages, liveAssistantMessageId]);
-
-  const suggestion = useGhostTextSuggestion({
-    assistantId,
-    conversationId: activeConversationId,
-    lastCompleteAssistantMsgId,
-  });
-
-  // -------------------------------------------------------------------------
-  // Derived UI state
-  // -------------------------------------------------------------------------
-  const hasUncompletedVisibleSurface = useMemo(() => {
+  const _debugUiContext = useMemo<UIContext>(() => {
+    const isProcessing = activeConversationId != null && processingConversationIds.has(activeConversationId);
+    const interactionState = useInteractionStore.getState();
+    let hasUncompletedSurface = false;
     for (const msg of messages) {
       if (msg.surfaces) {
         for (const s of msg.surfaces) {
-          if (isSurfaceInteractive(s)) return true;
+          if (isSurfaceInteractive(s)) { hasUncompletedSurface = true; break; }
         }
       }
+      if (hasUncompletedSurface) break;
     }
-    return false;
-  }, [messages]);
-
-  const activeConversationIsProcessing = activeConversationId != null && processingConversationIds.has(activeConversationId);
-  const activeConversationHasPendingAssistantResponse = useMemo(
-    () => hasPendingAssistantResponse(messages),
-    [messages],
-  );
-
-  const pendingSecret = useInteractionStore.use.pendingSecret();
-  const pendingConfirmation = useInteractionStore.use.pendingConfirmation();
-  const pendingQuestion = useInteractionStore.use.pendingQuestion();
-  const pendingContactRequest = useInteractionStore.use.pendingContactRequest();
-
-  // Build UIContext first — needed for showThinking calculation
-  const _uiContext: UIContext = {
-    hasStreamingAssistantMessage: liveAssistantMessageId != null,
-    hasPendingSecret: !!pendingSecret,
-    hasPendingConfirmation: !!pendingConfirmation,
-    hasPendingQuestion: !!pendingQuestion,
-    hasPendingContactRequest: !!pendingContactRequest,
-    hasUncompletedVisibleSurface,
-    activeConversationIsProcessing,
-    hasPendingAssistantResponse: activeConversationHasPendingAssistantResponse,
-  };
-  void _uiContext;
+    return {
+      hasStreamingAssistantMessage: isProcessing && messages.length > 0 && messages[messages.length - 1]?.role === "assistant",
+      hasPendingSecret: !!interactionState.pendingSecret,
+      hasPendingConfirmation: !!interactionState.pendingConfirmation,
+      hasPendingQuestion: !!interactionState.pendingQuestion,
+      hasPendingContactRequest: !!interactionState.pendingContactRequest,
+      hasUncompletedVisibleSurface: hasUncompletedSurface,
+      activeConversationIsProcessing: isProcessing,
+      hasPendingAssistantResponse: hasPendingAssistantResponse(messages),
+    };
+  }, [messages, activeConversationId, processingConversationIds]);
 
   // -------------------------------------------------------------------------
   // Auto-greet connecting overlay — shows while waiting for the first
@@ -1118,192 +1005,57 @@ export function ActiveChatView() {
   }
 
   // -------------------------------------------------------------------------
-  // Props assembly
+  // Props assembly — only values ChatRouteContent can't own locally
   // -------------------------------------------------------------------------
-  const handleReviewDiskUsage = () => {
-    haptic.light();
-    useViewerStore.getState().setIntelligenceTab("workspace");
-    void navigate(routes.identity);
-  };
-
-  const pushToAiSettings = () => { void navigate(routes.settings.ai); };
-
   const chatRouteProps: ChatRouteContentProps = {
-    assistantId,
-    assistantState,
-    assistantName,
-    chatPullToRefreshEnabled,
-    deployToVercel,
-    doctor,
-    isMobile,
-    messages,
-    setMessages,
-    input,
-    setInput,
-    error,
-    setError,
-    isLoadingHistory,
-    conversations,
-    activeConversationId,
-    activeConversation,
-    processingConversationIds,
-    mainView,
-    openedAppState,
-    openedDocumentState,
-    editingConversationId,
-    restoredDraftConversationId,
-    setRestoredDraftConversationId,
-    saveDraft,
-    clearDraft,
-    avatar: {
-      avatarComponents: avatar.components,
-      avatarTraits: avatar.traits,
-      avatarImageUrl: avatar.customImageUrl,
-    },
-    contextWindowUsage,
-    compactionCircuitOpenUntil,
-    setCompactionCircuitOpenUntil,
-    suggestion,
-    transcriptPagination,
-    setTranscriptPagination: setTranscriptPagination as Dispatch<SetStateAction<Omit<TranscriptPaginationState, "items">>>,
-    setShowAddCreditsModal,
-    diskPressure: {
-      status: diskPressure.status,
-      mode: diskPressure.mode,
-      diskPressureMonitorEnabled: diskPressure.mode !== null,
-      hasResolvedDiskPressureStatus: diskPressure.hasResolvedStatus,
-      isAcknowledgingDiskPressure: diskPressure.isAcknowledging,
-      diskPressureAcknowledgeError: diskPressure.acknowledgeError,
-      acknowledgeDiskPressure: diskPressure.acknowledge,
-    },
-    handleReviewDiskUsage,
-    nudges: {
-      isOnIOS: nudges.isOnIOS,
-      showBanner: nudges.showBanner,
-      nudge: {
-        handleDownload: nudges.nudge.handleDownload,
-        handleBannerDismiss: nudges.nudge.handleBannerDismiss,
-      },
-      githubNudge: {
-        handleStar: nudges.githubNudge.handleStar,
-        handleBannerDismiss: nudges.githubNudge.handleBannerDismiss,
-      },
-      showGitHubBanner: nudges.showGitHubBanner,
-      discordNudge: {
-        handleJoin: nudges.discordNudge.handleJoin,
-        handleBannerDismiss: nudges.discordNudge.handleBannerDismiss,
-      },
-      showDiscordBanner: nudges.showDiscordBanner,
-    },
-    attachments: {
-      chatAttachments,
-      attachmentsUploadingCount,
-      attachmentUploadedIds,
-      attachmentLastError,
-      addChatAttachmentFiles,
-      removeChatAttachment,
-      resetChatAttachments,
-      dismissChatAttachmentError,
-    },
-    voice: {
-      voiceInputRef,
-      voiceInterim,
-      voiceError,
-      clearVoiceError,
-      setVoiceError,
-      handleVoiceBeforeStart,
-      handleVoiceTranscript,
-      setVoiceInterim,
-      handleRetryMicPermission,
-    },
-    send: {
-      sendMessage,
-      handleStopGenerating,
-      queuedMessages,
-      handleCancelQueuedMessage,
-      handleCancelAllQueued,
-      handleSteerMessage,
-      handleEditQueueTail,
-    },
-    interactionActions: {
-      handleSecretSubmit: interactionActions.handleSecretSubmit,
-      handleSecretCancel: interactionActions.handleSecretCancel,
-      handleContactPromptSubmit: interactionActions.handleContactPromptSubmit,
-      handleContactPromptCancel: interactionActions.handleContactPromptCancel,
-      handleConfirmationSubmit: interactionActions.handleConfirmationSubmit,
-      handleAllowAndCreateRule: interactionActions.handleAllowAndCreateRule,
-      handleOpenRuleEditorForToolCall: interactionActions.handleOpenRuleEditorForToolCall,
-      handleQuestionResponse: interactionActions.handleQuestionResponse,
-      handleSurfaceAction: interactionActions.handleSurfaceAction,
-      unknownNudgeToolCallIds: interactionActions.unknownNudgeToolCallIds,
-      setUnknownNudgeToolCallIds: interactionActions.setUnknownNudgeToolCallIds,
-    },
-    handleOpenApp: handleOpenAppFromChat,
-    handleOpenDocument,
-    handleCloseDocument: () => {
-      useViewerStore.getState().closeDocument();
-    },
-    handleCloseApp: () => {
-      useViewerStore.getState().closeApp();
-      useConversationStore.getState().setEditingConversationId(null);
-    },
-    handleCloseEditPanel: () => {
-      useConversationStore.getState().setEditingConversationId(null);
-      useViewerStore.getState().exitAppEditing();
-    },
-    handleEditApp: () => {
-      const { openedAppState } = useViewerStore.getState();
-      if (!openedAppState || !assistantId) return;
+    // Send message (orchestration owns SSE / queue lifecycle)
+    sendMessage,
+    handleStopGenerating,
+    queuedMessages,
+    handleCancelQueuedMessage,
+    handleCancelAllQueued,
+    handleSteerMessage,
+    handleEditQueueTail,
 
-      const appId = openedAppState.appId;
-      const conversationId = getEditChatConversationId(assistantId, appId) ?? crypto.randomUUID();
-      setEditChatConversationId(assistantId, appId, conversationId);
-      useConversationStore.getState().setEditingConversationId(conversationId);
-      useViewerStore.getState().enterAppEditing();
-
-      if (activeConversationId !== conversationId) {
-        navigateToConversation(conversationId);
-      }
-    },
-    handleShareApp: () => {
-      const app = useViewerStore.getState().openedAppState;
-      if (app && assistantId) void useDeployStore.getState().shareApp(assistantId, app.appId, app.name);
-    },
-    handleDeployApp: deployToVercel ? () => {
-      const app = useViewerStore.getState().openedAppState;
-      if (app && assistantId) void useDeployStore.getState().deployApp(assistantId, app.appId, app.name, app.html);
-    } : undefined,
+    // Conversation secondary actions
     handleForkConversation,
     handleInspectMessage: showLlmInspector ? handleInspectMessage : undefined,
-    subagentState: { byId: subagentById },
-    activeSubagentId,
-    onSubagentClick: (id: string) => { useViewerStore.getState().openSubagentDetail(id); },
-    onCloseSubagentDetail: () => { useViewerStore.getState().closeSubagentDetail(); },
-    onStopSubagent: async (subagentId: string) => {
-      if (!assistantId || !activeConversationId) return;
-      try {
-        await subagentsByIdAbortPost({
-          path: { assistant_id: assistantId, id: subagentId },
-          body: { conversationId: activeConversationId },
-          throwOnError: true,
-        });
-      } catch {
-        // Best-effort — the daemon may have already completed
-      }
-    },
-    onRequestSubagentDetail: handleRequestSubagentDetail,
-    pushToAiSettings,
-    checkAssistant,
-    setRefreshEpoch,
+
+    // History pagination
     historyPagination: historyResult.pagination,
-    refs: {
-      inputRef,
-      sanitizedMessagesRef,
-      transcriptItemsRef,
-      assistantIdRef,
-      transcriptRef,
-    },
-    isChannelReadonly,
+
+    // Draft input (shared — keydown handler + deep link consumer here)
+    input,
+    setInput,
+    saveDraft,
+    clearDraft,
+    restoredDraftConversationId,
+    setRestoredDraftConversationId,
+
+    // Attachments (shared — reset called by switchConversation)
+    chatAttachments,
+    attachmentsUploadingCount,
+    attachmentUploadedIds,
+    attachmentLastError,
+    addChatAttachmentFiles,
+    removeChatAttachment,
+    resetChatAttachments,
+    dismissChatAttachmentError,
+
+    // Disk pressure (single instance — avoids duplicate polling/subscriptions)
+    diskPressure,
+
+    // Upward signals
+    setShowAddCreditsModal,
+    setRefreshEpoch,
+
+    // Shared refs
+    inputRef,
+    sanitizedMessagesRef,
+    transcriptItemsRef,
+    transcriptRef,
+
+    // Onboarding
     onboardingTasksEmpty,
     didOnboarding,
     onboardingConversationId,
