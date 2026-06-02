@@ -255,7 +255,17 @@ export function ContactsPage({
   const deleteMutation = useMutation({
     mutationFn: (contactId: string) =>
       gatewayDeleteContact(assistantId, contactId),
-    onSuccess: () => {
+    onSuccess: (_data, contactId) => {
+      queryClient.setQueryData<ContactsGetResponse>(
+        contactsQueryKey,
+        (prev) =>
+          prev
+            ? {
+                ...prev,
+                contacts: prev.contacts.filter((c) => c.id !== contactId),
+              }
+            : undefined,
+      );
       setSelection({ kind: "assistant" });
     },
     onSettled: () => invalidateContacts(),
@@ -274,6 +284,20 @@ export function ContactsPage({
         displayName: patch.displayName,
         notes: patch.notes,
       }),
+    onSuccess: (updatedContact) => {
+      queryClient.setQueryData<ContactsGetResponse>(
+        contactsQueryKey,
+        (prev) =>
+          prev
+            ? {
+                ...prev,
+                contacts: prev.contacts.map((c) =>
+                  c.id === updatedContact.id ? updatedContact : c,
+                ),
+              }
+            : undefined,
+      );
+    },
     onSettled: () => invalidateContacts(),
   });
 
