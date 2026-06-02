@@ -15,6 +15,7 @@
     "lint": "eslint",
     "audit:cross-domain": "node scripts/audit-cross-domain-imports.mjs",
     "audit:cross-domain:check": "node scripts/audit-cross-domain-imports.mjs --check",
+    "pretypecheck": "bun run openapi-ts",
     "typecheck": "bunx tsc --noEmit",
     "postinstall": "bun run scripts/postinstall.ts",
     "openapi-ts": "bun run scripts/transform-daemon-spec.ts && openapi-ts",
