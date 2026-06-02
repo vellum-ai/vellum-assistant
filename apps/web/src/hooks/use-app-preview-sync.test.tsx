@@ -122,6 +122,29 @@ describe("useAppPreviewSync auto-open", () => {
     expect(useViewerStore.getState().mainView).toBe("app-editing");
   });
 
+  test("a terminal ok does not yank the user back after they navigate away mid-build", () => {
+    renderHook(() => useAppPreviewSync(DESKTOP_ACTIVE));
+    // Build starts → panel opens.
+    emitPreview("app-1", "building", { conversationId: "conv-1" });
+    expect(useViewerStore.getState().mainView).toBe("app-editing");
+    // User navigates away to a document — a path that does NOT mark the app
+    // as dismissed.
+    useViewerStore.setState({ mainView: "document", activeAppId: null });
+    // The terminal `ok` for the same build arrives — it must NOT reopen the
+    // split-view.
+    emitPreview("app-1", "ok", { conversationId: "conv-1", reloadGeneration: 1 });
+    expect(useViewerStore.getState().mainView).toBe("document");
+    expect(useViewerStore.getState().activeAppId).toBeNull();
+  });
+
+  test("a terminal error does not auto-open a not-yet-open app", () => {
+    renderHook(() => useAppPreviewSync(DESKTOP_ACTIVE));
+    // A terminal status with no prior build-start for this app: must not open.
+    emitPreview("app-1", "error", { conversationId: "conv-1" });
+    expect(useViewerStore.getState().mainView).toBe("chat");
+    expect(useViewerStore.getState().activeAppId).toBeNull();
+  });
+
   test("does not auto-open when the assistant is not active", () => {
     renderHook(() =>
       useAppPreviewSync({ ...DESKTOP_ACTIVE, isAssistantActive: false }),

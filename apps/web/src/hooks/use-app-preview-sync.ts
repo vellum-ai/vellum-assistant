@@ -79,19 +79,23 @@ export function useAppPreviewSync({
     });
 
     // (2) Auto-open the split-view for a build that just started.
+    //
+    // A fresh build sequence: the first `building` event we've seen for this
+    // app, or a `building` event that follows a terminal status. This is the
+    // ONLY signal that may auto-open the panel — terminal `ok`/`error` events
+    // must never reveal it. Otherwise, if the user navigates away to a
+    // document/tool-detail/other view mid-build, the terminal event for the
+    // same build would yank them back into `app-editing`.
     const prevStatus = lastStatusByApp.current.get(event.appId);
     lastStatusByApp.current.set(event.appId, event.compileStatus);
-    // A fresh build sequence: the first event we've seen for this app, or a
-    // `building` event that follows a terminal status. Use this as the
-    // "build started" signal AND to reset a prior user dismissal so the
-    // next build re-opens the panel.
+    if (event.compileStatus !== "building") return;
     const isFreshBuildStart =
       prevStatus === undefined ||
-      (event.compileStatus === "building" &&
-        (prevStatus === "ok" || prevStatus === "error"));
-    if (isFreshBuildStart) {
-      viewer.clearBuildDismissal(event.appId);
-    }
+      prevStatus === "ok" ||
+      prevStatus === "error";
+    if (!isFreshBuildStart) return;
+    // Reset a prior user dismissal so this fresh build re-opens the panel.
+    viewer.clearBuildDismissal(event.appId);
 
     // Mobile keeps the existing overlay path — don't force the split.
     // Gate on the active assistant so a background/transitioning assistant
