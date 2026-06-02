@@ -10,7 +10,6 @@ function message(role: DisplayMessage["role"], id: string): DisplayMessage {
   return {
     id,
     role,
-    content: role,
   };
 }
 
