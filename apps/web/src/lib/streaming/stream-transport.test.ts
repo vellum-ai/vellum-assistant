@@ -21,7 +21,7 @@ interface SentryCaptureMessageCall {
 const sentryBreadcrumbs: SentryBreadcrumbCall[] = [];
 const sentryCaptureMessages: SentryCaptureMessageCall[] = [];
 
-mock.module("@sentry/browser", () => ({
+mock.module("@sentry/react", () => ({
   addBreadcrumb: (crumb: SentryBreadcrumbCall) => {
     sentryBreadcrumbs.push(crumb);
   },

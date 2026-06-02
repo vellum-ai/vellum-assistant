@@ -24,9 +24,9 @@ const STORAGE_KEY = "vellum:debug:seqGapDetection";
 
 /**
  * Read the flag synchronously. Returns `true` when no override is set
- * (enabled by default). Returns `false` only when explicitly disabled
- * via `setSeqGapDetectionEnabled(false)`, or when localStorage throws
- * (private browsing / sandboxed iframes). Safe to call during render.
+ * (enabled by default), or when localStorage throws (private browsing /
+ * sandboxed iframes). Returns `false` only when explicitly disabled
+ * via `setSeqGapDetectionEnabled(false)`. Safe to call during render.
  */
 export function isSeqGapDetectionEnabled(): boolean {
   const stored = getLocalSetting(STORAGE_KEY, "");
