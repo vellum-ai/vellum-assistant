@@ -46,13 +46,13 @@ describe("openai-compatible adapter factory", () => {
     expect(adapter).not.toBeNull();
   });
 
-  test("createAdapterFromConnection rejects 'none' auth for openai-compatible", () => {
+  test("createAdapterFromConnection allows keyless 'none' auth for openai-compatible", () => {
     const connection: ProviderConnection = {
-      name: "my-vllm",
+      name: "my-lmstudio",
       provider: "openai-compatible",
       auth: { type: "none" },
       label: null,
-      baseUrl: "http://localhost:8080/v1",
+      baseUrl: "http://localhost:1234/v1",
       models: [{ id: "my-model" }],
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -61,12 +61,36 @@ describe("openai-compatible adapter factory", () => {
 
     const resolvedAuth: ResolvedAuth = { kind: "none" };
 
+    // Keyless local endpoints (LM Studio, etc.) need no key — the factory must
+    // build an adapter without throwing despite the empty credential.
     const adapter = createAdapterFromConnection(connection, resolvedAuth, {
       model: "my-model",
     });
 
-    // openai-compatible is setupMode: "api-key", not keyless, so none auth
-    // should be rejected.
+    expect(adapter).not.toBeNull();
+  });
+
+  test("createAdapterFromConnection rejects 'none' auth for a keyed non-openai-compatible provider", () => {
+    const connection: ProviderConnection = {
+      name: "my-anthropic",
+      provider: "anthropic",
+      auth: { type: "none" },
+      label: null,
+      baseUrl: null,
+      models: [{ id: "claude-sonnet" }],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      isManaged: false,
+    };
+
+    const resolvedAuth: ResolvedAuth = { kind: "none" };
+
+    const adapter = createAdapterFromConnection(connection, resolvedAuth, {
+      model: "claude-sonnet",
+    });
+
+    // anthropic is setupMode: "api-key" and not openai-compatible, so the
+    // relaxed keyless guard must NOT apply — none auth stays rejected.
     expect(adapter).toBeNull();
   });
 });
