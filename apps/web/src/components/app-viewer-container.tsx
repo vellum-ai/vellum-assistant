@@ -1,4 +1,5 @@
-import { useMemo, useRef } from "react";
+import { AlertTriangle, X } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
 
 import { AppNavBar } from "@/components/app-nav-bar";
 import { useSandboxFetchProxy } from "@/hooks/use-sandbox-fetch-proxy";
@@ -19,6 +20,78 @@ export interface AppViewerContainerProps {
   isDeploying?: boolean;
   /** Deep-link route passed to the app as `window.vellum.route`. */
   route?: string;
+  /**
+   * Live-build status from the daemon. Only `"error"` renders UI (a small
+   * non-blocking badge over the last-good preview); `"building"`/`"ok"`/
+   * undefined render nothing — the live iframe swap is the success feedback.
+   */
+  compileStatus?: "building" | "ok" | "error";
+  /** Compile diagnostics surfaced in the build-error badge. */
+  buildErrors?: string[];
+}
+
+/**
+ * Non-blocking badge shown over the last-good preview when a recompile fails.
+ * The iframe stays fully visible behind it (keep-last-good); the badge can be
+ * dismissed and expanded to reveal the raw `buildErrors`.
+ */
+export function BuildErrorBadge({ buildErrors }: { buildErrors?: string[] }) {
+  const [dismissed, setDismissed] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  if (dismissed) return null;
+  const errors = buildErrors ?? [];
+  return (
+    <div
+      className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center p-2"
+      role="status"
+      aria-label="App build error"
+    >
+      <div
+        className="pointer-events-auto max-w-full rounded-lg border px-3 py-2 shadow-sm"
+        style={{
+          background: "var(--surface-overlay)",
+          borderColor: "var(--border-base)",
+        }}
+      >
+        <div className="flex items-center gap-2 text-label-small-default">
+          <AlertTriangle
+            className="h-4 w-4 shrink-0 text-danger-500"
+            aria-hidden
+          />
+          <span style={{ color: "var(--content-default)" }}>
+            Build error — showing last working version
+          </span>
+          {errors.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setExpanded((v) => !v)}
+              className="underline underline-offset-2"
+              style={{ color: "var(--content-tertiary)" }}
+            >
+              {expanded ? "Hide details" : "Details"}
+            </button>
+          )}
+          <button
+            type="button"
+            aria-label="Dismiss build error"
+            onClick={() => setDismissed(true)}
+            className="ml-1 shrink-0"
+            style={{ color: "var(--content-tertiary)" }}
+          >
+            <X className="h-4 w-4" aria-hidden />
+          </button>
+        </div>
+        {expanded && errors.length > 0 && (
+          <pre
+            className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words text-label-small-default"
+            style={{ color: "var(--content-secondary)" }}
+          >
+            {errors.join("\n")}
+          </pre>
+        )}
+      </div>
+    </div>
+  );
 }
 
 export function AppViewerContainer({
@@ -34,6 +107,8 @@ export function AppViewerContainer({
   onDeploy,
   isDeploying,
   route,
+  compileStatus,
+  buildErrors,
 }: AppViewerContainerProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
@@ -69,6 +144,9 @@ export function AppViewerContainer({
       />
 
       <div className="relative min-h-0 flex-1">
+        {compileStatus === "error" && (
+          <BuildErrorBadge buildErrors={buildErrors} />
+        )}
         <iframe
           ref={iframeRef}
           key={iframeKey}

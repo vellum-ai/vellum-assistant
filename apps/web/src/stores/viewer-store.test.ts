@@ -81,6 +81,108 @@ describe("setLoadedApp", () => {
   });
 });
 
+describe("updateOpenedAppPreview", () => {
+  function openSampleApp() {
+    useViewerStore.setState({
+      mainView: "app",
+      activeAppId: SAMPLE_APP.appId,
+      openedAppState: { ...SAMPLE_APP },
+    });
+  }
+
+  it("swaps html and sets status on an ok event for the active app", () => {
+    openSampleApp();
+    getState().updateOpenedAppPreview(SAMPLE_APP.appId, {
+      html: "<h1>v2</h1>",
+      compileStatus: "ok",
+      reloadGeneration: 2,
+    });
+    const app = getState().openedAppState;
+    expect(app?.html).toBe("<h1>v2</h1>");
+    expect(app?.compileStatus).toBe("ok");
+    expect(app?.buildErrors).toBeUndefined();
+  });
+
+  it("keeps last-good html on a building event (status only)", () => {
+    openSampleApp();
+    getState().updateOpenedAppPreview(SAMPLE_APP.appId, {
+      html: SAMPLE_APP.html,
+      compileStatus: "building",
+      reloadGeneration: 2,
+    });
+    const app = getState().openedAppState;
+    expect(app?.html).toBe(SAMPLE_APP.html);
+    expect(app?.compileStatus).toBe("building");
+  });
+
+  it("keeps last-good html on an error event and records buildErrors", () => {
+    openSampleApp();
+    // A fresh ok first, then a failed recompile.
+    getState().updateOpenedAppPreview(SAMPLE_APP.appId, {
+      html: "<h1>good</h1>",
+      compileStatus: "ok",
+      reloadGeneration: 2,
+    });
+    getState().updateOpenedAppPreview(SAMPLE_APP.appId, {
+      html: "<h1>good</h1>",
+      compileStatus: "error",
+      buildErrors: ["TS2322: type error"],
+      reloadGeneration: 2,
+    });
+    const app = getState().openedAppState;
+    expect(app?.html).toBe("<h1>good</h1>");
+    expect(app?.compileStatus).toBe("error");
+    expect(app?.buildErrors).toEqual(["TS2322: type error"]);
+  });
+
+  it("tracks building -> ok -> error, swapping html only on ok", () => {
+    openSampleApp();
+    getState().updateOpenedAppPreview(SAMPLE_APP.appId, {
+      html: "<h1>fresh</h1>",
+      compileStatus: "building",
+      reloadGeneration: 1,
+    });
+    expect(getState().openedAppState?.html).toBe(SAMPLE_APP.html);
+
+    getState().updateOpenedAppPreview(SAMPLE_APP.appId, {
+      html: "<h1>fresh</h1>",
+      compileStatus: "ok",
+      reloadGeneration: 2,
+    });
+    expect(getState().openedAppState?.html).toBe("<h1>fresh</h1>");
+
+    getState().updateOpenedAppPreview(SAMPLE_APP.appId, {
+      html: "<h1>fresh</h1>",
+      compileStatus: "error",
+      buildErrors: ["boom"],
+      reloadGeneration: 2,
+    });
+    expect(getState().openedAppState?.html).toBe("<h1>fresh</h1>");
+    expect(getState().openedAppState?.compileStatus).toBe("error");
+  });
+
+  it("ignores events for a non-active app", () => {
+    openSampleApp();
+    getState().updateOpenedAppPreview("other-app", {
+      html: "<h1>nope</h1>",
+      compileStatus: "ok",
+      reloadGeneration: 9,
+    });
+    const app = getState().openedAppState;
+    expect(app?.html).toBe(SAMPLE_APP.html);
+    expect(app?.compileStatus).toBeUndefined();
+  });
+
+  it("no-ops when no app is open", () => {
+    getState().updateOpenedAppPreview(SAMPLE_APP.appId, {
+      html: "<h1>nope</h1>",
+      compileStatus: "ok",
+      reloadGeneration: 1,
+    });
+    expect(getState().openedAppState).toBeNull();
+  });
+});
+
 describe("handleAppLoadFailed", () => {
   it("resets to chat view and clears app state", () => {
     useViewerStore.setState({ mainView: "app", activeAppId: "app-1", openedAppState: SAMPLE_APP });

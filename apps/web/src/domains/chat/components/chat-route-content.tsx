@@ -1380,6 +1380,8 @@ export function ChatRouteContent({
             isSharing={isSharing}
             onDeploy={deployToVercel ? handleDeployApp : undefined}
             isDeploying={isDeploying}
+            compileStatus={openedAppState.compileStatus}
+            buildErrors={openedAppState.buildErrors}
             isEditing
           />
         }
@@ -1409,6 +1411,8 @@ export function ChatRouteContent({
         isSharing={isSharing}
         onDeploy={deployToVercel ? handleDeployApp : undefined}
         isDeploying={isDeploying}
+        compileStatus={openedAppState.compileStatus}
+        buildErrors={openedAppState.buildErrors}
       />
     );
   }

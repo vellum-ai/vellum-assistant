@@ -112,6 +112,14 @@ export interface OpenedAppState {
   dirName?: string;
   name: string;
   html: string;
+  /**
+   * Live-build status from the daemon's `app_preview_update` stream.
+   * Undefined for apps that haven't received a live-build event (e.g. just
+   * opened). `error` surfaces a non-blocking badge over the last-good html.
+   */
+  compileStatus?: "building" | "ok" | "error";
+  /** Compile diagnostics from the last `error` event; surfaced in the badge. */
+  buildErrors?: string[];
 }
 
 export interface OpenedDocumentState {
@@ -163,6 +171,15 @@ export interface ViewerActions {
   openApp: (appId: string) => void;
   loadApp: (assistantId: string, appId: string) => Promise<void>;
   setLoadedApp: (app: OpenedAppState) => void;
+  updateOpenedAppPreview: (
+    appId: string,
+    update: {
+      html?: string;
+      compileStatus: "building" | "ok" | "error";
+      buildErrors?: string[];
+      reloadGeneration: number;
+    },
+  ) => void;
   handleAppLoadFailed: () => void;
   closeApp: () => void;
   toggleAppMinimized: () => void;
@@ -277,6 +294,36 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
 
   setLoadedApp: (app) => {
     set({ openedAppState: app });
+  },
+
+  /**
+   * Apply a daemon `app_preview_update` live-build event to the open app.
+   *
+   * No-ops unless the event targets the currently active app and that app is
+   * already loaded — stale events for a since-closed/switched app are dropped.
+   *
+   * Keep-last-good: only an `ok` event carries fresh html and swaps the
+   * preview (the iframe remounts on html change). `building`/`error` update
+   * the status/errors but leave `html` untouched so the last working preview
+   * stays visible.
+   */
+  updateOpenedAppPreview: (appId, { html, compileStatus, buildErrors }) => {
+    const prev = get().openedAppState;
+    if (!prev || get().activeAppId !== appId || prev.appId !== appId) return;
+    const nextHtml =
+      compileStatus === "ok" && html !== undefined ? html : prev.html;
+    // Skip the update (and the re-render / iframe churn it triggers) when
+    // nothing observable changed — e.g. a repeated `building` heartbeat.
+    if (
+      prev.html === nextHtml &&
+      prev.compileStatus === compileStatus &&
+      prev.buildErrors === buildErrors
+    ) {
+      return;
+    }
+    set({
+      openedAppState: { ...prev, html: nextHtml, compileStatus, buildErrors },
+    });
   },
 
   handleAppLoadFailed: () => {
