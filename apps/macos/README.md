@@ -1,7 +1,7 @@
 # Electron wrapper
 
 Desktop shell for the Vellum Assistant macOS app. Wraps [`apps/web/`](../web/)
-in an Electron `BrowserWindow`. Daemon and gateway process lifecycle is owned
+in an Electron `BrowserWindow`. Each assistant's background processes are owned
 entirely by the `vellum` CLI, which the app invokes as a subprocess — the
 Electron app is a GUI client, not a process manager.
 
@@ -81,11 +81,11 @@ need a distributable artifact.
 - **Prod (future)** — A custom `app://vellum.ai/` protocol serves the
   static `apps/web/dist/` bundle. Same-origin policy treats `app://` as
   a secure standard scheme.
-- **Assistant process** — The app does not supervise any daemon of its own.
-  Local assistants run their own daemon + gateway, spawned and managed by the
-  `vellum` CLI; the main process only invokes the CLI as a subprocess for
-  lifecycle ops (hatch, retire, token). Packaging the CLI runtime so this
-  works in distributed builds is tracked in LUM-2085.
+- **Assistant process** — The app does not run or supervise any background
+  process of its own. Each local assistant runs its own processes, spawned and
+  managed by the `vellum` CLI; the main process only invokes the CLI as a
+  subprocess for lifecycle ops (hatch, retire, token). Packaging the CLI
+  runtime so this works in distributed builds is tracked in LUM-2085.
 
 ## Native macOS integration
 
