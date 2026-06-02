@@ -1,0 +1,1425 @@
+/**
+ * ActiveChatView — chat orchestration, mounted only when the assistant is usable.
+ *
+ * ChatPage handles lifecycle guards (loading, error, setup, cleanup, retired)
+ * and mounts this component only when `shouldRenderChat` is true. All
+ * orchestration hooks (SSE, TanStack Query, Zustand subscriptions, keyboard
+ * listeners) live here so they don't execute during non-active states.
+ */
+
+import {
+  type Dispatch,
+  type SetStateAction,
+  lazy,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { createPortal } from "react-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router";
+
+import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useAuthStore } from "@/stores/auth-store";
+import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
+import { lifecycleService } from "@/assistant/lifecycle-service";
+import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
+import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { useConversationStore } from "@/stores/conversation-store";
+import {
+  COMPOSER_FOCUS_EVENT,
+  consumePendingComposerFocus,
+  insertTextAtSelection,
+  requestComposerFocus,
+  shouldFocusComposerForTyping,
+} from "./composer-focus";
+import {
+  useConversationListQuery,
+} from "@/hooks/conversation-queries";
+import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
+import { useViewerStore } from "@/stores/viewer-store";
+import { useDeployStore } from "@/stores/deploy-store";
+import { useSubagentStore } from "@/domains/chat/subagent-store";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { useIsNativePlatform } from "@/runtime/native-auth";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { TranscriptHandle } from "@/domains/chat/transcript/transcript";
+import type { TranscriptItem } from "@/domains/chat/transcript/types";
+import type { TranscriptPaginationState } from "@/domains/chat/transcript/types";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
+import { type UIContext } from "@/domains/chat/turn-selectors";
+import { peekPendingPreChatContext, type PreChatOnboardingContext } from "@/domains/onboarding/prechat";
+import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
+import type { WebSyncRouter } from "@/lib/sync/web-sync-router";
+import type { SyncChangedEvent } from "@/lib/sync/types";
+
+import { LazyBoundary } from "@/components/lazy-boundary";
+import { useChatAttachments } from "@/domains/chat/components/chat-attachments/use-chat-attachments";
+import { useVoiceInput } from "@/domains/chat/hooks/use-voice-input";
+import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
+import { useAssistantReachability } from "@/assistant/use-assistant-reachability";
+import { useDiskPressureMonitor } from "@/assistant/use-disk-pressure-monitor";
+import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
+import { useAppNudges } from "@/domains/chat/hooks/use-app-nudges";
+import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
+import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
+import { useConversationLoader } from "@/domains/chat/hooks/use-conversation-loader";
+import { useMobileOverlayTarget } from "@/domains/chat/hooks/use-mobile-overlay-target";
+import type { ChatHeaderSupplements } from "@/components/layout/chat-layout-slots-store";
+import { useConversationSecondaryActions } from "@/domains/chat/hooks/use-conversation-secondary-actions";
+import { canUseLlmInspector } from "@/domains/chat/inspector/access";
+import { useCommandPaletteSections } from "@/domains/chat/hooks/use-command-palette-sections";
+import { useMessageReconciliation } from "@/domains/chat/hooks/use-message-reconciliation";
+import { useStreamEventHandler } from "@/domains/chat/hooks/use-stream-event-handler";
+import { useSendMessage } from "@/domains/chat/hooks/use-send-message";
+import { useInteractionActions } from "@/domains/chat/hooks/use-interaction-actions";
+import { useEventStream } from "@/domains/chat/hooks/use-event-stream";
+import { hydrateLastSeenSeqFromStorage } from "@/lib/streaming/last-seen-seq";
+import { isSeqGapDetectionEnabled } from "@/lib/feature-flags/seq-gap-detection-flag";
+import { useActiveAppPinSync } from "@/domains/chat/hooks/use-active-app-pin-sync";
+import { useDraftInput } from "@/domains/chat/components/chat-composer/use-draft-input";
+import { useDeepLinkConsumer } from "@/domains/chat/hooks/use-deep-link-consumer";
+import { useRefreshLatestMessages } from "@/domains/chat/hooks/use-refresh-latest-messages";
+import { useChatDebugApi } from "@/domains/chat/utils/debug-api";
+
+import { ConnectingToAssistant } from "@/domains/chat/components/connecting-to-assistant";
+import { useGhostTextSuggestion } from "@/domains/chat/hooks/use-ghost-text-suggestion";
+import { createWebSyncRouter } from "@/lib/sync/web-sync-router";
+import { assistantIdentityQueryKey } from "@/hooks/use-assistant-identity-init";
+import { useQueryClient } from "@tanstack/react-query";
+
+import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat";
+import { isSurfaceInteractive } from "@/domains/chat/types/types";
+import { useTurnStore } from "@/domains/chat/turn-store";
+import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
+import {
+  formatSlackConversationDisplayLabel,
+} from "@/domains/chat/utils/slack-conversation-display";
+import { useSlackConversationDisplay } from "@/domains/chat/hooks/use-slack-conversation-display";
+import { ConversationAssetsPill } from "@/domains/chat/components/conversation-assets-pill";
+const AddCreditsModal = lazy(() =>
+  import("@/components/add-credits-modal").then((m) => ({
+    default: m.AddCreditsModal,
+  })),
+);
+// Deploy dialogs (VercelTokenDialog + complex-deploy confirm) are only shown
+// during the deploy flow. CommandPalette only renders on Cmd+K / Ctrl+K. Defer
+// loading to keep their form/list deps out of the chat-critical bundle.
+const DeployDialogs = lazy(() =>
+  import("@/components/deploy-dialogs").then((m) => ({
+    default: m.DeployDialogs,
+  })),
+);
+const CommandPalette = lazy(() =>
+  import("@/components/command-palette/command-palette").then((m) => ({
+    default: m.CommandPalette,
+  })),
+);
+import { shouldHandleShortcut } from "@/domains/chat/chat-layout";
+import { subagentsByIdAbortPost } from "@/generated/daemon/sdk.gen";
+import { MobileAppOverlay } from "@/domains/chat/components/mobile-app-overlay";
+import { MobileDocumentOverlay } from "@/domains/chat/components/mobile-document-overlay";
+import { MobileSubagentDetailOverlay } from "@/domains/chat/components/mobile-subagent-detail-overlay";
+import { MobileToolDetailOverlay } from "@/domains/chat/components/mobile-tool-detail-overlay";
+
+import { getEditChatConversationId, setEditChatConversationId } from "@/domains/chat/utils/edit-chat-session";
+import { routes } from "@/utils/routes";
+import { haptic } from "@/utils/haptics";
+
+import {
+  ChatRouteContent,
+  type ChatRouteContentProps,
+} from "@/domains/chat/components/chat-route-content";
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
+export function ActiveChatView() {
+  const authUser = useAuthStore.use.user();
+  const showLlmInspector = canUseLlmInspector(authUser);
+  const isMobile = useIsMobile();
+  const isNative = useIsNativePlatform();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const { conversationId: urlConversationId } = useParams<{ conversationId?: string }>();
+  const setTopBarRightSlot =
+    useChatLayoutSlotsStore.use.setTopBarRightSlot();
+  const setOnSearchClick = useChatLayoutSlotsStore.use.setOnSearchClick();
+  const assistantId = useAssistantSelectionStore.use.activeAssistantId();
+  const assistantState = useAssistantLifecycleStore.use.assistantState();
+  // Wrap the service methods in stable `useCallback`s so they can flow
+  // through prop boundaries (downstream effects' dep arrays stay
+  // stable) and the `this` binding is preserved on call.
+  const checkAssistant = useCallback(
+    () => lifecycleService.checkAssistant(),
+    [],
+  );
+  const chatPullToRefreshEnabled = useClientFeatureFlagStore.use.chatPullToRefreshEnabled();
+  const deployToVercel = useAssistantFeatureFlagStore.use.deployToVercel();
+  const doctor = useClientFeatureFlagStore.use.doctor();
+  const conversationGroupsUI = useAssistantFeatureFlagStore.use.conversationGroupsUI();
+
+  // -------------------------------------------------------------------------
+  // Chat session store — reactive selectors for per-conversation state
+  // -------------------------------------------------------------------------
+  const messages = useChatSessionStore.use.messages();
+  const error = useChatSessionStore.use.error();
+  const isLoadingHistory = useChatSessionStore.use.isLoadingHistory();
+  const contextWindowUsage = useChatSessionStore.use.contextWindowUsage();
+  const compactionCircuitOpenUntil = useChatSessionStore.use.compactionCircuitOpenUntil();
+  const transcriptPagination = useChatSessionStore.use.transcriptPagination();
+  const setMessages = useChatSessionStore.use.setMessages();
+  const setError = useChatSessionStore.use.setError();
+  const setCompactionCircuitOpenUntil = useChatSessionStore.use.setCompactionCircuitOpenUntil();
+  const setTranscriptPagination = useChatSessionStore.use.setTranscriptPagination();
+
+  // -------------------------------------------------------------------------
+  // Local state (not store-backed)
+  // -------------------------------------------------------------------------
+  const [showAddCreditsModal, setShowAddCreditsModal] = useState(false);
+
+  const [restoredDraftConversationId, setRestoredDraftConversationId] = useState<string | null>(null);
+  const [refreshEpoch, setRefreshEpoch] = useState(0);
+  // Auto-greet loading gate — single source of truth lives in
+  // `useAssistantLifecycleStore.expectingFirstMessage`. Set by every
+  // hatch path (vanilla auto-hatch, nonprod `hatchVersion`, onboarding
+  // hatching-screen, pre-chat-flow) and by the mount-time pre-chat
+  // detector below. Cleared on the exit conditions below (messages
+  // arrived, 10s safety, conversation switch) or on terminal lifecycle
+  // transitions (error / retired / logout).
+  const autoGreetPending =
+    useAssistantLifecycleStore.use.expectingFirstMessage();
+
+  // Pre-chat sessionStorage detector. Load-bearing on the *reload*
+  // path: sessionStorage survives a refresh / iOS webview restore,
+  // the lifecycle store does not. If the user reloads after the
+  // pre-chat context is staged but before the first message arrives,
+  // the auto-send hook below still fires from the persisted context,
+  // so the gate has to show. Mark is idempotent.
+  useEffect(() => {
+    if (peekPendingPreChatContext()?.initialMessage != null) {
+      lifecycleService.markExpectingFirstMessage();
+    }
+  }, []);
+  const [assetsRefreshKey, setAssetsRefreshKey] = useState(0);
+
+  // Hydrate per-conversation seq cursors from localStorage once so gap
+  // detection in use-event-stream has a seeded cursor before the first
+  // bus event arrives. Gated behind the debug flag.
+  useEffect(() => {
+    if (isSeqGapDetectionEnabled()) {
+      hydrateLastSeenSeqFromStorage();
+    }
+  }, []);
+
+  // -------------------------------------------------------------------------
+  // Conversation list / groups (server state via TanStack Query)
+  // -------------------------------------------------------------------------
+  const {
+    conversations,
+  } = useConversationListQuery(assistantId, true);
+
+  // -------------------------------------------------------------------------
+  // Zustand store selectors
+  // -------------------------------------------------------------------------
+  const activeConversationId = useConversationStore.use.activeConversationId();
+  const editingConversationId = useConversationStore.use.editingConversationId();
+  const processingConversationIds = useConversationStore.use.processingConversationIds();
+  const mainView = useViewerStore.use.mainView();
+  const openedAppState = useViewerStore.use.openedAppState();
+  const openedDocumentState = useViewerStore.use.openedDocumentState();
+  const isAppMinimized = useViewerStore.use.isAppMinimized();
+  const activeSubagentId = useViewerStore.use.activeSubagentId();
+  const activeToolDetail = useViewerStore.use.activeToolDetail();
+  const subagentById = useSubagentStore.use.byId();
+  const isSharing = useDeployStore.use.isSharing();
+  const isDeploying = useDeployStore.use.isDeploying();
+  const isTokenDialogOpen = useDeployStore.use.isTokenDialogOpen();
+  const complexDeployApp = useDeployStore.use.complexDeployApp();
+
+  // Assistant identity is fetched and stored by `useAssistantIdentityInit`
+  // at the `ChatLayout` level (TanStack Query → Zustand) so the sidebar
+  // header populates on every `/assistant/*` route. ActiveChatView reads the
+  // store via atomic selectors per `docs/STATE_MANAGEMENT.md` rather
+  // than maintaining its own local copy.
+  const assistantName = useAssistantIdentityStore.use.name();
+  const queryClient = useQueryClient();
+
+  // -------------------------------------------------------------------------
+  // Pin-sync side-effect
+  // -------------------------------------------------------------------------
+  useActiveAppPinSync(useCallback((appId: string) => {
+    const didClose = useViewerStore.getState().handleAppUnpinned(appId);
+    if (didClose) {
+      useConversationStore.getState().setEditingConversationId(null);
+    }
+  }, []));
+
+  // -------------------------------------------------------------------------
+  // Shared refs — owned here, read/written by hooks
+  // -------------------------------------------------------------------------
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const sanitizedMessagesRef = useRef<DisplayMessage[]>([]);
+  const transcriptItemsRef = useRef<TranscriptItem[]>([]);
+  // Owned here so `useChatDebugApi` (also called from this component) can
+  // read scroll geometry directly via `transcriptRef.current.getScrollElement()`.
+  // Threaded down to ChatRouteContent through the `refs` prop and bound on
+  // the actual `<Transcript />` instance there.
+  const transcriptRef = useRef<TranscriptHandle | null>(null);
+
+  // Composer focus from the Electron host's File > Current Conversation
+  // command. The command is dispatched in `chat-layout.tsx` via the
+  // `useVellumCommands` hook; the textarea ref lives here, so we listen
+  // for a window event rather than threading the ref upward through
+  // props/context just for this one cross-cutting capability. On mount,
+  // also drain any pending focus request that fired before we mounted
+  // (e.g. when the command was invoked from `/assistant/home` and
+  // chat-layout navigated us here) — see `./composer-focus.ts`.
+  useEffect(() => {
+    const focusInput = () => inputRef.current?.focus();
+    const handleFocusRequest = () => {
+      consumePendingComposerFocus();
+      focusInput();
+    };
+    window.addEventListener(COMPOSER_FOCUS_EVENT, handleFocusRequest);
+    if (consumePendingComposerFocus()) {
+      queueMicrotask(focusInput);
+    }
+    return () =>
+      window.removeEventListener(COMPOSER_FOCUS_EVENT, handleFocusRequest);
+  }, []);
+
+
+  const assistantIdRef = useRef<string | null>(assistantId);
+  useEffect(() => { assistantIdRef.current = assistantId; }, [assistantId]);
+
+
+
+  const pendingOnboardingContextRef = useRef<PreChatOnboardingContext | null>(null);
+  const onboardingDraftConversationIdRef = useRef<string | null>(null);
+  const [didOnboarding, setDidOnboarding] = useState(false);
+  const [onboardingTasksEmpty, setOnboardingTasksEmpty] = useState(false);
+  const [onboardingConversationId, setOnboardingConversationId] = useState<string | null>(null);
+  const initialPageOldestTsRef = useRef<number | null>(null);
+  const conversationListInvalidatedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingInitialMessageRef = useRef<{ conversationId: string; content: string } | null>(null);
+  const syncRouterRef = useRef<WebSyncRouter | null>(null);
+
+  // -------------------------------------------------------------------------
+  // Routing
+  // -------------------------------------------------------------------------
+  const push = useCallback(
+    (url: string) => { void navigate(url); },
+    [navigate],
+  );
+  const navigateToConversation = useCallback(
+    (key: string) => { void navigate(routes.conversation(key)); },
+    [navigate],
+  );
+  // -------------------------------------------------------------------------
+  // Reachability
+  // -------------------------------------------------------------------------
+  const reachability = useAssistantReachability(assistantId);
+  const reachabilityReadyEpoch = useMemo(() => {
+    if (reachability.state.phase === "ready") return refreshEpoch + 1;
+    return 0;
+  }, [reachability.state.phase, refreshEpoch]);
+
+  // -------------------------------------------------------------------------
+  // Disk pressure
+  // -------------------------------------------------------------------------
+  const diskPressure = useDiskPressureMonitor({
+    assistantId,
+    enabled: true,
+  });
+  const diskPressureChatBlockReason = getDiskPressureChatBlockReason({
+    monitorEnabled: diskPressure.mode !== null,
+    hasResolvedStatus: diskPressure.hasResolvedStatus,
+    status: diskPressure.status,
+  });
+
+  // -------------------------------------------------------------------------
+  // Draft input — owns composer `input` state and per-conversation draft
+  // persistence to localStorage. Replaces the old manual `draftsRef` that was
+  // threaded through useConversationLoader → useConversationHistory.
+  // -------------------------------------------------------------------------
+  const { input, setInput, saveDraft, clearDraft } = useDraftInput({
+    assistantId,
+    activeConversationId,
+    onDraftRestored: setRestoredDraftConversationId,
+  });
+
+  // Inbound deep links: pre-fill composer with `deeplink.send` text,
+  // navigate to `/assistant/conversations/<id>` for `deeplink.openThread`,
+  // and ensure the main window is visible first. The hook gates the
+  // composer pre-fill on `input` being empty so it doesn't clobber
+  // in-progress typing. Off Electron the bus events never fire.
+  useDeepLinkConsumer({ composerInput: input, setComposerInput: setInput });
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const inputEl = inputRef.current;
+      if (!inputEl || inputEl.disabled || inputEl.readOnly) return;
+      if (document.activeElement === inputEl) return;
+      if (document.querySelector('[aria-modal="true"]')) return;
+      if (!shouldFocusComposerForTyping(event, document.activeElement)) return;
+
+      event.preventDefault();
+      inputEl.focus();
+      setInput((current) => {
+        const next = insertTextAtSelection({
+          value: current,
+          text: event.key,
+          selectionStart: inputEl.selectionStart,
+          selectionEnd: inputEl.selectionEnd,
+        });
+        requestAnimationFrame(() => {
+          inputEl.setSelectionRange(next.cursor, next.cursor);
+        });
+        return next.value;
+      });
+    };
+
+    window.addEventListener("keydown", onKeyDown, { capture: true });
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, { capture: true });
+    };
+  }, [setInput]);
+
+  // -------------------------------------------------------------------------
+  // Attachments
+  // -------------------------------------------------------------------------
+  const {
+    attachments: chatAttachments,
+    uploadingCount: attachmentsUploadingCount,
+    uploadedIds: attachmentUploadedIds,
+    lastError: attachmentLastError,
+    addFiles: addChatAttachmentFiles,
+    removeAttachment: removeChatAttachment,
+    reset: resetChatAttachments,
+    dismissError: dismissChatAttachmentError,
+  } = useChatAttachments(assistantId);
+
+  // -------------------------------------------------------------------------
+  // Voice input
+  // -------------------------------------------------------------------------
+  const {
+    voiceInputRef,
+    voiceInterim,
+    voiceError,
+    clearVoiceError,
+    setVoiceError,
+    showPrimer: _showPrimer,
+    handleVoiceBeforeStart,
+    handleVoiceTranscript,
+    setVoiceInterim,
+    handleRetryMicPermission,
+  } = useVoiceInput({ assistantId, inputRef, setInput });
+
+  // -------------------------------------------------------------------------
+  // Avatar
+  // -------------------------------------------------------------------------
+  const avatar = useAssistantAvatar(assistantId);
+
+  // -------------------------------------------------------------------------
+  // Live assistant row — the not-yet-finalized streaming bubble of the active
+  // turn, derived from message position and the conversation's processing
+  // state. `null` when nothing is streaming.
+  // -------------------------------------------------------------------------
+  const liveAssistantMessageId = useMemo(
+    () =>
+      liveAssistantRowId(
+        messages,
+        activeConversationId != null &&
+          processingConversationIds.has(activeConversationId),
+      ),
+    [messages, activeConversationId, processingConversationIds],
+  );
+
+  // -------------------------------------------------------------------------
+  // Nudges
+  // -------------------------------------------------------------------------
+  const nudges = useAppNudges(
+    messages,
+    conversations.length,
+    liveAssistantMessageId,
+  );
+
+  // -------------------------------------------------------------------------
+  // Derived state
+  // -------------------------------------------------------------------------
+  // Resolve the active row from either list cache, fetching the single row
+  // when an open background/scheduled thread is in neither — so the header,
+  // action menu, read-state, and SSE subscription have metadata without
+  // pulling the whole background backlog onto the initial-render path.
+  const activeConversation = useActiveConversation(
+    assistantId,
+    activeConversationId,
+    true,
+  );
+  const isChannelReadonly = isChannelConversation(activeConversation);
+
+  // -------------------------------------------------------------------------
+  // Conversation loader
+  // -------------------------------------------------------------------------
+  const {
+    refreshConversations,
+    scheduleConversationListRefetch,
+    switchConversation: rawSwitchConversation,
+    startNewConversation: rawStartNewConversation,
+    conversationExistsOnServer,
+    historyResult,
+  } = useConversationLoader({
+    assistantId,
+    assistantStateKind: assistantState.kind,
+    activeConversationId,
+    urlConversationId: urlConversationId ?? null,
+    searchParams,
+    navigate,
+    activeConversation,
+    conversationGroupsUI,
+    refreshEpoch,
+    reachabilityReadyEpoch,
+    assistantIdRef,
+    onboardingDraftConversationIdRef,
+    conversationListInvalidatedTimerRef,
+    pendingInitialMessageRef,
+    shouldSuppressGenericChatErrorNotice,
+    resetChatAttachments,
+  });
+
+  // Keep initialPageOldestTsRef in sync with TQ pagination data — used by
+  // useMessageReconciliation to scope reconciliation to the loaded window.
+  useEffect(() => {
+    initialPageOldestTsRef.current = historyResult.pagination.latestPageOldestTimestamp;
+  }, [historyResult.pagination.latestPageOldestTimestamp]);
+
+  // Wrap conversation-switching to reset subagent state eagerly
+  const switchConversation = useCallback(
+    (key: string) => {
+      useSubagentStore.getState().reset();
+      rawSwitchConversation(key);
+    },
+    [rawSwitchConversation],
+  );
+  const startNewConversation = useCallback(
+    (opts: { silent?: boolean; initialMessage?: string } = {}) => {
+      useSubagentStore.getState().reset();
+      rawStartNewConversation(opts);
+      requestComposerFocus();
+    },
+    [rawStartNewConversation],
+  );
+
+  // -------------------------------------------------------------------------
+  // Onboarding signal consumption
+  // -------------------------------------------------------------------------
+  // Consume the `?onboarding=1` signal left by `/onboarding/hatching` when
+  // it forwards the user after a successful hatch. Owns the post-hatch
+  // draft conversation creation + redirect; the auto-greet gate itself
+  // is driven by `lifecycleService.expectingFirstMessage` (set by the
+  // hatching screens before they navigate). The flag is stripped from
+  // the URL immediately so a page refresh doesn't re-trigger the greet.
+  useEffect(() => {
+    if (searchParams.get("onboarding") !== "1") return;
+    setDidOnboarding(true);
+    const onboardingDraftConversationId =
+      onboardingDraftConversationIdRef.current ?? createDraftConversationId();
+    onboardingDraftConversationIdRef.current = onboardingDraftConversationId;
+    setOnboardingConversationId(onboardingDraftConversationId);
+    useConversationStore.getState().setActiveConversationId(onboardingDraftConversationId);
+    // Do NOT drain sessionStorage here — this ActiveChatView instance unmounts
+    // when we navigate to /conversations/:key (different route entry),
+    // losing all refs. Leave the context in sessionStorage so the new
+    // mount's sendMessage hook and auto-send effect can consume it.
+    void navigate(routes.conversation(onboardingDraftConversationId), { replace: true });
+  }, [searchParams, navigate]);
+
+
+  // -------------------------------------------------------------------------
+  // Message reconciliation
+  // -------------------------------------------------------------------------
+  const {
+    startReconciliationLoop,
+    cancelReconciliation,
+    reconcileActiveConversation,
+  } = useMessageReconciliation({
+    initialPageOldestTsRef,
+  });
+
+  // -------------------------------------------------------------------------
+  // Assistant identity (refresh trigger)
+  // -------------------------------------------------------------------------
+  // The actual fetch lives in `useAssistantIdentityInit` at the
+  // `ChatLayout` level (TanStack Query → Zustand store). Chat-page only
+  // owns the *invalidation* triggers that the layout's query doesn't
+  // know about: SSE `identity_changed`, post-`/edit-identity` flush,
+  // and reachability resumes. Each downstream consumer (sync router,
+  // stream event handler, send-message hook) calls this and the layout
+  // re-fetches.
+  const refreshAssistantIdentity = useCallback(
+    async () => {
+      const targetId = assistantIdRef.current;
+      if (!targetId) return;
+      await queryClient.invalidateQueries({
+        queryKey: assistantIdentityQueryKey(targetId),
+      });
+    },
+    [queryClient],
+  );
+
+  useEffect(() => {
+    if (!assistantId) return;
+    void refreshAssistantIdentity();
+  }, [assistantId, reachabilityReadyEpoch, refreshAssistantIdentity]);
+
+  // -------------------------------------------------------------------------
+  // Sync router
+  // -------------------------------------------------------------------------
+  const invalidateAvatar = useCallback(() => { avatar.invalidate(); }, [avatar.invalidate]);
+
+  useEffect(() => {
+    const syncRouter = createWebSyncRouter({
+      invalidateAvatar,
+      refreshAssistantIdentity,
+      invalidateAssistantConfig: () => {},
+      invalidateAssistantSounds: () => {},
+      invalidateAssistantSchedules: () => {},
+      scheduleConversationListRefetch,
+      refreshActiveConversationMessages: reconcileActiveConversation,
+    });
+    syncRouterRef.current = syncRouter;
+    return () => {
+      if (syncRouterRef.current === syncRouter) {
+        syncRouterRef.current = null;
+      }
+      syncRouter.dispose();
+    };
+  }, [
+    invalidateAvatar,
+    refreshAssistantIdentity,
+    scheduleConversationListRefetch,
+    reconcileActiveConversation,
+  ]);
+
+  const dispatchSyncChanged = useCallback(
+    (event: SyncChangedEvent) => { void syncRouterRef.current?.dispatchSyncChanged(event); },
+    [],
+  );
+
+  // -------------------------------------------------------------------------
+  // Stream event handler
+  // -------------------------------------------------------------------------
+  const { handleStreamEvent } = useStreamEventHandler({
+    push,
+    isNative,
+    cancelReconciliation,
+    startReconciliationLoop,
+    setAssetsRefreshKey,
+    scheduleConversationListRefetch,
+    dispatchSyncChanged,
+  });
+
+  // -------------------------------------------------------------------------
+  // Send message
+  // -------------------------------------------------------------------------
+  const {
+    sendMessage,
+    handleStopGenerating: baseHandleStopGenerating,
+    queuedMessages,
+    handleCancelQueuedMessage,
+    handleCancelAllQueued,
+    handleSteerMessage,
+    handleEditQueueTail,
+  } = useSendMessage({
+    assistantId,
+    activeConversationId,
+    diskPressureChatBlockReason,
+    messages,
+    pendingOnboardingContextRef,
+    onboardingDraftConversationIdRef,
+    setInput,
+    startReconciliationLoop,
+    cancelReconciliation,
+    refreshConversations,
+    navigate,
+  });
+
+  const handleStopGenerating = useCallback(async () => {
+    useInteractionStore.getState().dismissQuestion();
+    await baseHandleStopGenerating();
+  }, [baseHandleStopGenerating]);
+
+  // Auto-send a message when navigated to with ?prompt= (e.g. Submit Feedback)
+  const promptConsumedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const prompt = searchParams.get("prompt");
+    if (!prompt || !activeConversationId || promptConsumedRef.current === prompt) return;
+    promptConsumedRef.current = prompt;
+    void sendMessage(prompt);
+  }, [searchParams, activeConversationId, sendMessage]);
+
+  // Kick off a background reachability probe immediately when a pending
+  // onboarding message exists, instead of waiting for a 502 from
+  // the conversation list query to trigger the unreachable-bus.
+  useEffect(() => {
+    if (!assistantId) return;
+    const message = peekPendingPreChatContext()?.initialMessage;
+    if (!message) return;
+    if (reachability.state.phase === "idle") {
+      reachability.probe({ mode: "background" });
+    }
+  }, [assistantId, reachability]);
+
+  // Auto-send onboarding initial message once the daemon is reachable.
+  const initialMessageConsumedRef = useRef(false);
+  useEffect(() => {
+    if (initialMessageConsumedRef.current || !assistantId || !activeConversationId) return;
+    if (reachability.state.phase !== "ready") return;
+    const message = peekPendingPreChatContext()?.initialMessage;
+    if (!message) return;
+    initialMessageConsumedRef.current = true;
+    void sendMessage(message);
+  }, [activeConversationId, assistantId, reachability.state.phase, sendMessage]);
+
+  // Clear the post-hatch loading gate once the first message appears.
+  useEffect(() => {
+    if (!autoGreetPending) return;
+    if (messages.length > 0) lifecycleService.clearExpectingFirstMessage();
+  }, [autoGreetPending, messages.length]);
+
+  // Safety timer: a failed auto-send / never-arriving greeting can't
+  // strand the user on "Connecting..." until refresh.
+  useEffect(() => {
+    if (!autoGreetPending) return;
+    const timeout = setTimeout(
+      () => lifecycleService.clearExpectingFirstMessage(),
+      10_000,
+    );
+    return () => clearTimeout(timeout);
+  }, [autoGreetPending]);
+
+  // Clear the gate when `activeConversationId` changes after first
+  // mount. Auto-greet isn't per-conversation state — it's a
+  // system-wide "we just hatched" signal that happens to surface in
+  // the chat UI, so it doesn't belong in the conversation-switch
+  // reset. Draft → real ID handoff also trips this, but by then
+  // the messages-arrived effect has already dismissed the gate (sending
+  // the first message is what resolves the draft), so the second
+  // dismiss is a no-op.
+  const lastSeenConvIdForGateRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (activeConversationId == null) return;
+    const previous = lastSeenConvIdForGateRef.current;
+    lastSeenConvIdForGateRef.current = activeConversationId;
+    if (previous != null && previous !== activeConversationId) {
+      lifecycleService.clearExpectingFirstMessage();
+    }
+  }, [activeConversationId]);
+
+  // Derive onboardingTasksEmpty from the pending context in sessionStorage.
+  // Runs once on mount — if initial message key is present, this is an
+  // onboarding mount, so peek at the context for the tasks-empty flag.
+  useEffect(() => {
+    try {
+      const raw = globalThis.sessionStorage?.getItem("onboarding.prechat.pendingContext");
+      if (!raw) return;
+      const ctx = JSON.parse(raw) as { tasks?: string[] };
+      if (Array.isArray(ctx.tasks) && ctx.tasks.length === 0) {
+        setOnboardingTasksEmpty(true);
+      }
+    } catch {
+      // Storage or parse failure — ignore.
+    }
+  }, []);
+
+  // Deep-link: ?app=<id> auto-opens the app viewer on initial load.
+  const deepLinkAppConsumed = useRef(false);
+  useEffect(() => {
+    if (deepLinkAppConsumed.current) return;
+    const appId = searchParams.get("app");
+    if (!appId || !assistantId) return;
+    deepLinkAppConsumed.current = true;
+    void useViewerStore.getState().loadApp(assistantId, appId);
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("app");
+    const query = params.toString();
+    window.history.replaceState(
+      null,
+      "",
+      query ? `${window.location.pathname}?${query}` : window.location.pathname,
+    );
+  }, [searchParams, assistantId]);
+
+  // Clear question prompt when conversation changes
+  useEffect(() => {
+    useInteractionStore.getState().dismissQuestion();
+  }, [activeConversationId]);
+
+  // Reset subagent state when conversation changes
+  useEffect(() => {
+    useSubagentStore.getState().reset();
+  }, [activeConversationId]);
+
+  // -------------------------------------------------------------------------
+  // Subagent detail fetching
+  // -------------------------------------------------------------------------
+  const handleRequestSubagentDetail = useCallback(
+    (subagentId: string) => {
+      if (!assistantId) return;
+      void useSubagentStore.getState().fetchDetailIfNeeded(assistantId, subagentId);
+    },
+    [assistantId],
+  );
+
+  // Stable signal: changes only when the set of subagent IDs that need a
+  // detail fetch changes (entry appears with conversationId + no events,
+  // or an entry receives events). Immune to loadDetail calls that update
+  // status/objective without changing events, preventing retrigger loops.
+  const unfetchedSubagentKey = useSubagentStore((s) => {
+    const ids: string[] = [];
+    for (const entry of Object.values(s.byId)) {
+      if (entry.conversationId && entry.events.length === 0) {
+        ids.push(entry.subagentId);
+      }
+    }
+    return ids.sort().join(',');
+  });
+
+  // Auto-fetch details for subagents reconstructed from history.
+  useEffect(() => {
+    if (!assistantId || !unfetchedSubagentKey) return;
+    for (const entry of Object.values(useSubagentStore.getState().byId)) {
+      if (entry.conversationId && entry.events.length === 0) {
+        void useSubagentStore.getState().fetchDetailIfNeeded(assistantId, entry.subagentId);
+      }
+    }
+  }, [assistantId, unfetchedSubagentKey]);
+
+  // -------------------------------------------------------------------------
+  // Interaction actions
+  // -------------------------------------------------------------------------
+  const interactionActions = useInteractionActions();
+
+  // -------------------------------------------------------------------------
+  // Event stream (SSE lifecycle)
+  // -------------------------------------------------------------------------
+  useEventStream({
+    assistantStateKind: assistantState.kind,
+    assistantId,
+    activeConversationId,
+    conversationExistsOnServer,
+    handleStreamEvent,
+    reconcileActiveConversation,
+    startReconciliationLoop,
+    cancelReconciliation,
+    reachabilityProbe: reachability.probe,
+    reachabilityPhase: reachability.state.phase,
+    reachabilityReset: reachability.reset,
+    syncRouterRef,
+    conversationListInvalidatedTimerRef,
+  });
+
+  // -------------------------------------------------------------------------
+  // Non-destructive refresh for the chat title chevron's Refresh menu item.
+  // -------------------------------------------------------------------------
+  const refreshLatestMessages = useRefreshLatestMessages({
+    assistantId,
+  });
+
+  // Debug API — dev-facing surface for in-the-moment chat inspection.
+  // Unconditionally attached; negligible production overhead.
+  //
+  // `getTurnState` / `getUIContext` read fresh values on every call via the
+  // `latestRefs` indirection inside `useChatDebugApi`, so DevTools sees the
+  // same snapshot the React render path is computing. `_uiContext` is
+  // declared further down in this component but the lambda is only invoked
+  // asynchronously (from `window._vellumDebug.chat.thinkingIndicator()`),
+  // by which point initialization is complete.
+  useChatDebugApi({
+    sanitizedMessagesRef,
+    transcriptItemsRef,
+    transcriptRef,
+    getAssistantId: () => assistantIdRef.current,
+    getTurnState: () => useTurnStore.getState(),
+    getUIContext: () => _uiContext,
+    // The chat domain isn't allowed to import the interactions store
+    // directly (cross-domain rule). chat-page.tsx is the composition
+    // root with an allowlist exemption for `interactions`, so the
+    // wiring lives here. Snapshotting the fields explicitly — rather
+    // than returning the whole Zustand state — keeps the DevTools
+    // payload predictable and avoids leaking actions/setters into the
+    // serialized output.
+    getPendingInteractionsSnapshot: () => {
+      const state = useInteractionStore.getState();
+      return {
+        pendingSecret: state.pendingSecret,
+        isSubmittingSecret: state.isSubmittingSecret,
+        pendingConfirmation: state.pendingConfirmation,
+        isSubmittingConfirmation: state.isSubmittingConfirmation,
+        pendingContactRequest: state.pendingContactRequest,
+        isSubmittingContactRequest: state.isSubmittingContactRequest,
+        pendingQuestion: state.pendingQuestion,
+        isSubmittingQuestion: state.isSubmittingQuestion,
+        isQuestionCardDismissed: state.isQuestionCardDismissed,
+        inlineConfirmationToolCallId: state.inlineConfirmationToolCallId,
+      };
+    },
+    getScrollPagination: () => ({
+      hasMore: transcriptPagination.hasMore,
+      isLoadingOlder: transcriptPagination.isLoadingOlder,
+    }),
+    reconcileActiveConversation,
+  });
+
+  // -------------------------------------------------------------------------
+  // Conversation secondary actions (fork, analyze, inspect, copy, etc.)
+  // Primary actions (archive, pin, rename, mark-read) are owned by
+  // ChatConversationHeader in chat-layout.tsx.
+  // -------------------------------------------------------------------------
+  const {
+    handleForkConversation,
+    handleForkConversationFromMenu,
+    handleAnalyzeConversation,
+    handleOpenInNewWindow,
+    handleInspectConversation,
+    handleInspectMessage,
+    handleCopyConversation,
+  } = useConversationSecondaryActions({
+    assistantId,
+    activeConversationId,
+    activeConversation: activeConversation ?? null,
+    assistantIdentityName: assistantName ?? undefined,
+    refreshConversations,
+    switchConversation,
+    setError,
+    navigateToConversation,
+    navigate,
+  });
+
+  // -------------------------------------------------------------------------
+  // Command palette
+  // -------------------------------------------------------------------------
+  const navigateToSettings = useCallback(() => {
+    void navigate(routes.settings.root);
+  }, [navigate]);
+
+  const { commandPalette, mergedSections, handleItemSelect } =
+    useCommandPaletteSections({
+      assistantId,
+      assistantName: assistantName ?? undefined,
+      conversations,
+      activeConversationId: activeConversationId ?? undefined,
+      startNewConversation: () => startNewConversation(),
+      switchConversation,
+      navigate: (to: string | number) => {
+        if (typeof to === "number") navigate(to);
+        else void navigate(to);
+      },
+      navigateToSettings,
+    });
+
+  // Ctrl/Cmd+K shortcut for command palette
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!shouldHandleShortcut(event, document.activeElement, "k")) return;
+      event.preventDefault();
+      commandPalette.toggle();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => { window.removeEventListener("keydown", onKeyDown); };
+  }, [commandPalette.toggle]);
+
+  // Register command palette toggle as the search callback for the layout
+  useEffect(() => {
+    setOnSearchClick(commandPalette.toggle);
+    return () => { setOnSearchClick(null); };
+  }, [commandPalette.toggle, setOnSearchClick]);
+
+  // -------------------------------------------------------------------------
+  // Layout header slot registration — topBarCenter + headerSupplements
+  // -------------------------------------------------------------------------
+  const hasPersistedMessage = useMemo(
+    () => messages.some((m) => m.id != null),
+    [messages],
+  );
+  const slackConversationDisplay = useSlackConversationDisplay({
+    assistantId: assistantId ?? undefined,
+    conversation: activeConversation,
+    messages,
+  });
+  const slackHeaderLabel = useMemo(() => {
+    return slackConversationDisplay
+      ? formatSlackConversationDisplayLabel(slackConversationDisplay)
+      : null;
+  }, [slackConversationDisplay]);
+
+  const setHeaderSupplements = useChatLayoutSlotsStore.use.setHeaderSupplements();
+
+  // Write chat-specific data to the slot store so that
+  // ChatConversationHeader (rendered by ChatLayout) can build the
+  // complete actions menu without duplicating hooks or state.
+  const headerSupplements = useMemo<ChatHeaderSupplements>(() => ({
+    hasPersistedMessage,
+    slackHeaderLabel,
+    onAnalyze: handleAnalyzeConversation,
+    onForkConversation: handleForkConversationFromMenu,
+    onOpenInNewWindow: handleOpenInNewWindow,
+    onInspect: handleInspectConversation,
+    onCopyConversation: messages.length > 0 ? handleCopyConversation : null,
+    onRefresh: refreshLatestMessages,
+  }), [
+    hasPersistedMessage,
+    slackHeaderLabel,
+    handleAnalyzeConversation,
+    handleForkConversationFromMenu,
+    handleOpenInNewWindow,
+    handleInspectConversation,
+    handleCopyConversation,
+    messages.length,
+    refreshLatestMessages,
+  ]);
+
+  useEffect(() => {
+    setHeaderSupplements(headerSupplements);
+    return () => { setHeaderSupplements(null); };
+  }, [headerSupplements, setHeaderSupplements]);
+
+  // Open an app from inside a chat (assets pill, "Open App" on a message,
+  // sidebar pinned-app click). Shared with `chat-layout.tsx` — see
+  // `use-open-app-from-chat.ts` for the loadApp → enterAppEditing flow.
+  const handleOpenAppFromChat = useOpenAppFromChat();
+
+  const handleOpenDocument = useCallback(
+    (surfaceId: string) => {
+      haptic.light();
+      if (assistantId) void useViewerStore.getState().loadDocument(assistantId, surfaceId);
+    },
+    [assistantId],
+  );
+
+  const topBarRightContent = useMemo(() => {
+    if (!activeConversation?.conversationId || !assistantId) return null;
+    return (
+      <ConversationAssetsPill
+        assistantId={assistantId}
+        conversationId={activeConversation.conversationId}
+        refreshKey={assetsRefreshKey}
+        onOpenApp={handleOpenAppFromChat}
+        onOpenDocument={handleOpenDocument}
+      />
+    );
+  }, [activeConversation?.conversationId, assistantId, assetsRefreshKey, handleOpenAppFromChat, handleOpenDocument]);
+
+  useEffect(() => {
+    setTopBarRightSlot(topBarRightContent);
+    return () => { setTopBarRightSlot(null); };
+  }, [topBarRightContent, setTopBarRightSlot]);
+
+  // -------------------------------------------------------------------------
+  // Mobile overlay portal — resolve after DOM commit (CONVENTIONS.md §SSR)
+  // -------------------------------------------------------------------------
+  const overlayTarget = useMobileOverlayTarget();
+
+  // -------------------------------------------------------------------------
+  // Ghost-text suggestion (server state via TanStack Query — LUM-2009)
+  // -------------------------------------------------------------------------
+  // Derive the scalar the query keys on; the hook stays pure w.r.t.
+  // composer input — `ChatComposer.computeGhostSuffix` is the single
+  // source of truth for "what part of the suggestion is visible right
+  // now given the user's typed prefix".
+  const lastCompleteAssistantMsgId = useMemo<string | null>(() => {
+    const last = messages[messages.length - 1];
+    return last &&
+      last.role === "assistant" &&
+      last.id !== liveAssistantMessageId
+      ? last.id ?? null
+      : null;
+  }, [messages, liveAssistantMessageId]);
+
+  const suggestion = useGhostTextSuggestion({
+    assistantId,
+    conversationId: activeConversationId,
+    lastCompleteAssistantMsgId,
+  });
+
+  // -------------------------------------------------------------------------
+  // Derived UI state
+  // -------------------------------------------------------------------------
+  const hasUncompletedVisibleSurface = useMemo(() => {
+    for (const msg of messages) {
+      if (msg.surfaces) {
+        for (const s of msg.surfaces) {
+          if (isSurfaceInteractive(s)) return true;
+        }
+      }
+    }
+    return false;
+  }, [messages]);
+
+  const activeConversationIsProcessing = activeConversationId != null && processingConversationIds.has(activeConversationId);
+  const activeConversationHasPendingAssistantResponse = useMemo(
+    () => hasPendingAssistantResponse(messages),
+    [messages],
+  );
+
+  const pendingSecret = useInteractionStore.use.pendingSecret();
+  const pendingConfirmation = useInteractionStore.use.pendingConfirmation();
+  const pendingQuestion = useInteractionStore.use.pendingQuestion();
+  const pendingContactRequest = useInteractionStore.use.pendingContactRequest();
+
+  // Build UIContext first — needed for showThinking calculation
+  const _uiContext: UIContext = {
+    hasStreamingAssistantMessage: liveAssistantMessageId != null,
+    hasPendingSecret: !!pendingSecret,
+    hasPendingConfirmation: !!pendingConfirmation,
+    hasPendingQuestion: !!pendingQuestion,
+    hasPendingContactRequest: !!pendingContactRequest,
+    hasUncompletedVisibleSurface,
+    activeConversationIsProcessing,
+    hasPendingAssistantResponse: activeConversationHasPendingAssistantResponse,
+  };
+  void _uiContext;
+
+  // -------------------------------------------------------------------------
+  // Auto-greet connecting overlay — shows while waiting for the first
+  // message after hatching. Hooks continue running (SSE, queries) so the
+  // gate clears when the first message arrives.
+  // -------------------------------------------------------------------------
+  if (autoGreetPending) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <p className="text-[var(--text-secondary)]">Connecting…</p>
+      </div>
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // Props assembly
+  // -------------------------------------------------------------------------
+  const handleReviewDiskUsage = () => {
+    haptic.light();
+    useViewerStore.getState().setIntelligenceTab("workspace");
+    void navigate(routes.identity);
+  };
+
+  const pushToAiSettings = () => { void navigate(routes.settings.ai); };
+
+  const chatRouteProps: ChatRouteContentProps = {
+    assistantId,
+    assistantState,
+    assistantName,
+    chatPullToRefreshEnabled,
+    deployToVercel,
+    doctor,
+    isMobile,
+    messages,
+    setMessages,
+    input,
+    setInput,
+    error,
+    setError,
+    isLoadingHistory,
+    conversations,
+    activeConversationId,
+    activeConversation,
+    processingConversationIds,
+    mainView,
+    openedAppState,
+    openedDocumentState,
+    editingConversationId,
+    restoredDraftConversationId,
+    setRestoredDraftConversationId,
+    saveDraft,
+    clearDraft,
+    avatar: {
+      avatarComponents: avatar.components,
+      avatarTraits: avatar.traits,
+      avatarImageUrl: avatar.customImageUrl,
+    },
+    contextWindowUsage,
+    compactionCircuitOpenUntil,
+    setCompactionCircuitOpenUntil,
+    suggestion,
+    transcriptPagination,
+    setTranscriptPagination: setTranscriptPagination as Dispatch<SetStateAction<Omit<TranscriptPaginationState, "items">>>,
+    setShowAddCreditsModal,
+    diskPressure: {
+      status: diskPressure.status,
+      mode: diskPressure.mode,
+      diskPressureMonitorEnabled: diskPressure.mode !== null,
+      hasResolvedDiskPressureStatus: diskPressure.hasResolvedStatus,
+      isAcknowledgingDiskPressure: diskPressure.isAcknowledging,
+      diskPressureAcknowledgeError: diskPressure.acknowledgeError,
+      acknowledgeDiskPressure: diskPressure.acknowledge,
+    },
+    handleReviewDiskUsage,
+    nudges: {
+      isOnIOS: nudges.isOnIOS,
+      showBanner: nudges.showBanner,
+      nudge: {
+        handleDownload: nudges.nudge.handleDownload,
+        handleBannerDismiss: nudges.nudge.handleBannerDismiss,
+      },
+      githubNudge: {
+        handleStar: nudges.githubNudge.handleStar,
+        handleBannerDismiss: nudges.githubNudge.handleBannerDismiss,
+      },
+      showGitHubBanner: nudges.showGitHubBanner,
+      discordNudge: {
+        handleJoin: nudges.discordNudge.handleJoin,
+        handleBannerDismiss: nudges.discordNudge.handleBannerDismiss,
+      },
+      showDiscordBanner: nudges.showDiscordBanner,
+    },
+    attachments: {
+      chatAttachments,
+      attachmentsUploadingCount,
+      attachmentUploadedIds,
+      attachmentLastError,
+      addChatAttachmentFiles,
+      removeChatAttachment,
+      resetChatAttachments,
+      dismissChatAttachmentError,
+    },
+    voice: {
+      voiceInputRef,
+      voiceInterim,
+      voiceError,
+      clearVoiceError,
+      setVoiceError,
+      handleVoiceBeforeStart,
+      handleVoiceTranscript,
+      setVoiceInterim,
+      handleRetryMicPermission,
+    },
+    send: {
+      sendMessage,
+      handleStopGenerating,
+      queuedMessages,
+      handleCancelQueuedMessage,
+      handleCancelAllQueued,
+      handleSteerMessage,
+      handleEditQueueTail,
+    },
+    interactionActions: {
+      handleSecretSubmit: interactionActions.handleSecretSubmit,
+      handleSecretCancel: interactionActions.handleSecretCancel,
+      handleContactPromptSubmit: interactionActions.handleContactPromptSubmit,
+      handleContactPromptCancel: interactionActions.handleContactPromptCancel,
+      handleConfirmationSubmit: interactionActions.handleConfirmationSubmit,
+      handleAllowAndCreateRule: interactionActions.handleAllowAndCreateRule,
+      handleOpenRuleEditorForToolCall: interactionActions.handleOpenRuleEditorForToolCall,
+      handleQuestionResponse: interactionActions.handleQuestionResponse,
+      handleSurfaceAction: interactionActions.handleSurfaceAction,
+      unknownNudgeToolCallIds: interactionActions.unknownNudgeToolCallIds,
+      setUnknownNudgeToolCallIds: interactionActions.setUnknownNudgeToolCallIds,
+    },
+    handleOpenApp: handleOpenAppFromChat,
+    handleOpenDocument,
+    handleCloseDocument: () => {
+      useViewerStore.getState().closeDocument();
+    },
+    handleCloseApp: () => {
+      useViewerStore.getState().closeApp();
+      useConversationStore.getState().setEditingConversationId(null);
+    },
+    handleCloseEditPanel: () => {
+      useConversationStore.getState().setEditingConversationId(null);
+      useViewerStore.getState().exitAppEditing();
+    },
+    handleEditApp: () => {
+      const { openedAppState } = useViewerStore.getState();
+      if (!openedAppState || !assistantId) return;
+
+      const appId = openedAppState.appId;
+      const conversationId = getEditChatConversationId(assistantId, appId) ?? crypto.randomUUID();
+      setEditChatConversationId(assistantId, appId, conversationId);
+      useConversationStore.getState().setEditingConversationId(conversationId);
+      useViewerStore.getState().enterAppEditing();
+
+      if (activeConversationId !== conversationId) {
+        navigateToConversation(conversationId);
+      }
+    },
+    handleShareApp: () => {
+      const app = useViewerStore.getState().openedAppState;
+      if (app && assistantId) void useDeployStore.getState().shareApp(assistantId, app.appId, app.name);
+    },
+    handleDeployApp: deployToVercel ? () => {
+      const app = useViewerStore.getState().openedAppState;
+      if (app && assistantId) void useDeployStore.getState().deployApp(assistantId, app.appId, app.name, app.html);
+    } : undefined,
+    handleForkConversation,
+    handleInspectMessage: showLlmInspector ? handleInspectMessage : undefined,
+    subagentState: { byId: subagentById },
+    activeSubagentId,
+    onSubagentClick: (id: string) => { useViewerStore.getState().openSubagentDetail(id); },
+    onCloseSubagentDetail: () => { useViewerStore.getState().closeSubagentDetail(); },
+    onStopSubagent: async (subagentId: string) => {
+      if (!assistantId || !activeConversationId) return;
+      try {
+        await subagentsByIdAbortPost({
+          path: { assistant_id: assistantId, id: subagentId },
+          body: { conversationId: activeConversationId },
+          throwOnError: true,
+        });
+      } catch {
+        // Best-effort — the daemon may have already completed
+      }
+    },
+    onRequestSubagentDetail: handleRequestSubagentDetail,
+    pushToAiSettings,
+    checkAssistant,
+    setRefreshEpoch,
+    historyPagination: historyResult.pagination,
+    refs: {
+      inputRef,
+      sanitizedMessagesRef,
+      transcriptItemsRef,
+      assistantIdRef,
+      transcriptRef,
+    },
+    isChannelReadonly,
+    onboardingTasksEmpty,
+    didOnboarding,
+    onboardingConversationId,
+  };
+
+  return (
+    <>
+      <ChatRouteContent {...chatRouteProps} />
+      {showAddCreditsModal ? (
+        <LazyBoundary>
+          <AddCreditsModal
+            open={showAddCreditsModal}
+            onOpenChange={setShowAddCreditsModal}
+          />
+        </LazyBoundary>
+      ) : null}
+      <ConnectingToAssistant
+        state={reachability.state}
+        onRetry={() => reachability.probe({ showConnectingImmediately: true })}
+        onDismiss={reachability.reset}
+      />
+      {commandPalette.isOpen ? (
+        <LazyBoundary>
+          <CommandPalette
+            isOpen={commandPalette.isOpen}
+            onClose={commandPalette.close}
+            query={commandPalette.query}
+            onQueryChange={commandPalette.setQuery}
+            selectedIndex={commandPalette.selectedIndex}
+            sections={mergedSections}
+            isSearching={commandPalette.isSearching}
+            onItemSelect={handleItemSelect}
+            onKeyDown={commandPalette.handleKeyDown}
+          />
+        </LazyBoundary>
+      ) : null}
+      {assistantId && (isTokenDialogOpen || complexDeployApp) ? (
+        <LazyBoundary>
+          <DeployDialogs
+            assistantId={assistantId}
+            assistantName={assistantName ?? undefined}
+            onStartConversation={(msg) => startNewConversation({ initialMessage: msg })}
+          />
+        </LazyBoundary>
+      ) : null}
+      {overlayTarget &&
+        createPortal(
+          <>
+            <MobileAppOverlay
+              openedAppState={
+                mainView === "app" ? openedAppState : null
+              }
+              isAppMinimized={isAppMinimized}
+              assistantId={assistantId}
+              onToggleMinimized={() => {
+                useViewerStore.getState().toggleAppMinimized();
+              }}
+              onClose={() => {
+                useViewerStore.getState().closeApp();
+                useConversationStore.getState().setEditingConversationId(null);
+              }}
+              onShare={() => {
+                const app = useViewerStore.getState().openedAppState;
+                if (app && assistantId) void useDeployStore.getState().shareApp(assistantId, app.appId, app.name);
+              }}
+              isSharing={isSharing}
+              onDeploy={
+                deployToVercel
+                  ? () => {
+                      const app = useViewerStore.getState().openedAppState;
+                      if (app && assistantId) void useDeployStore.getState().deployApp(assistantId, app.appId, app.name, app.html);
+                    }
+                  : undefined
+              }
+              isDeploying={isDeploying}
+            />
+            <MobileDocumentOverlay
+              openedDocumentState={
+                mainView === "document"
+                  ? openedDocumentState
+                  : null
+              }
+              assistantId={assistantId}
+              onClose={() => {
+                useViewerStore.getState().closeDocument();
+              }}
+              onSubmitFeedback={() => {
+                const docState = useViewerStore.getState().openedDocumentState;
+                if (!docState) return;
+                const prompt = `Please review and address my comments on "${docState.documentName}".`;
+                navigate(
+                  `${routes.conversation(docState.conversationId)}?prompt=${encodeURIComponent(prompt)}`,
+                );
+              }}
+            />
+            <MobileSubagentDetailOverlay
+              entry={
+                mainView === "subagent-detail" &&
+                activeSubagentId
+                  ? subagentById[activeSubagentId] ?? null
+                  : null
+              }
+              onClose={() => {
+                useViewerStore.getState().closeSubagentDetail();
+              }}
+              onStop={async (subagentId: string) => {
+                if (!assistantId || !activeConversationId) return;
+                try {
+                  await subagentsByIdAbortPost({
+                    path: { assistant_id: assistantId, id: subagentId },
+                    body: { conversationId: activeConversationId },
+                    throwOnError: true,
+                  });
+                } catch {
+                  // Best-effort — the daemon may have already completed
+                }
+              }}
+              onRequestDetail={handleRequestSubagentDetail}
+            />
+            <MobileToolDetailOverlay
+              detail={
+                mainView === "tool-detail"
+                  ? activeToolDetail
+                  : null
+              }
+              onClose={() => {
+                useViewerStore.getState().closeToolDetail();
+              }}
+            />
+          </>,
+          overlayTarget,
+        )}
+    </>
+  );
+}
