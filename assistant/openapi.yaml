@@ -6028,6 +6028,10 @@ paths:
                           type: number
                         inferenceProfile:
                           type: string
+                        incognito:
+                          type: boolean
+                        factorInMemories:
+                          type: boolean
                         isProcessing:
                           type: boolean
                       required:
@@ -6389,6 +6393,10 @@ paths:
                         type: number
                       inferenceProfile:
                         type: string
+                      incognito:
+                        type: boolean
+                      factorInMemories:
+                        type: boolean
                       isProcessing:
                         type: boolean
                     required:
@@ -6587,6 +6595,10 @@ paths:
                         type: number
                       inferenceProfile:
                         type: string
+                      incognito:
+                        type: boolean
+                      factorInMemories:
+                        type: boolean
                       isProcessing:
                         type: boolean
                     required:
@@ -7550,6 +7562,10 @@ paths:
                         type: number
                       inferenceProfile:
                         type: string
+                      incognito:
+                        type: boolean
+                      factorInMemories:
+                        type: boolean
                       isProcessing:
                         type: boolean
                     required:

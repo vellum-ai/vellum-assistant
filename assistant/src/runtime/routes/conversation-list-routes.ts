@@ -134,6 +134,8 @@ export const conversationSummarySchema = z.object({
   forkParent: forkParentSchema.optional(),
   archivedAt: z.number().optional(),
   inferenceProfile: z.string().optional(),
+  incognito: z.boolean().optional(),
+  factorInMemories: z.boolean().optional(),
   /**
    * True when the agent loop is currently mid-turn for this conversation.
    * Mirrors the in-memory `Conversation.isProcessing()` flag on the daemon
