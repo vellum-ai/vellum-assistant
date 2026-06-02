@@ -70,9 +70,6 @@ import { useRefreshLatestMessages } from "@/domains/chat/hooks/use-refresh-lates
 import { useChatDebugApi } from "@/domains/chat/utils/debug-api";
 
 import { ConnectingToAssistant } from "@/domains/chat/components/connecting-to-assistant";
-
-
-
 import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat";
 import { isSurfaceInteractive } from "@/domains/chat/types/types";
 import { useTurnStore } from "@/domains/chat/turn-store";
