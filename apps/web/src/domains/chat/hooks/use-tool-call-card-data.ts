@@ -29,6 +29,15 @@ import { useTurnStore } from "@/domains/chat/turn-store";
 /** Max favicon chips to render inside a single `web_search` step row. */
 const MAX_VISIBLE_RESULTS = 5;
 
+/**
+ * Friendly fallback copy for a `web_search` backend failure when the daemon
+ * omits `webSearch.errorMessage`. apps/web CANNOT import from `assistant/`, so
+ * this is a local mirror — keep in sync with WEB_SEARCH_BACKEND_FAILURE_MESSAGE
+ * in assistant/src/tools/network/web-search-error.ts.
+ */
+export const WEB_SEARCH_BACKEND_FAILURE_MESSAGE =
+  "Search is having trouble right now. You can try again in a moment, continue without web search, or paste the relevant details here and I'll use those.";
+
 /** Tool names whose presence triggers the web-search step path. */
 export const WEB_TOOL_NAMES = new Set(["web_search", "web_fetch"]);
 
@@ -229,14 +238,14 @@ function buildWebSearchStepFromResultText(
   };
 }
 
-function buildWebSearchErrorStep(
+export function buildWebSearchErrorStep(
   metadata: NonNullable<ToolActivityMetadata["webSearch"]>,
 ): ToolCallCardStep {
   return {
     kind: "web_search_error",
     title: "Web search failed",
     durationLabel: formatMs(metadata.durationMs),
-    errorMessage: metadata.errorMessage ?? "Search failed.",
+    errorMessage: metadata.errorMessage ?? WEB_SEARCH_BACKEND_FAILURE_MESSAGE,
   };
 }
 
