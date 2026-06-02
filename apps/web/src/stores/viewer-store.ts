@@ -46,6 +46,13 @@ export type AppPreviewUpdate = Pick<
   "html" | "compileStatus" | "buildErrors" | "reloadGeneration"
 >;
 
+/**
+ * Last-good preview snapshot from a `building` build-start event, used to seed
+ * an auto-opened preview (`revealAppForBuild`) so it shows the last working
+ * html instead of a placeholder while the in-progress compile is mid-flight.
+ */
+export type RevealAppSeed = AppPreviewUpdate;
+
 /** Views that overlay the main content and track a "back" destination. */
 type OverlayView = "document" | "subagent-detail" | "tool-detail";
 
@@ -107,12 +114,21 @@ export function isAppNotFoundError(err: unknown): boolean {
  * `revealAppForBuild` → `"app-editing"`). Bails out if the active app
  * changed while the request was in flight. Shared so both callers get the
  * same 404-tolerance + cache-priming behavior.
+ *
+ * When auto-opening mid-build (`revealAppForBuild`), `fetchAndSetApp` can race
+ * the in-progress compile, which begins by deleting `dist/`. A racing fetch
+ * then resolves the "App compilation failed" placeholder rather than the last
+ * working html. The caller passes `preserveSeededHtml: true` in that case (it
+ * already seeded `openedAppState.html` from the build event's last-good html),
+ * so the fetch adopts only the freshly fetched metadata (name/dirName) and
+ * KEEPS the seeded html — a subsequent `ok` event swaps in the rebuilt html.
  */
 async function fetchAndSetApp(
   set: (partial: Partial<ViewerState>) => void,
   get: () => ViewerStore,
   assistantId: string,
   appId: string,
+  preserveSeededHtml = false,
 ): Promise<void> {
   try {
     const { data: result } = await appsByIdOpenPost({
@@ -120,9 +136,21 @@ async function fetchAndSetApp(
       throwOnError: true,
     });
     if (get().activeAppId !== appId) return;
-    const app = { appId: result.appId, dirName: result.dirName, name: result.name, html: result.html };
+    // Keep the build-event's last-good html when the fetch raced the
+    // dist-deleting compile; otherwise adopt the fetched html.
+    const seeded = preserveSeededHtml ? get().openedAppState : null;
+    const html = seeded && seeded.appId === appId ? seeded.html : result.html;
+    const app = {
+      appId: result.appId,
+      dirName: result.dirName,
+      name: result.name,
+      html,
+      compileStatus: seeded?.compileStatus,
+      buildErrors: seeded?.buildErrors,
+      reloadGeneration: seeded?.reloadGeneration,
+    };
     set({ openedAppState: app });
-    primeAppHtmlCache(assistantId, result.appId, result.html);
+    primeAppHtmlCache(assistantId, result.appId, html);
   } catch (err) {
     if (get().activeAppId !== appId) return;
     // 404s here are an expected condition (app was deleted on the
@@ -245,8 +273,16 @@ export interface ViewerActions {
    * build just started (driven by the first `app_preview_update` event).
    * Sets `mainView: "app-editing"` + `activeAppId` and loads the first
    * frame; live `app_preview_update`s then hot-swap the preview (PR 3).
+   *
+   * `seed` carries the build event's last-good html so the newly opened
+   * preview shows the last working version immediately, rather than the
+   * placeholder a racing (dist-deleted) fetch would otherwise resolve.
    */
-  revealAppForBuild: (assistantId: string, appId: string) => void;
+  revealAppForBuild: (
+    assistantId: string,
+    appId: string,
+    seed?: RevealAppSeed,
+  ) => void;
   setLoadedApp: (app: OpenedAppState) => void;
   updateOpenedAppPreview: (appId: string, update: AppPreviewUpdate) => void;
   handleAppLoadFailed: () => void;
@@ -353,7 +389,7 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
     await fetchAndSetApp(set, get, assistantId, appId);
   },
 
-  revealAppForBuild: (assistantId, appId) => {
+  revealAppForBuild: (assistantId, appId, seed) => {
     const state = get();
     // Already looking at this app — never yank the view (or re-fetch)
     // out from under the user mid-build. `app-editing` and the
@@ -369,10 +405,27 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
     // hook clears this flag (`clearBuildDismissal`) when a fresh build
     // sequence begins, so the next build re-opens.
     if (state.dismissedBuildAppId === appId) return;
+    // Seed the opened state from the build event's last-good html when we
+    // have it. The fetch below races the in-progress compile (which deletes
+    // `dist/`) and can resolve the "App compilation failed" placeholder; the
+    // seed ensures the newly opened preview shows the last working version,
+    // and `preserveSeededHtml` keeps it from being clobbered by that fetch.
+    // A subsequent `ok` event swaps in the rebuilt html as usual. Apps with
+    // no last-good (brand-new first build) carry no seed html and degrade to
+    // whatever the fetch resolves.
     set({
       mainView: "app-editing",
       activeAppId: appId,
-      openedAppState: null,
+      openedAppState: seed
+        ? {
+            appId,
+            name: "",
+            html: seed.html,
+            compileStatus: seed.compileStatus,
+            buildErrors: seed.buildErrors,
+            reloadGeneration: seed.reloadGeneration,
+          }
+        : null,
       isAppMinimized: false,
     });
     // Load the first frame; subsequent `app_preview_update`s hot-swap
@@ -380,7 +433,7 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
     // keeps `mainView` untouched (unlike `loadApp`), so the split-view
     // we just entered survives the async load. Fire-and-forget — the
     // helper bails on its own if the active app changed meanwhile.
-    void fetchAndSetApp(set, get, assistantId, appId);
+    void fetchAndSetApp(set, get, assistantId, appId, seed !== undefined);
   },
 
   setLoadedApp: (app) => {

@@ -461,6 +461,44 @@ describe("revealAppForBuild", () => {
     // The other app's dismissal is untouched.
     expect(getState().dismissedBuildAppId).toBe("app-2");
   });
+
+  it("seeds openedAppState with the build event's last-good html", () => {
+    getState().revealAppForBuild("assistant-1", "app-1", {
+      html: "<h1>Last good</h1>",
+      compileStatus: "building",
+      reloadGeneration: 3,
+    });
+    const state = getState();
+    expect(state.mainView).toBe("app-editing");
+    // Seeded synchronously, before the (racing) fetch settles.
+    expect(state.openedAppState?.html).toBe("<h1>Last good</h1>");
+    expect(state.openedAppState?.compileStatus).toBe("building");
+    expect(state.openedAppState?.reloadGeneration).toBe(3);
+  });
+
+  it("keeps the seeded html after the racing fetch settles", async () => {
+    getState().revealAppForBuild("assistant-1", "app-1", {
+      html: "<h1>Last good</h1>",
+      compileStatus: "building",
+      reloadGeneration: 3,
+    });
+    // Let the fire-and-forget fetch resolve. The mock returns the
+    // post-rm placeholder html; the seeded last-good html must win, while
+    // the fetched metadata (name/dirName) is adopted.
+    await Promise.resolve();
+    await Promise.resolve();
+    const state = getState();
+    expect(state.openedAppState?.html).toBe("<h1>Last good</h1>");
+    expect(state.openedAppState?.name).toBe("My App");
+    expect(state.openedAppState?.dirName).toBe("my-app");
+  });
+
+  it("adopts the fetched html when no seed is provided", async () => {
+    getState().revealAppForBuild("assistant-1", "app-1");
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(getState().openedAppState?.html).toBe("<h1>App</h1>");
+  });
 });
 
 describe("toggleAppMinimized", () => {

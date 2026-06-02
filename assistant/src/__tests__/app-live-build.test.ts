@@ -272,6 +272,70 @@ describe("runAppLiveBuild", () => {
     expect([...okRefreshGenerations].sort((a, b) => a - b)).toEqual([1, 2]);
   });
 
+  test("queued failing build after an interleaved success reports the CURRENT generation", async () => {
+    // Regression: build A and queued build B overlap. A succeeds and bumps the
+    // generation; B then fails. B's error event must carry the current
+    // (post-A) generation, NOT the pre-A snapshot it was invoked with —
+    // otherwise its generation falls below the last applied `ok` and the web
+    // store's stale-event guard silently drops the compile error.
+    const surface = makeSurfaceCounter();
+    const okBroadcasts: AppPreviewUpdateEvent[] = [];
+    const errorBroadcasts: AppPreviewUpdateEvent[] = [];
+
+    let aStarted!: () => void;
+    const aStartedGate = new Promise<void>((resolve) => {
+      aStarted = resolve;
+    });
+    // B's compile blocks until A has fully settled (bumped the generation),
+    // modeling a queued rebuild that fails AFTER the prior build succeeded.
+    let releaseB!: () => void;
+    const bGate = new Promise<void>((resolve) => {
+      releaseB = resolve;
+    });
+
+    let compileCount = 0;
+    const deps: AppLiveBuildDeps = {
+      compileApp: async () => {
+        compileCount += 1;
+        if (compileCount === 1) {
+          aStarted();
+          return ok(); // A succeeds first and bumps the generation.
+        }
+        await bGate; // B fails only after A has settled.
+        return fail(["B broke"]);
+      },
+      resolveEffectiveAppHtml: () => LAST_GOOD_HTML,
+      broadcast: (msg) => {
+        if (msg.compileStatus === "ok") okBroadcasts.push(msg);
+        if (msg.compileStatus === "error") errorBroadcasts.push(msg);
+      },
+      refreshSurfaces: surface.refreshSurfaces,
+      onSettled: () => {},
+    };
+
+    const a = runAppLiveBuild(APP_ID, fakeApp, "/tmp/app", deps);
+    await aStartedGate;
+    // B is invoked while A is in-flight, so it snapshots the pre-bump
+    // generation (0) at invocation time.
+    const b = runAppLiveBuild(APP_ID, fakeApp, "/tmp/app", deps);
+    await a; // A completes and bumps the generation to 1.
+    releaseB(); // Now let B fail.
+    await b;
+
+    // A bumped to generation 1.
+    expect(okBroadcasts).toHaveLength(1);
+    expect(okBroadcasts[0].reloadGeneration).toBe(1);
+
+    // B's error reports the CURRENT generation (1, post-A), not the pre-A 0,
+    // so the web stale-guard (drops non-ok below last `ok`) does NOT drop it.
+    expect(errorBroadcasts).toHaveLength(1);
+    expect(errorBroadcasts[0].reloadGeneration).toBe(1);
+    expect(errorBroadcasts[0].html).toBe(LAST_GOOD_HTML);
+    expect(errorBroadcasts[0].buildErrors).toEqual(["B broke"]);
+    // The error still does NOT bump the counter past A's generation.
+    expect(surface.peek(APP_ID)).toBe(1);
+  });
+
   test("first live-build after an app_create surface bump does not collide", async () => {
     // Reproduces the Gap-1 collision: `app_create` bumped the surface to 1
     // (via the non-live-build +1 path) while the live-build module counter is

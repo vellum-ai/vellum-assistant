@@ -70,13 +70,17 @@ export function useAppPreviewSync({
 
     const viewer = useViewerStore.getState();
 
-    // (1) Hot-reload the open preview (no-ops unless this is the active app).
-    viewer.updateOpenedAppPreview(event.appId, {
+    // The live-build fields this event contributes, used both to hot-reload
+    // the open preview and to seed an auto-opened one.
+    const preview = {
       html: event.html,
       compileStatus: event.compileStatus,
       buildErrors: event.buildErrors,
       reloadGeneration: event.reloadGeneration,
-    });
+    };
+
+    // (1) Hot-reload the open preview (no-ops unless this is the active app).
+    viewer.updateOpenedAppPreview(event.appId, preview);
 
     // (2) Auto-open the split-view for a build that just started.
     //
@@ -120,6 +124,10 @@ export function useAppPreviewSync({
     if (conversationId) {
       useConversationStore.getState().setEditingConversationId(conversationId);
     }
-    current.revealAppForBuild(assistantId, event.appId);
+    // Seed the opened state with the build event's last-good html so the
+    // newly opened preview shows the last working version immediately. The
+    // store's fetch races the in-progress compile (which deletes `dist/`) and
+    // can otherwise resolve the "App compilation failed" placeholder.
+    current.revealAppForBuild(assistantId, event.appId, preview);
   });
 }

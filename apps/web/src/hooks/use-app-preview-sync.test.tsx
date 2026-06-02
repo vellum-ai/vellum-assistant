@@ -8,13 +8,28 @@ import { __resetForTesting, publish } from "@/lib/event-bus";
 // daemon SDK so the call resolves in-process (the synchronous view
 // transition under test lands first) and no unhandled rejection escapes.
 // Bun's `mock.module` leaks across files — run this file on its own.
+//
+// The fetch races the in-progress (dist-deleted) compile, so it resolves the
+// "App compilation failed" placeholder rather than the last-good html — model
+// that here so the seed-preservation test is realistic.
+const FETCH_PLACEHOLDER_HTML = "<p>App compilation failed.</p>";
 mock.module("@/generated/daemon/sdk.gen", () => ({
   appsByIdOpenPost: () =>
     Promise.resolve({
-      data: { appId: "app-1", dirName: "my-app", name: "My App", html: "<h1>App</h1>" },
+      data: {
+        appId: "app-1",
+        dirName: "my-app",
+        name: "My App",
+        html: FETCH_PLACEHOLDER_HTML,
+      },
     }),
   documentsByIdGet: () => Promise.resolve({ data: null }),
 }));
+
+/** Flush pending microtasks so the fire-and-forget fetch settles. */
+function flushMicrotasks(): Promise<void> {
+  return Promise.resolve();
+}
 
 const { useAppPreviewSync } = await import("@/hooks/use-app-preview-sync");
 const { useViewerStore } = await import("@/stores/viewer-store");
@@ -165,5 +180,57 @@ describe("useAppPreviewSync auto-open", () => {
     emitPreview("app-1", "building", { conversationId: "conv-1" });
     expect(useViewerStore.getState().mainView).toBe("chat");
     expect(useViewerStore.getState().activeAppId).toBeNull();
+  });
+
+  test("seeds the opened preview with the build event's last-good html", async () => {
+    renderHook(() => useAppPreviewSync(DESKTOP_ACTIVE));
+    // Build-start for a closed app, carrying the last working html. The panel
+    // opens seeded with that html immediately.
+    emitPreview("app-1", "building", {
+      conversationId: "conv-1",
+      html: "<h1>Last good</h1>",
+    });
+    expect(useViewerStore.getState().openedAppState?.html).toBe(
+      "<h1>Last good</h1>",
+    );
+    // The racing fetch resolves the failure placeholder, but the seeded
+    // last-good html must survive (preserveSeededHtml).
+    await flushMicrotasks();
+    expect(useViewerStore.getState().openedAppState?.html).toBe(
+      "<h1>Last good</h1>",
+    );
+  });
+
+  test("a subsequent error keeps the seeded html, not a placeholder", async () => {
+    renderHook(() => useAppPreviewSync(DESKTOP_ACTIVE));
+    emitPreview("app-1", "building", {
+      conversationId: "conv-1",
+      html: "<h1>Last good</h1>",
+    });
+    await flushMicrotasks();
+    // The build then fails. Keep-last-good must preserve the seeded html
+    // rather than reverting to the fetch's placeholder.
+    emitPreview("app-1", "error", { conversationId: "conv-1" });
+    const viewer = useViewerStore.getState();
+    expect(viewer.openedAppState?.html).toBe("<h1>Last good</h1>");
+    expect(viewer.openedAppState?.compileStatus).toBe("error");
+  });
+
+  test("a subsequent ok swaps in the fresh html", async () => {
+    renderHook(() => useAppPreviewSync(DESKTOP_ACTIVE));
+    emitPreview("app-1", "building", {
+      conversationId: "conv-1",
+      html: "<h1>Last good</h1>",
+    });
+    await flushMicrotasks();
+    // A successful recompile carries the rebuilt html and a bumped generation.
+    emitPreview("app-1", "ok", {
+      conversationId: "conv-1",
+      html: "<h1>Fresh</h1>",
+      reloadGeneration: 1,
+    });
+    const viewer = useViewerStore.getState();
+    expect(viewer.openedAppState?.html).toBe("<h1>Fresh</h1>");
+    expect(viewer.openedAppState?.reloadGeneration).toBe(1);
   });
 });

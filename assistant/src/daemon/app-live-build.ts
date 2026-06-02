@@ -72,10 +72,16 @@ export async function runAppLiveBuild(
   appDir: string,
   deps: AppLiveBuildDeps,
 ): Promise<void> {
-  // Snapshot the current generation for the non-bumping `building`/`error`
-  // outcomes (these never advance the counter, so they re-broadcast whatever
-  // generation a client already has).
-  const generationAtStart = appReloadGenerations.get(appId) ?? 0;
+  // The non-bumping `building`/`error` outcomes never advance the counter;
+  // they re-broadcast whatever generation a client already has. We read this
+  // CURRENT generation at settle time (not an invocation-time snapshot): when
+  // a source change queues behind an in-flight rebuild that later succeeds and
+  // bumps the generation, a subsequent error for the queued build must report
+  // the now-current (higher) generation. Reporting a stale pre-bump snapshot
+  // would put the error's `reloadGeneration` below the last applied `ok`, and
+  // the web store's stale-event guard drops such non-`ok` events — hiding the
+  // compile error while the preview looks healthy.
+  const currentGeneration = () => appReloadGenerations.get(appId) ?? 0;
 
   // Capture the last-good resolved html BEFORE compiling: compileApp begins
   // with `rm -rf dist/`, so on a failed compile the dist (and thus the
@@ -102,7 +108,7 @@ export async function runAppLiveBuild(
   broadcastUpdate({
     html: lastGoodHtml,
     compileStatus: "building",
-    reloadGeneration: generationAtStart,
+    reloadGeneration: currentGeneration(),
   });
 
   const settleError = (buildErrors: string[]) => {
@@ -113,11 +119,15 @@ export async function runAppLiveBuild(
       compileStatus: "error",
       buildErrors,
     });
+    // Report the CURRENT generation (read at settle time, after any
+    // interleaved successful build bumped it) so the web stale-guard does not
+    // drop this error. The error itself still does NOT bump the counter —
+    // this is keep-last-good, not a new good frame.
     broadcastUpdate({
       html: lastGoodHtml,
       compileStatus: "error",
       buildErrors,
-      reloadGeneration: generationAtStart,
+      reloadGeneration: currentGeneration(),
     });
   };
 
