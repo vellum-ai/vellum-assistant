@@ -302,18 +302,27 @@ describe("appendGroup", () => {
     expect(groups[1].name).toBe("Second");
   });
 
-  test("sets sortPosition to list length when not provided", () => {
-    seedGroups(qc, [
-      makeGroup({ id: "g1", name: "First", sortPosition: 0 }),
-    ]);
+  test("falls back to list length when sortPosition is undefined", () => {
+    seedGroups(qc, [makeGroup({ id: "g1", name: "First" })]);
 
-    appendGroup(qc, ASSISTANT_ID, makeGroup({ id: "g2", name: "Second", sortPosition: 0 }));
+    const group = makeGroup({ id: "g2", name: "Second" });
+    // Simulate undefined sortPosition (as if omitted by caller)
+    (group as Record<string, unknown>).sortPosition = undefined;
+    appendGroup(qc, ASSISTANT_ID, group);
 
     const groups = getGroups(qc);
     expect(groups[1].sortPosition).toBe(1);
   });
 
-  test("preserves explicit sortPosition when non-zero", () => {
+  test("preserves sortPosition of 0", () => {
+    seedGroups(qc, [makeGroup({ id: "g1", name: "First" })]);
+
+    appendGroup(qc, ASSISTANT_ID, makeGroup({ id: "g2", name: "Second", sortPosition: 0 }));
+
+    expect(getGroups(qc)[1].sortPosition).toBe(0);
+  });
+
+  test("preserves explicit non-zero sortPosition", () => {
     seedGroups(qc, []);
 
     appendGroup(qc, ASSISTANT_ID, makeGroup({ id: "g1", name: "First", sortPosition: 5 }));
