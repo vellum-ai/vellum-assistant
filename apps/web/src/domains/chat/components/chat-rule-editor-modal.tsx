@@ -15,7 +15,44 @@ import { Button } from "@vellum/design-library/components/button";
 import { Modal } from "@vellum/design-library/components/modal";
 import { Typography } from "@vellum/design-library";
 
+import type { AllowlistOption } from "@/types/interaction-ui-types";
 import type { RuleEditorContext } from "@/domains/chat/hooks/use-interaction-actions";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Ensures there is always at least one scope option for the "Apply to"
+ * section. Matches the macOS `AssistantProgressView.scopeOptions(from:)`
+ * fallback: when the daemon provides no allowlist options, synthesize a
+ * wildcard "Any {toolName} call" entry.
+ */
+function ensureAllowlistOptions(
+  options: AllowlistOption[],
+  toolName: string,
+): AllowlistOption[] {
+  if (options.length > 0) {
+    return options;
+  }
+  return [{ label: `Any ${toolName} call`, description: "", pattern: "*" }];
+}
+
+/**
+ * Detects pipeline decompositions where all generalized options follow the
+ * "program *" pattern. Pipeline commands produce per-program wildcards that
+ * aren't useful as individual radio choices — collapse to a single static
+ * display instead. Matches macOS `isPipelineDecomposition`.
+ */
+function isPipelineDecomposition(options: AllowlistOption[]): boolean {
+  if (options.length <= 3) {
+    return false;
+  }
+  return options.every((opt) => {
+    const parts = opt.label.split(" ");
+    return parts.length === 2 && parts[1] === "*";
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Risk level config
@@ -89,15 +126,22 @@ export function ChatRuleEditorModal({
   onSave,
   onDismiss,
 }: ChatRuleEditorModalProps) {
+  const effectiveOptions = ensureAllowlistOptions(
+    context.allowlistOptions,
+    context.toolName,
+  );
+
   // Skip exact match (index 0) when multiple options exist — show only
   // generalized patterns, matching the macOS RuleEditorModal behavior.
   const generalizedOptions =
-    context.allowlistOptions.length > 1
-      ? context.allowlistOptions.slice(1)
-      : context.allowlistOptions;
+    effectiveOptions.length > 1
+      ? effectiveOptions.slice(1)
+      : effectiveOptions;
+
+  const pipelineCollapsed = isPipelineDecomposition(generalizedOptions);
 
   const [selectedPatternIndex, setSelectedPatternIndex] = useState(() => {
-    return context.allowlistOptions.length > 1 ? 1 : 0;
+    return effectiveOptions.length > 1 ? 1 : 0;
   });
 
   const [selectedRiskLevel, setSelectedRiskLevel] = useState(
@@ -121,21 +165,21 @@ export function ChatRuleEditorModal({
 
   const canSave =
     !isSaving &&
-    context.allowlistOptions.length > 0 &&
-    selectedPatternIndex < context.allowlistOptions.length;
+    effectiveOptions.length > 0 &&
+    selectedPatternIndex < effectiveOptions.length;
 
   const handleSave = useCallback(() => {
     if (!canSave) {
       return;
     }
-    const selectedOption = context.allowlistOptions[selectedPatternIndex];
+    const selectedOption = effectiveOptions[selectedPatternIndex];
     onSave({
       toolName: context.toolName,
       pattern: selectedOption.pattern,
       riskLevel: selectedRiskLevel,
       scope: resolvedScope(),
     });
-  }, [canSave, context, selectedPatternIndex, selectedRiskLevel, resolvedScope, onSave]);
+  }, [canSave, effectiveOptions, context.toolName, selectedPatternIndex, selectedRiskLevel, resolvedScope, onSave]);
 
   const riskHint = RISK_LEVELS.find((r) => r.value === selectedRiskLevel)?.hint ?? "";
 
@@ -178,41 +222,39 @@ export function ChatRuleEditorModal({
             </div>
 
             {/* Apply to — pattern options */}
-            {generalizedOptions.length > 0 && (
-              <div className="space-y-2">
-                <Typography
-                  variant="label-medium-default"
-                  className="text-[var(--content-secondary)]"
-                >
-                  Apply to
-                </Typography>
-                {generalizedOptions.length === 1 ? (
-                  <div className="rounded-md bg-[var(--surface-base)] px-3 py-2">
-                    <Typography
-                      variant="body-medium-default"
-                      className="text-[var(--content-default)]"
-                    >
-                      {generalizedOptions[0].label}
-                    </Typography>
-                  </div>
-                ) : (
-                  <div className="space-y-1">
-                    {generalizedOptions.map((option, i) => {
-                      const targetIndex =
-                        context.allowlistOptions.length > 1 ? i + 1 : i;
-                      return (
-                        <RadioRow
-                          key={option.pattern}
-                          label={option.label}
-                          selected={selectedPatternIndex === targetIndex}
-                          onSelect={() => setSelectedPatternIndex(targetIndex)}
-                        />
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
+            <div className="space-y-2">
+              <Typography
+                variant="label-medium-default"
+                className="text-[var(--content-secondary)]"
+              >
+                Apply to
+              </Typography>
+              {pipelineCollapsed || generalizedOptions.length === 1 ? (
+                <div className="rounded-md bg-[var(--surface-base)] px-3 py-2">
+                  <Typography
+                    variant="body-medium-default"
+                    className="text-[var(--content-default)]"
+                  >
+                    {generalizedOptions[0]?.label}
+                  </Typography>
+                </div>
+              ) : generalizedOptions.length > 1 ? (
+                <div className="space-y-1">
+                  {generalizedOptions.map((option, i) => {
+                    const targetIndex =
+                      effectiveOptions.length > 1 ? i + 1 : i;
+                    return (
+                      <RadioRow
+                        key={option.pattern}
+                        label={option.label}
+                        selected={selectedPatternIndex === targetIndex}
+                        onSelect={() => setSelectedPatternIndex(targetIndex)}
+                      />
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
 
             {/* Where — directory scope */}
             {directoryScopeFiltered.length > 0 && (
