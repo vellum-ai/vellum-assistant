@@ -26,18 +26,17 @@ import {
   truncateToolResultText,
   TRUNCATION_SUFFIX,
 } from "../plugins/defaults/tool-result-truncate/terminal.js";
+import type {
+  ToolResultTruncateArgs,
+  ToolResultTruncateResult,
+} from "../plugins/defaults/tool-result-truncate/types.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import {
   getMiddlewaresFor,
   registerPlugin,
   resetPluginRegistryForTests,
 } from "../plugins/registry.js";
-import {
-  type Middleware,
-  type ToolResultTruncateArgs,
-  type ToolResultTruncateResult,
-  type TurnContext,
-} from "../plugins/types.js";
+import { type Middleware, type TurnContext } from "../plugins/types.js";
 
 // ---------------------------------------------------------------------------
 // Fixtures

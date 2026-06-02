@@ -40,6 +40,10 @@
  * user-plugin-loader contract (see `assistant/src/plugins/user-loader.ts`).
  */
 
+import type {
+  ToolResultTruncateArgs,
+  ToolResultTruncateResult,
+} from "../../../src/plugins/defaults/tool-result-truncate/types.js";
 import type { VellumPluginRuntime } from "../../../src/plugins/external-api.js";
 import type {
   CircuitBreakerArgs,
@@ -65,8 +69,6 @@ import type {
   ToolErrorResult,
   ToolExecuteArgs,
   ToolExecuteResult,
-  ToolResultTruncateArgs,
-  ToolResultTruncateResult,
   TurnArgs,
   TurnResult,
 } from "../../../src/plugins/types.js";

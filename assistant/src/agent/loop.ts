@@ -14,6 +14,10 @@ import { defaultEmptyResponseTerminal } from "../plugins/defaults/empty-response
 import { defaultTokenEstimateTerminal } from "../plugins/defaults/token-estimate/terminal.js";
 import { defaultToolErrorTerminal } from "../plugins/defaults/tool-error/terminal.js";
 import { defaultToolResultTruncateTerminal } from "../plugins/defaults/tool-result-truncate/terminal.js";
+import type {
+  ToolResultTruncateArgs,
+  ToolResultTruncateResult,
+} from "../plugins/defaults/tool-result-truncate/types.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
@@ -28,8 +32,6 @@ import type {
   LLMCallResult,
   ToolErrorArgs,
   ToolErrorDecision,
-  ToolResultTruncateArgs,
-  ToolResultTruncateResult,
   TurnContext,
 } from "../plugins/types.js";
 import { PluginTimeoutError } from "../plugins/types.js";
