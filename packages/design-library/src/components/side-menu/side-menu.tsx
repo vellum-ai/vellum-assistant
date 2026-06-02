@@ -564,7 +564,7 @@ function SideMenuItem({
   const rowClasses = cn(
     "group relative flex items-center",
     "rounded-[6px]",
-    "outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]",
+    "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
     "cursor-pointer select-none",
     "transition-colors",
     "gap-[8px] p-2",

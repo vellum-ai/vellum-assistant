@@ -33,7 +33,7 @@ const buttonVariants = cva(
     "relative inline-flex items-center justify-center gap-1.5 cursor-pointer",
     "select-none whitespace-nowrap transition-[background-color,color,border-color,transform,box-shadow]",
     "duration-150 ease-out outline-none border",
-    "focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-0",
+    "keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)] keyboard-focus:ring-offset-0",
     "active:scale-[0.97]",
     "disabled:cursor-not-allowed disabled:active:scale-100",
     "aria-disabled:cursor-not-allowed aria-disabled:pointer-events-none aria-disabled:opacity-60 aria-disabled:active:scale-100",

@@ -29,6 +29,27 @@
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *, [data-theme=velvet], [data-theme=velvet] *));
 
 /* ---------------------------------------------------------------------------
+ * Keyboard-only focus ring variant.
+ *
+ * Replaces bare `focus-visible:` on interactive elements so focus rings
+ * only appear during keyboard navigation — not on touch/tap or
+ * programmatic focus. Mirrors the heuristic browsers apply to native
+ * `<button>` and `<a>` elements but NOT to generic focusable elements
+ * like `<div role="button" tabIndex={0}>` (WebKit omission tracked in
+ * w3c/csswg-drafts#12127).
+ *
+ * The `initInputModality()` utility sets `data-modality="pointer"` on
+ * `<html>` during pointer interactions and `data-modality="keyboard"`
+ * during keyboard navigation. The `:not([data-modality=pointer])`
+ * selector means focus rings show by default when the tracker has not
+ * been initialized — safe progressive enhancement.
+ *
+ * @see utils/input-modality.ts
+ * @see https://react-aria.adobe.com/useFocusVisible — same concept
+ * --------------------------------------------------------------------------- */
+@custom-variant keyboard-focus (&:where(:root:not([data-modality=pointer]) *, :root:not([data-modality=pointer])):focus-visible);
+
+/* ---------------------------------------------------------------------------
  * @theme bridge — registers CSS variables as Tailwind theme variables so
  * they generate first-class utility classes (e.g. `bg-background`,
  * `text-foreground`, `font-sans`).

@@ -145,7 +145,7 @@ const ROW_BASE_CLASSES = [
 
 const INTERACTIVE_CLASSES = [
   "hover:bg-[var(--surface-hover)]",
-  "focus-visible:ring-2 focus-visible:ring-[var(--ring)]",
+  "keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
   "cursor-pointer select-none",
 ].join(" ");
 
