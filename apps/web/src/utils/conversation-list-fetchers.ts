@@ -22,6 +22,17 @@ import { isScheduledConversation } from "@/utils/conversation-predicates";
 import { toConversation } from "@/utils/conversation-transforms";
 
 // ---------------------------------------------------------------------------
+// Shared sort comparator
+// ---------------------------------------------------------------------------
+
+/** Sort conversations descending by a timestamp field (newest first). */
+function byTimestampDesc(
+  key: "lastMessageAt" | "archivedAt",
+): (a: Conversation, b: Conversation) => number {
+  return (a, b) => (b[key] ?? 0) - (a[key] ?? 0);
+}
+
+// ---------------------------------------------------------------------------
 // Internal pagination helper
 // ---------------------------------------------------------------------------
 
@@ -128,7 +139,7 @@ async function fetchMergedConversationList(
     conversations.push(conversation);
   }
 
-  conversations.sort((a, b) => (b[sortKey] ?? 0) - (a[sortKey] ?? 0));
+  conversations.sort(byTimestampDesc(sortKey));
   return conversations;
 }
 
@@ -150,9 +161,7 @@ export async function listConversations(
   assistantId: string,
 ): Promise<Conversation[]> {
   const foreground = await fetchConversationList(assistantId);
-  return [...foreground].sort(
-    (a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0),
-  );
+  return [...foreground].sort(byTimestampDesc("lastMessageAt"));
 }
 
 /**
@@ -177,7 +186,7 @@ export async function listBackgroundConversations(
   });
   return background
     .filter((c) => !isScheduledConversation(c))
-    .sort((a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0));
+    .sort(byTimestampDesc("lastMessageAt"));
 }
 
 /**
@@ -196,9 +205,7 @@ export async function listScheduledConversations(
   const scheduled = await fetchConversationList(assistantId, {
     conversationType: "scheduled",
   });
-  return [...scheduled].sort(
-    (a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0),
-  );
+  return [...scheduled].sort(byTimestampDesc("lastMessageAt"));
 }
 
 /**
