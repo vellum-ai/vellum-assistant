@@ -128,17 +128,14 @@ export function ContactsPage({
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
-  const [mergeError, setMergeError] = useState<string | null>(null);
 
   const handleSelect = useCallback((sel: ContactSelection) => {
     setSelection(sel);
     setDrawerOpen(false);
     setMergeDialogOpen(false);
-    setMergeError(null);
   }, []);
 
   const handleOpenMerge = useCallback(() => {
-    setMergeError(null);
     setMergeDialogOpen(true);
   }, []);
 
@@ -266,30 +263,8 @@ export function ContactsPage({
   const deleteMutation = useMutation({
     mutationFn: (contactId: string) =>
       gatewayDeleteContact(assistantId, contactId),
-    onMutate: async (contactId) => {
-      await queryClient.cancelQueries({ queryKey: contactsQueryKey });
-      const previous = queryClient.getQueryData<ContactsGetResponse>(contactsQueryKey);
-      const previousSelection = selection;
-      queryClient.setQueryData<ContactsGetResponse>(
-        contactsQueryKey,
-        (prev) =>
-          prev
-            ? {
-                ...prev,
-                contacts: prev.contacts.filter((c) => c.id !== contactId),
-              }
-            : undefined,
-      );
+    onSuccess: () => {
       setSelection({ kind: "assistant" });
-      return { previous, previousSelection };
-    },
-    onError: (_error, _contactId, context) => {
-      if (context?.previous) {
-        queryClient.setQueryData<ContactsGetResponse>(contactsQueryKey, context.previous);
-      }
-      if (context?.previousSelection) {
-        setSelection(context.previousSelection);
-      }
     },
     onSettled: () => invalidateContacts(),
   });
@@ -307,30 +282,6 @@ export function ContactsPage({
         displayName: patch.displayName,
         notes: patch.notes,
       }),
-    onMutate: async ({ contactId, patch }) => {
-      await queryClient.cancelQueries({ queryKey: contactsQueryKey });
-      const previous = queryClient.getQueryData<ContactsGetResponse>(contactsQueryKey);
-      queryClient.setQueryData<ContactsGetResponse>(
-        contactsQueryKey,
-        (prev) =>
-          prev
-            ? {
-                ...prev,
-                contacts: prev.contacts.map((c) =>
-                  c.id === contactId
-                    ? { ...c, displayName: patch.displayName, notes: patch.notes }
-                    : c,
-                ),
-              }
-            : undefined,
-      );
-      return { previous };
-    },
-    onError: (_error, _vars, context) => {
-      if (context?.previous) {
-        queryClient.setQueryData<ContactsGetResponse>(contactsQueryKey, context.previous);
-      }
-    },
     onSettled: () => invalidateContacts(),
   });
 
@@ -362,13 +313,7 @@ export function ContactsPage({
         setSelection({ kind: "contact", contactId: mergedContact.id });
       }
       setMergeDialogOpen(false);
-      setMergeError(null);
       toast.success("Contacts merged");
-    },
-    onError: (err) => {
-      const message =
-        err instanceof Error ? err.message : "Failed to merge contacts";
-      setMergeError(message);
     },
     onSettled: () => invalidateContacts(),
   });
@@ -376,8 +321,8 @@ export function ContactsPage({
   const handleCloseMerge = useCallback(() => {
     if (mergeMutation.isPending) return;
     setMergeDialogOpen(false);
-    setMergeError(null);
-  }, [mergeMutation.isPending]);
+    mergeMutation.reset();
+  }, [mergeMutation]);
 
   const disconnectMutation = useMutation({
     mutationFn: async (channelKey: AssistantChannelState["key"]) => {
@@ -548,6 +493,29 @@ export function ContactsPage({
   );
 
   // ---------------------------------------------------------------------------
+  // Derived optimistic state
+  // ---------------------------------------------------------------------------
+
+  const deletingContactId = deleteMutation.isPending
+    ? deleteMutation.variables
+    : null;
+
+  const optimisticContact = useMemo<ContactPayload | null>(() => {
+    if (!selectedContact) return null;
+    if (
+      updateMutation.isPending &&
+      updateMutation.variables?.contactId === selectedContact.id
+    ) {
+      return {
+        ...selectedContact,
+        displayName: updateMutation.variables.patch.displayName,
+        notes: updateMutation.variables.patch.notes,
+      };
+    }
+    return selectedContact;
+  }, [selectedContact, updateMutation.isPending, updateMutation.variables]);
+
+  // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
 
@@ -564,13 +532,15 @@ export function ContactsPage({
           channelTypes: channelTypeLabels(guardian.channels, a2aChannel),
         }
       : null,
-    regularContacts: regularContacts.map((c) => ({
-      id: c.id,
-      displayName: c.displayName,
-      role: c.role,
-      contactType: c.contactType,
-      channelTypes: channelTypeLabels(c.channels, a2aChannel),
-    })),
+    regularContacts: regularContacts
+      .filter((c) => c.id !== deletingContactId)
+      .map((c) => ({
+        id: c.id,
+        displayName: c.displayName,
+        role: c.role,
+        contactType: c.contactType,
+        channelTypes: channelTypeLabels(c.channels, a2aChannel),
+      })),
     selection,
     onAddContact: handleAddContact,
     addingContact: createMutation.isPending,
@@ -595,7 +565,9 @@ export function ContactsPage({
       </aside>
 
       <section className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-        {selection.kind === "assistant" ? (
+        {selection.kind === "assistant" ||
+        (selection.kind === "contact" &&
+          selection.contactId === deletingContactId) ? (
           <AssistantChannelsDetail
             assistantName={assistantName}
             channels={channels}
@@ -607,10 +579,10 @@ export function ContactsPage({
             onSaveTwilioCredentials={handleSaveTwilioCredentials}
             onGenerateInviteLink={a2aChannel ? handleOpenInviteLink : undefined}
           />
-        ) : selectedContact ? (
-          selectedContact.role === "guardian" ? (
+        ) : optimisticContact ? (
+          optimisticContact.role === "guardian" ? (
             <GuardianDetailView
-              contact={selectedContact}
+              contact={optimisticContact}
               savePending={updateMutation.isPending}
               verifyPending={verifyChannelMutation.isPending}
               mergePending={mergeMutation.isPending}
@@ -619,7 +591,7 @@ export function ContactsPage({
               a2aEnabled={a2aChannel}
               onSave={async (patch) => {
                 await updateMutation.mutateAsync({
-                  contactId: selectedContact.id,
+                  contactId: optimisticContact.id,
                   patch,
                 });
               }}
@@ -633,7 +605,7 @@ export function ContactsPage({
             />
           ) : (
             <ContactDetailView
-              contact={selectedContact}
+              contact={optimisticContact}
               savePending={updateMutation.isPending}
               deletePending={deleteMutation.isPending}
               mergePending={mergeMutation.isPending}
@@ -642,12 +614,12 @@ export function ContactsPage({
               a2aEnabled={a2aChannel}
               onSave={async (patch) => {
                 await updateMutation.mutateAsync({
-                  contactId: selectedContact.id,
+                  contactId: optimisticContact.id,
                   patch,
                 });
               }}
               onDelete={async () => {
-                await deleteMutation.mutateAsync(selectedContact.id);
+                await deleteMutation.mutateAsync(optimisticContact.id);
               }}
               onMerge={handleOpenMerge}
               onSetupChannel={
@@ -667,7 +639,13 @@ export function ContactsPage({
           survivor={selectedContact}
           candidates={mergeCandidates}
           pending={mergeMutation.isPending}
-          errorMessage={mergeError}
+          errorMessage={
+            mergeMutation.error instanceof Error
+              ? mergeMutation.error.message
+              : mergeMutation.error
+                ? "Failed to merge contacts"
+                : null
+          }
           onMerge={(donorId) =>
             mergeMutation.mutate({
               path: { assistant_id: assistantId },
