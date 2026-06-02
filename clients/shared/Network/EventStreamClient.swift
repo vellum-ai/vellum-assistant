@@ -437,6 +437,7 @@ public final class EventStreamClient {
 
             guard let self, !Task.isCancelled else { return }
 
+            var myWatchdog: Task<Void, Never>?
             do {
                 await self.sseHandshakeDiagnostics.reset()
                 let (bytes, response) = try await GatewayHTTPClient.stream(
@@ -492,7 +493,7 @@ public final class EventStreamClient {
                 self.hasConnectedAtLeastOnce = true
 
                 self.startSSEIdleWatchdog()
-                let myWatchdog = self.sseIdleWatchdogTask
+                myWatchdog = self.sseIdleWatchdogTask
 
                 var receivedTraffic = false
                 for try await line in bytes.lines {
@@ -529,7 +530,7 @@ public final class EventStreamClient {
             // replacement stream connected while this task was
             // finishing, its watchdog is already installed — an
             // unconditional nil would leave that stream unmonitored.
-            if self.sseIdleWatchdogTask === myWatchdog {
+            if self.sseIdleWatchdogTask == myWatchdog {
                 self.sseIdleWatchdogTask?.cancel()
                 self.sseIdleWatchdogTask = nil
             }
