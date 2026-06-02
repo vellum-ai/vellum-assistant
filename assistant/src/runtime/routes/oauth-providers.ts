@@ -7,8 +7,8 @@
  */
 
 import { loadConfig } from "../../config/loader.js";
-import { getOAuthCallbackUrl } from "../../inbound/public-ingress-urls.js";
 import { resolveCallbackUrl } from "../../inbound/platform-callback-registration.js";
+import { getOAuthCallbackUrl } from "../../inbound/public-ingress-urls.js";
 import {
   deleteApp,
   deleteConnection,
