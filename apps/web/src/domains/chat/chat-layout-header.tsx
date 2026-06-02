@@ -81,7 +81,7 @@ export function ChatLayoutHeader({
             onClick={toggleSidebar}
           />
         )}
-        {onOpenHome ? (
+        {onOpenHome && !(isMobile && isHomeActive) ? (
           <span className="relative">
             <Button
               variant="ghost"
