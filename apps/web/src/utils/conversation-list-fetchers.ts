@@ -1,15 +1,20 @@
 /**
- * Fetch functions for conversation lists (foreground, background, scheduled,
- * archived). Each returns a sorted `Conversation[]` from the daemon's
- * paginated `conversationsGet()` endpoint.
+ * Fetch functions and `queryOptions` factories for conversation lists
+ * (foreground, background, scheduled, archived).
  *
- * These are pure async functions — no React hooks, no cache writes. The
- * companion `conversation-queries.ts` wires them into TanStack Query hooks.
+ * Each fetcher returns a sorted `Conversation[]` from the daemon's paginated
+ * `conversationsGet()` endpoint. The `queryOptions` factories co-locate
+ * `queryKey` + `queryFn` + `staleTime` so consumers can spread them into
+ * `useQuery()`, pass them to `queryClient.prefetchQuery()`, or destructure
+ * `.queryKey` for imperative cache operations — all with full type safety.
  *
  * References:
+ * - https://tanstack.com/query/latest/docs/framework/react/guides/query-options
  * - https://tanstack.com/query/latest/docs/framework/react/guides/query-functions
+ * - https://tanstack.com/query/latest/docs/eslint/prefer-query-options
  */
 
+import { queryOptions } from "@tanstack/react-query";
 import { captureError } from "@/lib/sentry/capture-error";
 import { conversationsGet } from "@/generated/daemon/sdk.gen";
 import {
@@ -17,6 +22,12 @@ import {
   assertHasResponse,
   extractErrorMessage,
 } from "@/utils/api-errors";
+import {
+  archivedConversationsQueryKey,
+  backgroundConversationsQueryKey,
+  conversationsQueryKey,
+  scheduledConversationsQueryKey,
+} from "@/lib/sync/query-tags";
 import type { Conversation } from "@/types/conversation-types";
 import { isScheduledConversation } from "@/utils/conversation-predicates";
 import { toConversation } from "@/utils/conversation-transforms";
@@ -216,4 +227,62 @@ export async function listArchivedConversations(
   assistantId: string,
 ): Promise<Conversation[]> {
   return fetchMergedConversationList(assistantId, "archived", "archivedAt");
+}
+
+// ---------------------------------------------------------------------------
+// queryOptions factories
+//
+// Co-locate queryKey + queryFn + staleTime so hooks can spread them into
+// useQuery() and imperative callers can use .queryKey for cache operations.
+//
+// References:
+// - https://tanstack.com/query/latest/docs/framework/react/guides/query-options
+// - https://tkdodo.eu/blog/the-query-options-api
+// ---------------------------------------------------------------------------
+
+const QUERY_STALE_TIME_MS = 30_000;
+
+/**
+ * Query options for the foreground conversation list. Spread into
+ * `useQuery()` and override `enabled` at the hook level.
+ */
+export function conversationListOptions(assistantId: string) {
+  return queryOptions({
+    queryKey: conversationsQueryKey(assistantId),
+    queryFn: () => listConversations(assistantId),
+    staleTime: QUERY_STALE_TIME_MS,
+  });
+}
+
+/**
+ * Query options for the background conversation list.
+ */
+export function backgroundConversationListOptions(assistantId: string) {
+  return queryOptions({
+    queryKey: backgroundConversationsQueryKey(assistantId),
+    queryFn: () => listBackgroundConversations(assistantId),
+    staleTime: QUERY_STALE_TIME_MS,
+  });
+}
+
+/**
+ * Query options for the scheduled conversation list.
+ */
+export function scheduledConversationListOptions(assistantId: string) {
+  return queryOptions({
+    queryKey: scheduledConversationsQueryKey(assistantId),
+    queryFn: () => listScheduledConversations(assistantId),
+    staleTime: QUERY_STALE_TIME_MS,
+  });
+}
+
+/**
+ * Query options for the archived conversation list.
+ */
+export function archivedConversationListOptions(assistantId: string) {
+  return queryOptions({
+    queryKey: archivedConversationsQueryKey(assistantId),
+    queryFn: () => listArchivedConversations(assistantId),
+    staleTime: QUERY_STALE_TIME_MS,
+  });
 }

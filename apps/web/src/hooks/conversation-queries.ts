@@ -6,10 +6,16 @@
  * companion `conversation-store.ts` keeps only the client-side slice —
  * active/editing key, processing/attention sets, and snapshots.
  *
- * Fetch functions live in `utils/conversation-list-fetchers.ts`.
+ * Each hook spreads a `queryOptions` factory from
+ * `utils/conversation-list-fetchers.ts` and adds runtime concerns
+ * (`enabled` gating via `useIsOrgReady()`, `select` transforms). This
+ * co-locates `queryKey` + `queryFn` + `staleTime` in one place so they
+ * can be reused across hooks, prefetches, and imperative cache reads.
+ *
  * Cache mutation helpers live in `utils/conversation-cache-mutations.ts`.
  *
  * References:
+ * - https://tanstack.com/query/latest/docs/framework/react/guides/query-options
  * - https://tanstack.com/query/latest/docs/framework/react/guides/queries
  * - https://tanstack.com/query/latest/docs/framework/react/guides/updates-from-mutation-responses
  */
@@ -24,25 +30,17 @@ import type {
   GroupsGetData,
 } from "@/generated/daemon/types.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
-import {
-  archivedConversationsQueryKey,
-  backgroundConversationsQueryKey,
-  conversationsQueryKey,
-  scheduledConversationsQueryKey,
-} from "@/lib/sync/query-tags";
 import type { Conversation, ConversationGroup } from "@/types/conversation-types";
 import {
-  listArchivedConversations,
-  listBackgroundConversations,
-  listConversations,
-  listScheduledConversations,
+  archivedConversationListOptions,
+  backgroundConversationListOptions,
+  conversationListOptions,
+  scheduledConversationListOptions,
 } from "@/utils/conversation-list-fetchers";
 
 // ---------------------------------------------------------------------------
 // Queries
 // ---------------------------------------------------------------------------
-
-const QUERY_STALE_TIME_MS = 30_000;
 
 // Stable empty references so consumers don't churn on `??` fallback.
 const EMPTY_CONVERSATIONS: Conversation[] = [];
@@ -80,10 +78,8 @@ export function useConversationListQuery(
 } {
   const isOrgReady = useIsOrgReady();
   const query = useQuery({
-    queryKey: conversationsQueryKey(assistantId),
-    queryFn: () => listConversations(assistantId!),
+    ...conversationListOptions(assistantId!),
     enabled: enabled && Boolean(assistantId) && isOrgReady,
-    staleTime: QUERY_STALE_TIME_MS,
   });
   return {
     conversations: query.data ?? EMPTY_CONVERSATIONS,
@@ -118,10 +114,8 @@ export function useBackgroundConversationListQuery(
 } {
   const isOrgReady = useIsOrgReady();
   const query = useQuery({
-    queryKey: backgroundConversationsQueryKey(assistantId),
-    queryFn: () => listBackgroundConversations(assistantId!),
+    ...backgroundConversationListOptions(assistantId!),
     enabled: enabled && Boolean(assistantId) && isOrgReady,
-    staleTime: QUERY_STALE_TIME_MS,
   });
   return {
     conversations: query.data ?? EMPTY_CONVERSATIONS,
@@ -152,10 +146,8 @@ export function useScheduledConversationListQuery(
 } {
   const isOrgReady = useIsOrgReady();
   const query = useQuery({
-    queryKey: scheduledConversationsQueryKey(assistantId),
-    queryFn: () => listScheduledConversations(assistantId!),
+    ...scheduledConversationListOptions(assistantId!),
     enabled: enabled && Boolean(assistantId) && isOrgReady,
-    staleTime: QUERY_STALE_TIME_MS,
   });
   return {
     conversations: query.data ?? EMPTY_CONVERSATIONS,
@@ -186,10 +178,8 @@ export function useArchivedConversationListQuery(
 } {
   const isOrgReady = useIsOrgReady();
   const query = useQuery({
-    queryKey: archivedConversationsQueryKey(assistantId),
-    queryFn: () => listArchivedConversations(assistantId!),
+    ...archivedConversationListOptions(assistantId!),
     enabled: enabled && Boolean(assistantId) && isOrgReady,
-    staleTime: QUERY_STALE_TIME_MS,
   });
   return {
     conversations: query.data ?? EMPTY_CONVERSATIONS,
@@ -219,7 +209,7 @@ export function useConversationGroupsQuery(
     } as Options<GroupsGetData>),
     select: (data) => data.groups,
     enabled: enabled && Boolean(assistantId) && isOrgReady,
-    staleTime: QUERY_STALE_TIME_MS,
+    staleTime: 30_000,
   });
   return {
     conversationGroups: query.data ?? EMPTY_GROUPS,
