@@ -26,8 +26,8 @@ mock.module("../../assistant-event-hub.js", () => ({
   broadcastMessage: () => {},
 }));
 
-import { getDb } from "../../../memory/db-connection.js";
 import { getConversation } from "../../../memory/conversation-crud.js";
+import { getDb } from "../../../memory/db-connection.js";
 import { initializeDb } from "../../../memory/db-init.js";
 import { conversations } from "../../../memory/schema.js";
 import { ROUTES as CONVERSATION_MANAGEMENT_ROUTES } from "../conversation-management-routes.js";
