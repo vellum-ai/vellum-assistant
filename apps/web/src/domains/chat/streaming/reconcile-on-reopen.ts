@@ -8,6 +8,9 @@
  *                  path owns the initial fetch, no reconcile here.
  *   - `"resume"` — visibility-driven reopen; standalone reconcile +
  *                  start the reconciliation loop on the new epoch.
+ *   - `"debug"`  — manual `_vellumDebug.events.reconnectClient()`
+ *                  trigger; takes the same standalone-reconcile path as
+ *                  `"resume"` so QA can exercise post-reconnect catch-up.
  *   - `"watchdog"` / `"error"` — transport-level recovery; prefer the
  *                  sync router's `dispatchReconnect()` (it returns the
  *                  active conversation's refreshed messages in the
@@ -31,12 +34,15 @@ import {
   recordLifecycleDiagnostic,
   resolvePlatformTag,
 } from "@/lib/diagnostics";
+import type { BusEventPayload } from "@/lib/event-bus";
 import type {
   ActiveConversationMessagesRefreshResult,
   WebSyncReconnectResult,
 } from "@/lib/sync/web-sync-router";
 
-type SseOpenedCause = "fresh" | "error" | "watchdog" | "resume";
+// Derived from the bus payload so this handler can't drift from the
+// canonical `sse.opened` cause union in `event-bus.ts`.
+type SseOpenedCause = BusEventPayload<"sse.opened">["cause"];
 
 export interface ReconcileOnReopenDeps {
   /** Assistant ID the bus is dispatching for; events for other assistants are ignored. */
