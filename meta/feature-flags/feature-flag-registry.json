@@ -459,7 +459,7 @@
     },
     {
       "id": "incognito-conversations",
-      "scope": "client",
+      "scope": "both",
       "key": "incognito-conversations",
       "label": "Incognito Conversations",
       "description": "Expose incognito conversations in the UI: a New incognito chat entry point, a header badge, and a control to choose whether existing memories are factored in. Incognito conversations never produce memories.",
