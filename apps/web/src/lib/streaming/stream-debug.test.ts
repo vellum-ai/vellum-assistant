@@ -23,20 +23,19 @@ function makeTextDeltaEvent(text: string): AssistantEvent {
 describe("registerSseClient", () => {
   test("returns a stable id with the expected prefix", () => {
     const ctrl = new AbortController();
-    const id = registerSseClient(ctrl.signal, "conv-1");
+    const id = registerSseClient(ctrl.signal);
     expect(id.startsWith("sse-")).toBe(true);
   });
 
   test("stores client with correct initial state", () => {
     const ctrl = new AbortController();
     const before = Date.now();
-    const id = registerSseClient(ctrl.signal, "conv-2");
+    const id = registerSseClient(ctrl.signal);
     const after = Date.now();
 
     const clients = getSseClients();
     const found = clients.find((c) => c.id === id);
     expect(found).toBeDefined();
-    expect(found!.conversationId).toBe("conv-2");
     expect(found!.abortSignal).toBe(ctrl.signal);
     expect(found!.establishedAt).toBeNull();
     expect(found!.initiatedAt).toBeGreaterThanOrEqual(before);
@@ -49,7 +48,7 @@ describe("registerSseClient", () => {
 
   test("auto-removes client when signal aborts", () => {
     const ctrl = new AbortController();
-    const id = registerSseClient(ctrl.signal, "conv-3");
+    const id = registerSseClient(ctrl.signal);
     expect(getSseClients().some((c) => c.id === id)).toBe(true);
 
     ctrl.abort();
@@ -59,13 +58,13 @@ describe("registerSseClient", () => {
   test("immediately removes client if already aborted", () => {
     const ctrl = new AbortController();
     ctrl.abort();
-    const id = registerSseClient(ctrl.signal, "conv-4");
+    const id = registerSseClient(ctrl.signal);
     expect(getSseClients().some((c) => c.id === id)).toBe(false);
   });
 
   test("unregisterSseClient explicitly removes a live client", () => {
     const ctrl = new AbortController();
-    const id = registerSseClient(ctrl.signal, "conv-5");
+    const id = registerSseClient(ctrl.signal);
     expect(getSseClients().some((c) => c.id === id)).toBe(true);
 
     unregisterSseClient(id);
@@ -81,7 +80,7 @@ describe("registerSseClient", () => {
 describe("markClientEstablished", () => {
   test("sets establishedAt on first data frame", () => {
     const ctrl = new AbortController();
-    const id = registerSseClient(ctrl.signal, "conv-a");
+    const id = registerSseClient(ctrl.signal);
 
     const before = Date.now();
     markClientEstablished(id);
@@ -95,7 +94,7 @@ describe("markClientEstablished", () => {
 
   test("is idempotent — does not overwrite establishedAt", () => {
     const ctrl = new AbortController();
-    const id = registerSseClient(ctrl.signal, "conv-b");
+    const id = registerSseClient(ctrl.signal);
     markClientEstablished(id);
     const first = getSseClients().find((c) => c.id === id)!.establishedAt;
 
@@ -117,7 +116,7 @@ describe("markClientEstablished", () => {
 describe("pushSseEvent", () => {
   test("records event with client id and timestamp", () => {
     const ctrl = new AbortController();
-    const id = registerSseClient(ctrl.signal, "conv-x");
+    const id = registerSseClient(ctrl.signal);
     const event = makeTextDeltaEvent("hello");
 
     const before = Date.now();
@@ -134,7 +133,7 @@ describe("pushSseEvent", () => {
 
   test("caps event buffer at 1000 entries", () => {
     const ctrl = new AbortController();
-    const id = registerSseClient(ctrl.signal, "conv-y");
+    const id = registerSseClient(ctrl.signal);
     const event = makeTextDeltaEvent("x");
 
     // Push 1005 events; only last 1000 should be retained
@@ -150,7 +149,7 @@ describe("pushSseEvent", () => {
 describe("getSseEvents limit", () => {
   test("respects custom limit", () => {
     const ctrl = new AbortController();
-    const id = registerSseClient(ctrl.signal, "conv-z");
+    const id = registerSseClient(ctrl.signal);
     const event = makeTextDeltaEvent("x");
 
     for (let i = 0; i < 20; i++) {
@@ -166,7 +165,7 @@ describe("recordSseTraffic", () => {
   test("counts data frames and keepalives separately on the client", () => {
     // GIVEN a live client
     const ctrl = new AbortController();
-    const id = registerSseClient(ctrl.signal, "conv-traffic");
+    const id = registerSseClient(ctrl.signal);
 
     // WHEN a mix of data frames and heartbeat comment frames arrive
     recordSseTraffic(id, true);
@@ -185,7 +184,7 @@ describe("recordSseTraffic", () => {
   test("tracks last-data time independently of heartbeat-only traffic", () => {
     // GIVEN a client received a data frame, then only heartbeats kept it warm
     const ctrl = new AbortController();
-    const id = registerSseClient(ctrl.signal, "conv-halfopen");
+    const id = registerSseClient(ctrl.signal);
     recordSseTraffic(id, true);
     const start = Date.now();
     while (Date.now() - start < 3) {
