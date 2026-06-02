@@ -14,6 +14,7 @@
 import { createRequire } from "node:module";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type {
   AgentEvent,
   AgentLoopRunOptions,
@@ -21,6 +22,7 @@ import type {
   MidLoopCompaction,
 } from "../agent/loop.js";
 import type { LLMConfig } from "../config/schemas/llm.js";
+import type { ContextWindowResult } from "../context/window-manager.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { defaultCompactionTerminal } from "../plugins/defaults/compaction/terminal.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
@@ -301,7 +303,7 @@ mock.module("../daemon/date-context.js", () => ({
   formatTurnTimestamp: () => "2026-01-01 (Thursday) 00:00:00 +00:00 (UTC)",
 }));
 
-mock.module("../daemon/history-repair.js", () => ({
+mock.module("../plugins/defaults/history-repair/terminal.js", () => ({
   repairHistory: (msgs: Message[]) => ({
     messages: msgs,
     stats: {
@@ -461,6 +463,7 @@ async function simulateInlineCompaction(
   turnContext: TurnContext | undefined,
   signal: AbortSignal | undefined,
   onEvent: (event: AgentEvent) => void | Promise<void>,
+  compactionCircuit: CompactionCircuit,
 ): Promise<Message[] | null> {
   await onEvent({ type: "context_compacting" });
   const { rawHistory, options } = compaction.prepare(history);
@@ -476,13 +479,35 @@ async function simulateInlineCompaction(
     );
   } catch (error) {
     if (error instanceof PluginTimeoutError) {
-      await onEvent({ type: "compaction_timed_out" });
+      await compactionCircuit.recordOutcome(
+        {
+          currentRequestId: turnContext?.requestId,
+          currentTurnTrustContext: turnContext?.trust,
+          turnCount: turnContext?.turnIndex ?? 0,
+        },
+        true,
+        onEvent,
+      );
       return null;
     }
     throw error;
   }
-  const { exhausted } = await compaction.persist(result, rawHistory);
-  if (exhausted) {
+  const compactResult = result as ContextWindowResult;
+  if (compactResult.summaryFailed !== undefined) {
+    await compactionCircuit.recordOutcome(
+      {
+        currentRequestId: turnContext?.requestId,
+        currentTurnTrustContext: turnContext?.trust,
+        turnCount: turnContext?.turnIndex ?? 0,
+      },
+      compactResult.summaryFailed,
+      onEvent,
+    );
+  }
+  if (compactResult.compacted) {
+    await compaction.applyResult(compactResult, rawHistory);
+  }
+  if (compactResult.exhausted ?? false) {
     return null;
   }
   return compaction.reinject();
@@ -497,6 +522,7 @@ async function simulateInlineCompaction(
  */
 const asAgentLoopRun = (
   fn: AgentLoopRun,
+  compactionCircuit: CompactionCircuit,
 ): ((
   messages: Message[],
   onEvent: (event: AgentEvent) => void | Promise<void>,
@@ -547,6 +573,7 @@ const asAgentLoopRun = (
                     options.turnContext,
                     options.signal,
                     onEvent,
+                    compactionCircuit,
                   )
                 : null;
               if (compacted) {
@@ -582,6 +609,8 @@ function makeCtx(
       },
     ]);
 
+  const compactionCircuit = new CompactionCircuit("test-conv");
+
   return {
     conversationId: "test-conv",
     messages: [
@@ -592,13 +621,14 @@ function makeCtx(
     currentRequestId: "test-req",
 
     agentLoop: {
-      run: asAgentLoopRun(agentLoopRun),
+      run: asAgentLoopRun(agentLoopRun, compactionCircuit),
       getToolTokenBudget: () => 0,
       getResolvedTools: () => [],
       // Tests in this file don't exercise calibration, so returning
       // undefined is fine — the estimator falls back to the per-provider
       // aggregate key.
       getActiveModel: () => undefined,
+      compactionCircuit,
     } as unknown as AgentLoopConversationContext["agentLoop"],
     provider: {
       name: "mock-provider",

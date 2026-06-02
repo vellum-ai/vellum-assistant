@@ -12,6 +12,7 @@
  */
 import { describe, expect, mock, test } from "bun:test";
 
+import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 
 // Use an object wrapper so TypeScript doesn't narrow the captured type to
@@ -206,6 +207,7 @@ mock.module("../memory/retriever.js", () => ({
 // via the options object (see assistant/src/agent/loop.ts → AgentLoopConstructorOptions).
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
+    compactionCircuit = new CompactionCircuit("test-conv");
     constructor(
       _provider: unknown,
       _systemPrompt: string,

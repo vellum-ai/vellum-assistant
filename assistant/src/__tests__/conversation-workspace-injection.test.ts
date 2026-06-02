@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { AgentEvent, AgentLoopRunResult } from "../agent/loop.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 
@@ -232,6 +233,7 @@ mock.module("../workspace/turn-commit.js", () => ({
 
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
+    compactionCircuit = new CompactionCircuit("test-conv");
     constructor() {}
     getToolTokenBudget() {
       return 0;
@@ -288,6 +290,7 @@ mock.module("../memory/canonical-guardian-store.js", () => ({
 }));
 
 import { Conversation } from "../daemon/conversation.js";
+import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 
 function makeConversation(): Conversation {
   const provider = {
@@ -327,6 +330,7 @@ describe("Conversation workspace injection", () => {
     runCalls = [];
     agentLoopScript = () => {};
     scanCallCount = 0;
+    resetPluginRegistryAndRegisterDefaults();
   });
 
   test("runtime messages include workspace top-level context", async () => {
@@ -413,6 +417,7 @@ describe("Conversation workspace dirty-refresh E2E", () => {
     runCalls = [];
     agentLoopScript = () => {};
     scanCallCount = 0;
+    resetPluginRegistryAndRegisterDefaults();
   });
 
   test("first turn computes snapshot", async () => {

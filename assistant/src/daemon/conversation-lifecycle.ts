@@ -11,16 +11,13 @@ import type { AssistantDomainEvents } from "../events/domain-events.js";
 import type { ToolProfiler } from "../events/tool-profiling-listener.js";
 import { enqueueAutoAnalysisIfEnabled } from "../memory/auto-analysis-enqueue.js";
 import { isAutoAnalysisConversation } from "../memory/auto-analysis-guard.js";
-import {
-  getConversation,
-  getMessages,
-  type MessageRow,
-} from "../memory/conversation-crud.js";
+import { getConversation, getMessages } from "../memory/conversation-crud.js";
 import { enqueueMemoryJob, isMemoryEnabled } from "../memory/jobs-store.js";
 import { enqueueMemoryRetrospectiveIfEnabled } from "../memory/memory-retrospective-enqueue.js";
 import { shouldExposePersonalMemory } from "../memory/v2/static-context.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
+import { repairHistory } from "../plugins/defaults/history-repair/terminal.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import {
   isUntrustedTrustClass,
@@ -34,47 +31,15 @@ import type { MessageQueue } from "./conversation-queue-manager.js";
 import { stripInjectionsForCompaction } from "./conversation-runtime-assembly.js";
 import { resetSkillToolProjection } from "./conversation-skill-tools.js";
 import { resolveTrustClass } from "./conversation-tool-setup.js";
-import { repairHistory } from "./history-repair.js";
 import type {
   SurfaceData,
   SurfaceType,
   UsageStats,
 } from "./message-protocol.js";
+import { filterMessagesForUntrustedActor } from "./message-provenance.js";
 import type { TrustContext } from "./trust-context.js";
 
 const log = getLogger("conversation-lifecycle");
-
-function parseProvenanceTrustClass(
-  metadata: string | null,
-): TrustClass | undefined {
-  if (!metadata) return undefined;
-  try {
-    const parsed = JSON.parse(metadata) as { provenanceTrustClass?: unknown };
-    const trustClass = parsed?.provenanceTrustClass;
-    if (
-      trustClass === "guardian" ||
-      trustClass === "trusted_contact" ||
-      trustClass === "unknown"
-    ) {
-      return trustClass;
-    }
-  } catch {
-    // Ignore malformed metadata and treat as unknown provenance.
-  }
-  return undefined;
-}
-
-export function filterMessagesForUntrustedActor(
-  messages: MessageRow[],
-): MessageRow[] {
-  return messages.filter((m) => {
-    const provenanceTrustClass = parseProvenanceTrustClass(m.metadata);
-    return (
-      provenanceTrustClass === "trusted_contact" ||
-      provenanceTrustClass === "unknown"
-    );
-  });
-}
 
 /**
  * Re-inject image source path annotations into message content blocks.
@@ -350,6 +315,13 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
           ...parsedMessages.slice(preStrippedCount),
         ];
 
+  // Normalize the canonical persisted history once at load. Every consumer
+  // of `ctx.messages` outside the agent loop (history edit/undo, PKB context
+  // tracking, surfaces) reads this list directly, so it must satisfy the
+  // provider pairing/alternation rules before any of them run. The agent
+  // loop's pre-run repair only repairs the transient per-turn message list it
+  // sends to the provider and never writes back here, so this pass is not
+  // redundant with it.
   const { messages: repairedMessages, stats } =
     repairHistory(messagesBeforeRepair);
   if (

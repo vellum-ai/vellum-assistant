@@ -92,16 +92,14 @@ function createMockDeps(
       emitActivityState: (
         phase: string,
         reason: string,
-        anchor?: string,
-        requestId?: string,
-        statusText?: string,
+        options?: { anchor?: string; requestId?: string; statusText?: string },
       ) => {
         emittedActivityStates.push({
           phase,
           reason,
-          anchor,
-          requestId,
-          statusText,
+          anchor: options?.anchor,
+          requestId: options?.requestId,
+          statusText: options?.statusText,
         });
       },
       markWorkspaceTopLevelDirty: () => {},
@@ -142,9 +140,7 @@ function createEventCollector(): {
   emitActivityState: (
     phase: string,
     reason: string,
-    anchor?: string,
-    requestId?: string,
-    statusText?: string,
+    options?: { anchor?: string; requestId?: string; statusText?: string },
   ) => void;
 } {
   const events: ServerMessage[] = [];
@@ -159,8 +155,14 @@ function createEventCollector(): {
     events,
     activityStates,
     onEvent: (msg: ServerMessage) => events.push(msg),
-    emitActivityState: (phase, reason, anchor, requestId, statusText) =>
-      activityStates.push({ phase, reason, anchor, requestId, statusText }),
+    emitActivityState: (phase, reason, options) =>
+      activityStates.push({
+        phase,
+        reason,
+        anchor: options?.anchor,
+        requestId: options?.requestId,
+        statusText: options?.statusText,
+      }),
   };
 }
 

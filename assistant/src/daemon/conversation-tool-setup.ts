@@ -159,6 +159,7 @@ export function createToolExecutor(
         ctx.sendToClient(msg as ServerMessage);
         if (msg.type === "ui_surface_show") {
           const s = msg as unknown as UiSurfaceShow;
+          const surfaceToolCallId = s.toolCallId ?? toolUseId;
           ctx.currentTurnSurfaces.push({
             surfaceId: s.surfaceId,
             surfaceType: s.surfaceType,
@@ -167,6 +168,7 @@ export function createToolExecutor(
             actions: s.actions,
             display: s.display,
             ...(s.persistent ? { persistent: true } : {}),
+            ...(surfaceToolCallId ? { toolCallId: surfaceToolCallId } : {}),
           });
         }
       },
@@ -180,6 +182,7 @@ export function createToolExecutor(
           toolName,
           proxyInput,
           ctx.abortController?.signal,
+          toolUseId,
         ),
       proxyApprovalCallback: createProxyApprovalCallback(prompter, ctx),
       requestSecret: async (params) => {

@@ -5,8 +5,9 @@
  * `DEFAULT_TIMEOUTS.compaction`), the pipeline runner throws
  * `PluginTimeoutError`. The three compaction call sites in
  * `conversation-agent-loop.ts` (start-of-turn, mid-loop, emergency) catch
- * that error, invoke `trackCompactionOutcome(..., true, onEvent)` so the
- * circuit breaker records the failure, and degrade gracefully.
+ * that error, record the failure on the loop-held `CompactionCircuit`
+ * (`recordOutcome(turn, true, ...)`) so the circuit breaker counts it, and degrade
+ * gracefully.
  *
  * This file asserts the tight coupling between:
  *  (1) a `PluginTimeoutError`-driven failure and
@@ -21,7 +22,10 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { trackCompactionOutcome } from "../daemon/conversation-agent-loop-handlers.js";
+import {
+  type CircuitTurnInfo,
+  CompactionCircuit,
+} from "../agent/compaction-circuit.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { COMPACTION_CIRCUIT_FAILURE_THRESHOLD } from "../plugins/defaults/circuit-breaker/middlewares/circuitBreaker.js";
@@ -42,27 +46,14 @@ import {
 
 // ─── Fixtures ───────────────────────────────────────────────────────────────
 
-interface FakeConversationCtx {
-  readonly conversationId: string;
-  consecutiveCompactionFailures: number;
-  compactionCircuitOpenUntil: number | null;
-  currentRequestId?: string;
-  currentTurnTrustContext?: TrustContext;
-  trustContext?: TrustContext;
-  turnCount: number;
+function makeCircuit(conversationId = "conv-timeout-test"): CompactionCircuit {
+  return new CompactionCircuit(conversationId);
 }
 
-function makeConversationCtx(
-  conversationId = "conv-timeout-test",
-): FakeConversationCtx {
-  return {
-    conversationId,
-    consecutiveCompactionFailures: 0,
-    compactionCircuitOpenUntil: null,
-    turnCount: 0,
-    trustContext: { sourceChannel: "vellum", trustClass: "guardian" },
-  };
-}
+const turn: CircuitTurnInfo = {
+  turnCount: 0,
+  trustContext: { sourceChannel: "vellum", trustClass: "guardian" },
+};
 
 const trust: TrustContext = {
   sourceChannel: "vellum",
@@ -128,34 +119,34 @@ describe("compaction timeout recovery (JARVIS-587)", () => {
     expect((caught as PluginTimeoutError).pipeline).toBe("compaction");
   });
 
-  test("trackCompactionOutcome(failed=true) driven by PluginTimeoutError trips the breaker at the 3rd strike", async () => {
+  test("recordOutcome(failed=true) driven by PluginTimeoutError trips the breaker at the 3rd strike", async () => {
     // Simulates the production sequence: each mid-loop compaction hits the
-    // pipeline's 30s ceiling, the orchestrator's catch block calls
-    // `trackCompactionOutcome(ctx, true, onEvent)`. After three such catches
+    // pipeline's 30s ceiling, the catch path calls
+    // `circuit.recordOutcome(turn, true, onEvent)`. After three such catches
     // the circuit breaker must be open — matching the same invariant the
     // existing breaker test file exercises for normal summary-LLM throws.
-    const ctx = makeConversationCtx();
+    const circuit = makeCircuit();
     const { onEvent, events } = collectEvents();
 
     // First two timeouts — circuit still closed.
-    await trackCompactionOutcome(ctx, true, onEvent);
-    await trackCompactionOutcome(ctx, true, onEvent);
-    expect(ctx.consecutiveCompactionFailures).toBe(2);
-    expect(ctx.compactionCircuitOpenUntil).toBeNull();
+    await circuit.recordOutcome(turn, true, onEvent);
+    await circuit.recordOutcome(turn, true, onEvent);
+    expect(circuit.consecutiveCompactionFailures).toBe(2);
+    expect(circuit.compactionCircuitOpenUntil).toBeNull();
     expect(events).toHaveLength(0);
 
     // Third timeout — breaker trips and emits the canonical transition event.
-    await trackCompactionOutcome(ctx, true, onEvent);
-    expect(ctx.consecutiveCompactionFailures).toBe(
+    await circuit.recordOutcome(turn, true, onEvent);
+    expect(circuit.consecutiveCompactionFailures).toBe(
       COMPACTION_CIRCUIT_FAILURE_THRESHOLD,
     );
-    expect(ctx.compactionCircuitOpenUntil).not.toBeNull();
+    expect(circuit.compactionCircuitOpenUntil).not.toBeNull();
     expect(events).toHaveLength(1);
     expect(events[0]).toEqual({
       type: "compaction_circuit_open",
-      conversationId: ctx.conversationId,
+      conversationId: circuit.conversationId,
       reason: "3_consecutive_failures",
-      openUntil: ctx.compactionCircuitOpenUntil as number,
+      openUntil: circuit.compactionCircuitOpenUntil as number,
     });
   });
 
@@ -163,19 +154,19 @@ describe("compaction timeout recovery (JARVIS-587)", () => {
     // The recovery path doesn't interfere with the breaker's normal reset —
     // once a compaction call eventually succeeds, the streak is broken and
     // the next failure starts counting from 1.
-    const ctx = makeConversationCtx();
+    const circuit = makeCircuit();
     const { onEvent } = collectEvents();
 
-    await trackCompactionOutcome(ctx, true, onEvent);
-    await trackCompactionOutcome(ctx, true, onEvent);
-    expect(ctx.consecutiveCompactionFailures).toBe(2);
+    await circuit.recordOutcome(turn, true, onEvent);
+    await circuit.recordOutcome(turn, true, onEvent);
+    expect(circuit.consecutiveCompactionFailures).toBe(2);
 
-    await trackCompactionOutcome(ctx, false, onEvent);
-    expect(ctx.consecutiveCompactionFailures).toBe(0);
-    expect(ctx.compactionCircuitOpenUntil).toBeNull();
+    await circuit.recordOutcome(turn, false, onEvent);
+    expect(circuit.consecutiveCompactionFailures).toBe(0);
+    expect(circuit.compactionCircuitOpenUntil).toBeNull();
 
-    await trackCompactionOutcome(ctx, true, onEvent);
-    expect(ctx.consecutiveCompactionFailures).toBe(1);
+    await circuit.recordOutcome(turn, true, onEvent);
+    expect(circuit.consecutiveCompactionFailures).toBe(1);
   });
 
   test("compaction call-site recovery remains defense-in-depth even when DEFAULT_TIMEOUTS.compaction is null", () => {

@@ -65,6 +65,7 @@ import { getConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/schema.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import { registerDefaultPlugins } from "../plugins/defaults/index.js";
+import { installPluginRuntime } from "../plugins/external-api.js";
 import { buildExternalPlugin } from "../plugins/external-plugin-loader.js";
 import {
   registerPluginSkills,
@@ -82,6 +83,7 @@ import {
   type PluginShutdownContext,
   type PluginSkillRegistration,
 } from "../plugins/types.js";
+import { loadUserPlugins } from "../plugins/user-loader.js";
 import {
   registerSkillRoute,
   type SkillRouteHandle,
@@ -98,16 +100,6 @@ import { APP_VERSION } from "../version.js";
 import { registerShutdownHook } from "./shutdown-registry.js";
 
 const log = getLogger("plugins-bootstrap");
-
-/**
- * Minimal context required to bootstrap the plugin layer. Kept intentionally
- * small so the call site in `lifecycle.ts` can construct it from whatever
- * state is already available at that point in startup.
- */
-export interface DaemonContext {
-  config: AssistantConfig;
-  assistantVersion: string;
-}
 
 /**
  * Resolve one credential value. Returns the raw secret string or throws a
@@ -192,6 +184,37 @@ function getDisabledPluginFlag(
 }
 
 /**
+ * Bring the plugin layer up during daemon startup. Runs the full sequence in
+ * the one order the rest of the system depends on:
+ *
+ * 1. Install the `globalThis.__vellumPluginRuntime` bridge so plugins can touch
+ *    it from their module body (see `plugins/external-api.ts` — compiled-binary
+ *    module identity).
+ * 2. Register the first-party defaults so their middleware and injectors
+ *    compose innermost, ahead of any user plugins.
+ * 3. Load user plugins from `<workspaceDir>/plugins/*`. A failing user plugin is
+ *    logged and skipped; `loadUserPlugins()` closes the registration window
+ *    when it returns, so the defaults must already be registered by then.
+ * 4. Run every registered plugin's `init()` via {@link bootstrapPlugins}.
+ *
+ * Plugin bootstrap is wrapped so a failing plugin cannot block daemon startup —
+ * the daemon comes up with degraded plugin functionality instead.
+ */
+export async function initializePlugins(): Promise<void> {
+  installPluginRuntime();
+  registerDefaultPlugins();
+  await loadUserPlugins();
+  try {
+    await bootstrapPlugins();
+  } catch (err) {
+    log.warn(
+      { err },
+      "Plugin bootstrap failed — continuing startup with degraded plugin functionality",
+    );
+  }
+}
+
+/**
  * Run every registered plugin's `init()` hook sequentially and install a
  * reverse-order shutdown hook. See the module docstring for full semantics.
  *
@@ -203,7 +226,7 @@ function getDisabledPluginFlag(
  * and before the first conversation is served. First-party defaults are
  * registered inline via {@link registerDefaultPlugins}.
  */
-export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
+export async function bootstrapPlugins(): Promise<void> {
   // Register first-party default plugins. Each default wraps one of the
   // assistant's canonical pipelines (`toolExecute`, `llmCall`, ...) with a
   // passthrough so the pipeline shape is explicit at boot even when no
@@ -222,6 +245,8 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
   }
 
   log.info({ count: plugins.length }, "bootstrapPlugins: initializing plugins");
+
+  const assistantConfig = getConfig();
 
   // Plugins that passed `requiresFlag` gating and therefore need the full
   // init → contribute → shutdown lifecycle. Plugins skipped by the flag gate
@@ -245,7 +270,7 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
   // shutdown hook below. Only `assistantVersion` is exposed today; future
   // additions live on {@link PluginShutdownContext}.
   const shutdownContext: PluginShutdownContext = {
-    assistantVersion: ctx.assistantVersion,
+    assistantVersion: APP_VERSION,
   };
 
   async function rollbackPlugin(active: ActivePlugin): Promise<void> {
@@ -266,7 +291,7 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
 
   for (const plugin of plugins) {
     const name = plugin.manifest.name;
-    const disabledFlag = getDisabledPluginFlag(plugin, ctx.config);
+    const disabledFlag = getDisabledPluginFlag(plugin, assistantConfig);
     if (disabledFlag !== undefined) {
       log.info(
         { plugin: name, flag: disabledFlag },
@@ -277,7 +302,7 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
     }
 
     try {
-      activePlugins.push(await initializePlugin(plugin, ctx));
+      activePlugins.push(await initializePlugin(plugin, assistantConfig));
     } catch (err) {
       unregisterPlugin(name);
       await teardownPartialInit();
@@ -326,7 +351,7 @@ interface ActivePlugin {
 
 async function initializePlugin(
   plugin: Plugin,
-  ctx: DaemonContext,
+  assistantConfig: AssistantConfig,
 ): Promise<ActivePlugin> {
   const name = plugin.manifest.name;
   const routeHandles: SkillRouteHandle[] = [];
@@ -341,7 +366,7 @@ async function initializePlugin(
     const config = validatePluginConfig(
       name,
       plugin.manifest.config,
-      getPluginConfigRaw(ctx.config, name),
+      getPluginConfigRaw(assistantConfig, name),
     );
 
     const initContext = {
@@ -349,7 +374,7 @@ async function initializePlugin(
       credentials,
       logger: log.child({ plugin: name }),
       pluginStorageDir: ensurePluginStorageDir(name),
-      assistantVersion: ctx.assistantVersion,
+      assistantVersion: APP_VERSION,
     };
 
     if (plugin.tools && plugin.tools.length > 0) {
@@ -417,7 +442,7 @@ async function initializePlugin(
   } catch (err) {
     if (initCompleted) {
       await teardownPlugin({ plugin, routeHandles }, "bootstrap-failed", {
-        assistantVersion: ctx.assistantVersion,
+        assistantVersion: APP_VERSION,
       });
     } else {
       for (const handle of routeHandles) {
@@ -519,11 +544,8 @@ export async function reregisterExternalPlugin(
     return;
   }
 
-  const ctx: DaemonContext = {
-    config: getConfig(),
-    assistantVersion: APP_VERSION,
-  };
-  const disabledFlag = getDisabledPluginFlag(plugin, ctx.config);
+  const assistantConfig = getConfig();
+  const disabledFlag = getDisabledPluginFlag(plugin, assistantConfig);
   if (disabledFlag !== undefined) {
     log.info(
       { plugin: pluginName, flag: disabledFlag },
@@ -535,7 +557,7 @@ export async function reregisterExternalPlugin(
   const existing = getRegisteredPlugin(pluginName);
   if (existing === undefined) {
     try {
-      await initializePlugin(plugin, ctx);
+      await initializePlugin(plugin, assistantConfig);
       setRegisteredPlugin(plugin);
       log.info({ plugin: pluginName }, "external plugin registered post-boot");
     } catch (err) {

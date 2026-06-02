@@ -6,6 +6,8 @@ on:
     branches: [main]
     paths:
       - 'cli/**'
+      - 'packages/environments/**'
+      - 'clients/shared/App/VellumEnvironment.swift'
       - '.github/workflows/ci-main-cli.yaml'
 
 jobs:

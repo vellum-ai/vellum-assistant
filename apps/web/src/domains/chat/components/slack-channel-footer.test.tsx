@@ -4,6 +4,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { client } from "@/generated/daemon/client.gen";
 import { SlackChannelFooter } from "@/domains/chat/components/slack-channel-footer";
 
+import { textBody } from "@/domains/chat/utils/message-test-helpers";
 describe("SlackChannelFooter lazy channel name resolution", () => {
   const originalPost = client.post;
   let postCalls: Array<Parameters<typeof client.post>[0]> = [];
@@ -161,7 +162,7 @@ describe("SlackChannelFooter lazy channel name resolution", () => {
           {
             id: "msg-1",
             role: "user",
-            content: "Hello",
+            ...textBody("Hello"),
             slackMessage: {
               channelId: "D0123ABCDEF",
               channelTs: "1710000000.000100",

@@ -39,11 +39,10 @@
  * sorted ascending, so a plugin-registered injector at `order: 25`
  * reliably slots between `unified-turn-context` (20) and `pkb` (30).
  *
- * Registration happens via a module-load side effect at the bottom of this
- * file — importing the module is enough to populate the registry. The
- * explicit `registerDefaultPlugins()` call in `plugins/defaults/index.ts`
- * (invoked from `daemon/external-plugins-bootstrap.ts`) re-registers the
- * same plugin idempotently, so either entry point alone is sufficient.
+ * This module only builds and exports the `Plugin` object; the defaults
+ * aggregator in `plugins/defaults/index.ts` registers it centrally, either
+ * explicitly from `daemon/external-plugins-bootstrap.ts` or lazily via the
+ * registry's default registrar the first time a query reads the registry.
  */
 
 import { resolve } from "node:path";
@@ -54,12 +53,10 @@ import { buildPkbReminder } from "../../../daemon/pkb-reminder-builder.js";
 import { listComments } from "../../../documents/document-comments-store.js";
 import { searchPkbFiles } from "../../../memory/pkb/pkb-search.js";
 import { getLogger } from "../../../util/logger.js";
-import { registerPlugin } from "../../registry.js";
 import {
   type InjectionBlock,
   type Injector,
   type Plugin,
-  PluginExecutionError,
   type TurnContext,
   type TurnInjectionInputs,
 } from "../../types.js";
@@ -706,25 +703,3 @@ export const defaultInjectorsPlugin: Plugin = {
     threadFocusInjector,
   ],
 };
-
-// Module-load side effect: register this default at import time so
-// downstream consumers (including tests that skip `bootstrapPlugins()`)
-// observe a populated registry by default. Idempotent via the swallowed
-// duplicate-name check. Kept local to this module (rather than iterating
-// an array in `defaults/index.ts`) so the registration only references
-// the already-initialized `defaultInjectorsPlugin` identifier —
-// avoiding a TDZ crash when tests `mock.module(...)` a dependency of any
-// other default plugin and directly import this file.
-try {
-  registerPlugin(defaultInjectorsPlugin);
-} catch (err) {
-  if (
-    err instanceof PluginExecutionError &&
-    err.message.includes("already registered")
-  ) {
-    // already registered — expected when both index.ts and the direct
-    // file are imported in the same process
-  } else {
-    throw err;
-  }
-}

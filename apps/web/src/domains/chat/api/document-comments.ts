@@ -1,5 +1,10 @@
-import { client } from "@/generated/api/client.gen";
-
+import {
+  documentsByIdCommentsByCommentIdDelete,
+  documentsByIdCommentsByCommentIdPatch,
+  documentsByIdCommentsGet,
+  documentsByIdCommentsPost,
+} from "@/generated/daemon/sdk.gen";
+import type { DocumentsByIdCommentsPostResponse } from "@/generated/daemon/types.gen";
 import {
   ApiError,
   assertHasResponse,
@@ -9,27 +14,6 @@ import {
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-export interface DocumentComment {
-  id: string;
-  surfaceId: string;
-  conversationId: string;
-  author: "user" | "assistant";
-  content: string;
-  anchorStart: number | null;
-  anchorEnd: number | null;
-  anchorText: string | null;
-  parentCommentId: string | null;
-  status: "open" | "resolved";
-  resolvedBy: string | null;
-  resolvedAt: number | null;
-  createdAt: number;
-  updatedAt: number;
-}
-
-interface ListCommentsResponse {
-  comments: DocumentComment[];
-}
 
 export interface CreateCommentParams {
   content: string;
@@ -41,15 +25,6 @@ export interface CreateCommentParams {
 }
 
 // ---------------------------------------------------------------------------
-// SDK base options — same pattern as documents.ts
-// ---------------------------------------------------------------------------
-
-const SDK_BASE_OPTIONS =
-  typeof window === "undefined"
-    ? ({ baseUrl: "http://localhost" } as const)
-    : ({} as const);
-
-// ---------------------------------------------------------------------------
 // API functions
 // ---------------------------------------------------------------------------
 
@@ -57,48 +32,41 @@ export async function fetchComments(
   assistantId: string,
   surfaceId: string,
   status?: "open" | "resolved",
-): Promise<DocumentComment[]> {
-  const query: Record<string, string> = {};
-  if (status) {
-    query.status = status;
-  }
-  const { data, error, response } = await client.get<
-    ListCommentsResponse,
-    unknown
-  >({
-    ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/documents/{document_id}/comments",
-    path: { assistant_id: assistantId, document_id: surfaceId },
-    query,
+): Promise<DocumentsByIdCommentsPostResponse[]> {
+  const { data, error, response } = await documentsByIdCommentsGet({
+    path: { assistant_id: assistantId, id: surfaceId },
+    query: status ? { status } : {},
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to fetch comments.");
   if (!response.ok) {
-    const msg = extractErrorMessage(error, response, "Failed to fetch comments.");
+    const msg = extractErrorMessage(
+      error,
+      response,
+      "Failed to fetch comments.",
+    );
     throw new ApiError(response.status, msg);
   }
-  const payload = data as ListCommentsResponse | undefined;
-  return payload?.comments ?? [];
+  return data?.comments ?? [];
 }
 
 export async function createComment(
   assistantId: string,
   surfaceId: string,
   params: CreateCommentParams,
-): Promise<DocumentComment> {
-  const { data, error, response } = await client.post<
-    DocumentComment & { success: boolean },
-    unknown
-  >({
-    ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/documents/{document_id}/comments",
-    path: { assistant_id: assistantId, document_id: surfaceId },
+): Promise<DocumentsByIdCommentsPostResponse> {
+  const { data, error, response } = await documentsByIdCommentsPost({
+    path: { assistant_id: assistantId, id: surfaceId },
     body: params,
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to create comment.");
   if (!response.ok || !data) {
-    const msg = extractErrorMessage(error, response, "Failed to create comment.");
+    const msg = extractErrorMessage(
+      error,
+      response,
+      "Failed to create comment.",
+    );
     throw new ApiError(response.status, msg);
   }
   return data;
@@ -109,22 +77,19 @@ async function patchCommentStatus(
   surfaceId: string,
   commentId: string,
   status: "open" | "resolved",
-): Promise<DocumentComment> {
+): Promise<DocumentsByIdCommentsPostResponse> {
   const label = status === "resolved" ? "resolve" : "reopen";
-  const { data, error, response } = await client.patch<
-    DocumentComment & { success: boolean },
-    unknown
-  >({
-    ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/documents/{document_id}/comments/{comment_id}",
-    path: {
-      assistant_id: assistantId,
-      document_id: surfaceId,
-      comment_id: commentId,
+  const { data, error, response } = await documentsByIdCommentsByCommentIdPatch(
+    {
+      path: {
+        assistant_id: assistantId,
+        id: surfaceId,
+        commentId,
+      },
+      body: { status },
+      throwOnError: false,
     },
-    body: { status },
-    throwOnError: false,
-  });
+  );
   assertHasResponse(response, error, `Failed to ${label} comment.`);
   if (!response.ok || !data) {
     const msg = extractErrorMessage(
@@ -141,7 +106,7 @@ export async function resolveComment(
   assistantId: string,
   surfaceId: string,
   commentId: string,
-): Promise<DocumentComment> {
+): Promise<DocumentsByIdCommentsPostResponse> {
   return patchCommentStatus(assistantId, surfaceId, commentId, "resolved");
 }
 
@@ -149,7 +114,7 @@ export async function reopenComment(
   assistantId: string,
   surfaceId: string,
   commentId: string,
-): Promise<DocumentComment> {
+): Promise<DocumentsByIdCommentsPostResponse> {
   return patchCommentStatus(assistantId, surfaceId, commentId, "open");
 }
 
@@ -158,16 +123,11 @@ export async function deleteComment(
   surfaceId: string,
   commentId: string,
 ): Promise<{ success: boolean }> {
-  const { error, response } = await client.delete<
-    unknown,
-    unknown
-  >({
-    ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/documents/{document_id}/comments/{comment_id}",
+  const { error, response } = await documentsByIdCommentsByCommentIdDelete({
     path: {
       assistant_id: assistantId,
-      document_id: surfaceId,
-      comment_id: commentId,
+      id: surfaceId,
+      commentId,
     },
     throwOnError: false,
   });

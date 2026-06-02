@@ -4,7 +4,7 @@ import { useState, type ReactNode } from "react";
 import { Button, Card } from "@vellum/design-library";
 
 import { useCompactionTrail } from "@/domains/chat/inspector/compaction-trail-api";
-import type { CompactionTrailEvent } from "@/domains/chat/inspector/compaction-trail-types";
+import type { CompactionTrailEvent } from "@/domains/chat/inspector/compaction-trail-fetch";
 import {
   displayProvider,
   displayText,

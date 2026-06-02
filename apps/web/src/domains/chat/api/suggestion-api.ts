@@ -1,6 +1,5 @@
 import { suggestionGet } from "@/generated/daemon/sdk.gen";
 import type { SuggestionGetResponse } from "@/generated/daemon/types.gen";
-import { SDK_BASE_OPTIONS } from "@/utils/api-errors";
 
 const EMPTY: SuggestionGetResponse = {
   suggestion: null,
@@ -16,7 +15,6 @@ export async function fetchSuggestion(
 ): Promise<SuggestionGetResponse> {
   try {
     const { data, response } = await suggestionGet({
-      ...SDK_BASE_OPTIONS,
       path: { assistant_id: assistantId },
       query: {
         conversationId,

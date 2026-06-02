@@ -80,7 +80,6 @@ import {
   applyCompactionResult,
   runAgentLoopImpl,
 } from "./conversation-agent-loop.js";
-import { trackCompactionOutcome } from "./conversation-agent-loop-handlers.js";
 import type { HistoryConversationContext } from "./conversation-history.js";
 import { undo as undoImpl } from "./conversation-history.js";
 import {
@@ -213,19 +212,6 @@ export class Conversation {
    * stripped and never re-emits them.
    */
   /** @internal */ pendingPostCompactReinject = false;
-  /**
-   * Tracks consecutive compaction failures (summary LLM call threw). In-memory
-   * only — resets to 0 on process restart, which is the intended "one free
-   * retry after restart" behavior. Reset to 0 on any successful compaction.
-   */
-  /** @internal */ consecutiveCompactionFailures = 0;
-  /**
-   * When the circuit breaker is open, this timestamp (ms since epoch) marks
-   * when auto-compaction is allowed to resume. Set to `Date.now() + 1h` after
-   * 3 consecutive failures; cleared on a successful compaction. User-initiated
-   * compaction (`force: true`) bypasses the breaker regardless.
-   */
-  /** @internal */ compactionCircuitOpenUntil: number | null = null;
   /** @internal */ currentRequestId?: string;
   /** @internal */ hasNoClient = false;
   /** @internal */ isSubagent = false;
@@ -380,7 +366,6 @@ export class Conversation {
   onConfirmationOutcome?: (
     requestId: string,
     state: string,
-    toolName?: string,
     toolUseId?: string,
   ) => void;
   private cacheWarmAbort?: AbortController;
@@ -420,22 +405,17 @@ export class Conversation {
       });
       // Notify the agent loop so it can track requestId → toolUseId mappings
       // and record confirmation outcomes for persistence.
-      this.onConfirmationOutcome?.(requestId, state, undefined, toolUseId);
+      this.onConfirmationOutcome?.(requestId, state, toolUseId);
       // Emit activity state transitions for confirmation lifecycle
       if (state === "pending") {
         this.emitActivityState(
           "awaiting_confirmation",
           "confirmation_requested",
-          "assistant_turn",
         );
       } else if (state === "timed_out") {
-        this.emitActivityState(
-          "thinking",
-          "confirmation_resolved",
-          "assistant_turn",
-          undefined,
-          "Resuming after timeout",
-        );
+        this.emitActivityState("thinking", "confirmation_resolved", {
+          statusText: "Resuming after timeout",
+        });
       }
     });
     this.secretPrompter = new SecretPrompter();
@@ -539,6 +519,7 @@ export class Conversation {
     }
 
     this.agentLoop = new AgentLoop(provider, systemPrompt, {
+      conversationId: this.conversationId,
       config: agentLoopConfig,
       tools: toolDefs.length > 0 ? toolDefs : undefined,
       toolExecutor: toolDefs.length > 0 ? toolExecutor : undefined,
@@ -877,13 +858,15 @@ export class Conversation {
   handleConfirmationResponse(
     requestId: string,
     decision: UserDecision,
-    selectedPattern?: string,
-    selectedScope?: string,
-    decisionContext?: string,
-    emissionContext?: {
-      source?: ConfirmationStateChanged["source"];
-      causedByRequestId?: string;
-      decisionText?: string;
+    options?: {
+      selectedPattern?: string;
+      selectedScope?: string;
+      decisionContext?: string;
+      emissionContext?: {
+        source?: ConfirmationStateChanged["source"];
+        causedByRequestId?: string;
+        decisionText?: string;
+      };
     },
   ): void {
     // Guard: only proceed if the confirmation is still pending. Stale or
@@ -892,53 +875,38 @@ export class Conversation {
       return;
     }
 
-    const effectiveDecision = decision;
-
     // Capture toolUseId before resolving (resolution deletes the pending entry)
     const toolUseId = this.prompter.getToolUseId(requestId);
 
-    this.prompter.resolveConfirmation(
-      requestId,
-      effectiveDecision,
-      selectedPattern,
-      selectedScope,
-      decisionContext,
-    );
+    this.prompter.resolveConfirmation(requestId, decision, {
+      selectedPattern: options?.selectedPattern,
+      selectedScope: options?.selectedScope,
+      decisionContext: options?.decisionContext,
+    });
 
     // Emit authoritative confirmation state and activity transition centrally
     // so ALL callers (HTTP handlers, /v1/confirm, channel bridges) get
     // consistent events without duplicating emission logic.
     const resolvedState =
-      effectiveDecision === "deny"
-        ? ("denied" as const)
-        : ("approved" as const);
+      decision === "deny" ? ("denied" as const) : ("approved" as const);
     this.emitConfirmationStateChanged({
       conversationId: this.conversationId,
       requestId,
       state: resolvedState,
-      source: emissionContext?.source ?? "button",
+      source: options?.emissionContext?.source ?? "button",
       toolUseId,
-      ...(emissionContext?.causedByRequestId
-        ? { causedByRequestId: emissionContext.causedByRequestId }
+      ...(options?.emissionContext?.causedByRequestId
+        ? { causedByRequestId: options.emissionContext.causedByRequestId }
         : {}),
-      ...(emissionContext?.decisionText
-        ? { decisionText: emissionContext.decisionText }
+      ...(options?.emissionContext?.decisionText
+        ? { decisionText: options.emissionContext.decisionText }
         : {}),
     });
     // Notify the agent loop of the confirmation outcome for persistence
-    this.onConfirmationOutcome?.(
-      requestId,
-      resolvedState,
-      undefined,
-      toolUseId,
-    );
-    this.emitActivityState(
-      "thinking",
-      "confirmation_resolved",
-      "assistant_turn",
-      undefined,
-      "Resuming after approval",
-    );
+    this.onConfirmationOutcome?.(requestId, resolvedState, toolUseId);
+    this.emitActivityState("thinking", "confirmation_resolved", {
+      statusText: "Resuming after approval",
+    });
 
     // Sync the canonical guardian request status so stale "pending" DB
     // records don't get matched by later guardian reply routing. Best-effort:
@@ -977,15 +945,24 @@ export class Conversation {
 
   ensureHostProxiesForTurn(
     sourceInterface: import("../channels/types.js").InterfaceId | undefined,
+    sourceActorPrincipalId = this.trustContext?.guardianPrincipalId,
   ): void {
     if (
-      shouldAttachHostProxyForCapability("host_cu", sourceInterface) &&
+      shouldAttachHostProxyForCapability(
+        "host_cu",
+        sourceInterface,
+        sourceActorPrincipalId,
+      ) &&
       !this.hostCuProxy
     ) {
       this.setHostCuProxy(new HostCuProxy());
     }
     if (
-      shouldAttachHostProxyForCapability("host_app_control", sourceInterface) &&
+      shouldAttachHostProxyForCapability(
+        "host_app_control",
+        sourceInterface,
+        sourceActorPrincipalId,
+      ) &&
       !this.hostAppControlProxy
     ) {
       this.setHostAppControlProxy(new HostAppControlProxy(this.conversationId));
@@ -1014,10 +991,13 @@ export class Conversation {
   emitActivityState(
     phase: AssistantActivityStateEvent["phase"],
     reason: AssistantActivityStateEvent["reason"],
-    anchor: AssistantActivityStateEvent["anchor"] = "assistant_turn",
-    requestId?: string,
-    statusText?: string,
+    options?: {
+      anchor?: AssistantActivityStateEvent["anchor"];
+      requestId?: string;
+      statusText?: string;
+    },
   ): void {
+    const { anchor = "assistant_turn", requestId, statusText } = options ?? {};
     this.activityVersion++;
     const msg: ServerMessage = {
       type: "assistant_activity_state",
@@ -1091,6 +1071,7 @@ export class Conversation {
           getConversationOriginChannel(this.conversationId) ?? undefined,
         overrideProfile,
         targetInputTokensOverride: options?.targetInputTokensOverride,
+        actorTrustClass: this.trustContext?.trustClass,
       },
     );
     // Track circuit-breaker state for user-initiated `/compact` and other
@@ -1099,7 +1080,7 @@ export class Conversation {
     // is `undefined` on early-return paths (no eligible messages, disabled,
     // etc.) — skip those so they don't silently reset the counter.
     if (result.summaryFailed !== undefined) {
-      await trackCompactionOutcome(
+      await this.agentLoop.compactionCircuit.recordOutcome(
         this,
         result.summaryFailed,
         this.sendToClient,

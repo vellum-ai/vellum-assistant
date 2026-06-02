@@ -20,7 +20,7 @@ import {
   removeLocalSetting,
   setLocalSetting,
 } from "@/utils/local-settings";
-import { getDeviceSetting } from "@/utils/device-settings";
+import { getDeviceBool, getDeviceSetting } from "@/utils/device-settings";
 import {
   KEY_TOS_ACCEPTED,
   KEY_AI_DATA_CONSENT,
@@ -136,9 +136,20 @@ export function readAiDataConsent(): boolean {
   return useOnboardingStore.getState().aiDataConsent;
 }
 
-/** SSR-safe, non-hook read of the anonymous product analytics preference. */
+/**
+ * SSR-safe, non-hook read for telemetry emitters.
+ *
+ * Unlike the onboarding UI, this treats an absent preference as no consent:
+ * direct analytics uploads should only run after the privacy screen or
+ * settings page has persisted an explicit opt-in. The in-memory store must
+ * also agree so a failed opt-out write cannot leave an older stored opt-in
+ * authorizing a new event.
+ */
 export function readShareAnalytics(): boolean {
-  return useOnboardingStore.getState().shareAnalytics;
+  return (
+    useOnboardingStore.getState().shareAnalytics &&
+    getDeviceBool("shareAnalytics", false)
+  );
 }
 
 /**

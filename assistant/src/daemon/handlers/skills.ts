@@ -328,6 +328,7 @@ function toSlimSkillResponse(
   const origin = deriveOrigin(kind, summary.directoryPath, installMeta);
   const status: SlimSkillResponse["status"] = state;
 
+  const category = inferCategory(summary.displayName, summary.description);
   const base = {
     id: summary.id,
     name: summary.displayName,
@@ -335,6 +336,7 @@ function toSlimSkillResponse(
     emoji: summary.emoji,
     kind,
     status,
+    category,
   } as const;
 
   switch (origin) {
@@ -511,16 +513,13 @@ export async function listSkillsFiltered(filter: SkillListFilter): Promise<{
   // Compute category counts BEFORE applying the category filter
   const categoryCounts: Record<string, number> = {};
   for (const s of skills) {
-    const cat = inferCategory(s.name, s.description);
-    categoryCounts[cat] = (categoryCounts[cat] ?? 0) + 1;
+    categoryCounts[s.category] = (categoryCounts[s.category] ?? 0) + 1;
   }
   const totalCount = skills.length;
 
   // Apply category filter
   if (filter.category) {
-    skills = skills.filter(
-      (s) => inferCategory(s.name, s.description) === filter.category,
-    );
+    skills = skills.filter((s) => s.category === filter.category);
   }
 
   // Sort: installed first, community origins before core within installed,
@@ -610,6 +609,7 @@ export async function getSkill(
       kind: slim.kind,
       origin: slim.origin,
       status: slim.status,
+      category: slim.category,
       slug: slim.slug,
       author: slim.author,
       stars: slim.stars,
@@ -649,6 +649,7 @@ export async function getSkill(
       kind: slim.kind,
       origin: slim.origin,
       status: slim.status,
+      category: slim.category,
       slug: slim.slug,
       sourceRepo: slim.sourceRepo,
       installs: slim.installs,
@@ -679,6 +680,7 @@ export async function getSkill(
     kind: slim.kind,
     origin: slim.origin,
     status: slim.status,
+    category: slim.category,
   };
   return { skill: detail };
 }
@@ -1367,6 +1369,7 @@ export async function searchSkills(
         kind: "catalog" as const,
         origin: "vellum" as const,
         status: "available" as const,
+        category: inferCategory(s.displayName, s.description),
       };
     });
 
@@ -1385,6 +1388,7 @@ export async function searchSkills(
         kind: "catalog" as const,
         origin: "clawhub" as const,
         status: "available" as const,
+        category: inferCategory(s.name, s.description),
         slug: s.slug,
         author: s.author,
         stars: s.stars,
@@ -1411,6 +1415,7 @@ export async function searchSkills(
         kind: "catalog" as const,
         origin: "skillssh" as const,
         status: "available" as const,
+        category: inferCategory(r.name, ""),
         slug: r.id,
         sourceRepo: r.source,
         installs: r.installs,

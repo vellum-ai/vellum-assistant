@@ -14,6 +14,7 @@ import {
 } from "react";
 
 import { Typography } from "../typography";
+import { Tooltip } from "../tooltip";
 import { cn } from "../../utils/cn";
 
 /**
@@ -441,6 +442,19 @@ export type SideMenuItemIcon = LucideIcon | string;
 export interface SideMenuItemProps {
   icon?: SideMenuItemIcon;
   label: string;
+  /**
+   * Show a styled tooltip on hover in the collapsed rail, defaulting its
+   * content to `label` (the common case where the tooltip just surfaces the
+   * hidden label). Ignored when expanded, since the label is already visible.
+   * Use `tooltip` instead when the text should differ from `label`.
+   */
+  showCollapsedTooltip?: boolean;
+  /**
+   * Custom collapsed-rail tooltip text, for when it should differ from
+   * `label`. Implies `showCollapsedTooltip` and replaces the native `title`.
+   * Ignored when expanded. Mirrors the `tooltip` prop on `Button`.
+   */
+  tooltip?: string;
   badge?: ReactNode;
   trailingIcon?: LucideIcon;
   trailingIconClassName?: string;
@@ -529,6 +543,8 @@ type SharedButtonProps = Omit<
 function SideMenuItem({
   icon,
   label,
+  showCollapsedTooltip = false,
+  tooltip,
   badge,
   trailingIcon: TrailingIcon,
   trailingIconClassName,
@@ -590,15 +606,29 @@ function SideMenuItem({
     />
   );
 
-  const titleAttr = collapsed ? label : undefined;
+  // Collapsed rail shows a styled tooltip when asked (defaulting to `label`)
+  // or when custom `tooltip` text is given. Drop the native `title` then so the
+  // two don't stack into a double tooltip on hover.
+  const tooltipContent = tooltip ?? (showCollapsedTooltip ? label : undefined);
+  const showStyledTooltip = collapsed && tooltipContent != null;
+  const titleAttr = collapsed && !showStyledTooltip ? label : undefined;
   const ariaCurrent = active ? ("page" as const) : undefined;
+
+  const withTooltip = (element: ReactNode) =>
+    showStyledTooltip ? (
+      <Tooltip content={tooltipContent} side="right">
+        {element}
+      </Tooltip>
+    ) : (
+      element
+    );
 
   if (href) {
     const {
       onClick: anchorOnClick,
       ...anchorProps
     } = rest as SharedAnchorProps;
-    return (
+    return withTooltip(
       <a
         ref={ref as Ref<HTMLAnchorElement>}
         data-slot="side-menu-item"
@@ -635,7 +665,7 @@ function SideMenuItem({
     }
   };
 
-  return (
+  return withTooltip(
     <button
       ref={ref as Ref<HTMLButtonElement>}
       data-slot="side-menu-item"
@@ -651,7 +681,7 @@ function SideMenuItem({
       {labelNode}
       {badgeNode}
       {trailingNode}
-    </button>
+    </button>,
   );
 }
 

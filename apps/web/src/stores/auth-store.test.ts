@@ -62,19 +62,26 @@ mock.module("@/stores/organization-store", () => ({
   clearOrganization: clearOrganizationMock,
 }));
 
-mock.module("@/stores/event-bus-store", () => ({
-  useEventBusStore: {
-    getState: () => ({
-      subscribe: () => () => {},
-    }),
-  },
-}));
+// Don't mock `@/lib/event-bus` — bun's `mock.module` is process-
+// global, so any stub here shadows the real bus for every later
+// test file in the run. `auth-store` only subscribes to `app.resume`
+// at module load; the real bus's `subscribe` returns an unsubscribe
+// and the registered handler stays inert in tests that don't publish
+// `app.resume`.
 
 const lifecycleResetForLogoutMock = mock(() => {});
 mock.module("@/assistant/lifecycle-service", () => ({
   lifecycleService: {
     resetForLogout: lifecycleResetForLogoutMock,
   },
+}));
+
+// `@/assistant/api` transitively pulls in `@vellumai/assistant-api`
+// exports that are currently missing on main. Mock the call sites
+// `auth-store` actually uses; the real module load would crash
+// before any test runs.
+mock.module("@/assistant/api", () => ({
+  listAssistants: async () => [],
 }));
 
 const { useAuthStore } = await import("@/stores/auth-store");

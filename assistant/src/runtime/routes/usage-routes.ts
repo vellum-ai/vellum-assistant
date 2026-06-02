@@ -30,6 +30,52 @@ const VALID_SERIES_GROUP_BY = new Set<string>(USAGE_SERIES_GROUP_BY_DIMENSIONS);
 const GROUP_BY_DESCRIPTION = USAGE_GROUP_BY_DIMENSIONS.join(", ");
 const SERIES_GROUP_BY_DESCRIPTION = USAGE_SERIES_GROUP_BY_DIMENSIONS.join(", ");
 
+const usageTotalsSchema = z.object({
+  totalInputTokens: z.number(),
+  totalOutputTokens: z.number(),
+  totalCacheCreationTokens: z.number(),
+  totalCacheReadTokens: z.number(),
+  totalEstimatedCostUsd: z.number(),
+  eventCount: z.number(),
+  pricedEventCount: z.number(),
+  unpricedEventCount: z.number(),
+});
+
+const usageDayBucketSchema = z.object({
+  bucketId: z.string(),
+  date: z.string(),
+  displayLabel: z.string().optional(),
+  totalInputTokens: z.number(),
+  totalOutputTokens: z.number(),
+  totalEstimatedCostUsd: z.number(),
+  eventCount: z.number(),
+});
+
+const usageGroupBreakdownSchema = z.object({
+  group: z.string(),
+  groupId: z.string().nullable(),
+  groupKey: z.string().nullable().optional(),
+  totalInputTokens: z.number(),
+  totalOutputTokens: z.number(),
+  totalCacheCreationTokens: z.number(),
+  totalCacheReadTokens: z.number(),
+  totalEstimatedCostUsd: z.number(),
+  eventCount: z.number(),
+});
+
+const usageSeriesGroupValueSchema = z.object({
+  group: z.string(),
+  groupKey: z.string().nullable(),
+  totalInputTokens: z.number(),
+  totalOutputTokens: z.number(),
+  totalEstimatedCostUsd: z.number(),
+  eventCount: z.number(),
+});
+
+const usageSeriesBucketSchema = usageDayBucketSchema.extend({
+  groups: z.record(z.string(), usageSeriesGroupValueSchema),
+});
+
 function resolveTimezone(queryParams: Record<string, string>): string {
   const tz = queryParams.tz ?? "UTC";
   try {
@@ -168,6 +214,7 @@ export const ROUTES: RouteDefinition[] = [
         description: "End epoch millis (required)",
       },
     ],
+    responseBody: usageTotalsSchema,
     handler: handleUsageTotals,
   },
   {
@@ -204,7 +251,7 @@ export const ROUTES: RouteDefinition[] = [
       },
     ],
     responseBody: z.object({
-      buckets: z.array(z.unknown()).describe("Usage bucket objects"),
+      buckets: z.array(usageDayBucketSchema).describe("Usage bucket objects"),
     }),
     handler: handleUsageDaily,
   },
@@ -237,7 +284,9 @@ export const ROUTES: RouteDefinition[] = [
       },
     ],
     responseBody: z.object({
-      breakdown: z.array(z.unknown()).describe("Grouped usage entries"),
+      breakdown: z
+        .array(usageGroupBreakdownSchema)
+        .describe("Grouped usage entries"),
     }),
     handler: handleUsageBreakdown,
   },
@@ -280,7 +329,9 @@ export const ROUTES: RouteDefinition[] = [
       },
     ],
     responseBody: z.object({
-      buckets: z.array(z.unknown()).describe("Grouped usage bucket objects"),
+      buckets: z
+        .array(usageSeriesBucketSchema)
+        .describe("Grouped usage bucket objects"),
     }),
     handler: handleUsageSeries,
   },

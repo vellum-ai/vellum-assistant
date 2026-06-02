@@ -1,7 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 
-import { SEEDS } from "../environments/seeds";
+import { SEEDS } from "@vellumai/environments";
 
 const PRODUCTION_ENVIRONMENT_NAME = "production";
 
@@ -16,7 +16,9 @@ export interface LocalEndpointConfig {
  * Resolve config from environment variables (Vite plugin context, where
  * `env` comes from `loadEnv` and process.env).
  */
-export function resolveLocalConfigFromEnv(env: Record<string, string>): LocalEndpointConfig {
+export function resolveLocalConfigFromEnv(
+  env: Record<string, string>,
+): LocalEndpointConfig {
   const vellumEnv = env.VELLUM_ENVIRONMENT || PRODUCTION_ENVIRONMENT_NAME;
   const seed = SEEDS[vellumEnv] ?? SEEDS[PRODUCTION_ENVIRONMENT_NAME]!;
 

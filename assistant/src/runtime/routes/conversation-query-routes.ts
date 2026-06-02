@@ -20,6 +20,7 @@
 
 import { z } from "zod";
 
+import { LlmContextResponseSchema } from "../../api/responses/llm-context-response.js";
 import {
   deepMergeOverwrite,
   fillContextDefaultsForMissingKeys,
@@ -879,13 +880,11 @@ function handleGetMessageContent({
   return result;
 }
 
-const CONVERSATION_KINDS = [
-  "user",
-  "background",
-  "background_memory_consolidation",
-  "scheduled",
-] as const;
-type ConversationKind = (typeof CONVERSATION_KINDS)[number];
+type ConversationKind =
+  | "user"
+  | "background"
+  | "background_memory_consolidation"
+  | "scheduled";
 
 function resolveConversationKind(
   source: string,
@@ -1322,16 +1321,7 @@ export const ROUTES: RouteDefinition[] = [
         description: "Internal conversation identifier.",
       },
     ],
-    responseBody: z.object({
-      conversationKey: z.string().nullable().optional(),
-      conversationId: z.string().nullable(),
-      conversationKind: z.enum(CONVERSATION_KINDS),
-      conversationTotalEstimatedCostUsd: z.number().nullable(),
-      logs: z.array(z.unknown()),
-      memoryRecall: z.object({}).passthrough().nullable(),
-      memoryV2Activation: z.object({}).passthrough().nullable(),
-      memoryV3Selection: z.object({}).passthrough().nullable().optional(),
-    }),
+    responseBody: LlmContextResponseSchema,
     handler: handleGetConversationLlmContext,
   },
   {
@@ -1346,15 +1336,7 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Return request/response logs and memory recall data for a specific message.",
     tags: ["messages"],
-    responseBody: z.object({
-      messageId: z.string(),
-      conversationKind: z.enum(CONVERSATION_KINDS),
-      conversationTotalEstimatedCostUsd: z.number().nullable(),
-      logs: z.array(z.unknown()),
-      memoryRecall: z.object({}).passthrough().nullable(),
-      memoryV2Activation: z.object({}).passthrough().nullable(),
-      memoryV3Selection: z.object({}).passthrough().nullable().optional(),
-    }),
+    responseBody: LlmContextResponseSchema,
     handler: handleGetLlmContext,
   },
   {

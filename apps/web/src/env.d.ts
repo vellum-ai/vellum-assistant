@@ -22,7 +22,7 @@ interface ImportMetaEnv {
   readonly VITE_PLATFORM_MODE?: string;
   /**
    * Override for the live-voice velay host (no scheme), e.g. `velay.dev.vellum.ai`.
-   * Defaults to `velay.vellum.ai` when unset. See `domains/voice/live-voice/connection.ts`.
+   * Defaults to `velay.vellum.ai` when unset. See `domains/chat/voice/live-voice/connection.ts`.
    */
   readonly VITE_VELAY_HOST?: string;
 }

@@ -264,7 +264,7 @@ final class SkillsManager {
 
         var counts: [SkillCategory: Int] = [:]
         for skill in kindFiltered {
-            let cat = inferCategory(skill)
+            let cat = SkillCategory(rawValue: skill.category) ?? .knowledge
             counts[cat, default: 0] += 1
         }
         categoryCounts = counts
@@ -274,7 +274,7 @@ final class SkillsManager {
         // accurate counts for all categories, not just the selected one).
         let categoryFiltered: [SkillInfo]
         if let category = selectedCategory {
-            categoryFiltered = kindFiltered.filter { inferCategory($0) == category }
+            categoryFiltered = kindFiltered.filter { SkillCategory(rawValue: $0.category) == category }
         } else {
             categoryFiltered = kindFiltered
         }

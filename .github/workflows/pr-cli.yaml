@@ -5,6 +5,8 @@ on:
     types: [synchronize, opened, reopened]
     paths:
       - 'cli/**'
+      - 'packages/environments/**'
+      - 'clients/shared/App/VellumEnvironment.swift'
       - '.github/workflows/pr-cli.yaml'
 
 concurrency:

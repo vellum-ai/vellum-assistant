@@ -37,6 +37,49 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 const log = getLogger("schedule-routes");
 
 // ---------------------------------------------------------------------------
+// Response schemas (shared by all schedule routes)
+// ---------------------------------------------------------------------------
+
+const scheduleSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  enabled: z.boolean(),
+  syntax: z.enum(["cron", "rrule"]),
+  expression: z.string().nullable(),
+  cronExpression: z.string().nullable(),
+  timezone: z.string().nullable(),
+  message: z.string(),
+  script: z.string().nullable(),
+  nextRunAt: z.number(),
+  lastRunAt: z.number().nullable(),
+  lastStatus: z.string().nullable(),
+  retryCount: z.number(),
+  maxRetries: z.number(),
+  retryBackoffMs: z.number(),
+  timeoutMs: z.number().nullable(),
+  description: z.string().nullable(),
+  mode: z.enum(["notify", "execute", "script", "wake"]),
+  status: z.enum(["active", "firing", "fired", "cancelled"]),
+  routingIntent: z.enum(["single_channel", "multi_channel", "all_channels"]),
+  reuseConversation: z.boolean(),
+  wakeConversationId: z.string().nullable(),
+  isOneShot: z.boolean(),
+});
+
+const scheduleRunSchema = z.object({
+  id: z.string(),
+  jobId: z.string(),
+  status: z.string(),
+  startedAt: z.number(),
+  finishedAt: z.number().nullable(),
+  durationMs: z.number().nullable(),
+  output: z.string().nullable(),
+  error: z.string().nullable(),
+  conversationId: z.string().nullable(),
+  createdAt: z.number(),
+});
+
+// ---------------------------------------------------------------------------
 // Handlers (transport-agnostic)
 // ---------------------------------------------------------------------------
 
@@ -289,7 +332,7 @@ export const ROUTES: RouteDefinition[] = [
       },
     ],
     responseBody: z.object({
-      schedules: z.array(z.unknown()).describe("Schedule objects"),
+      schedules: z.array(scheduleSchema).describe("Schedule objects"),
     }),
     handler: ({ queryParams }: RouteHandlerArgs) =>
       handleListSchedules(queryParams ?? {}),
@@ -322,7 +365,7 @@ export const ROUTES: RouteDefinition[] = [
       mode: z.string().describe("Currently must be 'execute'").optional(),
     }),
     responseBody: z.object({
-      schedules: z.array(z.unknown()).describe("Updated schedule list"),
+      schedules: z.array(scheduleSchema).describe("Updated schedule list"),
     }),
     handler: ({ body }: RouteHandlerArgs) => handleCreateSchedule(body ?? {}),
   },
@@ -345,7 +388,7 @@ export const ROUTES: RouteDefinition[] = [
       },
     ],
     responseBody: z.object({
-      runs: z.array(z.unknown()).describe("Schedule run objects"),
+      runs: z.array(scheduleRunSchema).describe("Schedule run objects"),
     }),
     handler: ({ pathParams, queryParams }: RouteHandlerArgs) =>
       handleListScheduleRuns(pathParams!.id, queryParams ?? {}),
@@ -365,7 +408,7 @@ export const ROUTES: RouteDefinition[] = [
       enabled: z.boolean().describe("New enabled state"),
     }),
     responseBody: z.object({
-      schedules: z.array(z.unknown()).describe("Updated schedule list"),
+      schedules: z.array(scheduleSchema).describe("Updated schedule list"),
     }),
     handler: ({ pathParams, body }: RouteHandlerArgs) =>
       handleToggleSchedule(pathParams!.id, body ?? {}),
@@ -382,7 +425,7 @@ export const ROUTES: RouteDefinition[] = [
     description: "Remove a schedule by ID.",
     tags: ["schedules"],
     responseBody: z.object({
-      schedules: z.array(z.unknown()).describe("Updated schedule list"),
+      schedules: z.array(scheduleSchema).describe("Updated schedule list"),
     }),
     handler: ({ pathParams }: RouteHandlerArgs) =>
       handleDeleteSchedule(pathParams!.id),
@@ -399,26 +442,35 @@ export const ROUTES: RouteDefinition[] = [
     description: "Partially update fields on a schedule.",
     tags: ["schedules"],
     requestBody: z.object({
-      name: z.string(),
-      expression: z.string(),
-      timezone: z.string(),
-      message: z.string(),
-      script: z.string().nullable().describe("Shell command for script mode"),
-      mode: z.string().describe("notify, execute, or script"),
+      name: z.string().optional(),
+      expression: z.string().optional(),
+      timezone: z.string().optional(),
+      message: z.string().optional(),
+      script: z
+        .string()
+        .nullable()
+        .describe("Shell command for script mode")
+        .optional(),
+      mode: z.string().describe("notify, execute, or script").optional(),
       routingIntent: z
         .string()
-        .describe("single_channel, multi_channel, or all_channels"),
-      quiet: z.boolean(),
-      reuseConversation: z.boolean(),
-      maxRetries: z.number().describe("Maximum retry attempts"),
-      retryBackoffMs: z.number().describe("Retry backoff in milliseconds"),
+        .describe("single_channel, multi_channel, or all_channels")
+        .optional(),
+      quiet: z.boolean().optional(),
+      reuseConversation: z.boolean().optional(),
+      maxRetries: z.number().describe("Maximum retry attempts").optional(),
+      retryBackoffMs: z
+        .number()
+        .describe("Retry backoff in milliseconds")
+        .optional(),
       timeoutMs: z
         .number()
         .nullable()
-        .describe("Script-mode execution timeout in ms; null = use default"),
+        .describe("Script-mode execution timeout in ms; null = use default")
+        .optional(),
     }),
     responseBody: z.object({
-      schedules: z.array(z.unknown()).describe("Updated schedule list"),
+      schedules: z.array(scheduleSchema).describe("Updated schedule list"),
     }),
     handler: ({ pathParams, body }: RouteHandlerArgs) =>
       handleUpdateSchedule(pathParams!.id, body ?? {}),
@@ -435,7 +487,7 @@ export const ROUTES: RouteDefinition[] = [
     description: "Cancel a pending schedule.",
     tags: ["schedules"],
     responseBody: z.object({
-      schedules: z.array(z.unknown()).describe("Updated schedule list"),
+      schedules: z.array(scheduleSchema).describe("Updated schedule list"),
     }),
     handler: ({ pathParams }: RouteHandlerArgs) =>
       handleCancelSchedule(pathParams!.id),
@@ -452,7 +504,7 @@ export const ROUTES: RouteDefinition[] = [
     description: "Trigger an immediate execution of a schedule.",
     tags: ["schedules"],
     responseBody: z.object({
-      schedules: z.array(z.unknown()).describe("Updated schedule list"),
+      schedules: z.array(scheduleSchema).describe("Updated schedule list"),
     }),
     handler: ({ pathParams }: RouteHandlerArgs) =>
       handleRunScheduleNow(pathParams!.id),

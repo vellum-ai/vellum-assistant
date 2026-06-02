@@ -90,7 +90,6 @@ function seedMessages(
 interface MessagePayload {
   id: string;
   role: string;
-  content: string;
   timestamp: string;
   slackMessage?: {
     channelId: string;

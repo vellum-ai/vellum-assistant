@@ -1,6 +1,9 @@
 import { queryOptions, useQuery } from "@tanstack/react-query";
 
-import { client } from "@/generated/api/client.gen";
+import {
+  conversationsLlmcontextGet,
+  messagesByIdLlmcontextGet,
+} from "@/generated/daemon/sdk.gen";
 import { assertHasResponse, extractErrorMessage } from "@/utils/api-errors";
 import {
   fetchConversationMessages,
@@ -30,10 +33,6 @@ import type {
  *   The page enters this mode when the URL carries `?messageId=…` —
  *   either from the per-message "Inspect this message" hover action,
  *   or from the in-page "filter to this message" control.
- *
- * The wildcard proxy isn't typed in `@tanstack/react-query.gen` so we
- * call `client.get` directly and provide our own response type from
- * `inspector-types.ts`.
  */
 
 export class LlmContextRequestError extends Error {
@@ -148,10 +147,7 @@ export async function fetchConversationLlmContext(
   // type aliases trip that branch and `data` collapses to the union of
   // property value types. Status-keyed form avoids the quirk and is
   // strictly more correct.
-  const { data, error, response } = await client.get<{
-    200: LlmContextResponse;
-  }>({
-    url: "/v1/assistants/{assistant_id}/conversations/llm-context/",
+  const { data, error, response } = await conversationsLlmcontextGet({
     path: { assistant_id: assistantId },
     query: { conversationId },
     signal,
@@ -198,11 +194,8 @@ export async function fetchMessageLlmContextOrThrow(
   messageId: string,
   signal: AbortSignal | undefined,
 ): Promise<LlmContextResponse> {
-  const { data, error, response } = await client.get<{
-    200: LlmContextResponse;
-  }>({
-    url: "/v1/assistants/{assistant_id}/messages/{message_id}/llm-context/",
-    path: { assistant_id: assistantId, message_id: messageId },
+  const { data, error, response } = await messagesByIdLlmcontextGet({
+    path: { assistant_id: assistantId, id: messageId },
     signal,
     throwOnError: false,
   });
@@ -315,11 +308,8 @@ async function fetchMessageLlmContextTolerant(
   messageId: string,
   signal: AbortSignal | undefined,
 ): Promise<LlmContextResponse | null> {
-  const { data, response } = await client.get<{
-    200: LlmContextResponse;
-  }>({
-    url: "/v1/assistants/{assistant_id}/messages/{message_id}/llm-context/",
-    path: { assistant_id: assistantId, message_id: messageId },
+  const { data, response } = await messagesByIdLlmcontextGet({
+    path: { assistant_id: assistantId, id: messageId },
     signal,
     throwOnError: false,
   });

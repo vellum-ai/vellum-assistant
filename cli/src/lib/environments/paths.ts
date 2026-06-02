@@ -1,7 +1,7 @@
 import { homedir } from "os";
 import { join } from "path";
 
-import type { EnvironmentDefinition, PortMap } from "./types.js";
+import type { EnvironmentDefinition, PortMap } from "@vellumai/environments";
 
 const PRODUCTION_ENVIRONMENT_NAME = "production";
 

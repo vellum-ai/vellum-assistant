@@ -24,13 +24,13 @@ import {
   type VoiceInputButtonHandle,
 } from "@/domains/chat/components/voice-input-button";
 import { LiveVoiceButton } from "@/domains/chat/components/live-voice-button";
-import { useLiveVoiceStore } from "@/domains/voice/live-voice/live-voice-store";
+import { useLiveVoiceStore } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { type TurnPhase, useTurnStore } from "@/domains/chat/turn-store";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { isPointerCoarse } from "@/utils/pointer";
-import { useAudioAmplitude } from "@/domains/voice/use-audio-amplitude";
-import { useVoiceRecordingStore } from "@/domains/voice/voice-recording-store";
+import { useAudioAmplitude } from "@/domains/chat/voice/use-audio-amplitude";
+import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { StreamingWaveform } from "@/domains/chat/components/chat-composer/streaming-waveform";
 

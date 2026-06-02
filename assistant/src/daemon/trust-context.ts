@@ -49,3 +49,16 @@ export const INTERNAL_GUARDIAN_TRUST_CONTEXT = {
   sourceChannel: "vellum",
   trustClass: "guardian",
 } as const satisfies TrustContext;
+
+/**
+ * Synthetic fallback trust context used when a pipeline fires before the
+ * per-turn trust snapshot has been captured (e.g. fresh conversations before
+ * the trust resolver runs, heartbeat turns that never bind an actor, or
+ * non-turn invocations like `Conversation.forceCompact`). We bias to
+ * `unknown` rather than `guardian` so a missing snapshot cannot accidentally
+ * grant elevated trust to a custom plugin reading `ctx.trust`.
+ */
+export const FALLBACK_TURN_TRUST: TrustContext = {
+  sourceChannel: "vellum",
+  trustClass: "unknown",
+};

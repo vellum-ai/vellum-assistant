@@ -10,6 +10,7 @@ import {
   handleGenerationCancelled,
 } from "@/domains/chat/utils/stream-handlers/message-handlers";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
+import { textBody } from "@/domains/chat/utils/message-test-helpers";
 
 describe("handleAssistantTurnStart", () => {
   it("seeds currentAssistantMessageIdRef from the event's messageId", () => {
@@ -46,7 +47,7 @@ describe("handleAssistantTextDelta", () => {
     expect(next).toHaveLength(1);
     expect(next[0]).toMatchObject({
       role: "assistant",
-      content: "Hi",
+      ...textBody("Hi"),
     });
   });
 });
@@ -145,7 +146,7 @@ describe("handleAssistantActivityState", () => {
     );
     expect(
       ctx.lastActivityVersionRef.current.get(
-        ctx.streamContextRef.current!.conversationId,
+        ctx.streamContext!.conversationId,
       ),
     ).toBe(1);
     expect(ctx.turnActions.onActivityThinking).not.toHaveBeenCalled();
@@ -168,14 +169,14 @@ describe("handleMessageComplete", () => {
     expect(ctx.startReconciliationLoop).not.toHaveBeenCalled();
   });
 
-  it("prefers event.conversationId over streamContextRef when both differ", () => {
-    // streamContextRef is a mirror that may be cleared by a stream
+  it("prefers event.conversationId over streamContext when both differ", () => {
+    // streamContext is a mirror that may be cleared by a stream
     // teardown that races the terminal event. When the event itself
     // carries the canonical conversationId, the handler must use it
     // — otherwise the processing key for the conversation that
     // actually completed would never clear.
     const ctx = makeCtx({
-      streamContextRef: { current: null },
+      streamContext: null,
     });
     handleMessageComplete(
       {
@@ -291,9 +292,9 @@ describe("handleGenerationCancelled", () => {
     });
   });
 
-  it("prefers event.conversationId over streamContextRef when both differ", () => {
+  it("prefers event.conversationId over streamContext when both differ", () => {
     const ctx = makeCtx({
-      streamContextRef: { current: null },
+      streamContext: null,
     });
     handleGenerationCancelled(
       { type: "generation_cancelled", conversationId: "conv-from-event" },

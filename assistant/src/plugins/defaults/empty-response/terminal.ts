@@ -1,14 +1,10 @@
 /**
- * Terminal handler for the default `emptyResponse` pipeline.
+ * Default `emptyResponse` behavior: decides whether an empty assistant turn
+ * should be nudged (re-queried) or accepted.
  *
  * This module is side-effect free: importing it does not register any plugin.
- * The terminal is wired in as the pipeline's `terminal` argument by the
- * `runPipeline` call site in `agent/loop.ts`. Wiring the terminal at the call
- * site (rather than relying on the plugin to be registered) means the loop's
- * nudge/accept behavior survives configurations that boot without the default
- * plugin — e.g. unit tests that skip `bootstrapPlugins()`.
  *
- * The terminal inspects the turn snapshot and returns one of:
+ * The handler inspects the turn snapshot and returns one of:
  *
  * 1. `"nudge"`  — fired in two distinct shapes:
  *                 (a) **Post-tool empty.** The turn produced no visible text,
@@ -37,9 +33,9 @@
  * downstream plugins (e.g. a circuit breaker) that want to surface an
  * explicit error instead of silently absorbing an empty turn.
  *
- * `MAX_EMPTY_RESPONSE_RETRIES` lives in `agent/loop.ts` and is threaded into
- * the pipeline via `EmptyResponseArgs.maxEmptyResponseRetries` so the cap is
- * declared in one place only.
+ * `MAX_EMPTY_RESPONSE_RETRIES` lives in `agent/loop.ts` and is passed in via
+ * `EmptyResponseArgs.maxEmptyResponseRetries` so the cap is declared in one
+ * place only.
  */
 
 import type { EmptyResponseArgs, EmptyResponseResult } from "../../types.js";
@@ -68,9 +64,8 @@ export const REFUSAL_NUDGE_TEXT =
   '<system_notice>Your previous response was empty because the upstream provider returned stop_reason="refusal". Please answer the user\'s last message directly with a plain-text response. Do not use any tools — just respond with text.</system_notice>';
 
 /**
- * Terminal handler for the `emptyResponse` pipeline. Exported so tests can
- * verify default behavior directly without going through `runPipeline`, and
- * so `agent/loop.ts` can pass it as the `terminal` argument to `runPipeline`.
+ * Decide whether an empty turn should be nudged or accepted. Exported so the
+ * agent loop can call it directly and tests can verify the decision logic.
  */
 export function defaultEmptyResponseTerminal(
   args: EmptyResponseArgs,

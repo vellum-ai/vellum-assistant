@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { getLeadingThinkingText } from "@/domains/chat/components/tool-progress-card/get-leading-thinking-text";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 
+import { textBody } from "@/domains/chat/utils/message-test-helpers";
 function makeMessage(
   contentOrder: Array<{ type: string; id: string }>,
   textSegments: Array<{ type: string; content: string }> = [],
@@ -10,7 +11,7 @@ function makeMessage(
   return {
     id: "stable-1",
     role: "assistant",
-    content: "",
+    ...textBody(""),
     contentOrder,
     textSegments,
   };

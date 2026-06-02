@@ -42,10 +42,8 @@ wired surface.
 
 1. Create a directory `<workspaceDir>/plugins/my-plugin/`.
 2. Drop a `package.json` with a `name` and a `peerDependencies["@vellumai/plugin-api"]` semver range.
-3. Add a `register.ts` that builds a `Plugin` object and passes it to
-   `registerPlugin()` as an import-time side effect.
-4. Hang middleware, tools, routes, skills, or injectors off the `Plugin`
-   object.
+3. Add `middlewares/<name>.ts` files (default export = middleware function).
+4. Add `tools/<name>.ts` files (default export = tool definition).
 5. Restart the assistant — the loader scans `<workspaceDir>/plugins/*` and
    registers the plugin on startup.
 

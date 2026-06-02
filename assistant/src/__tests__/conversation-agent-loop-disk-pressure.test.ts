@@ -1,5 +1,6 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { AgentLoop } from "../agent/loop.js";
 import type { AgentLoopConversationContext } from "../daemon/conversation-agent-loop.js";
 import type { DiskPressureStatus } from "../daemon/disk-pressure-guard.js";
@@ -121,6 +122,7 @@ function makeCtx(
       getToolTokenBudget: () => 0,
       getResolvedTools: () => [],
       getActiveModel: () => undefined,
+      compactionCircuit: new CompactionCircuit("test-conv"),
     } as unknown as AgentLoop,
     provider: { name: "mock-provider" } as Context["provider"],
     systemPrompt: "system",
@@ -213,8 +215,7 @@ describe("runAgentLoopImpl disk pressure gate", () => {
     expect(activityStates).toContainEqual([
       "idle",
       "error_terminal",
-      "global",
-      "req-123",
+      { anchor: "global", requestId: "req-123" },
     ]);
     expect(ctx.processing).toBe(false);
     expect(ctx.abortController).toBeNull();

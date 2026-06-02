@@ -303,6 +303,43 @@ export {
   DiskPressureStatusResponseSchema,
 } from "./responses/disk-pressure-status.js";
 export {
+  type Capability,
+  CapabilitySchema,
+  type CapabilityTier,
+  type ContextBanner,
+  ContextBannerSchema,
+  type Fact,
+  type FactCategory,
+  type FactConfidence,
+  FactSchema,
+  type FactSource,
+  type FeedAction,
+  FeedActionSchema,
+  type FeedItem,
+  type FeedItemCategory,
+  FeedItemCategorySchema,
+  type FeedItemDetailPanel,
+  type FeedItemDetailPanelKind,
+  FeedItemDetailPanelKindSchema,
+  FeedItemDetailPanelSchema,
+  FeedItemSchema,
+  type FeedItemStatus,
+  FeedItemStatusSchema,
+  type FeedItemType,
+  FeedItemTypeSchema,
+  type FeedItemUrgency,
+  FeedItemUrgencySchema,
+  type HomeFeedResponse,
+  HomeFeedResponseSchema,
+  type RelationshipState,
+  RelationshipStateSchema,
+  type RelationshipTier,
+  type SuggestedPrompt,
+  SuggestedPromptSchema,
+  type SuggestedPromptSource,
+  SuggestedPromptSourceSchema,
+} from "./responses/home.js";
+export {
   type LlmContextResponse,
   LlmContextResponseSchema,
 } from "./responses/llm-context-response.js";
@@ -424,6 +461,19 @@ export const AssistantEventEnvelopeSchema = z.object({
   id: z.string(),
   conversationId: z.string().optional(),
   seq: z.number().int().optional(),
+  /**
+   * Subscriber-filtered sequence number. Monotonic per conversation per
+   * SSE subscriber, counting only events the subscriber is eligible to
+   * receive (i.e. after capability/client/interface targeting is applied).
+   * Gap-free by construction — clients should prefer `clientSeq` over
+   * `seq` for gap detection to avoid false positives caused by targeted
+   * events (host_bash, host_cu, etc.) that increment the global `seq`
+   * but are filtered out for non-matching subscribers.
+   *
+   * Absent on older daemons that predate this field; clients fall back
+   * to `seq` when `clientSeq` is not present.
+   */
+  clientSeq: z.number().int().optional(),
   emittedAt: z.string(),
   message: AssistantEventSchema,
 });

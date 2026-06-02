@@ -1,24 +1,14 @@
 /**
- * Chat route content — renders the chat-specific UI (main chat, document panel,
- * app-editing side panel) inside `ChatLayout`.
+ * Chat route content — renders the chat body, document panel,
+ * app-editing side panel, and all chat-specific UI slots inside `ChatLayout`.
  *
- * Extracted from `AssistantPageClient` as Phase 1 of route-level component
- * splitting. This component owns:
- * - Chat body rendering (transcript, composer, scroll coordination)
- * - Document viewer panel (split or full-width)
- * - App-editing side panel (chat + app viewer)
- * - All JSX construction for chat-specific slots (banners, prompts, notices)
- * - Scroll coordination, pull-refresh, attachment drop zone
- * - Handlers used exclusively by chat rendering (submit, select starter, etc.)
- *
- * The parent (`AssistantPage`) still owns hooks, state, and the route switch
- * that decides whether to render this component vs Intelligence/Library/App.
- *
- * @see Phase 2: Extract IntelligenceRouteContent
- * @see Phase 3: Extract LibraryRouteContent, AppRouteContent
+ * Reads per-conversation state from Zustand stores directly and owns
+ * UI-scoped hooks (avatar, disk pressure, nudges, voice input, interaction
+ * actions, ghost text) so the parent (`ActiveChatView`) stays focused on
+ * orchestration (SSE, reconciliation, send message, conversation loading).
  */
 
-import * as Sentry from "@sentry/react";
+import { captureError } from "@/lib/sentry/capture-error";
 import { type Dispatch, type FormEvent, type MutableRefObject, type ReactNode, type RefObject, type SetStateAction, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
@@ -32,15 +22,13 @@ import { ConfirmationPromptCard } from "@/domains/chat/components/confirmation-p
 import { ContactPromptCard } from "@/domains/chat/components/contact-prompt-card";
 import { QuestionPromptCard } from "@/domains/chat/components/question-prompt-card";
 import { SecretPromptCard } from "@/domains/chat/components/secret-prompt-card";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { usePullRefresh } from "@/domains/chat/hooks/use-pull-refresh";
-import { useRefreshLatestMessages as _useRefreshLatestMessages } from "@/domains/chat/hooks/use-refresh-latest-messages";
 import { useConversationStarters } from "@/domains/chat/hooks/use-conversation-starters";
 import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
 import type { TranscriptHandle, TranscriptProps } from "@/domains/chat/transcript/transcript";
 import { useTranscriptScroll } from "@/domains/chat/transcript/use-transcript-scroll";
 import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat";
-import type { ChatError } from "@/domains/chat/types";
-import type { AssistantState } from "@/assistant/types";
 import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone";
 import type { ChatAttachment } from "@/domains/chat/components/chat-attachments/use-chat-attachments";
 import type { ChatEmptyStateProps } from "@/domains/chat/components/chat-empty-state";
@@ -59,17 +47,12 @@ import { DocumentViewerContainer } from "@/domains/chat/components/document-view
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
 import { isProgressBadgeEnabled } from "@/lib/feature-flags/progress-badge-flag";
 import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";
-import { ContextWindowIndicator, type ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
-// SubagentDetailPanel is only rendered when the user opens a subagent's
-// detail view; defer loading to keep the avatar-bundled-components and
-// subagent UI subtree out of the chat-critical bundle.
+import { ContextWindowIndicator } from "@/domains/chat/components/context-window-indicator";
 const SubagentDetailPanel = lazy(() =>
   import("@/domains/chat/components/subagent-detail-panel").then((m) => ({
     default: m.SubagentDetailPanel,
   })),
 );
-// ToolDetailPanel is only rendered when the user opens a tool-call's detail
-// drawer; defer loading to keep its subtree out of the chat-critical bundle.
 const ToolDetailPanel = lazy(() =>
   import("@/domains/chat/components/tool-detail-panel").then((m) => ({
     default: m.ToolDetailPanel,
@@ -78,7 +61,7 @@ const ToolDetailPanel = lazy(() =>
 import { OnboardingChoiceCard } from "@/domains/chat/components/onboarding-choice-card";
 import { useOnboardingChoice } from "@/domains/chat/hooks/use-onboarding-choice";
 import { useEditMessage } from "@/domains/chat/hooks/use-edit-message";
-import { conversationsByIdUndoPost } from "@/generated/daemon/sdk.gen";
+import { conversationsByIdUndoPost, subagentsByIdAbortPost } from "@/generated/daemon/sdk.gen";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 
 import { Link, useNavigate } from "react-router";
@@ -91,12 +74,12 @@ import { getChatBillingBannerDecision, shouldShowGenericChatErrorNotice } from "
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useDeployStore } from "@/stores/deploy-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
-import type { SubagentState } from "@/domains/chat/subagent-store";
+import { useSubagentStore } from "@/domains/chat/subagent-store";
 import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/utils/reconcile";
 
 import { buildTranscriptItems } from "@/domains/chat/transcript/build-items";
 import { sanitizeDisplayMessages } from "@/domains/chat/utils/sanitize-display-messages";
-import type { TranscriptItem, TranscriptPaginationState } from "@/domains/chat/transcript/types";
+import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import type { HistoryPaginationResult } from "@/domains/chat/transcript/use-history-pagination";
 import {
   canStopGeneration,
@@ -108,92 +91,42 @@ import {
 import { isSurfaceInteractive } from "@/domains/chat/types/types";
 import { getSlackConversationDisplay } from "@/domains/chat/utils/slack-conversation-display";
 
-import { useViewerStore, type MainView, type OpenedAppState, type OpenedDocumentState } from "@/stores/viewer-store";
+import { useViewerStore } from "@/stores/viewer-store";
 import { useActiveProfileModel } from "@/domains/chat/hooks/use-active-profile-model";
 import { isPointerCoarse } from "@/utils/pointer";
 import { routes } from "@/utils/routes";
 import { haptic } from "@/utils/haptics";
-import { isChannelConversation as _isChannelConversation } from "@/domains/chat/utils/conversation-channel";
+import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
-import type { DiskPressureStatusEventPayload } from "@/assistant/use-disk-pressure-monitor";
 import { type TurnState, useTurnStore } from "@/domains/chat/turn-store";
-import type { ConfirmationDecision } from "@/types/event-types";
-import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
-import type { QuestionResponseEntry } from "@/domains/chat/api/event-types";
-import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { DiskPressureBanner, type DiskPressureBannerMode } from "@/domains/chat/components/disk-pressure-banner";
-import type { VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button";
-import type { Conversation } from "@/types/conversation-types";
 import { submitQuestionResponse } from "@/domains/chat/api/interactions";
-import type { ChatEventStream } from "@/lib/streaming/stream-transport";
+import { useStreamStore } from "@/domains/chat/stream-store";
+
+import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { useConversationStore } from "@/stores/conversation-store";
+import { useConversationListQuery } from "@/hooks/conversation-queries";
+import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
+import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
+import type { UseDiskPressureMonitorResult } from "@/assistant/use-disk-pressure-monitor";
+import { useAppNudges } from "@/domains/chat/hooks/use-app-nudges";
+import { useInteractionActions } from "@/domains/chat/hooks/use-interaction-actions";
+import { useGhostTextSuggestion } from "@/domains/chat/hooks/use-ghost-text-suggestion";
+import { useVoiceInput } from "@/domains/chat/hooks/use-voice-input";
+import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
+import { lifecycleService } from "@/assistant/lifecycle-service";
+import { getEditChatConversationId, setEditChatConversationId } from "@/domains/chat/utils/edit-chat-session";
 
 // ---------------------------------------------------------------------------
-// Types
+// Props — only values that cannot be owned locally
 // ---------------------------------------------------------------------------
 
-interface StreamContext {
-  assistantId: string;
-  conversationId: string;
-}
-
-/** Nudge state produced by useAppNudges. */
-export interface NudgeHandlers {
-  isOnIOS: boolean;
-  showBanner: boolean;
-  nudge: {
-    handleDownload: () => void;
-    handleBannerDismiss: () => void;
-  };
-  githubNudge: {
-    handleStar: () => void;
-    handleBannerDismiss: () => void;
-  };
-  showGitHubBanner: boolean;
-  discordNudge: {
-    handleJoin: () => void;
-    handleBannerDismiss: () => void;
-  };
-  showDiscordBanner: boolean;
-}
-
-/** Voice input handlers passed from useVoiceInput. */
-export interface VoiceInputHandlers {
-  voiceInputRef: RefObject<VoiceInputButtonHandle | null>;
-  voiceInterim: string | null;
-  voiceError: string | null;
-  clearVoiceError: () => void;
-  setVoiceError: (e: string | null) => void;
-  handleVoiceBeforeStart: () => boolean | Promise<boolean>;
-  handleVoiceTranscript: (rawText: string) => void;
-  setVoiceInterim: (text: string) => void;
-  handleRetryMicPermission: () => void;
-}
-
-/** Interaction action handlers from useInteractionActions. */
-export interface InteractionActionHandlers {
-  handleSecretSubmit: (value: string, mode: "store" | "transient_send") => void;
-  handleSecretCancel: () => void;
-  handleContactPromptSubmit: (address: string, channelType: string) => Promise<void>;
-  handleContactPromptCancel: () => void;
-  handleConfirmationSubmit: (decision: ConfirmationDecision) => Promise<void>;
-  handleAllowAndCreateRule: (() => void) | undefined;
-  handleOpenRuleEditorForToolCall: (context: {
-    toolName: string;
-    riskLevel?: string;
-    riskReason?: string;
-    input?: Record<string, unknown>;
-    allowlistOptions: AllowlistOption[];
-    scopeOptions: ScopeOption[];
-    directoryScopeOptions: DirectoryScopeOption[];
-  }) => void;
-  handleQuestionResponse: (responses: QuestionResponseEntry[]) => void;
-  handleSurfaceAction: (surfaceId: string, action: string, input?: Record<string, unknown>) => Promise<void>;
-  unknownNudgeToolCallIds: Set<string>;
-  setUnknownNudgeToolCallIds: Dispatch<SetStateAction<Set<string>>>;
-}
-
-/** Send message handlers from useSendMessage. */
-export interface SendMessageHandlers {
+export interface ChatRouteContentProps {
+  // Send message (orchestration owns the SSE / queue lifecycle)
   sendMessage: (content: string, attachments?: DisplayAttachment[]) => Promise<void>;
   handleStopGenerating: () => Promise<void>;
   queuedMessages: DisplayMessage[];
@@ -201,10 +134,23 @@ export interface SendMessageHandlers {
   handleCancelAllQueued: () => void;
   handleSteerMessage: (messageId: string) => void;
   handleEditQueueTail: () => void;
-}
 
-/** Attachment state/handlers from useChatAttachments. */
-export interface AttachmentHandlers {
+  // Conversation secondary actions (orchestration dependency)
+  handleForkConversation: (throughMessageId: string) => Promise<void>;
+  handleInspectMessage?: (messageId: string) => void;
+
+  // History pagination (from useConversationLoader in ActiveChatView)
+  historyPagination: HistoryPaginationResult;
+
+  // Draft input (shared — keydown handler + deep link consumer in ActiveChatView)
+  input: string;
+  setInput: Dispatch<SetStateAction<string>>;
+  saveDraft: (key: string, text: string) => void;
+  clearDraft: (key: string) => void;
+  restoredDraftConversationId: string | null;
+  setRestoredDraftConversationId: Dispatch<SetStateAction<string | null>>;
+
+  // Attachments (shared — reset called by switchConversation in orchestration)
   chatAttachments: ChatAttachment[];
   attachmentsUploadingCount: number;
   attachmentUploadedIds: string[];
@@ -213,185 +159,22 @@ export interface AttachmentHandlers {
   removeChatAttachment: (id: string) => void;
   resetChatAttachments: () => void;
   dismissChatAttachmentError: () => void;
-}
 
-/** Disk pressure state from useDiskPressureMonitor. */
-export interface DiskPressureState {
-  status: DiskPressureStatusEventPayload;
-  mode: string | null;
-  diskPressureMonitorEnabled: boolean;
-  hasResolvedDiskPressureStatus: boolean;
-  isAcknowledgingDiskPressure: boolean;
-  diskPressureAcknowledgeError: Error | null;
-  acknowledgeDiskPressure: () => Promise<void>;
-}
+  // Disk pressure (single instance lives in ActiveChatView; passed down to
+  // avoid duplicate polling intervals and bus subscriptions)
+  diskPressure: UseDiskPressureMonitorResult;
 
-/** Avatar data from useAssistantAvatar. */
-export interface AvatarData {
-  avatarComponents: CharacterComponents | null;
-  avatarTraits: CharacterTraits | null;
-  avatarImageUrl: string | null;
-}
-
-// ---------------------------------------------------------------------------
-// Refs
-// ---------------------------------------------------------------------------
-
-export interface ChatRouteRefs {
-  inputRef: RefObject<HTMLTextAreaElement | null>;
-  messagesRef: MutableRefObject<DisplayMessage[]>;
-  sanitizedMessagesRef: MutableRefObject<DisplayMessage[]>;
-  transcriptItemsRef: MutableRefObject<TranscriptItem[]>;
-  assistantIdRef: MutableRefObject<string | null>;
-  streamContextRef: MutableRefObject<StreamContext | null>;
-  expandedToolCallIdsRef: MutableRefObject<Set<string>>;
-  dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
-  contextWindowUsageByConversationRef: MutableRefObject<Map<string, ContextWindowUsage>>;
-  streamRef: MutableRefObject<ChatEventStream | null>;
-  streamEpochRef: MutableRefObject<number>;
-  pendingQueuedMessageIdsRef: MutableRefObject<string[]>;
-  requestIdToMessageIdRef: MutableRefObject<Map<string, string>>;
-  pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
-  confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
-  reconcileAfterNextStreamOpenRef: MutableRefObject<boolean>;
-  /**
-   * Imperative handle to the mounted `<Transcript />`. Owned by ChatPage
-   * so `useChatDebugApi` (installed there) can read scroll geometry
-   * directly via `transcriptRef.current.getScrollElement()`.
-   */
-  transcriptRef: RefObject<TranscriptHandle | null>;
-}
-
-// ---------------------------------------------------------------------------
-// Props
-// ---------------------------------------------------------------------------
-
-export interface ChatRouteContentProps {
-  // Core
-  assistantId: string | null;
-  assistantState: AssistantState;
-  /** Active assistant's display name from `useAssistantIdentityStore` (read at chat-page via atomic selector). */
-  assistantName: string | null;
-
-  // Feature flags
-  chatPullToRefreshEnabled: boolean;
-  deployToVercel: boolean;
-  doctor: boolean;
-
-  // Platform
-  isMobile: boolean;
-
-  // Messages
-  messages: DisplayMessage[];
-  setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
-
-  // Input
-  input: string;
-  setInput: Dispatch<SetStateAction<string>>;
-
-  // Error
-  error: ChatError | null;
-  setError: Dispatch<SetStateAction<ChatError | null>>;
-
-  // Loading
-  isLoadingHistory: boolean;
-
-  // Conversation
-  conversations: Conversation[];
-  activeConversationId: string | null;
-  activeConversation: Conversation | undefined;
-  processingConversationIds: ReadonlySet<string>;
-
-  // Viewer
-  mainView: MainView;
-  openedAppState: OpenedAppState | null;
-  openedDocumentState: OpenedDocumentState | null;
-  editingConversationId: string | null;
-
-  // Draft
-  restoredDraftConversationId: string | null;
-  setRestoredDraftConversationId: Dispatch<SetStateAction<string | null>>;
-  saveDraft: (key: string, text: string) => void;
-  clearDraft: (key: string) => void;
-
-  // Avatar
-  avatar: AvatarData;
-
-  // Context window
-  contextWindowUsage: ContextWindowUsage | null;
-
-  // Compaction
-  compactionCircuitOpenUntil: Date | null;
-  setCompactionCircuitOpenUntil: Dispatch<SetStateAction<Date | null>>;
-
-  // Suggestion (ghost text)
-  suggestion: string | null;
-
-  // Pagination
-  transcriptPagination: Omit<TranscriptPaginationState, "items">;
-  setTranscriptPagination: Dispatch<SetStateAction<Omit<TranscriptPaginationState, "items">>>;
-
-  // Credits modal
+  // Upward signals to ActiveChatView local state
   setShowAddCreditsModal: Dispatch<SetStateAction<boolean>>;
-
-  // Disk pressure
-  diskPressure: DiskPressureState;
-  handleReviewDiskUsage: () => void;
-
-  // Nudges
-  nudges: NudgeHandlers;
-
-  // Attachments
-  attachments: AttachmentHandlers;
-
-  // Voice
-  voice: VoiceInputHandlers;
-
-  // Send message
-  send: SendMessageHandlers;
-
-  // Interaction actions
-  interactionActions: InteractionActionHandlers;
-
-  // App/document actions
-  handleOpenApp: (appId: string) => void;
-  handleOpenDocument: (documentSurfaceId: string) => void;
-  handleCloseDocument: () => void;
-  handleCloseApp: () => void;
-  handleCloseEditPanel: () => void;
-  handleEditApp: () => void;
-  handleShareApp: () => void;
-  handleDeployApp: (() => void) | undefined;
-
-  // Conversation secondary actions
-  handleForkConversation: (throughMessageId: string) => Promise<void>;
-  handleInspectMessage?: (messageId: string) => void;
-
-  // Subagent
-  subagentState: Pick<SubagentState, "byId">;
-  activeSubagentId: string | null;
-  onSubagentClick: (subagentId: string) => void;
-  onCloseSubagentDetail: () => void;
-  onStopSubagent: (subagentId: string) => void;
-  onRequestSubagentDetail?: (subagentId: string) => void;
-
-  // Navigation (for billing banner)
-  pushToAiSettings: () => void;
-
-  // Callbacks
-  checkAssistant: () => void;
   setRefreshEpoch: Dispatch<SetStateAction<number>>;
 
-  // TanStack Query pagination (from useHistoryPagination)
-  historyPagination: HistoryPaginationResult;
+  // Shared refs (owned by ActiveChatView for debug API / keydown handler)
+  inputRef: RefObject<HTMLTextAreaElement | null>;
+  sanitizedMessagesRef: MutableRefObject<DisplayMessage[]>;
+  transcriptItemsRef: MutableRefObject<TranscriptItem[]>;
+  transcriptRef: RefObject<TranscriptHandle | null>;
 
-  // Refs
-  refs: ChatRouteRefs;
-
-  // Is channel readonly (computed in parent, used in topbar + here)
-  isChannelReadonly: boolean;
-
-  // Onboarding (iOS post-hatch flow)
+  // Onboarding (local state in ActiveChatView)
   onboardingTasksEmpty: boolean;
   didOnboarding: boolean;
   onboardingConversationId: string | null;
@@ -402,107 +185,105 @@ export interface ChatRouteContentProps {
 // ---------------------------------------------------------------------------
 
 export function ChatRouteContent({
-  assistantId,
-  assistantState,
-  assistantName,
-  chatPullToRefreshEnabled,
-  deployToVercel,
-  doctor: doctorEnabled,
-  isMobile,
-  messages,
-  setMessages: _setMessages,
-  input,
-  setInput,
-  error,
-  setError,
-  isLoadingHistory,
-  conversations: _conversations,
-  activeConversationId,
-  activeConversation,
-  processingConversationIds,
-  mainView,
-  openedAppState,
-  openedDocumentState,
-  editingConversationId,
-  restoredDraftConversationId,
-  setRestoredDraftConversationId,
-  saveDraft,
-  clearDraft,
-  avatar,
-  contextWindowUsage,
-  compactionCircuitOpenUntil,
-  setCompactionCircuitOpenUntil,
-  suggestion,
-  transcriptPagination,
-  setTranscriptPagination: _setTranscriptPagination,
-  setShowAddCreditsModal,
-  diskPressure,
-  handleReviewDiskUsage: _handleReviewDiskUsage,
-  nudges,
-  attachments,
-  voice,
-  send,
-  interactionActions,
-  handleOpenApp,
-  handleOpenDocument,
-  handleCloseDocument,
-  handleCloseApp,
-  handleCloseEditPanel,
-  handleEditApp,
-  handleShareApp,
-  handleDeployApp,
+  sendMessage,
+  handleStopGenerating,
+  queuedMessages,
+  handleCancelQueuedMessage,
+  handleCancelAllQueued,
+  handleSteerMessage,
+  handleEditQueueTail,
   handleForkConversation,
   handleInspectMessage,
-  subagentState,
-  activeSubagentId,
-  onSubagentClick,
-  onCloseSubagentDetail,
-  onStopSubagent,
-  onRequestSubagentDetail,
-  pushToAiSettings,
-  checkAssistant,
-  setRefreshEpoch,
   historyPagination,
-  refs,
-  isChannelReadonly,
+  input,
+  setInput,
+  saveDraft,
+  clearDraft,
+  restoredDraftConversationId,
+  setRestoredDraftConversationId,
+  chatAttachments,
+  attachmentsUploadingCount,
+  attachmentUploadedIds,
+  attachmentLastError,
+  addChatAttachmentFiles,
+  removeChatAttachment,
+  resetChatAttachments,
+  dismissChatAttachmentError,
+  diskPressure,
+  setShowAddCreditsModal,
+  setRefreshEpoch,
+  inputRef,
+  sanitizedMessagesRef,
+  transcriptItemsRef,
+  transcriptRef,
   onboardingTasksEmpty,
   didOnboarding,
   onboardingConversationId,
 }: ChatRouteContentProps) {
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
 
-  // Destructure grouped props
-  const { avatarComponents, avatarTraits, avatarImageUrl } = avatar;
-  const {
-    chatAttachments,
-    attachmentsUploadingCount,
-    attachmentUploadedIds,
-    attachmentLastError,
-    addChatAttachmentFiles,
-    removeChatAttachment,
-    resetChatAttachments,
-    dismissChatAttachmentError,
-  } = attachments;
+  // -------------------------------------------------------------------------
+  // Store reads — identity, lifecycle, feature flags
+  // -------------------------------------------------------------------------
+  const assistantId = useAssistantSelectionStore.use.activeAssistantId();
+  const assistantState = useAssistantLifecycleStore.use.assistantState();
+  const assistantName = useAssistantIdentityStore.use.name();
+  const chatPullToRefreshEnabled = useClientFeatureFlagStore.use.chatPullToRefreshEnabled();
+  const deployToVercel = useAssistantFeatureFlagStore.use.deployToVercel();
+  const doctorEnabled = useClientFeatureFlagStore.use.doctor();
+
+  // -------------------------------------------------------------------------
+  // Store reads — per-conversation state
+  // -------------------------------------------------------------------------
+  const messages = useChatSessionStore.use.messages();
+  const error = useChatSessionStore.use.error();
+  const setError = useChatSessionStore.use.setError();
+  const isLoadingHistory = useChatSessionStore.use.isLoadingHistory();
+  const contextWindowUsage = useChatSessionStore.use.contextWindowUsage();
+  const compactionCircuitOpenUntil = useChatSessionStore.use.compactionCircuitOpenUntil();
+  const setCompactionCircuitOpenUntil = useChatSessionStore.use.setCompactionCircuitOpenUntil();
+  const transcriptPagination = useChatSessionStore.use.transcriptPagination();
+
+  // -------------------------------------------------------------------------
+  // Store reads — conversation, viewer
+  // -------------------------------------------------------------------------
+  const activeConversationId = useConversationStore.use.activeConversationId();
+  const editingConversationId = useConversationStore.use.editingConversationId();
+  const processingConversationIds = useConversationStore.use.processingConversationIds();
+  const mainView = useViewerStore.use.mainView();
+  const openedAppState = useViewerStore.use.openedAppState();
+  const openedDocumentState = useViewerStore.use.openedDocumentState();
+  const activeSubagentId = useViewerStore.use.activeSubagentId();
+  const subagentById = useSubagentStore((s) => s.byId);
+
+  // Active conversation (TanStack Query — deduped with ActiveChatView's call)
+  const activeConversation = useActiveConversation(assistantId, activeConversationId, true);
+  const isChannelReadonly = isChannelConversation(activeConversation);
+
+  // Conversation count (for nudges — TanStack Query deduped)
+  const { conversations } = useConversationListQuery(assistantId, true);
+
+  // -------------------------------------------------------------------------
+  // UI-scoped hooks (moved from ActiveChatView — no prop relay needed)
+  // -------------------------------------------------------------------------
+  const avatar = useAssistantAvatar(assistantId);
+  const { components: avatarComponents, traits: avatarTraits, customImageUrl: avatarImageUrl } = avatar;
+
+
+
   const {
     voiceInputRef,
     voiceInterim,
     voiceError,
     clearVoiceError,
-    setVoiceError: _setVoiceError,
+    setVoiceError,
     handleVoiceBeforeStart,
     handleVoiceTranscript,
     setVoiceInterim,
     handleRetryMicPermission,
-  } = voice;
-  const {
-    sendMessage,
-    handleStopGenerating,
-    queuedMessages,
-    handleCancelQueuedMessage,
-    handleCancelAllQueued,
-    handleSteerMessage,
-    handleEditQueueTail,
-  } = send;
+  } = useVoiceInput({ assistantId, inputRef, setInput });
+
   const {
     handleSecretSubmit,
     handleSecretCancel,
@@ -515,26 +296,86 @@ export function ChatRouteContent({
     handleSurfaceAction,
     unknownNudgeToolCallIds,
     setUnknownNudgeToolCallIds,
-  } = interactionActions;
-  const {
-    inputRef,
-    messagesRef,
-    sanitizedMessagesRef,
-    transcriptItemsRef,
-    assistantIdRef: _assistantIdRef,
-    streamContextRef,
-    expandedToolCallIdsRef,
-    dismissedSurfaceIdsRef: _dismissedSurfaceIdsRef,
-    contextWindowUsageByConversationRef: _contextWindowUsageByConversationRef,
-    streamRef: _streamRef,
-    streamEpochRef: _streamEpochRef,
-    pendingQueuedMessageIdsRef: _pendingQueuedMessageIdsRef,
-    requestIdToMessageIdRef: _requestIdToMessageIdRef,
-    pendingLocalDeletionsRef: _pendingLocalDeletionsRef,
-    confirmationToolCallMapRef: _confirmationToolCallMapRef,
+  } = useInteractionActions();
 
-    reconcileAfterNextStreamOpenRef: _reconcileAfterNextStreamOpenRef,
-  } = refs;
+  const handleOpenApp = useOpenAppFromChat();
+
+  // -------------------------------------------------------------------------
+  // App / document / subagent action callbacks
+  // -------------------------------------------------------------------------
+  const handleOpenDocument = useCallback((surfaceId: string) => {
+    haptic.light();
+    if (assistantId) void useViewerStore.getState().loadDocument(assistantId, surfaceId);
+  }, [assistantId]);
+
+  const handleCloseDocument = useCallback(() => {
+    useViewerStore.getState().closeDocument();
+  }, []);
+
+  const handleCloseApp = useCallback(() => {
+    useViewerStore.getState().closeApp();
+    useConversationStore.getState().setEditingConversationId(null);
+  }, []);
+
+  const handleCloseEditPanel = useCallback(() => {
+    useConversationStore.getState().setEditingConversationId(null);
+    useViewerStore.getState().exitAppEditing();
+  }, []);
+
+  const handleEditApp = useCallback(() => {
+    const oas = useViewerStore.getState().openedAppState;
+    if (!oas || !assistantId) return;
+    const appId = oas.appId;
+    const convId = getEditChatConversationId(assistantId, appId) ?? crypto.randomUUID();
+    setEditChatConversationId(assistantId, appId, convId);
+    useConversationStore.getState().setEditingConversationId(convId);
+    useViewerStore.getState().enterAppEditing();
+    if (activeConversationId !== convId) {
+      void navigate(routes.conversation(convId));
+    }
+  }, [assistantId, activeConversationId, navigate]);
+
+  const handleShareApp = useCallback(() => {
+    const app = useViewerStore.getState().openedAppState;
+    if (app && assistantId) void useDeployStore.getState().shareApp(assistantId, app.appId, app.name);
+  }, [assistantId]);
+
+  const handleDeployApp = useCallback(() => {
+    const app = useViewerStore.getState().openedAppState;
+    if (app && assistantId) void useDeployStore.getState().deployApp(assistantId, app.appId, app.name, app.html);
+  }, [assistantId]);
+
+  const onSubagentClick = useCallback((id: string) => {
+    useViewerStore.getState().openSubagentDetail(id);
+  }, []);
+
+  const onCloseSubagentDetail = useCallback(() => {
+    useViewerStore.getState().closeSubagentDetail();
+  }, []);
+
+  const onStopSubagent = useCallback(async (subagentId: string) => {
+    if (!assistantId || !activeConversationId) return;
+    try {
+      await subagentsByIdAbortPost({
+        path: { assistant_id: assistantId, id: subagentId },
+        body: { conversationId: activeConversationId },
+        throwOnError: true,
+      });
+    } catch {
+      // Best-effort abort
+    }
+  }, [assistantId, activeConversationId]);
+
+  const onRequestSubagentDetail = useCallback((subagentId: string) => {
+    if (!assistantId) return;
+    void useSubagentStore.getState().fetchDetailIfNeeded(assistantId, subagentId);
+  }, [assistantId]);
+
+  const pushToAiSettings = useCallback(() => {
+    void navigate(routes.settings.ai);
+  }, [navigate]);
+
+  const checkAssistant = useCallback(() => lifecycleService.checkAssistant(), []);
 
   // -------------------------------------------------------------------------
   // Turn state (read from Zustand store)
@@ -654,6 +495,25 @@ export function ChatRouteContent({
   );
   const hasStreamingAssistantMessage = liveAssistantMessageId != null;
 
+  // Nudges (depends on liveAssistantMessageId)
+  const nudges = useAppNudges(messages, conversations.length, liveAssistantMessageId);
+
+  // Ghost text suggestion (depends on liveAssistantMessageId)
+  const lastCompleteAssistantMsgId = useMemo<string | null>(() => {
+    const last = messages[messages.length - 1];
+    return last &&
+      last.role === "assistant" &&
+      last.id !== liveAssistantMessageId
+      ? last.id ?? null
+      : null;
+  }, [messages, liveAssistantMessageId]);
+
+  const suggestion = useGhostTextSuggestion({
+    assistantId,
+    conversationId: activeConversationId,
+    lastCompleteAssistantMsgId,
+  });
+
   const uiContext: UIContext = {
     hasStreamingAssistantMessage,
     hasPendingSecret: !!pendingSecret,
@@ -677,8 +537,8 @@ export function ChatRouteContent({
   const canStopGenerating = canStopGeneration(turnState, uiContext);
 
   const diskPressureChatBlockReason = getDiskPressureChatBlockReason({
-    monitorEnabled: diskPressure.diskPressureMonitorEnabled,
-    hasResolvedStatus: diskPressure.hasResolvedDiskPressureStatus,
+    monitorEnabled: diskPressure.mode !== null,
+    hasResolvedStatus: diskPressure.hasResolvedStatus,
     status: diskPressure.status,
   });
   const diskPressureInputDisabled = diskPressureChatBlockReason !== null;
@@ -810,7 +670,6 @@ export function ChatRouteContent({
     handleRetryRefreshFromPill,
   } = usePullRefresh({
     activeConversationId,
-    messagesRef,
     invalidateHistory: historyPagination.invalidate,
     onRefreshEpoch,
   });
@@ -887,7 +746,7 @@ export function ChatRouteContent({
   // -------------------------------------------------------------------------
 
   const scrollCoordinator = useTranscriptScroll({
-    transcriptRef: refs.transcriptRef,
+    transcriptRef,
     items: transcriptItems,
     conversationId: activeConversationId,
     hasMore: transcriptPagination.hasMore,
@@ -1002,28 +861,26 @@ export function ChatRouteContent({
     const snapshot = useInteractionStore.getState().pendingQuestion;
     useInteractionStore.getState().dismissQuestion();
     if (!snapshot) return;
-    const ctx = streamContextRef.current;
+    const ctx = useStreamStore.getState().streamContext;
     if (!ctx) return;
     submitQuestionResponse(ctx.assistantId, snapshot.requestId, {
       kind: "close",
     })
       .then((result) => {
         if (!result.ok) {
-          Sentry.captureException(
+          captureError(
             new Error(`question-response close failed: ${result.error}`),
             {
-              tags: { context: "submit_question_response_close" },
+              context: "submit_question_response_close",
               extra: { status: result.status },
             },
           );
         }
       })
       .catch((err) => {
-        Sentry.captureException(err, {
-          tags: { context: "submit_question_response_close" },
-        });
+        captureError(err, { context: "submit_question_response_close" });
       });
-  }, [streamContextRef]);
+  }, []);
 
   // -------------------------------------------------------------------------
   // Empty state placeholder (stable per mount)
@@ -1093,9 +950,9 @@ export function ChatRouteContent({
       <DiskPressureBanner
         status={diskPressure.status}
         mode={mode}
-        isAcknowledging={diskPressure.isAcknowledgingDiskPressure}
-        acknowledgeError={diskPressure.diskPressureAcknowledgeError?.message ?? null}
-        onAcknowledge={() => void diskPressure.acknowledgeDiskPressure()}
+        isAcknowledging={diskPressure.isAcknowledging}
+        acknowledgeError={diskPressure.acknowledgeError?.message ?? null}
+        onAcknowledge={() => void diskPressure.acknowledge()}
         onDismissWarning={dismissWarning}
         onReviewWorkspaceData={() => void navigate(routes.workspace)}
         // Only platform-hosted assistants (kind === "active") have a billing plan to upgrade.
@@ -1204,9 +1061,8 @@ export function ChatRouteContent({
   const chatTranscriptProps: TranscriptProps = {
     items: transcriptItems,
     conversationId: activeConversationId,
-    liveAssistantRowId: liveAssistantMessageId,
     assistantDisplayName: assistantName?.trim() || undefined,
-    expandedToolCallIds: expandedToolCallIdsRef.current,
+    expandedToolCallIds: useChatSessionStore.getState().expandedToolCallIds,
     onOpenRuleEditor: handleOpenRuleEditorForToolCall,
     onOpenApp: handleOpenApp,
     onOpenDocument: handleOpenDocument,
@@ -1341,7 +1197,7 @@ export function ChatRouteContent({
     voiceInterim: voiceInterim ?? undefined,
     onVoiceTranscript: (rawText: string) => handleVoiceTranscript(rawText),
     onVoiceInterimTranscript: setVoiceInterim,
-    onVoiceError: _setVoiceError,
+    onVoiceError: setVoiceError,
     onVoiceBeforeStart: handleVoiceBeforeStart,
     onStopGenerating: handleStopGenerating,
     assistantId,
@@ -1395,7 +1251,7 @@ export function ChatRouteContent({
     messageCount: messages.length,
     showEmptyState: isEmptyConversation,
     emptyStateProps: chatEmptyStateProps,
-    transcriptRef: refs.transcriptRef,
+    transcriptRef,
     transcriptProps: chatTranscriptProps,
   };
 
@@ -1612,7 +1468,7 @@ export function ChatRouteContent({
   }
 
   if (mainView === "subagent-detail" && activeSubagentId && !isMobile) {
-    const activeEntry = subagentState.byId[activeSubagentId];
+    const activeEntry = subagentById[activeSubagentId];
     if (activeEntry) {
       return (
         <>

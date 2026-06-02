@@ -32,7 +32,7 @@ import {
   toggleSchedule,
   updateSchedule,
 } from "@/domains/settings/api/schedules";
-import { reportError } from "@/utils/error-report";
+import { captureError } from "@/lib/sentry/capture-error";
 import {
   assistantScheduleRunsQueryKey,
   assistantSchedulesQueryKey,
@@ -309,10 +309,7 @@ function ScriptTimeoutField({
         setIsEditing(false);
         onUpdated();
       } catch (error) {
-        reportError(error, {
-          context: "schedule_update_timeout",
-          userMessage: "Failed to update timeout.",
-        });
+        captureError(error, { context: "schedule_update_timeout" });
         toast.error("Failed to update timeout.");
       } finally {
         setIsSaving(false);
@@ -372,8 +369,7 @@ function ScriptTimeoutField({
       <span className="text-[var(--content-secondary)]">Timeout</span>
       <div className="flex items-center gap-2">
         <span>
-          {effectiveSeconds}s
-          {schedule.timeoutMs == null ? " (default)" : ""}
+          {effectiveSeconds}s{schedule.timeoutMs == null ? " (default)" : ""}
         </span>
         <Button variant="outlined" size="compact" onClick={startEditing}>
           Edit
@@ -429,10 +425,8 @@ export function ScheduleDetailView({
       // Wait briefly for the run to complete, then refresh
       setTimeout(() => void refetch(), 1000);
     } catch (error) {
-      reportError(error, {
-        context: "schedule_run_now",
-        userMessage: "Failed to run schedule.",
-      });
+      captureError(error, { context: "schedule_run_now" });
+      toast.error("Failed to run schedule.");
     } finally {
       setIsRunning(false);
     }
@@ -444,10 +438,7 @@ export function ScheduleDetailView({
       await deleteSchedule(assistantId, schedule.id);
       onDeleted();
     } catch (error) {
-      reportError(error, {
-        context: "schedule_delete",
-        userMessage: "Failed to delete schedule.",
-      });
+      captureError(error, { context: "schedule_delete" });
       toast.error("Failed to delete schedule.");
       setIsDeleting(false);
       setConfirmingDelete(false);
@@ -471,7 +462,7 @@ export function ScheduleDetailView({
 
       <DetailCard
         title={schedule.name}
-        subtitle={schedule.description}
+        subtitle={schedule.description ?? undefined}
         accessory={
           <div className="flex items-center gap-2">
             <Tag tone={MODE_TONE[schedule.mode] ?? "neutral"}>
@@ -1045,10 +1036,8 @@ export function SchedulesPage() {
         await toggleSchedule(assistantId, scheduleId, enabled);
         void refetch();
       } catch (error) {
-        reportError(error, {
-          context: "schedule_toggle",
-          userMessage: "Failed to toggle schedule.",
-        });
+        captureError(error, { context: "schedule_toggle" });
+        toast.error("Failed to toggle schedule.");
       }
     },
     [assistantId, refetch],
@@ -1076,10 +1065,8 @@ export function SchedulesPage() {
         toast.info("Heartbeat skipped.");
       }
     } catch (error) {
-      reportError(error, {
-        context: "heartbeat_run_now",
-        userMessage: "Failed to run heartbeat.",
-      });
+      captureError(error, { context: "heartbeat_run_now" });
+      toast.error("Failed to run heartbeat.");
     } finally {
       setIsHeartbeatRunning(false);
     }
@@ -1097,10 +1084,8 @@ export function SchedulesPage() {
         toast.info("Consolidation already queued or running.");
       }
     } catch (error) {
-      reportError(error, {
-        context: "consolidation_run_now",
-        userMessage: "Failed to run consolidation.",
-      });
+      captureError(error, { context: "consolidation_run_now" });
+      toast.error("Failed to run consolidation.");
     } finally {
       setIsConsolidationRunning(false);
     }

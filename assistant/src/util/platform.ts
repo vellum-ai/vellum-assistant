@@ -2,6 +2,8 @@ import { chmodSync, existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { SEEDS } from "@vellumai/environments";
+
 import { getWorkspaceDirOverride } from "../config/env-registry.js";
 
 /**
@@ -124,18 +126,19 @@ export function getAvatarImagePath(): string {
   return join(getAvatarDir(), AVATAR_IMAGE_FILENAME);
 }
 
-// Kept in sync with `cli/src/lib/environments/seeds.ts`. Drift between
-// these two sites is caught at test time by
-// `cli/src/__tests__/env-drift.test.ts`. Fast follow: hoist the shared
-// list into a `packages/environments` package so both sites import
-// from one place.
-const KNOWN_ENVIRONMENTS: ReadonlySet<string> = new Set([
-  "production",
-  "staging",
-  "test",
-  "dev",
-  "local",
-]);
+/** Canonical filename for the avatar state manifest. */
+export const AVATAR_MANIFEST_FILENAME = "avatar.json";
+
+/** Returns the canonical avatar manifest path (~/.vellum/workspace/data/avatar/avatar.json). */
+export function getAvatarManifestPath(): string {
+  return join(getAvatarDir(), AVATAR_MANIFEST_FILENAME);
+}
+
+// The set of known environment names, derived from the shared
+// `@vellumai/environments` seed table so this site can never drift from the
+// CLI. The Swift client mirrors the same list (it can't import TS); that
+// cross-language pair is guarded by `cli/src/__tests__/env-drift.test.ts`.
+const KNOWN_ENVIRONMENTS: ReadonlySet<string> = new Set(Object.keys(SEEDS));
 
 /**
  * Returns the env-scoped XDG config subdirectory name for Vellum

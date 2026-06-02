@@ -223,3 +223,43 @@ async function removeContainer(
     .catch(() => undefined);
   return Boolean(result && result.exitCode === 0);
 }
+
+/**
+ * Force-remove every Vellum hatch sibling container belonging to a
+ * single runId. Used by the adapter's catch/shutdown paths as a
+ * fallback after `vellum retire` runs — if retire returned non-zero
+ * (failed assistant-config lookup, daemon stale, etc.) OR if retire
+ * appeared to succeed but a container still binds the daemon's host
+ * port, we force-reap the sibling containers directly via docker.
+ *
+ * Distinct from `reapAbandonedEvalContainers` (which sweeps the
+ * entire `eval-*` namespace based on metadata-derived liveness):
+ * this helper targets one specific runId and trusts the caller's
+ * "this run is done" claim. No metadata check, no preserve list —
+ * the caller already owns the run and is winding it down.
+ *
+ * Best-effort: per-container `docker rm -f` failures are swallowed
+ * (the container may have legitimately already been gone). The
+ * boolean return surfaces whether any container was actually removed,
+ * which the adapter uses to decide whether to log a "force-reaped
+ * surviving container(s)" warning.
+ */
+export async function reapContainersForRun(
+  runner: CommandRunner,
+  runId: string,
+): Promise<{ reaped: string[] }> {
+  if (!runId.startsWith(EVAL_CONTAINER_PREFIX)) {
+    // Refuse to operate on non-eval runIds — same safety boundary as
+    // the bulk reaper. A future caller passing a malformed id should
+    // get a no-op, not a host-wide `docker rm` spree.
+    return { reaped: [] };
+  }
+  const reaped: string[] = [];
+  for (const service of VELLUM_HATCH_SERVICES) {
+    const containerName = `${runId}-${service}`;
+    if (await removeContainer(runner, containerName)) {
+      reaped.push(containerName);
+    }
+  }
+  return { reaped };
+}

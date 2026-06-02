@@ -1,25 +1,15 @@
 /**
- * Terminal handler for the default `compaction` pipeline.
+ * Default `compaction` behavior: summarizes conversation history when the
+ * context window fills up.
  *
  * This module is side-effect free: importing it does not register any plugin.
- * The terminal is wired in as the pipeline's `terminal` argument by the
- * `runPipeline` call site in `daemon/conversation-agent-loop.ts`.
  *
- * Delegates to the orchestrator's existing
- * {@link ContextWindowManager} instance. No behavior change relative to the
- * pre-plugin call site — the plugin only exists so custom plugins registered
- * in later PRs can observe arguments, short-circuit to a different summary, or
- * post-process the {@link ContextWindowResult} before the orchestrator
- * consumes it.
- *
- * Lookup: the terminal reads `ctx.contextWindowManager` from the
- * {@link TurnContext} as a typed optional field. The orchestrator is
- * responsible for attaching that handle to the per-turn context it hands to
- * {@link runPipeline}. If the handle is missing, the terminal throws a
+ * Delegates to the orchestrator's existing {@link ContextWindowManager}
+ * instance, read from `ctx.contextWindowManager` on the {@link TurnContext} as
+ * a typed optional field. The orchestrator is responsible for attaching that
+ * handle to the per-turn context. If the handle is missing, this throws a
  * {@link PluginExecutionError} so the bug surfaces with clear attribution
  * instead of a late `undefined.maybeCompact is not a function`.
- *
- * Design doc: `.private/plans/agent-plugin-system.md` (PR 25).
  */
 
 import type {
@@ -55,7 +45,7 @@ function extractManager(ctx: TurnContext): ContextWindowManager {
     typeof (manager as { maybeCompact?: unknown }).maybeCompact !== "function"
   ) {
     throw new PluginExecutionError(
-      "default-compaction: ctx.contextWindowManager is missing — orchestrator must attach it before invoking the compaction pipeline",
+      "default-compaction: ctx.contextWindowManager is missing — orchestrator must attach it before invoking compaction",
       DEFAULT_COMPACTION_PLUGIN_NAME,
     );
   }
@@ -63,11 +53,9 @@ function extractManager(ctx: TurnContext): ContextWindowManager {
 }
 
 /**
- * Default terminal behavior. Exposed as a standalone function (rather than
- * inlined in the plugin object) so the orchestrator can pass it directly to
- * {@link runPipeline} as the terminal handler. Keeping terminal-vs-middleware
- * separate avoids a wasted `next → terminal` hop when no custom plugin
- * observes the slot.
+ * Run compaction for the turn: reads the context window manager off the turn
+ * context and returns the (possibly summarized) message history from
+ * `maybeCompact`.
  */
 export async function defaultCompactionTerminal(
   args: CompactionArgs,

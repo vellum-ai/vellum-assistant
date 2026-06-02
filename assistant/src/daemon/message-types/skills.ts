@@ -89,6 +89,7 @@ interface SlimSkillBase {
   emoji?: string;
   kind: "bundled" | "installed" | "catalog";
   status: "enabled" | "disabled" | "available";
+  category: string;
 }
 
 interface VellumSlimSkill extends SlimSkillBase {
@@ -159,6 +160,7 @@ interface SkillDetailBase {
   emoji?: string;
   kind: "bundled" | "installed" | "catalog";
   status: "enabled" | "disabled" | "available";
+  category: string;
 }
 
 interface VellumSkillDetail extends SkillDetailBase {

@@ -7,6 +7,10 @@ import {
   fetchOlderHistoryPage,
 } from "@/domains/chat/api/history";
 
+import {
+  messageText,
+  textBody,
+} from "@/domains/chat/utils/message-test-helpers";
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
@@ -137,8 +141,8 @@ describe("response parsing", () => {
   test("returns messages with ids and all pagination cursors", async () => {
     nextResponse = makeJsonResponse({
       messages: [
-        { id: "m1", role: "user", content: "hello", timestamp: 1 },
-        { id: "m2", role: "assistant", content: "hi", timestamp: 2 },
+        { id: "m1", role: "user", ...textBody("hello"), timestamp: 1 },
+        { id: "m2", role: "assistant", ...textBody("hi"), timestamp: 2 },
       ],
       hasMore: true,
       oldestTimestamp: 1,
@@ -160,14 +164,14 @@ describe("response parsing", () => {
     expect(new Set(ids).size).toBe(ids.length);
 
     expect(result.messages[0]!.role).toBe("user");
-    expect(result.messages[0]!.content).toBe("hello");
+    expect(messageText(result.messages[0]!)).toBe("hello");
     expect(result.messages[1]!.role).toBe("assistant");
-    expect(result.messages[1]!.content).toBe("hi");
+    expect(messageText(result.messages[1]!)).toBe("hi");
   });
 
   test("older-page response is parsed the same way", async () => {
     nextResponse = makeJsonResponse({
-      messages: [{ id: "m0", role: "user", content: "earlier", timestamp: 0 }],
+      messages: [{ id: "m0", role: "user", ...textBody("earlier"), timestamp: 0 }],
       hasMore: false,
       oldestTimestamp: 0,
       oldestMessageId: "m0",
@@ -184,7 +188,7 @@ describe("response parsing", () => {
 
   test("falls back to null when oldestTimestamp/oldestMessageId are omitted", async () => {
     nextResponse = makeJsonResponse({
-      messages: [{ id: "m1", role: "user", content: "hello" }],
+      messages: [{ id: "m1", role: "user", ...textBody("hello") }],
       hasMore: false,
     });
 
@@ -193,7 +197,7 @@ describe("response parsing", () => {
     expect(latest.oldestMessageId).toBeNull();
 
     nextResponse = makeJsonResponse({
-      messages: [{ id: "m1", role: "user", content: "hello" }],
+      messages: [{ id: "m1", role: "user", ...textBody("hello") }],
       hasMore: false,
     });
     const older = await fetchOlderHistoryPage("asst-1", "K", 100);
@@ -204,8 +208,8 @@ describe("response parsing", () => {
   test("filters out messages with roles other than user/assistant", async () => {
     nextResponse = makeJsonResponse({
       messages: [
-        { id: "m1", role: "user", content: "hello" },
-        { id: "m2", role: "system", content: "internal" },
+        { id: "m1", role: "user", ...textBody("hello") },
+        { id: "m2", role: "system", ...textBody("internal") },
       ],
       hasMore: false,
       oldestTimestamp: 0,
@@ -220,17 +224,17 @@ describe("response parsing", () => {
   test("deduplicates duplicate message ids in a history page", async () => {
     nextResponse = makeJsonResponse({
       messages: [
-        { id: "m1", role: "user", content: "hello", timestamp: 1 },
+        { id: "m1", role: "user", ...textBody("hello"), timestamp: 1 },
         {
           id: "m2",
           role: "assistant",
-          content: "partial",
+          ...textBody("partial"),
           timestamp: 2,
         },
         {
           id: "m2",
           role: "assistant",
-          content: "complete response",
+          ...textBody("complete response"),
           timestamp: 2,
         },
       ],
@@ -242,7 +246,7 @@ describe("response parsing", () => {
     const result = await fetchLatestHistoryPage("asst-1", "K");
 
     expect(result.messages.map((m) => m.id)).toEqual(["m1", "m2"]);
-    expect(result.messages[1]!.content).toBe("complete response");
+    expect(messageText(result.messages[1]!)).toBe("complete response");
   });
 });
 
@@ -258,11 +262,11 @@ describe("subagent notification extraction", () => {
      */
     nextResponse = makeJsonResponse({
       messages: [
-        { id: "m1", role: "user", content: "hello" },
+        { id: "m1", role: "user", ...textBody("hello") },
         {
           id: "m2",
           role: "assistant",
-          content: "[Subagent spawned]",
+          ...textBody("[Subagent spawned]"),
           subagentNotification: {
             subagentId: "sa-1",
             label: "Research Agent",
@@ -295,7 +299,7 @@ describe("subagent notification extraction", () => {
         {
           id: "m1",
           role: "assistant",
-          content: "[Subagent blocked]",
+          ...textBody("[Subagent blocked]"),
           subagentNotification: {
             subagentId: "sa-1",
             label: "Arizona Tea Research",
@@ -306,7 +310,7 @@ describe("subagent notification extraction", () => {
         {
           id: "m2",
           role: "assistant",
-          content: "[Subagent completed]",
+          ...textBody("[Subagent completed]"),
           subagentNotification: {
             subagentId: "sa-1",
             label: "Arizona Tea Research",

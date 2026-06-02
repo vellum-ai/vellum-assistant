@@ -1,16 +1,16 @@
 /**
- * Hand-written fetch wrappers for the daemon's usage endpoints.
- * These are served via RuntimeProxyWildcardView under
- * /v1/assistants/{id}/usage/* and are not part of the Django OpenAPI schema,
- * so no generated HeyAPI hooks exist for them.
+ * Fetch wrappers for the daemon's usage endpoints. Consumes the generated
+ * daemon SDK; the response types are derived from the routes' declared schemas.
  */
 
-import { client } from "@/generated/api/client.gen";
-
 import {
-  isLlmUsageDimension,
-  toDaemonGroupBy,
-} from "@/utils/llm-dimension";
+  usageBreakdownGet,
+  usageDailyGet,
+  usageSeriesGet,
+  usageTotalsGet,
+} from "@/generated/daemon/sdk.gen";
+
+import { isLlmUsageDimension, toDaemonGroupBy } from "@/utils/llm-dimension";
 import type {
   UsageBreakdownResponse,
   UsageDailyResponse,
@@ -68,58 +68,8 @@ export interface FetchUsageSeriesParams {
   tz?: string;
 }
 
-function buildTotalsQuery(
-  params: FetchUsageTotalsParams,
-): Record<string, string> {
-  return {
-    from: String(params.from),
-    to: String(params.to),
-  };
-}
-
-function buildDailyQuery(
-  params: FetchUsageDailyParams,
-): Record<string, string> {
-  const query: Record<string, string> = {
-    from: String(params.from),
-    to: String(params.to),
-  };
-  if (params.granularity) {
-    query.granularity = params.granularity;
-  }
-  if (params.tz) {
-    query.tz = params.tz;
-  }
-  return query;
-}
-
 function toUsageGroupByQueryValue(groupBy: UsageGroupBy): string {
   return isLlmUsageDimension(groupBy) ? toDaemonGroupBy(groupBy) : groupBy;
-}
-
-export function buildBreakdownQuery(
-  params: FetchUsageBreakdownParams,
-): Record<string, string> {
-  return {
-    from: String(params.from),
-    to: String(params.to),
-    groupBy: toUsageGroupByQueryValue(params.groupBy),
-  };
-}
-
-export function buildSeriesQuery(
-  params: FetchUsageSeriesParams,
-): Record<string, string> {
-  const query: Record<string, string> = {
-    from: String(params.from),
-    to: String(params.to),
-    granularity: params.granularity,
-    groupBy: toUsageGroupByQueryValue(params.groupBy),
-  };
-  if (params.tz) {
-    query.tz = params.tz;
-  }
-  return query;
 }
 
 async function throwOnBadResponse(
@@ -140,13 +90,12 @@ export async function fetchUsageTotals(
   assistantId: string,
   params: FetchUsageTotalsParams,
 ): Promise<UsageTotals> {
-  const { data, response } = await client.get<UsageTotals>({
-    url: "/v1/assistants/{assistant_id}/usage/totals",
+  const { data, response } = await usageTotalsGet({
     path: { assistant_id: assistantId },
-    query: buildTotalsQuery(params),
+    query: { from: params.from, to: params.to },
     throwOnError: false,
   });
-  if (!response || !response.ok) {
+  if (!response?.ok) {
     return throwOnBadResponse(response, "Failed to load usage totals.");
   }
   return { ...EMPTY_TOTALS, ...data };
@@ -156,13 +105,17 @@ export async function fetchUsageDaily(
   assistantId: string,
   params: FetchUsageDailyParams,
 ): Promise<UsageDailyResponse> {
-  const { data, response } = await client.get<UsageDailyResponse>({
-    url: "/v1/assistants/{assistant_id}/usage/daily",
+  const { data, response } = await usageDailyGet({
     path: { assistant_id: assistantId },
-    query: buildDailyQuery(params),
+    query: {
+      from: params.from,
+      to: params.to,
+      granularity: params.granularity,
+      tz: params.tz,
+    },
     throwOnError: false,
   });
-  if (!response || !response.ok) {
+  if (!response?.ok) {
     return throwOnBadResponse(response, "Failed to load usage buckets.");
   }
   const buckets = data?.buckets ?? [];
@@ -178,13 +131,16 @@ export async function fetchUsageBreakdown(
   assistantId: string,
   params: FetchUsageBreakdownParams,
 ): Promise<UsageBreakdownResponse> {
-  const { data, response } = await client.get<UsageBreakdownResponse>({
-    url: "/v1/assistants/{assistant_id}/usage/breakdown",
+  const { data, response } = await usageBreakdownGet({
     path: { assistant_id: assistantId },
-    query: buildBreakdownQuery(params),
+    query: {
+      from: params.from,
+      to: params.to,
+      groupBy: toUsageGroupByQueryValue(params.groupBy),
+    },
     throwOnError: false,
   });
-  if (!response || !response.ok) {
+  if (!response?.ok) {
     return throwOnBadResponse(response, "Failed to load usage breakdown.");
   }
   return { breakdown: data?.breakdown ?? [] };
@@ -194,13 +150,18 @@ export async function fetchUsageSeries(
   assistantId: string,
   params: FetchUsageSeriesParams,
 ): Promise<UsageSeriesResponse> {
-  const { data, response } = await client.get<UsageSeriesResponse>({
-    url: "/v1/assistants/{assistant_id}/usage/series",
+  const { data, response } = await usageSeriesGet({
     path: { assistant_id: assistantId },
-    query: buildSeriesQuery(params),
+    query: {
+      from: params.from,
+      to: params.to,
+      granularity: params.granularity,
+      groupBy: toUsageGroupByQueryValue(params.groupBy),
+      tz: params.tz,
+    },
     throwOnError: false,
   });
-  if (!response || !response.ok) {
+  if (!response?.ok) {
     return throwOnBadResponse(response, "Failed to load usage series.");
   }
   const seriesBuckets = data?.buckets ?? [];

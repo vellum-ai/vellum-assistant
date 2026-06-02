@@ -94,7 +94,6 @@ function isInvalidMessage(message: DisplayMessage): boolean {
   // Any meaningful signal short-circuits as valid. Without one of these the
   // row is a blank bubble (e.g. an orphan tool_result at a pagination boundary
   // that the daemon's renderer already stripped).
-  if (message.content && message.content.trim().length > 0) return false;
   if (
     message.textSegments?.some(
       (s) => typeof s.content === "string" && s.content.trim().length > 0,

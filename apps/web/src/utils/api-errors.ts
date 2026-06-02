@@ -24,8 +24,7 @@ export function toErrorObject(
 
   if (typeof error === "string" && !error.trimStart().startsWith("<")) {
     return {
-      detail:
-        error.slice(0, 500) || response?.statusText || "Request failed.",
+      detail: error.slice(0, 500) || response?.statusText || "Request failed.",
     };
   }
 
@@ -57,13 +56,15 @@ export function extractErrorMessage(
     if (typeof body.message === "string") return body.message;
   }
 
-  if (typeof error === "string" && error && !error.trimStart().startsWith("<")) {
+  if (
+    typeof error === "string" &&
+    error &&
+    !error.trimStart().startsWith("<")
+  ) {
     return error;
   }
 
-  return (
-    fallback ?? (response ? `HTTP ${response.status}` : "Request failed.")
-  );
+  return fallback ?? (response ? `HTTP ${response.status}` : "Request failed.");
 }
 
 /**
@@ -103,14 +104,3 @@ export class ApiError extends Error {
     this.status = status;
   }
 }
-
-/**
- * Default options spread into every HeyAPI SDK call. In SSR / test
- * environments where `window` is absent, supplies a dummy `baseUrl`
- * so the client constructor doesn't throw; in the browser the client's
- * globally-configured base URL is used.
- */
-export const SDK_BASE_OPTIONS =
-  typeof window === "undefined"
-    ? ({ baseUrl: "http://localhost" } as const)
-    : ({} as const);

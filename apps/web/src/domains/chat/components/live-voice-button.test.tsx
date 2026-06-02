@@ -19,7 +19,7 @@ import {
 } from "bun:test";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
-import type { LiveVoiceSessionState } from "@/domains/voice/live-voice/live-voice-store";
+import type { LiveVoiceSessionState } from "@/domains/chat/voice/live-voice/live-voice-store";
 
 let mockVoiceMode = false;
 mock.module("@/stores/assistant-feature-flag-store", () => ({
@@ -34,7 +34,7 @@ const startSpy = mock(async (_assistantId: string, _conversationId?: string) => 
 const stopSpy = mock(async () => {});
 let mockState: LiveVoiceSessionState = "idle";
 let mockInputAmplitude = 0;
-mock.module("@/domains/voice/live-voice/use-live-voice", () => ({
+mock.module("@/domains/chat/voice/live-voice/use-live-voice", () => ({
   useLiveVoice: () => ({
     state: mockState,
     partialTranscript: "",

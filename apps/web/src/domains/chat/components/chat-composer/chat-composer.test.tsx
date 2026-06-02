@@ -58,7 +58,7 @@ const liveStopSpy = mock(async () => {});
 // (`useLiveVoiceStore.use.state()` etc.), so mock the store rather than the
 // `useLiveVoice` controller. `LiveVoiceButton` is the only `useLiveVoice`
 // consumer, and it is mocked separately below.
-mock.module("@/domains/voice/live-voice/live-voice-store", () => ({
+mock.module("@/domains/chat/voice/live-voice/live-voice-store", () => ({
   useLiveVoiceStore: {
     use: {
       state: () => mockLiveVoiceState,
@@ -68,7 +68,7 @@ mock.module("@/domains/voice/live-voice/live-voice-store", () => ({
     },
   },
 }));
-mock.module("@/domains/voice/live-voice/use-live-voice", () => ({
+mock.module("@/domains/chat/voice/live-voice/use-live-voice", () => ({
   useLiveVoice: () => ({
     state: mockLiveVoiceState,
     partialTranscript: mockLivePartial,
@@ -101,7 +101,7 @@ mock.module("@/domains/chat/components/voice-input-button", () => ({
 // free of cross-domain coupling, matching the live-voice mocks above. Only the
 // `.use.phase()` selector is consumed by the composer.
 let mockVoicePhase = "idle";
-mock.module("@/domains/voice/voice-recording-store", () => ({
+mock.module("@/domains/chat/voice/voice-recording-store", () => ({
   useVoiceRecordingStore: {
     use: {
       phase: () => mockVoicePhase,

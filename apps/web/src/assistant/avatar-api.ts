@@ -8,8 +8,35 @@
  */
 import { client } from "@/generated/api/client.gen";
 import { assertHasResponse } from "@/utils/api-errors";
-import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
-import { isCharacterTraits } from "@/types/avatar";
+import type {
+  AvatarState,
+  CharacterComponents,
+  CharacterTraits,
+} from "@/types/avatar";
+import { isAvatarState, isCharacterTraits } from "@/types/avatar";
+
+/**
+ * Fetch the authoritative avatar render manifest from the daemon's
+ * `GET /avatar/state` endpoint.
+ *
+ * Returns `null` only on transport failure. A 200 response with
+ * `{ kind: "none" }` is a valid state (an empty avatar), not `null`.
+ */
+export async function fetchAvatarState(
+  assistantId: string,
+): Promise<AvatarState | null> {
+  try {
+    const { data, error, response } = await client.get({
+      url: "/v1/assistants/{assistant_id}/avatar/state",
+      path: { assistant_id: assistantId },
+    });
+    assertHasResponse(response, error, "Failed to fetch avatar state");
+    if (!response.ok || !isAvatarState(data)) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
 
 export async function fetchCharacterComponents(
   assistantId: string,
@@ -85,45 +112,14 @@ export async function uploadAvatarImage(
       ),
     );
 
-    const { error: writeError, response: writeResponse } = await client.post({
-      url: "/v1/assistants/{assistant_id}/workspace/write/",
+    const { error, response } = await client.post({
+      url: "/v1/assistants/{assistant_id}/avatar/image",
       path: { assistant_id: assistantId },
-      body: { path: "data/avatar/avatar-image.png", content: base64, encoding: "base64" },
+      body: { content: base64, encoding: "base64" },
       headers: { "Content-Type": "application/json" },
     });
-    assertHasResponse(writeResponse, writeError, "Failed to upload avatar image");
-    if (!writeResponse.ok) return false;
-
-    await client.post({
-      url: "/v1/assistants/{assistant_id}/workspace/delete/",
-      path: { assistant_id: assistantId },
-      body: { path: "data/avatar/character-traits.json" },
-      headers: { "Content-Type": "application/json" },
-    });
-
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export async function deleteAvatar(assistantId: string): Promise<boolean> {
-  try {
-    const [imageResult, traitsResult] = await Promise.all([
-      client.post({
-        url: "/v1/assistants/{assistant_id}/workspace/delete/",
-        path: { assistant_id: assistantId },
-        body: { path: "data/avatar/avatar-image.png" },
-        headers: { "Content-Type": "application/json" },
-      }),
-      client.post({
-        url: "/v1/assistants/{assistant_id}/workspace/delete/",
-        path: { assistant_id: assistantId },
-        body: { path: "data/avatar/character-traits.json" },
-        headers: { "Content-Type": "application/json" },
-      }),
-    ]);
-    return (imageResult.response?.ok ?? false) || (traitsResult.response?.ok ?? false);
+    assertHasResponse(response, error, "Failed to upload avatar image");
+    return response.ok;
   } catch {
     return false;
   }

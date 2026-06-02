@@ -10,6 +10,8 @@ import {
 import { homedir } from "os";
 import { dirname, join } from "path";
 
+import { SEEDS, type EnvironmentDefinition } from "@vellumai/environments";
+
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./constants.js";
 import {
   getDefaultPorts,
@@ -18,8 +20,6 @@ import {
   getMultiInstanceDir,
 } from "./environments/paths.js";
 import { getCurrentEnvironment } from "./environments/resolve.js";
-import { SEEDS } from "./environments/seeds.js";
-import type { EnvironmentDefinition } from "./environments/types.js";
 import { probePort } from "./port-probe.js";
 
 /**
@@ -631,7 +631,7 @@ export async function allocateLocalResources(
 
   // Env-aware bases: non-prod envs sit in their own 1000-port window so
   // running prod and staging assistants side-by-side doesn't collide. See
-  // `environments/seeds.ts:portBlock` for the layout.
+  // the `@vellumai/environments` `portBlock` layout.
   const basePorts = getDefaultPorts(env);
   const daemonPort = await findAvailablePort(basePorts.daemon, reservedPorts);
   const gatewayPort = await findAvailablePort(basePorts.gateway, [
