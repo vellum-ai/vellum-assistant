@@ -20,15 +20,10 @@ import { useNavigate, useParams, useSearchParams } from "react-router";
 import { useAuthStore } from "@/stores/auth-store";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
+import { useAutoGreetGate } from "@/domains/chat/hooks/use-auto-greet-gate";
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import { useConversationStore } from "@/stores/conversation-store";
-import {
-  COMPOSER_FOCUS_EVENT,
-  consumePendingComposerFocus,
-  insertTextAtSelection,
-  requestComposerFocus,
-  shouldFocusComposerForTyping,
-} from "./composer-focus";
+import { requestComposerFocus } from "./composer-focus";
 import {
   useConversationListQuery,
 } from "@/hooks/conversation-queries";
@@ -76,11 +71,7 @@ import { useChatDebugApi } from "@/domains/chat/utils/debug-api";
 
 import { ConnectingToAssistant } from "@/domains/chat/components/connecting-to-assistant";
 
-import {
-  assistantIdentityIntroQueryKey,
-  assistantIdentityQueryKey,
-} from "@/lib/sync/query-tags";
-import { useQueryClient } from "@tanstack/react-query";
+
 
 import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat";
 import { isSurfaceInteractive } from "@/domains/chat/types/types";
@@ -105,11 +96,13 @@ const CommandPalette = lazy(() =>
   })),
 );
 import { shouldHandleShortcut } from "@/domains/chat/chat-layout";
-import { lifecycleService } from "@/assistant/lifecycle-service";
+
 import { MobileChatOverlays } from "@/domains/chat/components/mobile-chat-overlays";
 import { useSyncRouter } from "@/domains/chat/hooks/use-sync-router";
 import { useChatHeaderRegistration } from "@/domains/chat/hooks/use-chat-header-registration";
 import { useConversationChangeEffects } from "@/domains/chat/hooks/use-conversation-change-effects";
+import { useComposerKeyboard } from "@/domains/chat/hooks/use-composer-keyboard";
+import { useAutoSendEffects } from "@/domains/chat/hooks/use-auto-send-effects";
 
 import { routes } from "@/utils/routes";
 
@@ -147,27 +140,6 @@ export function ActiveChatView() {
 
   const [restoredDraftConversationId, setRestoredDraftConversationId] = useState<string | null>(null);
   const [refreshEpoch, setRefreshEpoch] = useState(0);
-  // Auto-greet loading gate — single source of truth lives in
-  // `useAssistantLifecycleStore.expectingFirstMessage`. Set by every
-  // hatch path (vanilla auto-hatch, nonprod `hatchVersion`, onboarding
-  // hatching-screen, pre-chat-flow) and by the mount-time pre-chat
-  // detector below. Cleared on the exit conditions below (messages
-  // arrived, 10s safety, conversation switch) or on terminal lifecycle
-  // transitions (error / retired / logout).
-  const autoGreetPending =
-    useAssistantLifecycleStore.use.expectingFirstMessage();
-
-  // Pre-chat sessionStorage detector. Load-bearing on the *reload*
-  // path: sessionStorage survives a refresh / iOS webview restore,
-  // the lifecycle store does not. If the user reloads after the
-  // pre-chat context is staged but before the first message arrives,
-  // the auto-send hook below still fires from the persisted context,
-  // so the gate has to show. Mark is idempotent.
-  useEffect(() => {
-    if (peekPendingPreChatContext()?.initialMessage != null) {
-      lifecycleService.markExpectingFirstMessage();
-    }
-  }, []);
   const [assetsRefreshKey, setAssetsRefreshKey] = useState(0);
 
   // Hydrate per-conversation seq cursors from localStorage once so gap
@@ -200,7 +172,6 @@ export function ActiveChatView() {
   // store via atomic selectors per `docs/STATE_MANAGEMENT.md` rather
   // than maintaining its own local copy.
   const assistantName = useAssistantIdentityStore.use.name();
-  const queryClient = useQueryClient();
 
   // -------------------------------------------------------------------------
   // Pin-sync side-effect
@@ -223,29 +194,6 @@ export function ActiveChatView() {
   // Threaded down to ChatRouteContent through the `refs` prop and bound on
   // the actual `<Transcript />` instance there.
   const transcriptRef = useRef<TranscriptHandle | null>(null);
-
-  // Composer focus from the Electron host's File > Current Conversation
-  // command. The command is dispatched in `chat-layout.tsx` via the
-  // `useVellumCommands` hook; the textarea ref lives here, so we listen
-  // for a window event rather than threading the ref upward through
-  // props/context just for this one cross-cutting capability. On mount,
-  // also drain any pending focus request that fired before we mounted
-  // (e.g. when the command was invoked from `/assistant/home` and
-  // chat-layout navigated us here) — see `./composer-focus.ts`.
-  useEffect(() => {
-    const focusInput = () => inputRef.current?.focus();
-    const handleFocusRequest = () => {
-      consumePendingComposerFocus();
-      focusInput();
-    };
-    window.addEventListener(COMPOSER_FOCUS_EVENT, handleFocusRequest);
-    if (consumePendingComposerFocus()) {
-      queueMicrotask(focusInput);
-    }
-    return () =>
-      window.removeEventListener(COMPOSER_FOCUS_EVENT, handleFocusRequest);
-  }, []);
-
 
   const assistantIdRef = useRef<string | null>(assistantId);
   useEffect(() => { assistantIdRef.current = assistantId; }, [assistantId]);
@@ -310,42 +258,15 @@ export function ActiveChatView() {
     onDraftRestored: setRestoredDraftConversationId,
   });
 
+  // Keyboard focus: Electron host focus relay + typing auto-focus.
+  useComposerKeyboard(inputRef, setInput);
+
   // Inbound deep links: pre-fill composer with `deeplink.send` text,
   // navigate to `/assistant/conversations/<id>` for `deeplink.openThread`,
   // and ensure the main window is visible first. The hook gates the
   // composer pre-fill on `input` being empty so it doesn't clobber
   // in-progress typing. Off Electron the bus events never fire.
   useDeepLinkConsumer({ composerInput: input, setComposerInput: setInput });
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      const inputEl = inputRef.current;
-      if (!inputEl || inputEl.disabled || inputEl.readOnly) return;
-      if (document.activeElement === inputEl) return;
-      if (document.querySelector('[aria-modal="true"]')) return;
-      if (!shouldFocusComposerForTyping(event, document.activeElement)) return;
-
-      event.preventDefault();
-      inputEl.focus();
-      setInput((current) => {
-        const next = insertTextAtSelection({
-          value: current,
-          text: event.key,
-          selectionStart: inputEl.selectionStart,
-          selectionEnd: inputEl.selectionEnd,
-        });
-        requestAnimationFrame(() => {
-          inputEl.setSelectionRange(next.cursor, next.cursor);
-        });
-        return next.value;
-      });
-    };
-
-    window.addEventListener("keydown", onKeyDown, { capture: true });
-    return () => {
-      window.removeEventListener("keydown", onKeyDown, { capture: true });
-    };
-  }, [setInput]);
 
   // -------------------------------------------------------------------------
   // Attachments
@@ -444,51 +365,15 @@ export function ActiveChatView() {
   });
 
   // -------------------------------------------------------------------------
-  // Assistant identity (refresh trigger)
-  // -------------------------------------------------------------------------
-  // The actual fetch lives in `useAssistantIdentityInit` at the
-  // `ChatLayout` level (TanStack Query → Zustand store). Chat-page only
-  // owns the *invalidation* triggers that the layout's query doesn't
-  // know about: SSE `identity_changed`, post-`/edit-identity` flush,
-  // and reachability resumes. Each downstream consumer (sync router,
-  // stream event handler, send-message hook) calls this and the layout
-  // re-fetches.
-  const refreshAssistantIdentity = useCallback(
-    async () => {
-      const targetId = assistantIdRef.current;
-      if (!targetId) return;
-      await queryClient.invalidateQueries({
-        queryKey: assistantIdentityQueryKey(targetId),
-      });
-    },
-    [queryClient],
-  );
-
-  const invalidateAssistantIdentityIntro = useCallback(
-    () => {
-      const targetId = assistantIdRef.current;
-      if (!targetId) return;
-      void queryClient.invalidateQueries({
-        queryKey: assistantIdentityIntroQueryKey(targetId),
-      });
-    },
-    [queryClient],
-  );
-
-  useEffect(() => {
-    if (!assistantId) return;
-    void refreshAssistantIdentity();
-  }, [assistantId, reachabilityReadyEpoch, refreshAssistantIdentity]);
-
-  // -------------------------------------------------------------------------
-  // Sync router
+  // Sync router — owns identity invalidation callbacks, reachability
+  // refresh, and all sync_changed tag dispatch.
   // -------------------------------------------------------------------------
   const invalidateAvatar = useCallback(() => { avatar.invalidate(); }, [avatar.invalidate]);
 
   const { dispatchSyncChanged, dispatchReconnect } = useSyncRouter({
+    assistantId,
+    reachabilityReadyEpoch,
     invalidateAvatar,
-    refreshAssistantIdentity,
-    invalidateAssistantIdentityIntro,
     scheduleConversationListRefetch,
     reconcileActiveConversation,
   });
@@ -536,72 +421,23 @@ export function ActiveChatView() {
     await baseHandleStopGenerating();
   }, [baseHandleStopGenerating]);
 
-  // Auto-send a message when navigated to with ?prompt= (e.g. Submit Feedback)
-  const promptConsumedRef = useRef<string | null>(null);
-  useEffect(() => {
-    const prompt = searchParams.get("prompt");
-    if (!prompt || !activeConversationId || promptConsumedRef.current === prompt) return;
-    promptConsumedRef.current = prompt;
-    void sendMessage(prompt);
-  }, [searchParams, activeConversationId, sendMessage]);
+  // Auto-send: URL ?prompt=, pre-chat reachability probe, onboarding message.
+  useAutoSendEffects({
+    assistantId,
+    activeConversationId,
+    searchParams,
+    sendMessage,
+    reachabilityPhase: reachability.state.phase,
+    reachabilityProbe: reachability.probe,
+    getPendingInitialMessage: () => peekPendingPreChatContext()?.initialMessage ?? undefined,
+  });
 
-  // Kick off a background reachability probe immediately when a pending
-  // onboarding message exists, instead of waiting for a 502 from
-  // the conversation list query to trigger the unreachable-bus.
-  useEffect(() => {
-    if (!assistantId) return;
-    const message = peekPendingPreChatContext()?.initialMessage;
-    if (!message) return;
-    if (reachability.state.phase === "idle") {
-      reachability.probe({ mode: "background" });
-    }
-  }, [assistantId, reachability]);
-
-  // Auto-send onboarding initial message once the daemon is reachable.
-  const initialMessageConsumedRef = useRef(false);
-  useEffect(() => {
-    if (initialMessageConsumedRef.current || !assistantId || !activeConversationId) return;
-    if (reachability.state.phase !== "ready") return;
-    const message = peekPendingPreChatContext()?.initialMessage;
-    if (!message) return;
-    initialMessageConsumedRef.current = true;
-    void sendMessage(message);
-  }, [activeConversationId, assistantId, reachability.state.phase, sendMessage]);
-
-  // Clear the post-hatch loading gate once the first message appears.
-  useEffect(() => {
-    if (!autoGreetPending) return;
-    if (messages.length > 0) lifecycleService.clearExpectingFirstMessage();
-  }, [autoGreetPending, messages.length]);
-
-  // Safety timer: a failed auto-send / never-arriving greeting can't
-  // strand the user on "Connecting..." until refresh.
-  useEffect(() => {
-    if (!autoGreetPending) return;
-    const timeout = setTimeout(
-      () => lifecycleService.clearExpectingFirstMessage(),
-      10_000,
-    );
-    return () => clearTimeout(timeout);
-  }, [autoGreetPending]);
-
-  // Clear the gate when `activeConversationId` changes after first
-  // mount. Auto-greet isn't per-conversation state — it's a
-  // system-wide "we just hatched" signal that happens to surface in
-  // the chat UI, so it doesn't belong in the conversation-switch
-  // reset. Draft → real ID handoff also trips this, but by then
-  // the messages-arrived effect has already dismissed the gate (sending
-  // the first message is what resolves the draft), so the second
-  // dismiss is a no-op.
-  const lastSeenConvIdForGateRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (activeConversationId == null) return;
-    const previous = lastSeenConvIdForGateRef.current;
-    lastSeenConvIdForGateRef.current = activeConversationId;
-    if (previous != null && previous !== activeConversationId) {
-      lifecycleService.clearExpectingFirstMessage();
-    }
-  }, [activeConversationId]);
+  // Post-hatch "Connecting…" overlay lifecycle — pre-chat detector,
+  // messages-arrived clear, safety timer, conversation-switch clear.
+  const autoGreetPending = useAutoGreetGate(
+    activeConversationId,
+    peekPendingPreChatContext()?.initialMessage != null,
+  );
 
   // Deep-link: ?app=<id> auto-opens the app viewer on initial load.
   const deepLinkAppConsumed = useRef(false);
