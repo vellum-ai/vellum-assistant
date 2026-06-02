@@ -8,7 +8,7 @@ import { Dropdown } from "@vellum/design-library";
 import { storePendingInitialMessage } from "@/utils/initial-message-launch";
 import { routes } from "@/utils/routes";
 import { formatCost, formatTokens } from "@/domains/logs/format";
-import { getBrowserTimezone } from "@/utils/browser-timezone";
+import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 import {
   buildCallSiteMetadataMap,
   fetchUsageCallSiteCatalog,
@@ -92,7 +92,7 @@ export function UsageTab({ assistantId }: UsageTabProps) {
   );
   const rangeWindow = useMemo(() => resolveRangeWindow(range), [range]);
   const granularity = useMemo(() => resolveUsageGranularity(range), [range]);
-  const [timezone] = useState(getBrowserTimezone);
+  const timezone = useEffectiveTimezone();
 
   const startCostConversation = (message: string) => {
     storePendingInitialMessage(message);
