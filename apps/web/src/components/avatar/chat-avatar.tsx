@@ -70,6 +70,39 @@ function AvatarGlisten() {
   );
 }
 
+/** Ring geometry. Thickness is a fixed 1px hairline; gap scales with size. */
+const RING_THICKNESS = 1; // border thickness in px
+const RING_GAP_RATIO = 0.04; // gap between avatar edge and ring inner edge / size
+
+/**
+ * Spinning semicircular ring traced just outside the avatar's circular edge,
+ * shown while the assistant is streaming/loading. Only used for custom
+ * uploaded-image avatars — character avatars already signal streaming through
+ * their morph animation. The arc + rotation live in CSS (`.avatar-streaming-ring`);
+ * thickness/inset are inline so the ring scales with `size`. It sits in a gap
+ * outside the image (negative inset) so it reads as a ring around the avatar
+ * rather than covering the picture.
+ */
+function AvatarStreamingRing({ size }: { size: number }) {
+  const thickness = RING_THICKNESS;
+  const gap = Math.max(1, Math.round(size * RING_GAP_RATIO));
+  const inset = -(thickness + gap);
+  return (
+    <span
+      aria-hidden="true"
+      className="avatar-streaming-ring pointer-events-none absolute"
+      style={{
+        top: inset,
+        right: inset,
+        bottom: inset,
+        left: inset,
+        borderWidth: thickness,
+        boxSizing: "border-box",
+      }}
+    />
+  );
+}
+
 /** Render the active progress affordance for the configured badge variant. */
 function ProgressOverlay({
   size,
@@ -98,6 +131,9 @@ function ProgressOverlay({
  *   - Mount plays an entrance spring (scale 0.6 → 1, opacity 0 → 1).
  *   - When `interactive`, click triggers a spring bounce.
  *   - `prefers-reduced-motion` short-circuits both.
+ *   - For custom uploaded-image avatars, a spinning semicircular ring traces
+ *     just outside the avatar's edge while `isStreaming`/`isProcessing` is on
+ *     (character avatars already signal streaming via their morph animation).
  *   - When `isProcessing` and the `useProgressBadge` debug flag is on, the
  *     configured progress affordance renders: the `"dots"` variant shows a
  *     bottom-right three-dot badge, while the `"gradient"` variant glistens a
@@ -203,6 +239,7 @@ function ChatAvatarComponent({
           className={`rounded-full object-cover ${className ?? ""}`}
           style={{ width: size, height: size, flexShrink: 0 }}
         />
+        {(isStreaming || isProcessing) && <AvatarStreamingRing size={size} />}
         {badgeVariant && <ProgressOverlay size={size} variant={badgeVariant} />}
       </motion.div>
     );

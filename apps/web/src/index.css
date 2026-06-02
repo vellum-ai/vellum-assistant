@@ -90,6 +90,33 @@ body {
   animation: avatar-glisten-sweep 1.6s ease-in-out infinite;
 }
 
+/* Avatar streaming ring — a semicircular arc that traces the circular avatar's
+   edge and spins continuously while the assistant is streaming/loading. Used
+   only for custom uploaded-image avatars; character avatars convey streaming
+   through their own morph animation instead. Two adjacent borders are colored
+   (each border occupies a 90° quadrant of the ring when border-radius is 50%,
+   so two adjacent borders make a 180° semicircle); the rest stay transparent,
+   and the whole ring rotates. Border thickness/inset are set inline so the
+   ring scales with avatar size. `prefers-reduced-motion` holds it static. */
+@keyframes avatar-ring-spin {
+  to { transform: rotate(360deg); }
+}
+
+.avatar-streaming-ring {
+  border-style: solid;
+  border-radius: 50%;
+  border-color: transparent;
+  border-top-color: var(--border-active);
+  border-right-color: var(--border-active);
+  animation: avatar-ring-spin 0.85s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .avatar-streaming-ring {
+    animation: none;
+  }
+}
+
 /* Onboarding hatching avatar pulse. Mirrors the macOS HatchingStepView
  * character animation: scales between 0.9 and 1.0 on ease-in-out, 1.2s
  * cycle, infinite alternate. Opacity dimmed to 0.6 so the creature reads
