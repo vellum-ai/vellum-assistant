@@ -11,9 +11,12 @@ import path from "node:path";
 /**
  * Pinned CLI version installed in packaged builds.
  *
- * This should be stamped by the release workflow using the same
- * `jq --arg v "$VERSION"` pattern used for CLI/meta packages in
- * `.github/workflows/release.yml`.
+ * TODO: Not yet stamped automatically. When the Electron app is added to
+ * the release pipeline in `.github/workflows/release.yml`, add a step to
+ * rewrite this value using the same `jq`/`sed` pattern that stamps
+ * `assistant/package.json` et al. (see the "Stamp release version into
+ * package.json" step in that workflow). Until then, bump manually when
+ * cutting a release that changes the CLI version in `cli/package.json`.
  */
 export const PINNED_CLI_VERSION = "0.8.6";
 
