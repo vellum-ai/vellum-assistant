@@ -56,7 +56,6 @@ export const conversations = sqliteTable(
     index("idx_conversations_fork_parent_conversation_id").on(
       table.forkParentConversationId,
     ),
-    index("idx_conversations_incognito").on(table.incognito),
   ],
 );
 
