@@ -19,6 +19,11 @@ import type {
 } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
+// Namespace import + optional call: Bun `mock.module` global-leak means many
+// test files mock conversation-crud with only a partial export set. A named
+// `getConversation` import would fail at link time under those mocks; the
+// namespace access degrades to undefined (treated as non-incognito) instead.
+import * as conversationCrud from "../conversation-crud.js";
 import { getDb } from "../db-connection.js";
 import { embedWithRetry } from "../embed.js";
 import { generateSparseEmbedding } from "../embedding-backend.js";
@@ -371,6 +376,18 @@ export class ConversationGraphMemory {
       // Clear any cached injection so a later overflow-reduction
       // re-injection via `reinjectCachedMemory()` cannot reintroduce a
       // stale <memory> block after the user disables memory.
+      this.lastInjectedBlock = null;
+      this.lastInjectedNodeIds = [];
+      this.lastInjectedImages = new Map();
+      return noopResult;
+    }
+
+    const conversation = conversationCrud.getConversation?.(this.conversationId);
+    if (conversation?.incognito && !conversation.factorInMemories) {
+      // Incognito conversation opted out of memory recall — clear any cached
+      // injection (mirroring the !config.memory.enabled branch) so a later
+      // overflow-reduction re-injection via `reinjectCachedMemory()` cannot
+      // reintroduce a stale <memory> block, and inject nothing.
       this.lastInjectedBlock = null;
       this.lastInjectedNodeIds = [];
       this.lastInjectedImages = new Map();
