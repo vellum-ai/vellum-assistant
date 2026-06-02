@@ -1299,7 +1299,7 @@ jobs:
           # use the first human Co-authored-by email instead.
           ESCAPE='gsub("&";"&amp;") | gsub("<";"&lt;") | gsub(">";"&gt;")'
           LINKIFY='gsub("\\(#(?<n>[0-9]+)\\)"; "(<https://github.com/'"${REPO}"'/pull/\(.n)|#\(.n)>)")'
-          RESOLVE_AUTHOR='if ((.author.login // "") | test("\\[bot\\]$")) then (([.commit.message | scan("(?i)co-authored-by:\\s*[^<]*<([^>]+)>")] | map(.[0]) | map(select(test("\\[bot\\]|noreply") | not)) | .[0]) // .author.login) else (.author.login // .commit.author.name) end'
+          RESOLVE_AUTHOR='if ((.author.login // "") | test("\\[bot\\]$")) then (([.commit.message | scan("(?i)co-authored-by:\\s*[^<]*<([^>]+)>")] | map(.[0]) | map(select(test("\\[bot\\]") | not)) | .[0]) // .author.login) else (.author.login // .commit.author.name) end'
 
           if [ -n "$PREV_SHA" ] && [ "$PREV_SHA" != "$HEAD_SHA" ]; then
             COMPARE_URL="https://github.com/${REPO}/compare/${PREV_SHA}...${HEAD_SHA}"
