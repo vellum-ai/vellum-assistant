@@ -310,7 +310,10 @@ function ManageProfilesModalInner({
       return false;
     }
 
-    // Optimistic update: write the new status directly into the query cache
+    // Cancel in-flight refetches so they don't overwrite the optimistic update.
+    // See: https://tkdodo.eu/blog/concurrent-optimistic-updates-in-react-query
+    await queryClient.cancelQueries({ queryKey });
+
     const previousStatus = previousEntry.status ?? "active";
     queryClient.setQueryData<DaemonConfig>(queryKey, (old) => {
       if (!old?.llm?.profiles?.[profile.name]) return old;
@@ -455,7 +458,9 @@ function ManageProfilesModalInner({
       ...without.slice(insertAt),
     ];
 
-    // Optimistic update: write new order into the query cache
+    // Cancel in-flight refetches so they don't overwrite the optimistic update.
+    await queryClient.cancelQueries({ queryKey });
+
     queryClient.setQueryData<DaemonConfig>(queryKey, (old) => {
       if (!old?.llm) return old;
       return {
