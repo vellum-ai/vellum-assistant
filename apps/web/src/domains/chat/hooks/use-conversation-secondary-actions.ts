@@ -9,38 +9,29 @@
 
 import { captureError } from "@/lib/sentry/capture-error";
 import {
-  type Dispatch,
-  type SetStateAction,
   useCallback,
-  useState,
 } from "react";
 
-import type { NavigateFunction } from "react-router";
+import { useNavigate } from "react-router";
 
 import type { Conversation } from "@/types/conversation-types";
 import { conversationsByIdAnalyzePost, conversationsForkPost } from "@/generated/daemon/sdk.gen";
 import { routes } from "@/utils/routes";
 import { haptic } from "@/utils/haptics";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
-import type { ChatError } from "@/domains/chat/types";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { useConversationStore } from "@/stores/conversation-store";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 // ---------------------------------------------------------------------------
 // Params
 // ---------------------------------------------------------------------------
 
 export interface UseConversationSecondaryActionsParams {
-  assistantId: string | null;
-  activeConversationId: string | null;
   activeConversation: Conversation | null | undefined;
-  assistantIdentityName: string | undefined;
   refreshConversations: () => void;
   switchConversation: (key: string) => void;
-  setError: (error: ChatError | null) => void;
-  /** Navigate to a conversation by key (path-based routing). */
-  navigateToConversation: (key: string) => void;
-  /** React Router navigate function for non-conversation navigation. */
-  navigate: NavigateFunction;
 }
 
 // ---------------------------------------------------------------------------
@@ -55,9 +46,6 @@ export interface UseConversationSecondaryActionsReturn {
   handleInspectConversation: (conversation: Conversation) => void;
   handleInspectMessage: (messageId: string) => void;
   handleCopyConversation: () => void;
-  feedbackOpen: boolean;
-  setFeedbackOpen: Dispatch<SetStateAction<boolean>>;
-  handleShareFeedback: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -65,20 +53,16 @@ export interface UseConversationSecondaryActionsReturn {
 // ---------------------------------------------------------------------------
 
 export function useConversationSecondaryActions({
-  assistantId,
-  activeConversationId,
   activeConversation,
-  assistantIdentityName,
   refreshConversations,
   switchConversation,
-  setError,
-  navigateToConversation,
-  navigate,
 }: UseConversationSecondaryActionsParams): UseConversationSecondaryActionsReturn {
-  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const navigate = useNavigate();
 
   const handleForkConversation = useCallback(
     async (throughMessageId: string) => {
+      const assistantId = useAssistantSelectionStore.getState().activeAssistantId;
+      const activeConversationId = useConversationStore.getState().activeConversationId;
       if (!assistantId || !activeConversationId) {
         return;
       }
@@ -91,12 +75,12 @@ export function useConversationSecondaryActions({
           throwOnError: true,
         });
         refreshConversations();
-        navigateToConversation(data.conversation.id);
+        void navigate(routes.conversation(data.conversation.id));
       } catch (err) {
         captureError(err, { context: "fork_conversation" });
       }
     },
-    [activeConversationId, assistantId, refreshConversations, navigateToConversation],
+    [refreshConversations, navigate],
   );
 
   const handleForkConversationFromMenu = useCallback(() => {
@@ -110,6 +94,7 @@ export function useConversationSecondaryActions({
 
   const handleAnalyzeConversation = useCallback(
     async (conversation: Conversation) => {
+      const assistantId = useAssistantSelectionStore.getState().activeAssistantId;
       if (!assistantId) return;
       try {
         const { data } = await conversationsByIdAnalyzePost({
@@ -121,11 +106,11 @@ export function useConversationSecondaryActions({
       } catch (err) {
         const message =
           err instanceof Error ? err.message : "Failed to analyze conversation.";
-        setError({ message });
+        useChatSessionStore.getState().setError({ message });
         captureError(err, { context: "analyzeConversation" });
       }
     },
-    [assistantId, refreshConversations, switchConversation],
+    [refreshConversations, switchConversation],
   );
 
   const handleOpenInNewWindow = useCallback(
@@ -146,9 +131,8 @@ export function useConversationSecondaryActions({
   const handleInspectConversation = useCallback(
     (conversation: Conversation) => {
       const params = new URLSearchParams();
-      const isActiveConversation =
-        conversation.conversationId === activeConversation?.conversationId;
-      if (isActiveConversation) {
+      const currentActiveId = useConversationStore.getState().activeConversationId;
+      if (conversation.conversationId === currentActiveId) {
         const latestAssistant = useChatSessionStore.getState().messages.findLast(
           (m) => m.role === "assistant" && m.id != null,
         );
@@ -161,11 +145,12 @@ export function useConversationSecondaryActions({
       const base = routes.inspect(conversation.conversationId);
       void navigate(qs ? `${base}?${qs}` : base);
     },
-    [navigate, activeConversation?.conversationId],
+    [navigate],
   );
 
   const handleInspectMessage = useCallback(
     (messageId: string) => {
+      const activeConversationId = useConversationStore.getState().activeConversationId;
       if (!activeConversationId) return;
       const params = new URLSearchParams();
       params.set("messageId", messageId);
@@ -173,15 +158,11 @@ export function useConversationSecondaryActions({
         `${routes.inspect(activeConversationId)}?${params.toString()}`,
       );
     },
-    [activeConversationId, navigate],
+    [navigate],
   );
 
-  const handleShareFeedback = useCallback(() => {
-    setFeedbackOpen(true);
-  }, []);
-
   const handleCopyConversation = useCallback(() => {
-    const name = assistantIdentityName ?? "Assistant";
+    const name = useAssistantIdentityStore.getState().name ?? "Assistant";
     const parts: string[] = [];
     if (activeConversation?.title) {
       parts.push(`# ${activeConversation.title}`);
@@ -195,7 +176,7 @@ export function useConversationSecondaryActions({
     if (parts.length === 0) return;
     const markdown = parts.join("\n\n---\n\n");
     void navigator.clipboard.writeText(markdown);
-  }, [assistantIdentityName, activeConversation?.title]);
+  }, [activeConversation?.title]);
 
   return {
     handleForkConversation,
@@ -205,8 +186,5 @@ export function useConversationSecondaryActions({
     handleInspectConversation,
     handleInspectMessage,
     handleCopyConversation,
-    feedbackOpen,
-    setFeedbackOpen,
-    handleShareFeedback,
   };
 }

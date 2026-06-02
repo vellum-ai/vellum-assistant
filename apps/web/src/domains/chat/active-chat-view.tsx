@@ -23,23 +23,22 @@ import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useAutoGreetGate } from "@/domains/chat/hooks/use-auto-greet-gate";
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import { useConversationStore } from "@/stores/conversation-store";
-import { requestComposerFocus } from "./composer-focus";
+
 import {
   useConversationListQuery,
 } from "@/hooks/conversation-queries";
 import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
 import { useViewerStore } from "@/stores/viewer-store";
 import { useDeployStore } from "@/stores/deploy-store";
-import { useSubagentStore } from "@/domains/chat/subagent-store";
+
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
-import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import type { TranscriptHandle } from "@/domains/chat/transcript/transcript";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
-import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
+
 import { peekPendingPreChatContext } from "@/domains/onboarding/prechat";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
@@ -54,16 +53,14 @@ import { useOnboardingOrchestrator } from "@/domains/chat/hooks/use-onboarding-o
 
 import { useConversationSecondaryActions } from "@/domains/chat/hooks/use-conversation-secondary-actions";
 import { canUseLlmInspector } from "@/domains/chat/inspector/access";
-import { useMessageReconciliation } from "@/domains/chat/hooks/use-message-reconciliation";
-import { useStreamEventHandler } from "@/domains/chat/hooks/use-stream-event-handler";
 import { useSendMessage } from "@/domains/chat/hooks/use-send-message";
-import { useEventStream } from "@/domains/chat/hooks/use-event-stream";
+import { useMessageLifecycle } from "@/domains/chat/hooks/use-message-lifecycle";
 import { hydrateLastSeenSeqFromStorage } from "@/lib/streaming/last-seen-seq";
 import { isSeqGapDetectionEnabled } from "@/lib/feature-flags/seq-gap-detection-flag";
 import { useActiveAppPinSync } from "@/domains/chat/hooks/use-active-app-pin-sync";
 import { useDraftInput } from "@/domains/chat/components/chat-composer/use-draft-input";
 import { useDeepLinkConsumer } from "@/domains/chat/hooks/use-deep-link-consumer";
-import { useRefreshLatestMessages } from "@/domains/chat/hooks/use-refresh-latest-messages";
+
 import { useChatDebugRegistration } from "@/domains/chat/hooks/use-chat-debug-registration";
 import { useCommandPaletteOrchestrator } from "@/domains/chat/hooks/use-command-palette-orchestrator";
 import { useDeepLinkApp } from "@/domains/chat/hooks/use-deep-link-app";
@@ -87,13 +84,10 @@ const CommandPalette = lazy(() =>
 );
 
 import { MobileChatOverlays } from "@/domains/chat/components/mobile-chat-overlays";
-import { useSyncRouter } from "@/domains/chat/hooks/use-sync-router";
 import { useChatHeaderRegistration } from "@/domains/chat/hooks/use-chat-header-registration";
 import { useConversationChangeEffects } from "@/domains/chat/hooks/use-conversation-change-effects";
 import { useComposerKeyboard } from "@/domains/chat/hooks/use-composer-keyboard";
 import { useAutoSendEffects } from "@/domains/chat/hooks/use-auto-send-effects";
-
-import { routes } from "@/utils/routes";
 
 import {
   ChatRouteContent,
@@ -107,7 +101,6 @@ import {
 export function ActiveChatView() {
   const authUser = useAuthStore.use.user();
   const showLlmInspector = canUseLlmInspector(authUser);
-  const isNative = useIsNativePlatform();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { conversationId: urlConversationId } = useParams<{ conversationId?: string }>();
@@ -119,7 +112,6 @@ export function ActiveChatView() {
   // Chat session store — reactive selectors for per-conversation state
   // -------------------------------------------------------------------------
   const messages = useChatSessionStore.use.messages();
-  const setError = useChatSessionStore.use.setError();
 
   // -------------------------------------------------------------------------
   // Local state (not store-backed)
@@ -192,20 +184,6 @@ export function ActiveChatView() {
     onboardingDraftConversationIdRef,
   } = useOnboardingOrchestrator();
 
-  const conversationListInvalidatedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingInitialMessageRef = useRef<{ conversationId: string; content: string } | null>(null);
-
-  // -------------------------------------------------------------------------
-  // Routing
-  // -------------------------------------------------------------------------
-  const push = useCallback(
-    (url: string) => { void navigate(url); },
-    [navigate],
-  );
-  const navigateToConversation = useCallback(
-    (key: string) => { void navigate(routes.conversation(key)); },
-    [navigate],
-  );
   // -------------------------------------------------------------------------
   // Reachability
   // -------------------------------------------------------------------------
@@ -230,8 +208,7 @@ export function ActiveChatView() {
 
   // -------------------------------------------------------------------------
   // Draft input — owns composer `input` state and per-conversation draft
-  // persistence to localStorage. Replaces the old manual `draftsRef` that was
-  // threaded through useConversationLoader → useConversationHistory.
+  // persistence to localStorage.
   // -------------------------------------------------------------------------
   const { input, setInput, saveDraft, clearDraft } = useDraftInput({
     assistantId,
@@ -263,8 +240,6 @@ export function ActiveChatView() {
     dismissError: dismissChatAttachmentError,
   } = useChatAttachments(assistantId);
 
-
-
   // -------------------------------------------------------------------------
   // Derived state
   // -------------------------------------------------------------------------
@@ -288,8 +263,9 @@ export function ActiveChatView() {
   const {
     refreshConversations,
     scheduleConversationListRefetch,
-    switchConversation: rawSwitchConversation,
-    startNewConversation: rawStartNewConversation,
+    cancelScheduledRefetch,
+    switchConversation,
+    startNewConversation,
     conversationExistsOnServer,
     historyResult,
   } = useConversationLoader({
@@ -304,65 +280,30 @@ export function ActiveChatView() {
     refreshEpoch,
     reachabilityReadyEpoch,
     onboardingDraftConversationIdRef,
-    conversationListInvalidatedTimerRef,
-    pendingInitialMessageRef,
-    shouldSuppressGenericChatErrorNotice,
     resetChatAttachments,
   });
 
-  // Wrap conversation-switching to reset subagent state eagerly
-  const switchConversation = useCallback(
-    (key: string) => {
-      useSubagentStore.getState().reset();
-      rawSwitchConversation(key);
-    },
-    [rawSwitchConversation],
-  );
-  const startNewConversation = useCallback(
-    (opts: { silent?: boolean; initialMessage?: string } = {}) => {
-      useSubagentStore.getState().reset();
-      rawStartNewConversation(opts);
-      requestComposerFocus();
-    },
-    [rawStartNewConversation],
-  );
-
   // -------------------------------------------------------------------------
-  // Message reconciliation
+  // Message lifecycle — reconciliation, sync router, stream event handling,
+  // SSE subscription, and latest-message refresh.
   // -------------------------------------------------------------------------
   const {
     startReconciliationLoop,
     cancelReconciliation,
     reconcileActiveConversation,
-  } = useMessageReconciliation({
-    latestPageOldestTimestamp: historyResult.pagination.latestPageOldestTimestamp,
-  });
-
-  // -------------------------------------------------------------------------
-  // Sync router — owns identity invalidation callbacks, reachability
-  // refresh, and all sync_changed tag dispatch.
-  // -------------------------------------------------------------------------
-  const invalidateAvatar = useCallback(() => { avatar.invalidate(); }, [avatar.invalidate]);
-
-  const { dispatchSyncChanged, dispatchReconnect } = useSyncRouter({
+    refreshLatestMessages,
+  } = useMessageLifecycle({
     assistantId,
+    assistantStateKind: assistantState.kind,
+    activeConversationId,
+    conversationExistsOnServer,
+    latestPageOldestTimestamp: historyResult.pagination.latestPageOldestTimestamp,
+    scheduleConversationListRefetch,
+    cancelScheduledRefetch,
+    reachability,
     reachabilityReadyEpoch,
-    invalidateAvatar,
-    scheduleConversationListRefetch,
-    reconcileActiveConversation,
-  });
-
-  // -------------------------------------------------------------------------
-  // Stream event handler
-  // -------------------------------------------------------------------------
-  const { handleStreamEvent } = useStreamEventHandler({
-    push,
-    isNative,
-    cancelReconciliation,
-    startReconciliationLoop,
+    avatarInvalidate: avatar.invalidate,
     setAssetsRefreshKey,
-    scheduleConversationListRefetch,
-    dispatchSyncChanged,
   });
 
   // -------------------------------------------------------------------------
@@ -415,32 +356,6 @@ export function ActiveChatView() {
   // auto-fetch subagent details for entries reconstructed from history)
   useConversationChangeEffects(assistantId, activeConversationId);
 
-  // -------------------------------------------------------------------------
-  // Event stream (SSE lifecycle)
-  // -------------------------------------------------------------------------
-  useEventStream({
-    assistantStateKind: assistantState.kind,
-    assistantId,
-    activeConversationId,
-    conversationExistsOnServer,
-    handleStreamEvent,
-    reconcileActiveConversation,
-    startReconciliationLoop,
-    cancelReconciliation,
-    reachabilityProbe: reachability.probe,
-    reachabilityPhase: reachability.state.phase,
-    reachabilityReset: reachability.reset,
-    dispatchReconnect,
-    conversationListInvalidatedTimerRef,
-  });
-
-  // -------------------------------------------------------------------------
-  // Non-destructive refresh for the chat title chevron's Refresh menu item.
-  // -------------------------------------------------------------------------
-  const refreshLatestMessages = useRefreshLatestMessages({
-    assistantId,
-  });
-
   // Debug API — dev-facing surface for in-the-moment chat inspection.
   // Unconditionally attached; negligible production overhead.
   useChatDebugRegistration({
@@ -465,15 +380,9 @@ export function ActiveChatView() {
     handleInspectMessage,
     handleCopyConversation,
   } = useConversationSecondaryActions({
-    assistantId,
-    activeConversationId,
     activeConversation: activeConversation ?? null,
-    assistantIdentityName: assistantName ?? undefined,
     refreshConversations,
     switchConversation,
-    setError,
-    navigateToConversation,
-    navigate,
   });
 
   // -------------------------------------------------------------------------
@@ -610,7 +519,7 @@ export function ActiveChatView() {
           <DeployDialogs
             assistantId={assistantId}
             assistantName={assistantName ?? undefined}
-            onStartConversation={(msg) => startNewConversation({ initialMessage: msg })}
+            onStartConversation={() => startNewConversation()}
           />
         </LazyBoundary>
       ) : null}
