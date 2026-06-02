@@ -62,7 +62,6 @@ export async function main(): Promise<void> {
       new StubBuildDriver("planner-worker"),
     ],
   });
-  // eslint-disable-next-line no-console -- standalone CLI output
   console.log(formatScorecard(card));
 }
 
