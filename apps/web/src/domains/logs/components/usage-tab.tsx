@@ -92,10 +92,14 @@ export function UsageTab({ assistantId }: UsageTabProps) {
   );
   const timezone = useEffectiveTimezone();
   // Depend on `timezone` so bounded ranges (e.g. "Today", "Last 7 days")
-  // recompute their browser-local from/to boundaries when the live zone
-  // changes (OS or `device:timezone` update), keeping them aligned with the
-  // `tz` sent to the backend instead of using stale boundaries.
-  const rangeWindow = useMemo(() => resolveRangeWindow(range), [range, timezone]);
+  // recompute their from/to boundaries in the effective zone when it changes
+  // (OS or `device:timezone` update). `resolveRangeWindow` derives the calendar
+  // day boundaries in `timezone`, keeping them aligned with the `tz` sent to
+  // the backend rather than browser-local boundaries.
+  const rangeWindow = useMemo(
+    () => resolveRangeWindow(range, timezone),
+    [range, timezone],
+  );
   const granularity = useMemo(() => resolveUsageGranularity(range), [range]);
 
   const startCostConversation = (message: string) => {

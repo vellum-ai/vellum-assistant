@@ -1,3 +1,7 @@
+import {
+  timezoneDayStartEpoch,
+  toTimezoneDateString,
+} from "@/components/charts/format-date-label";
 import { LLM_USAGE_DIMENSION_LABELS } from "@/utils/llm-dimension";
 import { UsageRequestError } from "./usage-api";
 import type {
@@ -119,8 +123,15 @@ const RANGE_START_DAY_OFFSETS: Record<Exclude<UsageTimeRange, "all">, number> =
     "90d": 89,
   };
 
+/**
+ * Resolve the `{ from, to }` epoch-ms window for a usage range, with calendar
+ * day boundaries computed in the effective `tz` so they stay aligned with the
+ * `tz` sent to the backend (which buckets by that zone). `to` is the current
+ * instant; `from` is zone-local midnight of the range's first calendar day.
+ */
 export function resolveRangeWindow(
   range: UsageTimeRange,
+  tz: string,
   now: Date | number = Date.now(),
 ): {
   from: number;
@@ -130,13 +141,15 @@ export function resolveRangeWindow(
   if (range === "all") {
     return { from: 0, to };
   }
-  const localNow = new Date(to);
   const dayOffset = RANGE_START_DAY_OFFSETS[range];
-  const from = new Date(
-    localNow.getFullYear(),
-    localNow.getMonth(),
-    localNow.getDate() - dayOffset,
-  ).getTime();
+  // Today's calendar date in `tz`, then step back whole days on a UTC-noon
+  // anchor to avoid DST slips before resolving zone-local midnight.
+  const todayInTz = toTimezoneDateString(new Date(to), tz);
+  const [y, m, d] = todayInTz.split("-").map(Number);
+  const anchor = new Date(Date.UTC(y, m - 1, d, 12));
+  anchor.setUTCDate(anchor.getUTCDate() - dayOffset);
+  const fromDate = toTimezoneDateString(anchor, "UTC");
+  const from = timezoneDayStartEpoch(fromDate, tz);
   return { from, to };
 }
 
