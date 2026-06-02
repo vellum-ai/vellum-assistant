@@ -33,10 +33,6 @@ export function reconcileFromDaemonConfig(config: DaemonConfig): DaemonConfigRec
   const model = llm.default?.model;
   if (model) result.selectedModel = model;
 
-  if (llm.activeProfile !== undefined) result.activeProfile = llm.activeProfile ?? null;
-  if (llm.profiles) result.profiles = llm.profiles;
-  if (llm.profileOrder !== undefined) result.profileOrder = llm.profileOrder;
-
   const wsMode = services["web-search"]?.mode;
   if (wsMode === "managed" || wsMode === "your-own") result.webSearchMode = wsMode as ServiceMode;
   const wsProvider = services["web-search"]?.provider;

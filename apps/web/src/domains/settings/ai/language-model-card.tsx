@@ -1,5 +1,5 @@
 import { Loader2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { Button } from "@vellum/design-library/components/button";
 import { Dropdown } from "@vellum/design-library/components/dropdown";
@@ -7,8 +7,6 @@ import { Typography } from "@vellum/design-library/components/typography";
 import { toast } from "@vellum/design-library/components/toast";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
-import type { ProfileEntry } from "@/domains/settings/ai/ai-types";
-import { reconcileFromDaemonConfig } from "@/domains/settings/ai/ai-utils";
 import { ByoServiceCard, SaveButton } from "@/domains/settings/ai/ai-shared-ui";
 import { useDaemonConfig } from "@/domains/settings/ai/use-daemon-config";
 import { CallSiteOverridesModal } from "@/domains/settings/ai/call-site-overrides-modal";
@@ -24,39 +22,40 @@ import {
 export function LanguageModelCard() {
   const {
     assistantId,
-    config: daemonConfig,
-    invalidateConfig,
+    profiles,
+    profileOrder,
+    activeProfile,
+    callSites,
     patchDaemonConfig,
   } = useDaemonConfig();
 
-  // Profile state
-  const [activeProfile, setActiveProfile] = useState<string | null>(null);
-  const [savedActiveProfile, setSavedActiveProfile] = useState<string | null>(null);
-  const [managedProfileSaving, setManagedProfileSaving] = useState(false);
-  const [profiles, setProfiles] = useState<Record<string, ProfileEntry>>({});
-  const [profileOrder, setProfileOrder] = useState<string[]>([]);
+  // Draft active profile — ephemeral UI state for the unsaved dropdown
+  // selection. Resets to the server value when the server value changes
+  // (i.e. after a successful save + cache invalidation).
+  const [draftActiveProfile, setDraftActiveProfile] = useState<string | null>(null);
+  const [draftInitialized, setDraftInitialized] = useState(false);
 
-  // Modal toggles
+  // Sync draft to server value when server value arrives or changes.
+  // This replaces the old `initialized` ref + one-shot useEffect pattern
+  // with a controlled derivation: when the cache has data and the draft
+  // hasn't been touched yet, seed it; when the cache refreshes after a
+  // save, re-sync so the dropdown reflects the persisted value.
+  const effectiveActiveProfile = useMemo(() => {
+    if (!draftInitialized && activeProfile !== null) {
+      return activeProfile;
+    }
+    return draftActiveProfile ?? activeProfile;
+  }, [draftInitialized, draftActiveProfile, activeProfile]);
+
+  // Saving state for the "save profile" button
+  const [managedProfileSaving, setManagedProfileSaving] = useState(false);
+
+  // Modal toggles — ephemeral UI state, correct as useState
   const [manageProfilesOpen, setManageProfilesOpen] = useState(false);
   const [overridesOpen, setOverridesOpen] = useState(false);
   const [manageProvidersOpen, setManageProvidersOpen] = useState(false);
 
-  // Hydrate from daemon config on first load
-  const initialized = useRef(false);
-  useEffect(() => {
-    if (!daemonConfig || initialized.current) return;
-    initialized.current = true;
-    const reconciled = reconcileFromDaemonConfig(daemonConfig);
-    if (reconciled.activeProfile !== undefined) {
-      const resolved = reconciled.activeProfile ?? null;
-      setActiveProfile(resolved);
-      setSavedActiveProfile(resolved);
-    }
-    if (reconciled.profiles) setProfiles(reconciled.profiles);
-    if (reconciled.profileOrder !== undefined) setProfileOrder(reconciled.profileOrder);
-  }, [daemonConfig]);
-
-  // Derived state
+  // Derived state — computed from query cache slices
   const orderedProfiles = useMemo(() => {
     const ordered = profileOrder
       .filter((name) => name in profiles)
@@ -74,18 +73,18 @@ export function LanguageModelCard() {
   const defaultProfilePickerEntries = useMemo(
     () =>
       gateAutoProfile(
-        visibleProfilesForPicker(orderedProfiles, [activeProfile]),
+        visibleProfilesForPicker(orderedProfiles, [effectiveActiveProfile]),
         queryComplexityRoutingEnabled,
       ),
-    [orderedProfiles, activeProfile, queryComplexityRoutingEnabled],
+    [orderedProfiles, effectiveActiveProfile, queryComplexityRoutingEnabled],
   );
 
-  const overrideCount = Object.entries(daemonConfig?.llm?.callSites ?? {}).filter(
+  const overrideCount = Object.entries(callSites).filter(
     ([id, s]) => id !== "mainAgent" && (s?.profile != null || s?.provider != null || s?.model != null),
   ).length;
   const overrideLabel =
     overrideCount === 1 ? "1 Override" : overrideCount > 0 ? `${overrideCount} Overrides` : "Overrides";
-  const isProfileDirty = activeProfile !== savedActiveProfile;
+  const isProfileDirty = effectiveActiveProfile !== activeProfile;
 
   const handleManagedProfileSave = useCallback(async () => {
     if (!assistantId) {
@@ -94,51 +93,18 @@ export function LanguageModelCard() {
     }
     setManagedProfileSaving(true);
     try {
-      await patchDaemonConfig({ llm: { activeProfile } });
-      setSavedActiveProfile(activeProfile);
-      invalidateConfig();
+      await patchDaemonConfig({ llm: { activeProfile: effectiveActiveProfile } });
+      // Cache invalidation happens automatically via patchConfigMutation.onSettled.
+      // Reset draft state so it re-syncs from the new cache value.
+      setDraftInitialized(false);
+      setDraftActiveProfile(null);
       toast.success("Profile saved.");
     } catch {
       toast.error("Failed to switch profile. Please try again.");
     } finally {
       setManagedProfileSaving(false);
     }
-  }, [activeProfile, assistantId, invalidateConfig, patchDaemonConfig]);
-
-  const handleProfilesChanged = useCallback(
-    (updates: {
-      profiles?: Record<string, ProfileEntry | null>;
-      profileOrder?: string[];
-      activeProfile?: string | null;
-      callSites?: Record<string, string>;
-    }) => {
-      if (updates.profiles) {
-        setProfiles((prev) => {
-          const next = { ...prev };
-          for (const [name, entry] of Object.entries(updates.profiles!)) {
-            if (entry === null) {
-              delete next[name];
-            } else {
-              next[name] = entry;
-            }
-          }
-          return next;
-        });
-        invalidateConfig();
-      }
-      if (updates.profileOrder !== undefined) {
-        setProfileOrder(updates.profileOrder);
-      }
-      if (updates.activeProfile !== undefined) {
-        setActiveProfile(updates.activeProfile);
-        setSavedActiveProfile(updates.activeProfile);
-      }
-      if (updates.callSites !== undefined) {
-        invalidateConfig();
-      }
-    },
-    [invalidateConfig],
-  );
+  }, [effectiveActiveProfile, assistantId, patchDaemonConfig]);
 
   return (
     <>
@@ -152,9 +118,10 @@ export function LanguageModelCard() {
               Default Profile
             </label>
             <Dropdown
-              value={activeProfile ?? ""}
+              value={effectiveActiveProfile ?? ""}
               onChange={(val) => {
-                setActiveProfile(val === "" ? null : val);
+                setDraftInitialized(true);
+                setDraftActiveProfile(val === "" ? null : val);
               }}
               placeholder="Select a default profile…"
               options={defaultProfilePickerEntries.map((p) => ({
@@ -165,7 +132,7 @@ export function LanguageModelCard() {
                     : profilePickerLabel(p),
               }))}
             />
-            {queryComplexityRoutingEnabled && activeProfile === AUTO_PROFILE_NAME && (
+            {queryComplexityRoutingEnabled && effectiveActiveProfile === AUTO_PROFILE_NAME && (
               <div className="flex items-center gap-2 rounded-lg bg-[var(--surface-warning-subtle)] px-3 py-2">
                 <span className="text-body-small-default text-[var(--content-warning)]">
                   Auto may use more powerful models when needed, which can increase costs.
@@ -221,13 +188,8 @@ export function LanguageModelCard() {
       {assistantId && (
         <ManageProfilesModal
           isOpen={manageProfilesOpen}
-          profiles={profiles}
-          profileOrder={profileOrder}
-          activeProfile={activeProfile}
           assistantId={assistantId}
-          callSiteOverrides={daemonConfig?.llm?.callSites ?? {}}
           onClose={() => setManageProfilesOpen(false)}
-          onProfilesChanged={handleProfilesChanged}
         />
       )}
 
@@ -236,10 +198,6 @@ export function LanguageModelCard() {
           isOpen={overridesOpen}
           onClose={() => setOverridesOpen(false)}
           assistantId={assistantId}
-          orderedProfiles={orderedProfiles}
-          persistedOverrides={daemonConfig?.llm?.callSites ?? {}}
-          daemonConfigLoaded={!!daemonConfig}
-          onSaved={invalidateConfig}
         />
       )}
 
