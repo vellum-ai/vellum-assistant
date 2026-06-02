@@ -40,6 +40,14 @@ export function isCliInstalled(): boolean {
   return existsSync(getCliBinPath());
 }
 
+// Singleton promise prevents concurrent installs from corrupting node_modules.
+let installPromise: Promise<void> | null = null;
+
+/** Reset the install lock. Exposed for testing only. */
+export function _resetInstallLock(): void {
+  installPromise = null;
+}
+
 /**
  * Install the pinned CLI version if it isn't already present.
  *
@@ -50,50 +58,61 @@ export function isCliInstalled(): boolean {
 export async function ensureCliInstalled(): Promise<void> {
   if (isCliInstalled()) return;
 
-  const installDir = getCliInstallDir();
-  mkdirSync(installDir, { recursive: true });
+  if (installPromise) return installPromise;
 
-  const bunPath = getBundledBunPath();
+  installPromise = (async () => {
+    const installDir = getCliInstallDir();
+    mkdirSync(installDir, { recursive: true });
 
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn(bunPath, ["add", `@vellumai/cli@${PINNED_CLI_VERSION}`], {
-      cwd: installDir,
-    });
+    const bunPath = getBundledBunPath();
 
-    let stdout = "";
-    let stderr = "";
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(bunPath, ["add", `@vellumai/cli@${PINNED_CLI_VERSION}`], {
+        cwd: installDir,
+      });
 
-    child.stdout.on("data", (data: Buffer) => {
-      stdout += data.toString();
-    });
+      let stdout = "";
+      let stderr = "";
 
-    child.stderr.on("data", (data: Buffer) => {
-      stderr += data.toString();
-    });
+      child.stdout.on("data", (data: Buffer) => {
+        stdout += data.toString();
+      });
 
-    child.on("error", (err: Error) => {
-      reject(
-        new Error(
-          `Failed to spawn bun for CLI install: ${err.message}`,
-        ),
-      );
-    });
+      child.stderr.on("data", (data: Buffer) => {
+        stderr += data.toString();
+      });
 
-    child.on("close", (code: number | null) => {
-      if (code !== 0) {
-        const detail = (stderr || stdout).trim();
+      child.on("error", (err: Error) => {
         reject(
           new Error(
-            `CLI install failed with exit code ${code ?? "unknown"}${detail ? `: ${detail}` : ""}`,
+            `Failed to spawn bun for CLI install: ${err.message}`,
           ),
         );
-        return;
-      }
-      resolve();
-    });
-  });
+      });
 
-  cleanupOldVersions();
+      child.on("close", (code: number | null) => {
+        if (code !== 0) {
+          const detail = (stderr || stdout).trim();
+          reject(
+            new Error(
+              `CLI install failed with exit code ${code ?? "unknown"}${detail ? `: ${detail}` : ""}`,
+            ),
+          );
+          return;
+        }
+        resolve();
+      });
+    });
+
+    cleanupOldVersions();
+  })();
+
+  try {
+    await installPromise;
+  } catch (err) {
+    installPromise = null;
+    throw err;
+  }
 }
 
 /**
