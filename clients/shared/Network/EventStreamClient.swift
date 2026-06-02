@@ -491,15 +491,9 @@ public final class EventStreamClient {
                 }
                 self.hasConnectedAtLeastOnce = true
 
-                // Reset backoff on successful handshake so the next
-                // disconnect starts from the minimum delay. Without
-                // this, a reconnect storm (e.g. network blip causing
-                // 5 retries) leaves sseReconnectDelay elevated even
-                // after the connection stabilizes for hours.
-                self.sseReconnectDelay = 1.0
-
                 self.startSSEIdleWatchdog()
 
+                var receivedTraffic = false
                 for try await line in bytes.lines {
                     if Task.isCancelled { break }
 
@@ -507,6 +501,17 @@ public final class EventStreamClient {
                     // — proves the socket is alive. Update the liveness
                     // timestamp so the idle watchdog doesn't fire.
                     self.lastSSETrafficAt = CFAbsoluteTimeGetCurrent()
+
+                    // Reset backoff after first actual traffic so
+                    // transient drops after a long-lived connection
+                    // get a fresh budget. Waiting for traffic (not
+                    // just a 200 handshake) prevents hammering the
+                    // endpoint at 1 s intervals when the server
+                    // returns 200 but immediately closes the body.
+                    if !receivedTraffic {
+                        receivedTraffic = true
+                        self.sseReconnectDelay = 1.0
+                    }
 
                     if line.hasPrefix("data: ") {
                         let payload = String(line.dropFirst(6))
