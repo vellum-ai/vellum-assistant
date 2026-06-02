@@ -19,7 +19,11 @@ import type {
 } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
-import { getConversation } from "../conversation-crud.js";
+// Namespace import + optional call: Bun `mock.module` global-leak means many
+// test files mock conversation-crud with only a partial export set. A named
+// `getConversation` import would fail at link time under those mocks; the
+// namespace access degrades to undefined (treated as non-incognito) instead.
+import * as conversationCrud from "../conversation-crud.js";
 import { getDb } from "../db-connection.js";
 import { embedWithRetry } from "../embed.js";
 import { generateSparseEmbedding } from "../embedding-backend.js";
@@ -378,7 +382,7 @@ export class ConversationGraphMemory {
       return noopResult;
     }
 
-    const conversation = getConversation(this.conversationId);
+    const conversation = conversationCrud.getConversation?.(this.conversationId);
     if (conversation?.incognito && !conversation.factorInMemories) {
       // Incognito conversation opted out of memory recall — clear any cached
       // injection (mirroring the !config.memory.enabled branch) so a later
