@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useCallback, useRef } from "react";
 
 import { toKebabCase } from "@/domains/settings/ai/slugify";
 
@@ -9,33 +9,37 @@ import { toKebabCase } from "@/domains/settings/ai/slugify";
  * the key with a kebab-cased slug. Once the user touches the key field
  * directly, auto-derivation stops.
  *
- * Returns `handleLabelChange` and `handleKeyChange` wrappers that
- * coordinate the dirty-tracking ref with the caller's state setters.
+ * `resetDirty` is stable (empty deps) and safe in dependency arrays.
+ * `handleLabelChange` and `handleKeyChange` update when `mode` or `setKey`
+ * change, which is fine — they aren't used in effect dependency arrays.
  */
 export function useLabelKeySync(
   mode: string,
   setKey: (value: string) => void,
 ) {
-  const keyDirty = useRef(false);
+  const keyDirtyRef = useRef(false);
 
-  function handleLabelChange(
-    newLabel: string,
-    setLabel: (value: string) => void,
-  ) {
-    setLabel(newLabel);
-    if (mode === "create" && !keyDirty.current) {
-      setKey(toKebabCase(newLabel));
-    }
-  }
+  const handleLabelChange = useCallback(
+    (newLabel: string, setLabel: (value: string) => void) => {
+      setLabel(newLabel);
+      if (mode === "create" && !keyDirtyRef.current) {
+        setKey(toKebabCase(newLabel));
+      }
+    },
+    [mode, setKey],
+  );
 
-  function handleKeyChange(newKey: string) {
-    keyDirty.current = true;
-    setKey(newKey);
-  }
+  const handleKeyChange = useCallback(
+    (newKey: string) => {
+      keyDirtyRef.current = true;
+      setKey(newKey);
+    },
+    [setKey],
+  );
 
-  function resetDirty() {
-    keyDirty.current = false;
-  }
+  const resetDirty = useCallback(() => {
+    keyDirtyRef.current = false;
+  }, []);
 
-  return { keyDirty, handleLabelChange, handleKeyChange, resetDirty };
+  return { keyDirtyRef, handleLabelChange, handleKeyChange, resetDirty };
 }
