@@ -86,7 +86,7 @@ describe("vellum:localMode:hatch handler", () => {
     ]);
   });
 
-  test("packaged: fails explicitly without spawning (Resources/bun is the daemon, not the CLI)", async () => {
+  test("packaged: fails explicitly without spawning (no CLI runtime is bundled yet)", async () => {
     appState.isPackaged = true;
 
     const result = (await hatch("openclaw")) as { ok: boolean; error: string };
