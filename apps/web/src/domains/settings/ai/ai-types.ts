@@ -1,5 +1,14 @@
 import { PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
-import type { CallSiteOverrideDraft } from "@/domains/settings/ai/call-site-overrides-modal";
+
+// ---------------------------------------------------------------------------
+// Call-site override draft
+// ---------------------------------------------------------------------------
+
+export interface CallSiteOverrideDraft {
+  profile?: string | null;
+  provider?: string | null;
+  model?: string | null;
+}
 
 // ---------------------------------------------------------------------------
 // Service mode
@@ -37,6 +46,8 @@ export interface ProfileEntry {
   contextWindow?: { maxInputTokens?: number };
 }
 
+export type ProfileWithName = { name: string } & ProfileEntry;
+
 export interface DaemonConfig {
   services?: {
     "web-search"?: { mode?: string; provider?: string };
@@ -58,8 +69,6 @@ export interface DaemonConfigReconciliation {
   webSearchProvider?: string;
   imageGenMode?: ServiceMode;
 }
-
-export type { CallSiteOverrideDraft };
 
 export interface InferenceTokenBudgetState {
   maxOutputTokens: number;

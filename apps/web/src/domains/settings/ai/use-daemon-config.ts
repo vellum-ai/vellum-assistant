@@ -32,9 +32,8 @@ import {
 } from "@/generated/daemon/sdk.gen";
 import { captureError } from "@/lib/sentry/capture-error";
 import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
-import { assertProvisionSuccess } from "@/domains/settings/ai/ai-utils";
-import type { DaemonConfig, ProfileEntry } from "@/domains/settings/ai/ai-types";
-import type { CallSiteOverrideDraft } from "@/domains/settings/ai/call-site-overrides-modal";
+import { assertProvisionSuccess, buildOrderedProfiles } from "@/domains/settings/ai/ai-utils";
+import type { CallSiteOverrideDraft, DaemonConfig, ProfileEntry } from "@/domains/settings/ai/ai-types";
 
 /**
  * Hook providing the daemon config query and common mutation helpers.
@@ -88,6 +87,10 @@ export function useDaemonConfig() {
   const callSites: Record<string, CallSiteOverrideDraft | null | undefined> = useMemo(
     () => config?.llm?.callSites ?? {},
     [config?.llm?.callSites],
+  );
+  const orderedProfiles = useMemo(
+    () => buildOrderedProfiles(profiles, profileOrder),
+    [profiles, profileOrder],
   );
 
   const invalidateConfig = useCallback(() => {
@@ -211,6 +214,7 @@ export function useDaemonConfig() {
     configQuery,
     profiles,
     profileOrder,
+    orderedProfiles,
     activeProfile,
     callSites,
     invalidateConfig,

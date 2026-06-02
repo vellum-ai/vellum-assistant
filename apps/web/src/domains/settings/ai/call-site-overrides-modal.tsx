@@ -20,6 +20,7 @@ import {
 } from "@/assistant/llm-model-catalog";
 
 import {
+  type CallSiteOverrideDraft,
   INFERENCE_PROVIDER_DISPLAY_NAMES,
   INFERENCE_PROVIDERS,
 } from "@/domains/settings/ai/ai-types";
@@ -28,7 +29,6 @@ import {
   visibleProfilesForPicker,
   gateAutoProfile,
   selectSeedProfileForOverride,
-  type ProfilePickerEntry,
 } from "@/domains/settings/ai/profile-pickers";
 import {
   useDaemonConfig,
@@ -48,12 +48,6 @@ export const CUSTOM_SENTINEL = "__custom__";
 type CallSiteCatalog = ConfigLlmCallsitesGetResponse;
 type CallSiteEntry = CallSiteCatalog["callSites"][number];
 type CallSiteDomain = CallSiteCatalog["domains"][number];
-
-export interface CallSiteOverrideDraft {
-  profile?: string | null;
-  provider?: string | null;
-  model?: string | null;
-}
 
 export interface CallSiteOverridesModalProps {
   isOpen: boolean;
@@ -131,8 +125,7 @@ function CallSiteOverridesModalInner({
   onSavingChange,
 }: InnerProps) {
   const {
-    profiles,
-    profileOrder,
+    orderedProfiles,
     callSites: persistedOverrides,
     config: daemonConfig,
   } = useDaemonConfig();
@@ -175,18 +168,6 @@ function CallSiteOverridesModalInner({
     if (analyzeConversationEnabled) return all;
     return all.filter((cs) => cs.id !== "analyzeConversation");
   }, [catalog, analyzeConversationEnabled]);
-
-  // Build ordered profile list from cache slices
-  const orderedProfiles: ReadonlyArray<ProfilePickerEntry> = useMemo(() => {
-    const ordered = profileOrder
-      .filter((name) => name in profiles)
-      .map((name) => ({ name, ...profiles[name]! }));
-    const inOrder = new Set(profileOrder);
-    const extras = Object.entries(profiles)
-      .filter(([name]) => !inOrder.has(name))
-      .map(([name, entry]) => ({ name, ...entry }));
-    return [...ordered, ...extras];
-  }, [profiles, profileOrder]);
 
   const daemonConfigLoaded = !!daemonConfig;
 
