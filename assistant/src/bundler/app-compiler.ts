@@ -6,17 +6,22 @@
  * with script/style tag injection. Reusing the context lets esbuild keep its
  * module graph hot, so recompiles on source edits are typically sub-second.
  *
- * esbuild resolves its native binary relative to its package at module load,
- * which does not exist inside bun --compile's /$bunfs/. We point
- * ESBUILD_BINARY_PATH at the on-disk binary produced by ensureCompilerTools()
- * so the JS API works in both `bun run` and compiled-binary modes.
+ * esbuild reads ESBUILD_BINARY_PATH at module init and otherwise resolves its
+ * native binary relative to its package — a path that does not exist inside
+ * bun --compile's /$bunfs/. To work in both `bun run` and compiled-binary
+ * modes, the esbuild JS API is imported lazily via loadEsbuild(): only after
+ * ensureCompilerTools() has produced the on-disk binary and we have set
+ * ESBUILD_BINARY_PATH to it, so esbuild snapshots the correct path. The module
+ * is also marked external in the macOS compiled-binary build (see
+ * clients/macos/build.sh) so its JS + platform native packages are resolved
+ * from disk rather than bundled into /$bunfs/.
  */
 
 import { existsSync, rmSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
-import * as esbuild from "esbuild";
+import type * as esbuild from "esbuild";
 
 import { getLogger } from "../util/logger.js";
 import { ensureCompilerTools } from "./compiler-tools.js";
@@ -326,11 +331,31 @@ function contextKey(entryPoints: string[], nodePaths: string[]): string {
 }
 
 /**
- * Whether ESBUILD_BINARY_PATH has been pointed at the on-disk binary.
- * esbuild resolves its binary lazily on the first build, so this must be set
- * before any context is created — but only once, since esbuild caches it.
+ * Lazily-imported esbuild JS API module, cached after the first load.
+ *
+ * esbuild reads ESBUILD_BINARY_PATH at module-init to resolve its native
+ * binary, so the import must happen only AFTER ensureCompilerTools() has
+ * produced the on-disk binary and ESBUILD_BINARY_PATH points at it (see
+ * loadEsbuild). Statically importing esbuild would snapshot an empty path
+ * inside bun --compile's /$bunfs/, where the package-relative binary is
+ * absent.
  */
-let esbuildBinaryConfigured = false;
+let esbuildModule: typeof esbuild | undefined;
+
+/**
+ * Point ESBUILD_BINARY_PATH at the on-disk binary, then lazily import (and
+ * cache) the esbuild JS API. esbuild snapshots the binary path at module init,
+ * so the env var must be set before the first import — which is why the import
+ * is deferred to here rather than top-level. `esbuildBin` must be the resolved
+ * binary path from ensureCompilerTools().
+ */
+async function loadEsbuild(esbuildBin: string): Promise<typeof esbuild> {
+  if (!esbuildModule) {
+    process.env.ESBUILD_BINARY_PATH = esbuildBin;
+    esbuildModule = await import("esbuild");
+  }
+  return esbuildModule;
+}
 
 /**
  * Get (or lazily create) the warm esbuild context for an appDir, recreating it
@@ -338,6 +363,7 @@ let esbuildBinaryConfigured = false;
  * since it was cached.
  */
 async function getOrCreateContext(
+  esbuildApi: typeof esbuild,
   appDir: string,
   entryPoints: string[],
   distDir: string,
@@ -356,7 +382,7 @@ async function getOrCreateContext(
     await cached.ctx.dispose();
   }
 
-  const ctx = await esbuild.context({
+  const ctx = await esbuildApi.context({
     entryPoints,
     bundle: true,
     minify: true,
@@ -504,14 +530,6 @@ async function runCompile(appDir: string): Promise<CompileResult> {
   // Scan source files for bare imports and JIT-install allowed packages
   await resolveAppImports(srcDir);
 
-  // Point esbuild's JS API at the on-disk binary. esbuild otherwise resolves
-  // it relative to its package, which doesn't exist inside bun --compile's
-  // /$bunfs/. esbuild caches the path on first build, so set it only once.
-  if (!esbuildBinaryConfigured) {
-    process.env.ESBUILD_BINARY_PATH = tools.esbuildBin;
-    esbuildBinaryConfigured = true;
-  }
-
   // Resolution roots for bare imports: preact parent dir + shared package cache
   const preactParent = dirname(tools.preactDir);
   const cacheNodeModules = join(getCacheDir(), "node_modules");
@@ -523,7 +541,9 @@ async function runCompile(appDir: string): Promise<CompileResult> {
   // rejects with a BuildFailure carrying errors/warnings on failure.
   let result: esbuild.BuildResult;
   try {
+    const esbuildApi = await loadEsbuild(tools.esbuildBin);
     const ctx = await getOrCreateContext(
+      esbuildApi,
       appDir,
       [entryPoint],
       distDir,

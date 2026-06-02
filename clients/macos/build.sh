@@ -470,7 +470,12 @@ BUN_BUNDLE_CACHE_DIR="$SCRIPT_DIR/.bun-bundle-cache/${BUN_VERSION}"
 # bundles and extracts it at runtime, but macOS rejects the dlopen because the
 # extracted binary's Team ID differs from the main process.  Externalising it
 # lets the lazy wrapper in avatar/resvg-lazy.ts handle the missing module.
-BUN_EXTERNAL_FLAGS=(--external electron --external "chromium-bidi/*" --external "@resvg/resvg-js" --external "@resvg/resvg-js-darwin-arm64" --external "@resvg/resvg-js-darwin-x64")
+# esbuild's JS API resolves its native binary relative to its package at module
+# init; that path doesn't exist inside bun --compile's /$bunfs/. The daemon
+# lazy-imports esbuild (bundler/app-compiler.ts) and points ESBUILD_BINARY_PATH
+# at an on-disk binary, so the JS API + its @esbuild/* platform packages must
+# stay external rather than be bundled into /$bunfs/.
+BUN_EXTERNAL_FLAGS=(--external electron --external "chromium-bidi/*" --external "@resvg/resvg-js" --external "@resvg/resvg-js-darwin-arm64" --external "@resvg/resvg-js-darwin-x64" --external esbuild --external "@esbuild/*")
 
 # ---------------------------------------------------------------------------
 # build_bun_binary — compile a TypeScript project to a native binary via Bun.
