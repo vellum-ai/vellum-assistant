@@ -1,50 +1,16 @@
 import { searchGlobalGet } from "@/generated/daemon/sdk.gen";
+import type { SearchGlobalGetResponse } from "@/generated/daemon/types.gen";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 /**
- * Search results grouped by category, as returned by the daemon.
- *
- * The generated `SearchGlobalGetResponse["results"]` type resolves to
- * `{ [key: string]: unknown }` because HeyAPI collapses the inline nested
- * object despite the spec having full property definitions. This interface
- * mirrors the Zod schemas in `assistant/src/runtime/routes/global-search-routes.ts`
- * (lines 34–76) so consumers get proper type safety.
+ * Search results grouped by category, as returned by the daemon's
+ * `GET /v1/search/global` endpoint. Re-exported from the generated SDK types
+ * so consumers import from the domain module, not `@/generated/` directly.
  */
-export interface GlobalSearchResponse {
-  conversations: Array<{
-    id: string;
-    title: string | null;
-    updatedAt: number;
-    excerpt: string;
-    matchCount: number;
-  }>;
-  memories: Array<{
-    id: string;
-    kind: string;
-    text: string;
-    subject: string | null;
-    confidence: number;
-    updatedAt: number;
-    source: "lexical" | "semantic";
-  }>;
-  schedules: Array<{
-    id: string;
-    name: string;
-    expression: string | null;
-    message: string;
-    enabled: boolean;
-    nextRunAt: number | null;
-  }>;
-  contacts: Array<{
-    id: string;
-    displayName: string;
-    notes: string | null;
-    lastInteraction: number | null;
-  }>;
-}
+export type GlobalSearchResponse = SearchGlobalGetResponse["results"];
 
 // ---------------------------------------------------------------------------
 // API
@@ -86,7 +52,7 @@ export async function searchGlobal(
       return EMPTY_RESULTS;
     }
 
-    return data.results as unknown as GlobalSearchResponse;
+    return data.results;
   } catch (err) {
     // AbortError is expected when debounced queries supersede each other.
     if (err instanceof DOMException && err.name === "AbortError") {

@@ -1,8 +1,8 @@
 /**
  * Header-slot state for `ChatLayout`'s shared `ChatLayoutHeader`.
  *
- * Routes under `ChatLayout` populate the header's center, right
- * section, and search-icon handler. The setters are actions on this
+ * Routes under `ChatLayout` populate the header's center and right
+ * section. The setters are actions on this
  * store; consumers register their content from a `useEffect` and
  * clear it on unmount.
  *
@@ -49,14 +49,12 @@ export interface ChatHeaderSupplements {
 interface ChatLayoutSlotsState {
   topBarCenter: ReactNode;
   topBarRightSlot: ReactNode;
-  onSearchClick: (() => void) | null;
   headerSupplements: ChatHeaderSupplements | null;
 }
 
 interface ChatLayoutSlotsActions {
   setTopBarCenter: (node: ReactNode) => void;
   setTopBarRightSlot: (node: ReactNode) => void;
-  setOnSearchClick: (cb: (() => void) | null) => void;
   setHeaderSupplements: (supplements: ChatHeaderSupplements | null) => void;
 }
 
@@ -65,11 +63,9 @@ type ChatLayoutSlotsStore = ChatLayoutSlotsState & ChatLayoutSlotsActions;
 const useChatLayoutSlotsStoreBase = create<ChatLayoutSlotsStore>((set) => ({
   topBarCenter: null,
   topBarRightSlot: null,
-  onSearchClick: null,
   headerSupplements: null,
   setTopBarCenter: (topBarCenter) => set({ topBarCenter }),
   setTopBarRightSlot: (topBarRightSlot) => set({ topBarRightSlot }),
-  setOnSearchClick: (onSearchClick) => set({ onSearchClick }),
   setHeaderSupplements: (headerSupplements) => set({ headerSupplements }),
 }));
 

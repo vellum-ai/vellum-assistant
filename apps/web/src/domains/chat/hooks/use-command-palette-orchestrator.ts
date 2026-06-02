@@ -1,15 +1,15 @@
 /**
- * useCommandPaletteOrchestrator — owns the Ctrl/Cmd+K shortcut, the
- * navigateToSettings callback, and delegates to useCommandPaletteSections
- * for section data and item dispatch.
+ * useCommandPaletteOrchestrator — owns the navigateToSettings callback
+ * and delegates to useCommandPaletteSections for section data and item
+ * dispatch. The Ctrl/Cmd+K shortcut lives in ChatLayout alongside
+ * other layout-level keyboard shortcuts.
  */
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback } from "react";
 import { useNavigate } from "react-router";
 
 import type { Conversation } from "@/types/conversation-types";
 import { routes } from "@/utils/routes";
-import { shouldHandleShortcut } from "@/domains/chat/chat-layout";
 import {
   useCommandPaletteSections,
   type UseCommandPaletteSectionsReturn,
@@ -39,7 +39,7 @@ export function useCommandPaletteOrchestrator({
     void navigate(routes.settings.root);
   }, [navigate]);
 
-  const result = useCommandPaletteSections({
+  return useCommandPaletteSections({
     assistantId,
     assistantName,
     conversations,
@@ -52,22 +52,4 @@ export function useCommandPaletteOrchestrator({
     },
     navigateToSettings,
   });
-
-  // Stabilize toggle via ref — the upstream useCallback rebuilds on every
-  // open/close cycle, which would churn the keyboard listener.
-  const toggleRef = useRef(result.commandPalette.toggle);
-  toggleRef.current = result.commandPalette.toggle;
-
-  // Ctrl/Cmd+K shortcut for command palette
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (!shouldHandleShortcut(event, document.activeElement, "k")) return;
-      event.preventDefault();
-      toggleRef.current();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => { window.removeEventListener("keydown", onKeyDown); };
-  }, []);
-
-  return result;
 }

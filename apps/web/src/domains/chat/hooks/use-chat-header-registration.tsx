@@ -6,7 +6,6 @@
  * Owns:
  * - `headerSupplements` computation and slot registration
  * - `topBarRightSlot` (ConversationAssetsPill) computation and registration
- * - `onSearchClick` (command palette toggle) registration
  * - Slack conversation display derivation for the header label
  */
 
@@ -36,7 +35,6 @@ export interface UseChatHeaderRegistrationOptions {
   handleInspectConversation: (conversation: Conversation) => void;
   handleCopyConversation: () => void;
   refreshLatestMessages: () => void;
-  commandPaletteToggle: () => void;
 }
 
 export function useChatHeaderRegistration({
@@ -47,13 +45,11 @@ export function useChatHeaderRegistration({
   handleInspectConversation,
   handleCopyConversation,
   refreshLatestMessages,
-  commandPaletteToggle,
 }: UseChatHeaderRegistrationOptions): void {
   const assistantId = useAssistantSelectionStore.use.activeAssistantId();
   const activeConversationId = useConversationStore.use.activeConversationId();
   const messages = useChatSessionStore.use.messages();
   const setTopBarRightSlot = useChatLayoutSlotsStore.use.setTopBarRightSlot();
-  const setOnSearchClick = useChatLayoutSlotsStore.use.setOnSearchClick();
   const setHeaderSupplements = useChatLayoutSlotsStore.use.setHeaderSupplements();
 
   const activeConversation = useActiveConversation(assistantId, activeConversationId, true);
@@ -130,9 +126,4 @@ export function useChatHeaderRegistration({
     return () => { setTopBarRightSlot(null); };
   }, [topBarRightContent, setTopBarRightSlot]);
 
-  // Search callback — wired to command palette toggle
-  useEffect(() => {
-    setOnSearchClick(commandPaletteToggle);
-    return () => { setOnSearchClick(null); };
-  }, [commandPaletteToggle, setOnSearchClick]);
 }

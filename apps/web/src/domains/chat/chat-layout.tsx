@@ -1,5 +1,6 @@
 import { captureError } from "@/lib/sentry/capture-error";
 import {
+  lazy,
   useCallback,
   useEffect,
   useMemo,
@@ -29,6 +30,7 @@ import {
   useOpenAppFromChat,
 } from "@/domains/chat/hooks/use-open-app-from-chat";
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
+import { useCommandPaletteStore } from "@/stores/command-palette-store";
 
 import { useVellumCommands } from "@/runtime/vellum-commands";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -62,6 +64,14 @@ import { ConversationActionsMenu } from "@/domains/chat/components/conversation-
 import { buildMoveToGroupTargets } from "@/domains/chat/utils/group-conversations";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { ChatLayoutHeader } from "./chat-layout-header";
+import { LazyBoundary } from "@/components/lazy-boundary";
+import { useCommandPaletteOrchestrator } from "@/domains/chat/hooks/use-command-palette-orchestrator";
+
+const CommandPalette = lazy(() =>
+  import("@/components/command-palette/command-palette").then((m) => ({
+    default: m.CommandPalette,
+  })),
+);
 
 /**
  * LocalStorage key used to persist the collapsed state of the sidebar rail
@@ -137,12 +147,11 @@ interface SideMenuRenderArgs {
   width?: number;
   onWidthChange?: (width: number) => void;
   onClose?: () => void;
-  onSearch?: () => void;
 }
 
 /**
  * Chat-specific layout route providing sidebar rail, mobile drawer,
- * keyboard shortcuts (Ctrl+\, Ctrl+K, Ctrl+[/]), and the chat header
+ * keyboard shortcuts (Ctrl+\, Ctrl+[/], Ctrl+K), and the chat header
  * bar. Reads the resolved assistant from `useAssistantSelectionStore`,
  * the lifecycle phase from `useAssistantLifecycleStore`, and header
  * slot content from `useChatLayoutSlotsStore` (which child routes
@@ -242,7 +251,6 @@ export function ChatLayout() {
   const headerSupplements = useChatLayoutSlotsStore.use.headerSupplements();
   const topBarCenter = topBarCenterSlot ?? (headerSupplements ? <ChatConversationHeader /> : null);
   const topBarRightSlot = useChatLayoutSlotsStore.use.topBarRightSlot();
-  const onSearchClick = useChatLayoutSlotsStore.use.onSearchClick();
 
   // --- Assistant identity from store (written by ChatPage) ---
   const assistantName = useAssistantIdentityStore.use.name();
@@ -344,6 +352,18 @@ export function ChatLayout() {
       window.removeEventListener("keydown", onKeyDown);
     };
   }, [toggleSidebar]);
+
+  // Ctrl/Cmd+K shortcut for command palette
+  useEffect(() => {
+    const toggle = useCommandPaletteStore.getState().toggle;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!shouldHandleShortcut(event, document.activeElement, "k")) return;
+      event.preventDefault();
+      toggle();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => { window.removeEventListener("keydown", onKeyDown); };
+  }, []);
 
   // Ctrl/Cmd+[ and Ctrl/Cmd+] shortcuts for back/forward navigation
   useEffect(() => {
@@ -496,6 +516,19 @@ export function ChatLayout() {
     prePinGroupIdsRef,
   });
 
+  // -------------------------------------------------------------------------
+  // Command palette — sections, item dispatch
+  // -------------------------------------------------------------------------
+  const { commandPalette, mergedSections, handleItemSelect } =
+    useCommandPaletteOrchestrator({
+      assistantId,
+      assistantName: assistantName ?? undefined,
+      conversations,
+      activeConversationId: activeConversationId ?? undefined,
+      startNewConversation: () => startNewConversation(),
+      switchConversation: handleSelectConversation,
+    });
+
   // Electron host commands (File menu / future global hotkeys). The hook
   // is a no-op on the web host. Handlers close over the latest state via
   // an internal ref, so we don't need to memoize them. Composer focus is
@@ -610,7 +643,6 @@ export function ChatLayout() {
           />
         }
         onClose={args.onClose}
-        onSearchClick={args.onSearch}
       />
     ),
     [
@@ -664,7 +696,6 @@ export function ChatLayout() {
         onOpenHome={handleOpenHome}
         isHomeActive={isHomeActive}
         hasUnreadHome={hasUnreadHome}
-        onSearchClick={onSearchClick ?? undefined}
       />
 
       <OfflineBanner />
@@ -700,7 +731,6 @@ export function ChatLayout() {
                   collapsed: false,
                   variant: "overlay",
                   onClose: () => setDrawerOpen(false),
-                  onSearch: onSearchClick ?? undefined,
                 })}
               </aside>
             </div>
@@ -713,7 +743,7 @@ export function ChatLayout() {
             className="shrink-0"
             aria-label="Navigation"
           >
-            {renderSideMenu({ collapsed, variant: "rail", width: sidebarWidth, onWidthChange: handleSidebarWidthChange, onSearch: onSearchClick ?? undefined })}
+            {renderSideMenu({ collapsed, variant: "rail", width: sidebarWidth, onWidthChange: handleSidebarWidthChange })}
           </aside>
           <main className="flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden">
             <Outlet  />
@@ -722,6 +752,21 @@ export function ChatLayout() {
       )}
 
       <RenameDialogFromStore assistantId={assistantId} />
+      {commandPalette.isOpen ? (
+        <LazyBoundary>
+          <CommandPalette
+            isOpen={commandPalette.isOpen}
+            onClose={commandPalette.close}
+            query={commandPalette.query}
+            onQueryChange={commandPalette.setQuery}
+            selectedIndex={commandPalette.selectedIndex}
+            sections={mergedSections}
+            isSearching={commandPalette.isSearching}
+            onItemSelect={handleItemSelect}
+            onKeyDown={commandPalette.handleKeyDown}
+          />
+        </LazyBoundary>
+      ) : null}
     </>
   );
 }

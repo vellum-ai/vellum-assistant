@@ -49,18 +49,7 @@ import {
   getOAuthCompleteStoragePayload,
 } from "@/lib/auth/oauth-popup";
 
-function extractErrorDetail(error: unknown, fallback: string): string {
-  if (typeof error === "object" && error !== null && "detail" in error) {
-    const detail = (error as Record<string, unknown>).detail;
-    if (typeof detail === "string") {
-      return detail;
-    }
-  }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return fallback;
-}
+import { extractErrorMessage } from "@/utils/api-errors";
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -415,8 +404,9 @@ export function IntegrationDetailModal({
       setPendingDisconnectId(null);
     },
     onError(error) {
-      const detail = extractErrorDetail(
+      const detail = extractErrorMessage(
         error,
+        undefined,
         `Failed to disconnect ${displayName} account.`,
       );
       toast.error(detail);
@@ -463,8 +453,9 @@ export function IntegrationDetailModal({
           },
           onError(error) {
             clearPendingRequest();
-            const detail = extractErrorDetail(
+            const detail = extractErrorMessage(
               error,
+              undefined,
               `Failed to start ${displayName} authorization.`,
             );
             toast.error(detail);
@@ -573,8 +564,9 @@ export function IntegrationDetailModal({
         onError(error) {
           closePopupWindow();
           clearPendingRequest();
-          const detail = extractErrorDetail(
+          const detail = extractErrorMessage(
             error,
+            undefined,
             `Failed to start ${displayName} authorization.`,
           );
           toast.error(detail);

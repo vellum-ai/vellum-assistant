@@ -76,7 +76,8 @@ import {
 } from "@/domains/settings/ai/profile-pickers";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
-import { readSecret } from "@/domains/settings/ai/provider-connections-client";
+import { secretsReadPost } from "@/generated/daemon/sdk.gen";
+import { extractErrorMessage } from "@/utils/api-errors";
 import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
 
 // ---------------------------------------------------------------------------
@@ -291,7 +292,12 @@ export interface DaemonConfigReconciliation {
 }
 
 export function assertProvisionSuccess(result: unknown): void {
-  if ((result as Record<string, unknown>)?.success === false) {
+  if (
+    result &&
+    typeof result === "object" &&
+    "success" in result &&
+    result.success === false
+  ) {
     throw new Error("Failed to provision API key: server returned success=false");
   }
 }
@@ -1093,10 +1099,9 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
       invalidateEmailQueries();
       toast.success(`Domain ${trimmed}.${emailRootDomain} registered.`);
     } catch (err) {
-      const rec = err as Record<string, unknown> | undefined;
-      const detail = rec && typeof rec.detail === "string" ? rec.detail : null;
-      const message = detail ?? (err instanceof Error && err.message ? err.message : "Failed to register domain.");
-      setSubdomainError(message);
+      setSubdomainError(
+        extractErrorMessage(err, undefined, "Failed to register domain."),
+      );
     }
   }, [
     assistantId,
@@ -1123,10 +1128,9 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
       invalidateEmailQueries();
       toast.success("Email address created.");
     } catch (err) {
-      const rec = err as Record<string, unknown> | undefined;
-      const detail = rec && typeof rec.detail === "string" ? rec.detail : null;
-      const message = detail ?? (err instanceof Error && err.message ? err.message : "Failed to create email address.");
-      setUsernameError(message);
+      setUsernameError(
+        extractErrorMessage(err, undefined, "Failed to create email address."),
+      );
     }
   }, [assistantId, invalidateEmailQueries, registerAddress, usernameDraft]);
 
@@ -1782,7 +1786,11 @@ export function AiPage() {
       }
 
       try {
-        const result = await readSecret(assistantId, "api_key", webSearchProvider);
+        const { data: result } = await secretsReadPost({
+          path: { assistant_id: assistantId },
+          body: { type: "api_key", name: webSearchProvider },
+          throwOnError: true,
+        });
         if (cancelled) return;
         setWebSearchHasStoredKey(result.found);
       } catch (error) {
