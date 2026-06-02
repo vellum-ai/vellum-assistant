@@ -1,4 +1,5 @@
 import { app, ipcMain } from "electron";
+import { existsSync } from "node:fs";
 import path from "node:path";
 
 import {
@@ -13,6 +14,13 @@ import {
   type CliInvocation,
   type TokenResult,
 } from "@vellumai/local-mode";
+
+import {
+  ensureCliInstalled,
+  getBundledBunPath,
+  getCliBinPath,
+  isCliInstalled,
+} from "./cli-installer";
 
 /**
  * Local-mode host bridge: provisions and retires local assistants and reads
@@ -31,8 +39,6 @@ import {
  */
 
 const DEFAULT_SPECIES = "vellum";
-const PACKAGED_UNSUPPORTED =
-  "Local assistants aren't supported in the packaged app yet.";
 
 interface HatchResult {
   ok: boolean;
@@ -50,21 +56,34 @@ type LockfileWriteResult =
   | { ok: false; error: string };
 
 /**
- * How to invoke the CLI for local lifecycle ops, or `null` when no CLI is
- * available to invoke.
- *  - Dev: the monorepo source tree, run via `bun run <repo>/cli/src/index.ts
- *    <subcommand> …`. `app.getAppPath()` is `apps/macos`; the repo root is
- *    two levels up.
- *  - Packaged: unsupported for now. No CLI-capable runtime is bundled yet, so
- *    this returns `null` and lifecycle ops fail explicitly rather than trying
- *    to invoke a binary that isn't there. Bundling a bun runtime and lazily
- *    installing the CLI in packaged builds is tracked in LUM-2085.
+ * Resolve how to invoke the CLI. Precedence:
+ *  1. `VELLUM_CLI_PATH` env var override
+ *  2. Dev source tree (when `!app.isPackaged`)
+ *  3. Already-installed CLI in the user-data directory
+ *  4. Lazy install via `ensureCliInstalled()`, then use the installed path
+ *
+ * Throws when no CLI path can be resolved (e.g. install fails).
  */
-function resolveCliInvocation(): CliInvocation | null {
-  if (app.isPackaged) return null;
-  const repoRoot = path.resolve(app.getAppPath(), "..", "..");
-  const cliEntry = path.join(repoRoot, "cli", "src", "index.ts");
-  return { command: "bun", baseArgs: ["run", cliEntry] };
+async function resolveCliInvocation(): Promise<CliInvocation> {
+  const envPath = process.env.VELLUM_CLI_PATH;
+  if (envPath) {
+    return { command: "bun", baseArgs: ["run", envPath] };
+  }
+
+  if (!app.isPackaged) {
+    const repoRoot = path.resolve(app.getAppPath(), "..", "..");
+    const cliEntry = path.join(repoRoot, "cli", "src", "index.ts");
+    if (existsSync(cliEntry)) {
+      return { command: "bun", baseArgs: ["run", cliEntry] };
+    }
+  }
+
+  if (isCliInstalled()) {
+    return { command: getBundledBunPath(), baseArgs: ["run", getCliBinPath()] };
+  }
+
+  await ensureCliInstalled();
+  return { command: getBundledBunPath(), baseArgs: ["run", getCliBinPath()] };
 }
 
 /**
@@ -73,8 +92,12 @@ function resolveCliInvocation(): CliInvocation | null {
  * same error UI it shows for the web/dev middleware path.
  */
 async function hatch(species: string): Promise<HatchResult> {
-  const invocation = resolveCliInvocation();
-  if (invocation === null) return { ok: false, error: PACKAGED_UNSUPPORTED };
+  let invocation: CliInvocation;
+  try {
+    invocation = await resolveCliInvocation();
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
   const result = await runHatch(invocation, species);
   return result.ok
     ? { ok: true, assistantId: result.assistantId }
@@ -83,8 +106,12 @@ async function hatch(species: string): Promise<HatchResult> {
 
 /** Retire a local assistant. Mirrors `hatch`'s never-reject contract. */
 async function retire(assistantId: string): Promise<RetireResult> {
-  const invocation = resolveCliInvocation();
-  if (invocation === null) return { ok: false, error: PACKAGED_UNSUPPORTED };
+  let invocation: CliInvocation;
+  try {
+    invocation = await resolveCliInvocation();
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
   const result = await runRetire(invocation, assistantId);
   return result.ok ? { ok: true } : { ok: false, error: result.error };
 }
@@ -160,21 +187,15 @@ export const installLocalMode = (): void => {
 
   ipcMain.handle(
     "vellum:localMode:guardianToken",
-    (_event, assistantId: unknown): Promise<TokenResult> => {
+    async (_event, assistantId: unknown): Promise<TokenResult> => {
       if (typeof assistantId !== "string" || assistantId.length === 0) {
-        return Promise.resolve({
-          ok: false,
-          status: 400,
-          error: "Missing assistantId",
-        });
+        return { ok: false, status: 400, error: "Missing assistantId" };
       }
-      const invocation = resolveCliInvocation();
-      if (invocation === null) {
-        return Promise.resolve({
-          ok: false,
-          status: 501,
-          error: PACKAGED_UNSUPPORTED,
-        });
+      let invocation: CliInvocation;
+      try {
+        invocation = await resolveCliInvocation();
+      } catch (err) {
+        return { ok: false, status: 500, error: (err as Error).message };
       }
       // The IPC channel is reachable only from our own renderer, so the
       // loopback gate the dev middleware enforces is implicit here.
