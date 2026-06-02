@@ -51,6 +51,7 @@ mock.module("../../memory/llm-request-log-store.js", () => ({
 }));
 
 // ── Imports (after mocks) ─────────────────────────────────────────────────────
+import { WEB_SEARCH_BACKEND_FAILURE_MESSAGE } from "../../tools/network/web-search-error.js";
 import type {
   EventHandlerDeps,
   EventHandlerState,
@@ -352,7 +353,7 @@ describe("native server_tool_complete metadata", () => {
       (e): e is ToolResultEvent => e.type === "tool_result",
     );
     const meta = toolResultEvent?.activityMetadata?.webSearch;
-    expect(meta?.errorMessage).toBe("Search failed");
+    expect(meta?.errorMessage).toBe(WEB_SEARCH_BACKEND_FAILURE_MESSAGE);
     expect(meta?.resultCount).toBe(0);
     expect(meta?.results).toEqual([]);
     expect(toolResultEvent?.isError).toBe(true);
