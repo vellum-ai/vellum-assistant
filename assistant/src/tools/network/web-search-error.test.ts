@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
 import { createAbortReason } from "../../util/abort-reasons.js";
-
 import {
   classifyWebSearchFailure,
   logWebSearchBackendFailure,
