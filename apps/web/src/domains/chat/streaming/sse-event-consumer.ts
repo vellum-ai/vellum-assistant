@@ -54,6 +54,16 @@
  *     - If the event uses raw `seq` (old daemon): no reset — `seq`
  *       is stable across connections and normal gap detection handles
  *       reconnect correctly (a jump means genuinely missed events).
+ *
+ *   Additionally, the seed event (first event from a newly created
+ *   consumer) always uses `replaceLastSeenSeq` when `clientSeq` is
+ *   present. This handles the case where SSE reconnected while this
+ *   consumer was not mounted (e.g. user switched conversations) —
+ *   `notifyReconnect()` was never called, but the server's counters
+ *   still reset. `clientSeq` is inherently per-subscription, so the
+ *   stored cursor from a prior subscription is stale. Raw `seq` keeps
+ *   `setLastSeenSeq` (monotonic) on seed so that generation resets
+ *   (daemon restart → seq drops) are detected on the next event.
  */
 
 import { useStreamStore } from "@/domains/chat/stream-store";
@@ -234,6 +244,15 @@ export function createSseEventConsumer(
           }
         } else {
           seededSeqForConversation = true;
+          // clientSeq is per-subscription — the stored cursor might be
+          // from a prior subscription that no longer matches. Use
+          // unconditional replace so the seed always writes regardless
+          // of the stored value (handles reconnect while unmounted).
+          // Raw seq is stable: keep monotonic to preserve generation-
+          // reset detection on the next event.
+          if (envelope.clientSeq != null) {
+            pendingReseed = true;
+          }
         }
       }
 
