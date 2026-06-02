@@ -37,6 +37,25 @@ export function timezoneDayStartEpoch(dateStr: string, tz: string): number {
     const observed = zonedWallClockEpoch(new Date(guess), tz);
     guess -= observed - desired;
   }
+
+  // Nonexistent-midnight (spring-forward) gap: some zones advance the clock
+  // *at* local midnight (e.g. America/Santiago), so the wall time 00:00:00
+  // never occurs on `dateStr`. The two-pass convergence then lands on the
+  // last pre-gap instant, which still belongs to the *previous* local date.
+  // Detect that by re-formatting the guess in `tz`: if its calendar date is
+  // earlier than `dateStr`, midnight was skipped. The correct answer is the
+  // first valid instant on `dateStr` — i.e. the moment the clock jumps
+  // forward — so advance the guess by the gap size (the offset jump across
+  // the transition), which lands exactly on the post-transition wall clock.
+  if (toTimezoneDateString(new Date(guess), tz) < dateStr) {
+    const offsetBefore = zonedWallClockEpoch(new Date(guess), tz) - guess;
+    const afterGap = guess + 60 * 60 * 1000;
+    const offsetAfter = zonedWallClockEpoch(new Date(afterGap), tz) - afterGap;
+    // gapMs is positive (typically one hour); adding it skips the missing
+    // local hour and lands on the first instant whose wall clock is `dateStr`.
+    const gapMs = offsetAfter - offsetBefore;
+    guess += gapMs;
+  }
   return guess;
 }
 
