@@ -6,6 +6,7 @@ import type {
 import { RiskLevel } from "../../permissions/types.js";
 import { getProviderKeyAsync } from "../../security/secure-keys.js";
 import { wrapUntrustedContent } from "../../security/untrusted-content.js";
+import { isAbortReason } from "../../util/abort-reasons.js";
 import { faviconUrlForDomain } from "../../util/favicon.js";
 import { getLogger } from "../../util/logger.js";
 import {
@@ -387,19 +388,6 @@ function errorResult(
 }
 
 /**
- * Build a {@link ToolExecutionResult} for a genuine backend/transport failure
- * (5xx, post-retry rate-limit, thrown network/timeout error). Routes the raw
- * detail through {@link classifyWebSearchFailure}: when it is a backend failure
- * we surface the friendly recoverable copy (the bare sentence so the model
- * reads it as guidance — retry / continue-without-search / paste-details —
- * rather than fabricating) in both the model-facing `content` and the client
- * `errorMessage`, and log the raw detail via telemetry. Non-backend categories
- * (e.g. an unexpected 4xx) fall back to {@link errorResult} with `fallback`.
- *
- * Raw provider JSON / status text must never reach `content` or `errorMessage`;
- * only `rawDetail` (internal-only) captures it for the log.
- */
-/**
  * Wrap an already-read provider response body so {@link backendFailureResult}
  * forwards it into the classifier's internal-only `rawDetail` (telemetry). The
  * classifier reads `error.message`; `buildRawDetail` truncates to ≤500 chars.
@@ -422,6 +410,19 @@ function safeStringifyBody(body: unknown): string {
   }
 }
 
+/**
+ * Build a {@link ToolExecutionResult} for a genuine backend/transport failure
+ * (5xx, post-retry rate-limit, thrown network/timeout error). Routes the raw
+ * detail through {@link classifyWebSearchFailure}: when it is a backend failure
+ * we surface the friendly recoverable copy (the bare sentence so the model
+ * reads it as guidance — retry / continue-without-search / paste-details —
+ * rather than fabricating) in both the model-facing `content` and the client
+ * `errorMessage`, and log the raw detail via telemetry. Non-backend categories
+ * (e.g. an unexpected 4xx) fall back to {@link errorResult} with `fallback`.
+ *
+ * Raw provider JSON / status text must never reach `content` or `errorMessage`;
+ * only `rawDetail` (internal-only) captures it for the log.
+ */
 function backendFailureResult(
   query: string,
   provider: WebSearchProvider,
@@ -468,13 +469,24 @@ function backendFailureResult(
  * Route a thrown fetch error (network/timeout) through {@link backendFailureResult}
  * as a `backend_unavailable` candidate, falling back to a `Web search failed: …`
  * error for non-backend throws (e.g. a JSON parse error).
+ *
+ * If the caller aborted the request (`signal.aborted` — the user hit Stop/Esc,
+ * or an external caller cancelled), the thrown error is re-thrown so the
+ * executor's existing cancellation handling takes over. A user-cancel must NOT
+ * surface the friendly backend copy or emit `web_search_backend_failure`
+ * telemetry. Internal fetch timeouts (where the caller's signal is not aborted)
+ * still route to the friendly backend result.
  */
 function networkFailureResult(
   query: string,
   provider: WebSearchProvider,
   startedAt: number,
   err: unknown,
+  signal?: AbortSignal,
 ): ToolExecutionResult {
+  if (signal?.aborted || isAbortReason((err as { reason?: unknown })?.reason)) {
+    throw err;
+  }
   return backendFailureResult(
     query,
     provider,
@@ -510,7 +522,7 @@ async function executeBraveSearch(
         signal,
       });
     } catch (err) {
-      return networkFailureResult(query, "brave", startedAt, err);
+      return networkFailureResult(query, "brave", startedAt, err, signal);
     }
 
     if (response.ok) {
@@ -693,7 +705,7 @@ async function executePerplexitySearch(
         signal,
       });
     } catch (err) {
-      return networkFailureResult(query, "perplexity", startedAt, err);
+      return networkFailureResult(query, "perplexity", startedAt, err, signal);
     }
 
     if (response.ok) {
@@ -791,7 +803,7 @@ async function executeTavilySearch(
         signal,
       });
     } catch (err) {
-      return networkFailureResult(query, "tavily", startedAt, err);
+      return networkFailureResult(query, "tavily", startedAt, err, signal);
     }
 
     if (response.ok) {
@@ -992,7 +1004,13 @@ export const webSearchTool = {
         });
       } catch (err) {
         log.error({ err }, "Managed web search failed");
-        return networkFailureResult(query, "brave", startedAt, err);
+        return networkFailureResult(
+          query,
+          "brave",
+          startedAt,
+          err,
+          context.signal,
+        );
       }
     }
 
@@ -1039,7 +1057,13 @@ export const webSearchTool = {
       });
     } catch (err) {
       log.error({ err }, "Web search failed");
-      return networkFailureResult(query, provider, startedAt, err);
+      return networkFailureResult(
+        query,
+        provider,
+        startedAt,
+        err,
+        context.signal,
+      );
     }
   },
 } satisfies ToolDefinition;
