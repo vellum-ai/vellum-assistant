@@ -9,13 +9,9 @@ import { getSqliteFrom } from "../db-connection.js";
  * - `factor_in_memories` (default 1) — controls whether existing memories are
  *   recalled into the conversation.
  *
- * An index on `incognito` supports filtering incognito conversations out of
- * memory-producing queries.
- *
  * Idempotent — the `ADD COLUMN` statements are wrapped in try/catch (mirroring
  * the surrounding additive-column migrations, e.g.
- * 253-conversation-last-notified-profile and 221-conversations-archived-at),
- * and `CREATE INDEX IF NOT EXISTS` is a no-op once the index exists.
+ * 253-conversation-last-notified-profile and 221-conversations-archived-at).
  */
 export function migrateConversationsIncognitoFlags(database: DrizzleDb): void {
   const raw = getSqliteFrom(database);
@@ -33,7 +29,4 @@ export function migrateConversationsIncognitoFlags(database: DrizzleDb): void {
   } catch {
     // Column already exists — nothing to do.
   }
-  raw.exec(
-    `CREATE INDEX IF NOT EXISTS idx_conversations_incognito ON conversations(incognito)`,
-  );
 }
