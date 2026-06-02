@@ -21,6 +21,7 @@ import { Popover } from "@vellum/design-library/components/popover";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import {
   useActiveAssistantIsPlatformHosted,
+  useActiveAssistantLifecycleIsLoading,
   usePlatformGate,
 } from "@/hooks/use-platform-gate";
 import { routes } from "@/utils/routes";
@@ -426,6 +427,12 @@ export function NotificationsPage() {
   // the gate value with a strict "positively resolved as platform-hosted"
   // check in the query's `enabled`.
   const isPlatformHosted = useActiveAssistantIsPlatformHosted();
+  // Race-window indicator for UX (showLoading, pause-popover auto-close).
+  // Narrow to the genuine lifecycle-loading window: in already-resolved
+  // non-hosted states (`retired`, `error`, `awaiting_version_selection`)
+  // the query is disabled (above), `data` is undefined → notifications
+  // = []; the empty-state branch should render, not a stuck spinner.
+  const isLifecycleLoading = useActiveAssistantLifecycleIsLoading();
   const queryClient = useQueryClient();
   const isMobile = useIsMobile();
 
@@ -439,7 +446,12 @@ export function NotificationsPage() {
   // surface, not chrome+notice) AND (b) lifecycle positively resolved as
   // platform-hosted (so we never fire during the `loading` window on a
   // deep-link to settings).
-  const { data, isLoading, isError, refetch } = useQuery({
+  const {
+    data,
+    isLoading: queryIsLoading,
+    isError: queryIsError,
+    refetch,
+  } = useQuery({
     ...organizationsNotificationsListOptions({
       query: { status: statusFilter },
     }),
@@ -447,29 +459,52 @@ export function NotificationsPage() {
   });
 
   // `useQuery` with `enabled: false` reports `isLoading: false`, so during
-  // the resolution race we need to compute "still loading" ourselves —
-  // otherwise the render falls through to the empty state ("No open
-  // notifications") AND mutation-firing controls (pause-rules popover)
-  // render interactively. Treat the unresolved window as loading: hide /
-  // disable mutation triggers, show the loading spinner.
-  const isResolving = platformGate === "full" && !isPlatformHosted;
+  // the lifecycle-loading race we need to compute "still loading"
+  // ourselves — otherwise the render falls through to the empty state
+  // ("No open notifications") AND mutation-firing controls (pause-rules
+  // popover) render interactively. Treat the lifecycle-loading window
+  // as loading: hide / disable mutation triggers, show the loading
+  // spinner. After the lifecycle resolves (any kind), this falls back
+  // to the query's own `isLoading` signal.
+  const isResolving = platformGate === "full" && isLifecycleLoading;
+  const isLoading = isPlatformHosted ? queryIsLoading : false;
   const showLoading = isResolving || isLoading;
 
-  // The pause-alerts trigger is unmounted while `isResolving` (below), so
-  // a Popover/BottomSheet open during a gate transition (e.g. assistant
-  // switch refreshing the lifecycle) closes via unmount. Reset the open
-  // flag too — otherwise when `isResolving` flips back to false the
-  // popover would re-mount with `open={true}` and spring open
-  // unexpectedly. (The trigger is hidden anyway, so the popover content's
-  // `createRule` mutation can't fire post-unmount, but this keeps the
-  // state honest across transitions.)
+  // The pause-alerts trigger is unmounted whenever `!isPlatformHosted`
+  // (below) — that covers both the race window AND already-resolved
+  // non-hosted states like `retired` / `error` / `awaiting_version_selection`,
+  // where the org-scoped pause-rules mutation has no valid target. Reset
+  // `pauseOpen` on the same condition so the popover doesn't re-mount
+  // with stale `open={true}` when `isPlatformHosted` flips back true
+  // (assistant switch back to hosted, etc.). The structural unmount
+  // already closes the popover; this keeps the state honest.
   useEffect(() => {
-    if (isResolving && pauseOpen) {
+    if (!isPlatformHosted && pauseOpen) {
       setPauseOpen(false);
     }
-  }, [isResolving, pauseOpen]);
+  }, [isPlatformHosted, pauseOpen]);
 
-  const notifications = data?.results ?? [];
+  // The `useQuery` is `enabled: false` in any non-hosted state, but React
+  // Query keeps the observer state alive: `data`, `isError`, and the
+  // `refetch()` action all survive (and `refetch()` *bypasses* `enabled`
+  // by design — manual triggers always fire). If the user loaded
+  // notifications while hosted and the lifecycle then moved to a resolved
+  // non-hosted state (`retired`, `error`, `awaiting_version_selection`,
+  // `self_hosted`) in the same session, ANY surviving query status can
+  // render an interactive control whose handler fires an org-scoped
+  // request against an org with no platform-hosted target:
+  //
+  //   - cached `data`  → notification cards render → "Mark all as read"
+  //                      / per-row ack / SnoozeMenu mutations.
+  //   - cached error   → "Failed to load notifications. Retry" button
+  //                      renders → click → manual `refetch()` GET.
+  //
+  // Mirror the `enabled` predicate at the derivation layer for *every*
+  // piece of query state we render. One source of truth (`isPlatformHosted`)
+  // collapses both leak surfaces into a single gate without scattering
+  // `isPlatformHosted &&` checks across the render tree.
+  const isError = isPlatformHosted ? queryIsError : false;
+  const notifications = isPlatformHosted ? (data?.results ?? []) : [];
   const unreadOpen = notifications.filter(
     (n) => !n.is_read && !n.is_resolved,
   );
@@ -591,13 +626,22 @@ export function NotificationsPage() {
           </p>
         </div>
         {/*
-          Hide the pause-alerts trigger entirely during the resolution race.
-          The popover content fires `createRule` mutations against the
-          organization, which must not run before lifecycle resolves to
-          platform-hosted. Re-renders when `isPlatformHosted` flips, so the
-          control appears as soon as we know it's safe.
+          Hide the pause-alerts trigger unless the lifecycle is positively
+          resolved as platform-hosted. The popover content fires
+          `createRule` mutations against the organization — those have no
+          valid target during the race window OR in already-resolved
+          non-hosted states (`retired`, `error`,
+          `awaiting_version_selection`). Re-renders when `isPlatformHosted`
+          flips, so the control appears as soon as we know it's safe.
+          (Other mutation-firing controls on this page — "Mark all as
+          read", per-row ack, snooze — are gated by data-availability:
+          `notifications` is explicitly forced to `[]` when
+          `!isPlatformHosted` (see derivation above), which covers both
+          the disabled-query case AND the surviving-cache case where the
+          user loaded notifications while hosted then transitioned to a
+          resolved non-hosted state in the same session.)
         */}
-        {!isResolving && (
+        {isPlatformHosted && (
           isMobile ? (
             <BottomSheet.Root open={pauseOpen} onOpenChange={setPauseOpen}>
               <BottomSheet.Trigger asChild>{pauseButton}</BottomSheet.Trigger>

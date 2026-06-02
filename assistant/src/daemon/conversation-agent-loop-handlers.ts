@@ -1865,16 +1865,6 @@ export async function dispatchAgentEvent(
           statusText: "Compacting context",
         });
         break;
-      case "compaction_timed_out":
-        // A compaction-pipeline timeout is recorded against this
-        // conversation's durable compaction circuit breaker, which trips
-        // after repeated timeouts to suspend auto-compaction.
-        await deps.ctx.agentLoop.compactionCircuit.recordOutcome(
-          deps.ctx,
-          true,
-          deps.onEvent,
-        );
-        break;
       case "compaction_circuit_open":
       case "compaction_circuit_closed":
         // Circuit-breaker transitions are already in wire-contract shape

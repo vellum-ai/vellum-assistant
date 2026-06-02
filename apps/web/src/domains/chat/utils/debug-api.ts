@@ -33,7 +33,7 @@ import {
   fetchConversationMessages as defaultFetchConversationMessages,
   type RuntimeMessage,
 } from "@/domains/chat/api/messages";
-import type { ChatEventStream } from "@/lib/streaming/stream-transport";
+import { useStreamStore } from "@/domains/chat/stream-store";
 import type {
   PendingConfirmationState,
   PendingContactRequestState,
@@ -385,12 +385,7 @@ export interface ChatDebugRefs {
    * from the DOM. `current` is null when no chat route is mounted.
    */
   transcriptRef: { current: TranscriptHandle | null };
-  streamContextRef: MutableRefObject<{
-    assistantId: string;
-    conversationId: string;
-  } | null>;
-  streamRef: MutableRefObject<ChatEventStream | null>;
-  streamEpochRef: MutableRefObject<number>;
+
   /**
    * Reads the latest transcript pagination state (`hasMore`,
    * `isLoadingOlder`) for {@link ChatDebugApi.getScrollState}. Held as a
@@ -633,11 +628,11 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
   }
 
   async function serverMessages(): Promise<RuntimeMessage[]> {
-    // Resolve context from `streamContextRef` first (matches what
-    // reconcile would use); fall back to assistantId +
-    // activeConversationId so the call still works during a brief
-    // conv-switch window where the stream context is transiently null.
-    const streamContext = refs.streamContextRef.current;
+    // Resolve context from stream store first (matches what reconcile
+    // would use); fall back to assistantId + activeConversationId so
+    // the call still works during a brief conv-switch window where
+    // the stream context is transiently null.
+    const streamContext = useStreamStore.getState().streamContext;
     const assistantId =
       streamContext?.assistantId ?? refs.getAssistantId() ?? null;
     const conversationId =
@@ -922,9 +917,7 @@ export function useChatDebugApi(refs: ChatDebugRefs): void {
       sanitizedMessagesRef: refs.sanitizedMessagesRef,
       transcriptItemsRef: refs.transcriptItemsRef,
       transcriptRef: refs.transcriptRef,
-      streamContextRef: refs.streamContextRef,
-      streamRef: refs.streamRef,
-      streamEpochRef: refs.streamEpochRef,
+
       getAssistantId: () => latestRefs.current.getAssistantId(),
       getTurnState: () => latestRefs.current.getTurnState(),
       getUIContext: () => latestRefs.current.getUIContext(),

@@ -131,6 +131,11 @@ function buildContext(
 ): SurfaceConversationContext {
   return {
     conversationId,
+    trustContext: {
+      sourceChannel: "vellum",
+      trustClass: "guardian",
+      guardianPrincipalId: "user-1",
+    },
     traceEmitter: { emit: () => {} },
     sendToClient: () => {},
     pendingSurfaceActions: new Map(),

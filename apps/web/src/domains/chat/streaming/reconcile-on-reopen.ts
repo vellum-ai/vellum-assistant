@@ -22,7 +22,9 @@
  */
 
 import * as Sentry from "@sentry/react";
+import { captureError } from "@/lib/sentry/capture-error";
 
+import { useStreamStore } from "@/domains/chat/stream-store";
 import {
   bucketMessagesAdded,
   recordDiagnostic,
@@ -31,7 +33,7 @@ import {
 } from "@/lib/diagnostics";
 import type {
   ActiveConversationMessagesRefreshResult,
-  WebSyncRouter,
+  WebSyncReconnectResult,
 } from "@/lib/sync/web-sync-router";
 
 type SseOpenedCause = "fresh" | "error" | "watchdog" | "resume";
@@ -41,18 +43,12 @@ export interface ReconcileOnReopenDeps {
   assistantId: string;
   /** Active conversation key; included in every diagnostic. */
   conversationId: string;
-  /**
-   * Epoch counter owned by the caller. Each reopen bumps it; in-flight
-   * reconciles compare the captured epoch to the current one and
-   * abort if a newer reopen has superseded them.
-   */
-  streamEpochRef: { current: number };
   /** Reconcile the active conversation; standalone-fallback path. */
   reconcileActive: () => Promise<ActiveConversationMessagesRefreshResult>;
   /** Start the reconciliation loop on a given epoch. */
   startReconciliationLoop: (epoch: number) => void;
-  /** Sync router used for the transport-recovery path. */
-  syncRouterRef: { current: WebSyncRouter | null };
+  /** Dispatch a sync-router reconnect; returns undefined when no router is mounted. */
+  dispatchReconnect: () => Promise<WebSyncReconnectResult | undefined>;
 }
 
 export interface ReconcileOnReopen {
@@ -65,11 +61,11 @@ export interface ReconcileOnReopen {
 export function createReconcileOnReopen(
   deps: ReconcileOnReopenDeps,
 ): ReconcileOnReopen {
-  const { assistantId, conversationId, streamEpochRef } = deps;
+  const { assistantId, conversationId } = deps;
   return {
     handleSseOpened({ assistantId: openedFor, cause }) {
       if (openedFor !== assistantId) return;
-      const epoch = ++streamEpochRef.current;
+      const epoch = useStreamStore.getState().bumpEpoch();
       recordLifecycleDiagnostic("sse_stream_opened", {
         assistantId,
         conversationId,
@@ -97,13 +93,10 @@ export function createReconcileOnReopen(
           cause,
           message: err instanceof Error ? err.message : String(err),
         });
-        Sentry.captureException(err, {
+        captureError(err, {
+          context: "sse_resume_reconcile",
           level: "warning",
-          tags: {
-            context: "sse_resume_reconcile",
-            cause,
-            platform: resolvePlatformTag(),
-          },
+          tags: { cause, platform: resolvePlatformTag() },
           extra: { assistantId, conversationId, epoch },
         });
       });
@@ -117,7 +110,7 @@ async function runTransportRecoveryReconcile(
   epoch: number,
   cause: "watchdog" | "error",
 ): Promise<void> {
-  const { assistantId, conversationId, streamEpochRef, syncRouterRef } = deps;
+  const { assistantId, conversationId, dispatchReconnect } = deps;
   recordLifecycleDiagnostic("sse_stream_reconnect", {
     assistantId,
     conversationId,
@@ -135,8 +128,7 @@ async function runTransportRecoveryReconcile(
   // never run, and the bus's next reopen would have no idea anything
   // went wrong.
   try {
-    const syncReconnectResult =
-      await syncRouterRef.current?.dispatchReconnect();
+    const syncReconnectResult = await dispatchReconnect();
     reconcileResult =
       syncReconnectResult?.activeConversationMessages ??
       (await deps.reconcileActive());
@@ -148,13 +140,10 @@ async function runTransportRecoveryReconcile(
       cause,
       message: err instanceof Error ? err.message : String(err),
     });
-    Sentry.captureException(err, {
+    captureError(err, {
+      context: "sse_transport_recovery",
       level: "warning",
-      tags: {
-        context: "sse_transport_recovery",
-        cause,
-        platform: resolvePlatformTag(),
-      },
+      tags: { cause, platform: resolvePlatformTag() },
       extra: { assistantId, conversationId, epoch },
     });
     return;
@@ -167,12 +156,13 @@ async function runTransportRecoveryReconcile(
   // the rescue metric. Without this, calling
   // startReconciliationLoop(staleEpoch) would cancel the newer loop
   // and then exit as stale, leaving no active loop running.
-  if (epoch !== streamEpochRef.current) {
+  const currentEpoch = useStreamStore.getState().streamEpoch;
+  if (epoch !== currentEpoch) {
     recordDiagnostic("sse_post_reconnect_stale", {
       assistantId,
       conversationId,
       epoch,
-      currentEpoch: streamEpochRef.current,
+      currentEpoch,
       cause,
     });
     return;

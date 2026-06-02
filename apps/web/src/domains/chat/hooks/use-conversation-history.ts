@@ -16,7 +16,7 @@
  * @see {@link https://tanstack.com/query/latest/docs/framework/react/guides/infinite-queries}
  */
 
-import * as Sentry from "@sentry/react";
+import { captureError } from "@/lib/sentry/capture-error";
 import { startTransition, useEffect } from "react";
 
 import {
@@ -34,7 +34,7 @@ import type { SubagentStatus } from "@vellumai/assistant-api";
 import {
   parsePendingSecretState,
   parsePendingConfirmationData,
-} from "@/domains/chat/hooks/use-send-message";
+} from "@/domains/chat/hooks/send-message-utils";
 import type { AssistantStateKind } from "@/domains/chat/types";
 import { getPendingInteractions } from "@/domains/chat/api/interactions";
 import { fetchSurfaceContent } from "@/domains/chat/api/surfaces";
@@ -306,12 +306,10 @@ export function useConversationHistory({
     if (!pagination.isError || !pagination.error) return;
 
     const isOlderPageError = pagination.isSuccess;
-    Sentry.captureException(pagination.error, {
-      tags: {
-        context: isOlderPageError
-          ? "conversation_history_older_page"
-          : "conversation_history_initial",
-      },
+    captureError(pagination.error, {
+      context: isOlderPageError
+        ? "conversation_history_older_page"
+        : "conversation_history_initial",
     });
 
     if (!isOlderPageError) {

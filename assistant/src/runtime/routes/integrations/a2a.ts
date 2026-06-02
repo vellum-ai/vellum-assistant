@@ -10,6 +10,8 @@
  * POST   /v1/integrations/a2a/invite/accept   — self-hosted broker: orchestrate complete + redeem
  */
 
+import { z } from "zod";
+
 import { isA2AEnabled } from "../../../a2a/feature-gate.js";
 import { getConfig } from "../../../config/loader.js";
 import {
@@ -21,7 +23,10 @@ import {
   redeemA2AInvite,
   setA2AConfig,
 } from "../../../daemon/handlers/config-a2a.js";
-import { ACTOR_PRINCIPALS, GATEWAY_PRINCIPALS } from "../../auth/route-policy.js";
+import {
+  ACTOR_PRINCIPALS,
+  GATEWAY_PRINCIPALS,
+} from "../../auth/route-policy.js";
 import { BadGatewayError, BadRequestError } from "../errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
 
@@ -261,6 +266,14 @@ export const ROUTES: RouteDefinition[] = [
       "Create a shareable A2A invite token for link-based contact creation.",
     tags: ["integrations"],
     handler: handleCreateA2AInvite,
+    responseBody: z.object({
+      success: z.boolean(),
+      inviteId: z.string().optional(),
+      token: z.string().optional(),
+      expiresAt: z.number().optional(),
+      senderGatewayUrl: z.string().optional(),
+      error: z.string().optional(),
+    }),
   },
   {
     operationId: "integrations_a2a_invite_complete_post",

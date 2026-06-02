@@ -247,15 +247,6 @@ mock.module("../plugins/defaults/history-repair/terminal.js", () => ({
       consecutiveSameRoleMerged: 0,
     },
   }),
-  defaultHistoryRepairTerminal: (args: { history: Message[] }) => ({
-    messages: args.history,
-    stats: {
-      assistantToolResultsMigrated: 0,
-      missingToolResultsInserted: 0,
-      orphanToolResultsDowngraded: 0,
-      consecutiveSameRoleMerged: 0,
-    },
-  }),
   deepRepairHistory: (msgs: Message[]) => ({ messages: msgs, stats: {} }),
 }));
 

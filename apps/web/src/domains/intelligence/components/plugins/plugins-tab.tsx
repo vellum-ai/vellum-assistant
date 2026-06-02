@@ -1,21 +1,22 @@
 import { useQuery } from "@tanstack/react-query";
-import { Loader2, Puzzle, Search } from "lucide-react";
+import { Loader2, Puzzle, Search, TriangleAlert } from "lucide-react";
 import {
   type ChangeEvent,
   type Dispatch,
   type SetStateAction,
-  useEffect,
   useMemo,
   useState,
 } from "react";
 
 import { Card, Input } from "@vellum/design-library";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { CatalogRow } from "@/domains/intelligence/components/plugins/catalog-row";
 import { PluginRow } from "@/domains/intelligence/components/plugins/plugin-row";
 import {
-  fetchPluginCatalog,
-  fetchPlugins,
-} from "@/domains/intelligence/plugins/api";
+  pluginsGetQueryKey,
+  pluginsSearchGetOptions,
+} from "@/generated/daemon/@tanstack/react-query.gen";
+import { pluginsGet } from "@/generated/daemon/sdk.gen";
 import type {
   PluginsGetResponse,
   PluginsSearchGetResponse,
@@ -30,32 +31,48 @@ interface PluginsTabProps {
 
 const SEARCH_DEBOUNCE_MS = 300;
 
+/**
+ * Escape regex meta-characters so the daemon's `plugins_search`
+ * endpoint (which takes `q` as an ECMAScript regex) behaves like a
+ * case-insensitive substring match.
+ */
+function escapeForRegex(input: string): string {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export function PluginsTab({ assistantId }: PluginsTabProps) {
   const [searchValue, setSearchValue] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
-
-  useEffect(() => {
-    const handle = setTimeout(() => {
-      setDebouncedSearch(searchValue.trim());
-    }, SEARCH_DEBOUNCE_MS);
-    return () => clearTimeout(handle);
-  }, [searchValue]);
+  const debouncedSearch = useDebouncedValue(searchValue.trim(), SEARCH_DEBOUNCE_MS);
 
   const pluginsQuery = useQuery({
-    queryKey: ["assistantPlugins", assistantId, { q: debouncedSearch }],
-    queryFn: () =>
-      fetchPlugins(assistantId, {
-        query: debouncedSearch || undefined,
-      }),
+    queryKey: pluginsGetQueryKey({
+      path: { assistant_id: assistantId },
+      query: { q: debouncedSearch || undefined },
+    }),
+    queryFn: async ({ signal }) => {
+      const result = await pluginsGet({
+        path: { assistant_id: assistantId },
+        query: { q: debouncedSearch || undefined },
+        signal,
+        throwOnError: false,
+      });
+      const status = result.response?.status;
+      // Older daemons return 404 when the list endpoint isn't
+      // implemented yet — degrade to an empty installed list.
+      if (status === 404) return { plugins: [] } as PluginsGetResponse;
+      if (!result.response?.ok) throw new Error("Failed to load plugins");
+      return result.data ?? ({ plugins: [] } as PluginsGetResponse);
+    },
     enabled: Boolean(assistantId),
   });
 
   const catalogQuery = useQuery({
-    queryKey: ["assistantPluginCatalog", assistantId, { q: debouncedSearch }],
-    queryFn: () =>
-      fetchPluginCatalog(assistantId, {
-        query: debouncedSearch || undefined,
-      }),
+    ...pluginsSearchGetOptions({
+      path: { assistant_id: assistantId },
+      query: {
+        q: debouncedSearch ? escapeForRegex(debouncedSearch) : undefined,
+      },
+    }),
     enabled: Boolean(assistantId),
   });
 
@@ -88,7 +105,7 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
   const isLoadingCatalog = catalogQuery.isLoading;
 
   const showInstalledEmpty =
-    !isLoadingInstalled && installedPlugins.length === 0;
+    !isLoadingInstalled && !pluginsQuery.isError && installedPlugins.length === 0;
   const showCatalogEmpty = !isLoadingCatalog && catalogMatches.length === 0;
 
   return (
@@ -103,6 +120,8 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
         <SectionHeader title="Installed" />
         {isLoadingInstalled ? (
           <LoadingState />
+        ) : pluginsQuery.isError ? (
+          <PluginsErrorState />
         ) : showInstalledEmpty ? (
           <InstalledEmptyState hasQuery={Boolean(debouncedSearch)} />
         ) : (
@@ -258,6 +277,32 @@ function CatalogEmptyState({ hasQuery }: { hasQuery: boolean }) {
           style={{ color: "var(--content-tertiary)" }}
         >
           {subtitle}
+        </p>
+      </Card.Body>
+    </Card.Root>
+  );
+}
+
+function PluginsErrorState() {
+  return (
+    <Card.Root>
+      <Card.Body className="flex flex-col items-center justify-center py-10 text-center">
+        <TriangleAlert
+          className="mb-3 h-8 w-8"
+          style={{ color: "var(--system-danger)" }}
+          aria-hidden
+        />
+        <h3
+          className="text-title-small"
+          style={{ color: "var(--content-default)" }}
+        >
+          Failed to load plugins
+        </h3>
+        <p
+          className="mt-1 max-w-sm text-body-medium-lighter"
+          style={{ color: "var(--content-tertiary)" }}
+        >
+          Something went wrong. Try refreshing the page.
         </p>
       </Card.Body>
     </Card.Root>

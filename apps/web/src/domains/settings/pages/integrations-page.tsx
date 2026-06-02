@@ -22,7 +22,7 @@ import {
   fetchOAuthProviders,
   type OAuthProviderSummary,
 } from "@/domains/settings/api/oauth-providers";
-import { reportError } from "@/utils/error-report";
+import { captureError } from "@/lib/sentry/capture-error";
 import { routes } from "@/utils/routes";
 
 import {
@@ -84,7 +84,7 @@ function IntegrationsPanelInner() {
           setAssistant(result.data);
         }
       } catch (error) {
-        reportError(error, { context: "integrations.getAssistant" });
+        captureError(error, { context: "integrations.getAssistant" });
       } finally {
         if (active) {
           setAssistantLoading(false);

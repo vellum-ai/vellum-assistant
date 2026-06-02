@@ -1,5 +1,5 @@
 
-import * as Sentry from "@sentry/react";
+import { captureError } from "@/lib/sentry/capture-error";
 import { useCallback } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
@@ -57,27 +57,21 @@ export function useConversationGroupActions({
   const { mutateAsync: createGroupAsync } = useMutation({
     ...groupsPostMutation(),
     onError: (err) => {
-      Sentry.captureException(err, {
-        tags: { context: "createGroup" },
-      });
+      captureError(err, { context: "createGroup" });
     },
   });
 
   const { mutateAsync: patchGroupAsync } = useMutation({
     ...groupsByGroupIdPatchMutation(),
     onError: (err) => {
-      Sentry.captureException(err, {
-        tags: { context: "renameGroup" },
-      });
+      captureError(err, { context: "renameGroup" });
     },
   });
 
   const { mutateAsync: deleteGroupAsync } = useMutation({
     ...groupsByGroupIdDeleteMutation(),
     onError: (err) => {
-      Sentry.captureException(err, {
-        tags: { context: "deleteGroup" },
-      });
+      captureError(err, { context: "deleteGroup" });
     },
   });
 

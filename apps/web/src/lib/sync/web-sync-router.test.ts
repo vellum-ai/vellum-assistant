@@ -41,6 +41,7 @@ function createHarness(opts: HarnessOptions = {}) {
   const calls = {
     invalidateAvatar: 0,
     refreshAssistantIdentity: 0,
+    invalidateAssistantIdentityIntro: 0,
     invalidateAssistantConfig: 0,
     invalidateAssistantSounds: 0,
     invalidateAssistantSchedules: 0,
@@ -54,6 +55,9 @@ function createHarness(opts: HarnessOptions = {}) {
     },
     refreshAssistantIdentity: async () => {
       calls.refreshAssistantIdentity += 1;
+    },
+    invalidateAssistantIdentityIntro: () => {
+      calls.invalidateAssistantIdentityIntro += 1;
     },
     invalidateAssistantConfig: () => {
       calls.invalidateAssistantConfig += 1;
@@ -112,6 +116,37 @@ describe("createWebSyncRouter — self-echo drop", () => {
     expect(result.handledTags).toEqual([SYNC_TAGS.assistantAvatar]);
     expect(result.invokedHandlers).toBe(1);
     expect(calls.invalidateAvatar).toBe(1);
+  });
+
+  test("assistant identity changes also invalidate identity intro greetings", async () => {
+    const { router, calls } = createHarness();
+    const event: SyncChangedEvent = {
+      type: "sync_changed",
+      tags: [SYNC_TAGS.assistantIdentity],
+      originClientId: OTHER_CLIENT_ID,
+    };
+
+    const result = await router.dispatchSyncChanged(event);
+
+    expect(result.handledTags).toEqual([SYNC_TAGS.assistantIdentity]);
+    expect(result.invokedHandlers).toBe(2);
+    expect(calls.refreshAssistantIdentity).toBe(1);
+    expect(calls.invalidateAssistantIdentityIntro).toBe(1);
+  });
+
+  test("dispatches identity intro greeting changes", async () => {
+    const { router, calls } = createHarness();
+    const event: SyncChangedEvent = {
+      type: "sync_changed",
+      tags: [SYNC_TAGS.assistantIdentityIntro],
+      originClientId: OTHER_CLIENT_ID,
+    };
+
+    const result = await router.dispatchSyncChanged(event);
+
+    expect(result.handledTags).toEqual([SYNC_TAGS.assistantIdentityIntro]);
+    expect(result.invokedHandlers).toBe(1);
+    expect(calls.invalidateAssistantIdentityIntro).toBe(1);
   });
 
   test("dispatches normally when originClientId is absent", async () => {

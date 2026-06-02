@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
-import * as Sentry from "@sentry/react";
+import { captureError } from "@/lib/sentry/capture-error";
 
 import { AccountHeading } from "@/components/account/account-form";
 import { AccountShell } from "@/components/account/account-shell";
@@ -93,9 +93,7 @@ export function ProviderCallbackPage() {
             break;
         }
       } catch (err) {
-        Sentry.captureException(err, {
-          tags: { context: "provider_callback" },
-        });
+        captureError(err, { context: "provider_callback" });
         setFallbackError("Something went wrong. Please try signing in again.");
       }
     })();

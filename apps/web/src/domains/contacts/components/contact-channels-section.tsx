@@ -19,6 +19,21 @@ import type {
   ContactChannelPayload,
 } from "@/domains/contacts/types";
 
+const KNOWN_CHANNEL_IDS: ReadonlySet<string> = new Set<ChannelInfo["id"]>([
+  "telegram",
+  "phone",
+  "vellum",
+  "whatsapp",
+  "slack",
+  "email",
+  "platform",
+  "a2a",
+]);
+
+function isKnownChannelId(value: string): value is ChannelInfo["id"] {
+  return KNOWN_CHANNEL_IDS.has(value);
+}
+
 /** Discriminated union describing what action/badge to render for a channel row. */
 export type ChannelActionState =
   | { kind: "connected" }
@@ -74,6 +89,9 @@ export function buildVisibleChannels(
       continue;
     }
     if (ch.type === "a2a" && !a2aEnabled) {
+      continue;
+    }
+    if (!isKnownChannelId(ch.type)) {
       continue;
     }
     visibleChannels.push({

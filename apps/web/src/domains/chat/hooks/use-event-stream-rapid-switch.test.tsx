@@ -1,18 +1,15 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
 import { act } from "react";
-import { useRef, type MutableRefObject } from "react";
+import { useRef } from "react";
 
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import type { AssistantEvent } from "@/types/event-types";
-import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 import {
   __resetForTesting,
   publish,
 } from "@/lib/event-bus";
 import { useEventStream } from "@/domains/chat/hooks/use-event-stream";
-
-type StreamContext = { assistantId: string; conversationId: string };
 
 type CapturedEvent = {
   event: AssistantEvent;
@@ -33,21 +30,12 @@ function renderEventStreamWithCapture(
   const result = renderHook(
     ({ key }: { key: string }) => {
       observeKeyRef.current = key;
-      const streamRef = useRef<ChatEventStream | null>(null);
-      const streamEpochRef = useRef(0);
-      const streamContextRef = useRef<StreamContext | null>(null);
-      const syncRouterRef = useRef(null) as MutableRefObject<
-        null
-      > as never;
       const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
       useEventStream({
         assistantStateKind: "active",
         assistantId: "asst-1",
         activeConversationId: key,
         conversationExistsOnServer: true,
-        streamRef,
-        streamEpochRef,
-        streamContextRef,
         handleStreamEvent: (event, epoch) => {
           captured.push({
             event,
@@ -62,7 +50,7 @@ function renderEventStreamWithCapture(
         reachabilityProbe: () => {},
         reachabilityPhase: "ready",
         reachabilityReset: () => {},
-        syncRouterRef,
+        dispatchReconnect: async () => undefined,
         conversationListInvalidatedTimerRef: timerRef,
       });
     },

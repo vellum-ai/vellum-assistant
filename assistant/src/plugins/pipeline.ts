@@ -56,7 +56,6 @@ export const DEFAULT_TIMEOUTS: Record<PipelineName, number | null> = {
   llmCall: null,
   toolExecute: null,
   memoryRetrieval: null,
-  historyRepair: null,
   tokenEstimate: null,
   compaction: null,
   overflowReduce: null,

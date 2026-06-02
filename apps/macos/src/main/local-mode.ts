@@ -103,12 +103,26 @@ function runHatch(species: string): Promise<HatchResult> {
     });
 
     child.on("close", (code) => {
-      if (code === 0) {
-        const match = stdout.match(/Hatching local assistant:\s+(.+)/);
-        settle({ ok: true, assistantId: match?.[1]?.trim() ?? "" });
-      } else {
-        settle({ ok: false, error: stderr.trim() || stdout.trim() });
+      if (code !== 0) {
+        const error =
+          stderr.trim() ||
+          stdout.trim() ||
+          `Hatch failed: the CLI exited with code ${code ?? "unknown"} and produced no output.`;
+        settle({ ok: false, error });
+        return;
       }
+      const assistantId = stdout
+        .match(/Hatching local assistant:\s+(.+)/)?.[1]
+        ?.trim();
+      if (!assistantId) {
+        settle({
+          ok: false,
+          error:
+            "Hatch reported success but no assistant id was found in the CLI output.",
+        });
+        return;
+      }
+      settle({ ok: true, assistantId });
     });
   });
 }

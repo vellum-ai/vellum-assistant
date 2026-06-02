@@ -124,6 +124,14 @@ export function getAvatarImagePath(): string {
   return join(getAvatarDir(), AVATAR_IMAGE_FILENAME);
 }
 
+/** Canonical filename for the avatar state manifest. */
+export const AVATAR_MANIFEST_FILENAME = "avatar.json";
+
+/** Returns the canonical avatar manifest path (~/.vellum/workspace/data/avatar/avatar.json). */
+export function getAvatarManifestPath(): string {
+  return join(getAvatarDir(), AVATAR_MANIFEST_FILENAME);
+}
+
 // Kept in sync with `cli/src/lib/environments/seeds.ts`. Drift between
 // these two sites is caught at test time by
 // `cli/src/__tests__/env-drift.test.ts`. Fast follow: hoist the shared

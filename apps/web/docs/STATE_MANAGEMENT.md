@@ -282,6 +282,29 @@ References:
 - [TkDodo — Working with Zustand](https://tkdodo.eu/blog/working-with-zustand) — React Query maintainer's guidance on the boundary between server state (RQ) and client/infrastructure state (Zustand)
 - [Zustand — Reading/writing state outside components](https://zustand.docs.pmnd.rs/guides/reading-and-writing-state-outside-components)
 
+### Org-readiness gating for daemon queries
+
+Platform-mode daemon requests require the `Vellum-Organization-Id`
+header. The org store hydrates asynchronously after auth, so queries
+that mount before hydration completes (e.g. conversation queries on
+the eager `ChatPage` path) must gate on `useIsOrgReady()`:
+
+```ts
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
+
+const isOrgReady = useIsOrgReady();
+const query = useQuery({
+  ...queryOptions,
+  enabled: enabled && Boolean(assistantId) && isOrgReady,
+});
+```
+
+Queries mounted inside `<ActiveAssistantGate>` typically don't race
+because the lifecycle resolves after org hydration, but the gate is
+cheap and safe to add defensively.
+
+Reference: [TanStack Query — Dependent Queries](https://tanstack.com/query/latest/docs/framework/react/guides/dependent-queries)
+
 ### Canonical migration example
 
 When migrating an imperative `setTimeout`-driven fetch loop to

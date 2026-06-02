@@ -34,6 +34,7 @@ import type { PkbContextConversation } from "../daemon/pkb-context-tracker.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import type { MessageRole } from "../memory/conversation-crud.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
+import type { PluginHookFn } from "../plugin-api/types.js";
 import type {
   ContentBlock,
   Message,
@@ -45,7 +46,6 @@ import type {
 import type { SkillRoute } from "../runtime/skill-route-registry.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
-import type { RepairResult } from "./defaults/history-repair/terminal.js";
 
 // ─── Manifest ────────────────────────────────────────────────────────────────
 
@@ -86,11 +86,12 @@ export interface PluginManifest {
   config?: unknown;
 }
 
-// ─── Init / Shutdown context ─────────────────────────────────────────────────
-// Public types — defined in `assistant/src/plugin-api/types.ts` and re-exported
-// here so existing internal call sites keep working. Plugin authors will
-// import these from `@vellumai/plugin-api` once that package is published.
+// ─── Public plugin-API types ─────────────────────────────────────────────────
+// Defined in `assistant/src/plugin-api/types.ts` and re-exported here so
+// existing internal call sites keep working. Plugin authors import these from
+// `@vellumai/plugin-api`.
 export type {
+  PluginHookFn,
   PluginInitContext,
   PluginShutdownContext,
 } from "../plugin-api/types.js";
@@ -120,7 +121,6 @@ export type PipelineName =
   | "llmCall"
   | "toolExecute"
   | "memoryRetrieval"
-  | "historyRepair"
   | "tokenEstimate"
   | "compaction"
   | "overflowReduce"
@@ -230,32 +230,6 @@ export interface MemoryResult {
   readonly nowContent: string | null;
   readonly memoryGraphBlocks: ReadonlyArray<MemoryBlock>;
 }
-
-/**
- * Arguments for the `historyRepair` pipeline. `history` is the pre-repair
- * message list scheduled for the next provider call; `provider` is the
- * downstream provider key (`ctx.provider.name`) so plugins that want to
- * special-case repair per provider can discriminate without looking up the
- * ambient provider from `TurnContext`.
- *
- * The pipeline currently wraps only the standard pre-run repair pass
- * (`repairHistory`). The orchestrator's one-shot deep-repair fallback
- * (`deepRepairHistory`), invoked only after a provider ordering error,
- * remains a direct call. Adding a `mode` discriminator here would be
- * premature — deep-repair has no known plugin-level consumer yet.
- */
-export type HistoryRepairArgs = {
-  readonly history: Message[];
-  readonly provider: string;
-};
-
-/**
- * Result of the `historyRepair` pipeline. Carries both the repaired message
- * list and the `RepairStats` record the orchestrator logs when any repair
- * happened — the default plugin forwards the shape unchanged from
- * {@link repairHistory}.
- */
-export type HistoryRepairResult = RepairResult;
 
 /**
  * Inputs to the `tokenEstimate` pipeline. The default middleware delegates
@@ -787,7 +761,6 @@ export interface PipelineMiddlewareMap {
   llmCall: Middleware<LLMCallArgs, LLMCallResult>;
   toolExecute: Middleware<ToolExecuteArgs, ToolExecuteResult>;
   memoryRetrieval: Middleware<MemoryArgs, MemoryResult>;
-  historyRepair: Middleware<HistoryRepairArgs, HistoryRepairResult>;
   tokenEstimate: Middleware<TokenEstimateArgs, TokenEstimateResult>;
   compaction: Middleware<CompactionArgs, CompactionResult>;
   overflowReduce: Middleware<OverflowReduceArgs, OverflowReduceResult>;
@@ -1127,22 +1100,6 @@ export interface PluginSkillRegistration {
 }
 
 // ─── Plugin ──────────────────────────────────────────────────────────────────
-
-/**
- * A plugin lifecycle hook. Receives a per-lifecycle context shape and
- * may return either a transformed context or `void`. Today's runtime
- * consumes only the resolved-or-rejected nature of the promise; the
- * `TCtx` return is reserved for future hooks that fan a transformed
- * context out to downstream plugins.
- *
- * Each known hook key has a documented context shape:
- *   - `init` — {@link PluginInitContext}
- *   - `shutdown` — {@link PluginShutdownContext}
- *
- * Unknown keys are populated by the loader for forward compatibility
- * but are not invoked by today's runtime.
- */
-export type PluginHookFn<TCtx = unknown> = (ctx: TCtx) => Promise<TCtx | void>;
 
 /**
  * Map of lifecycle hooks contributed by a plugin. Keys match file

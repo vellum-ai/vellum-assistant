@@ -28,9 +28,9 @@ export function handleMessageQueued(
     ctx.pendingLocalDeletions.delete(messageId);
     const conversationId =
       useConversationStore.getState().activeConversationId;
-    if (ctx.assistantIdRef.current && conversationId) {
+    if (ctx.assistantId && conversationId) {
       void deleteQueuedMessage(
-        ctx.assistantIdRef.current,
+        ctx.assistantId,
         conversationId,
         requestId,
       );

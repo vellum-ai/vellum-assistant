@@ -11,6 +11,7 @@ import {
 import { assistantsAccessConsentPartialUpdate } from "@/generated/api/sdk.gen";
 import {
   useActiveAssistantIsPlatformHosted,
+  useActiveAssistantLifecycleIsLoading,
   usePlatformGate,
 } from "@/hooks/use-platform-gate";
 
@@ -29,6 +30,12 @@ export function AccessConsentSetting() {
   // the retrieve query doesn't fire until lifecycle has projected a
   // platform-hosted assistant.
   const isPlatformHosted = useActiveAssistantIsPlatformHosted();
+  // Race-window indicator used for the spinner UX only. Narrow to
+  // `kind: "loading"` so already-resolved non-hosted lifecycle states
+  // (`retired`, `error`, `awaiting_version_selection`) don't show a
+  // permanent spinner — they should fall through to the disabled-toggle
+  // empty state below.
+  const isLifecycleLoading = useActiveAssistantLifecycleIsLoading();
   const queryClient = useQueryClient();
 
   const { data, isLoading, isError } = useQuery({
@@ -67,17 +74,16 @@ export function AccessConsentSetting() {
   // so the layout doesn't render two adjacent dividers.
   if (platformGate === "gated") return null;
 
-  // Treat the "lifecycle not yet resolved" window as still-loading. A
-  // `useQuery` with `enabled: false` reports `isLoading: false`, so
-  // without `!isPlatformHosted` the toggle would render interactive
-  // during the resolution race (the gate intentionally says `"full"`
-  // to avoid chrome flicker, but we genuinely don't know yet whether
-  // the assistant is platform-hosted). A click during that window
-  // would fire `assistantsAccessConsentPartialUpdate` against a
-  // potentially self-hosted target — exactly the doomed request the
-  // gate exists to prevent. Include the strict hosting signal in the
-  // disabled predicate so the mutation can only fire post-resolution.
-  const isResolving = platformGate === "full" && !isPlatformHosted;
+  // `isResolving` controls the spinner adjacent to the toggle, NOT the
+  // toggle's disabled state. The `disabled` predicate stays strict on
+  // `!isPlatformHosted` — that catches the click during both the
+  // deep-link race AND already-resolved non-hosted states where the
+  // mutation has no meaning. `isResolving` is narrowed to the genuine
+  // lifecycle-loading window so the spinner doesn't get stuck in
+  // `retired` / `error` / `awaiting_version_selection`, where the
+  // toggle correctly stays disabled and the UI should look like the
+  // empty/error state, not "we're still figuring this out."
+  const isResolving = platformGate === "full" && isLifecycleLoading;
   const checked = data?.access_consented ?? false;
   const disabled =
     platformGate !== "full" ||

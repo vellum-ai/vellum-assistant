@@ -107,63 +107,6 @@ private struct CategoryGroup: Identifiable {
     var items: [OrbitItem]
 }
 
-// MARK: - Category Inference
-
-func inferCategory(_ skill: SkillInfo) -> SkillCategory {
-    let text = (skill.name + " " + skill.description).lowercased()
-
-    if text.contains("email") || text.contains("message") || text.contains("messaging")
-        || text.contains("chat") || text.contains("phone") || text.contains("phone call")
-        || text.contains("voice call") || text.contains("video call")
-        || text.contains("contact") || text.contains("notification") || text.contains("followup")
-        || text.contains("slack") || text.contains("telegram") {
-        return .communication
-    }
-
-    if text.contains("task") || text.contains("calendar") || text.contains("reminder")
-        || text.contains("schedule") || text.contains("document") || text.contains("playbook")
-        || text.contains("notion") {
-        return .productivity
-    }
-
-    if text.contains("code") || text.contains("app builder") || text.contains("github")
-        || text.contains("developer") || text.contains("programming") || text.contains("debug")
-        || text.contains("typescript") || text.contains("frontend") || text.contains("subagent")
-        || text.contains("api mapping") || text.contains("cli discovery") {
-        return .development
-    }
-
-    if text.contains("browser") || text.contains("computer use") || text.contains("macos")
-        || text.contains("watcher") || text.contains("automat") {
-        return .automation
-    }
-
-    if text.contains("image") || text.contains("screen") || text.contains("media")
-        || text.contains("transcri") || text.contains("video") || text.contains("audio")
-        || text.contains("recording") {
-        return .media
-    }
-
-    if text.contains("x.com") || text.contains("twitter") || text.contains("public ingress")
-        || text.contains("influencer") || text.contains("doordash") || text.contains("amazon")
-        || text.contains("restaurant") {
-        return .webSocial
-    }
-
-    if text.contains("knowledge") || text.contains("weather") || text.contains("start the day")
-        || text.contains("skills catalog") || text.contains("self upgrade")
-        || text.contains("briefing") {
-        return .knowledge
-    }
-
-    if text.contains("oauth") || text.contains("setup") || text.contains("configure")
-        || text.contains("connect") || text.contains("webhook") {
-        return .integration
-    }
-
-    return .knowledge
-}
-
 // MARK: - Sub-Category Definitions
 
 private struct SubCategoryDef {
@@ -764,8 +707,6 @@ struct ConstellationView: View {
     let identity: IdentityInfo?
     let skills: [SkillInfo]
     let workspaceFiles: [WorkspaceFileNode]
-    /// Pre-computed skill-id → category map for O(1) lookups during view body evaluation.
-    var categoryLookup: [String: SkillCategory] = [:]
     var onNavigateToSkill: ((String) -> Void)?
     var onNavigateToFile: ((String) -> Void)?
     @Binding var isFullscreen: Bool
@@ -823,7 +764,7 @@ struct ConstellationView: View {
 
         var buckets: [SkillCategory: [OrbitItem]] = [.knowledge: fileItems]
         for skill in skills {
-            let cat = categoryLookup[skill.id] ?? .knowledge
+            let cat = SkillCategory(rawValue: skill.category) ?? .knowledge
             let item = OrbitItem(
                 id: skill.id,
                 label: skill.name,

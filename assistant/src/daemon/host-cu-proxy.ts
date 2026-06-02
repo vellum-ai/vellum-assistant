@@ -23,7 +23,11 @@ import {
   assistantEventHub,
   broadcastMessage,
 } from "../runtime/assistant-event-hub.js";
-import { enforceSameActorOrErrorResult } from "../runtime/auth/same-actor.js";
+import {
+  ambiguousSameUserError,
+  enforceSameActorOrErrorResult,
+  pickSameUserAutoResolve,
+} from "../runtime/auth/same-actor.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
@@ -156,33 +160,48 @@ export class HostCuProxy {
       });
     }
 
-    // Existence + capability validation for explicit targets. Mirrors
-    // HostFileProxy's resolver-side guard so that the proxy is safe even
-    // when called outside the conversation-surfaces dispatch (which has
-    // its own validation layer).
-    if (targetClientId != null) {
-      const client = assistantEventHub.getClientById(targetClientId);
+    let resolvedTargetClientId = targetClientId;
+    if (resolvedTargetClientId == null) {
+      const resolved = pickSameUserAutoResolve({
+        hub: assistantEventHub,
+        capability: "host_cu",
+        sourceActorPrincipalId,
+      });
+      if (resolved.kind === "ambiguous") {
+        return Promise.resolve(ambiguousSameUserError("host_cu"));
+      }
+      if (resolved.kind === "match") {
+        resolvedTargetClientId = resolved.clientId;
+      } else if (
+        assistantEventHub.listClientsByCapability("host_cu").length > 0
+      ) {
+        return Promise.resolve({
+          content:
+            "Computer use is not available for the current actor. Connect a host_cu-capable client as the same user.",
+          isError: true,
+        });
+      }
+    }
+
+    if (resolvedTargetClientId != null) {
+      const client = assistantEventHub.getClientById(resolvedTargetClientId);
       if (!client) {
         return Promise.resolve({
-          content: `No connected client with id '${targetClientId}' supports host_cu. Run \`assistant clients list --capability host_cu\` to see available clients.`,
+          content: `No connected client with id '${resolvedTargetClientId}' supports host_cu. Run \`assistant clients list --capability host_cu\` to see available clients.`,
           isError: true,
         });
       }
       if (!client.capabilities.includes("host_cu")) {
         return Promise.resolve({
-          content: `Client '${targetClientId}' does not support host_cu. Run \`assistant clients list --capability host_cu\` to see available clients.`,
+          content: `Client '${resolvedTargetClientId}' does not support host_cu. Run \`assistant clients list --capability host_cu\` to see available clients.`,
           isError: true,
         });
       }
 
-      // Same-user enforcement: targeted CU dispatch must be owned by the
-      // same actor on both sides. This is the authoritative gate — the
-      // dispatch layer (conversation-surfaces.ts) skips its own check
-      // and relies on the proxy.
       const rejection = enforceSameActorOrErrorResult({
         hub: assistantEventHub,
         sourceActorPrincipalId,
-        targetClientId,
+        targetClientId: resolvedTargetClientId,
         op: "host_cu",
       });
       if (rejection) return Promise.resolve(rejection);
@@ -214,10 +233,12 @@ export class HostCuProxy {
                   type: "host_cu_cancel",
                   requestId,
                   conversationId,
-                  ...(targetClientId != null ? { targetClientId } : {}),
+                  ...(resolvedTargetClientId != null
+                    ? { targetClientId: resolvedTargetClientId }
+                    : {}),
                 },
                 conversationId,
-                { targetClientId },
+                { targetClientId: resolvedTargetClientId },
               );
             } catch {
               // Best-effort cancel notification
@@ -234,10 +255,12 @@ export class HostCuProxy {
       pendingInteractions.register(requestId, {
         conversationId,
         kind: "host_cu",
-        targetClientId,
+        targetClientId: resolvedTargetClientId,
         targetActorPrincipalId:
-          targetClientId != null
-            ? assistantEventHub.getActorPrincipalIdForClient(targetClientId)
+          resolvedTargetClientId != null
+            ? assistantEventHub.getActorPrincipalIdForClient(
+                resolvedTargetClientId,
+              )
             : undefined,
         rpcResolve: resolve as (v: unknown) => void,
         rpcReject: reject,
@@ -255,11 +278,12 @@ export class HostCuProxy {
             input,
             stepNumber,
             reasoning,
-            // Include in body so receiving client can verify targeted endpoint.
-            ...(targetClientId != null ? { targetClientId } : {}),
+            ...(resolvedTargetClientId != null
+              ? { targetClientId: resolvedTargetClientId }
+              : {}),
           },
           conversationId,
-          { targetClientId },
+          { targetClientId: resolvedTargetClientId },
         );
       } catch (err) {
         this._ownedRequests.delete(requestId);

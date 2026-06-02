@@ -10,6 +10,8 @@
  * POST   /v1/integrations/twilio/numbers/release                     — release a phone number
  */
 
+import { z } from "zod";
+
 import {
   getTwilioCredentials,
   hasTwilioCredentials,
@@ -374,6 +376,10 @@ export const ROUTES: RouteDefinition[] = [
     description: "Validate and store Twilio account SID and auth token.",
     tags: ["integrations"],
     handler: handleSetTwilioCredentials,
+    requestBody: z.object({
+      accountSid: z.string().describe("Twilio account SID"),
+      authToken: z.string().describe("Twilio auth token"),
+    }),
   },
   {
     operationId: "integrations_twilio_credentials_delete",

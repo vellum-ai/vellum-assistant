@@ -1,19 +1,14 @@
 /**
- * Default `historyRepair` behavior: the implementation that normalizes a
+ * Default `history-repair` behavior: the implementation that normalizes a
  * message history so it satisfies the provider's tool-use/tool-result pairing
  * and role-alternation rules.
  *
  * This module is side-effect free: importing it does not register any plugin.
- * `repairHistory` is the canonical repair pass and is exported so the daemon
- * call sites and tests can reach it directly; `defaultHistoryRepairTerminal`
- * adapts it to the pipeline's `terminal` argument and is wired in by the
- * `runPipeline` call site in `daemon/conversation-agent-loop.ts`.
- *
- * Scope: this pipeline wraps only the standard pre-run repair (`repairHistory`).
- * The orchestrator's one-shot deep-repair fallback (`deepRepairHistory`,
- * which composes `repairHistory`), invoked only after a provider ordering
- * error, intentionally bypasses the pipeline today — see the design note at
- * the `deepRepairHistory` call site in `daemon/conversation-agent-loop.ts`.
+ * `repairHistory` is the canonical repair pass, run per turn via the plugin's
+ * `user-prompt-submit` hook (`./hooks/user-prompt-submit.ts`) and exported so
+ * daemon call sites and tests can reach it directly. `deepRepairHistory` is an
+ * aggressive one-shot fallback the orchestrator invokes only after a provider
+ * ordering error.
  */
 
 import type {
@@ -23,16 +18,15 @@ import type {
   ToolResultContent,
   ToolUseContent,
 } from "../../../providers/types.js";
-import type { HistoryRepairArgs, HistoryRepairResult } from "../../types.js";
 
-export interface RepairStats {
+interface RepairStats {
   assistantToolResultsMigrated: number;
   missingToolResultsInserted: number;
   orphanToolResultsDowngraded: number;
   consecutiveSameRoleMerged: number;
 }
 
-export interface RepairResult {
+interface RepairResult {
   messages: Message[];
   stats: RepairStats;
 }
@@ -337,18 +331,6 @@ function formatWebSearchContent(content: unknown): string {
     if (entries.length > 0) return entries.join("\n");
   }
   return "results unavailable";
-}
-
-/**
- * Terminal handler for the `historyRepair` pipeline. Exported so tests can
- * verify default behavior directly without going through `runPipeline`, and
- * so `daemon/conversation-agent-loop.ts` can pass it as the `terminal`
- * argument to `runPipeline`.
- */
-export function defaultHistoryRepairTerminal(
-  args: HistoryRepairArgs,
-): HistoryRepairResult {
-  return repairHistory(args.history);
 }
 
 /**

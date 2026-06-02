@@ -59,7 +59,7 @@ export function handleUISurfaceDismiss(
 ): void {
   ctx.turnActions.dismissSurface();
   ctx.dismissedSurfaceIds.add(event.surfaceId);
-  const streamCtx = ctx.streamContextRef.current;
+  const streamCtx = ctx.streamContext;
   if (streamCtx) {
     saveDismissedSurfaceIds(
       streamCtx.assistantId,

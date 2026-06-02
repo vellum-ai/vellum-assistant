@@ -4290,6 +4290,7 @@ public struct SkillsListResponseSkill: Codable, Sendable {
     public let kind: String
     public let origin: String
     public let status: String
+    public let category: String
     // Clawhub + Skillssh shared:
     public let slug: String?
     public let installs: Int?
@@ -4303,7 +4304,7 @@ public struct SkillsListResponseSkill: Codable, Sendable {
     public let sourceRepo: String?
     public let audit: [String: PartnerAudit]?
 
-    public init(id: String, name: String, description: String, emoji: String? = nil, kind: String, origin: String, status: String, slug: String? = nil, installs: Int? = nil, author: String? = nil, stars: Int? = nil, reports: Int? = nil, publishedAt: String? = nil, version: String? = nil, sourceRepo: String? = nil, audit: [String: PartnerAudit]? = nil) {
+    public init(id: String, name: String, description: String, emoji: String? = nil, kind: String, origin: String, status: String, category: String = "knowledge", slug: String? = nil, installs: Int? = nil, author: String? = nil, stars: Int? = nil, reports: Int? = nil, publishedAt: String? = nil, version: String? = nil, sourceRepo: String? = nil, audit: [String: PartnerAudit]? = nil) {
         self.id = id
         self.name = name
         self.description = description
@@ -4311,6 +4312,7 @@ public struct SkillsListResponseSkill: Codable, Sendable {
         self.kind = kind
         self.origin = origin
         self.status = status
+        self.category = category
         self.slug = slug
         self.installs = installs
         self.author = author
@@ -4320,6 +4322,27 @@ public struct SkillsListResponseSkill: Codable, Sendable {
         self.version = version
         self.sourceRepo = sourceRepo
         self.audit = audit
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        description = try container.decode(String.self, forKey: .description)
+        emoji = try container.decodeIfPresent(String.self, forKey: .emoji)
+        kind = try container.decode(String.self, forKey: .kind)
+        origin = try container.decode(String.self, forKey: .origin)
+        status = try container.decode(String.self, forKey: .status)
+        category = try container.decodeIfPresent(String.self, forKey: .category) ?? "knowledge"
+        slug = try container.decodeIfPresent(String.self, forKey: .slug)
+        installs = try container.decodeIfPresent(Int.self, forKey: .installs)
+        author = try container.decodeIfPresent(String.self, forKey: .author)
+        stars = try container.decodeIfPresent(Int.self, forKey: .stars)
+        reports = try container.decodeIfPresent(Int.self, forKey: .reports)
+        publishedAt = try container.decodeIfPresent(String.self, forKey: .publishedAt)
+        version = try container.decodeIfPresent(String.self, forKey: .version)
+        sourceRepo = try container.decodeIfPresent(String.self, forKey: .sourceRepo)
+        audit = try container.decodeIfPresent([String: PartnerAudit].self, forKey: .audit)
     }
 }
 
@@ -4369,6 +4392,7 @@ public struct SkillDetailHTTPResponse: Codable, Sendable {
     public let kind: String
     public let origin: String
     public let status: String
+    public let category: String
     // Clawhub + Skillssh shared:
     public let slug: String?
     public let installs: Int?
@@ -4387,7 +4411,7 @@ public struct SkillDetailHTTPResponse: Codable, Sendable {
     public let createdAt: Int?
     public let updatedAt: Int?
 
-    public init(id: String, name: String, description: String, emoji: String? = nil, kind: String, origin: String, status: String, slug: String? = nil, installs: Int? = nil, author: String? = nil, stars: Int? = nil, reports: Int? = nil, publishedAt: String? = nil, sourceRepo: String? = nil, audit: [String: PartnerAudit]? = nil, owner: ClawhubDetailOwner? = nil, stats: ClawhubDetailStats? = nil, latestVersion: ClawhubDetailVersion? = nil, createdAt: Int? = nil, updatedAt: Int? = nil) {
+    public init(id: String, name: String, description: String, emoji: String? = nil, kind: String, origin: String, status: String, category: String = "knowledge", slug: String? = nil, installs: Int? = nil, author: String? = nil, stars: Int? = nil, reports: Int? = nil, publishedAt: String? = nil, sourceRepo: String? = nil, audit: [String: PartnerAudit]? = nil, owner: ClawhubDetailOwner? = nil, stats: ClawhubDetailStats? = nil, latestVersion: ClawhubDetailVersion? = nil, createdAt: Int? = nil, updatedAt: Int? = nil) {
         self.id = id
         self.name = name
         self.description = description
@@ -4395,6 +4419,7 @@ public struct SkillDetailHTTPResponse: Codable, Sendable {
         self.kind = kind
         self.origin = origin
         self.status = status
+        self.category = category
         self.slug = slug
         self.installs = installs
         self.author = author
@@ -4408,6 +4433,31 @@ public struct SkillDetailHTTPResponse: Codable, Sendable {
         self.latestVersion = latestVersion
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        description = try container.decode(String.self, forKey: .description)
+        emoji = try container.decodeIfPresent(String.self, forKey: .emoji)
+        kind = try container.decode(String.self, forKey: .kind)
+        origin = try container.decode(String.self, forKey: .origin)
+        status = try container.decode(String.self, forKey: .status)
+        category = try container.decodeIfPresent(String.self, forKey: .category) ?? "knowledge"
+        slug = try container.decodeIfPresent(String.self, forKey: .slug)
+        installs = try container.decodeIfPresent(Int.self, forKey: .installs)
+        author = try container.decodeIfPresent(String.self, forKey: .author)
+        stars = try container.decodeIfPresent(Int.self, forKey: .stars)
+        reports = try container.decodeIfPresent(Int.self, forKey: .reports)
+        publishedAt = try container.decodeIfPresent(String.self, forKey: .publishedAt)
+        sourceRepo = try container.decodeIfPresent(String.self, forKey: .sourceRepo)
+        audit = try container.decodeIfPresent([String: PartnerAudit].self, forKey: .audit)
+        owner = try container.decodeIfPresent(ClawhubDetailOwner.self, forKey: .owner)
+        stats = try container.decodeIfPresent(ClawhubDetailStats.self, forKey: .stats)
+        latestVersion = try container.decodeIfPresent(ClawhubDetailVersion.self, forKey: .latestVersion)
+        createdAt = try container.decodeIfPresent(Int.self, forKey: .createdAt)
+        updatedAt = try container.decodeIfPresent(Int.self, forKey: .updatedAt)
     }
 }
 

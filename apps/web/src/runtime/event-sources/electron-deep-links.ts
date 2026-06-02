@@ -1,4 +1,4 @@
-import * as Sentry from "@sentry/browser";
+import { captureError } from "@/lib/sentry/capture-error";
 
 import { publish } from "@/lib/event-bus";
 import {
@@ -54,10 +54,7 @@ export function publishElectronDeepLinksSource(): () => void {
       for (const link of pending) publishDeepLink(link);
     })
     .catch((err) => {
-      Sentry.captureException(err, {
-        level: "warning",
-        tags: { context: "deep_link_drain" },
-      });
+      captureError(err, { context: "deep_link_drain", level: "warning" });
     });
 
   return unsubscribe;

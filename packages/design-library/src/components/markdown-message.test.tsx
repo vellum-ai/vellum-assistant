@@ -166,6 +166,35 @@ describe("MarkdownMessage", () => {
     expect(html).toContain("$100");
   });
 
+  test("currency ranges with en/em dashes are not mangled into math", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "Savings are closer to $12K–$17K, maybe $1M—$2M.",
+      }),
+    );
+
+    // The dash between the amounts must not let the first `$` open a math
+    // span that closes on the next `$` (the italic-math wonk).
+    expect(html).not.toContain("katex");
+    expect(html).toContain("$12K");
+    expect(html).toContain("$17K");
+    expect(html).toContain("$1M");
+    expect(html).toContain("$2M");
+  });
+
+  test("suffixed amounts with a trailing + are not mangled into math", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "Whitestone is premium - $1M+ homes earning $500K+ a year.",
+      }),
+    );
+
+    // "$1M+" must not open a math span that closes on the next "$".
+    expect(html).not.toContain("katex");
+    expect(html).toContain("$1M+");
+    expect(html).toContain("$500K+");
+  });
+
   test("legitimate inline math still renders via KaTeX", () => {
     const html = renderToStaticMarkup(
       createElement(MarkdownMessage, {

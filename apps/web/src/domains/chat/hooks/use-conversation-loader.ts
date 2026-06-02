@@ -1,5 +1,5 @@
 
-import * as Sentry from "@sentry/react";
+import { captureError } from "@/lib/sentry/capture-error";
 import { useViewerStore } from "@/stores/viewer-store";
 
 import {
@@ -158,9 +158,7 @@ export function useConversationLoader({
         queryKey: scheduledConversationsQueryKey(assistantId),
       });
     } catch (err) {
-      Sentry.captureException(err, {
-        tags: { context: "refresh_conversations" },
-      });
+      captureError(err, { context: "refresh_conversations" });
     }
     if (conversationGroupsUI) {
       void queryClient
@@ -168,10 +166,7 @@ export function useConversationLoader({
           queryKey: conversationGroupsQueryKey(assistantId),
         })
         .catch((err) => {
-          Sentry.captureException(err, {
-            level: "warning",
-            tags: { context: "refreshGroups" },
-          });
+          captureError(err, { context: "refreshGroups", level: "warning" });
         });
     }
   }, [assistantId, conversationGroupsUI, queryClient]);
@@ -294,9 +289,9 @@ export function useConversationLoader({
     const hasUsableData = queryConversations.length > 0;
 
     if (conversationListIsError && !hasUsableData && !isAuthFail) {
-      Sentry.captureException(conversationListError, {
+      captureError(conversationListError, {
+        context: "conversationList.bootstrap",
         level: "warning",
-        tags: { context: "conversationList.bootstrap" },
       });
       useChatSessionStore.getState().setError((prev) => {
         if (shouldSuppressGenericChatErrorNotice(prev)) return prev;

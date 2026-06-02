@@ -19,6 +19,7 @@ import { createElement, type RefObject } from "react";
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { useStreamStore } from "@/domains/chat/stream-store";
 import { INITIAL_TURN_STATE, type TurnState, useTurnStore } from "@/domains/chat/turn-store";
 import { useConversationStore } from "@/stores/conversation-store";
 
@@ -128,8 +129,6 @@ type HookReturn = ReturnType<typeof useMessageReconciliation>;
 // ---------------------------------------------------------------------------
 
 interface HarnessProps {
-  streamContextRef: RefObject<{ assistantId: string; conversationId: string } | null>;
-  streamEpochRef: RefObject<number>;
   initialPageOldestTsRef?: RefObject<number | null>;
   collect: (result: HookReturn) => void;
 }
@@ -140,8 +139,6 @@ let hookModule: typeof import("./use-message-reconciliation") | null = null;
 function HookHarness(props: HarnessProps): null {
   if (!hookModule) throw new Error("hookModule not loaded");
   const result = hookModule.useMessageReconciliation({
-    streamContextRef: props.streamContextRef,
-    streamEpochRef: props.streamEpochRef,
     initialPageOldestTsRef: props.initialPageOldestTsRef ?? makeRef(null),
   });
   props.collect(result);
@@ -175,7 +172,6 @@ function makeMessage(
 function createHarness(overrides?: {
   streamContext?: { assistantId: string; conversationId: string } | null;
   streamEpoch?: number;
-  streamEpochRef?: RefObject<number>;
   activeConversationId?: string | null;
   turnState?: TurnState;
 }): HookReturn {
@@ -206,10 +202,13 @@ function createHarness(overrides?: {
     messages = state.messages;
   });
 
+  useStreamStore.setState({
+    streamContext: overrides?.streamContext ?? null,
+    streamEpoch: overrides?.streamEpoch ?? 0,
+  });
+
   renderToStaticMarkup(
     createElement(HookHarness, {
-      streamContextRef: makeRef(overrides?.streamContext ?? null),
-      streamEpochRef: overrides?.streamEpochRef ?? makeRef(overrides?.streamEpoch ?? 0),
       collect: (result) => { captured = result; },
     }),
   );
@@ -753,13 +752,12 @@ describe("reconcileActiveConversation", () => {
   test("bails out when epoch changes during fetch", async () => {
     // Simulate the page going hidden while the fetch is in-flight:
     // the hidden handler bumps the epoch, so this reconciliation is stale.
-    const epochRef = makeRef(1);
     messages = [makeMessage({ id: "m1", role: "user", ...textBody("Hello") })];
     mockFetchResult = [
       { id: "m1", role: "user", ...textBody("Hello") },
       { id: "m2", role: "assistant", ...textBody("Response") },
     ];
-    mockFetchSideEffect = () => { epochRef.current = 2; };
+    mockFetchSideEffect = () => { useStreamStore.setState({ streamEpoch: 2 }); };
     const stuckTurnState: TurnState = {
       phase: "streaming",
       pendingQueuedCount: 0,
@@ -772,7 +770,7 @@ describe("reconcileActiveConversation", () => {
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
-      streamEpochRef: epochRef,
+      streamEpoch: 1,
       activeConversationId: "conv-1",
       turnState: stuckTurnState,
     });

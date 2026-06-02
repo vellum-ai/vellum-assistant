@@ -1,4 +1,4 @@
-import * as Sentry from "@sentry/browser";
+import { captureError } from "@/lib/sentry/capture-error";
 import { EyeOff } from "lucide-react";
 import { useEffect, useId, useCallback, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router";
@@ -100,9 +100,7 @@ export function PrivacyScreen() {
       setShareAnalytics(shareAnalytics);
       setShareDiagnostics(shareDiagnostics);
     } catch (err) {
-      Sentry.captureException(err, {
-        tags: { context: "onboarding_persist_share_prefs" },
-      });
+      captureError(err, { context: "onboarding_persist_share_prefs" });
     }
     markPrivacyConsent(userId);
     if (!isNative && !isReplay) {

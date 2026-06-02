@@ -7,7 +7,7 @@
  * unarchive, pin, rename, mark read/unread) live in `useConversationActions`.
  */
 
-import * as Sentry from "@sentry/react";
+import { captureError } from "@/lib/sentry/capture-error";
 import {
   type Dispatch,
   type SetStateAction,
@@ -93,9 +93,7 @@ export function useConversationSecondaryActions({
         refreshConversations();
         navigateToConversation(data.conversation.id);
       } catch (err) {
-        Sentry.captureException(err, {
-          tags: { context: "fork_conversation" },
-        });
+        captureError(err, { context: "fork_conversation" });
       }
     },
     [activeConversationId, assistantId, refreshConversations, navigateToConversation],
@@ -124,9 +122,7 @@ export function useConversationSecondaryActions({
         const message =
           err instanceof Error ? err.message : "Failed to analyze conversation.";
         setError({ message });
-        Sentry.captureException(err, {
-          tags: { context: "analyzeConversation" },
-        });
+        captureError(err, { context: "analyzeConversation" });
       }
     },
     [assistantId, refreshConversations, switchConversation],

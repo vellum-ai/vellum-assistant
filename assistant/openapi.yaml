@@ -1947,6 +1947,41 @@ paths:
           schema:
             type: string
           description: '"path" or "base64"'
+  /v1/avatar/image:
+    post:
+      operationId: avatar_image_post
+      summary: Upload avatar image
+      description: Upload a base64-encoded image as the avatar; writes the PNG and clears character traits atomically.
+      tags:
+        - avatar
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                  - ok
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                content:
+                  type: string
+                encoding:
+                  type: string
+                  const: base64
+              required:
+                - content
+              additionalProperties: false
   /v1/avatar/notify-updated:
     post:
       operationId: avatar_notifyupdated_post
@@ -2060,6 +2095,70 @@ paths:
               required:
                 - imagePath
               additionalProperties: false
+  /v1/avatar/state:
+    get:
+      operationId: avatar_state_get
+      summary: Get avatar state
+      description: Return the authoritative avatar render mode (character, image, or none).
+      tags:
+        - avatar
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  kind:
+                    type: string
+                    enum:
+                      - character
+                      - image
+                      - none
+                  traits:
+                    anyOf:
+                      - type: object
+                        properties:
+                          bodyShape:
+                            type: string
+                          eyeStyle:
+                            type: string
+                          color:
+                            type: string
+                        required:
+                          - bodyShape
+                          - eyeStyle
+                          - color
+                        additionalProperties: false
+                      - type: "null"
+                  source:
+                    anyOf:
+                      - type: string
+                        enum:
+                          - builder
+                          - upload
+                          - ai
+                      - type: "null"
+                  image:
+                    anyOf:
+                      - type: object
+                        properties:
+                          updatedAt:
+                            type: string
+                          etag:
+                            type: string
+                        required:
+                          - updatedAt
+                          - etag
+                        additionalProperties: false
+                      - type: "null"
+                required:
+                  - kind
+                  - traits
+                  - source
+                  - image
+                additionalProperties: false
   /v1/background-tools:
     get:
       operationId: backgroundtools_get
@@ -3790,7 +3889,69 @@ paths:
                     type: boolean
                   snapshots:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        channel:
+                          type: string
+                        ready:
+                          type: boolean
+                        setupStatus:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        checkedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        stale:
+                          type: boolean
+                        reasons:
+                          type: array
+                          items:
+                            type: string
+                        localChecks:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              name:
+                                type: string
+                              passed:
+                                type: boolean
+                              message:
+                                anyOf:
+                                  - type: string
+                                  - type: "null"
+                            required:
+                              - name
+                              - passed
+                            additionalProperties: false
+                        remoteChecks:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              name:
+                                type: string
+                              passed:
+                                type: boolean
+                              message:
+                                anyOf:
+                                  - type: string
+                                  - type: "null"
+                            required:
+                              - name
+                              - passed
+                            additionalProperties: false
+                        channelHandle:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                      required:
+                        - channel
+                        - ready
+                      additionalProperties: false
                     description: Channel readiness snapshots
                 required:
                   - success
@@ -3828,7 +3989,69 @@ paths:
                     type: boolean
                   snapshots:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        channel:
+                          type: string
+                        ready:
+                          type: boolean
+                        setupStatus:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        checkedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        stale:
+                          type: boolean
+                        reasons:
+                          type: array
+                          items:
+                            type: string
+                        localChecks:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              name:
+                                type: string
+                              passed:
+                                type: boolean
+                              message:
+                                anyOf:
+                                  - type: string
+                                  - type: "null"
+                            required:
+                              - name
+                              - passed
+                            additionalProperties: false
+                        remoteChecks:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              name:
+                                type: string
+                              passed:
+                                type: boolean
+                              message:
+                                anyOf:
+                                  - type: string
+                                  - type: "null"
+                            required:
+                              - name
+                              - passed
+                            additionalProperties: false
+                        channelHandle:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                      required:
+                        - channel
+                        - ready
+                      additionalProperties: false
                     description: Refreshed readiness snapshots
                 required:
                   - success
@@ -4369,13 +4592,104 @@ paths:
                   ok:
                     type: boolean
                   contact:
-                    type: object
-                    properties: {}
-                    additionalProperties: {}
                     description: Updated contact (if applicable)
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      displayName:
+                        type: string
+                      role:
+                        type: string
+                      notes:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      contactType:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      lastInteraction:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      interactionCount:
+                        type: number
+                      channels:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            contactId:
+                              type: string
+                            type:
+                              type: string
+                            address:
+                              type: string
+                            isPrimary:
+                              type: boolean
+                            externalUserId:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            status:
+                              type: string
+                            policy:
+                              type: string
+                            verifiedAt:
+                              anyOf:
+                                - type: number
+                                - type: "null"
+                            verifiedVia:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            lastSeenAt:
+                              anyOf:
+                                - type: number
+                                - type: "null"
+                            interactionCount:
+                              type: number
+                            lastInteraction:
+                              anyOf:
+                                - type: number
+                                - type: "null"
+                            revokedReason:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            blockedReason:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                          required:
+                            - id
+                            - contactId
+                            - type
+                            - address
+                            - isPrimary
+                            - externalUserId
+                            - status
+                            - policy
+                            - verifiedAt
+                            - verifiedVia
+                            - lastSeenAt
+                            - interactionCount
+                            - lastInteraction
+                            - revokedReason
+                            - blockedReason
+                          additionalProperties: false
+                    required:
+                      - id
+                      - displayName
+                      - role
+                      - interactionCount
+                      - channels
+                    additionalProperties: false
                 required:
                   - ok
-                  - contact
                 additionalProperties: false
       parameters:
         - name: contactChannelId
@@ -4391,18 +4705,14 @@ paths:
               type: object
               properties:
                 status:
-                  type: string
                   description: Channel status
+                  type: string
                 policy:
-                  type: string
                   description: Channel policy
-                reason:
                   type: string
+                reason:
                   description: Reason for the change
-              required:
-                - status
-                - policy
-                - reason
+                  type: string
               additionalProperties: false
   /v1/contacts:
     get:
@@ -4423,7 +4733,102 @@ paths:
                     type: boolean
                   contacts:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        displayName:
+                          type: string
+                        role:
+                          type: string
+                        notes:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        contactType:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        lastInteraction:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        interactionCount:
+                          type: number
+                        channels:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: string
+                              contactId:
+                                type: string
+                              type:
+                                type: string
+                              address:
+                                type: string
+                              isPrimary:
+                                type: boolean
+                              externalUserId:
+                                anyOf:
+                                  - type: string
+                                  - type: "null"
+                              status:
+                                type: string
+                              policy:
+                                type: string
+                              verifiedAt:
+                                anyOf:
+                                  - type: number
+                                  - type: "null"
+                              verifiedVia:
+                                anyOf:
+                                  - type: string
+                                  - type: "null"
+                              lastSeenAt:
+                                anyOf:
+                                  - type: number
+                                  - type: "null"
+                              interactionCount:
+                                type: number
+                              lastInteraction:
+                                anyOf:
+                                  - type: number
+                                  - type: "null"
+                              revokedReason:
+                                anyOf:
+                                  - type: string
+                                  - type: "null"
+                              blockedReason:
+                                anyOf:
+                                  - type: string
+                                  - type: "null"
+                            required:
+                              - id
+                              - contactId
+                              - type
+                              - address
+                              - isPrimary
+                              - externalUserId
+                              - status
+                              - policy
+                              - verifiedAt
+                              - verifiedVia
+                              - lastSeenAt
+                              - interactionCount
+                              - lastInteraction
+                              - revokedReason
+                              - blockedReason
+                            additionalProperties: false
+                      required:
+                        - id
+                        - displayName
+                        - role
+                        - interactionCount
+                        - channels
+                      additionalProperties: false
                     description: Contact objects with channels and metadata
                 required:
                   - ok
@@ -4485,18 +4890,122 @@ paths:
                     type: boolean
                   contact:
                     type: object
-                    properties: {}
-                    additionalProperties: {}
-                    description: Contact details
+                    properties:
+                      id:
+                        type: string
+                      displayName:
+                        type: string
+                      role:
+                        type: string
+                      notes:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      contactType:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      lastInteraction:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      interactionCount:
+                        type: number
+                      channels:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            contactId:
+                              type: string
+                            type:
+                              type: string
+                            address:
+                              type: string
+                            isPrimary:
+                              type: boolean
+                            externalUserId:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            status:
+                              type: string
+                            policy:
+                              type: string
+                            verifiedAt:
+                              anyOf:
+                                - type: number
+                                - type: "null"
+                            verifiedVia:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            lastSeenAt:
+                              anyOf:
+                                - type: number
+                                - type: "null"
+                            interactionCount:
+                              type: number
+                            lastInteraction:
+                              anyOf:
+                                - type: number
+                                - type: "null"
+                            revokedReason:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            blockedReason:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                          required:
+                            - id
+                            - contactId
+                            - type
+                            - address
+                            - isPrimary
+                            - externalUserId
+                            - status
+                            - policy
+                            - verifiedAt
+                            - verifiedVia
+                            - lastSeenAt
+                            - interactionCount
+                            - lastInteraction
+                            - revokedReason
+                            - blockedReason
+                          additionalProperties: false
+                    required:
+                      - id
+                      - displayName
+                      - role
+                      - interactionCount
+                      - channels
+                    additionalProperties: false
                   assistantMetadata:
-                    type: object
-                    properties: {}
-                    additionalProperties: {}
                     description: Assistant-side metadata
+                    type: object
+                    properties:
+                      contactId:
+                        type: string
+                      species:
+                        type: string
+                      metadata:
+                        anyOf:
+                          - type: object
+                            properties: {}
+                            additionalProperties: {}
+                          - type: "null"
+                    required:
+                      - contactId
+                      - species
+                      - metadata
+                    additionalProperties: false
                 required:
                   - ok
                   - contact
-                  - assistantMetadata
                 additionalProperties: false
       parameters:
         - name: id
@@ -4748,8 +5257,100 @@ paths:
                     type: boolean
                   contact:
                     type: object
-                    properties: {}
-                    additionalProperties: {}
+                    properties:
+                      id:
+                        type: string
+                      displayName:
+                        type: string
+                      role:
+                        type: string
+                      notes:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      contactType:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      lastInteraction:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      interactionCount:
+                        type: number
+                      channels:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            contactId:
+                              type: string
+                            type:
+                              type: string
+                            address:
+                              type: string
+                            isPrimary:
+                              type: boolean
+                            externalUserId:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            status:
+                              type: string
+                            policy:
+                              type: string
+                            verifiedAt:
+                              anyOf:
+                                - type: number
+                                - type: "null"
+                            verifiedVia:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            lastSeenAt:
+                              anyOf:
+                                - type: number
+                                - type: "null"
+                            interactionCount:
+                              type: number
+                            lastInteraction:
+                              anyOf:
+                                - type: number
+                                - type: "null"
+                            revokedReason:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            blockedReason:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                          required:
+                            - id
+                            - contactId
+                            - type
+                            - address
+                            - isPrimary
+                            - externalUserId
+                            - status
+                            - policy
+                            - verifiedAt
+                            - verifiedVia
+                            - lastSeenAt
+                            - interactionCount
+                            - lastInteraction
+                            - revokedReason
+                            - blockedReason
+                          additionalProperties: false
+                    required:
+                      - id
+                      - displayName
+                      - role
+                      - interactionCount
+                      - channels
+                    additionalProperties: false
                     description: Merged contact
                 required:
                   - ok
@@ -4848,8 +5449,100 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: {}
-                  additionalProperties: {}
+                  properties:
+                    id:
+                      type: string
+                    displayName:
+                      type: string
+                    role:
+                      type: string
+                    notes:
+                      anyOf:
+                        - type: string
+                        - type: "null"
+                    contactType:
+                      anyOf:
+                        - type: string
+                        - type: "null"
+                    lastInteraction:
+                      anyOf:
+                        - type: number
+                        - type: "null"
+                    interactionCount:
+                      type: number
+                    channels:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          id:
+                            type: string
+                          contactId:
+                            type: string
+                          type:
+                            type: string
+                          address:
+                            type: string
+                          isPrimary:
+                            type: boolean
+                          externalUserId:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          status:
+                            type: string
+                          policy:
+                            type: string
+                          verifiedAt:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          verifiedVia:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          lastSeenAt:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          interactionCount:
+                            type: number
+                          lastInteraction:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          revokedReason:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          blockedReason:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                        required:
+                          - id
+                          - contactId
+                          - type
+                          - address
+                          - isPrimary
+                          - externalUserId
+                          - status
+                          - policy
+                          - verifiedAt
+                          - verifiedVia
+                          - lastSeenAt
+                          - interactionCount
+                          - lastInteraction
+                          - revokedReason
+                          - blockedReason
+                        additionalProperties: false
+                  required:
+                    - id
+                    - displayName
+                    - role
+                    - interactionCount
+                    - channels
+                  additionalProperties: false
       requestBody:
         required: true
         content:
@@ -12385,6 +13078,26 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  inviteId:
+                    type: string
+                  token:
+                    type: string
+                  expiresAt:
+                    type: number
+                  senderGatewayUrl:
+                    type: string
+                  error:
+                    type: string
+                required:
+                  - success
+                additionalProperties: false
   /v1/integrations/a2a/invite/accept:
     post:
       operationId: integrations_a2a_invite_accept_post
@@ -12526,6 +13239,23 @@ paths:
       responses:
         "200":
           description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                botToken:
+                  type: string
+                  description: Slack bot token
+                appToken:
+                  type: string
+                  description: Slack app-level token
+              required:
+                - botToken
+                - appToken
+              additionalProperties: false
   /v1/integrations/telegram/commands:
     post:
       operationId: integrations_telegram_commands_post
@@ -12564,6 +13294,19 @@ paths:
       responses:
         "200":
           description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                botToken:
+                  type: string
+                  description: Telegram bot token
+              required:
+                - botToken
+              additionalProperties: false
   /v1/integrations/telegram/setup:
     post:
       operationId: integrations_telegram_setup_post
@@ -12603,6 +13346,23 @@ paths:
       responses:
         "200":
           description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                accountSid:
+                  type: string
+                  description: Twilio account SID
+                authToken:
+                  type: string
+                  description: Twilio auth token
+              required:
+                - accountSid
+                - authToken
+              additionalProperties: false
   /v1/integrations/twilio/numbers:
     get:
       operationId: integrations_twilio_numbers_get
@@ -16767,6 +17527,17 @@ paths:
                                 - enabled
                                 - disabled
                                 - available
+                            category:
+                              type: string
+                              enum:
+                                - communication
+                                - productivity
+                                - development
+                                - media
+                                - automation
+                                - webSocial
+                                - knowledge
+                                - integration
                             origin:
                               type: string
                               const: vellum
@@ -16776,6 +17547,7 @@ paths:
                             - description
                             - kind
                             - status
+                            - category
                             - origin
                           additionalProperties: false
                         - type: object
@@ -16800,6 +17572,17 @@ paths:
                                 - enabled
                                 - disabled
                                 - available
+                            category:
+                              type: string
+                              enum:
+                                - communication
+                                - productivity
+                                - development
+                                - media
+                                - automation
+                                - webSocial
+                                - knowledge
+                                - integration
                             origin:
                               type: string
                               const: clawhub
@@ -16823,6 +17606,7 @@ paths:
                             - description
                             - kind
                             - status
+                            - category
                             - origin
                             - slug
                             - author
@@ -16853,6 +17637,17 @@ paths:
                                 - enabled
                                 - disabled
                                 - available
+                            category:
+                              type: string
+                              enum:
+                                - communication
+                                - productivity
+                                - development
+                                - media
+                                - automation
+                                - webSocial
+                                - knowledge
+                                - integration
                             origin:
                               type: string
                               const: skillssh
@@ -16894,6 +17689,7 @@ paths:
                             - description
                             - kind
                             - status
+                            - category
                             - origin
                             - slug
                             - sourceRepo
@@ -16921,6 +17717,17 @@ paths:
                                 - enabled
                                 - disabled
                                 - available
+                            category:
+                              type: string
+                              enum:
+                                - communication
+                                - productivity
+                                - development
+                                - media
+                                - automation
+                                - webSocial
+                                - knowledge
+                                - integration
                             origin:
                               type: string
                               const: custom
@@ -16930,6 +17737,7 @@ paths:
                             - description
                             - kind
                             - status
+                            - category
                             - origin
                           additionalProperties: false
                     description: Skill objects
@@ -17073,6 +17881,17 @@ paths:
                               - enabled
                               - disabled
                               - available
+                          category:
+                            type: string
+                            enum:
+                              - communication
+                              - productivity
+                              - development
+                              - media
+                              - automation
+                              - webSocial
+                              - knowledge
+                              - integration
                           origin:
                             type: string
                             const: vellum
@@ -17082,6 +17901,7 @@ paths:
                           - description
                           - kind
                           - status
+                          - category
                           - origin
                         additionalProperties: false
                       - type: object
@@ -17106,6 +17926,17 @@ paths:
                               - enabled
                               - disabled
                               - available
+                          category:
+                            type: string
+                            enum:
+                              - communication
+                              - productivity
+                              - development
+                              - media
+                              - automation
+                              - webSocial
+                              - knowledge
+                              - integration
                           origin:
                             type: string
                             const: clawhub
@@ -17183,6 +18014,7 @@ paths:
                           - description
                           - kind
                           - status
+                          - category
                           - origin
                           - slug
                           - author
@@ -17213,6 +18045,17 @@ paths:
                               - enabled
                               - disabled
                               - available
+                          category:
+                            type: string
+                            enum:
+                              - communication
+                              - productivity
+                              - development
+                              - media
+                              - automation
+                              - webSocial
+                              - knowledge
+                              - integration
                           origin:
                             type: string
                             const: skillssh
@@ -17254,6 +18097,7 @@ paths:
                           - description
                           - kind
                           - status
+                          - category
                           - origin
                           - slug
                           - sourceRepo
@@ -17281,6 +18125,17 @@ paths:
                               - enabled
                               - disabled
                               - available
+                          category:
+                            type: string
+                            enum:
+                              - communication
+                              - productivity
+                              - development
+                              - media
+                              - automation
+                              - webSocial
+                              - knowledge
+                              - integration
                           origin:
                             type: string
                             const: custom
@@ -17290,6 +18145,7 @@ paths:
                           - description
                           - kind
                           - status
+                          - category
                           - origin
                         additionalProperties: false
                     description: Skill detail object
@@ -17414,6 +18270,283 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  skill:
+                    oneOf:
+                      - type: object
+                        properties:
+                          id:
+                            type: string
+                          name:
+                            type: string
+                          description:
+                            type: string
+                          emoji:
+                            type: string
+                          kind:
+                            type: string
+                            enum:
+                              - bundled
+                              - installed
+                              - catalog
+                          status:
+                            type: string
+                            enum:
+                              - enabled
+                              - disabled
+                              - available
+                          category:
+                            type: string
+                            enum:
+                              - communication
+                              - productivity
+                              - development
+                              - media
+                              - automation
+                              - webSocial
+                              - knowledge
+                              - integration
+                          origin:
+                            type: string
+                            const: vellum
+                        required:
+                          - id
+                          - name
+                          - description
+                          - kind
+                          - status
+                          - category
+                          - origin
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          id:
+                            type: string
+                          name:
+                            type: string
+                          description:
+                            type: string
+                          emoji:
+                            type: string
+                          kind:
+                            type: string
+                            enum:
+                              - bundled
+                              - installed
+                              - catalog
+                          status:
+                            type: string
+                            enum:
+                              - enabled
+                              - disabled
+                              - available
+                          category:
+                            type: string
+                            enum:
+                              - communication
+                              - productivity
+                              - development
+                              - media
+                              - automation
+                              - webSocial
+                              - knowledge
+                              - integration
+                          origin:
+                            type: string
+                            const: clawhub
+                          slug:
+                            type: string
+                          author:
+                            type: string
+                          stars:
+                            type: number
+                          installs:
+                            type: number
+                          reports:
+                            type: number
+                          publishedAt:
+                            type: string
+                          version:
+                            type: string
+                        required:
+                          - id
+                          - name
+                          - description
+                          - kind
+                          - status
+                          - category
+                          - origin
+                          - slug
+                          - author
+                          - stars
+                          - installs
+                          - reports
+                          - version
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          id:
+                            type: string
+                          name:
+                            type: string
+                          description:
+                            type: string
+                          emoji:
+                            type: string
+                          kind:
+                            type: string
+                            enum:
+                              - bundled
+                              - installed
+                              - catalog
+                          status:
+                            type: string
+                            enum:
+                              - enabled
+                              - disabled
+                              - available
+                          category:
+                            type: string
+                            enum:
+                              - communication
+                              - productivity
+                              - development
+                              - media
+                              - automation
+                              - webSocial
+                              - knowledge
+                              - integration
+                          origin:
+                            type: string
+                            const: skillssh
+                          slug:
+                            type: string
+                          sourceRepo:
+                            type: string
+                          installs:
+                            type: number
+                          audit:
+                            type: object
+                            propertyNames:
+                              type: string
+                            additionalProperties:
+                              type: object
+                              properties:
+                                risk:
+                                  type: string
+                                  enum:
+                                    - safe
+                                    - low
+                                    - medium
+                                    - high
+                                    - critical
+                                    - unknown
+                                alerts:
+                                  type: number
+                                score:
+                                  type: number
+                                analyzedAt:
+                                  type: string
+                              required:
+                                - risk
+                                - analyzedAt
+                              additionalProperties: false
+                        required:
+                          - id
+                          - name
+                          - description
+                          - kind
+                          - status
+                          - category
+                          - origin
+                          - slug
+                          - sourceRepo
+                          - installs
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          id:
+                            type: string
+                          name:
+                            type: string
+                          description:
+                            type: string
+                          emoji:
+                            type: string
+                          kind:
+                            type: string
+                            enum:
+                              - bundled
+                              - installed
+                              - catalog
+                          status:
+                            type: string
+                            enum:
+                              - enabled
+                              - disabled
+                              - available
+                          category:
+                            type: string
+                            enum:
+                              - communication
+                              - productivity
+                              - development
+                              - media
+                              - automation
+                              - webSocial
+                              - knowledge
+                              - integration
+                          origin:
+                            type: string
+                            const: custom
+                        required:
+                          - id
+                          - name
+                          - description
+                          - kind
+                          - status
+                          - category
+                          - origin
+                        additionalProperties: false
+                    description: Skill metadata
+                  files:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        path:
+                          type: string
+                        name:
+                          type: string
+                        size:
+                          type: integer
+                          minimum: -9007199254740991
+                          maximum: 9007199254740991
+                        mimeType:
+                          type: string
+                        isBinary:
+                          type: boolean
+                        content:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                      required:
+                        - path
+                        - name
+                        - size
+                        - mimeType
+                        - isBinary
+                        - content
+                      additionalProperties: false
+                    description: Directory contents
+                required:
+                  - skill
+                  - files
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -17678,6 +18811,17 @@ paths:
                                 - enabled
                                 - disabled
                                 - available
+                            category:
+                              type: string
+                              enum:
+                                - communication
+                                - productivity
+                                - development
+                                - media
+                                - automation
+                                - webSocial
+                                - knowledge
+                                - integration
                             origin:
                               type: string
                               const: vellum
@@ -17687,6 +18831,7 @@ paths:
                             - description
                             - kind
                             - status
+                            - category
                             - origin
                           additionalProperties: false
                         - type: object
@@ -17711,6 +18856,17 @@ paths:
                                 - enabled
                                 - disabled
                                 - available
+                            category:
+                              type: string
+                              enum:
+                                - communication
+                                - productivity
+                                - development
+                                - media
+                                - automation
+                                - webSocial
+                                - knowledge
+                                - integration
                             origin:
                               type: string
                               const: clawhub
@@ -17734,6 +18890,7 @@ paths:
                             - description
                             - kind
                             - status
+                            - category
                             - origin
                             - slug
                             - author
@@ -17764,6 +18921,17 @@ paths:
                                 - enabled
                                 - disabled
                                 - available
+                            category:
+                              type: string
+                              enum:
+                                - communication
+                                - productivity
+                                - development
+                                - media
+                                - automation
+                                - webSocial
+                                - knowledge
+                                - integration
                             origin:
                               type: string
                               const: skillssh
@@ -17805,6 +18973,7 @@ paths:
                             - description
                             - kind
                             - status
+                            - category
                             - origin
                             - slug
                             - sourceRepo
@@ -17832,6 +19001,17 @@ paths:
                                 - enabled
                                 - disabled
                                 - available
+                            category:
+                              type: string
+                              enum:
+                                - communication
+                                - productivity
+                                - development
+                                - media
+                                - automation
+                                - webSocial
+                                - knowledge
+                                - integration
                             origin:
                               type: string
                               const: custom
@@ -17841,6 +19021,7 @@ paths:
                             - description
                             - kind
                             - status
+                            - category
                             - origin
                           additionalProperties: false
                     description: Skill objects matching the search query
@@ -19354,7 +20535,41 @@ paths:
                 properties:
                   breakdown:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        group:
+                          type: string
+                        groupId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        groupKey:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        totalInputTokens:
+                          type: number
+                        totalOutputTokens:
+                          type: number
+                        totalCacheCreationTokens:
+                          type: number
+                        totalCacheReadTokens:
+                          type: number
+                        totalEstimatedCostUsd:
+                          type: number
+                        eventCount:
+                          type: number
+                      required:
+                        - group
+                        - groupId
+                        - totalInputTokens
+                        - totalOutputTokens
+                        - totalCacheCreationTokens
+                        - totalCacheReadTokens
+                        - totalEstimatedCostUsd
+                        - eventCount
+                      additionalProperties: false
                     description: Grouped usage entries
                 required:
                   - breakdown
@@ -19395,7 +20610,31 @@ paths:
                 properties:
                   buckets:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        bucketId:
+                          type: string
+                        date:
+                          type: string
+                        displayLabel:
+                          type: string
+                        totalInputTokens:
+                          type: number
+                        totalOutputTokens:
+                          type: number
+                        totalEstimatedCostUsd:
+                          type: number
+                        eventCount:
+                          type: number
+                      required:
+                        - bucketId
+                        - date
+                        - totalInputTokens
+                        - totalOutputTokens
+                        - totalEstimatedCostUsd
+                        - eventCount
+                      additionalProperties: false
                     description: Usage bucket objects
                 required:
                   - buckets
@@ -19447,7 +20686,61 @@ paths:
                 properties:
                   buckets:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        bucketId:
+                          type: string
+                        date:
+                          type: string
+                        displayLabel:
+                          type: string
+                        totalInputTokens:
+                          type: number
+                        totalOutputTokens:
+                          type: number
+                        totalEstimatedCostUsd:
+                          type: number
+                        eventCount:
+                          type: number
+                        groups:
+                          type: object
+                          propertyNames:
+                            type: string
+                          additionalProperties:
+                            type: object
+                            properties:
+                              group:
+                                type: string
+                              groupKey:
+                                anyOf:
+                                  - type: string
+                                  - type: "null"
+                              totalInputTokens:
+                                type: number
+                              totalOutputTokens:
+                                type: number
+                              totalEstimatedCostUsd:
+                                type: number
+                              eventCount:
+                                type: number
+                            required:
+                              - group
+                              - groupKey
+                              - totalInputTokens
+                              - totalOutputTokens
+                              - totalEstimatedCostUsd
+                              - eventCount
+                            additionalProperties: false
+                      required:
+                        - bucketId
+                        - date
+                        - totalInputTokens
+                        - totalOutputTokens
+                        - totalEstimatedCostUsd
+                        - eventCount
+                        - groups
+                      additionalProperties: false
                     description: Grouped usage bucket objects
                 required:
                   - buckets
@@ -19498,6 +20791,37 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  totalInputTokens:
+                    type: number
+                  totalOutputTokens:
+                    type: number
+                  totalCacheCreationTokens:
+                    type: number
+                  totalCacheReadTokens:
+                    type: number
+                  totalEstimatedCostUsd:
+                    type: number
+                  eventCount:
+                    type: number
+                  pricedEventCount:
+                    type: number
+                  unpricedEventCount:
+                    type: number
+                required:
+                  - totalInputTokens
+                  - totalOutputTokens
+                  - totalCacheCreationTokens
+                  - totalCacheReadTokens
+                  - totalEstimatedCostUsd
+                  - eventCount
+                  - pricedEventCount
+                  - unpricedEventCount
+                additionalProperties: false
       parameters:
         - name: from
           in: query

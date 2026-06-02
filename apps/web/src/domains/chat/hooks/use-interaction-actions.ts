@@ -11,13 +11,14 @@
  * @see send-message-utils.ts — pure helpers reused here
  */
 
-import * as Sentry from "@sentry/react";
-import { type Dispatch, type MutableRefObject, type SetStateAction, useCallback, useState } from "react";
+import { captureError } from "@/lib/sentry/capture-error";
+import { type Dispatch, type SetStateAction, useCallback, useState } from "react";
 
 import { addTrustRule } from "@/lib/trust-rules-api";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
+import { useStreamStore } from "@/domains/chat/stream-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useTurnStore } from "@/domains/chat/turn-store";
 import { endTurn } from "@/domains/chat/turn-coordinator";
@@ -33,12 +34,6 @@ import { submitSurfaceAction } from "@/domains/chat/api/surfaces";
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-/** Minimal stream context — just the assistantId needed for API calls. */
-export interface StreamContext {
-  assistantId: string;
-  conversationId: string;
-}
 
 /** Context for the trust-rule editor modal. */
 export interface RuleEditorContext {
@@ -61,14 +56,6 @@ export interface ToolCallRuleContext {
   allowlistOptions: AllowlistOption[];
   scopeOptions: ScopeOption[];
   directoryScopeOptions: DirectoryScopeOption[];
-}
-
-// ---------------------------------------------------------------------------
-// Hook params
-// ---------------------------------------------------------------------------
-
-export interface UseInteractionActionsParams {
-  streamContextRef: MutableRefObject<StreamContext | null>;
 }
 
 // ---------------------------------------------------------------------------
@@ -99,9 +86,7 @@ export interface UseInteractionActionsReturn {
 // Hook
 // ---------------------------------------------------------------------------
 
-export function useInteractionActions({
-  streamContextRef,
-}: UseInteractionActionsParams): UseInteractionActionsReturn {
+export function useInteractionActions(): UseInteractionActionsReturn {
   const setMessages = useChatSessionStore.use.setMessages();
   const setError = useChatSessionStore.use.setError();
   const pendingSecret = useInteractionStore.use.pendingSecret();
@@ -128,7 +113,7 @@ export function useInteractionActions({
       useInteractionStore.getState().submitSecretStart();
       setError(null);
 
-      const ctx = streamContextRef.current;
+      const ctx = useStreamStore.getState().streamContext;
       if (!ctx) {
         setError({ message: "No active session. Please try again." });
         useInteractionStore.getState().submitSecretEnd();
@@ -161,7 +146,7 @@ export function useInteractionActions({
           }
         }, 1500);
       } catch (err) {
-        Sentry.captureException(err, { tags: { context: "submit_secret" } });
+        captureError(err, { context: "submit_secret" });
         setError({ message: "Failed to submit secret. Please try again." });
         useInteractionStore.getState().submitSecretEnd();
       }
@@ -170,7 +155,7 @@ export function useInteractionActions({
   );
 
   const handleSecretCancel = useCallback(() => {
-    const ctx = streamContextRef.current;
+    const ctx = useStreamStore.getState().streamContext;
     const requestId = useInteractionStore.getState().pendingSecret?.requestId;
     if (ctx && requestId) {
       submitSecretResponse(ctx.assistantId, requestId, "", "none").catch(() => {});
@@ -193,7 +178,7 @@ export function useInteractionActions({
       useInteractionStore.getState().submitContactRequestStart();
       setError(null);
 
-      const ctx = streamContextRef.current;
+      const ctx = useStreamStore.getState().streamContext;
       if (!ctx) {
         setError({ message: "No active session. Please try again." });
         useInteractionStore.getState().submitContactRequestEnd();
@@ -223,12 +208,12 @@ export function useInteractionActions({
           }
         }, 1500);
       } catch (err) {
-        Sentry.captureException(err, { tags: { context: "submit_contact_prompt" } });
+        captureError(err, { context: "submit_contact_prompt" });
         setError({ message: "Failed to save contact. Please try again." });
         useInteractionStore.getState().submitContactRequestEnd();
       }
     },
-    [pendingContactRequest, isSubmittingContactRequest, streamContextRef],
+    [pendingContactRequest, isSubmittingContactRequest],
   );
 
   const handleContactPromptCancel = useCallback(() => {
@@ -370,7 +355,7 @@ export function useInteractionActions({
       useInteractionStore.getState().submitConfirmationStart();
       setError(null);
 
-      const ctx = streamContextRef.current;
+      const ctx = useStreamStore.getState().streamContext;
       if (!ctx) {
         setError({ message: "No active session. Please try again." });
         useInteractionStore.getState().submitConfirmationEnd();
@@ -420,7 +405,7 @@ export function useInteractionActions({
         }
         cleanupAfterConfirmationDecision(snapshot!, mappedToolCallId, decision);
       } catch (err) {
-        Sentry.captureException(err, { tags: { context: "submit_confirmation" } });
+        captureError(err, { context: "submit_confirmation" });
         setError({ message: "Failed to submit confirmation. Please try again." });
         useInteractionStore.getState().submitConfirmationEnd();
       }
@@ -439,7 +424,7 @@ export function useInteractionActions({
       useInteractionStore.getState().submitQuestionStart();
       setError(null);
 
-      const ctx = streamContextRef.current;
+      const ctx = useStreamStore.getState().streamContext;
       if (!ctx) {
         setError({ message: "No active session. Please try again." });
         useInteractionStore.getState().submitQuestionEnd();
@@ -466,7 +451,7 @@ export function useInteractionActions({
           useInteractionStore.getState().submitQuestionEnd();
         }
       } catch (err) {
-        Sentry.captureException(err, { tags: { context: "submit_question_response" } });
+        captureError(err, { context: "submit_question_response" });
         setError({ message: "Failed to submit response. Please try again." });
         useInteractionStore.getState().submitQuestionEnd();
       }
@@ -480,7 +465,7 @@ export function useInteractionActions({
 
   const handleAllowAndCreateRule = useCallback(async () => {
     if (!pendingConfirmation || isSubmittingConfirmation) return;
-    const ctx = streamContextRef.current;
+    const ctx = useStreamStore.getState().streamContext;
     if (!ctx) {
       setError({ message: "No active session. Please try again." });
       return;
@@ -524,7 +509,7 @@ export function useInteractionActions({
       setRuleEditorContext({ ...editorContext, requestId: "" });
       setShowRuleEditor(true);
     } catch (err) {
-      Sentry.captureException(err, { tags: { context: "allow_and_create_rule" } });
+      captureError(err, { context: "allow_and_create_rule" });
       useInteractionStore.getState().setInlineConfirmationToolCallId(null);
       setMessages((prev: DisplayMessage[]) => clearConfirmationByRequestId(prev, snapshot.requestId));
       setRuleEditorContext(editorContext);
@@ -553,7 +538,7 @@ export function useInteractionActions({
 
   const handleSaveRule = useCallback(
     async (rule: { toolName: string; pattern: string; riskLevel: string; scope: string }) => {
-      const ctx = streamContextRef.current;
+      const ctx = useStreamStore.getState().streamContext;
       const context = ruleEditorContext;
       if (!ctx || !context) return;
       if (isSavingRule) return;
@@ -569,7 +554,7 @@ export function useInteractionActions({
             scope: rule.scope,
           });
         } catch (err) {
-          Sentry.captureException(err, { tags: { context: "save_trust_rule_direct" } });
+          captureError(err, { context: "save_trust_rule_direct" });
           setError({ message: "Failed to save trust rule. Please try again." });
         } finally {
           setIsSavingRule(false);
@@ -596,7 +581,7 @@ export function useInteractionActions({
           return;
         }
       } catch (err) {
-        Sentry.captureException(err, { tags: { context: "save_trust_rule" } });
+        captureError(err, { context: "save_trust_rule" });
         setShowRuleEditor(false);
         setRuleEditorContext(null);
         setError({ message: "Failed to save trust rule. Please try again." });
@@ -630,7 +615,7 @@ export function useInteractionActions({
         return;
       }
 
-      const ctx = streamContextRef.current;
+      const ctx = useStreamStore.getState().streamContext;
       if (!ctx) {
         setError({ message: "No active session. Please try again." });
         throw new Error("No active session");
@@ -645,7 +630,7 @@ export function useInteractionActions({
           data,
         );
       } catch (err) {
-        Sentry.captureException(err, { tags: { context: "submit_surface_action" } });
+        captureError(err, { context: "submit_surface_action" });
         setError({ message: "Failed to submit. Please try again." });
         throw err;
       }
