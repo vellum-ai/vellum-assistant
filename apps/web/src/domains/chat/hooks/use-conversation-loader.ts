@@ -37,12 +37,8 @@ import { ApiError } from "@/utils/api-errors";
 import type { Conversation } from "@/types/conversation-types";
 import { isBackgroundConversation } from "@/utils/conversation-predicates";
 import { useConversationListQuery } from "@/hooks/conversation-queries";
-import {
-  backgroundConversationsQueryKey,
-  conversationGroupsQueryKey,
-  conversationsQueryKey,
-  scheduledConversationsQueryKey,
-} from "@/lib/sync/query-tags";
+import { invalidateConversationQueries } from "@/utils/conversation-cache";
+import { conversationGroupsQueryKey } from "@/lib/sync/query-tags";
 
 // ---------------------------------------------------------------------------
 // Module constants
@@ -131,18 +127,7 @@ export function useConversationLoader({
   const refreshConversations = useCallback(async () => {
     if (!assistantId) return;
     try {
-      await queryClient.invalidateQueries({
-        queryKey: conversationsQueryKey(assistantId),
-      });
-      // The background and scheduled lists are sibling lazily-enabled
-      // queries; invalidating them is a no-op while collapsed and refreshes
-      // each once its section is revealed.
-      await queryClient.invalidateQueries({
-        queryKey: backgroundConversationsQueryKey(assistantId),
-      });
-      await queryClient.invalidateQueries({
-        queryKey: scheduledConversationsQueryKey(assistantId),
-      });
+      await invalidateConversationQueries(queryClient, assistantId);
     } catch (err) {
       captureError(err, { context: "refresh_conversations" });
     }
@@ -234,15 +219,7 @@ export function useConversationLoader({
       return;
     }
     if (assistantStateKind !== "active" || !assistantId) return;
-    void queryClient.invalidateQueries({
-      queryKey: conversationsQueryKey(assistantId),
-    });
-    void queryClient.invalidateQueries({
-      queryKey: backgroundConversationsQueryKey(assistantId),
-    });
-    void queryClient.invalidateQueries({
-      queryKey: scheduledConversationsQueryKey(assistantId),
-    });
+    void invalidateConversationQueries(queryClient, assistantId);
   }, [
     refreshEpoch,
     reachabilityReadyEpoch,

@@ -61,7 +61,6 @@ export const DEFAULT_TIMEOUTS: Record<PipelineName, number | null> = {
   overflowReduce: null,
   persistence: null,
   titleGenerate: null,
-  toolResultTruncate: null,
   emptyResponse: null,
   toolError: null,
   circuitBreaker: null,
@@ -316,9 +315,9 @@ export async function runPipeline<A, R>(
  *
  * `runHook` is the hook-side counterpart to {@link runPipeline}:
  * `runPipeline` composes middleware around a terminal handler for stateful
- * request/response pipelines (memory retrieval, history repair, etc.);
+ * request/response pipelines (memory retrieval, compaction, etc.);
  * `runHook` walks ordered hook functions for declarative chain-style
- * context transformations (`user-prompt-submit` today).
+ * context transformations (`user-prompt-submit`, `post-tool-use`).
  *
  * @param name        The hook identifier — pick one from {@link HOOKS}.
  * @param initialCtx  Context the first hook receives.

@@ -3,8 +3,12 @@
  * These endpoints are served via RuntimeProxyView under
  * /v1/assistants/{id}/schedules/* and are not part of the Django OpenAPI schema.
  */
-import { client } from "@/generated/api/client.gen";
 import {
+  consolidationConfigGet,
+  consolidationRunnowPost,
+  heartbeatConfigGet,
+  heartbeatRunnowPost,
+  heartbeatRunsGet,
   schedulesByIdDelete,
   schedulesByIdPatch,
   schedulesByIdRunPost,
@@ -13,20 +17,19 @@ import {
   schedulesGet,
   schedulesPost,
 } from "@/generated/daemon/sdk.gen";
+import type {
+  ConsolidationConfigGetResponse,
+  ConsolidationRunnowPostResponse,
+  HeartbeatConfigGetResponse,
+  HeartbeatRunnowPostResponse,
+} from "@/generated/daemon/types.gen";
 import {
   ApiError,
   assertHasResponse,
   extractErrorMessage,
 } from "@/utils/api-errors";
 
-import type {
-  ConsolidationConfigResponse,
-  HeartbeatConfigResponse,
-  HeartbeatRunsResponse,
-  RunNowResponse,
-  Schedule,
-  ScheduleRun,
-} from "@/domains/settings/types/schedules";
+import type { Schedule, ScheduleRun } from "@/domains/settings/types/schedules";
 
 export { ApiError };
 
@@ -171,11 +174,7 @@ export async function fetchHeartbeatRuns(
   assistantId: string,
   limit = 10,
 ): Promise<ScheduleRun[]> {
-  const { data, error, response } = await client.get<
-    HeartbeatRunsResponse,
-    unknown
-  >({
-    url: "/v1/assistants/{assistant_id}/heartbeat/runs/",
+  const { data, error, response } = await heartbeatRunsGet({
     path: { assistant_id: assistantId },
     query: { limit },
     throwOnError: false,
@@ -203,12 +202,8 @@ export async function fetchHeartbeatRuns(
 
 export async function fetchHeartbeatConfig(
   assistantId: string,
-): Promise<HeartbeatConfigResponse> {
-  const { data, error, response } = await client.get<
-    HeartbeatConfigResponse,
-    unknown
-  >({
-    url: "/v1/assistants/{assistant_id}/heartbeat/config/",
+): Promise<HeartbeatConfigGetResponse> {
+  const { data, error, response } = await heartbeatConfigGet({
     path: { assistant_id: assistantId },
     throwOnError: false,
   });
@@ -224,9 +219,8 @@ export async function fetchHeartbeatConfig(
 
 export async function runHeartbeatNow(
   assistantId: string,
-): Promise<RunNowResponse> {
-  const { data, error, response } = await client.post<RunNowResponse, unknown>({
-    url: "/v1/assistants/{assistant_id}/heartbeat/run-now/",
+): Promise<HeartbeatRunnowPostResponse> {
+  const { data, error, response } = await heartbeatRunnowPost({
     path: { assistant_id: assistantId },
     throwOnError: false,
   });
@@ -242,12 +236,8 @@ export async function runHeartbeatNow(
 
 export async function fetchConsolidationConfig(
   assistantId: string,
-): Promise<ConsolidationConfigResponse> {
-  const { data, error, response } = await client.get<
-    ConsolidationConfigResponse,
-    unknown
-  >({
-    url: "/v1/assistants/{assistant_id}/consolidation/config/",
+): Promise<ConsolidationConfigGetResponse> {
+  const { data, error, response } = await consolidationConfigGet({
     path: { assistant_id: assistantId },
     throwOnError: false,
   });
@@ -267,9 +257,8 @@ export async function fetchConsolidationConfig(
 
 export async function runConsolidationNow(
   assistantId: string,
-): Promise<RunNowResponse> {
-  const { data, error, response } = await client.post<RunNowResponse, unknown>({
-    url: "/v1/assistants/{assistant_id}/consolidation/run-now/",
+): Promise<ConsolidationRunnowPostResponse> {
+  const { data, error, response } = await consolidationRunnowPost({
     path: { assistant_id: assistantId },
     throwOnError: false,
   });

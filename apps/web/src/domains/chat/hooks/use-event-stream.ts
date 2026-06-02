@@ -41,7 +41,7 @@ import { endTurn } from "@/domains/chat/turn-coordinator";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { recordLifecycleDiagnostic } from "@/lib/diagnostics";
-import type { ChatEventStream } from "@/lib/streaming/stream-transport";
+import type { EventStream } from "@/lib/streaming/stream-transport";
 import type {
   ActiveConversationMessagesRefreshResult,
   WebSyncReconnectResult,
@@ -191,7 +191,7 @@ export function useEventStream({
     // whether SSE will deliver the response. We write a sentinel whose
     // `cancel()` is a no-op — the real teardown is the bus unsubscribe
     // in `useBusSubscription`.
-    const presence: ChatEventStream = { cancel: () => {} };
+    const presence: EventStream = { cancel: () => {} };
     ss.setStream(presence);
 
     return () => {

@@ -71,6 +71,8 @@ describe("onboarding template contracts", () => {
 
     test("offers assistant migration during low-signal first openings", () => {
       expect(bootstrap).toContain("## Assistant migration");
+      expect(bootstrap).toContain("onboarding self-introduction");
+      expect(bootstrap).toContain("treat it as the real first user turn");
       expect(bootstrap).toContain(
         "If the first real user turn is only a greeting",
       );

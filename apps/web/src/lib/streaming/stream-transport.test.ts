@@ -44,10 +44,9 @@ mock.module("@sentry/react", () => ({
 }));
 
 import { getLifecycleDiagnosticsEvents } from "@/lib/diagnostics";
-import { subscribeChatEvents, type ChatStreamReconnectCause } from "@/lib/streaming/stream-transport";
-import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { subscribeEvents, type StreamReconnectCause } from "@/lib/streaming/stream-transport";
 
-describe("subscribeChatEvents idle watchdog", () => {
+describe("subscribeEvents idle watchdog", () => {
   let originalFetch: typeof fetch;
   let originalDocument: unknown;
 
@@ -58,10 +57,6 @@ describe("subscribeChatEvents idle watchdog", () => {
     // path but keeps the bun (Node) test env consistent.
     originalDocument = (globalThis as { document?: unknown }).document;
     (globalThis as { document?: unknown }).document = { cookie: "csrftoken=test" };
-    // Reset the version-gating store so subscribeChatEvents defaults to
-    // the legacy `conversationKey` wire field. Tests that exercise the
-    // newer `conversationId` path opt in explicitly via setIdentity().
-    useAssistantIdentityStore.getState().clearIdentity();
   });
 
   afterEach(() => {
@@ -71,7 +66,6 @@ describe("subscribeChatEvents idle watchdog", () => {
     } else {
       (globalThis as { document?: unknown }).document = originalDocument;
     }
-    useAssistantIdentityStore.getState().clearIdentity();
   });
 
   test("omits any conversation query param when subscribing to all assistant events", async () => {
@@ -90,9 +84,8 @@ describe("subscribeChatEvents idle watchdog", () => {
       },
     ) as unknown as typeof fetch;
 
-    const stream = subscribeChatEvents(
+    const stream = subscribeEvents(
       "asst-1",
-      null,
       () => {},
       () => {},
       { idleTimeoutMs: 5_000, reconnectBaseDelayMs: 10_000 },
@@ -111,124 +104,10 @@ describe("subscribeChatEvents idle watchdog", () => {
     }
   });
 
-  test("uses conversationId query when daemon version >= 0.8.6", async () => {
-    useAssistantIdentityStore.getState().setIdentity("Vel", "0.8.6");
-
-    const requestedUrls: string[] = [];
-    globalThis.fetch = mock(
-      async (input: RequestInfo | URL) => {
-        requestedUrls.push(input instanceof Request ? input.url : String(input));
-        return new Response(
-          new ReadableStream({
-            start(controller) {
-              controller.close();
-            },
-          }),
-          { status: 200, headers: { "Content-Type": "text/event-stream" } },
-        );
-      },
-    ) as unknown as typeof fetch;
-
-    const stream = subscribeChatEvents(
-      "asst-1",
-      "conv-internal-1",
-      () => {},
-      () => {},
-      { idleTimeoutMs: 5_000, reconnectBaseDelayMs: 10_000 },
-    );
-
-    try {
-      await new Promise((r) => setTimeout(r, 50));
-      expect(requestedUrls).toHaveLength(1);
-      const url = new URL(requestedUrls[0]!);
-      expect(url.searchParams.get("conversationId")).toBe("conv-internal-1");
-      expect(url.searchParams.get("conversationKey")).toBeNull();
-    } finally {
-      stream.cancel();
-    }
-  });
-
-  test("uses conversationKey query when daemon version is older than 0.8.6", async () => {
-    useAssistantIdentityStore.getState().setIdentity("Vel", "0.8.5");
-
-    const requestedUrls: string[] = [];
-    globalThis.fetch = mock(
-      async (input: RequestInfo | URL) => {
-        requestedUrls.push(input instanceof Request ? input.url : String(input));
-        return new Response(
-          new ReadableStream({
-            start(controller) {
-              controller.close();
-            },
-          }),
-          { status: 200, headers: { "Content-Type": "text/event-stream" } },
-        );
-      },
-    ) as unknown as typeof fetch;
-
-    const stream = subscribeChatEvents(
-      "asst-1",
-      "conv-key-legacy",
-      () => {},
-      () => {},
-      { idleTimeoutMs: 5_000, reconnectBaseDelayMs: 10_000 },
-    );
-
-    try {
-      await new Promise((r) => setTimeout(r, 50));
-      expect(requestedUrls).toHaveLength(1);
-      const url = new URL(requestedUrls[0]!);
-      expect(url.searchParams.get("conversationKey")).toBe("conv-key-legacy");
-      expect(url.searchParams.get("conversationId")).toBeNull();
-    } finally {
-      stream.cancel();
-    }
-  });
-
-  test("falls back to conversationKey when daemon version is unknown", async () => {
-    // Default store state: identity not yet hydrated. Conservative
-    // fallback to the legacy field is the only safe choice — older
-    // daemons silently ignore `conversationId`.
-    expect(useAssistantIdentityStore.getState().version).toBeNull();
-
-    const requestedUrls: string[] = [];
-    globalThis.fetch = mock(
-      async (input: RequestInfo | URL) => {
-        requestedUrls.push(input instanceof Request ? input.url : String(input));
-        return new Response(
-          new ReadableStream({
-            start(controller) {
-              controller.close();
-            },
-          }),
-          { status: 200, headers: { "Content-Type": "text/event-stream" } },
-        );
-      },
-    ) as unknown as typeof fetch;
-
-    const stream = subscribeChatEvents(
-      "asst-1",
-      "conv-unknown-version",
-      () => {},
-      () => {},
-      { idleTimeoutMs: 5_000, reconnectBaseDelayMs: 10_000 },
-    );
-
-    try {
-      await new Promise((r) => setTimeout(r, 50));
-      expect(requestedUrls).toHaveLength(1);
-      const url = new URL(requestedUrls[0]!);
-      expect(url.searchParams.get("conversationKey")).toBe("conv-unknown-version");
-      expect(url.searchParams.get("conversationId")).toBeNull();
-    } finally {
-      stream.cancel();
-    }
-  });
-
   test("force-reconnects when the SSE stream stalls past the idle timeout", async () => {
     // When the SSE transport silently stalls (no bytes flowing) but
     // never raises an error, the for-await-of loop in
-    // subscribeChatEvents blocks forever and any messages emitted
+    // subscribeEvents blocks forever and any messages emitted
     // server-side never reach the UI. The watchdog must abort the
     // active fetch after idleTimeoutMs and let the existing reconnect
     // path open a fresh connection.
@@ -260,9 +139,8 @@ describe("subscribeChatEvents idle watchdog", () => {
     const onError = mock(() => {});
     let reconnectCallbacks = 0;
 
-    const stream = subscribeChatEvents(
+    const stream = subscribeEvents(
       "asst-1",
-      "conv-key",
       onEvent,
       onError,
       {
@@ -323,9 +201,8 @@ describe("subscribeChatEvents idle watchdog", () => {
       },
     ) as unknown as typeof fetch;
 
-    const stream = subscribeChatEvents(
+    const stream = subscribeEvents(
       "asst-1",
-      "conv-key",
       () => {},
       () => {},
       {
@@ -380,9 +257,8 @@ describe("subscribeChatEvents idle watchdog", () => {
     const breadcrumbsBefore = sentryBreadcrumbs.length;
     const captureMessagesBefore = sentryCaptureMessages.length;
 
-    const sub = subscribeChatEvents(
+    const sub = subscribeEvents(
       "asst-watchdog",
-      "conv-watchdog",
       () => {},
       () => {},
       { idleTimeoutMs: 50, reconnectBaseDelayMs: 10 },
@@ -400,7 +276,6 @@ describe("subscribeChatEvents idle watchdog", () => {
       const first = fires[0]!;
       expect(first.details).toMatchObject({
         assistantId: "asst-watchdog",
-        conversationId: "conv-watchdog",
         idleTimeoutMs: 50,
       });
       // The first watchdog fire happens on the very first connect
@@ -440,7 +315,6 @@ describe("subscribeChatEvents idle watchdog", () => {
       });
       expect(watchdogCapture!.extra).toMatchObject({
         assistantId: "asst-watchdog",
-        conversationId: "conv-watchdog",
         idleTimeoutMs: 50,
       });
     } finally {
@@ -480,9 +354,8 @@ describe("subscribeChatEvents idle watchdog", () => {
     const eventCountBefore = getLifecycleDiagnosticsEvents().length;
     const captureMessagesBefore = sentryCaptureMessages.length;
 
-    const sub = subscribeChatEvents(
+    const sub = subscribeEvents(
       "asst-aggregation",
-      "conv-aggregation",
       () => {},
       () => {},
       {
@@ -547,7 +420,7 @@ describe("subscribeChatEvents idle watchdog", () => {
 
   test("tags wasTurnSending: 'unknown' when no getActiveTurnSending snapshot is supplied", async () => {
     // Backwards compatibility: callers that have not yet wired the
-    // turn-sending snapshot (e.g. unit tests of subscribeChatEvents
+    // turn-sending snapshot (e.g. unit tests of subscribeEvents
     // in isolation, or any caller without turn-sending wiring) must still produce
     // a tag value, not omit the field. Sentry groups absent tags as
     // `"<no-tag>"` in Discover, which collides with healthy events
@@ -567,9 +440,8 @@ describe("subscribeChatEvents idle watchdog", () => {
 
     const captureMessagesBefore = sentryCaptureMessages.length;
 
-    const sub = subscribeChatEvents(
+    const sub = subscribeEvents(
       "asst-no-snapshot",
-      "conv-no-snapshot",
       () => {},
       () => {},
       { idleTimeoutMs: 50, reconnectBaseDelayMs: 10 },
@@ -641,9 +513,8 @@ describe("subscribeChatEvents idle watchdog", () => {
 
     const eventCountBefore = getLifecycleDiagnosticsEvents().length;
 
-    const sub = subscribeChatEvents(
+    const sub = subscribeEvents(
       "asst-heartbeat",
-      "conv-heartbeat",
       () => {},
       () => {},
       { idleTimeoutMs: 100, reconnectBaseDelayMs: 10 },
@@ -696,11 +567,10 @@ describe("subscribeChatEvents idle watchdog", () => {
         ),
     ) as unknown as typeof fetch;
 
-    const causes: ChatStreamReconnectCause[] = [];
+    const causes: StreamReconnectCause[] = [];
 
-    const sub = subscribeChatEvents(
+    const sub = subscribeEvents(
       "asst-1",
-      "conv-key",
       () => {},
       () => {},
       {
@@ -762,12 +632,11 @@ describe("subscribeChatEvents idle watchdog", () => {
       );
     }) as unknown as typeof fetch;
 
-    const causes: ChatStreamReconnectCause[] = [];
+    const causes: StreamReconnectCause[] = [];
     const eventCountBefore = getLifecycleDiagnosticsEvents().length;
 
-    const sub = subscribeChatEvents(
+    const sub = subscribeEvents(
       "asst-stale",
-      "conv-stale",
       () => {},
       () => {},
       {
@@ -844,11 +713,10 @@ describe("subscribeChatEvents idle watchdog", () => {
       );
     }) as unknown as typeof fetch;
 
-    const causes: ChatStreamReconnectCause[] = [];
+    const causes: StreamReconnectCause[] = [];
 
-    const sub = subscribeChatEvents(
+    const sub = subscribeEvents(
       "asst-1",
-      "conv-key",
       () => {},
       () => {},
       {
@@ -895,9 +763,8 @@ describe("subscribeChatEvents idle watchdog", () => {
       );
     }) as unknown as typeof fetch;
 
-    const sub = subscribeChatEvents(
+    const sub = subscribeEvents(
       "asst-1",
-      "conv-key",
       () => {},
       () => {},
       { idleTimeoutMs: 50, reconnectBaseDelayMs: 10 },

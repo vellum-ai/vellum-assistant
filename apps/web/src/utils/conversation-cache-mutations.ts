@@ -213,7 +213,7 @@ export function appendGroup(
     ...groups,
     {
       ...group,
-      sortPosition: group.sortPosition || groups.length,
+      sortPosition: group.sortPosition ?? groups.length,
     },
   ]);
 }

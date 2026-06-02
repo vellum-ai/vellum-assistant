@@ -120,9 +120,13 @@ export async function pairDeliveryWithConversation(
     // Passive vellum notifications surface via the home feed alone and link
     // back to the originating conversation via `signal.sourceContextId`.
     // Materializing a fresh per-notification conversation just to host the
-    // seed message leaves a graveyard entry in the sidebar; skip it unless
-    // the producer opted in via `requiresConversation` or the decision engine
-    // requested explicit reuse of a target conversation.
+    // seed message leaves a graveyard entry in the sidebar; skip it
+    // unconditionally when the producer did not opt in via
+    // `requiresConversation`. The decision engine's `reuse_existing` hint is
+    // also ignored here: even a successful reuse would append a seed message
+    // to a conversation that the user didn't ask for, and a failed reuse
+    // (stale target / source mismatch) falls through to `createConversation`
+    // — producing exactly the graveyard entry we want to avoid.
     //
     // Gated on `home-page`: the home feed is the surface that hosts passive
     // notifications, so when the flag is off there is nowhere for them to
@@ -131,7 +135,6 @@ export async function pairDeliveryWithConversation(
     if (
       strategy === "start_new_conversation" &&
       !signal.requiresConversation &&
-      conversationAction?.action !== "reuse_existing" &&
       isHomePageEnabled()
     ) {
       return {

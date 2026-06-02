@@ -6,10 +6,7 @@ import { Button } from "@vellum/design-library/components/button";
 import { Card } from "@vellum/design-library/components/card";
 import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
 import { useArchivedConversationListQuery } from "@/hooks/conversation-queries";
-import {
-  archivedConversationsQueryKey,
-  conversationsQueryKey,
-} from "@/lib/sync/query-tags";
+import { invalidateConversationQueries } from "@/utils/conversation-cache";
 import type { Conversation } from "@/types/conversation-types";
 import { conversationsByIdUnarchivePost } from "@/generated/daemon/sdk.gen";
 import { toast } from "@vellum/design-library";
@@ -127,13 +124,8 @@ export function ArchivePage() {
           throwOnError: true,
         });
         // Unarchiving moves a row from the archived list back into the active
-        // sidebar list, so invalidate both caches.
-        void queryClient.invalidateQueries({
-          queryKey: conversationsQueryKey(assistantId),
-        });
-        void queryClient.invalidateQueries({
-          queryKey: archivedConversationsQueryKey(assistantId),
-        });
+        // sidebar list, so invalidate all conversation caches.
+        void invalidateConversationQueries(queryClient, assistantId);
       } catch (error) {
         captureError(error, { context: "archive_settings_unarchive_conversation" });
         toast.error("Failed to unarchive conversation.");

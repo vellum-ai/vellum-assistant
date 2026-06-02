@@ -218,6 +218,10 @@ import type { MemoryRecalled } from "./message-types/memory.js";
 import type { ConfirmationStateChanged } from "./message-types/messages.js";
 import { conversationMetadataSyncTag } from "./message-types/sync.js";
 import { parseActualTokensFromError } from "./parse-actual-tokens-from-error.js";
+import {
+  persistUnsendableImageDowngrades,
+  UNSENDABLE_IMAGE_NOTE,
+} from "./persist-unsendable-image.js";
 import type { TraceEmitter } from "./trace-emitter.js";
 import type { TrustContext } from "./trust-context.js";
 import { stripHistoricalWebSearchResults } from "./web-search-history.js";
@@ -2097,10 +2101,10 @@ export async function runAgentLoopImpl(
 
     // Thread the orchestrator's canonical per-turn context into the agent
     // loop so its internal pipeline invocations (llmCall, emptyResponse,
-    // toolError, toolResultTruncate, toolExecute) see the real
-    // conversation identity / trust / contextWindowManager instead of the
-    // synthesized `"agent-loop"` placeholder. The loop clones this value
-    // and overwrites `turnIndex` with its own tool-use iteration counter.
+    // toolError, toolExecute) see the real conversation identity / trust /
+    // contextWindowManager instead of the synthesized `"agent-loop"`
+    // placeholder. The loop clones this value and overwrites `turnIndex`
+    // with its own tool-use iteration counter.
     const loopTurnCtx = buildPluginTurnContext(ctx, reqId);
 
     // Hooks for the loop-owned mid-loop compaction. The agent loop owns the
@@ -2318,15 +2322,29 @@ export async function runAgentLoopImpl(
             }
             // Can't resize — replace with a text annotation so the model
             // can explain the situation rather than silently dropping context
-            return [
-              {
-                type: "text" as const,
-                text: "(An image was attached but could not be sent — its dimensions exceed the provider limit and automatic resize was not available. Please resize the image and try again.)",
-              },
-            ];
+            return [{ type: "text" as const, text: UNSENDABLE_IMAGE_NOTE }];
           }),
         };
       });
+      // The transform above only mutates ctx.messages for the current retry.
+      // Persist the downgrade for images that can never be sent so the rejected
+      // upload doesn't rehydrate from the DB and resurface on later turns. This
+      // is cleanup for future turns, so a persistence failure must never abort
+      // the retry that is about to run — log it and continue.
+      try {
+        const rewritten = persistUnsendableImageDowngrades(ctx.conversationId);
+        if (rewritten > 0) {
+          rlog.info(
+            { phase: "image-recovery", rewritten },
+            "Persisted unsendable-image downgrades so they cannot resurface",
+          );
+        }
+      } catch (err) {
+        rlog.warn(
+          { phase: "image-recovery", err },
+          "Failed to persist unsendable-image downgrade; continuing with in-memory recovery",
+        );
+      }
       runMessages = ctx.messages;
       updatedHistory = await runAgentLoop(runMessages);
       if (state.imageTooLargeDetected) {

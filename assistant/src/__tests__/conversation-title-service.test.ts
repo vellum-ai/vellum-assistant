@@ -53,7 +53,9 @@ mock.module("../util/logger.js", () => ({
 
 import {
   generateAndPersistConversationTitle,
+  queueGenerateConversationTitle,
   regenerateConversationTitle,
+  titleMutex,
 } from "../memory/conversation-title-service.js";
 
 describe("conversation-title-service", () => {
@@ -353,5 +355,122 @@ describe("conversation-title-service", () => {
     expect(call.content).not.toContain("Generate a very short title");
     expect(call.content).not.toContain("do NOT respond");
     expect(call.systemPrompt).toContain("Do NOT respond");
+  });
+
+  test("queueGenerateConversationTitle serializes concurrent calls", async () => {
+    const callOrder: string[] = [];
+    let resolveFirst!: () => void;
+    const firstBlocked = new Promise<void>((r) => {
+      resolveFirst = r;
+    });
+
+    // First call: blocks until we release it
+    mockRunBtwSidechain.mockImplementationOnce(async () => {
+      callOrder.push("first:start");
+      await firstBlocked;
+      callOrder.push("first:end");
+      return {
+        text: "Title One",
+        hadTextDeltas: true,
+        response: {
+          content: [{ type: "text", text: "Title One" }],
+          model: "test-model",
+          usage: { inputTokens: 10, outputTokens: 5 },
+          stopReason: "end_turn",
+        },
+      };
+    });
+
+    // Second call: resolves immediately
+    mockRunBtwSidechain.mockImplementationOnce(async () => {
+      callOrder.push("second:start");
+      return {
+        text: "Title Two",
+        hadTextDeltas: true,
+        response: {
+          content: [{ type: "text", text: "Title Two" }],
+          model: "test-model",
+          usage: { inputTokens: 10, outputTokens: 5 },
+          stopReason: "end_turn",
+        },
+      };
+    });
+
+    const provider = {
+      name: "test-provider",
+      sendMessage: mock(async () => {
+        throw new Error("should not call directly");
+      }),
+    };
+
+    // Fire both calls — without serialization both would start immediately
+    queueGenerateConversationTitle({
+      conversationId: "conv-1",
+      provider,
+      userMessage: "first message",
+    });
+    queueGenerateConversationTitle({
+      conversationId: "conv-2",
+      provider,
+      userMessage: "second message",
+    });
+
+    // Let microtasks settle — only the first call should have started
+    await new Promise((r) => setTimeout(r, 10));
+    expect(callOrder).toEqual(["first:start"]);
+
+    // Release the first call
+    resolveFirst();
+    await titleMutex.withLock(async () => {});
+
+    // Second should have started only after first finished
+    expect(callOrder).toEqual(["first:start", "first:end", "second:start"]);
+  });
+
+  test("queue continues processing after a failed call", async () => {
+    // First call: throws
+    mockRunBtwSidechain.mockImplementationOnce(async () => {
+      throw new Error("provider timeout");
+    });
+
+    // Second call: succeeds
+    mockRunBtwSidechain.mockImplementationOnce(async () => ({
+      text: "Recovery Title",
+      hadTextDeltas: true,
+      response: {
+        content: [{ type: "text", text: "Recovery Title" }],
+        model: "test-model",
+        usage: { inputTokens: 10, outputTokens: 5 },
+        stopReason: "end_turn",
+      },
+    }));
+
+    const provider = {
+      name: "test-provider",
+      sendMessage: mock(async () => {
+        throw new Error("should not call directly");
+      }),
+    };
+
+    queueGenerateConversationTitle({
+      conversationId: "conv-1",
+      provider,
+      userMessage: "will fail",
+    });
+    queueGenerateConversationTitle({
+      conversationId: "conv-2",
+      provider,
+      userMessage: "will succeed",
+    });
+
+    await titleMutex.withLock(async () => {});
+
+    // Both calls went through — failure didn't break the chain
+    expect(mockRunBtwSidechain).toHaveBeenCalledTimes(2);
+    // Second conversation got a proper title
+    const secondUpdate = (
+      mockUpdateConversationTitle.mock.calls as unknown as string[][]
+    ).find((c) => c[0] === "conv-2" && c[1] === "Recovery Title");
+    expect(secondUpdate).toBeTruthy();
   });
 });

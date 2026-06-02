@@ -22,10 +22,8 @@ import {
   removeGroup,
   replaceOptimisticGroup,
 } from "@/utils/conversation-cache-mutations";
-import {
-  conversationGroupsQueryKey,
-  conversationsQueryKey,
-} from "@/lib/sync/query-tags";
+import { cancelConversationQueries, invalidateConversationQueries } from "@/utils/conversation-cache";
+import { conversationGroupsQueryKey } from "@/lib/sync/query-tags";
 
 import { haptic } from "@/utils/haptics";
 import type { ConversationGroup } from "@/types/conversation-types";
@@ -147,10 +145,9 @@ export function useConversationGroupActions({
       haptic.medium();
 
       const groupsKey = conversationGroupsQueryKey(assistantId);
-      const convsKey = conversationsQueryKey(assistantId);
       await Promise.all([
+        cancelConversationQueries(queryClient, assistantId),
         queryClient.cancelQueries({ queryKey: groupsKey }),
-        queryClient.cancelQueries({ queryKey: convsKey }),
       ]);
 
       deleteGroupAndResetConversations(queryClient, assistantId, groupId);
@@ -164,7 +161,7 @@ export function useConversationGroupActions({
         // by `deleteGroupAndResetConversations`. Invalidate both caches so
         // TanStack refetches the server-authoritative state.
       } finally {
-        void queryClient.invalidateQueries({ queryKey: convsKey });
+        void invalidateConversationQueries(queryClient, assistantId);
         void queryClient.invalidateQueries({ queryKey: groupsKey });
       }
     },

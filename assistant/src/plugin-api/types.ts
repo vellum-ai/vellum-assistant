@@ -4,7 +4,7 @@
  * removing is breaking and gated on a major bump.
  */
 
-import type { Message } from "../providers/types.js";
+import type { Message, ToolResultContent } from "../providers/types.js";
 
 export type {
   ToolContext,
@@ -47,6 +47,7 @@ export interface PluginLogger {
  *   - `init` — {@link PluginInitContext}
  *   - `shutdown` — {@link PluginShutdownContext}
  *   - `user-prompt-submit` — {@link UserPromptSubmitContext}
+ *   - `post-tool-use` — {@link PostToolUseContext}
  */
 export type PluginHookFn<TCtx = unknown> = (ctx: TCtx) => Promise<TCtx | void>;
 
@@ -131,6 +132,48 @@ export interface UserPromptSubmitContext {
    * may mutate this in place or replace it by returning a new context.
    */
   latestMessages: Message[];
+  /**
+   * Logger scoped to the current turn. The same instance is shared by
+   * every hook in the chain, so plugins should tag their structured log
+   * fields (e.g. `{ plugin: "<name>" }`) for attribution.
+   */
+  readonly logger: PluginLogger;
+}
+
+// ─── Post-tool-use hook context ──────────────────────────────────────────────
+
+/**
+ * Context passed to the `post-tool-use` hook. Fires once per tool result —
+ * after the tool returns and before the result is appended to the message
+ * history sent to the provider. With several tools dispatched in a single
+ * turn, the hook fires once per result, in tool-use order.
+ *
+ * The hook may transform the result either by mutating `toolResponse` in
+ * place (e.g. reassigning `toolResponse.content`) or by returning a new
+ * context with a fresh `toolResponse` — see {@link PluginHookFn}'s
+ * polymorphic return shape. The daemon threads the final `toolResponse`
+ * into the provider-bound history.
+ *
+ * Multiple plugins' hooks chain in registration order — each plugin's hook
+ * sees the previous plugin's mutations. The default tool-result-truncate
+ * plugin contributes a hook here that tail-drops oversized output to fit the
+ * model's context window; user hooks can swap in a smarter strategy (e.g. a
+ * summarizer) or observe results for side effects.
+ */
+export interface PostToolUseContext {
+  /** Conversation ID the tool ran on. */
+  readonly conversationId: string;
+  /**
+   * The tool result block. Plugins may mutate its `content` in place or
+   * replace the block by returning a new context.
+   */
+  toolResponse: ToolResultContent;
+  /**
+   * The model's context-window size in tokens. Plugins derive their own
+   * character budget from this (e.g. a share of the window) rather than
+   * receiving a precomputed limit.
+   */
+  readonly maxInputTokens: number;
   /**
    * Logger scoped to the current turn. The same instance is shared by
    * every hook in the chain, so plugins should tag their structured log

@@ -24,14 +24,9 @@ import { type MutableRefObject, useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { refreshConversationRow } from "@/utils/conversation-cache-mutations";
-import { patchConversation } from "@/utils/conversation-cache";
+import { invalidateConversationQueries, patchConversation } from "@/utils/conversation-cache";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
-import {
-  backgroundConversationsQueryKey,
-  conversationGroupsQueryKey,
-  conversationsQueryKey,
-  scheduledConversationsQueryKey,
-} from "@/lib/sync/query-tags";
+import { conversationGroupsQueryKey } from "@/lib/sync/query-tags";
 import {
   parseConversationSyncTag,
   SYNC_TAGS,
@@ -115,18 +110,7 @@ function scheduleConversationListRefetch(
   if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
   debounceTimerRef.current = setTimeout(() => {
     debounceTimerRef.current = null;
-    void queryClient.invalidateQueries({
-      queryKey: conversationsQueryKey(assistantId),
-    });
-    // The background and scheduled lists each live in their own
-    // lazily-enabled query. Invalidation is a no-op refetch while a list
-    // stays disabled (collapsed section) and refreshes it once revealed.
-    void queryClient.invalidateQueries({
-      queryKey: backgroundConversationsQueryKey(assistantId),
-    });
-    void queryClient.invalidateQueries({
-      queryKey: scheduledConversationsQueryKey(assistantId),
-    });
+    void invalidateConversationQueries(queryClient, assistantId);
     void queryClient.invalidateQueries({
       queryKey: conversationGroupsQueryKey(assistantId),
     });

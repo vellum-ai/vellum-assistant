@@ -20,6 +20,8 @@ export const HOOKS = {
   SHUTDOWN: "shutdown",
   /** Fires once per user turn, immediately before the agent loop receives `runMessages`. */
   USER_PROMPT_SUBMIT: "user-prompt-submit",
+  /** Fires once per tool result, after the tool returns and before the result is sent to the provider. */
+  POST_TOOL_USE: "post-tool-use",
 } as const;
 
 /** Union of every hook name declared in {@link HOOKS}. */

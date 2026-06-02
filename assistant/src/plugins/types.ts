@@ -46,10 +46,6 @@ import type {
 import type { SkillRoute } from "../runtime/skill-route-registry.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
-import type {
-  ToolResultTruncateArgs,
-  ToolResultTruncateResult,
-} from "./defaults/tool-result-truncate/types.js";
 
 // ─── Manifest ────────────────────────────────────────────────────────────────
 
@@ -130,7 +126,6 @@ export type PipelineName =
   | "overflowReduce"
   | "persistence"
   | "titleGenerate"
-  | "toolResultTruncate"
   | "emptyResponse"
   | "toolError"
   | "circuitBreaker";
@@ -750,10 +745,6 @@ export interface PipelineMiddlewareMap {
   overflowReduce: Middleware<OverflowReduceArgs, OverflowReduceResult>;
   persistence: Middleware<PersistArgs, PersistResult>;
   titleGenerate: Middleware<TitleArgs, TitleResult>;
-  toolResultTruncate: Middleware<
-    ToolResultTruncateArgs,
-    ToolResultTruncateResult
-  >;
   emptyResponse: Middleware<EmptyResponseArgs, EmptyResponseResult>;
   toolError: Middleware<ToolErrorArgs, ToolErrorResult>;
   circuitBreaker: Middleware<CircuitBreakerArgs, CircuitBreakerResult>;

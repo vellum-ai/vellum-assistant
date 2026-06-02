@@ -96,6 +96,34 @@ export function hasAnyInteractiveSurface(messages: DisplayMessage[]): boolean {
   return false;
 }
 
+export function hasAssistantMessage(messages: DisplayMessage[]): boolean {
+  return messages.some((message) => message.role === "assistant");
+}
+
+export function shouldClearFirstMessageGateOnConversationChange({
+  previousConversationId,
+  nextConversationId,
+  onboardingDraftConversationId,
+  autoGreetPending,
+  assistantMessagePresent,
+}: {
+  previousConversationId: string | null;
+  nextConversationId: string | null;
+  onboardingDraftConversationId: string | null;
+  autoGreetPending: boolean;
+  assistantMessagePresent: boolean;
+}): boolean {
+  if (previousConversationId == null) return false;
+  if (nextConversationId == null) return false;
+  if (previousConversationId === nextConversationId) return false;
+
+  return !(
+    autoGreetPending &&
+    !assistantMessagePresent &&
+    previousConversationId === onboardingDraftConversationId
+  );
+}
+
 const VOICE_ERROR_MESSAGES: Readonly<Record<string, string>> = {
   "not-allowed": "Microphone access was blocked.",
   "service-not-allowed": "Microphone access was blocked.",
