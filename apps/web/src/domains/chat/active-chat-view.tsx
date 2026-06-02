@@ -18,7 +18,7 @@ import {
 import { useNavigate, useParams, useSearchParams } from "react-router";
 
 import { useAuthStore } from "@/stores/auth-store";
-import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
+
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -48,8 +48,6 @@ import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
 import { type UIContext } from "@/domains/chat/turn-selectors";
 import { peekPendingPreChatContext } from "@/domains/onboarding/prechat";
-import type { WebSyncRouter } from "@/lib/sync/web-sync-router";
-import type { SyncChangedEvent } from "@/lib/sync/types";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { useChatAttachments } from "@/domains/chat/components/chat-attachments/use-chat-attachments";
@@ -57,10 +55,10 @@ import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useAssistantReachability } from "@/assistant/use-assistant-reachability";
 import { useDiskPressureMonitor } from "@/assistant/use-disk-pressure-monitor";
 import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
-import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
+
 import { useConversationLoader } from "@/domains/chat/hooks/use-conversation-loader";
 import { useOnboardingOrchestrator } from "@/domains/chat/hooks/use-onboarding-orchestrator";
-import type { ChatHeaderSupplements } from "@/components/layout/chat-layout-slots-store";
+
 import { useConversationSecondaryActions } from "@/domains/chat/hooks/use-conversation-secondary-actions";
 import { canUseLlmInspector } from "@/domains/chat/inspector/access";
 import { useCommandPaletteSections } from "@/domains/chat/hooks/use-command-palette-sections";
@@ -78,7 +76,6 @@ import { useChatDebugApi } from "@/domains/chat/utils/debug-api";
 
 import { ConnectingToAssistant } from "@/domains/chat/components/connecting-to-assistant";
 
-import { createWebSyncRouter } from "@/lib/sync/web-sync-router";
 import {
   assistantIdentityIntroQueryKey,
   assistantIdentityQueryKey,
@@ -89,11 +86,6 @@ import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat";
 import { isSurfaceInteractive } from "@/domains/chat/types/types";
 import { useTurnStore } from "@/domains/chat/turn-store";
 
-import {
-  formatSlackConversationDisplayLabel,
-} from "@/domains/chat/utils/slack-conversation-display";
-import { useSlackConversationDisplay } from "@/domains/chat/hooks/use-slack-conversation-display";
-import { ConversationAssetsPill } from "@/domains/chat/components/conversation-assets-pill";
 const AddCreditsModal = lazy(() =>
   import("@/components/add-credits-modal").then((m) => ({
     default: m.AddCreditsModal,
@@ -115,9 +107,11 @@ const CommandPalette = lazy(() =>
 import { shouldHandleShortcut } from "@/domains/chat/chat-layout";
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import { MobileChatOverlays } from "@/domains/chat/components/mobile-chat-overlays";
+import { useSyncRouter } from "@/domains/chat/hooks/use-sync-router";
+import { useChatHeaderRegistration } from "@/domains/chat/hooks/use-chat-header-registration";
+import { useConversationChangeEffects } from "@/domains/chat/hooks/use-conversation-change-effects";
 
 import { routes } from "@/utils/routes";
-import { haptic } from "@/utils/haptics";
 
 import {
   ChatRouteContent,
@@ -135,9 +129,6 @@ export function ActiveChatView() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { conversationId: urlConversationId } = useParams<{ conversationId?: string }>();
-  const setTopBarRightSlot =
-    useChatLayoutSlotsStore.use.setTopBarRightSlot();
-  const setOnSearchClick = useChatLayoutSlotsStore.use.setOnSearchClick();
   const assistantId = useAssistantSelectionStore.use.activeAssistantId();
   const assistantState = useAssistantLifecycleStore.use.assistantState();
   const conversationGroupsUI = useAssistantFeatureFlagStore.use.conversationGroupsUI();
@@ -274,7 +265,6 @@ export function ActiveChatView() {
   const initialPageOldestTsRef = useRef<number | null>(null);
   const conversationListInvalidatedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingInitialMessageRef = useRef<{ conversationId: string; content: string } | null>(null);
-  const syncRouterRef = useRef<WebSyncRouter | null>(null);
 
   // -------------------------------------------------------------------------
   // Routing
@@ -495,36 +485,13 @@ export function ActiveChatView() {
   // -------------------------------------------------------------------------
   const invalidateAvatar = useCallback(() => { avatar.invalidate(); }, [avatar.invalidate]);
 
-  useEffect(() => {
-    const syncRouter = createWebSyncRouter({
-      invalidateAvatar,
-      refreshAssistantIdentity,
-      invalidateAssistantIdentityIntro,
-      invalidateAssistantConfig: () => {},
-      invalidateAssistantSounds: () => {},
-      invalidateAssistantSchedules: () => {},
-      scheduleConversationListRefetch,
-      refreshActiveConversationMessages: reconcileActiveConversation,
-    });
-    syncRouterRef.current = syncRouter;
-    return () => {
-      if (syncRouterRef.current === syncRouter) {
-        syncRouterRef.current = null;
-      }
-      syncRouter.dispose();
-    };
-  }, [
+  const { syncRouterRef, dispatchSyncChanged } = useSyncRouter({
     invalidateAvatar,
     refreshAssistantIdentity,
     invalidateAssistantIdentityIntro,
     scheduleConversationListRefetch,
     reconcileActiveConversation,
-  ]);
-
-  const dispatchSyncChanged = useCallback(
-    (event: SyncChangedEvent) => { void syncRouterRef.current?.dispatchSyncChanged(event); },
-    [],
-  );
+  });
 
   // -------------------------------------------------------------------------
   // Stream event handler
@@ -654,39 +621,9 @@ export function ActiveChatView() {
     );
   }, [searchParams, assistantId]);
 
-  // Clear question prompt when conversation changes
-  useEffect(() => {
-    useInteractionStore.getState().dismissQuestion();
-  }, [activeConversationId]);
-
-  // Reset subagent state when conversation changes
-  useEffect(() => {
-    useSubagentStore.getState().reset();
-  }, [activeConversationId]);
-
-  // Stable signal: changes only when the set of subagent IDs that need a
-  // detail fetch changes (entry appears with conversationId + no events,
-  // or an entry receives events). Immune to loadDetail calls that update
-  // status/objective without changing events, preventing retrigger loops.
-  const unfetchedSubagentKey = useSubagentStore((s) => {
-    const ids: string[] = [];
-    for (const entry of Object.values(s.byId)) {
-      if (entry.conversationId && entry.events.length === 0) {
-        ids.push(entry.subagentId);
-      }
-    }
-    return ids.sort().join(',');
-  });
-
-  // Auto-fetch details for subagents reconstructed from history.
-  useEffect(() => {
-    if (!assistantId || !unfetchedSubagentKey) return;
-    for (const entry of Object.values(useSubagentStore.getState().byId)) {
-      if (entry.conversationId && entry.events.length === 0) {
-        void useSubagentStore.getState().fetchDetailIfNeeded(assistantId, entry.subagentId);
-      }
-    }
-  }, [assistantId, unfetchedSubagentKey]);
+  // Conversation-change side effects (dismiss prompts, reset subagent state,
+  // auto-fetch subagent details for entries reconstructed from history)
+  useConversationChangeEffects(assistantId, activeConversationId);
 
   // -------------------------------------------------------------------------
   // Event stream (SSE lifecycle)
@@ -810,91 +747,19 @@ export function ActiveChatView() {
     return () => { window.removeEventListener("keydown", onKeyDown); };
   }, [commandPalette.toggle]);
 
-  // Register command palette toggle as the search callback for the layout
-  useEffect(() => {
-    setOnSearchClick(commandPalette.toggle);
-    return () => { setOnSearchClick(null); };
-  }, [commandPalette.toggle, setOnSearchClick]);
-
   // -------------------------------------------------------------------------
-  // Layout header slot registration — topBarCenter + headerSupplements
+  // Layout header slot registration — supplements, top bar right, search
   // -------------------------------------------------------------------------
-  const hasPersistedMessage = useMemo(
-    () => messages.some((m) => m.id != null),
-    [messages],
-  );
-  const slackConversationDisplay = useSlackConversationDisplay({
-    assistantId: assistantId ?? undefined,
-    conversation: activeConversation,
-    messages,
-  });
-  const slackHeaderLabel = useMemo(() => {
-    return slackConversationDisplay
-      ? formatSlackConversationDisplayLabel(slackConversationDisplay)
-      : null;
-  }, [slackConversationDisplay]);
-
-  const setHeaderSupplements = useChatLayoutSlotsStore.use.setHeaderSupplements();
-
-  // Write chat-specific data to the slot store so that
-  // ChatConversationHeader (rendered by ChatLayout) can build the
-  // complete actions menu without duplicating hooks or state.
-  const headerSupplements = useMemo<ChatHeaderSupplements>(() => ({
-    hasPersistedMessage,
-    slackHeaderLabel,
-    onAnalyze: handleAnalyzeConversation,
-    onForkConversation: handleForkConversationFromMenu,
-    onOpenInNewWindow: handleOpenInNewWindow,
-    onInspect: handleInspectConversation,
-    onCopyConversation: messages.length > 0 ? handleCopyConversation : null,
-    onRefresh: refreshLatestMessages,
-  }), [
-    hasPersistedMessage,
-    slackHeaderLabel,
+  useChatHeaderRegistration({
+    assetsRefreshKey,
     handleAnalyzeConversation,
     handleForkConversationFromMenu,
     handleOpenInNewWindow,
     handleInspectConversation,
     handleCopyConversation,
-    messages.length,
     refreshLatestMessages,
-  ]);
-
-  useEffect(() => {
-    setHeaderSupplements(headerSupplements);
-    return () => { setHeaderSupplements(null); };
-  }, [headerSupplements, setHeaderSupplements]);
-
-  // Open an app from inside a chat (assets pill, "Open App" on a message,
-  // sidebar pinned-app click). Shared with `chat-layout.tsx` — see
-  // `use-open-app-from-chat.ts` for the loadApp → enterAppEditing flow.
-  const handleOpenAppFromChat = useOpenAppFromChat();
-
-  const handleOpenDocument = useCallback(
-    (surfaceId: string) => {
-      haptic.light();
-      if (assistantId) void useViewerStore.getState().loadDocument(assistantId, surfaceId);
-    },
-    [assistantId],
-  );
-
-  const topBarRightContent = useMemo(() => {
-    if (!activeConversation?.conversationId || !assistantId) return null;
-    return (
-      <ConversationAssetsPill
-        assistantId={assistantId}
-        conversationId={activeConversation.conversationId}
-        refreshKey={assetsRefreshKey}
-        onOpenApp={handleOpenAppFromChat}
-        onOpenDocument={handleOpenDocument}
-      />
-    );
-  }, [activeConversation?.conversationId, assistantId, assetsRefreshKey, handleOpenAppFromChat, handleOpenDocument]);
-
-  useEffect(() => {
-    setTopBarRightSlot(topBarRightContent);
-    return () => { setTopBarRightSlot(null); };
-  }, [topBarRightContent, setTopBarRightSlot]);
+    commandPaletteToggle: commandPalette.toggle,
+  });
 
   // -------------------------------------------------------------------------
   // Debug API — UIContext snapshot (read lazily by useChatDebugApi closure)
