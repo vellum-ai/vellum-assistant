@@ -12,11 +12,6 @@ import { join } from "node:path";
 import type { AssistantConfig } from "../../config/types.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
-// Namespace import + optional call: Bun `mock.module` global-leak means many
-// test files mock conversation-crud with only a partial export set. A named
-// `getConversation` import would fail at link time under those mocks; the
-// namespace access degrades to undefined (treated as non-incognito) instead.
-import * as conversationCrud from "../conversation-crud.js";
 import { enqueuePkbIndexJob } from "../jobs/embed-pkb-file.js";
 import { PKB_WORKSPACE_SCOPE } from "../pkb/types.js";
 
@@ -38,22 +33,12 @@ export interface RememberResult {
 
 export function handleRemember(
   input: RememberInput,
-  conversationId: string,
+  _conversationId: string,
   _scopeId: string,
   config: AssistantConfig,
 ): RememberResult {
   if (!input.content || input.content.trim().length === 0) {
     return { success: false, message: "content is required" };
-  }
-
-  // Incognito conversations must never produce memories. Gate before any
-  // filesystem write so a remember() call leaves no trace on disk.
-  const conversation = conversationCrud.getConversation?.(conversationId);
-  if (conversation?.incognito) {
-    return {
-      success: false,
-      message: "remember is not available in incognito conversations",
-    };
   }
 
   const workspaceDir = getWorkspaceDir();

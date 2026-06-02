@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -276,6 +276,48 @@ describe("rememberTool.execute — finish_turn", () => {
     );
     expect(result.isError).toBe(true);
     expect(result.yieldToUser).toBe(true);
+  });
+});
+
+describe("rememberTool.execute — incognito conversations", () => {
+  test("returns an error and writes nothing for an incognito conversation", async () => {
+    const { createConversation } = await import(
+      "../../memory/conversation-crud.js"
+    );
+    const { id } = createConversation({ incognito: true });
+
+    const secret = "should never be remembered";
+    const result = await rememberTool.execute(
+      { content: secret },
+      makeContext({ conversationId: id }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("incognito");
+    // The workspace is shared across tests in this file, so assert the secret
+    // never reached either the v2 or v1 buffer rather than file absence.
+    for (const rel of [
+      ["memory", "buffer.md"],
+      ["pkb", "buffer.md"],
+    ]) {
+      const path = join(tmpWorkspace, ...rel);
+      const contents = existsSync(path) ? readFileSync(path, "utf-8") : "";
+      expect(contents).not.toContain(secret);
+    }
+  });
+
+  test("a normal conversation still remembers", async () => {
+    const { createConversation } = await import(
+      "../../memory/conversation-crud.js"
+    );
+    const { id } = createConversation({ incognito: false });
+
+    const result = await rememberTool.execute(
+      { content: "normal conversations remember fine" },
+      makeContext({ conversationId: id }),
+    );
+
+    expect(result.isError).toBe(false);
   });
 });
 

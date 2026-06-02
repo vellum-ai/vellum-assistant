@@ -32,6 +32,22 @@ export const rememberTool = {
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
     const typedInput = input as unknown as RememberInput;
+
+    // Incognito conversations must never produce memories. The lookup is a
+    // lazy import so tool-handlers / register stay out of conversation-crud's
+    // static module graph (a static import perturbs Bun's test-suite module
+    // load order and trips partial `mock.module` mocks elsewhere).
+    const { getConversation } = await import(
+      "../../memory/conversation-crud.js"
+    );
+    if (getConversation(context.conversationId)?.incognito) {
+      return {
+        content: "remember is not available in incognito conversations",
+        isError: true,
+        ...(typedInput.finish_turn === true ? { yieldToUser: true } : {}),
+      };
+    }
+
     const result = handleRemember(
       typedInput,
       context.conversationId,
