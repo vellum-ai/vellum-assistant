@@ -8,7 +8,7 @@
  * gating) so it's available in dev, staging, and production.
  */
 
-import { useEffect, useMemo, useRef } from "react";
+import { useMemo, useRef } from "react";
 import type { MutableRefObject } from "react";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
@@ -40,12 +40,11 @@ export function useChatDebugRegistration({
   reconcileActiveConversation,
 }: UseChatDebugRegistrationOptions): void {
   const messages = useChatSessionStore.use.messages();
-  const transcriptPagination = useChatSessionStore.use.transcriptPagination();
   const activeConversationId = useConversationStore.use.activeConversationId();
   const processingConversationIds = useConversationStore.use.processingConversationIds();
 
   const assistantIdRef = useRef<string | null>(assistantId);
-  useEffect(() => { assistantIdRef.current = assistantId; }, [assistantId]);
+  assistantIdRef.current = assistantId;
 
   const uiContext = useMemo<UIContext>(() => {
     const isProcessing = activeConversationId != null && processingConversationIds.has(activeConversationId);
@@ -93,10 +92,13 @@ export function useChatDebugRegistration({
         inlineConfirmationToolCallId: state.inlineConfirmationToolCallId,
       };
     },
-    getScrollPagination: () => ({
-      hasMore: transcriptPagination.hasMore,
-      isLoadingOlder: transcriptPagination.isLoadingOlder,
-    }),
+    getScrollPagination: () => {
+      const { transcriptPagination } = useChatSessionStore.getState();
+      return {
+        hasMore: transcriptPagination.hasMore,
+        isLoadingOlder: transcriptPagination.isLoadingOlder,
+      };
+    },
     reconcileActiveConversation,
   });
 
