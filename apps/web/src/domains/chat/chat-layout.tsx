@@ -1,5 +1,6 @@
 import { captureError } from "@/lib/sentry/capture-error";
 import {
+  lazy,
   useCallback,
   useEffect,
   useMemo,
@@ -63,6 +64,14 @@ import { ConversationActionsMenu } from "@/domains/chat/components/conversation-
 import { buildMoveToGroupTargets } from "@/domains/chat/utils/group-conversations";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { ChatLayoutHeader } from "./chat-layout-header";
+import { LazyBoundary } from "@/components/lazy-boundary";
+import { useCommandPaletteOrchestrator } from "@/domains/chat/hooks/use-command-palette-orchestrator";
+
+const CommandPalette = lazy(() =>
+  import("@/components/command-palette/command-palette").then((m) => ({
+    default: m.CommandPalette,
+  })),
+);
 
 /**
  * LocalStorage key used to persist the collapsed state of the sidebar rail
@@ -507,6 +516,20 @@ export function ChatLayout() {
     prePinGroupIdsRef,
   });
 
+  // -------------------------------------------------------------------------
+  // Command palette — sections, item dispatch
+  // -------------------------------------------------------------------------
+  const { commandPalette, mergedSections, handleItemSelect } =
+    useCommandPaletteOrchestrator({
+      assistantId,
+      assistantName: assistantName ?? undefined,
+      conversations,
+      activeConversationId: activeConversationId ?? undefined,
+      startNewConversation: () => startNewConversation(),
+      switchConversation: handleSelectConversation,
+      navigate,
+    });
+
   // Electron host commands (File menu / future global hotkeys). The hook
   // is a no-op on the web host. Handlers close over the latest state via
   // an internal ref, so we don't need to memoize them. Composer focus is
@@ -730,6 +753,21 @@ export function ChatLayout() {
       )}
 
       <RenameDialogFromStore assistantId={assistantId} />
+      {commandPalette.isOpen ? (
+        <LazyBoundary>
+          <CommandPalette
+            isOpen={commandPalette.isOpen}
+            onClose={commandPalette.close}
+            query={commandPalette.query}
+            onQueryChange={commandPalette.setQuery}
+            selectedIndex={commandPalette.selectedIndex}
+            sections={mergedSections}
+            isSearching={commandPalette.isSearching}
+            onItemSelect={handleItemSelect}
+            onKeyDown={commandPalette.handleKeyDown}
+          />
+        </LazyBoundary>
+      ) : null}
     </>
   );
 }

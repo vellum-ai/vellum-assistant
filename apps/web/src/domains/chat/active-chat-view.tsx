@@ -24,9 +24,6 @@ import { useAutoGreetGate } from "@/domains/chat/hooks/use-auto-greet-gate";
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { requestComposerFocus } from "./composer-focus";
-import {
-  useConversationListQuery,
-} from "@/hooks/conversation-queries";
 import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
 import { useViewerStore } from "@/stores/viewer-store";
 import { useDeployStore } from "@/stores/deploy-store";
@@ -65,7 +62,6 @@ import { useDraftInput } from "@/domains/chat/components/chat-composer/use-draft
 import { useDeepLinkConsumer } from "@/domains/chat/hooks/use-deep-link-consumer";
 import { useRefreshLatestMessages } from "@/domains/chat/hooks/use-refresh-latest-messages";
 import { useChatDebugRegistration } from "@/domains/chat/hooks/use-chat-debug-registration";
-import { useCommandPaletteOrchestrator } from "@/domains/chat/hooks/use-command-palette-orchestrator";
 import { useDeepLinkApp } from "@/domains/chat/hooks/use-deep-link-app";
 
 import { ConnectingToAssistant } from "@/domains/chat/components/connecting-to-assistant";
@@ -78,11 +74,6 @@ const AddCreditsModal = lazy(() =>
 const DeployDialogs = lazy(() =>
   import("@/components/deploy-dialogs").then((m) => ({
     default: m.DeployDialogs,
-  })),
-);
-const CommandPalette = lazy(() =>
-  import("@/components/command-palette/command-palette").then((m) => ({
-    default: m.CommandPalette,
   })),
 );
 
@@ -138,13 +129,6 @@ export function ActiveChatView() {
       hydrateLastSeenSeqFromStorage();
     }
   }, []);
-
-  // -------------------------------------------------------------------------
-  // Conversation list / groups (server state via TanStack Query)
-  // -------------------------------------------------------------------------
-  const {
-    conversations,
-  } = useConversationListQuery(assistantId, true);
 
   // -------------------------------------------------------------------------
   // Zustand store selectors
@@ -477,20 +461,6 @@ export function ActiveChatView() {
   });
 
   // -------------------------------------------------------------------------
-  // Command palette — sections, Ctrl/Cmd+K shortcut, item dispatch
-  // -------------------------------------------------------------------------
-  const { commandPalette, mergedSections, handleItemSelect } =
-    useCommandPaletteOrchestrator({
-      assistantId,
-      assistantName: assistantName ?? undefined,
-      conversations,
-      activeConversationId: activeConversationId ?? undefined,
-      startNewConversation: () => startNewConversation(),
-      switchConversation,
-      navigate,
-    });
-
-  // -------------------------------------------------------------------------
   // Layout header slot registration — supplements, top bar right
   // -------------------------------------------------------------------------
   useChatHeaderRegistration({
@@ -589,21 +559,7 @@ export function ActiveChatView() {
         onRetry={() => reachability.probe({ showConnectingImmediately: true })}
         onDismiss={reachability.reset}
       />
-      {commandPalette.isOpen ? (
-        <LazyBoundary>
-          <CommandPalette
-            isOpen={commandPalette.isOpen}
-            onClose={commandPalette.close}
-            query={commandPalette.query}
-            onQueryChange={commandPalette.setQuery}
-            selectedIndex={commandPalette.selectedIndex}
-            sections={mergedSections}
-            isSearching={commandPalette.isSearching}
-            onItemSelect={handleItemSelect}
-            onKeyDown={commandPalette.handleKeyDown}
-          />
-        </LazyBoundary>
-      ) : null}
+
       {assistantId && (isTokenDialogOpen || complexDeployApp) ? (
         <LazyBoundary>
           <DeployDialogs
