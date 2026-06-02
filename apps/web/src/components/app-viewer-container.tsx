@@ -1,8 +1,9 @@
 import { AlertTriangle, X } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { AppNavBar } from "@/components/app-nav-bar";
 import { useSandboxFetchProxy } from "@/hooks/use-sandbox-fetch-proxy";
+import type { AppCompileStatus } from "@/stores/viewer-store";
 import { injectBridge } from "@/utils/sandbox-bridge";
 
 export interface AppViewerContainerProps {
@@ -25,7 +26,7 @@ export interface AppViewerContainerProps {
    * non-blocking badge over the last-good preview); `"building"`/`"ok"`/
    * undefined render nothing — the live iframe swap is the success feedback.
    */
-  compileStatus?: "building" | "ok" | "error";
+  compileStatus?: AppCompileStatus;
   /** Compile diagnostics surfaced in the build-error badge. */
   buildErrors?: string[];
   /**
@@ -44,8 +45,16 @@ export interface AppViewerContainerProps {
 export function BuildErrorBadge({ buildErrors }: { buildErrors?: string[] }) {
   const [dismissed, setDismissed] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  if (dismissed) return null;
   const errors = buildErrors ?? [];
+  // The component stays mounted across successive `error` events (compileStatus
+  // remains "error"), so a prior dismissal would otherwise hide every later,
+  // DISTINCT build failure. Reset the dismissal when the error identity changes
+  // so a new failure re-shows the badge.
+  const errorKey = errors.join("\n");
+  useEffect(() => {
+    setDismissed(false);
+  }, [errorKey]);
+  if (dismissed) return null;
   return (
     <div
       className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center p-2"

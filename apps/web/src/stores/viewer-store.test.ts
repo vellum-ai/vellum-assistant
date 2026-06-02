@@ -267,6 +267,98 @@ describe("updateOpenedAppPreview", () => {
     expect(getState().openedAppState?.reloadGeneration).toBe(4);
     expect(getState().openedAppState?.html).toBe("<h1>good</h1>");
   });
+
+  it("drops a stale error from an older overlapping build (generation behind stored ok)", () => {
+    openSampleApp();
+    // Newer build lands ok at generation 5.
+    getState().updateOpenedAppPreview(SAMPLE_APP.appId, {
+      html: "<h1>new-good</h1>",
+      compileStatus: "ok",
+      reloadGeneration: 5,
+    });
+    const after = getState().openedAppState;
+    // A SLOW older build (generation 3) fails AFTER the newer ok already
+    // landed — it must NOT regress the preview into an error state.
+    getState().updateOpenedAppPreview(SAMPLE_APP.appId, {
+      html: "<h1>stale</h1>",
+      compileStatus: "error",
+      buildErrors: ["stale boom"],
+      reloadGeneration: 3,
+    });
+    // Same reference: the stale event was dropped, no set() fired.
+    expect(getState().openedAppState).toBe(after);
+    expect(getState().openedAppState?.compileStatus).toBe("ok");
+    expect(getState().openedAppState?.html).toBe("<h1>new-good</h1>");
+  });
+
+  it("drops a stale building event from an older overlapping build", () => {
+    openSampleApp();
+    getState().updateOpenedAppPreview(SAMPLE_APP.appId, {
+      html: "<h1>new-good</h1>",
+      compileStatus: "ok",
+      reloadGeneration: 5,
+    });
+    const after = getState().openedAppState;
+    getState().updateOpenedAppPreview(SAMPLE_APP.appId, {
+      html: "<h1>new-good</h1>",
+      compileStatus: "building",
+      reloadGeneration: 2,
+    });
+    expect(getState().openedAppState).toBe(after);
+    expect(getState().openedAppState?.compileStatus).toBe("ok");
+  });
+
+  it("applies a building/error event whose generation equals the stored generation", () => {
+    openSampleApp();
+    getState().updateOpenedAppPreview(SAMPLE_APP.appId, {
+      html: "<h1>good</h1>",
+      compileStatus: "ok",
+      reloadGeneration: 5,
+    });
+    // The terminal event of THIS build carries the same (unchanged) generation
+    // — equal is not stale, so it still applies (keep-last-good).
+    getState().updateOpenedAppPreview(SAMPLE_APP.appId, {
+      html: "<h1>good</h1>",
+      compileStatus: "error",
+      buildErrors: ["boom"],
+      reloadGeneration: 5,
+    });
+    expect(getState().openedAppState?.compileStatus).toBe("error");
+    expect(getState().openedAppState?.html).toBe("<h1>good</h1>");
+  });
+
+  it("applies an ok event even when its generation is below the stored generation", () => {
+    openSampleApp();
+    getState().updateOpenedAppPreview(SAMPLE_APP.appId, {
+      html: "<h1>v5</h1>",
+      compileStatus: "ok",
+      reloadGeneration: 5,
+    });
+    // `ok` is never dropped by the stale guard — it carries fresh html. (In
+    // practice the daemon's generation is monotonic, but the guard only
+    // targets building/error.)
+    getState().updateOpenedAppPreview(SAMPLE_APP.appId, {
+      html: "<h1>v3</h1>",
+      compileStatus: "ok",
+      reloadGeneration: 3,
+    });
+    expect(getState().openedAppState?.html).toBe("<h1>v3</h1>");
+    expect(getState().openedAppState?.reloadGeneration).toBe(3);
+  });
+
+  it("does not drop an error when no generation has been stored yet (missing is not stale)", () => {
+    openSampleApp();
+    // No prior ok — stored generation is undefined. An error event must still
+    // surface (matches the prior behavior for first-event error).
+    getState().updateOpenedAppPreview(SAMPLE_APP.appId, {
+      html: SAMPLE_APP.html,
+      compileStatus: "error",
+      buildErrors: ["boom"],
+      reloadGeneration: 0,
+    });
+    expect(getState().openedAppState?.compileStatus).toBe("error");
+    expect(getState().openedAppState?.buildErrors).toEqual(["boom"]);
+  });
 });
 
 describe("handleAppLoadFailed", () => {

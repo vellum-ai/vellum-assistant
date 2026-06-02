@@ -34,7 +34,7 @@ import { useRef } from "react";
 
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { useConversationStore } from "@/stores/conversation-store";
-import { useViewerStore } from "@/stores/viewer-store";
+import { useViewerStore, type AppCompileStatus } from "@/stores/viewer-store";
 
 interface UseAppPreviewSyncParams {
   /** Active assistant id (owner of the bus SSE connection). */
@@ -62,7 +62,7 @@ export function useAppPreviewSync({
   // build sequence begins (first event, or a `building` that follows a
   // terminal `ok`/`error`). A ref — this is per-event bookkeeping, not
   // render-visible state.
-  const lastStatusByApp = useRef(new Map<string, "building" | "ok" | "error">());
+  const lastStatusByApp = useRef(new Map<string, AppCompileStatus>());
 
   useBusSubscription("sse.event", (envelope) => {
     const event = envelope.message;
