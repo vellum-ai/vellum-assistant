@@ -42,6 +42,7 @@ export function WebSearchCard() {
   const [savedWebSearchProvider, setSavedWebSearchProvider] = useState(webSearchProvider);
   const [webSearchApiKey, setWebSearchApiKey] = useState("");
   const [webSearchHasStoredKey, setWebSearchHasStoredKey] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [secretReadRevision, setSecretReadRevision] = useState(0);
   const secretScopeRef = useRef<{
     assistantId: string | null;
@@ -79,7 +80,7 @@ export function WebSearchCard() {
     !webSearchHasStoredKey &&
     !hasNewApiKey;
   const saveDisabled =
-    configMutation.isPending || needsKeyBeforeSave || (!configChanged && !hasNewApiKey);
+    saving || needsKeyBeforeSave || (!configChanged && !hasNewApiKey);
   const apiKeyPlaceholder = secretPlaceholder(
     WEB_SEARCH_PROVIDER_KEY_PLACEHOLDERS[webSearchProvider] ?? "Enter your API key",
     webSearchHasStoredKey,
@@ -132,6 +133,7 @@ export function WebSearchCard() {
   }, [assistantId, needsApiKey, webSearchProvider, secretReadRevision]);
 
   const handleSave = useCallback(async () => {
+    setSaving(true);
     const trimmed = webSearchApiKey.trim();
     const providerToSave =
       webSearchMode === "managed" ? "inference-provider-native" : webSearchProvider;
@@ -146,10 +148,16 @@ export function WebSearchCard() {
         services: {
           "web-search": { mode: webSearchMode, provider: providerToSave },
         },
+      }).catch((error) => {
+        toast.error("Failed to update assistant configuration. Please try again.");
+        captureError(error, { context: "patch_daemon_config" });
+        throw error;
       });
     } catch {
+      setSaving(false);
       return;
     }
+    setSaving(false);
     try {
       setLocalSetting(LS_WEB_SEARCH_MODE, webSearchMode);
       setLocalSetting(LS_WEB_SEARCH_PROVIDER, providerToSave);
@@ -203,7 +211,7 @@ export function WebSearchCard() {
           </p>
           <div className="flex items-center gap-2">
             <SaveButton onClick={handleSave} disabled={saveDisabled} />
-            {configMutation.isPending && <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />}
+            {saving && <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />}
           </div>
         </div>
       ) : (
@@ -235,7 +243,7 @@ export function WebSearchCard() {
 
           <div className="flex items-center gap-2">
             <SaveButton onClick={handleSave} disabled={saveDisabled} />
-            {configMutation.isPending && <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />}
+            {saving && <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />}
             {needsApiKey && (
               <ResetButton onClick={handleReset} filled />
             )}

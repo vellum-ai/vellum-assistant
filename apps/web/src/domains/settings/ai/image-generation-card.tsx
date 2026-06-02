@@ -39,6 +39,7 @@ export function ImageGenerationCard() {
     getLocalSetting(LS_IMAGE_GEN_MODEL, "gemini-3.1-flash-image-preview"),
   );
   const [imageGenApiKey, setImageGenApiKey] = useState("");
+  const [saving, setSaving] = useState(false);
 
   // Hydrate from daemon config on first load
   const initialized = useRef(false);
@@ -50,6 +51,7 @@ export function ImageGenerationCard() {
   }, [daemonConfig]);
 
   const handleSave = useCallback(async () => {
+    setSaving(true);
     const trimmed = imageGenApiKey.trim();
     const hasUserKey = imageGenMode === "your-own" && trimmed.length > 0;
     try {
@@ -58,6 +60,10 @@ export function ImageGenerationCard() {
       }
       await configMutation.mutateAsync({
         services: { "image-generation": { mode: imageGenMode } },
+      }).catch((error) => {
+        toast.error("Failed to update assistant configuration. Please try again.");
+        captureError(error, { context: "patch_daemon_config" });
+        throw error;
       });
       if (assistantId) {
         try {
@@ -75,8 +81,10 @@ export function ImageGenerationCard() {
         }
       }
     } catch {
+      setSaving(false);
       return;
     }
+    setSaving(false);
     try {
       setLocalSetting(LS_IMAGE_GEN_MODE, imageGenMode);
       setLocalSetting(LS_IMAGE_GEN_MODEL, imageGenModel);
@@ -128,8 +136,8 @@ export function ImageGenerationCard() {
                 label: IMAGE_GEN_MODEL_DISPLAY_NAMES[model] ?? model,
               }))}
             />
-            <SaveButton onClick={handleSave} disabled={configMutation.isPending} />
-            {configMutation.isPending && (
+            <SaveButton onClick={handleSave} disabled={saving} />
+            {saving && (
               <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />
             )}
           </div>
@@ -160,8 +168,8 @@ export function ImageGenerationCard() {
           </div>
 
           <div className="flex items-center gap-2">
-            <SaveButton onClick={handleSave} disabled={configMutation.isPending} />
-            {configMutation.isPending && <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />}
+            <SaveButton onClick={handleSave} disabled={saving} />
+            {saving && <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />}
             <ResetButton onClick={handleReset} />
           </div>
         </div>
