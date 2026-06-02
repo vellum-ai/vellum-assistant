@@ -71,7 +71,9 @@ export function logAuthBypassState(): void {
 /**
  * Build edge-auth guard functions that share a rate limiter and IP resolver.
  *
- * All three guards short-circuit on loopback peers. Beyond that:
+ * All three guards prefer explicit auth first. When no Authorization header is
+ * present, they retain a legacy loopback fallback for local-only clients and
+ * log loudly so callers missing auth are visible during rollout. Beyond that:
  *
  *   - `requireEdgeAuth` — validates a JWT bearer token (aud=vellum-gateway)
  *     OR (when bypass is active) cross-checks X-Vellum-User-Id against the
@@ -133,25 +135,87 @@ export function createAuthMiddleware(
 
   /**
    * Validate a JWT bearer token (aud=vellum-gateway) for client-facing routes.
-   * Loopback peers (127.0.0.0/8, ::1) auto-pass without a token.
+   * Loopback peers (127.0.0.0/8, ::1) fall back without a token only when the
+   * request has no Authorization header. Invalid bearer tokens still fail even
+   * on loopback.
    */
   async function requireEdgeAuth(
     req: Request,
     server?: Server<unknown>,
   ): Promise<Response | null> {
-    if (server && isLoopbackPeer(server, req)) return null;
+    const token = extractBearerToken(req);
+    if (token) {
+      return validateEdgeBearer(req, token);
+    }
+    if (hasAuthorizationHeader(req)) {
+      return rejectMalformedAuthorization(req, "Edge auth");
+    }
     if (isPlatformAuthBypassActive()) {
       return requirePlatformUserHeader(req);
     }
-    const token = extractBearerToken(req);
-    if (!token) {
-      authRateLimiter.recordFailure(getClientIp());
-      log.warn(
-        { path: new URL(req.url).pathname },
-        "Edge auth rejected: missing or malformed Authorization header",
-      );
-      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    if (allowLegacyLoopbackFallback(req, server, "edge")) {
+      return null;
     }
+    return rejectMissingAuthorization(req, "Edge auth");
+  }
+
+  /**
+   * Validate a JWT bearer token and check that its scope profile includes the
+   * required scope. Loopback peers fall back only when no Authorization header
+   * is present. Under the platform bypass, scope is enforced upstream by
+   * vembda — the gateway only confirms the user id.
+   */
+  async function requireEdgeAuthWithScope(
+    req: Request,
+    scope: Scope,
+    server?: Server<unknown>,
+  ): Promise<Response | null> {
+    const token = extractBearerToken(req);
+    if (token) {
+      return validateScopedEdgeBearer(req, token, scope);
+    }
+    if (hasAuthorizationHeader(req)) {
+      return rejectMalformedAuthorization(req, "Scoped edge auth", { scope });
+    }
+    if (isPlatformAuthBypassActive()) {
+      return requirePlatformUserHeader(req);
+    }
+    if (allowLegacyLoopbackFallback(req, server, "edge-scoped", { scope })) {
+      return null;
+    }
+    return rejectMissingAuthorization(req, "Scoped edge auth", { scope });
+  }
+
+  /**
+   * Assert that the caller is the assistant's bound vellum guardian.
+   *
+   * Two auth modes:
+   *
+   *   1. Platform-managed (DISABLE_HTTP_AUTH + IS_PLATFORM): caller's identity
+   *      is asserted via X-Vellum-User-Id cross-checked against the stored
+   *      `vellum:platform_user_id` credential.
+   *   2. Default: validate the edge JWT, require an actor principal, assert it
+   *      matches the bound guardian's principal id.
+   *
+   * Loopback peers fall back only when no Authorization header is present.
+   */
+  async function requireEdgeGuardianAuth(
+    req: Request,
+    server?: Server<unknown>,
+  ): Promise<Response | null> {
+    if (extractBearerToken(req) || hasAuthorizationHeader(req)) {
+      return requireEdgeGuardianAuthByActorPrincipal(req);
+    }
+    if (isPlatformAuthBypassActive()) {
+      return requirePlatformUserHeader(req);
+    }
+    if (allowLegacyLoopbackFallback(req, server, "edge-guardian")) {
+      return null;
+    }
+    return requireEdgeGuardianAuthByActorPrincipal(req);
+  }
+
+  function validateEdgeBearer(req: Request, token: string): Response | null {
     const result = validateEdgeToken(token);
     if (!result.ok) {
       authRateLimiter.recordFailure(getClientIp());
@@ -164,30 +228,11 @@ export function createAuthMiddleware(
     return null;
   }
 
-  /**
-   * Validate a JWT bearer token and check that its scope profile includes the
-   * required scope. Loopback peers bypass JWT validation. Under the platform
-   * bypass, scope is enforced upstream by vembda — the gateway only confirms
-   * the user id.
-   */
-  async function requireEdgeAuthWithScope(
+  function validateScopedEdgeBearer(
     req: Request,
+    token: string,
     scope: Scope,
-    server?: Server<unknown>,
-  ): Promise<Response | null> {
-    if (server && isLoopbackPeer(server, req)) return null;
-    if (isPlatformAuthBypassActive()) {
-      return requirePlatformUserHeader(req);
-    }
-    const token = extractBearerToken(req);
-    if (!token) {
-      authRateLimiter.recordFailure(getClientIp());
-      log.warn(
-        { path: new URL(req.url).pathname, scope },
-        "Scoped edge auth rejected: missing or malformed Authorization header",
-      );
-      return Response.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  ): Response | null {
     const result = validateEdgeToken(token);
     if (!result.ok) {
       authRateLimiter.recordFailure(getClientIp());
@@ -204,28 +249,52 @@ export function createAuthMiddleware(
     return null;
   }
 
-  /**
-   * Assert that the caller is the assistant's bound vellum guardian.
-   *
-   * Two auth modes:
-   *
-   *   1. Platform-managed (DISABLE_HTTP_AUTH + IS_PLATFORM): caller's identity
-   *      is asserted via X-Vellum-User-Id cross-checked against the stored
-   *      `vellum:platform_user_id` credential.
-   *   2. Default: validate the edge JWT, require an actor principal, assert it
-   *      matches the bound guardian's principal id.
-   *
-   * Loopback peers bypass both checks.
-   */
-  async function requireEdgeGuardianAuth(
+  function rejectMissingAuthorization(
     req: Request,
-    server?: Server<unknown>,
-  ): Promise<Response | null> {
-    if (server && isLoopbackPeer(server, req)) return null;
-    if (isPlatformAuthBypassActive()) {
-      return requirePlatformUserHeader(req);
-    }
-    return requireEdgeGuardianAuthByActorPrincipal(req);
+    label: string,
+    extra?: Record<string, unknown>,
+  ): Response {
+    authRateLimiter.recordFailure(getClientIp());
+    log.warn(
+      { path: new URL(req.url).pathname, ...extra },
+      `${label} rejected: missing Authorization header`,
+    );
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  function rejectMalformedAuthorization(
+    req: Request,
+    label: string,
+    extra?: Record<string, unknown>,
+  ): Response {
+    authRateLimiter.recordFailure(getClientIp());
+    log.warn(
+      { path: new URL(req.url).pathname, ...extra },
+      `${label} rejected: malformed Authorization header`,
+    );
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  function allowLegacyLoopbackFallback(
+    req: Request,
+    server: Server<unknown> | undefined,
+    guard: string,
+    extra?: Record<string, unknown>,
+  ): boolean {
+    if (!server || !isLoopbackPeer(server, req)) return false;
+
+    const peer = server.requestIP(req);
+    log.warn(
+      {
+        path: new URL(req.url).pathname,
+        guard,
+        peerIp: peer?.address,
+        authFallback: "legacy_loopback",
+        ...extra,
+      },
+      "Gateway auth allowed via legacy loopback fallback because request did not include bearer auth",
+    );
+    return true;
   }
 
   /**
@@ -324,4 +393,8 @@ function extractBearerToken(req: Request): string | null {
     return null;
   }
   return authHeader.slice(7);
+}
+
+function hasAuthorizationHeader(req: Request): boolean {
+  return Boolean(req.headers.get("authorization")?.trim());
 }

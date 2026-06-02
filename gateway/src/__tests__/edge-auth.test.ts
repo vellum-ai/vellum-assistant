@@ -59,6 +59,12 @@ function makeReq(headers: Record<string, string> = {}): Request {
   });
 }
 
+function makeLoopbackServer(address = "127.0.0.1") {
+  return {
+    requestIP: () => ({ address, port: 12345 }),
+  } as never;
+}
+
 beforeEach(() => {
   mockReadCredential = mock(async () => undefined);
   mockValidateEdgeToken = mock(() => ({ ok: false, reason: "noop" }));
@@ -158,6 +164,13 @@ describe("requireEdgeAuth — DISABLE_HTTP_AUTH alone is insufficient", () => {
 // =========================================================================
 
 describe("requireEdgeAuth — JWT mode", () => {
+  test("falls back to loopback only when Authorization header is absent", async () => {
+    const { requireEdgeAuth } = makeMiddleware();
+    const res = await requireEdgeAuth(makeReq(), makeLoopbackServer());
+    expect(res).toBeNull();
+    expect(mockValidateEdgeToken).not.toHaveBeenCalled();
+  });
+
   test("null on valid bearer token", async () => {
     mockValidateEdgeToken = mock(() => ({
       ok: true,
@@ -170,11 +183,35 @@ describe("requireEdgeAuth — JWT mode", () => {
     expect(res).toBeNull();
   });
 
+  test("valid bearer token is checked before loopback fallback", async () => {
+    mockValidateEdgeToken = mock(() => ({
+      ok: true,
+      claims: { sub: "actor:asst:123", scope_profile: "actor_client_v1" },
+    }));
+    const { requireEdgeAuth } = makeMiddleware();
+    const res = await requireEdgeAuth(
+      makeReq({ authorization: "Bearer good.jwt.here" }),
+      makeLoopbackServer(),
+    );
+    expect(res).toBeNull();
+    expect(mockValidateEdgeToken).toHaveBeenCalledWith("good.jwt.here");
+  });
+
   test("401 on invalid bearer token", async () => {
     mockValidateEdgeToken = mock(() => ({ ok: false, reason: "expired" }));
     const { requireEdgeAuth } = makeMiddleware();
     const res = await requireEdgeAuth(
       makeReq({ authorization: "Bearer bad.jwt.here" }),
+    );
+    expect(res?.status).toBe(401);
+  });
+
+  test("invalid bearer token does not fall back to loopback", async () => {
+    mockValidateEdgeToken = mock(() => ({ ok: false, reason: "expired" }));
+    const { requireEdgeAuth } = makeMiddleware();
+    const res = await requireEdgeAuth(
+      makeReq({ authorization: "Bearer bad.jwt.here" }),
+      makeLoopbackServer(),
     );
     expect(res?.status).toBe(401);
   });
@@ -212,6 +249,17 @@ describe("requireEdgeAuthWithScope — DISABLE_HTTP_AUTH + IS_PLATFORM", () => {
 });
 
 describe("requireEdgeAuthWithScope — JWT mode", () => {
+  test("falls back to loopback only when Authorization header is absent", async () => {
+    const { requireEdgeAuthWithScope } = makeMiddleware();
+    const res = await requireEdgeAuthWithScope(
+      makeReq(),
+      "chat.write",
+      makeLoopbackServer(),
+    );
+    expect(res).toBeNull();
+    expect(mockValidateEdgeToken).not.toHaveBeenCalled();
+  });
+
   test("403 when token's scope_profile lacks the required scope", async () => {
     // actor_client_v1 grants chat.* and settings.*, but NOT ingress.write
     mockValidateEdgeToken = mock(() => ({
@@ -225,6 +273,23 @@ describe("requireEdgeAuthWithScope — JWT mode", () => {
     const res = await requireEdgeAuthWithScope(
       makeReq({ authorization: "Bearer good.jwt.here" }),
       "ingress.write",
+    );
+    expect(res?.status).toBe(403);
+  });
+
+  test("scope is enforced before loopback fallback when bearer token is present", async () => {
+    mockValidateEdgeToken = mock(() => ({
+      ok: true,
+      claims: {
+        sub: "actor:asst:123",
+        scope_profile: "actor_client_v1",
+      },
+    }));
+    const { requireEdgeAuthWithScope } = makeMiddleware();
+    const res = await requireEdgeAuthWithScope(
+      makeReq({ authorization: "Bearer good.jwt.here" }),
+      "ingress.write",
+      makeLoopbackServer(),
     );
     expect(res?.status).toBe(403);
   });
