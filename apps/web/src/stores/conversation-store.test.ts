@@ -138,6 +138,57 @@ describe("useConversationStore", () => {
   });
 
   // ---------------------------------------------------------------------------
+  // Per-conversation settings
+  // ---------------------------------------------------------------------------
+
+  describe("conversation settings", () => {
+    it("round-trips set then get", () => {
+      getState().setConversationSettings("c1", { incognito: true, factorInMemories: false });
+      expect(getState().getConversationSettings("c1")).toEqual({
+        incognito: true,
+        factorInMemories: false,
+      });
+    });
+
+    it("returns undefined for unknown ids", () => {
+      expect(getState().getConversationSettings("missing")).toBeUndefined();
+    });
+
+    it("merges partial updates onto an existing entry", () => {
+      getState().setConversationSettings("c1", { incognito: true, factorInMemories: false });
+      getState().updateConversationSettings("c1", { factorInMemories: true });
+      expect(getState().getConversationSettings("c1")).toEqual({
+        incognito: true,
+        factorInMemories: true,
+      });
+    });
+
+    it("defaults missing base values when updating a non-existent entry", () => {
+      getState().updateConversationSettings("c1", { incognito: true });
+      expect(getState().getConversationSettings("c1")).toEqual({
+        incognito: true,
+        factorInMemories: false,
+      });
+    });
+
+    it("renames a settings key, preserving settings under the new id", () => {
+      getState().setConversationSettings("draft", { incognito: true, factorInMemories: true });
+      getState().renameConversationSettingsKey("draft", "server-id");
+      expect(getState().getConversationSettings("draft")).toBeUndefined();
+      expect(getState().getConversationSettings("server-id")).toEqual({
+        incognito: true,
+        factorInMemories: true,
+      });
+    });
+
+    it("rename is a no-op when oldId is absent", () => {
+      const before = getState().conversationSettings;
+      getState().renameConversationSettingsKey("missing", "new");
+      expect(getState().conversationSettings).toBe(before);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // Reset
   // ---------------------------------------------------------------------------
 

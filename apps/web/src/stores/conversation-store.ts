@@ -70,12 +70,27 @@ function deleteFromMap<K, V>(prev: Map<K, V>, key: K): Map<K, V> {
 // State & Actions
 // ---------------------------------------------------------------------------
 
+/**
+ * Per-conversation client-side settings, primarily the incognito intent
+ * tracked on a draft conversation before the server assigns a real id.
+ */
+export interface ConversationSettings {
+  incognito: boolean;
+  factorInMemories: boolean;
+}
+
+const DEFAULT_CONVERSATION_SETTINGS: ConversationSettings = {
+  incognito: false,
+  factorInMemories: false,
+};
+
 export interface ConversationListState {
   activeConversationId: string | null;
   editingConversationId: string | null;
   processingConversationIds: Set<string>;
   processingSnapshots: Map<string, number | undefined>;
   attentionConversationIds: Set<string>;
+  conversationSettings: Map<string, ConversationSettings>;
 }
 
 export interface ConversationListActions {
@@ -112,6 +127,15 @@ export interface ConversationListActions {
   addAttentionConversationId: (conversationId: string) => void;
   removeAttentionConversationId: (conversationId: string) => void;
 
+  // --- Per-conversation settings (draft incognito intent) ---
+  setConversationSettings: (conversationId: string, settings: ConversationSettings) => void;
+  updateConversationSettings: (
+    conversationId: string,
+    partial: Partial<ConversationSettings>,
+  ) => void;
+  getConversationSettings: (conversationId: string) => ConversationSettings | undefined;
+  renameConversationSettingsKey: (oldId: string, newId: string) => void;
+
   // --- Compound ---
   graduateProcessingConversationId: (
     conversationId: string,
@@ -130,6 +154,7 @@ const INITIAL_STATE: ConversationListState = {
   processingConversationIds: new Set(),
   processingSnapshots: new Map(),
   attentionConversationIds: new Set(),
+  conversationSettings: new Map(),
 };
 
 // ---------------------------------------------------------------------------
@@ -229,6 +254,35 @@ export const useConversationStore = createSelectors(
       });
     },
 
+    // --- Per-conversation settings (draft incognito intent) ---
+
+    setConversationSettings: (conversationId, settings) => {
+      const next = new Map(get().conversationSettings);
+      next.set(conversationId, settings);
+      set({ conversationSettings: next });
+    },
+
+    updateConversationSettings: (conversationId, partial) => {
+      const { conversationSettings } = get();
+      const base = conversationSettings.get(conversationId) ?? DEFAULT_CONVERSATION_SETTINGS;
+      const next = new Map(conversationSettings);
+      next.set(conversationId, { ...base, ...partial });
+      set({ conversationSettings: next });
+    },
+
+    getConversationSettings: (conversationId) =>
+      get().conversationSettings.get(conversationId),
+
+    renameConversationSettingsKey: (oldId, newId) => {
+      const { conversationSettings } = get();
+      const settings = conversationSettings.get(oldId);
+      if (settings === undefined) return;
+      const next = new Map(conversationSettings);
+      next.delete(oldId);
+      next.set(newId, settings);
+      set({ conversationSettings: next });
+    },
+
     // --- Compound ---
 
     graduateProcessingConversationId: (conversationId, hasPendingInteraction) => {
@@ -252,6 +306,7 @@ export const useConversationStore = createSelectors(
         processingConversationIds: new Set(),
         processingSnapshots: new Map(),
         attentionConversationIds: new Set(),
+        conversationSettings: new Map(),
       });
     },
   })),
