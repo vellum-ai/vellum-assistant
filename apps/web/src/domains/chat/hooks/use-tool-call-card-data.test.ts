@@ -18,8 +18,10 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  buildWebSearchErrorStep,
   computeToolCallCardData,
   hasWebTool,
+  WEB_SEARCH_BACKEND_FAILURE_MESSAGE,
 } from "@/domains/chat/hooks/use-tool-call-card-data";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type {
@@ -497,6 +499,177 @@ describe("computeToolCallCardData — mixed web + non-web groups", () => {
     // currentStepTitle reflects the latest call (the bash tool).
     expect(data.currentStepTitle).toBe("Working (bash)");
     expect(data.currentStepInfo).toBe("ls");
+  });
+});
+
+describe("computeToolCallCardData — web_search backend-failure copy", () => {
+  // Mirror of WEB_SEARCH_BACKEND_FAILURE_MESSAGE in
+  // assistant/src/tools/network/web-search-error.ts (and the module-local
+  // constant in use-tool-call-card-data.ts). apps/web cannot import from
+  // assistant/, so the canonical string is duplicated here verbatim.
+  const CANONICAL_BACKEND_FAILURE_MESSAGE =
+    "Search is having trouble right now. You can try again in a moment, continue without web search, or paste the relevant details here and I'll use those.";
+
+  test("renders the canonical backend-failure message verbatim when the daemon provides it", () => {
+    const toolCalls = [
+      makeToolCall({ id: "tc-1", toolName: "web_search", status: "completed" }),
+    ];
+    const liveWebActivity: Record<string, ToolActivityMetadata> = {
+      "tc-1": {
+        webSearch: {
+          query: "tigers",
+          provider: "anthropic-native",
+          resultCount: 0,
+          durationMs: 800,
+          results: [],
+          errorMessage: CANONICAL_BACKEND_FAILURE_MESSAGE,
+        },
+      },
+    };
+    const data = computeToolCallCardData(toolCalls, liveWebActivity, null);
+    expect(data.steps[0]).toEqual({
+      kind: "web_search_error",
+      title: "Web search failed",
+      durationLabel: "<1s",
+      // Verbatim — not overridden, not truncated to "Search failed.".
+      errorMessage: CANONICAL_BACKEND_FAILURE_MESSAGE,
+    });
+    expect(data.currentStepInfo).toBe(CANONICAL_BACKEND_FAILURE_MESSAGE);
+  });
+
+  test("the local default string matches the canonical assistant constant", () => {
+    expect(WEB_SEARCH_BACKEND_FAILURE_MESSAGE).toBe(
+      CANONICAL_BACKEND_FAILURE_MESSAGE,
+    );
+  });
+
+  test("buildWebSearchErrorStep falls back to the friendly default when errorMessage is undefined", () => {
+    // The error step renders verbatim copy from the daemon when present, but
+    // must degrade to the canonical friendly message if the backend ever
+    // omits it (regression for the buildWebSearchErrorStep default).
+    const step = buildWebSearchErrorStep({
+      query: "tigers",
+      provider: "anthropic-native",
+      resultCount: 0,
+      durationMs: 800,
+      results: [],
+      // errorMessage intentionally omitted.
+    });
+    expect(step).toEqual({
+      kind: "web_search_error",
+      title: "Web search failed",
+      durationLabel: "<1s",
+      errorMessage: WEB_SEARCH_BACKEND_FAILURE_MESSAGE,
+    });
+  });
+
+  test("web_fetch DNS/host errors never render as a web_search backend failure", () => {
+    const toolCalls = [
+      makeToolCall({ id: "tc-1", toolName: "web_fetch", status: "error" }),
+    ];
+    const liveWebActivity: Record<string, ToolActivityMetadata> = {
+      "tc-1": {
+        webFetch: {
+          url: "https://grimgoods.io/products",
+          finalUrl: "https://grimgoods.io/products",
+          status: 0,
+          byteCount: 0,
+          charCount: 0,
+          truncated: false,
+          domain: "grimgoods.io",
+          redirectCount: 0,
+          durationMs: 120,
+          errorMessage:
+            'Error: Unable to resolve host "grimgoods.io" while fetching the page',
+        },
+      },
+    };
+    const data = computeToolCallCardData(toolCalls, liveWebActivity, null);
+    // No web_search_error step is produced from a web_fetch failure.
+    expect(
+      data.steps.some((step) => step.kind === "web_search_error"),
+    ).toBe(false);
+    // The friendly web_search backend copy is never surfaced for a fetch error.
+    expect(data.currentStepInfo).not.toBe(CANONICAL_BACKEND_FAILURE_MESSAGE);
+  });
+
+  test("a failed web_search with empty results and NO errorMessage renders the friendly default via the UI path", () => {
+    // Daemon omits webSearch.errorMessage but the tool call itself is terminal
+    // with status "error" (mapped from the tool_result isError flag). This is
+    // the production UI path Codex flagged — buildWebSearchErrorStep's friendly
+    // default must be reachable, not only via the direct unit test.
+    const toolCalls = [
+      makeToolCall({ id: "tc-1", toolName: "web_search", status: "error" }),
+    ];
+    const liveWebActivity: Record<string, ToolActivityMetadata> = {
+      "tc-1": {
+        webSearch: {
+          query: "tigers",
+          provider: "anthropic-native",
+          resultCount: 0,
+          durationMs: 800,
+          results: [],
+          // errorMessage intentionally omitted.
+        },
+      },
+    };
+    const data = computeToolCallCardData(toolCalls, liveWebActivity, null);
+    expect(data.steps[0]).toEqual({
+      kind: "web_search_error",
+      title: "Web search failed",
+      durationLabel: "<1s",
+      errorMessage: CANONICAL_BACKEND_FAILURE_MESSAGE,
+    });
+    expect(data.currentStepTitle).toBe("Web search failed");
+    expect(data.currentStepInfo).toBe(CANONICAL_BACKEND_FAILURE_MESSAGE);
+  });
+
+  test("a successful no_results web_search (status completed, no errorMessage) stays a normal step", () => {
+    // ATL-727 core invariant: an empty-but-successful search must NOT render as
+    // a failure. status "completed" + no errorMessage => normal web_search step.
+    const toolCalls = [
+      makeToolCall({ id: "tc-1", toolName: "web_search", status: "completed" }),
+    ];
+    const liveWebActivity: Record<string, ToolActivityMetadata> = {
+      "tc-1": {
+        webSearch: {
+          query: "tigers",
+          provider: "anthropic-native",
+          resultCount: 0,
+          durationMs: 800,
+          results: [],
+          // errorMessage intentionally omitted; this is a real no_results hit.
+        },
+      },
+    };
+    const data = computeToolCallCardData(toolCalls, liveWebActivity, null);
+    expect(
+      data.steps.some((step) => step.kind === "web_search_error"),
+    ).toBe(false);
+    expect(data.steps[0]!.kind).toBe("web_search");
+    expect(data.currentStepInfo).not.toBe(CANONICAL_BACKEND_FAILURE_MESSAGE);
+  });
+
+  test("a successful web_search with results produces no error step", () => {
+    const toolCalls = [
+      makeToolCall({ id: "tc-1", toolName: "web_search", status: "completed" }),
+    ];
+    const liveWebActivity: Record<string, ToolActivityMetadata> = {
+      "tc-1": {
+        webSearch: {
+          query: "tigers",
+          provider: "anthropic-native",
+          resultCount: 2,
+          durationMs: 1500,
+          results: [makeResult(1), makeResult(2)],
+        },
+      },
+    };
+    const data = computeToolCallCardData(toolCalls, liveWebActivity, null);
+    expect(
+      data.steps.some((step) => step.kind === "web_search_error"),
+    ).toBe(false);
+    expect(data.steps[0]!.kind).toBe("web_search");
   });
 });
 
