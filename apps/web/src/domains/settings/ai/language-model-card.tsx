@@ -5,6 +5,7 @@ import { Button } from "@vellum/design-library/components/button";
 import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Typography } from "@vellum/design-library/components/typography";
 import { toast } from "@vellum/design-library/components/toast";
+import { captureError } from "@/lib/sentry/capture-error";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 import { ByoServiceCard, SaveButton } from "@/domains/settings/ai/ai-shared-ui";
@@ -80,8 +81,9 @@ export function LanguageModelCard() {
       setDraftInitialized(false);
       setDraftActiveProfile(null);
       toast.success("Profile saved.");
-    } catch {
+    } catch (error) {
       toast.error("Failed to switch profile. Please try again.");
+      captureError(error, { context: "settings-ai-language-model-save" });
     }
   }, [effectiveActiveProfile, assistantId, configMutation]);
 
