@@ -139,6 +139,7 @@ import {
   migrateMessagesClientMessageId,
   migrateMessagesConversationCreatedAtIndex,
   migrateMessagesFtsBackfill,
+  migrateMessagesRoleCreatedAtIndex,
   migrateNormalizePhoneIdentities,
   migrateNormalizeSlackExternalContent,
   migrateNormalizeUserFileByPrincipal,
@@ -472,6 +473,7 @@ export function initializeDb(): void {
     migrateLlmUsageEventsAddAssistantVersion,
     migrateAddMemoryV3Selections,
     migrateScheduleScriptTimeout,
+    migrateMessagesRoleCreatedAtIndex,
   ];
 
   // Run each migration step, catching and logging individual failures so one

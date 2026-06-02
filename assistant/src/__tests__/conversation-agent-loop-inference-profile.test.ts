@@ -14,6 +14,7 @@
 import { createRequire } from "node:module";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { AgentEvent, AgentLoopRunOptions } from "../agent/loop.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
@@ -236,7 +237,7 @@ mock.module("../daemon/date-context.js", () => ({
   formatTurnTimestamp: () => "2026-01-01 (Thursday) 00:00:00 +00:00 (UTC)",
 }));
 
-mock.module("../daemon/history-repair.js", () => ({
+mock.module("../plugins/defaults/history-repair/terminal.js", () => ({
   repairHistory: (msgs: Message[]) => ({
     messages: msgs,
     stats: {
@@ -399,6 +400,7 @@ function makeCtx(
       getToolTokenBudget: () => 0,
       getResolvedTools: () => [] as ToolDefinition[],
       getActiveModel: () => undefined,
+      compactionCircuit: new CompactionCircuit("test-conv"),
     } as unknown as AgentLoopConversationContext["agentLoop"],
     provider: {
       name: "mock-provider",

@@ -7,6 +7,7 @@
  */
 import { describe, expect, mock, test } from "bun:test";
 
+import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { AgentEvent, AgentLoopConfig } from "../agent/loop.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
@@ -196,6 +197,7 @@ let lastAgentLoopConfig: Partial<AgentLoopConfig> | undefined;
 
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
+    compactionCircuit = new CompactionCircuit("test-conv");
     constructor(
       _provider: unknown,
       _systemPrompt: string,

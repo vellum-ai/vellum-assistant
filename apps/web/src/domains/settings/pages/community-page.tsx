@@ -81,6 +81,7 @@ function BenefitRow({ icon: Icon, text }: BenefitRowProps) {
 
 interface FeatureCardProps {
   accentColor: string;
+  iconColor?: string;
   label: string;
   icon: ReactNode;
   title: string;
@@ -92,6 +93,7 @@ interface FeatureCardProps {
 
 function FeatureCard({
   accentColor,
+  iconColor = "var(--aux-white)",
   label,
   icon,
   title,
@@ -106,7 +108,7 @@ function FeatureCard({
         <div className="flex items-start justify-between">
           <span
             className="flex size-10 items-center justify-center rounded-lg"
-            style={{ backgroundColor: accentColor, color: "#fff" }}
+            style={{ backgroundColor: accentColor, color: iconColor }}
           >
             {icon}
           </span>
@@ -179,29 +181,31 @@ function ResourceCard({
       className="flex flex-1 cursor-pointer"
     >
       <Card
-        className="flex flex-1 flex-col gap-3 transition-shadow hover:shadow-md"
+        className="flex-1 transition-shadow hover:shadow-md"
         padding="lg"
       >
-        <div className="flex items-start justify-between">
-          <span
-            className="flex size-10 items-center justify-center rounded-lg text-white"
-            style={{ backgroundColor: iconBg }}
-          >
-            {icon}
-          </span>
-          <ExternalLink
-            size={14}
-            className="text-[var(--content-tertiary)]"
-            aria-hidden
-          />
-        </div>
-        <div className="flex flex-col gap-2">
-          <span className="text-title-medium text-[var(--content-emphasised)]">
-            {title}
-          </span>
-          <p className="text-body-medium-lighter text-[color:var(--content-tertiary)]">
-            {description}
-          </p>
+        <div className="flex flex-col gap-4">
+          <div className="flex items-start justify-between">
+            <span
+              className="flex size-10 items-center justify-center rounded-lg text-white"
+              style={{ backgroundColor: iconBg }}
+            >
+              {icon}
+            </span>
+            <ExternalLink
+              size={14}
+              className="text-[var(--content-tertiary)]"
+              aria-hidden
+            />
+          </div>
+          <div className="flex flex-col gap-2">
+            <span className="text-title-medium text-[var(--content-emphasised)]">
+              {title}
+            </span>
+            <p className="text-body-medium-lighter text-[color:var(--content-tertiary)]">
+              {description}
+            </p>
+          </div>
         </div>
       </Card>
     </a>
@@ -218,6 +222,7 @@ export function CommunityPage() {
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <FeatureCard
           accentColor="var(--content-emphasised)"
+          iconColor="var(--surface-base)"
           label="Open Source"
           icon={<GitHubLogo size={20} />}
           title="Vellum is open source"

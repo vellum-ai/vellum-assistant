@@ -8,6 +8,8 @@
  * POST   /v1/integrations/telegram/setup    — composite: set config + register commands
  */
 
+import { z } from "zod";
+
 import {
   clearTelegramConfig,
   getTelegramConfig,
@@ -32,8 +34,7 @@ async function handleSetTelegramConfig({ body = {} }: RouteHandlerArgs) {
   const result = await setTelegramConfig(botToken);
   if (!result.success) {
     throw new BadRequestError(
-      (result as { error?: string }).error ??
-        "Failed to set Telegram config",
+      (result as { error?: string }).error ?? "Failed to set Telegram config",
     );
   }
   return result;
@@ -50,8 +51,7 @@ async function handleSetTelegramCommands({ body = {} }: RouteHandlerArgs) {
   const result = await setTelegramCommands(commands);
   if (!result.success) {
     throw new BadRequestError(
-      (result as { error?: string }).error ??
-        "Failed to set Telegram commands",
+      (result as { error?: string }).error ?? "Failed to set Telegram commands",
     );
   }
   return result;
@@ -101,6 +101,9 @@ export const ROUTES: RouteDefinition[] = [
     description: "Set bot token and configure webhook.",
     tags: ["integrations"],
     handler: handleSetTelegramConfig,
+    requestBody: z.object({
+      botToken: z.string().describe("Telegram bot token"),
+    }),
   },
   {
     operationId: "integrations_telegram_config_delete",

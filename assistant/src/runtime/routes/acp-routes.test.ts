@@ -5,9 +5,8 @@
  *  - POST /v1/acp/spawn — the three failure paths produced by
  *    `resolveAcpAgent` (acp_disabled, unknown_agent, binary_not_found).
  *  - POST /v1/acp/spawn (env injection) — CLAUDE_CODE_OAUTH_TOKEN is read
- *    from the secure store under the canonical
- *    `credential/acp/claude_oauth_token` key (built by `credentialKey()`)
- *    and merged into `agentConfig.env` ONLY for the `claude` agent.
+ *    from the credential broker (policy-gated + audited) and merged into
+ *    `agentConfig.env` ONLY for the `claude` agent.
  *  - DELETE /v1/acp/sessions?status=completed — the bulk-clear route that
  *    wipes terminal-state rows (completed/failed/cancelled) from
  *    `acp_session_history` while leaving running/initializing rows intact.
@@ -84,12 +83,83 @@ mock.module("../../acp/index.js", () => ({
   }),
 }));
 
-// Stub secure-keys so env-injection tests can plant a known token (or
-// absence). Driven via `secureKeyStore` per test in beforeEach.
-const secureKeyStore = new Map<string, string>();
+// Stub credential broker + metadata store so env-injection tests can plant
+// a known token (or absence) without touching the real credential store.
+// The broker mock mirrors the real serverUse policy: metadata must exist
+// and allowedTools must include the requesting tool.
+const vaultStore = new Map<string, string>();
+const metadataStore = new Map<
+  string,
+  { allowedTools: string[]; usageDescription?: string }
+>();
 
-mock.module("../../security/secure-keys.js", () => ({
-  getSecureKeyAsync: async (key: string) => secureKeyStore.get(key),
+mock.module("../../tools/credentials/metadata-store.js", () => ({
+  getCredentialMetadata: (service: string, field: string) => {
+    const key = `${service}/${field}`;
+    const entry = metadataStore.get(key);
+    if (!entry) return undefined;
+    return {
+      credentialId: `cred-${key}`,
+      service,
+      field,
+      allowedTools: entry.allowedTools,
+      allowedDomains: [],
+      usageDescription: entry.usageDescription,
+      createdAt: 0,
+      updatedAt: 0,
+    };
+  },
+  upsertCredentialMetadata: (
+    service: string,
+    field: string,
+    policy?: { allowedTools?: string[]; usageDescription?: string },
+  ) => {
+    const key = `${service}/${field}`;
+    const existing = metadataStore.get(key);
+    metadataStore.set(key, {
+      allowedTools: policy?.allowedTools ?? existing?.allowedTools ?? [],
+      usageDescription:
+        policy?.usageDescription ?? existing?.usageDescription,
+    });
+    return {
+      credentialId: `cred-${key}`,
+      service,
+      field,
+      allowedTools: metadataStore.get(key)!.allowedTools,
+      allowedDomains: [],
+      createdAt: 0,
+      updatedAt: 0,
+    };
+  },
+}));
+
+mock.module("../../tools/credentials/broker.js", () => ({
+  credentialBroker: {
+    serverUse: async <T>(request: {
+      service: string;
+      field: string;
+      toolName: string;
+      execute: (value: string) => Promise<T>;
+    }) => {
+      const key = `${request.service}/${request.field}`;
+      const meta = metadataStore.get(key);
+      if (!meta) {
+        return { success: false, reason: `No credential found for ${key}` };
+      }
+      if (!meta.allowedTools.includes(request.toolName)) {
+        return {
+          success: false,
+          reason: `Tool "${request.toolName}" not allowed`,
+        };
+      }
+      const value = vaultStore.get(key);
+      if (!value) {
+        return { success: false, reason: `No stored value for ${key}` };
+      }
+      const result = await request.execute(value);
+      return { success: true, result };
+    },
+  },
 }));
 
 import { eq } from "drizzle-orm";
@@ -113,7 +183,8 @@ beforeEach(() => {
   config.setConfig({});
   which.setWhich((cmd) => `/usr/local/bin/${cmd}`);
   capturedSpawns.length = 0;
-  secureKeyStore.clear();
+  vaultStore.clear();
+  metadataStore.clear();
 });
 
 // ---------------------------------------------------------------------------
@@ -186,29 +257,27 @@ describe("POST /v1/acp/spawn", () => {
 //
 // claude-agent-acp authenticates via CLAUDE_CODE_OAUTH_TOKEN. The route
 // accepts the token from two provisioning routes:
-//   1. Secure store under the canonical `credential/acp/claude_oauth_token`
-//      key (built by `credentialKey()`), populated by
-//      `assistant credentials set --service acp --field claude_oauth_token`.
+//   1. Credential broker (policy-gated + audited) reading from the secure
+//      store — provisioned via `assistant credentials set --service acp
+//      --field claude_oauth_token`.
 //   2. `acp.agents.claude.env.CLAUDE_CODE_OAUTH_TOKEN` in the user's
 //      config.json, surfaced on `resolved.agent.env` by the resolver.
-// After merging the secure-store value into `agentConfig.env`, the route
-// preflights for the token and throws `FailedDependencyError` if it is
-// still absent. The "fail-fast" behavior is symmetric with the existing
-// `binary_not_found` preflight and avoids the zombie-subprocess footgun
-// where claude-agent-acp launches, crashes on auth, and leaves the
-// caller with no useful signal.
+// After broker-mediated resolution, the route preflights for the token
+// and throws `FailedDependencyError` if it is still absent.
 //
 // These tests pin both the happy paths and the throw path so a future
 // drift in the key path, the env-override route, or the preflight check
 // fails the suite loudly.
 // ---------------------------------------------------------------------------
 
+/** Seed a vault entry to simulate `assistant credentials set`. */
+function seedVaultToken(token: string): void {
+  vaultStore.set("acp/claude_oauth_token", token);
+}
+
 describe("POST /v1/acp/spawn — CLAUDE_CODE_OAUTH_TOKEN injection", () => {
-  test("injects CLAUDE_CODE_OAUTH_TOKEN from credential/acp/claude_oauth_token for the claude agent", async () => {
-    secureKeyStore.set(
-      "credential/acp/claude_oauth_token",
-      "test-token-abc123",
-    );
+  test("injects CLAUDE_CODE_OAUTH_TOKEN from the vault via the broker for the claude agent", async () => {
+    seedVaultToken("test-token-abc123");
 
     const handler = getSpawnHandler();
     await handler({
@@ -226,11 +295,7 @@ describe("POST /v1/acp/spawn — CLAUDE_CODE_OAUTH_TOKEN injection", () => {
     );
   });
 
-  test("accepts CLAUDE_CODE_OAUTH_TOKEN from acp.agents.claude.env (config.json override) without a secure-store entry", async () => {
-    // The user-supplied config.json env override is the first-priority
-    // provisioning route. resolveAcpAgent returns it on `resolved.agent.env`,
-    // which the route then preserves on `agentConfig.env`. The preflight
-    // should accept this path with no secure-store entry needed.
+  test("accepts CLAUDE_CODE_OAUTH_TOKEN from acp.agents.claude.env (config.json override) without a vault entry", async () => {
     config.setConfig({
       agents: {
         claude: {
@@ -256,12 +321,8 @@ describe("POST /v1/acp/spawn — CLAUDE_CODE_OAUTH_TOKEN injection", () => {
     );
   });
 
-  test("config.json env override wins over a secure-store token (precedence pin)", async () => {
-    // Codex review feedback (PR #31901 / P2): when a user explicitly sets
-    // CLAUDE_CODE_OAUTH_TOKEN under `acp.agents.<id>.env` (per-workspace,
-    // rotated, scoped credential, etc.), the secure-store value must NOT
-    // silently overwrite it. Vault is fallback, not override.
-    secureKeyStore.set("credential/acp/claude_oauth_token", "vault-token-AAA");
+  test("config.json env override wins over a vault token (precedence pin)", async () => {
+    seedVaultToken("vault-token-AAA");
     config.setConfig({
       agents: {
         claude: {
@@ -288,11 +349,7 @@ describe("POST /v1/acp/spawn — CLAUDE_CODE_OAUTH_TOKEN injection", () => {
   });
 
   test("injects via command match for a user-defined agent id aliased to claude-agent-acp", async () => {
-    // Codex review feedback (PR #31901 / P2): gating is keyed off the
-    // resolved command (basename), not the agent id. A custom agent id
-    // pointing at claude-agent-acp still needs CLAUDE_CODE_OAUTH_TOKEN,
-    // so injection + preflight must fire regardless of the id string.
-    secureKeyStore.set("credential/acp/claude_oauth_token", "vault-token-zzz");
+    seedVaultToken("vault-token-zzz");
     config.setConfig({
       agents: {
         "my-claude": {
@@ -319,12 +376,6 @@ describe("POST /v1/acp/spawn — CLAUDE_CODE_OAUTH_TOKEN injection", () => {
   });
 
   test("throws FailedDependencyError when no CLAUDE_CODE_OAUTH_TOKEN is available from any source", async () => {
-    // secureKeyStore intentionally empty AND no agentConfig.env override —
-    // simulates a fresh install where the user hasn't provisioned a token
-    // via either route. Fail-fast preflight surfaces this immediately
-    // instead of letting claude-agent-acp launch, crash on auth, and leave
-    // a zombie subprocess behind.
-
     const handler = getSpawnHandler();
     await expect(
       handler({
@@ -339,14 +390,7 @@ describe("POST /v1/acp/spawn — CLAUDE_CODE_OAUTH_TOKEN injection", () => {
   });
 
   test("does NOT inject CLAUDE_CODE_OAUTH_TOKEN for agents whose command is not claude-agent-acp", async () => {
-    // Token-injection AND preflight are scoped to claude-agent-acp by
-    // command basename. A codex-acp spawn with the secure-store key set
-    // must still launch without that env var — and must not be blocked
-    // by claude's preflight.
-    secureKeyStore.set(
-      "credential/acp/claude_oauth_token",
-      "test-token-abc123",
-    );
+    seedVaultToken("test-token-abc123");
 
     const handler = getSpawnHandler();
     await handler({
@@ -362,28 +406,6 @@ describe("POST /v1/acp/spawn — CLAUDE_CODE_OAUTH_TOKEN injection", () => {
     expect(
       capturedSpawns[0]?.agentConfig.env?.CLAUDE_CODE_OAUTH_TOKEN,
     ).toBeUndefined();
-  });
-
-  test("does NOT pick up a token planted at the legacy non-`credential/` key path", async () => {
-    // Regression guard: the original implementation used the raw key
-    // "acp/claude/oauth_token". The fix routes through `credentialKey()`
-    // so the CLI (`assistant credentials set --service acp --field
-    // claude_oauth_token`) is the canonical provisioning path. Pin this
-    // by planting the token ONLY under the legacy key — the preflight
-    // should fail-fast because the canonical path is empty.
-    secureKeyStore.set("acp/claude/oauth_token", "legacy-token-should-miss");
-
-    const handler = getSpawnHandler();
-    await expect(
-      handler({
-        body: {
-          agent: "claude",
-          task: "do a thing",
-          conversationId: "conv-1",
-        },
-      }),
-    ).rejects.toThrow(/CLAUDE_CODE_OAUTH_TOKEN/);
-    expect(capturedSpawns).toHaveLength(0);
   });
 });
 

@@ -1040,7 +1040,7 @@ extension SkillsListResponseSkill: Identifiable {}
 extension SkillsListResponseSkill {
     /// Returns a copy with a different `status`, preserving all other fields including `id`.
     public func withStatus(_ newStatus: String) -> Self {
-        Self(id: id, name: name, description: description, emoji: emoji, kind: kind, origin: origin, status: newStatus, slug: slug, installs: installs, author: author, stars: stars, reports: reports, publishedAt: publishedAt, version: version, sourceRepo: sourceRepo, audit: audit)
+        Self(id: id, name: name, description: description, emoji: emoji, kind: kind, origin: origin, status: newStatus, category: category, slug: slug, installs: installs, author: author, stars: stars, reports: reports, publishedAt: publishedAt, version: version, sourceRepo: sourceRepo, audit: audit)
     }
 
     /// Whether the skill is available from the catalog but not yet installed.

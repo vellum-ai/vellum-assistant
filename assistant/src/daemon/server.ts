@@ -15,9 +15,11 @@ import { initializeProviders } from "../providers/registry.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getSigningKeyFingerprint } from "../runtime/auth/token-service.js";
 import {
+  publishAppsChanged,
   publishAvatarChanged,
   publishConfigChanged,
   publishIdentityChanged,
+  publishIdentityIntroChanged,
   publishSoundsConfigUpdated,
 } from "../runtime/sync/resource-sync-events.js";
 import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
@@ -190,6 +192,14 @@ export class DaemonServer {
     }
   }
 
+  private broadcastIdentityIntroChanged(): void {
+    try {
+      publishIdentityIntroChanged();
+    } catch (err) {
+      log.error({ err }, "Failed to broadcast identity intro change");
+    }
+  }
+
   /** Best-effort sync of the IDENTITY.md name to the platform record. */
   private syncIdentityToPlatform(): void {
     try {
@@ -231,6 +241,7 @@ export class DaemonServer {
         refreshSurfacesForApp(conversation, appId, { fileChange: true });
       }
       broadcastMessage({ type: "app_files_changed", appId });
+      publishAppsChanged();
       void updatePublishedAppDeployment(appId);
     };
 
@@ -301,6 +312,7 @@ export class DaemonServer {
       () => this.broadcastAvatarUpdated(),
       () => this.broadcastConfigChanged(),
       () => refreshSkillCapabilityMemories(getConfig()),
+      () => this.broadcastIdentityIntroChanged(),
     );
 
     this.syncIdentityToPlatform();

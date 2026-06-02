@@ -3,9 +3,10 @@
  * keeps the inspector working against older daemons that don't yet
  * expose `GET /v1/conversations/llm-context`.
  *
- * We mock the generated platform `client` so we can stage a precise
- * sequence of HTTP responses and assert request shape (URL template +
- * path params).
+ * We mock the generated daemon `client` (the generated SDK functions
+ * call `client.get` under the hood) so we can stage a precise sequence
+ * of HTTP responses and assert request shape (URL template + path
+ * params).
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -30,7 +31,7 @@ const requests: FakeRequest[] = [];
 let nextResponses: FakeResponse[] = [];
 let mockMessages: Array<{ id: string }> = [];
 
-mock.module("@/generated/api/client.gen", () => ({
+mock.module("@/generated/daemon/client.gen", () => ({
   client: {
     get: async ({
       url,
@@ -109,7 +110,7 @@ describe("fetchConversationLlmContext — happy path", () => {
 
     expect(requests).toHaveLength(1);
     expect(requests[0]!.url).toBe(
-      "/v1/assistants/{assistant_id}/conversations/llm-context/",
+      "/v1/assistants/{assistant_id}/conversations/llm-context",
     );
     expect(requests[0]!.path).toEqual({ assistant_id: "asst-1" });
     expect(requests[0]!.query).toEqual({
@@ -158,7 +159,7 @@ describe("fetchConversationLlmContext — legacy fallback (404)", () => {
   test("fans out per-message fetches and merges logs in chronological order", async () => {
     nextResponses = [
       { status: 404, body: null }, // new endpoint absent
-      // /v1/assistants/asst-1/messages/msg-1/llm-context/
+      // /v1/assistants/asst-1/messages/msg-1/llm-context
       {
         status: 200,
         body: {
@@ -172,7 +173,7 @@ describe("fetchConversationLlmContext — legacy fallback (404)", () => {
           memoryV2Activation: null,
         },
       },
-      // /v1/assistants/asst-1/messages/msg-2/llm-context/
+      // /v1/assistants/asst-1/messages/msg-2/llm-context
       {
         status: 200,
         body: {
@@ -198,15 +199,15 @@ describe("fetchConversationLlmContext — legacy fallback (404)", () => {
 
     expect(requests).toHaveLength(3);
     expect(requests[1]!.url).toBe(
-      "/v1/assistants/{assistant_id}/messages/{message_id}/llm-context/",
+      "/v1/assistants/{assistant_id}/messages/{id}/llm-context",
     );
     expect(requests[1]!.path).toEqual({
       assistant_id: "asst-1",
-      message_id: "msg-1",
+      id: "msg-1",
     });
     expect(requests[2]!.path).toEqual({
       assistant_id: "asst-1",
-      message_id: "msg-2",
+      id: "msg-2",
     });
 
     expect(result.conversationId).toBe("conv-x");
@@ -258,11 +259,11 @@ describe("fetchConversationLlmContext — legacy fallback (404)", () => {
     expect(requests).toHaveLength(3); // 1 initial + 2 per-message
     expect(requests[1]!.path).toEqual({
       assistant_id: "asst-1",
-      message_id: "raw-1",
+      id: "raw-1",
     });
     expect(requests[2]!.path).toEqual({
       assistant_id: "asst-1",
-      message_id: "raw-2",
+      id: "raw-2",
     });
   });
 
@@ -320,11 +321,11 @@ describe("fetchMessageLlmContextOrThrow — message mode", () => {
 
     expect(requests).toHaveLength(1);
     expect(requests[0]!.url).toBe(
-      "/v1/assistants/{assistant_id}/messages/{message_id}/llm-context/",
+      "/v1/assistants/{assistant_id}/messages/{id}/llm-context",
     );
     expect(requests[0]!.path).toEqual({
       assistant_id: "asst-1",
-      message_id: "msg-7",
+      id: "msg-7",
     });
     expect(result).toEqual(body);
   });

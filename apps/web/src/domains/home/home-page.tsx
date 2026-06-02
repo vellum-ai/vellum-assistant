@@ -9,7 +9,11 @@ import { HomeGreetingHeader } from "./home-greeting-header";
 import { HomeSuggestionPillBar } from "./home-suggestion-pill-bar";
 import { useHomeFeedQuery } from "./hooks/use-home-feed-query";
 import { useHomeStateQuery } from "./hooks/use-home-state-query";
-import type { FeedItem, FeedItemStatus, SuggestedPrompt } from "./types";
+import type {
+  FeedItem,
+  FeedItemStatus,
+  SuggestedPrompt,
+} from "@vellumai/assistant-api";
 
 function HomePageSkeleton() {
   return (

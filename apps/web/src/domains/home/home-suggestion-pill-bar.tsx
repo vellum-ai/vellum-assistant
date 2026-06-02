@@ -52,7 +52,7 @@ import {
 import { useState } from "react";
 
 import { Typography } from "@vellum/design-library";
-import type { SuggestedPrompt } from "./types";
+import type { SuggestedPrompt } from "@vellumai/assistant-api";
 
 // Curated set of Lucide icons that suggestion prompts may reference by name.
 // The daemon sends bare camelCase identifiers (e.g. "mail", "fileText"); a

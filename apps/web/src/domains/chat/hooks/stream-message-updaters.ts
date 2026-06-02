@@ -11,6 +11,7 @@
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import type { Surface } from "@/domains/chat/types/types";
+import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 import { toDisplayAttachments } from "@/utils/display-attachments";
 import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
@@ -132,7 +133,6 @@ export function createStreamingBubble(
       id: messageId ?? crypto.randomUUID(),
       ...(messageId ? {} : { isOptimistic: true }),
       role: "assistant",
-      content: text,
       textSegments: [{ type: "text", content: text }],
       contentOrder: [{ type: "text", id: "0" }],
       timestamp: Date.now(),
@@ -173,7 +173,6 @@ function appendTextIntoRow(
   const next = [...prev];
   next[idx] = {
     ...row,
-    content: row.content + text,
     textSegments: segments,
     contentOrder: order,
   };
@@ -287,7 +286,6 @@ export function finalizeMessageComplete(
         id: event.messageId ?? crypto.randomUUID(),
         ...(event.messageId ? {} : { isOptimistic: true }),
         role: "assistant" as const,
-        content: "",
         timestamp: Date.now(),
         attachments,
       },
@@ -331,15 +329,15 @@ export function finalizeMessageComplete(
  *  1. A row already carries `messageId` (as `id` or a merged alias) — the
  *     originating client whose POST already resolved, or a prior echo /
  *     reconcile pulled the row in. No-op.
- *  2. An optimistic user row matches by content — the originating client
- *     whose POST hasn't resolved yet (the echo beat the 202). Swap its id
- *     to the server `messageId` and clear `isOptimistic`, mirroring the
- *     POST-resolve path so a later reconcile content-match can't double it.
+ *  2. An optimistic user row matches by derived text — the originating
+ *     client whose POST hasn't resolved yet (the echo beat the 202). Swap
+ *     its id to the server `messageId` and clear `isOptimistic`, mirroring
+ *     the POST-resolve path so a later reconcile text-match can't double it.
  *     With no `messageId` (synthetic echo) there is nothing to upgrade to,
  *     so the optimistic row is left as-is.
  *  3. Otherwise append a new user row — passive client or synthetic
  *     prompt. Keyed by `messageId` when present so reconcile/refetch merges
- *     by id; otherwise optimistic so reconcile content-matches it.
+ *     by id; otherwise optimistic so reconcile text-matches it.
  */
 export function applyUserMessageEcho(
   prev: DisplayMessage[],
@@ -359,7 +357,10 @@ export function applyUserMessageEcho(
   }
 
   const optimisticIdx = prev.findIndex(
-    (m) => m.role === "user" && m.isOptimistic && m.content === event.text,
+    (m) =>
+      m.role === "user" &&
+      m.isOptimistic &&
+      segmentsToPlainText(m.textSegments) === event.text,
   );
   if (optimisticIdx !== -1) {
     if (serverId === undefined) {
@@ -380,7 +381,8 @@ export function applyUserMessageEcho(
       id: serverId ?? crypto.randomUUID(),
       ...(serverId === undefined ? { isOptimistic: true } : {}),
       role: "user",
-      content: event.text,
+      textSegments: [{ type: "text", content: event.text }],
+      contentOrder: [{ type: "text", id: "0" }],
       timestamp: Date.now(),
     },
   ];
@@ -400,7 +402,7 @@ export function handleConversationError(
 
   const finalized = finalizeRunningToolCalls(last.toolCalls);
   const hasContent =
-    last.content.trim().length > 0 ||
+    segmentsToPlainText(last.textSegments).trim().length > 0 ||
     (last.toolCalls != null && last.toolCalls.length > 0);
 
   if (!hasContent) return prev.slice(0, -1);
@@ -451,7 +453,6 @@ export function attachSurface(
       id: messageId ?? crypto.randomUUID(),
       ...(messageId ? {} : { isOptimistic: true }),
       role: "assistant" as const,
-      content: "",
       surfaces: [surface],
       contentOrder: [{ type: "surface", id: surface.surfaceId }],
       timestamp: Date.now(),
@@ -612,7 +613,6 @@ export function upsertToolCall(
       id: messageId ?? crypto.randomUUID(),
       ...(messageId ? {} : { isOptimistic: true }),
       role: "assistant" as const,
-      content: "",
       toolCalls: [toolCall],
       contentOrder: [{ type: "toolCall", id: toolCall.id }],
       timestamp: Date.now(),

@@ -15,8 +15,8 @@ import type {
   FeedItem,
   FeedItemCategory,
   FeedItemStatus,
-  FeedTimeGroup,
-} from "./types";
+} from "@vellumai/assistant-api";
+import type { FeedTimeGroup } from "./utils";
 
 const TIME_GROUP_LABELS: Record<FeedTimeGroup, string> = {
   today: "Today",

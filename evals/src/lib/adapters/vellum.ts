@@ -18,6 +18,7 @@ import {
   vellumDockerAssistantContainer,
   vellumDockerSiblingContainers,
 } from "../egress/docker-jail";
+import { reapContainersForRun } from "./docker-reaper";
 import {
   assertSuccess,
   NodeCommandRunner,
@@ -391,9 +392,7 @@ export class VellumAgent implements BaseAgent {
       if (hatchSucceeded) {
         // Hatch returned 0 but a later step (setup commands, jail
         // application) threw — we own these resources, retire them.
-        await this.runner
-          .run(this.cliCommand, ["retire", this.id])
-          .catch(() => undefined);
+        await this.runRetireWithReaperFallback("hatch-catch");
       }
       // If hatchSucceeded is false the hatch subprocess itself failed.
       // We deliberately do NOT call `vellum retire` here: another
@@ -636,9 +635,80 @@ export class VellumAgent implements BaseAgent {
     this.eventsProcess?.kill();
     await this.jail?.stop().catch(() => undefined);
     if (this.hatched) {
-      await this.runner
-        .run(this.cliCommand, ["retire", this.id])
-        .catch(() => undefined);
+      await this.runRetireWithReaperFallback("shutdown");
+    }
+  }
+
+  /**
+   * Runs `vellum retire <id>` and force-reaps any surviving sibling
+   * containers as a fallback.
+   *
+   * The previous implementation swallowed every retire failure with
+   * `.catch(() => undefined)`, which had two correctness problems:
+   *
+   *  1. **Silent leaks.** A non-zero retire exit (e.g. the daemon
+   *     died mid-run, so `assistant-config` lookup throws; or
+   *     `docker network rm` fails because a sibling is still attached)
+   *     leaves the assistant container alive and bound to the daemon's
+   *     fixed host port (7821). The next eval in the same `evals run`
+   *     invocation then fails hatch with "Bind for 0.0.0.0:7821 failed:
+   *     port is already allocated", cascading the entire batch.
+   *  2. **Invisible diagnosis.** Operators saw the cascade but had no
+   *     trail back to the failed retire — the original error never
+   *     surfaced anywhere readable.
+   *
+   * The fix has two layers:
+   *
+   *  - **Surface**: capture retire's exit code and stderr; emit a
+   *    `[retire]` warning to the operator log if it failed. This
+   *    flows through the runner subprocess log file so it lands in
+   *    the report UI under the failing run.
+   *  - **Force reap**: regardless of retire's exit code, call
+   *    `reapContainersForRun(runner, id)`. Retire's container-removal
+   *    step is `docker rm -f <name>` per sibling — if those succeeded,
+   *    our reap is a no-op (containers already gone). If they failed
+   *    for whatever reason, our reap closes the leak before the next
+   *    hatch tries to bind 7821.
+   *
+   * Best-effort: a failure inside the reaper itself (docker missing,
+   * daemon down) never throws — same contract as before. The goal is
+   * to fail safely, not to introduce a new throw site downstream of
+   * an already-failed run.
+   */
+  private async runRetireWithReaperFallback(
+    callSite: "hatch-catch" | "shutdown",
+  ): Promise<void> {
+    let retireResult: { exitCode: number; stderr: string } | undefined;
+    let retireError: unknown;
+    try {
+      retireResult = await this.runner.run(this.cliCommand, [
+        "retire",
+        this.id,
+      ]);
+    } catch (err) {
+      retireError = err;
+    }
+    if (retireError || (retireResult && retireResult.exitCode !== 0)) {
+      const detail =
+        retireError instanceof Error
+          ? retireError.message
+          : retireResult?.stderr?.trim() ||
+            `exit code ${retireResult?.exitCode ?? "<unknown>"}`;
+      // `console.warn` is the lowest-friction surfacing path — the
+      // runner's subprocess log capture aggregates stderr lines into
+      // the run dir, so this lands in the report UI's expand-subprocess
+      // panel for the failing test alongside the original error.
+      console.warn(
+        `[retire] vellum retire ${this.id} failed (${callSite}): ${detail}`,
+      );
+    }
+    const reapResult = await reapContainersForRun(this.runner, this.id).catch(
+      () => ({ reaped: [] as string[] }),
+    );
+    if (reapResult.reaped.length > 0) {
+      console.warn(
+        `[retire] force-reaped surviving container(s) for ${this.id} (${callSite}): ${reapResult.reaped.join(", ")}`,
+      );
     }
   }
 

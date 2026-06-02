@@ -14,7 +14,7 @@
  * require deeper provider fakery and are best covered by integration tests
  * once we wire up the empty-response pipeline mock.
  */
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 
 import type {
   AgentEvent,
@@ -380,16 +380,15 @@ describe("AgentLoop exit-reason instrumentation", () => {
     });
 
     let prepared = false;
-    let persisted = false;
+    let appliedResult = false;
     let reinjected = false;
     const compaction: MidLoopCompaction = {
       prepare: (history) => {
         prepared = true;
         return { rawHistory: history, options: undefined };
       },
-      persist: async () => {
-        persisted = true;
-        return { exhausted: false };
+      applyResult: async () => {
+        appliedResult = true;
       },
       reinject: async () => {
         reinjected = true;
@@ -413,7 +412,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
     // THEN the loop runs the compaction ceremony in place and continues to a
     // clean exit instead of yielding for budget.
     expect(prepared).toBe(true);
-    expect(persisted).toBe(true);
+    expect(appliedResult).toBe(true);
     expect(reinjected).toBe(true);
     expect(result.exitReason).not.toBe("budget");
   });
@@ -431,35 +430,28 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
     const compaction: MidLoopCompaction = {
       prepare: (history) => ({ rawHistory: history, options: undefined }),
-      persist: async () => ({ exhausted: false }),
+      applyResult: async () => {},
       reinject: async () => {
         throw new Error("reinject must not run after a timeout");
       },
     };
-    const events: AgentEvent[] = [];
+    const recordOutcomeSpy = spyOn(loop.compactionCircuit, "recordOutcome");
 
     // WHEN the compaction pipeline throws a PluginTimeoutError
-    const result = await loop.run(
-      [userMessage],
-      (event) => {
-        events.push(event);
-      },
-      {
-        resolveContextWindow: () => ({
-          maxInputTokens: 10,
-          overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
-        }),
-        compaction,
-        turnContext: timeoutCompactionTurnContext(),
-      },
-    );
+    const result = await loop.run([userMessage], () => {}, {
+      resolveContextWindow: () => ({
+        maxInputTokens: 10,
+        overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
+      }),
+      compaction,
+      turnContext: timeoutCompactionTurnContext(),
+    });
 
-    // THEN the loop emits the timeout signal so the orchestrator can record
-    // it against the compaction circuit breaker, and yields for budget so
-    // the orchestrator can escalate.
-    expect(events.some((event) => event.type === "compaction_timed_out")).toBe(
-      true,
-    );
+    // THEN the loop records the timeout as a compaction failure against its
+    // own circuit breaker, and yields for budget so the orchestrator can
+    // escalate.
+    expect(recordOutcomeSpy).toHaveBeenCalledTimes(1);
+    expect(recordOutcomeSpy.mock.calls[0]?.[1]).toBe(true);
     expect(result.exitReason).toBe("budget");
   });
 
@@ -476,7 +468,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
     const compaction: MidLoopCompaction = {
       prepare: (history) => ({ rawHistory: history, options: undefined }),
-      persist: async () => ({ exhausted: true }),
+      applyResult: async () => {},
       reinject: async () => {
         throw new Error("reinject must not run when exhausted");
       },

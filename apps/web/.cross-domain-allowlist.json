@@ -1,40 +1,14 @@
 {
+  "src/domains/chat/active-chat-view.tsx": [
+    "onboarding"
+  ],
   "src/domains/chat/api/messages.ts": [
     "onboarding"
   ],
-  "src/domains/chat/chat-layout.tsx": [
-    "conversations"
-  ],
-  "src/domains/chat/chat-page.tsx": [
-    "conversations",
+  "src/domains/chat/hooks/use-onboarding-orchestrator.ts": [
     "onboarding"
-  ],
-  "src/domains/chat/components/chat-composer/chat-composer.tsx": [
-    "voice"
-  ],
-  "src/domains/chat/components/voice-input-button.tsx": [
-    "voice"
   ],
   "src/domains/chat/hooks/use-send-message.ts": [
-    "conversations",
     "onboarding"
-  ],
-  "src/domains/chat/hooks/use-voice-input.ts": [
-    "voice"
-  ],
-  "src/domains/conversations/use-attention-tracking.ts": [
-    "chat"
-  ],
-  "src/domains/conversations/use-conversation-actions.ts": [
-    "chat"
-  ],
-  "src/domains/conversations/use-conversation-loader.ts": [
-    "chat"
-  ],
-  "src/domains/logs/components/logs-tab.tsx": [
-    "conversations"
-  ],
-  "src/domains/settings/pages/archive-page.tsx": [
-    "conversations"
   ]
 }

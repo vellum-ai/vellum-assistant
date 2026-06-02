@@ -93,6 +93,179 @@ describe("MarkdownMessage", () => {
     expect(html).toContain("line2");
   });
 
+  test("hardLineBreaks leaves fenced code blocks verbatim (no trailing-space injection)", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "```js\nconst a = 1\nconst b = 2\n```",
+        hardLineBreaks: true,
+      }),
+    );
+
+    // The newline inside the code block must stay a bare newline — a blind
+    // string replace would harden it into "  \n", corrupting the code with
+    // trailing whitespace and/or a <br>.
+    expect(html).toContain("const a = 1\nconst b = 2");
+    expect(html).not.toContain("const a = 1  \n");
+    expect(html.match(/<code[\s\S]*?<\/code>/)?.[0]).not.toContain("<br");
+  });
+
+  test("hardLineBreaks does not break table parsing", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "| a | b |\n| - | - |\n| 1 | 2 |",
+        hardLineBreaks: true,
+      }),
+    );
+
+    // Row-separating newlines are structural, not prose text nodes, so the
+    // table still parses instead of collapsing into a <br>-laden paragraph.
+    expect(html).toContain("<table");
+    expect(html).not.toContain("<br");
+  });
+
+  test("h4-h6 render with bold typography instead of unstyled defaults", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "#### H4\n\n##### H5\n\n###### H6",
+      }),
+    );
+
+    expect(html).toContain("<h4");
+    expect(html).toContain("<h5");
+    expect(html).toContain("<h6");
+    // Every heading override restores bold weight on a canonical size token.
+    expect(html.match(/<h4[^>]*>/)?.[0]).toContain("!font-bold");
+    expect(html.match(/<h6[^>]*>/)?.[0]).toContain("!font-bold");
+  });
+
+  test("monetary text is not mangled into math typography", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "Anthropic raised a $65B series H at $965B post-money.",
+      }),
+    );
+
+    // The currency dollars are escaped, so KaTeX never runs and the literal
+    // amounts survive verbatim.
+    expect(html).not.toContain("katex");
+    expect(html).toContain("$65B");
+    expect(html).toContain("$965B");
+  });
+
+  test("assorted currency formats survive as literal text", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "Pay $5, then $1,000.50, up to $1.5T or $100 billion.",
+      }),
+    );
+
+    expect(html).not.toContain("katex");
+    expect(html).toContain("$5");
+    expect(html).toContain("$1,000.50");
+    expect(html).toContain("$1.5T");
+    expect(html).toContain("$100");
+  });
+
+  test("currency ranges with en/em dashes are not mangled into math", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "Savings are closer to $12K–$17K, maybe $1M—$2M.",
+      }),
+    );
+
+    // The dash between the amounts must not let the first `$` open a math
+    // span that closes on the next `$` (the italic-math wonk).
+    expect(html).not.toContain("katex");
+    expect(html).toContain("$12K");
+    expect(html).toContain("$17K");
+    expect(html).toContain("$1M");
+    expect(html).toContain("$2M");
+  });
+
+  test("suffixed amounts with a trailing + are not mangled into math", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "Whitestone is premium - $1M+ homes earning $500K+ a year.",
+      }),
+    );
+
+    // "$1M+" must not open a math span that closes on the next "$".
+    expect(html).not.toContain("katex");
+    expect(html).toContain("$1M+");
+    expect(html).toContain("$500K+");
+  });
+
+  test("legitimate inline math still renders via KaTeX", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "The identity $E = mc^2$ and $2x + 1$ are math.",
+      }),
+    );
+
+    expect(html).toContain("katex");
+  });
+
+  test("currency and real math coexist in one message", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "It costs $5 but $E = mc^2$ still holds.",
+      }),
+    );
+
+    expect(html).toContain("katex");
+    expect(html).toContain("$5");
+  });
+
+  test("currency inside inline code stays verbatim (no escape leaks)", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: 'Set `price="$5"` in the config.',
+      }),
+    );
+
+    // The code span must be byte-exact — no stray backslash from escaping.
+    // (Static markup HTML-encodes the quotes as &quot;.)
+    expect(html).toContain("price=&quot;$5&quot;");
+    expect(html).not.toContain("\\$");
+  });
+
+  test("currency inside a fenced code block stays verbatim", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: '```sh\necho "$5"\necho "$1,000"\n```',
+      }),
+    );
+
+    expect(html).toContain("$5");
+    expect(html).toContain("$1,000");
+    expect(html).not.toContain("\\$");
+  });
+
+  test("currency inside a link destination is not rewritten", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "[pay](https://example.com/checkout?amount=$5)",
+      }),
+    );
+
+    expect(html).toContain("amount=$5");
+    expect(html).not.toContain("\\$");
+  });
+
+  test("currency in prose is still escaped even when code is present", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: 'It cost $65B total — run `echo "$5"` to verify.',
+      }),
+    );
+
+    // Prose currency renders as plain text (no math), code stays exact.
+    expect(html).not.toContain("katex");
+    expect(html).toContain("$65B");
+    expect(html).toContain("echo &quot;$5&quot;");
+    expect(html).not.toContain("\\$");
+  });
+
   test("custom linkComponent replaces the default link renderer", () => {
     function CustomLink({ href, children }: { href?: string; children?: React.ReactNode }) {
       return <a href={href} data-custom="true">{children}</a>;

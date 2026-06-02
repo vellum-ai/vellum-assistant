@@ -6,7 +6,7 @@
  * / `uploadChatAttachment` / `deleteQueuedMessage` write operations.
  */
 
-import * as Sentry from "@sentry/react";
+import { captureError } from "@/lib/sentry/capture-error";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type {
   DisplayMessage,
@@ -14,11 +14,7 @@ import type {
   Surface,
 } from "@/domains/chat/types/types";
 import { client } from "@/generated/api/client.gen";
-import {
-  assertHasResponse,
-  extractErrorMessage,
-  SDK_BASE_OPTIONS,
-} from "@/utils/api-errors";
+import { assertHasResponse, extractErrorMessage } from "@/utils/api-errors";
 import {
   normalizePreChatOnboardingContext,
   type PreChatOnboardingContext,
@@ -89,7 +85,6 @@ export interface RuntimeMessage {
   /** Server message ids folded into this canonical history row. */
   mergedMessageIds?: string[];
   role: "user" | "assistant";
-  content: string;
   surfaces?: Surface[];
   textSegments?: Array<{
     type: string;
@@ -136,7 +131,6 @@ export async function pollForResponse(
       ListMessagesResponse,
       unknown
     >({
-      ...SDK_BASE_OPTIONS,
       url: "/v1/assistants/{assistant_id}/messages/",
       path: { assistant_id: assistantId },
       query: { conversationId },
@@ -305,7 +299,6 @@ export async function getChatHistory(
       ListMessagesResponse,
       unknown
     >({
-      ...SDK_BASE_OPTIONS,
       url: "/v1/assistants/{assistant_id}/messages/",
       path: { assistant_id: assistantId },
       query: { conversationId },
@@ -353,7 +346,6 @@ export async function fetchConversationMessages(
     ListMessagesResponse,
     unknown
   >({
-    ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/messages/",
     path: { assistant_id: assistantId },
     query: { conversationId },
@@ -422,7 +414,6 @@ export async function uploadChatAttachment(
     Record<string, unknown>,
     unknown
   >({
-    ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/attachments/",
     path: { assistant_id: assistantId },
     body: form as unknown as Record<string, unknown>,
@@ -545,8 +536,10 @@ export async function postChatMessage(
       onboardingDict.bootstrapTemplate = normalizedOnboarding.bootstrapTemplate;
     if (
       normalizedOnboarding.initialMessage !== undefined &&
-      normalizedOnboarding.initialMessage.trim().toLowerCase().replace(/[.!?]+$/, "") !==
-        "wake up, my friend"
+      normalizedOnboarding.initialMessage
+        .trim()
+        .toLowerCase()
+        .replace(/[.!?]+$/, "") !== "wake up, my friend"
     )
       onboardingDict.initialMessage = normalizedOnboarding.initialMessage;
     if (normalizedOnboarding.skills !== undefined)
@@ -554,8 +547,11 @@ export async function postChatMessage(
     body.onboarding = onboardingDict;
   }
   if (normalizedOnboarding) {
-    void persistPreChatOnboardingProfile(assistantId, normalizedOnboarding).catch(
-      (err) => Sentry.captureException(err, { tags: { operation: "persistPreChatOnboardingProfile" } }),
+    void persistPreChatOnboardingProfile(
+      assistantId,
+      normalizedOnboarding,
+    ).catch((err) =>
+      captureError(err, { context: "persistPreChatOnboardingProfile" }),
     );
   }
   const {
@@ -563,7 +559,6 @@ export async function postChatMessage(
     error,
     response: sendResponse,
   } = await client.post<SendMessageResponse, unknown>({
-    ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/messages/",
     path: { assistant_id: assistantId },
     body,
@@ -692,7 +687,6 @@ export async function steerToMessage(
   try {
     const encoded = encodeURIComponent(requestId);
     const { response } = await client.post<unknown, unknown>({
-      ...SDK_BASE_OPTIONS,
       url: `/v1/assistants/{assistant_id}/messages/queued/${encoded}/steer`,
       path: { assistant_id: assistantId },
       query: { conversationId },
@@ -717,7 +711,6 @@ export async function deleteQueuedMessage(
   try {
     const encoded = encodeURIComponent(requestId);
     const { response } = await client.delete<unknown, unknown>({
-      ...SDK_BASE_OPTIONS,
       url: `/v1/assistants/{assistant_id}/messages/queued/${encoded}`,
       path: { assistant_id: assistantId },
       query: { conversationId },

@@ -17,6 +17,7 @@ import type { SlimSkillResponse } from "../daemon/message-types/skills.js";
 import { isTextMimeType as isTextMime } from "../runtime/routes/workspace-utils.js";
 import { getLogger } from "../util/logger.js";
 import type { SkillFileEntry } from "./catalog-files.js";
+import { inferCategory } from "./category-inference.js";
 import {
   clawhubInspect,
   clawhubInspectFile,
@@ -198,6 +199,7 @@ export function createClawhubProvider(): SkillFileProvider {
         kind: "catalog",
         status: "available",
         origin: "clawhub",
+        category: inferCategory(data.skill.displayName, data.skill.summary),
         slug: data.skill.slug,
         author: data.owner?.handle ?? "",
         stars: data.stats?.stars ?? 0,

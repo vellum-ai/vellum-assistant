@@ -1,6 +1,5 @@
 import { conversationsByConversationIdSlackchannelResolvePost } from "@/generated/daemon/sdk.gen";
 import type { ConversationsByConversationIdSlackchannelResolvePostResponse } from "@/generated/daemon/types.gen";
-import { SDK_BASE_OPTIONS } from "@/utils/api-errors";
 
 export async function resolveSlackChannelName(
   assistantId: string,
@@ -9,7 +8,6 @@ export async function resolveSlackChannelName(
   try {
     const { data, response } =
       await conversationsByConversationIdSlackchannelResolvePost({
-        ...SDK_BASE_OPTIONS,
         path: { assistant_id: assistantId, conversationId },
         throwOnError: false,
       });

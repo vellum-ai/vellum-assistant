@@ -49,7 +49,7 @@ function getDebugInfo() {
   // Debug view counts every standard conversation, archived or not, so the
   // diagnostics report doesn't undercount after the route-level default
   // moved to "active".
-  const conversationCount = countConversations(false, "all");
+  const conversationCount = countConversations("standard", "all");
   const memoryItemCount = getMemoryItemCount();
   const dbSizeBytes = getDatabaseSizeBytes();
 
@@ -70,7 +70,8 @@ function getDebugInfo() {
       startedAt: new Date(startedAt).toISOString(),
     },
     provider: {
-      configuredProvider: resolveCallSiteConfig("mainAgent", config.llm).provider,
+      configuredProvider: resolveCallSiteConfig("mainAgent", config.llm)
+        .provider,
       registeredProviders,
       routingSources,
     },

@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { Outlet, useLocation } from "react-router";
 
+import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { routes } from "@/utils/routes";
@@ -21,12 +22,28 @@ export function SettingsLayout() {
   const settingsDeveloperNav = useAssistantFeatureFlagStore.use.settingsDeveloperNav();
   const platformNotifications = useClientFeatureFlagStore.use.platformNotifications();
   const sounds = useAssistantFeatureFlagStore.use.sounds();
+  // platformHostedOnly so the sidebar filter fires on self-hosted active
+  // assistants (lifecycle `kind: "self_hosted"` OR `kind: "active",
+  // isLocal: true`) — not just on local-mode-with-features-off, which is
+  // what the standard gate's `"gated"` state means.
+  const platformGate = usePlatformGate({ platformHostedOnly: true });
   const { pathname } = useLocation();
 
   const filteredItems = useMemo(
     () =>
       SETTINGS_SIDEBAR.filter((item) => {
-        if (item.id === "notifications" && !platformNotifications) {
+        // Notifications and billing are both organization-scoped platform
+        // concepts. Hide the sidebar items entirely when the active assistant
+        // is self-hosted so users don't land on an empty page. Each page
+        // also redirects to `routes.settings.general` for the same gate, as
+        // defense in depth for direct URL / bookmark navigation.
+        if (
+          item.id === "notifications" &&
+          (!platformNotifications || platformGate === "gated")
+        ) {
+          return false;
+        }
+        if (item.id === "billing" && platformGate === "gated") {
           return false;
         }
         if (item.id === "sounds" && !sounds) {
@@ -37,7 +54,7 @@ export function SettingsLayout() {
         }
         return true;
       }),
-    [platformNotifications, sounds],
+    [platformNotifications, sounds, platformGate],
   );
 
   const bottomItems = useMemo(

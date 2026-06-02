@@ -11,9 +11,9 @@ import {
 } from "@/lib/sync/query-tags";
 import { SYNC_TAGS, type SyncChangedEvent } from "@/lib/sync/types";
 import {
-  __resetEventBusForTesting,
-  useEventBusStore,
-} from "@/stores/event-bus-store";
+  __resetForTesting,
+  publish,
+} from "@/lib/event-bus";
 
 function createWrapper(queryClient: QueryClient) {
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -34,7 +34,7 @@ function syncEvent(tags: string[]): SyncChangedEvent {
 }
 
 function emit(event: SyncChangedEvent): void {
-  useEventBusStore.getState().publish("sse.event", {
+  publish("sse.event", {
     id: "evt-1",
     emittedAt: new Date().toISOString(),
     message: event,
@@ -45,16 +45,16 @@ function emitOpened(
   cause: "fresh" | "error" | "watchdog" | "resume",
   assistantId = "asst-1",
 ): void {
-  useEventBusStore.getState().publish("sse.opened", { assistantId, cause });
+  publish("sse.opened", { assistantId, cause });
 }
 
 beforeEach(() => {
-  __resetEventBusForTesting();
+  __resetForTesting();
 });
 
 afterEach(() => {
   cleanup();
-  __resetEventBusForTesting();
+  __resetForTesting();
 });
 
 describe("useFeatureFlagBusSync", () => {

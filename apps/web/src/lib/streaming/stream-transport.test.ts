@@ -21,7 +21,7 @@ interface SentryCaptureMessageCall {
 const sentryBreadcrumbs: SentryBreadcrumbCall[] = [];
 const sentryCaptureMessages: SentryCaptureMessageCall[] = [];
 
-mock.module("@sentry/browser", () => ({
+mock.module("@sentry/react", () => ({
   addBreadcrumb: (crumb: SentryBreadcrumbCall) => {
     sentryBreadcrumbs.push(crumb);
   },
@@ -43,9 +43,7 @@ mock.module("@sentry/browser", () => ({
   captureException: () => {},
 }));
 
-import {
-  getDiagnosticsEvents,
-} from "@/lib/diagnostics";
+import { getLifecycleDiagnosticsEvents } from "@/lib/diagnostics";
 import { subscribeChatEvents, type ChatStreamReconnectCause } from "@/lib/streaming/stream-transport";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
@@ -378,7 +376,7 @@ describe("subscribeChatEvents idle watchdog", () => {
         ),
     ) as unknown as typeof fetch;
 
-    const eventCountBefore = getDiagnosticsEvents().length;
+    const eventCountBefore = getLifecycleDiagnosticsEvents().length;
     const breadcrumbsBefore = sentryBreadcrumbs.length;
     const captureMessagesBefore = sentryCaptureMessages.length;
 
@@ -394,7 +392,7 @@ describe("subscribeChatEvents idle watchdog", () => {
       // Comfortably past the first watchdog fire (~50ms).
       await new Promise((r) => setTimeout(r, 200));
 
-      const newEvents = getDiagnosticsEvents().slice(eventCountBefore);
+      const newEvents = getLifecycleDiagnosticsEvents().slice(eventCountBefore);
       const fires = newEvents.filter(
         (event) => event.kind === "sse_watchdog_fired",
       );
@@ -408,7 +406,7 @@ describe("subscribeChatEvents idle watchdog", () => {
       // The first watchdog fire happens on the very first connect
       // attempt, before any reconnect has incremented the counter.
       expect(first.details.attempt).toBe(0);
-      // Centralized platform tag is injected by recordDiagnostic.
+      // Centralized platform tag is injected by the diagnostics recorder.
       expect(first.details.platform).toBe("web");
 
       // Sentry mirrors are how fleet data answers the L2/L3 question.
@@ -479,7 +477,7 @@ describe("subscribeChatEvents idle watchdog", () => {
         ),
     ) as unknown as typeof fetch;
 
-    const eventCountBefore = getDiagnosticsEvents().length;
+    const eventCountBefore = getLifecycleDiagnosticsEvents().length;
     const captureMessagesBefore = sentryCaptureMessages.length;
 
     const sub = subscribeChatEvents(
@@ -500,7 +498,7 @@ describe("subscribeChatEvents idle watchdog", () => {
     try {
       await new Promise((r) => setTimeout(r, 200));
 
-      const newEvents = getDiagnosticsEvents().slice(eventCountBefore);
+      const newEvents = getLifecycleDiagnosticsEvents().slice(eventCountBefore);
       const firstFire = newEvents.find(
         (event) => event.kind === "sse_watchdog_fired",
       );
@@ -641,7 +639,7 @@ describe("subscribeChatEvents idle watchdog", () => {
         ),
     ) as unknown as typeof fetch;
 
-    const eventCountBefore = getDiagnosticsEvents().length;
+    const eventCountBefore = getLifecycleDiagnosticsEvents().length;
 
     const sub = subscribeChatEvents(
       "asst-heartbeat",
@@ -656,7 +654,7 @@ describe("subscribeChatEvents idle watchdog", () => {
       // idleTimeoutMs = ~120ms. 250ms gives comfortable margin.
       await new Promise((r) => setTimeout(r, 250));
 
-      const newEvents = getDiagnosticsEvents().slice(eventCountBefore);
+      const newEvents = getLifecycleDiagnosticsEvents().slice(eventCountBefore);
       const firstFire = newEvents.find(
         (event) => event.kind === "sse_watchdog_fired",
       );
@@ -765,7 +763,7 @@ describe("subscribeChatEvents idle watchdog", () => {
     }) as unknown as typeof fetch;
 
     const causes: ChatStreamReconnectCause[] = [];
-    const eventCountBefore = getDiagnosticsEvents().length;
+    const eventCountBefore = getLifecycleDiagnosticsEvents().length;
 
     const sub = subscribeChatEvents(
       "asst-stale",
@@ -798,7 +796,7 @@ describe("subscribeChatEvents idle watchdog", () => {
       // No sse_watchdog_fired diagnostic should have been recorded
       // for this subscription — every fetch errored before its
       // watchdog deadline, so any fire is from a stale timer.
-      const newEvents = getDiagnosticsEvents().slice(eventCountBefore);
+      const newEvents = getLifecycleDiagnosticsEvents().slice(eventCountBefore);
       const fires = newEvents.filter(
         (event) =>
           event.kind === "sse_watchdog_fired" &&

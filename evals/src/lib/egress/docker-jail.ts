@@ -27,10 +27,66 @@ export interface DockerEgressJail {
   readUsageRecords(): Promise<Array<Record<string, unknown>>>;
 }
 
+/**
+ * Hosts the recording jail allows model API traffic to. The mitmproxy
+ * addon (`addon.py`) recognizes these specifically and reconstructs
+ * per-request token usage from their response shapes — keeping the
+ * list focused so the addon doesn't accidentally try to parse usage
+ * out of a github tarball.
+ */
 export const DEFAULT_MODEL_ALLOW_HOSTS = [
   "api.anthropic.com",
   "api.openai.com",
   "generativelanguage.googleapis.com",
+];
+
+/**
+ * Non-model hosts the assistant container needs reachable for eval
+ * setup to succeed.
+ *
+ * - **api.github.com / raw.githubusercontent.com / codeload.github.com**:
+ *   `assistant plugins install <name>` (used by every memory-layer
+ *   profile's setup, e.g. `vellum-simple-memory`) fetches a plugin
+ *   directory listing from `api.github.com/repos/.../contents/...`
+ *   then downloads each file via the `download_url` field, which
+ *   points to `raw.githubusercontent.com`. `codeload.github.com` is
+ *   the tarball host used by future zip-download paths. Without these
+ *   the setup step fails with "Plugin install failed: Unable to
+ *   connect. Is the computer able to access the url?", the run
+ *   crashes mid-setup, and the half-hatched container leaks (see
+ *   the retire-failure fallback in vellum.ts).
+ *
+ * - **{prod,staging,dev,test}-platform.vellum.ai**: the assistant's
+ *   skills/feature-flag/catalog calls (`VELLUM_PLATFORM_URL` env var,
+ *   resolved per environment seed in
+ *   `cli/src/lib/environments/seeds.ts`). Including the non-prod
+ *   variants up-front means an eval against a non-prod environment
+ *   doesn't silently fall back to a blocked egress; the egress layer
+ *   doesn't care which is "active" — only that the host the assistant
+ *   actually calls matches an allowlisted name.
+ *
+ * Kept separate from `DEFAULT_MODEL_ALLOW_HOSTS` so the addon's
+ * provider-recognition logic stays bounded.
+ */
+export const DEFAULT_INFRA_ALLOW_HOSTS = [
+  "api.github.com",
+  "raw.githubusercontent.com",
+  "codeload.github.com",
+  "platform.vellum.ai",
+  "staging-platform.vellum.ai",
+  "dev-platform.vellum.ai",
+  "test-platform.vellum.ai",
+];
+
+/**
+ * The default allowlist applied when `applyDockerEgressJail` is called
+ * without an explicit `allowHosts`. Concatenation order doesn't matter
+ * — the iptables script (`apply-recording-jail.sh`) iterates and adds
+ * each host independently.
+ */
+export const DEFAULT_ALLOW_HOSTS = [
+  ...DEFAULT_MODEL_ALLOW_HOSTS,
+  ...DEFAULT_INFRA_ALLOW_HOSTS,
 ];
 
 const DEFAULT_RECORDING_IMAGE = "vellum-evals-recording-jail:local";
@@ -89,7 +145,7 @@ export async function applyDockerEgressJail(
   runner: CommandRunner,
   config: DockerEgressJailConfig,
 ): Promise<DockerEgressJail> {
-  const allowHosts = config.allowHosts ?? DEFAULT_MODEL_ALLOW_HOSTS;
+  const allowHosts = config.allowHosts ?? DEFAULT_ALLOW_HOSTS;
   const jailContainer = dockerEgressJailContainerName(config.containerName);
   const recordingDir = config.recordingDir;
   const recordingImage = config.recordingImage ?? DEFAULT_RECORDING_IMAGE;

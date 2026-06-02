@@ -32,7 +32,8 @@ import {
   buildVellumHeaders,
   buildVellumMutatingHeaders,
 } from "@/lib/auth/request-headers";
-import { reportError } from "@/utils/error-report";
+import { toast } from "@vellum/design-library";
+import { captureError } from "@/lib/sentry/capture-error";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 import { isPointerCoarse } from "@/utils/pointer";
 import { ShareFeedbackModal } from "@/components/share-feedback-modal";
@@ -503,9 +504,7 @@ export function DoctorPanel({
   useEffect(() => {
     if (!historyListEnabled) return;
     if (historyListQuery.isError) {
-      reportError(historyListQuery.error, {
-        context: "doctor_history_list",
-      });
+      captureError(historyListQuery.error, { context: "doctor_history_list" });
       setSelectedHistorySessionId(null);
       setHistoryAutoLoadAttempted(true);
       return;
@@ -556,10 +555,8 @@ export function DoctorPanel({
           setFetchedAssistantId(result.data.id);
         }
       } catch (error) {
-        reportError(error, {
-          context: "fetch_assistant_for_doctor",
-          userMessage: "Failed to load assistant info",
-        });
+        captureError(error, { context: "fetch_assistant_for_doctor" });
+        toast.error("Failed to load assistant info");
       } finally {
         setFetchedAssistantLoading(false);
       }
@@ -669,7 +666,7 @@ export function DoctorPanel({
           }
         } catch (err) {
           if (controller.signal.aborted) return;
-          reportError(err, { context: "doctor_sse_stream" });
+          captureError(err, { context: "doctor_sse_stream" });
           failStream(
             "Event stream disconnected. Start a new session to continue.",
           );
@@ -803,9 +800,7 @@ export function DoctorPanel({
     if (appliedHistorySessionId === selectedHistorySessionId) return;
 
     if (historyDetailQuery.isError) {
-      reportError(historyDetailQuery.error, {
-        context: "doctor_history_detail",
-      });
+      captureError(historyDetailQuery.error, { context: "doctor_history_detail" });
       setAppliedHistorySessionId(selectedHistorySessionId);
       return;
     }
@@ -891,10 +886,7 @@ export function DoctorPanel({
           "Hi! I'm the Doctor. State the nature of the issue you're experiencing with your assistant and I'll help diagnose and fix it.",
       });
     } catch (error) {
-      reportError(error, {
-        context: "start_doctor_session",
-        userMessage: "Failed to start doctor session",
-      });
+      captureError(error, { context: "start_doctor_session" });
       appendEntry({ kind: "error", content: "Failed to start doctor session" });
     } finally {
       setStarting(false);
@@ -964,7 +956,7 @@ export function DoctorPanel({
           setThinking(true);
         }
       } catch (error) {
-        reportError(error, { context: "send_doctor_message" });
+        captureError(error, { context: "send_doctor_message" });
         appendEntry({ kind: "error", content: "Failed to send message" });
       } finally {
         setSending(false);

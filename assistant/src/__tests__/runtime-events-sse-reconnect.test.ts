@@ -94,9 +94,11 @@ describe("SSE reconnect replay (B7.2)", () => {
     const frame1 = await readFrame(reader);
     expect(frame1).toContain("event: assistant_event");
     expect(frame1).toContain('"seq":2');
+    expect(frame1).toContain('"clientSeq":1');
 
     const frame2 = await readFrame(reader);
     expect(frame2).toContain('"seq":3');
+    expect(frame2).toContain('"clientSeq":2');
 
     // Then the heartbeat.
     const heartbeat = await readFrame(reader);
@@ -121,17 +123,15 @@ describe("SSE reconnect replay (B7.2)", () => {
     for (let i = 0; i < 202; i++) {
       stampAndBuffer(buildAssistantEvent({ type: "pong" }, conversationId));
     }
-    const { _peekStreamForTesting } = await import(
-      "../runtime/conversation-stream-state.js"
-    );
+    const { _peekStreamForTesting } =
+      await import("../runtime/conversation-stream-state.js");
     const peek = _peekStreamForTesting(conversationId);
     expect(peek?.oldestSeq).toBe(3);
     expect(peek?.newestSeq).toBe(202);
 
     const ac = new AbortController();
-    const { handleSubscribeAssistantEvents } = await import(
-      "../runtime/routes/events-routes.js"
-    );
+    const { handleSubscribeAssistantEvents } =
+      await import("../runtime/routes/events-routes.js");
     const stream = handleSubscribeAssistantEvents({
       queryParams: {
         conversationKey: "reconnect-out-of-window",
@@ -222,6 +222,92 @@ describe("SSE reconnect replay (B7.2)", () => {
 
     const liveFrame = await readFrame(reader);
     expect(liveFrame).toContain('"seq":3');
+
+    ac.abort();
+  });
+
+  test("clientSeq is gap-free when targeted events create seq gaps", async () => {
+    // Stamp three events: two untargeted (seq 1, 3) + one with a
+    // capability target (seq 2, host_bash). A process subscriber
+    // does NOT match capability targeting (matchesSubscriber requires
+    // type=client + matching capability), so the replay filters out
+    // seq 2. The subscriber receives seq 1 and 3 — a gap in raw seq
+    // — but clientSeq is 1, 2 — gap-free.
+    const { conversationId } = getOrCreateConversation("clientseq-gap");
+
+    stampAndBuffer(buildAssistantEvent({ type: "pong" }, conversationId));
+    stampAndBuffer(buildAssistantEvent({ type: "pong" }, conversationId), {
+      targeting: { targetCapability: "host_bash" },
+    });
+    stampAndBuffer(buildAssistantEvent({ type: "pong" }, conversationId));
+
+    const ac = new AbortController();
+    const { handleSubscribeAssistantEvents } =
+      await import("../runtime/routes/events-routes.js");
+    const stream = handleSubscribeAssistantEvents({
+      queryParams: {
+        conversationKey: "clientseq-gap",
+        lastSeenSeq: "0",
+      },
+      abortSignal: ac.signal,
+    });
+
+    const reader = stream.getReader();
+
+    // seq 2 (host_bash-targeted) is filtered out by replay.
+    // Only seq 1 and 3 are delivered, with gap-free clientSeq.
+    const f1 = await readFrame(reader);
+    expect(f1).toContain('"seq":1');
+    expect(f1).toContain('"clientSeq":1');
+
+    const f2 = await readFrame(reader);
+    expect(f2).toContain('"seq":3');
+    expect(f2).toContain('"clientSeq":2');
+
+    const heartbeat = await readFrame(reader);
+    expect(heartbeat).toBe(": heartbeat\n\n");
+
+    ac.abort();
+  });
+
+  test("live callback includes clientSeq on conversation-scoped events", async () => {
+    const { conversationId } = getOrCreateConversation("clientseq-live");
+
+    const ac = new AbortController();
+    const { AssistantEventHub } =
+      await import("../runtime/assistant-event-hub.js");
+    const testHub = new AssistantEventHub();
+    const { handleSubscribeAssistantEvents } =
+      await import("../runtime/routes/events-routes.js");
+    const stream = handleSubscribeAssistantEvents(
+      {
+        queryParams: { conversationKey: "clientseq-live" },
+        abortSignal: ac.signal,
+      },
+      { hub: testHub },
+    );
+
+    const reader = stream.getReader();
+
+    // Drain the initial heartbeat.
+    const heartbeat = await readFrame(reader);
+    expect(heartbeat).toBe(": heartbeat\n\n");
+
+    // Publish two live events with seq via stampAndBuffer.
+    const e1 = buildAssistantEvent({ type: "pong" }, conversationId);
+    const e2 = buildAssistantEvent({ type: "pong" }, conversationId);
+    stampAndBuffer(e1);
+    stampAndBuffer(e2);
+    await testHub.publish(e1);
+    await testHub.publish(e2);
+
+    const f1 = await readFrame(reader);
+    expect(f1).toContain('"seq":1');
+    expect(f1).toContain('"clientSeq":1');
+
+    const f2 = await readFrame(reader);
+    expect(f2).toContain('"seq":2');
+    expect(f2).toContain('"clientSeq":2');
 
     ac.abort();
   });

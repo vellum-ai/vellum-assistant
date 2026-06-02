@@ -10,7 +10,11 @@ import { useAuthStore } from "@/stores/auth-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import type { AssistantState } from "@/assistant/types";
-import { usePlatformGate } from "@/hooks/use-platform-gate";
+import {
+  useActiveAssistantIsPlatformHosted,
+  useActiveAssistantLifecycleIsLoading,
+  usePlatformGate,
+} from "@/hooks/use-platform-gate";
 
 const initialAuthState = useAuthStore.getState();
 const initialFlagState = useAssistantFeatureFlagStore.getState();
@@ -204,6 +208,133 @@ describe("usePlatformGate — { platformHostedOnly: true }", () => {
         usePlatformGate({ platformHostedOnly: true }),
       );
       expect(result.current).toBe("full");
+      unmount();
+    }
+  });
+});
+
+describe("useActiveAssistantIsPlatformHosted", () => {
+  test("returns true for kind: platform_hosted", () => {
+    setLifecycle({ kind: "platform_hosted" });
+    const { result } = renderHook(() => useActiveAssistantIsPlatformHosted());
+    expect(result.current).toBe(true);
+  });
+
+  test("returns true for kind: active with isLocal: false", () => {
+    setLifecycle({ kind: "active", isLocal: false });
+    const { result } = renderHook(() => useActiveAssistantIsPlatformHosted());
+    expect(result.current).toBe(true);
+  });
+
+  test("returns false during the loading window (no positive resolution yet)", () => {
+    // This is the critical race the helper exists to handle: settings
+    // routes are not under <ActiveAssistantGate>, so a fresh deep-link
+    // renders while lifecycle is still { kind: "loading" }. The gate
+    // returns "full" intentionally (to avoid UI flicker on chrome),
+    // but network fetches must wait for resolution.
+    setLifecycle({ kind: "loading" });
+    const { result } = renderHook(() => useActiveAssistantIsPlatformHosted());
+    expect(result.current).toBe(false);
+  });
+
+  test("returns false for kind: self_hosted", () => {
+    setLifecycle({ kind: "self_hosted" });
+    const { result } = renderHook(() => useActiveAssistantIsPlatformHosted());
+    expect(result.current).toBe(false);
+  });
+
+  test("returns false for kind: active with isLocal: true (gateway-auth short-circuit)", () => {
+    setLifecycle({ kind: "active", isLocal: true });
+    const { result } = renderHook(() => useActiveAssistantIsPlatformHosted());
+    expect(result.current).toBe(false);
+  });
+
+  test("returns false for transitional and non-hosted-resolved kinds", () => {
+    const kinds: AssistantState[] = [
+      { kind: "initializing" },
+      { kind: "cleaning_up" },
+      { kind: "retired" },
+      { kind: "awaiting_version_selection" },
+      { kind: "error", message: "boom" },
+    ];
+    for (const assistantState of kinds) {
+      setLifecycle(assistantState);
+      const { result, unmount } = renderHook(() =>
+        useActiveAssistantIsPlatformHosted(),
+      );
+      expect(result.current).toBe(false);
+      unmount();
+    }
+  });
+});
+
+describe("useActiveAssistantLifecycleIsLoading", () => {
+  test("returns true for kind: loading", () => {
+    setLifecycle({ kind: "loading" });
+    const { result } = renderHook(() =>
+      useActiveAssistantLifecycleIsLoading(),
+    );
+    expect(result.current).toBe(true);
+  });
+
+  test("returns false for kind: platform_hosted (resolved)", () => {
+    setLifecycle({ kind: "platform_hosted" });
+    const { result } = renderHook(() =>
+      useActiveAssistantLifecycleIsLoading(),
+    );
+    expect(result.current).toBe(false);
+  });
+
+  test("returns false for kind: self_hosted (resolved)", () => {
+    setLifecycle({ kind: "self_hosted" });
+    const { result } = renderHook(() =>
+      useActiveAssistantLifecycleIsLoading(),
+    );
+    expect(result.current).toBe(false);
+  });
+
+  test("returns false for kind: active (resolved)", () => {
+    setLifecycle({ kind: "active", isLocal: false });
+    const { result } = renderHook(() =>
+      useActiveAssistantLifecycleIsLoading(),
+    );
+    expect(result.current).toBe(false);
+  });
+
+  test("returns false for already-resolved non-hosted kinds", () => {
+    // This is the trap the helper exists to avoid: these states are
+    // *decided non-hosted*, not *still resolving*. UI that uses
+    // `!isPlatformHosted` as the race-window signal would treat them as
+    // resolving forever and stick on a spinner / disabled button.
+    const kinds: AssistantState[] = [
+      { kind: "retired" },
+      { kind: "awaiting_version_selection" },
+      { kind: "error", message: "boom" },
+    ];
+    for (const assistantState of kinds) {
+      setLifecycle(assistantState);
+      const { result, unmount } = renderHook(() =>
+        useActiveAssistantLifecycleIsLoading(),
+      );
+      expect(result.current).toBe(false);
+      unmount();
+    }
+  });
+
+  test("returns true for transitional kinds (initializing, cleaning_up)", () => {
+    // `initializing` / `cleaning_up` are transitional states during setup
+    // and teardown. The hosting outcome (active vs error/retired) is not yet
+    // determined. Treat as resolving until terminal.
+    const kinds: AssistantState[] = [
+      { kind: "initializing" },
+      { kind: "cleaning_up" },
+    ];
+    for (const assistantState of kinds) {
+      setLifecycle(assistantState);
+      const { result, unmount } = renderHook(() =>
+        useActiveAssistantLifecycleIsLoading(),
+      );
+      expect(result.current).toBe(true);
       unmount();
     }
   });

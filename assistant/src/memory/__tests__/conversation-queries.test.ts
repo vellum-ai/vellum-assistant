@@ -155,7 +155,7 @@ describe("countConversations", () => {
     const priv = createConversation("private-1");
     setConversationType(priv.id, "private");
 
-    expect(countConversations(true)).toBe(2);
+    expect(countConversations("background")).toBe(2);
   });
 
   test("includes standard conversations with group_id system:background in background count", () => {
@@ -170,13 +170,13 @@ describe("countConversations", () => {
     createConversation("foreground-1");
 
     // WHEN counting background conversations
-    const bgCount = countConversations(true);
+    const bgCount = countConversations("background");
 
     // THEN the heartbeat conversation is included
     expect(bgCount).toBe(1);
 
     // AND excluded from the foreground count
-    expect(countConversations(false)).toBe(1);
+    expect(countConversations("standard")).toBe(1);
   });
 
   test("excludes standard conversations with group_id system:background from foreground count", () => {
@@ -191,7 +191,18 @@ describe("countConversations", () => {
 
     // WHEN counting foreground conversations
     // THEN the heartbeat is excluded
-    expect(countConversations(false)).toBe(2);
+    expect(countConversations("standard")).toBe(2);
+  });
+
+  test('"scheduled" count returns only scheduled rows', () => {
+    // GIVEN one scheduled, one background, and one foreground conversation
+    createConversation({ title: "sched-1", conversationType: "scheduled" });
+    createConversation({ title: "bg-1", conversationType: "background" });
+    createConversation("foreground-1");
+
+    // WHEN counting scheduled conversations
+    // THEN only the scheduled row is counted (background is excluded)
+    expect(countConversations("scheduled")).toBe(1);
   });
 
   describe("archiveStatus", () => {
@@ -219,7 +230,7 @@ describe("countConversations", () => {
         a2.id,
       );
 
-      expect(countConversations(false, "archived")).toBe(2);
+      expect(countConversations("standard", "archived")).toBe(2);
     });
 
     test('archiveStatus "all" returns both', () => {
@@ -231,7 +242,7 @@ describe("countConversations", () => {
         archived.id,
       );
 
-      expect(countConversations(false, "all")).toBe(2);
+      expect(countConversations("standard", "all")).toBe(2);
     });
   });
 });
@@ -256,7 +267,7 @@ describe("listConversations", () => {
     createConversation("foreground-1");
 
     // WHEN listing background conversations
-    const bgList = listConversations(100, true);
+    const bgList = listConversations(100, "background");
 
     // THEN both background and heartbeat conversations are returned
     expect(bgList).toHaveLength(2);
@@ -277,7 +288,7 @@ describe("listConversations", () => {
     createConversation("foreground-1");
 
     // WHEN listing foreground conversations
-    const fgList = listConversations(100, false);
+    const fgList = listConversations(100, "standard");
 
     // THEN only the foreground conversation is returned
     expect(fgList).toHaveLength(1);
@@ -293,15 +304,67 @@ describe("listConversations", () => {
     );
 
     // WHEN listing background conversations
-    const bgList = listConversations(100, true);
+    const bgList = listConversations(100, "background");
 
     // THEN it appears in the background list
     expect(bgList).toHaveLength(1);
     expect(bgList[0]!.title).toBe("schedule-routed");
 
     // AND not in the foreground list
-    const fgList = listConversations(100, false);
+    const fgList = listConversations(100, "standard");
     expect(fgList).toHaveLength(0);
+  });
+
+  test('"scheduled" fetch returns only scheduled rows and excludes plain background', () => {
+    // GIVEN a scheduled conversation, a background conversation, and a foreground one
+    createConversation({ title: "sched-1", conversationType: "scheduled" });
+    createConversation({ title: "bg-1", conversationType: "background" });
+    createConversation("foreground-1");
+
+    // WHEN listing scheduled conversations
+    const scheduledList = listConversations(100, "scheduled");
+
+    // THEN only the scheduled conversation is returned
+    expect(scheduledList).toHaveLength(1);
+    expect(scheduledList[0]!.title).toBe("sched-1");
+  });
+
+  test('"scheduled" fetch includes standard rows routed to group_id system:scheduled but not system:background', () => {
+    // GIVEN a standard conversation routed to system:scheduled
+    const scheduledRouted = createConversation("schedule-routed");
+    rawRun(
+      "UPDATE conversations SET group_id = 'system:scheduled' WHERE id = ?",
+      scheduledRouted.id,
+    );
+
+    // AND a standard conversation routed to system:background
+    const backgroundRouted = createConversation("background-routed");
+    rawRun(
+      "UPDATE conversations SET group_id = 'system:background' WHERE id = ?",
+      backgroundRouted.id,
+    );
+
+    // WHEN listing scheduled conversations
+    const scheduledList = listConversations(100, "scheduled");
+
+    // THEN only the system:scheduled row appears
+    expect(scheduledList).toHaveLength(1);
+    expect(scheduledList[0]!.title).toBe("schedule-routed");
+  });
+
+  test('"scheduled" fetch excludes subagent runs', () => {
+    // GIVEN a scheduled conversation produced by a subagent
+    createConversation({
+      title: "subagent-sched",
+      conversationType: "scheduled",
+      source: "subagent",
+    });
+
+    // WHEN listing scheduled conversations
+    const scheduledList = listConversations(100, "scheduled");
+
+    // THEN the subagent run is excluded
+    expect(scheduledList).toHaveLength(0);
   });
 
   describe("archiveStatus", () => {
@@ -316,7 +379,7 @@ describe("listConversations", () => {
       );
 
       // WHEN listing without an explicit archiveStatus
-      const rows = listConversations(100, false);
+      const rows = listConversations(100, "standard");
 
       // THEN only the live conversation appears
       expect(rows).toHaveLength(1);
@@ -334,7 +397,7 @@ describe("listConversations", () => {
       );
 
       // WHEN listing with archiveStatus "archived"
-      const rows = listConversations(100, false, 0, "archived");
+      const rows = listConversations(100, "standard", 0, "archived");
 
       // THEN only the archived conversation appears
       expect(rows).toHaveLength(1);
@@ -352,7 +415,7 @@ describe("listConversations", () => {
       );
 
       // WHEN listing with archiveStatus "all"
-      const rows = listConversations(100, false, 0, "all");
+      const rows = listConversations(100, "standard", 0, "all");
 
       // THEN both conversations appear
       expect(rows).toHaveLength(2);
@@ -376,7 +439,7 @@ describe("listConversations", () => {
       );
 
       // WHEN listing archived background conversations
-      const rows = listConversations(100, true, 0, "archived");
+      const rows = listConversations(100, "background", 0, "archived");
 
       // THEN only the archived background row appears
       expect(rows).toHaveLength(1);
