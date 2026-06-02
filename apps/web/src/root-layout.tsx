@@ -81,7 +81,7 @@ export function RootLayout() {
   useFeatureFlagBusSync(assistantId, isAssistantActive);
   useNotificationIntentSync(assistantId);
   useDocumentEditorSync();
-  useAppPreviewSync();
+  useAppPreviewSync({ assistantId, isAssistantActive, isMobile });
 
   useEventBusInit({ assistantId, isAssistantActive });
   // Inbound deep-link navigation + window activation. Mounted here

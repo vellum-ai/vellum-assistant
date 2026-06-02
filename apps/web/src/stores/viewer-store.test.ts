@@ -1,4 +1,18 @@
-import { beforeEach, describe, it, expect } from "bun:test";
+import { beforeEach, describe, it, expect, mock } from "bun:test";
+
+// `revealAppForBuild`/`loadApp` fire `appsByIdOpenPost` to fetch the first
+// frame. Mock the daemon SDK so the network call resolves in-process —
+// the synchronous view transition (the part under test) lands before the
+// resolved fetch settles, and the mock prevents an unhandled rejection.
+// Bun's `mock.module` leaks across files, so run this file on its own
+// (`bun test src/stores/viewer-store.test.ts`) per apps/web testing notes.
+mock.module("@/generated/daemon/sdk.gen", () => ({
+  appsByIdOpenPost: () =>
+    Promise.resolve({
+      data: { appId: "app-1", dirName: "my-app", name: "My App", html: "<h1>App</h1>" },
+    }),
+  documentsByIdGet: () => Promise.resolve({ data: null }),
+}));
 
 import {
   isAppNotFoundError,
@@ -275,6 +289,85 @@ describe("closeApp", () => {
     expect(state.activeAppId).toBeNull();
     expect(state.openedAppState).toBeNull();
     expect(state.isAppMinimized).toBe(false);
+  });
+});
+
+describe("closeApp build dismissal", () => {
+  it("records the closed app as dismissed for the current build", () => {
+    useViewerStore.setState({ mainView: "app-editing", activeAppId: "app-1" });
+    getState().closeApp();
+    expect(getState().dismissedBuildAppId).toBe("app-1");
+  });
+
+  it("re-opening an app clears its stale dismissal (openApp/loadApp)", () => {
+    useViewerStore.setState({ dismissedBuildAppId: "app-1" });
+    getState().openApp("app-1");
+    expect(getState().dismissedBuildAppId).toBeNull();
+  });
+});
+
+describe("clearBuildDismissal", () => {
+  it("clears the flag when the appId matches", () => {
+    useViewerStore.setState({ dismissedBuildAppId: "app-1" });
+    getState().clearBuildDismissal("app-1");
+    expect(getState().dismissedBuildAppId).toBeNull();
+  });
+
+  it("is a no-op when the appId does not match", () => {
+    useViewerStore.setState({ dismissedBuildAppId: "app-1" });
+    getState().clearBuildDismissal("app-2");
+    expect(getState().dismissedBuildAppId).toBe("app-1");
+  });
+});
+
+describe("revealAppForBuild", () => {
+  it("opens the app-editing split-view and sets activeAppId for a not-open app", () => {
+    getState().revealAppForBuild("assistant-1", "app-1");
+    const state = getState();
+    expect(state.mainView).toBe("app-editing");
+    expect(state.activeAppId).toBe("app-1");
+    expect(state.isAppMinimized).toBe(false);
+  });
+
+  it("does not disrupt an app the user is already viewing (app view)", () => {
+    useViewerStore.setState({
+      mainView: "app",
+      activeAppId: "app-1",
+      openedAppState: SAMPLE_APP,
+    });
+    getState().revealAppForBuild("assistant-1", "app-1");
+    const state = getState();
+    // Stays in the full-width app view — not yanked into the split.
+    expect(state.mainView).toBe("app");
+    expect(state.openedAppState).toBe(SAMPLE_APP);
+  });
+
+  it("does not disrupt an app the user is already editing (app-editing view)", () => {
+    useViewerStore.setState({
+      mainView: "app-editing",
+      activeAppId: "app-1",
+      openedAppState: SAMPLE_APP,
+    });
+    getState().revealAppForBuild("assistant-1", "app-1");
+    expect(getState().mainView).toBe("app-editing");
+    expect(getState().openedAppState).toBe(SAMPLE_APP);
+  });
+
+  it("does not re-open an app the user dismissed during the current build", () => {
+    useViewerStore.setState({ mainView: "chat", dismissedBuildAppId: "app-1" });
+    getState().revealAppForBuild("assistant-1", "app-1");
+    const state = getState();
+    expect(state.mainView).toBe("chat");
+    expect(state.activeAppId).toBeNull();
+  });
+
+  it("opens despite a dismissal recorded for a DIFFERENT app", () => {
+    useViewerStore.setState({ mainView: "chat", dismissedBuildAppId: "app-2" });
+    getState().revealAppForBuild("assistant-1", "app-1");
+    expect(getState().mainView).toBe("app-editing");
+    expect(getState().activeAppId).toBe("app-1");
+    // The other app's dismissal is untouched.
+    expect(getState().dismissedBuildAppId).toBe("app-2");
   });
 });
 
