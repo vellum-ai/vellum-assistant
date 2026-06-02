@@ -1,20 +1,29 @@
 /**
  * Compiler for multi-file TSX apps.
  *
- * Compiles src/main.tsx -> dist/main.js via esbuild's JS API using a warm,
- * incremental build context cached per app directory, then copies index.html
- * with script/style tag injection. Reusing the context lets esbuild keep its
- * module graph hot, so recompiles on source edits are typically sub-second.
+ * Compiles src/main.tsx -> dist/main.js, then copies index.html with
+ * script/style tag injection. Two compile paths exist, selected once per
+ * process via a one-time probe (see loadEsbuild + compileBundle):
+ *
+ * 1. Warm JS-API fast path (cloud/Docker, `bun run`). esbuild's JS API drives
+ *    a warm, incremental build context cached per app directory; reusing the
+ *    context keeps esbuild's module graph hot, so recompiles on source edits
+ *    are typically sub-second. This is the spike's target and the default.
+ *
+ * 2. Native-CLI fallback (compiled macOS `.app`). The esbuild JS package may
+ *    not be resolvable inside bun --compile's /$bunfs/ — the .app's
+ *    node_modules is stripped and only the platform-native @esbuild/* binary is
+ *    staged on disk by ensureCompilerTools(). When `import("esbuild")` cannot
+ *    resolve, we transparently fall back to spawning the on-disk esbuild native
+ *    binary (tools.esbuildBin) and parse its stderr into the same
+ *    CompileResult/CompileDiagnostic shape. This path has no warm context but
+ *    is proven to work in the compiled binary.
  *
  * esbuild reads ESBUILD_BINARY_PATH at module init and otherwise resolves its
- * native binary relative to its package — a path that does not exist inside
- * bun --compile's /$bunfs/. To work in both `bun run` and compiled-binary
- * modes, the esbuild JS API is imported lazily via loadEsbuild(): only after
- * ensureCompilerTools() has produced the on-disk binary and we have set
- * ESBUILD_BINARY_PATH to it, so esbuild snapshots the correct path. The module
- * is also marked external in the macOS compiled-binary build (see
- * clients/macos/build.sh) so its JS + platform native packages are resolved
- * from disk rather than bundled into /$bunfs/.
+ * native binary relative to its package, so the JS API is imported lazily via
+ * loadEsbuild() — only after ensureCompilerTools() has produced the on-disk
+ * binary and we have set ESBUILD_BINARY_PATH to it, so esbuild snapshots the
+ * correct path.
  */
 
 import { existsSync, rmSync } from "node:fs";
@@ -60,6 +69,50 @@ function toDiagnostic(message: esbuild.Message): CompileDiagnostic {
     };
   }
   return diag;
+}
+
+/**
+ * Parse esbuild CLI stderr into structured diagnostics matching the JS API's
+ * CompileDiagnostic shape. Used by the native-CLI fallback path. esbuild
+ * outputs errors like:
+ *   ✘ [ERROR] Could not resolve "foo"
+ *       src/main.tsx:3:7:
+ */
+function parseEsbuildStderr(stderr: string): {
+  errors: CompileDiagnostic[];
+  warnings: CompileDiagnostic[];
+} {
+  const errors: CompileDiagnostic[] = [];
+  const warnings: CompileDiagnostic[] = [];
+  const lines = stderr.split("\n");
+
+  for (let i = 0; i < lines.length; i++) {
+    const errorMatch = lines[i].match(/✘ \[ERROR\] (.+)/);
+    const warnMatch = lines[i].match(/▲ \[WARNING\] (.+)/);
+
+    if (errorMatch || warnMatch) {
+      const text = (errorMatch ?? warnMatch)![1];
+      const diag: CompileDiagnostic = { text };
+
+      // Next non-empty line may have location: "    file:line:col:"
+      const locLine = lines[i + 1]?.trim();
+      if (locLine) {
+        const locMatch = locLine.match(/^(.+):(\d+):(\d+):?$/);
+        if (locMatch) {
+          diag.location = {
+            file: locMatch[1],
+            line: parseInt(locMatch[2], 10),
+            column: parseInt(locMatch[3], 10),
+          };
+        }
+      }
+
+      if (errorMatch) errors.push(diag);
+      else warnings.push(diag);
+    }
+  }
+
+  return { errors, warnings };
 }
 
 /**
@@ -343,16 +396,59 @@ function contextKey(entryPoints: string[], nodePaths: string[]): string {
 let esbuildModule: typeof esbuild | undefined;
 
 /**
+ * Whether the esbuild JS API has been probed and found unavailable this
+ * process (true in the compiled macOS binary, where the esbuild JS package is
+ * not on disk). Once unavailable, every compile uses the native-CLI fallback
+ * and we never re-probe the import.
+ */
+let esbuildApiUnavailable = false;
+
+/**
+ * Test-only hook: replace the esbuild JS-API loader. Returning null simulates
+ * the compiled-binary environment where `import("esbuild")` cannot resolve,
+ * forcing the native-CLI fallback. `undefined` (the default) uses the real
+ * dynamic import.
+ */
+let esbuildLoaderOverride:
+  | ((esbuildBin: string) => Promise<typeof esbuild | null>)
+  | undefined;
+
+/** Exposed for tests: force the esbuild JS-API loader (or reset with null). */
+export function __setEsbuildLoaderOverride(
+  loader: ((esbuildBin: string) => Promise<typeof esbuild | null>) | null,
+): void {
+  esbuildLoaderOverride = loader ?? undefined;
+  esbuildModule = undefined;
+  esbuildApiUnavailable = false;
+}
+
+/**
  * Point ESBUILD_BINARY_PATH at the on-disk binary, then lazily import (and
  * cache) the esbuild JS API. esbuild snapshots the binary path at module init,
  * so the env var must be set before the first import — which is why the import
  * is deferred to here rather than top-level. `esbuildBin` must be the resolved
  * binary path from ensureCompilerTools().
+ *
+ * Returns null (not throwing) when the JS package cannot be resolved — e.g. in
+ * the compiled macOS binary, whose stripped node_modules lack esbuild/lib/main.
+ * The caller then falls back to spawning the native CLI binary. A genuine
+ * compile failure surfaces later via ctx.rebuild() rejecting, NOT here.
  */
-async function loadEsbuild(esbuildBin: string): Promise<typeof esbuild> {
+async function loadEsbuild(esbuildBin: string): Promise<typeof esbuild | null> {
+  if (esbuildApiUnavailable) return null;
+  if (esbuildModule) return esbuildModule;
+
+  process.env.ESBUILD_BINARY_PATH = esbuildBin;
+  try {
+    esbuildModule = esbuildLoaderOverride
+      ? ((await esbuildLoaderOverride(esbuildBin)) ?? undefined)
+      : await import("esbuild");
+  } catch (err) {
+    log.info({ err }, "esbuild JS API unavailable; using native CLI fallback");
+  }
   if (!esbuildModule) {
-    process.env.ESBUILD_BINARY_PATH = esbuildBin;
-    esbuildModule = await import("esbuild");
+    esbuildApiUnavailable = true;
+    return null;
   }
   return esbuildModule;
 }
@@ -422,6 +518,131 @@ export async function disposeAppCompilerContexts(): Promise<void> {
       }),
     ),
   );
+}
+
+/** Diagnostics produced by a bundle step; non-empty errors = build failed. */
+interface BundleDiagnostics {
+  errors: CompileDiagnostic[];
+  warnings: CompileDiagnostic[];
+}
+
+/**
+ * Run the bundle step, preferring the warm esbuild JS-API context and falling
+ * back to spawning the native CLI binary when the JS API can't be resolved
+ * (compiled macOS binary). The fallback decision is cached per process via
+ * loadEsbuild, so the import is probed at most once.
+ */
+async function compileBundle(
+  esbuildBin: string,
+  appDir: string,
+  entryPoint: string,
+  distDir: string,
+  nodePaths: string[],
+): Promise<BundleDiagnostics> {
+  const esbuildApi = await loadEsbuild(esbuildBin);
+  if (esbuildApi) {
+    return compileWithEsbuildApi(
+      esbuildApi,
+      appDir,
+      entryPoint,
+      distDir,
+      nodePaths,
+    );
+  }
+  return compileWithCli(esbuildBin, appDir, entryPoint, distDir, nodePaths);
+}
+
+/**
+ * Fast path: bundle via the warm, incremental esbuild JS-API context.
+ *
+ * ctx.rebuild() resolves with an empty errors array on success and rejects
+ * with a BuildFailure carrying errors/warnings on failure. A rejection here is
+ * a genuine compile error (NOT a missing JS API — that is handled earlier by
+ * loadEsbuild returning null), so it must not trigger the CLI fallback.
+ */
+async function compileWithEsbuildApi(
+  esbuildApi: typeof esbuild,
+  appDir: string,
+  entryPoint: string,
+  distDir: string,
+  nodePaths: string[],
+): Promise<BundleDiagnostics> {
+  try {
+    const ctx = await getOrCreateContext(
+      esbuildApi,
+      appDir,
+      [entryPoint],
+      distDir,
+      nodePaths,
+    );
+    const result = await ctx.rebuild();
+    return { errors: [], warnings: result.warnings.map(toDiagnostic) };
+  } catch (err) {
+    const failure = err as Partial<esbuild.BuildFailure>;
+    const errors = (failure.errors ?? []).map(toDiagnostic);
+    const warnings = (failure.warnings ?? []).map(toDiagnostic);
+    if (errors.length === 0) {
+      errors.push({ text: err instanceof Error ? err.message : String(err) });
+    }
+    return { errors, warnings };
+  }
+}
+
+/**
+ * Fallback path: bundle by spawning the on-disk esbuild native binary.
+ *
+ * Used in the compiled macOS binary, where the esbuild JS package is absent
+ * from /$bunfs/. Has no warm context, but produces output and diagnostics
+ * identical to the JS-API path (stderr parsed via parseEsbuildStderr).
+ */
+async function compileWithCli(
+  esbuildBin: string,
+  appDir: string,
+  entryPoint: string,
+  distDir: string,
+  nodePaths: string[],
+): Promise<BundleDiagnostics> {
+  const args = [
+    entryPoint,
+    "--bundle",
+    "--minify",
+    `--outdir=${distDir}`,
+    "--format=esm",
+    "--target=es2022",
+    "--jsx=automatic",
+    "--jsx-import-source=preact",
+    "--alias:react=preact/compat",
+    "--alias:react-dom=preact/compat",
+    "--loader:.tsx=tsx",
+    "--loader:.ts=ts",
+    "--loader:.jsx=jsx",
+    "--loader:.js=js",
+    "--loader:.css=css",
+    "--log-level=warning",
+  ];
+
+  const proc = Bun.spawn({
+    cmd: [esbuildBin, ...args],
+    cwd: appDir,
+    stdout: "pipe",
+    stderr: "pipe",
+    env: { ...process.env, NODE_PATH: nodePaths.join(":") },
+  });
+
+  await proc.exited;
+  const stderr = await new Response(proc.stderr).text();
+
+  if (proc.exitCode === 0) {
+    // Success: esbuild only emits warnings (if any) to stderr at this level.
+    return { errors: [], warnings: parseEsbuildStderr(stderr).warnings };
+  }
+
+  const { errors, warnings } = parseEsbuildStderr(stderr);
+  // If parsing found nothing structured, surface the raw stderr.
+  if (errors.length === 0 && stderr.trim()) {
+    errors.push({ text: stderr.trim() });
+  }
+  return { errors, warnings };
 }
 
 /**
@@ -537,32 +758,21 @@ async function runCompile(appDir: string): Promise<CompileResult> {
     existsSync(p),
   );
 
-  // esbuild's rebuild() resolves with an empty errors array on success and
-  // rejects with a BuildFailure carrying errors/warnings on failure.
-  let result: esbuild.BuildResult;
-  try {
-    const esbuildApi = await loadEsbuild(tools.esbuildBin);
-    const ctx = await getOrCreateContext(
-      esbuildApi,
-      appDir,
-      [entryPoint],
-      distDir,
-      nodePaths,
-    );
-    result = await ctx.rebuild();
-  } catch (err) {
+  // Run the actual bundle via the warm JS API (cloud) or the native CLI
+  // fallback (compiled binary). Both return the same diagnostic shape; a
+  // non-empty errors array means the build failed.
+  const { errors, warnings } = await compileBundle(
+    tools.esbuildBin,
+    appDir,
+    entryPoint,
+    distDir,
+    nodePaths,
+  );
+  if (errors.length > 0) {
     const durationMs = Math.round(performance.now() - start);
-    const failure = err as Partial<esbuild.BuildFailure>;
-    const errors = (failure.errors ?? []).map(toDiagnostic);
-    const warnings = (failure.warnings ?? []).map(toDiagnostic);
-    if (errors.length === 0) {
-      errors.push({ text: err instanceof Error ? err.message : String(err) });
-    }
     log.info({ durationMs, errorCount: errors.length }, "Build failed");
     return { ok: false, errors, warnings, durationMs };
   }
-
-  const warnings = result.warnings.map(toDiagnostic);
 
   // Copy index.html and inject script/style tags
   const htmlSrc = join(srcDir, "index.html");

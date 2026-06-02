@@ -96,8 +96,9 @@ export async function runAppLiveBuild(
     if (update.compileStatus !== "building") deps.onSettled();
   };
 
-  // Show a building overlay immediately without blanking the preview. No
-  // surface refresh: a building status must not bump the reload generation.
+  // Signal that a rebuild is in flight while keeping the last-good preview
+  // visible. No surface refresh: a building status must not bump the reload
+  // generation.
   broadcastUpdate({
     html: lastGoodHtml,
     compileStatus: "building",
