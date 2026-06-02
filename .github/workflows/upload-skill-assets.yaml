@@ -25,6 +25,9 @@ jobs:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
 
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@e30db14379863a8c79331b04a9969f4c1e225e0b # v2.1.4
+
       - name: Upload skill icons to GCS
         env:
           BUCKET: ${{ vars.GCS_SKILL_ASSETS_BUCKET }}
