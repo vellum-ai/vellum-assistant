@@ -6,8 +6,8 @@ import {
   mock,
   test,
 } from "bun:test";
-import { act, cleanup, renderHook } from "@testing-library/react";
-import { type ReactNode } from "react";
+import { act, cleanup, renderHook, screen } from "@testing-library/react";
+import { type ReactElement, type ReactNode } from "react";
 import { MemoryRouter, useLocation } from "react-router";
 
 // `mock.module` is safe for `use-is-mobile` because it's a pure
@@ -52,14 +52,14 @@ const CONV_ID = "conv-edit";
 const LIBRARY_PATH = "/assistant/library/app-42";
 const CONVERSATION_PATH = `/assistant/conversations/${CONV_ID}`;
 
-// Records the router's current path so tests can assert navigation without
-// reaching into router internals. A mutable container (rather than a bare
-// reassigned variable) keeps the probe a pure render with no outer-scope
-// reassignment.
-const router = { path: "" };
-function LocationProbe(): null {
-  router.path = useLocation().pathname;
-  return null;
+// Renders the router's current path into the DOM so tests can assert
+// navigation via `screen` without reaching into router internals.
+function LocationProbe(): ReactElement {
+  const { pathname } = useLocation();
+  return <span data-testid="pathname">{pathname}</span>;
+}
+function currentPath(): string | null {
+  return screen.getByTestId("pathname").textContent;
 }
 function wrapperAt(initialPath: string) {
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -79,7 +79,6 @@ beforeEach(() => {
   selectionSnapshot = useAssistantSelectionStore.getState();
 
   mobileRef.current = false;
-  router.path = "";
   openAppMock.mockReset();
   setLoadedAppMock.mockReset();
   enterAppEditingMock.mockReset();
@@ -126,7 +125,7 @@ describe("useEditApp", () => {
     expect(openAppMock).not.toHaveBeenCalled();
     expect(setEditingConversationIdMock).not.toHaveBeenCalled();
     expect(enterAppEditingMock).not.toHaveBeenCalled();
-    expect(router.path).toBe(LIBRARY_PATH);
+    expect(currentPath()).toBe(LIBRARY_PATH);
   });
 
   test("loads the app into the viewer and opens the split edit view on desktop", () => {
@@ -142,7 +141,7 @@ describe("useEditApp", () => {
     expect(setLoadedAppMock).toHaveBeenCalledWith(APP);
     expect(setEditingConversationIdMock).toHaveBeenCalledWith(CONV_ID);
     expect(enterAppEditingMock).toHaveBeenCalledTimes(1);
-    expect(router.path).toBe(routes.conversation(CONV_ID));
+    expect(currentPath()).toBe(routes.conversation(CONV_ID));
   });
 
   test("on a mobile viewport, binds the edit conversation and navigates but stays full-screen (no split)", () => {
@@ -155,7 +154,7 @@ describe("useEditApp", () => {
 
     // THEN the edit conversation is still bound and we navigate to it...
     expect(setEditingConversationIdMock).toHaveBeenCalledWith(CONV_ID);
-    expect(router.path).toBe(routes.conversation(CONV_ID));
+    expect(currentPath()).toBe(routes.conversation(CONV_ID));
     // ...but the viewer is not upgraded to the split edit view
     expect(enterAppEditingMock).not.toHaveBeenCalled();
   });
@@ -172,7 +171,7 @@ describe("useEditApp", () => {
     expect(openAppMock).not.toHaveBeenCalled();
     expect(setLoadedAppMock).not.toHaveBeenCalled();
     expect(enterAppEditingMock).toHaveBeenCalledTimes(1);
-    expect(router.path).toBe(routes.conversation(CONV_ID));
+    expect(currentPath()).toBe(routes.conversation(CONV_ID));
   });
 
   test("navigates to the edit conversation from an off-chat route even when its id is already the active conversation", () => {
@@ -187,7 +186,7 @@ describe("useEditApp", () => {
 
     // THEN we still navigate to the conversation so the split view appears
     expect(enterAppEditingMock).toHaveBeenCalledTimes(1);
-    expect(router.path).toBe(CONVERSATION_PATH);
+    expect(currentPath()).toBe(CONVERSATION_PATH);
   });
 
   test("skips redundant navigation when already on the edit conversation route", () => {
@@ -202,6 +201,6 @@ describe("useEditApp", () => {
 
     // THEN the split view still opens but the path is unchanged
     expect(enterAppEditingMock).toHaveBeenCalledTimes(1);
-    expect(router.path).toBe(CONVERSATION_PATH);
+    expect(currentPath()).toBe(CONVERSATION_PATH);
   });
 });
