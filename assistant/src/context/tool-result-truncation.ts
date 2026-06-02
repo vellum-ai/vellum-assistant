@@ -6,29 +6,6 @@ import type {
 } from "../providers/types.js";
 
 /**
- * Maximum share of the context window that a single tool result may occupy.
- */
-const MAX_TOOL_RESULT_CONTEXT_SHARE = 0.3;
-
-/**
- * Absolute cap on tool-result characters (~100K tokens).
- */
-export const HARD_MAX_TOOL_RESULT_CHARS = 400_000;
-
-/**
- * Calculate the maximum allowed characters for a tool result based on the
- * context window size. Uses ~4 chars per token as a rough heuristic.
- */
-export function calculateMaxToolResultChars(
-  contextWindowTokens: number,
-): number {
-  return Math.min(
-    HARD_MAX_TOOL_RESULT_CHARS,
-    Math.floor(contextWindowTokens * MAX_TOOL_RESULT_CONTEXT_SHARE * 4),
-  );
-}
-
-/**
  * Aggressively truncate all tool-result text across an entire message history.
  *
  * Walks every message and truncates tool_result `.content` strings that

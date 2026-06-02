@@ -51,6 +51,7 @@ my-plugin/
 │   ├── init.ts                # Bootstrap
 │   ├── shutdown.ts            # Teardown
 │   ├── user-prompt-submit.ts  # Per-turn message-list transform
+│   ├── post-tool-use.ts       # Per-tool-result transform
 │   └── <future-hook>.ts       # Forward-compat slot
 ├── tools/
 │   ├── my_tool.ts             # Default export = tool definition
@@ -206,6 +207,34 @@ The hook fires **exactly once per user turn**, at the primary
 `agentLoop.run()` call site. The re-entry / retry / overflow-recovery
 sites further down in the conversation agent loop deliberately do
 **not** refire: they're not new user submissions.
+
+### `post-tool-use`
+
+Fires once per tool result, **after** the tool returns and
+**immediately before** the result joins the message history sent to the
+provider. When several tools run in one turn, the hook fires once per
+result, in tool-use order.
+
+```ts
+// hooks/post-tool-use.ts
+import type { PostToolUseContext } from "@vellumai/plugin-api";
+
+// In-place mutation style (return void):
+export default async function postToolUse(
+  ctx: PostToolUseContext,
+): Promise<void> {
+  // ctx.conversationId — ID of the conversation the tool ran on
+  // ctx.toolResponse   — the tool result block; mutate `.content` to transform
+  // ctx.maxInputTokens — model context window; derive a char budget as needed
+  // ctx.logger         — turn-scoped; tag your log fields with { plugin: <name> }
+}
+```
+
+Multiple plugins' hooks chain in registration order — each plugin sees
+the previous plugin's mutations. The default `tool-result-truncate`
+plugin contributes a hook here that tail-drops oversized output to fit
+the context window; because defaults register first, it runs ahead of
+user hooks.
 
 ### Forward-compatible hooks
 

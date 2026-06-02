@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import type {
   AgentEvent,
@@ -6,6 +6,7 @@ import type {
   CheckpointInfo,
 } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
+import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import type {
   ContentBlock,
   Message,
@@ -112,6 +113,13 @@ function collectEvents(events: AgentEvent[]): (event: AgentEvent) => void {
 // ---------------------------------------------------------------------------
 
 describe("AgentLoop", () => {
+  // The agent loop fires the `post-tool-use` hook for tool-result
+  // truncation, which only runs when the default plugin is registered.
+  // Register the defaults so the loop behaves as it does in production.
+  beforeEach(() => {
+    resetPluginRegistryAndRegisterDefaults();
+  });
+
   // 1. Basic text response
   test("returns history with assistant message for simple text response", async () => {
     const { provider } = createMockProvider([textResponse("Hi there!")]);

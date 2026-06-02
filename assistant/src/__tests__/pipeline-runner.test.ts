@@ -555,7 +555,6 @@ describe("DEFAULT_TIMEOUTS", () => {
       overflowReduce: null,
       persistence: null,
       titleGenerate: null,
-      toolResultTruncate: null,
       emptyResponse: null,
       toolError: null,
       circuitBreaker: null,

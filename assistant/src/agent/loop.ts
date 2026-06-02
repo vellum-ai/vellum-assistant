@@ -6,19 +6,15 @@ import {
   estimateToolsTokens,
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
-import { calculateMaxToolResultChars } from "../context/tool-result-truncation.js";
 import type { ContextWindowResult } from "../context/window-manager.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
+import { HOOKS } from "../plugin-api/constants.js";
+import type { PostToolUseContext } from "../plugin-api/types.js";
 import { defaultCompactionTerminal } from "../plugins/defaults/compaction/terminal.js";
 import { defaultEmptyResponseTerminal } from "../plugins/defaults/empty-response/terminal.js";
 import { defaultTokenEstimateTerminal } from "../plugins/defaults/token-estimate/terminal.js";
 import { defaultToolErrorTerminal } from "../plugins/defaults/tool-error/terminal.js";
-import { defaultToolResultTruncateTerminal } from "../plugins/defaults/tool-result-truncate/terminal.js";
-import type {
-  ToolResultTruncateArgs,
-  ToolResultTruncateResult,
-} from "../plugins/defaults/tool-result-truncate/types.js";
-import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
+import { DEFAULT_TIMEOUTS, runHook, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
   CompactionArgs,
@@ -1464,59 +1460,30 @@ export class AgentLoop {
           }),
         );
 
-        // Pre-emptively truncate oversized tool results to prevent context
-        // overflow. The work is delegated to the `toolResultTruncate`
-        // plugin pipeline so downstream plugins can swap in a smarter
-        // truncation strategy (e.g. a summariser) while the default
-        // middleware preserves the historical tail-drop behaviour.
+        // Run the `post-tool-use` hook once per tool result, after the tool
+        // returns and before the result joins the provider-bound history.
+        // The default tool-result-truncate plugin tail-drops oversized output
+        // to fit the context window; user hooks can swap in a smarter strategy
+        // (e.g. a summariser) or observe results for side effects.
         const contextWindowTokens =
           resolveContextWindow?.().maxInputTokens ??
           this.config.maxInputTokens ??
           180_000;
-        const maxChars = calculateMaxToolResultChars(contextWindowTokens);
-        const truncateMiddlewares = getMiddlewaresFor("toolResultTruncate");
 
-        let truncatedCount = 0;
-        const truncatedBlocks: ContentBlock[] = [];
+        const resultBlocks: ContentBlock[] = [];
         for (const block of rawResultBlocks) {
           if (block.type !== "tool_result") {
-            truncatedBlocks.push(block);
+            resultBlocks.push(block);
             continue;
           }
-          const toolBlock = block as ToolResultContent;
-          if (
-            typeof toolBlock.content !== "string" ||
-            toolBlock.content.length <= maxChars
-          ) {
-            truncatedBlocks.push(block);
-            continue;
-          }
-          const pipelineResult = await runPipeline<
-            ToolResultTruncateArgs,
-            ToolResultTruncateResult
-          >(
-            "toolResultTruncate",
-            truncateMiddlewares,
-            async (args) => defaultToolResultTruncateTerminal(args),
-            { content: toolBlock.content, maxChars },
-            turnCtx,
-            DEFAULT_TIMEOUTS.toolResultTruncate,
-          );
-          if (pipelineResult.truncated) {
-            truncatedCount++;
-            truncatedBlocks.push({
-              ...toolBlock,
-              content: pipelineResult.content,
-            });
-          } else {
-            truncatedBlocks.push(block);
-          }
-        }
-        const resultBlocks = truncatedBlocks;
-        if (truncatedCount > 0) {
-          log.warn(
-            `Truncated ${truncatedCount} oversized tool result(s) to prevent context overflow`,
-          );
+          const postToolUseCtx: PostToolUseContext = {
+            conversationId: turnCtx.conversationId,
+            toolResponse: block as ToolResultContent,
+            maxInputTokens: contextWindowTokens,
+            logger: rlog,
+          };
+          const finalCtx = await runHook(HOOKS.POST_TOOL_USE, postToolUseCtx);
+          resultBlocks.push(finalCtx.toolResponse);
         }
 
         // Emit tool_result events AFTER truncation so downstream consumers
