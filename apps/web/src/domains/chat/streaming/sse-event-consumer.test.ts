@@ -43,13 +43,13 @@ const makeEnvelope = (override: {
 
 const makeDeps = (override: {
   activeConversationId?: string | null;
-  reconcileActive?: () => void;
+  reconcileActive?: () => Promise<unknown>;
   handleStreamEvent?: (event: AssistantEvent, epoch: number) => void;
 } = {}) => {
   const activeConversationIdRef = {
     current: override.activeConversationId ?? "conv-1",
   };
-  const reconcileActive = override.reconcileActive ?? mock(() => {});
+  const reconcileActive = override.reconcileActive ?? mock(() => Promise.resolve());
   const handleStreamEvent = override.handleStreamEvent ?? mock(() => {});
   return {
     activeConversationIdRef,
@@ -211,9 +211,12 @@ describe("sse-event-consumer — seq-gap detection", () => {
     expect(seqStore.get("conv-1")).toBe(6);
   });
 
-  test("gap (seq > stored + 1) triggers reconcile and skips cursor advancement", () => {
+  test("gap (seq > stored + 1) triggers reconcile, cursor advances only after resolve", async () => {
     seqStore.set("conv-1", 5);
-    const { deps, reconcileActive } = makeDeps();
+    let resolveReconcile!: () => void;
+    const reconcilePromise = new Promise<void>((r) => { resolveReconcile = r; });
+    const reconcileActive = mock(() => reconcilePromise);
+    const { deps } = makeDeps({ reconcileActive });
     const consumer = createSseEventConsumer(deps);
 
     // Seed the cursor.
@@ -240,10 +243,119 @@ describe("sse-event-consumer — seq-gap detection", () => {
     );
 
     expect(reconcileActive).toHaveBeenCalledTimes(1);
-    expect(seqStore.get("conv-1")).toBe(10); // Cursor replaced to current event — prevents re-triggering on every subsequent event.
+    // Cursor stays pinned while reconcile is in-flight.
+    expect(seqStore.get("conv-1")).toBe(5);
+
+    // Resolve the reconcile — cursor should advance.
+    resolveReconcile();
+    await reconcilePromise;
+    // Let microtask (.then) run.
+    await Promise.resolve();
+    expect(seqStore.get("conv-1")).toBe(10);
   });
 
-  test("counter-reset (seq < stored) replaces the cursor and reconciles", () => {
+  test("gap reconcile failure leaves cursor pinned for retry", async () => {
+    seqStore.set("conv-1", 5);
+    let rejectReconcile!: () => void;
+    const reconcilePromise = new Promise<void>((_, rej) => { rejectReconcile = rej; });
+    const reconcileActive = mock(() => reconcilePromise);
+    const { deps } = makeDeps({ reconcileActive });
+    const consumer = createSseEventConsumer(deps);
+
+    // Seed.
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 5,
+        message: { type: "assistant_text_delta", text: "a" },
+      }),
+    );
+    // Gap.
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 10,
+        message: { type: "assistant_text_delta", text: "b" },
+      }),
+    );
+
+    expect(reconcileActive).toHaveBeenCalledTimes(1);
+    expect(seqStore.get("conv-1")).toBe(5); // Pinned.
+
+    // Reject the reconcile.
+    rejectReconcile();
+    await reconcilePromise.catch(() => {});
+    await Promise.resolve();
+    // Cursor still pinned — next event should re-trigger.
+    expect(seqStore.get("conv-1")).toBe(5);
+
+    // Next event: still a gap (stored=5, seq=11) → retries reconcile.
+    const retryPromise = Promise.resolve();
+    reconcileActive.mockReturnValueOnce(retryPromise);
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 11,
+        message: { type: "assistant_text_delta", text: "c" },
+      }),
+    );
+    expect(reconcileActive).toHaveBeenCalledTimes(2);
+    await retryPromise;
+    await Promise.resolve();
+    expect(seqStore.get("conv-1")).toBe(11);
+  });
+
+  test("gap reconcile debounces — events during in-flight track latest seq", async () => {
+    seqStore.set("conv-1", 5);
+    let resolveReconcile!: () => void;
+    const reconcilePromise = new Promise<void>((r) => { resolveReconcile = r; });
+    const reconcileActive = mock(() => reconcilePromise);
+    const { deps } = makeDeps({ reconcileActive });
+    const consumer = createSseEventConsumer(deps);
+
+    // Seed.
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 5,
+        message: { type: "assistant_text_delta", text: "a" },
+      }),
+    );
+    // Gap event 1.
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 10,
+        message: { type: "assistant_text_delta", text: "b" },
+      }),
+    );
+    // More events while reconcile is in-flight — debounced.
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 11,
+        message: { type: "assistant_text_delta", text: "c" },
+      }),
+    );
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 12,
+        message: { type: "assistant_text_delta", text: "d" },
+      }),
+    );
+
+    // Only one reconcile fired.
+    expect(reconcileActive).toHaveBeenCalledTimes(1);
+
+    // Resolve — cursor jumps to latest (12), not the gap event (10).
+    resolveReconcile();
+    await reconcilePromise;
+    await Promise.resolve();
+    expect(seqStore.get("conv-1")).toBe(12);
+  });
+
+  test("counter-reset (seq < stored) replaces the cursor synchronously and reconciles", () => {
     seqStore.set("conv-1", 500);
     const { deps, reconcileActive } = makeDeps();
     const consumer = createSseEventConsumer(deps);

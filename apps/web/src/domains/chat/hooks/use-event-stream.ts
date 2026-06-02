@@ -185,9 +185,7 @@ export function useEventStream({
       activeConversationIdRef: activeConversationIdLatestRef,
       handleStreamEvent: (event, epoch) =>
         handleStreamEventRef.current(event, epoch),
-      reconcileActive: () => {
-        void reconcileActiveConversationRef.current();
-      },
+      reconcileActive: () => reconcileActiveConversationRef.current(),
     });
 
     const unsubEvent = subscribe("sse.event", (envelope) =>

@@ -34,7 +34,11 @@
  *     restarted (daemon restart). Replace the stale cursor and
  *     reconcile.
  *   - Subsequent events whose seq > stored + 1: gap in the live
- *     stream. Replace the cursor and reconcile to fetch missed events.
+ *     stream. Fire a reconcile and defer cursor advancement until it
+ *     resolves. While a reconcile is in-flight, subsequent gap events
+ *     are debounced — only the latest seq is tracked. On success the
+ *     cursor jumps to the latest seq; on failure it stays pinned so
+ *     the next event retries.
  *   - On the normal (no-gap) path the cursor advances AFTER the
  *     handler returns. A thrown handler keeps the cursor pinned so the
  *     next event re-triggers the gap path.
@@ -75,7 +79,7 @@ export interface SseEventConsumerDeps {
   /** Dispatch the event into the chat domain's reducer. */
   handleStreamEvent: (event: AssistantEvent, epoch: number) => void;
   /** Reconcile the active conversation when a seq gap is detected. */
-  reconcileActive: () => void;
+  reconcileActive: () => Promise<unknown>;
 }
 
 export interface SseEventConsumer {
@@ -93,6 +97,11 @@ export function createSseEventConsumer(
   // Gate so the very first event after a conversation switch seeds
   // the seq cursor without triggering a reconcile.
   let seededSeqForConversation = false;
+
+  // Tracks in-flight gap reconciliation so we debounce rather than
+  // firing O(N) reconcile calls while the first one is still pending.
+  let reconcileInFlight = false;
+  let latestGapSeq: { conversationId: string; seq: number } | null = null;
 
   return {
     handleSseEvent(envelope) {
@@ -142,9 +151,29 @@ export function createSseEventConsumer(
               observed: eventSeq,
               gap: eventSeq - stored,
             });
-            replaceLastSeenSeq(eventConversationId, eventSeq);
             gapDetected = true;
-            deps.reconcileActive();
+            // Track the latest seq seen during a gap so the cursor
+            // jumps to the right place when reconcile succeeds.
+            latestGapSeq = { conversationId: eventConversationId, seq: eventSeq };
+            if (!reconcileInFlight) {
+              reconcileInFlight = true;
+              deps.reconcileActive()
+                .then(() => {
+                  // Reconcile succeeded — advance cursor to the latest
+                  // event seen during the gap window.
+                  if (latestGapSeq) {
+                    replaceLastSeenSeq(latestGapSeq.conversationId, latestGapSeq.seq);
+                    latestGapSeq = null;
+                  }
+                })
+                .catch(() => {
+                  // Reconcile failed — cursor stays pinned so the next
+                  // event re-detects the gap and retries.
+                })
+                .finally(() => {
+                  reconcileInFlight = false;
+                });
+            }
           }
         } else {
           seededSeqForConversation = true;
@@ -155,9 +184,9 @@ export function createSseEventConsumer(
 
       // Advance the seq cursor AFTER the handler returns so a thrown
       // handler does not advance the cursor past unapplied work.
-      // Skip advancement when a gap was detected — both gap paths
-      // (counter-reset and seq-gap) already called replaceLastSeenSeq
-      // to move the cursor to the current event before reconciling.
+      // Skip advancement when a gap was detected — the counter-reset
+      // path replaced the cursor synchronously; the seq-gap path
+      // defers cursor advancement until reconcile resolves.
       if (
         seqGapEnabled &&
         eventSeq != null &&
