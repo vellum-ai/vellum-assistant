@@ -19,7 +19,6 @@ import {
 } from "react";
 
 import { Button } from "@vellum/design-library";
-import { inferCategory } from "@/domains/intelligence/skills/category";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import type { SkillInfo } from "@/domains/intelligence/skills/types";
 
@@ -73,7 +72,7 @@ export function ConstellationView({
       id: skill.id,
       label: skill.name,
       emoji: skill.emoji,
-      category: inferCategory(skill),
+      category: skill.category ?? "knowledge",
       description: skill.description,
       kind: "skill" as const,
     }));

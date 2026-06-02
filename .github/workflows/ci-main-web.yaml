@@ -129,7 +129,7 @@ jobs:
   checks:
     name: Lint, Type Check & Test
     needs: [lint, typecheck, test]
-    if: always()
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - name: Aggregate results

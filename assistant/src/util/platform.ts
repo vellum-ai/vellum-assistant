@@ -126,6 +126,14 @@ export function getAvatarImagePath(): string {
   return join(getAvatarDir(), AVATAR_IMAGE_FILENAME);
 }
 
+/** Canonical filename for the avatar state manifest. */
+export const AVATAR_MANIFEST_FILENAME = "avatar.json";
+
+/** Returns the canonical avatar manifest path (~/.vellum/workspace/data/avatar/avatar.json). */
+export function getAvatarManifestPath(): string {
+  return join(getAvatarDir(), AVATAR_MANIFEST_FILENAME);
+}
+
 // The set of known environment names, derived from the shared
 // `@vellumai/environments` seed table so this site can never drift from the
 // CLI. The Swift client mirrors the same list (it can't import TS); that

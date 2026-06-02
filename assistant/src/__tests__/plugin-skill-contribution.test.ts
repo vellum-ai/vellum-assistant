@@ -31,12 +31,8 @@ mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: getSecureKeyAsyncMock,
 }));
 
-import type { AssistantConfig } from "../config/schema.js";
 import { loadSkillBySelector, loadSkillCatalog } from "../config/skills.js";
-import {
-  bootstrapPlugins,
-  type DaemonContext,
-} from "../daemon/external-plugins-bootstrap.js";
+import { bootstrapPlugins } from "../daemon/external-plugins-bootstrap.js";
 import { runShutdownHooks } from "../daemon/shutdown-registry.js";
 import {
   getPluginContributedSkillDefinition,
@@ -63,12 +59,6 @@ const TEST_WORKSPACE_DIR = join(
   `vellum-plugin-skill-test-${process.pid}`,
 );
 process.env.VELLUM_WORKSPACE_DIR = TEST_WORKSPACE_DIR;
-
-const fakeConfig = {} as unknown as AssistantConfig;
-const fakeCtx: DaemonContext = {
-  config: fakeConfig,
-  assistantVersion: "9.9.9-test",
-};
 
 /** Build a plugin that contributes one or more skills. */
 function buildSkillPlugin(
@@ -106,7 +96,7 @@ describe("plugin skill contributions", () => {
     };
 
     registerPlugin(buildSkillPlugin("demo-plugin", [skill]));
-    await bootstrapPlugins(fakeCtx);
+    await bootstrapPlugins();
 
     // Ref count bumped to exactly 1 so we can tell register and unregister
     // are balanced downstream.
@@ -138,7 +128,7 @@ describe("plugin skill contributions", () => {
     };
 
     registerPlugin(buildSkillPlugin("catalog-plugin", [skill]));
-    await bootstrapPlugins(fakeCtx);
+    await bootstrapPlugins();
 
     // loadSkillCatalog is the exact entry point `skill_load` consults via
     // `loadSkillBySelector` -> `resolveSkillSelector`.
@@ -171,7 +161,7 @@ describe("plugin skill contributions", () => {
     };
 
     registerPlugin(buildSkillPlugin("ephemeral-plugin", [skill]));
-    await bootstrapPlugins(fakeCtx);
+    await bootstrapPlugins();
 
     // Sanity: present before shutdown.
     expect(loadSkillCatalog().some((s) => s.id === "ephemeral-skill")).toBe(
@@ -206,7 +196,7 @@ describe("plugin skill contributions", () => {
       },
     });
 
-    await bootstrapPlugins(fakeCtx);
+    await bootstrapPlugins();
 
     expect(getPluginSkillRefCount("no-skills-plugin")).toBe(0);
     expect(getPluginContributedSkillSummaries()).toEqual([]);
@@ -231,7 +221,7 @@ describe("plugin skill contributions", () => {
 
     let caught: unknown;
     try {
-      await bootstrapPlugins(fakeCtx);
+      await bootstrapPlugins();
     } catch (err) {
       caught = err;
     }
@@ -347,7 +337,7 @@ describe("plugin skill contributions", () => {
     registerPlugin(buildSkillPlugin("shadow-plugin", [pluginSkill]));
 
     try {
-      await bootstrapPlugins(fakeCtx);
+      await bootstrapPlugins();
 
       const catalog = loadSkillCatalog();
       const entry = catalog.find((s) => s.id === "shared-id");

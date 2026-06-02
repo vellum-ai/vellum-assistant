@@ -22,6 +22,11 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 
 import { Button } from "@vellum/design-library/components/button";
 import { client } from "@/generated/api/client.gen";
+import {
+  workspaceFileGet,
+  workspaceWritePost,
+} from "@/generated/daemon/sdk.gen";
+import type { WorkspaceFileGetResponse } from "@/generated/daemon/types.gen";
 import { FileMarkdown, isMarkdown } from "@/components/file-markdown";
 import { isJson, prettifyJson } from "@/domains/workspace/utils/file-json";
 import { formatFileSize } from "@/domains/workspace/utils/format-file-size";
@@ -32,27 +37,18 @@ import type { WorkspaceViewMode } from "@/domains/workspace/components/workspace
 // API helpers
 // ---------------------------------------------------------------------------
 
-interface WorkspaceFileResponse {
-  name?: string;
-  path?: string;
-  size?: number;
-  mimeType?: string;
-  modifiedAt?: string;
-  content?: string;
-}
-
 function workspaceFileRetrieveOptions(opts: {
   path: { assistant_id: string };
   query: { path: string; showHidden?: boolean };
 }) {
-  return queryOptions<WorkspaceFileResponse>({
+  return queryOptions<WorkspaceFileGetResponse>({
     queryFn: async () => {
-      const query: Record<string, string> = { path: opts.query.path };
-      if (opts.query.showHidden) query.showHidden = "true";
-      const { data, error } = await client.get<WorkspaceFileResponse, unknown>({
-        url: "/v1/assistants/{assistant_id}/workspace/file/",
+      const { data, error } = await workspaceFileGet({
         path: opts.path,
-        query,
+        query: {
+          path: opts.query.path,
+          ...(opts.query.showHidden ? { showHidden: "true" } : {}),
+        },
       });
       if (error) throw error;
       return data!;
@@ -487,11 +483,9 @@ export function WorkspaceFileViewer({
 
   const saveMutation = useMutation({
     mutationFn: async ({ path, content }: { path: string; content: string }) => {
-      const { error, response } = await client.post<unknown, unknown>({
-        url: "/v1/assistants/{assistant_id}/workspace/write/",
+      const { error, response } = await workspaceWritePost({
         path: { assistant_id: assistantId },
         body: { path, content, encoding: "utf8" },
-        headers: { "Content-Type": "application/json" },
         throwOnError: false,
       });
       if (!response?.ok || error) {

@@ -24,14 +24,6 @@ import {
   type UsernameErrorCode,
 } from "@/domains/account/profile";
 
-// Mirror of ``apps/web/src/assistant/api.ts`` — when running under
-// `bun:test` there's no `window`, so point the SDK at localhost so it can
-// build URLs against the test-injected `globalThis.fetch`.
-const SDK_BASE_OPTIONS =
-  typeof window === "undefined"
-    ? ({ baseUrl: "http://localhost" } as const)
-    : ({} as const);
-
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -97,9 +89,9 @@ function parseValidationError(body: unknown): {
           (first as Record<string, unknown>).string ??
           (first as Record<string, unknown>).message;
         return {
-          code: (typeof codeRaw === "string" ? codeRaw : null) as
-            | HandleErrorCode
-            | null,
+          code: (typeof codeRaw === "string"
+            ? codeRaw
+            : null) as HandleErrorCode | null,
           message:
             typeof messageRaw === "string"
               ? messageRaw
@@ -129,7 +121,6 @@ export async function updateAssistantHandle(
   handle: string,
 ): Promise<UpdateAssistantHandleResult> {
   const { data, error, response } = await assistantsPartialUpdate({
-    ...SDK_BASE_OPTIONS,
     path: { id: assistantId },
     body: { handle },
     throwOnError: false,
@@ -180,7 +171,6 @@ export async function checkAssistantHandleAvailable(
   signal?: AbortSignal,
 ): Promise<HandleAvailability> {
   const { data, error, response } = await assistantsHandleAvailableRetrieve({
-    ...SDK_BASE_OPTIONS,
     path: { assistant_id: assistantId },
     query: { handle },
     signal,

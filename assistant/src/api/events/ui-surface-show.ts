@@ -27,6 +27,13 @@
  * this field entirely — adding it via the canonical schema fixes a
  * silent wire-shape drift.
  *
+ * `toolCallId` is the id of the tool call that produced the surface
+ * (the `ui_show` proxy tool). The client uses it to gate display-only
+ * app previews on whether that tool call's result has arrived, rather
+ * than on whole-turn streaming state. Optional: surfaces emitted
+ * outside a tool call (or by older daemons) omit it, and the client
+ * treats a missing link as already complete.
+ *
  * Canonical wire-contract source. Daemon code imports the type
  * directly from this file; external consumers import via
  * `@vellumai/assistant-api`.
@@ -54,6 +61,7 @@ export const UISurfaceShowEventSchema = z.object({
   display: z.enum(["inline", "panel"]).optional(),
   messageId: z.string().optional(),
   persistent: z.boolean().optional(),
+  toolCallId: z.string().optional(),
 });
 
 export type UISurfaceShowEvent = z.infer<typeof UISurfaceShowEventSchema>;

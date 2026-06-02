@@ -1,9 +1,10 @@
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { homeStateQueryKey } from "@/lib/sync/query-tags";
-import { fetchRelationshipState } from "../api";
-import type { RelationshipState } from "../types";
+import {
+  homeStateGetOptions,
+  homeStateGetQueryKey,
+} from "@/generated/daemon/@tanstack/react-query.gen";
 
 /**
  * React Query hook for the assistant relationship state (tier, facts,
@@ -12,19 +13,26 @@ import type { RelationshipState } from "../types";
 export function useHomeStateQuery(assistantId: string | null) {
   const queryClient = useQueryClient();
 
-  const query = useQuery<RelationshipState>({
-    queryKey: homeStateQueryKey(assistantId ?? ""),
-    queryFn: () => fetchRelationshipState(assistantId!),
+  const stateQueryKey = useMemo(
+    () =>
+      homeStateGetQueryKey({
+        path: { assistant_id: assistantId ?? "" },
+      }),
+    [assistantId],
+  );
+
+  const query = useQuery({
+    ...homeStateGetOptions({
+      path: { assistant_id: assistantId! },
+    }),
     enabled: Boolean(assistantId),
     staleTime: 60_000,
   });
 
   const invalidate = useCallback(() => {
     if (!assistantId) return;
-    void queryClient.invalidateQueries({
-      queryKey: homeStateQueryKey(assistantId),
-    });
-  }, [assistantId, queryClient]);
+    void queryClient.invalidateQueries({ queryKey: stateQueryKey });
+  }, [assistantId, queryClient, stateQueryKey]);
 
   return {
     ...query,

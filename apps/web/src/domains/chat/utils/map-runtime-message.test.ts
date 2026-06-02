@@ -4,13 +4,15 @@ import type { RuntimeMessage } from "@/domains/chat/api/messages";
 import {
   mapRuntimeToDisplayMessage,
   prepareServerMessage,
+  runtimeMessagePlainText,
 } from "@/domains/chat/utils/map-runtime-message";
 
+import { messageText, textBody } from "@/domains/chat/utils/message-test-helpers";
 function makeMessage(overrides: Partial<RuntimeMessage>): RuntimeMessage {
   return {
     id: "msg-1",
     role: "assistant",
-    content: "",
+    ...textBody(""),
     ...overrides,
   };
 }
@@ -18,14 +20,13 @@ function makeMessage(overrides: Partial<RuntimeMessage>): RuntimeMessage {
 describe("prepareServerMessage", () => {
   test("returns unchanged segments when no attachment markers appear", () => {
     const m = makeMessage({
-      content: "hello world",
       textSegments: [{ type: "text", content: "hello world" }],
       contentOrder: [{ type: "text", id: "0" }],
     });
 
     const prepared = prepareServerMessage(m);
 
-    expect(prepared.cleanedContent).toBe("hello world");
+    expect(runtimeMessagePlainText(m)).toBe("hello world");
     expect(prepared.normalizedSegments).toEqual([
       { type: "text", content: "hello world" },
     ]);
@@ -33,7 +34,6 @@ describe("prepareServerMessage", () => {
 
   test("strips attachment summary appended to the only segment", () => {
     const m = makeMessage({
-      content: "here you go\n[File attachment] file.pdf, type=application/pdf",
       textSegments: [
         {
           type: "text",
@@ -46,7 +46,7 @@ describe("prepareServerMessage", () => {
 
     const prepared = prepareServerMessage(m);
 
-    expect(prepared.cleanedContent).toBe("here you go");
+    expect(runtimeMessagePlainText(m)).toBe("here you go");
     expect(prepared.normalizedSegments).toEqual([
       { type: "text", content: "here you go" },
     ]);
@@ -59,8 +59,6 @@ describe("prepareServerMessage", () => {
     // which is NOT segment[0]. Patching only segment[0] would leave the raw
     // line visible in segment[1].
     const m = makeMessage({
-      content:
-        "preamble after-tool\n[File attachment] file.pdf, type=application/pdf",
       textSegments: [
         { type: "text", content: "preamble" },
         {
@@ -78,7 +76,7 @@ describe("prepareServerMessage", () => {
 
     const prepared = prepareServerMessage(m);
 
-    expect(prepared.cleanedContent).toBe("preamble after-tool");
+    expect(runtimeMessagePlainText(m)).toBe("preamble after-tool");
     expect(prepared.normalizedSegments).toEqual([
       { type: "text", content: "preamble" },
       { type: "text", content: "after-tool" },
@@ -90,8 +88,6 @@ describe("prepareServerMessage", () => {
     // segment[0] is short OAuth-completion text, a `ui_surface` block sits
     // between, then a longer narrative ends with the attachment summary.
     const m = makeMessage({
-      content:
-        "Connected as user@example.com\nHere is the analysis.\n[File attachment] data.csv, type=text/csv",
       textSegments: [
         { type: "text", content: "Connected as user@example.com" },
         {
@@ -113,8 +109,8 @@ describe("prepareServerMessage", () => {
       { type: "text", content: "Connected as user@example.com" },
       { type: "text", content: "Here is the analysis." },
     ]);
-    expect(prepared.cleanedContent).toBe(
-      "Connected as user@example.com\nHere is the analysis.",
+    expect(runtimeMessagePlainText(m)).toBe(
+      "Connected as user@example.com Here is the analysis.",
     );
   });
 
@@ -123,7 +119,6 @@ describe("prepareServerMessage", () => {
     // new segment (rather than appending to an existing one), the segment's
     // entire content is the `[File attachment]` summary block.
     const m = makeMessage({
-      content: "look at this\n[File attachment] x.pdf, type=application/pdf",
       textSegments: [
         { type: "text", content: "look at this" },
         {
@@ -152,8 +147,6 @@ describe("mapRuntimeToDisplayMessage", () => {
     const m = makeMessage({
       id: "msg-2",
       role: "assistant",
-      content:
-        "intro tail\n[File attachment] sheet.csv, type=text/csv, size=1.0 KB",
       textSegments: [
         { type: "text", content: "intro" },
         {
@@ -171,7 +164,7 @@ describe("mapRuntimeToDisplayMessage", () => {
 
     const display = mapRuntimeToDisplayMessage(m);
 
-    expect(display.content).toBe("intro tail");
+    expect(messageText(display)).toBe("intro tail");
     expect(display.textSegments).toEqual([
       { type: "text", content: "intro" },
       { type: "text", content: "tail" },
@@ -186,7 +179,7 @@ describe("mapRuntimeToDisplayMessage", () => {
     const m = makeMessage({
       id: "msg-slack",
       role: "user",
-      content: "Slack reply",
+      ...textBody("Slack reply"),
       metadata: { source: "slack" },
       slackMessage: {
         channelId: "C123ABCDEF",
@@ -221,7 +214,7 @@ describe("mapRuntimeToDisplayMessage", () => {
     expect(display).toMatchObject({
       id: "msg-slack",
       role: "user",
-      content: "Slack reply",
+      ...textBody("Slack reply"),
       metadata: { source: "slack" },
       slackMessage: m.slackMessage,
       timestamp: Date.parse("2026-05-15T12:34:56.000Z"),

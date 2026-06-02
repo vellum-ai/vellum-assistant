@@ -1,13 +1,16 @@
 /**
- * Hand-written fetch wrapper for the daemon's trace-events endpoint.
- * The endpoint is served via RuntimeProxyWildcardView under
- * /v1/assistants/{id}/trace-events and is not part of the Django
- * OpenAPI schema, so no generated HeyAPI hooks exist for it.
+ * Fetch wrapper for the daemon's trace-events endpoint. Consumes the
+ * generated daemon SDK; the response and row types are derived from the
+ * route's declared schema.
  */
 
-import { client } from "@/generated/api/client.gen";
+import { traceeventsGet } from "@/generated/daemon/sdk.gen";
+import type { TraceeventsGetResponse } from "@/generated/daemon/types.gen";
 
-import type { TraceEventsListResponse } from "./trace-events-types";
+export type TraceEventsListResponse = TraceeventsGetResponse;
+export type TraceEventRow = TraceEventsListResponse["events"][number];
+export type TraceEventKind = TraceEventRow["kind"];
+export type TraceEventStatus = NonNullable<TraceEventRow["status"]>;
 
 export class TraceEventsRequestError extends Error {
   status: number;
@@ -25,30 +28,20 @@ export interface FetchTraceEventsParams {
   afterSequence?: number;
 }
 
-function buildQuery(params: FetchTraceEventsParams): Record<string, string> {
-  const query: Record<string, string> = {
-    conversationId: params.conversationId,
-  };
-  if (params.limit !== undefined) {
-    query.limit = String(params.limit);
-  }
-  if (params.afterSequence !== undefined) {
-    query.afterSequence = String(params.afterSequence);
-  }
-  return query;
-}
-
 export async function fetchTraceEvents(
   assistantId: string,
   params: FetchTraceEventsParams,
 ): Promise<TraceEventsListResponse> {
-  const { data, response } = await client.get<TraceEventsListResponse>({
-    url: "/v1/assistants/{assistant_id}/trace-events",
+  const { data, response } = await traceeventsGet({
     path: { assistant_id: assistantId },
-    query: buildQuery(params),
+    query: {
+      conversationId: params.conversationId,
+      limit: params.limit,
+      afterSequence: params.afterSequence,
+    },
     throwOnError: false,
   });
-  if (!response || !response.ok) {
+  if (!response?.ok) {
     const text = await response
       ?.clone()
       .text()

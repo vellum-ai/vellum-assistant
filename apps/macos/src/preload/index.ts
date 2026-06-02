@@ -118,6 +118,20 @@ export interface VellumBridge {
      */
     setSignedIn(signedIn: boolean): Promise<void>;
   };
+  localMode: {
+    /**
+     * Provision a local assistant for the requested species. Main spawns the
+     * Vellum CLI's `hatch` and resolves with the new assistant's id on
+     * success; on failure resolves with `{ ok: false }` and an error message
+     * (rather than rejecting) so the renderer renders the same error UI it
+     * shows for the web/dev middleware path.
+     */
+    hatch(species: string): Promise<{
+      ok: boolean;
+      assistantId?: string;
+      error?: string;
+    }>;
+  };
   mainWindow: {
     /**
      * Bring the main window to the foreground: recreate if destroyed,
@@ -207,6 +221,14 @@ const bridge: VellumBridge = {
       ipcRenderer.invoke("vellum:dock:setBadge", count) as Promise<void>,
     setSignedIn: (signedIn: boolean): Promise<void> =>
       ipcRenderer.invoke("vellum:dock:setSignedIn", signedIn) as Promise<void>,
+  },
+  localMode: {
+    hatch: (species: string) =>
+      ipcRenderer.invoke("vellum:localMode:hatch", species) as Promise<{
+        ok: boolean;
+        assistantId?: string;
+        error?: string;
+      }>,
   },
   mainWindow: {
     ensureVisible: (): Promise<void> =>

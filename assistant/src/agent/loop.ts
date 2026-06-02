@@ -7,16 +7,22 @@ import {
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
 import { calculateMaxToolResultChars } from "../context/tool-result-truncation.js";
+import type { ContextWindowResult } from "../context/window-manager.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import { defaultCompactionTerminal } from "../plugins/defaults/compaction/terminal.js";
 import { defaultEmptyResponseTerminal } from "../plugins/defaults/empty-response/terminal.js";
 import { defaultTokenEstimateTerminal } from "../plugins/defaults/token-estimate/terminal.js";
 import { defaultToolErrorTerminal } from "../plugins/defaults/tool-error/terminal.js";
 import { defaultToolResultTruncateTerminal } from "../plugins/defaults/tool-result-truncate/terminal.js";
+import type {
+  ToolResultTruncateArgs,
+  ToolResultTruncateResult,
+} from "../plugins/defaults/tool-result-truncate/types.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
   CompactionArgs,
+  CompactionCircuitEvent,
   CompactionResult,
   EmptyResponseArgs,
   EmptyResponseDecision,
@@ -26,8 +32,6 @@ import type {
   LLMCallResult,
   ToolErrorArgs,
   ToolErrorDecision,
-  ToolResultTruncateArgs,
-  ToolResultTruncateResult,
   TurnContext,
 } from "../plugins/types.js";
 import { PluginTimeoutError } from "../plugins/types.js";
@@ -47,6 +51,7 @@ import {
 import { AssistantError, ErrorCode, ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { isRetryableNetworkError } from "../util/retry.js";
+import { CompactionCircuit } from "./compaction-circuit.js";
 
 const log = getLogger("agent-loop");
 
@@ -290,16 +295,15 @@ export type AgentEvent =
        */
       type: "context_compacting";
     }
-  | {
-      /**
-       * Emitted when the inline `compaction` pipeline times out. The
-       * orchestrator records the failure against the compaction circuit
-       * breaker, which trips after repeated timeouts to suspend
-       * auto-compaction. The loop abandons the compaction attempt for this
-       * turn after emitting it.
-       */
-      type: "compaction_timed_out";
-    }
+  /**
+   * Circuit-breaker transitions emitted when auto-compaction is paused
+   * (`compaction_circuit_open`, after three consecutive summary-LLM
+   * failures) or resumed (`compaction_circuit_closed`). These are already
+   * in wire-contract shape; the daemon's event dispatcher forwards them to
+   * the client unchanged so the "auto-compaction paused" banner shows and
+   * dismisses.
+   */
+  | CompactionCircuitEvent
   | {
       /**
        * Emitted when an agent turn reaches a terminal state. Checkpoint
@@ -435,11 +439,12 @@ export interface ResolvedSystemPrompt {
 /**
  * Orchestrator-supplied hooks the loop invokes when the mid-loop budget gate
  * trips and inline compaction runs. The loop owns the trigger, the
- * `compaction` pipeline call, and the inline continue; these hooks bridge the
- * durable / injection state the loop is intentionally blind to. Persistence
- * ({@link persist}) and re-injection ({@link reinject}) remain
- * orchestrator-supplied for now and are expected to move into the loop in a
- * future change.
+ * `compaction` pipeline call, the result interpretation (circuit-breaker
+ * bookkeeping + the exhaustion decision), and the inline continue; these hooks
+ * bridge the durable / injection state the loop is intentionally blind to.
+ * Durable persistence ({@link applyResult}) and re-injection
+ * ({@link reinject}) remain orchestrator-supplied for now and are expected to
+ * move into the loop in a future change.
  */
 export interface MidLoopCompaction {
   /** Strip runtime injections, commit stripped messages, and resolve pipeline options. */
@@ -447,11 +452,11 @@ export interface MidLoopCompaction {
     rawHistory: Message[];
     options: CompactionArgs["options"];
   };
-  /** Persist a compaction result and report whether the retry budget was exhausted. */
-  persist: (
-    result: CompactionResult,
+  /** Commit a successful compaction result to durable state. */
+  applyResult: (
+    result: ContextWindowResult,
     rawHistory: Message[],
-  ) => Promise<{ exhausted: boolean }>;
+  ) => Promise<void>;
   /** Re-apply runtime injections and return the history to continue from. */
   reinject: () => Promise<Message[]>;
 }
@@ -564,6 +569,12 @@ export interface AgentLoopConstructorOptions {
   toolExecutor?: LoopToolExecutor;
   resolveTools?: (history: Message[]) => ToolDefinition[];
   resolveSystemPrompt?: (history: Message[]) => ResolvedSystemPrompt;
+  /**
+   * Conversation this loop drives. Used to scope the loop-held compaction
+   * circuit breaker; defaults to an empty key for test loops that never
+   * exercise compaction.
+   */
+  conversationId?: string;
 }
 
 export class AgentLoop {
@@ -577,13 +588,28 @@ export class AgentLoop {
     | null;
   private toolExecutor: LoopToolExecutor | null;
 
+  /**
+   * Loop-held compaction circuit breaker. The loop has a 1:1 lifetime with its
+   * conversation, so it is the source of truth for the cross-turn failure
+   * counter and cooldown deadline. Non-loop callers (the orchestrator's
+   * compaction paths, `Conversation.forceCompact`, and the dev-only playground
+   * routes) reach it via `agentLoop.compactionCircuit`.
+   */
+  readonly compactionCircuit: CompactionCircuit;
+
   constructor(
     provider: Provider,
     systemPrompt: string,
     options?: AgentLoopConstructorOptions,
   ) {
-    const { config, tools, toolExecutor, resolveTools, resolveSystemPrompt } =
-      options ?? {};
+    const {
+      config,
+      tools,
+      toolExecutor,
+      resolveTools,
+      resolveSystemPrompt,
+      conversationId,
+    } = options ?? {};
     this.provider = provider;
     this.systemPrompt = systemPrompt;
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -591,6 +617,7 @@ export class AgentLoop {
     this.resolveTools = resolveTools ?? null;
     this.resolveSystemPrompt = resolveSystemPrompt ?? null;
     this.toolExecutor = toolExecutor ?? null;
+    this.compactionCircuit = new CompactionCircuit(conversationId ?? "");
   }
 
   /**
@@ -647,6 +674,38 @@ export class AgentLoop {
   }
 
   /**
+   * Record a compaction outcome against the loop's circuit breaker. Three
+   * consecutive failures trip a cooldown that suspends auto-compaction; a
+   * success resets the counter. Any open/closed transition is emitted on the
+   * loop's own event channel via `onEvent`.
+   *
+   * Bookkeeping is best-effort — a failure here must not turn a recoverable
+   * compaction outcome into a user-visible turn failure.
+   */
+  private async recordCompactionOutcome(
+    turnContext: TurnContext,
+    summaryFailed: boolean,
+    onEvent: (event: AgentEvent) => void | Promise<void>,
+  ): Promise<void> {
+    try {
+      await this.compactionCircuit.recordOutcome(
+        {
+          currentRequestId: turnContext.requestId,
+          currentTurnTrustContext: turnContext.trust,
+          turnCount: turnContext.turnIndex,
+        },
+        summaryFailed,
+        onEvent,
+      );
+    } catch (recordError) {
+      log.error(
+        { err: recordError, requestId: turnContext.requestId },
+        "Recording a compaction outcome against the circuit breaker failed; suppressing to keep the agent loop alive",
+      );
+    }
+  }
+
+  /**
    * Compact the running history in place when the mid-loop budget gate trips.
    *
    * Runs the `compaction` pipeline natively (like {@link estimateTokens}) on
@@ -676,13 +735,31 @@ export class AgentLoop {
       );
     } catch (error) {
       if (error instanceof PluginTimeoutError) {
-        await onEvent({ type: "compaction_timed_out" });
+        // A timeout counts as a compaction failure against the circuit breaker.
+        await this.recordCompactionOutcome(turnContext, true, onEvent);
         return null;
       }
       throw error;
     }
-    const { exhausted } = await compaction.persist(result, rawHistory);
-    if (exhausted) {
+    // `CompactionResult` is intentionally `unknown` at the plugin boundary so
+    // plugin consumers don't import the window manager; the loop ran the
+    // pipeline, so it interprets the concrete result here.
+    const compactResult = result as ContextWindowResult;
+    // `force: true` bypasses the cooldown/threshold gates, but early returns
+    // for "no eligible messages" / "insufficient messages" still leave
+    // `summaryFailed` undefined. Only record an outcome when the summary LLM
+    // actually ran.
+    if (compactResult.summaryFailed !== undefined) {
+      await this.recordCompactionOutcome(
+        turnContext,
+        compactResult.summaryFailed,
+        onEvent,
+      );
+    }
+    if (compactResult.compacted) {
+      await compaction.applyResult(compactResult, rawHistory);
+    }
+    if (compactResult.exhausted ?? false) {
       return null;
     }
     return compaction.reinject();

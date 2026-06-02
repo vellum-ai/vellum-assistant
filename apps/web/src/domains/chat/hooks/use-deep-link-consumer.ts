@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import * as Sentry from "@sentry/browser";
+import * as Sentry from "@sentry/react";
 
 import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
 

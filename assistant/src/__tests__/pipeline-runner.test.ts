@@ -235,12 +235,12 @@ describe("runPipeline — timeout", () => {
       value: args.value,
     });
     const result = await runPipeline(
-      "historyRepair",
+      "tokenEstimate",
       [],
       terminal,
       { value: 42 },
       makeCtx(),
-      DEFAULT_TIMEOUTS.historyRepair,
+      DEFAULT_TIMEOUTS.tokenEstimate,
     );
     expect(result).toEqual({ value: 42 });
   });
@@ -550,7 +550,6 @@ describe("DEFAULT_TIMEOUTS", () => {
       llmCall: null,
       toolExecute: null,
       memoryRetrieval: null,
-      historyRepair: null,
       tokenEstimate: null,
       compaction: null,
       overflowReduce: null,

@@ -12,7 +12,7 @@ import type {
   DocumentCommentReopenedEvent,
   DocumentCommentResolvedEvent,
 } from "@vellumai/assistant-api";
-import type { DocumentComment } from "@/domains/chat/api/document-comments";
+import type { DocumentsByIdCommentsPostResponse } from "@/generated/daemon/types.gen";
 
 export type DocumentCommentEvent =
   | DocumentCommentCreatedEvent
@@ -37,7 +37,7 @@ export interface DocumentCommentEventCallbacks {
  * Mutable map of surfaceId -> comments. Handlers mutate this structure
  * in-place so the caller can maintain a single shared reference.
  */
-export type CommentStateMap = Map<string, DocumentComment[]>;
+export type CommentStateMap = Map<string, DocumentsByIdCommentsPostResponse[]>;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -45,7 +45,7 @@ export type CommentStateMap = Map<string, DocumentComment[]>;
 
 function toDocumentComment(
   event: DocumentCommentCreatedEvent,
-): DocumentComment {
+): DocumentsByIdCommentsPostResponse {
   const c = event.comment;
   return {
     id: c.id,

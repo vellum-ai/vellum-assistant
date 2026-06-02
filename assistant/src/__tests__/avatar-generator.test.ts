@@ -12,10 +12,6 @@ const generateAvatarFn = mock(async () => {
   return mockRouterResult;
 });
 
-const mkdirSyncFn = mock(() => {});
-const writeFileSyncFn = mock(() => {});
-const renameSyncFn = mock(() => {});
-
 // ---------------------------------------------------------------------------
 // Mock modules — before importing module under test
 // ---------------------------------------------------------------------------
@@ -33,56 +29,51 @@ mock.module("../util/logger.js", () => ({
   }),
 }));
 
-mock.module("node:fs", () => ({
-  mkdirSync: mkdirSyncFn,
-  writeFileSync: writeFileSyncFn,
-  renameSync: renameSyncFn,
-}));
-
 // Import after mocking
-import { generateAndSaveAvatar } from "../tools/system/avatar-generator.js";
+import { generateAvatarImage } from "../tools/system/avatar-generator.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
+const PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUg==";
+
 function successResult() {
   return {
-    imageBase64: "iVBORw0KGgoAAAANSUhEUg==",
+    imageBase64: PNG_BASE64,
     mimeType: "image/png",
   };
 }
 
 function executeAvatar(description: string) {
-  return generateAndSaveAvatar(description);
+  return generateAvatarImage(description);
 }
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("generateAndSaveAvatar", () => {
+describe("generateAvatarImage", () => {
   beforeEach(() => {
     mockRouterResult = successResult();
     mockRouterError = undefined;
     generateAvatarFn.mockClear();
-    mkdirSyncFn.mockClear();
-    writeFileSyncFn.mockClear();
-    renameSyncFn.mockClear();
   });
 
-  test("successful generation writes PNG and returns success message", async () => {
+  test("successful generation returns PNG bytes and success message", async () => {
     const result = await executeAvatar("a friendly purple cat");
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Avatar updated");
+    expect(result.pngBuffer).toEqual(Buffer.from(PNG_BASE64, "base64"));
     expect(generateAvatarFn).toHaveBeenCalledTimes(1);
   });
 
-  test("empty description returns error", async () => {
+  test("empty description returns error and no buffer", async () => {
     const result = await executeAvatar("");
 
     expect(result.isError).toBe(true);
+    expect(result.pngBuffer).toBeNull();
     expect(result.content).toContain("description is required");
     expect(generateAvatarFn).not.toHaveBeenCalled();
   });
@@ -93,6 +84,7 @@ describe("generateAndSaveAvatar", () => {
     const result = await executeAvatar("a cat");
 
     expect(result.isError).toBe(true);
+    expect(result.pngBuffer).toBeNull();
     expect(result.content).toContain("No image data returned");
   });
 
@@ -104,31 +96,9 @@ describe("generateAndSaveAvatar", () => {
     const result = await executeAvatar("a cat");
 
     expect(result.isError).toBe(true);
+    expect(result.pngBuffer).toBeNull();
     expect(result.content).toContain(
       "Image generation failed: Network timeout",
     );
-  });
-
-  test("atomic write — file is written to .tmp then renamed", async () => {
-    await executeAvatar("a friendly cat");
-
-    const expectedPath = `${process.env.VELLUM_WORKSPACE_DIR}/data/avatar/avatar-image.png`;
-
-    // Verify mkdirSync was called for the directory
-    expect(mkdirSyncFn).toHaveBeenCalledTimes(1);
-    expect((mkdirSyncFn.mock.calls[0] as unknown[])[1]).toEqual({
-      recursive: true,
-    });
-
-    // Verify writeFileSync writes to a unique tmp path
-    expect(writeFileSyncFn).toHaveBeenCalledTimes(1);
-    const tmpPath = (writeFileSyncFn.mock.calls[0] as unknown[])[0] as string;
-    expect(tmpPath).toStartWith(expectedPath + ".");
-    expect(tmpPath).toEndWith(".tmp");
-
-    // Verify renameSync moves tmp to final path
-    expect(renameSyncFn).toHaveBeenCalledTimes(1);
-    expect((renameSyncFn.mock.calls[0] as unknown[])[0]).toBe(tmpPath);
-    expect((renameSyncFn.mock.calls[0] as unknown[])[1]).toBe(expectedPath);
   });
 });

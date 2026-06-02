@@ -426,7 +426,14 @@ describe("VellumAgent", () => {
     await agent.send({ content: "hello" });
     await agent.shutdown();
 
-    expect(runner.runs.map((r) => [r.command, ...r.args]).slice(-3)).toEqual([
+    // The shutdown sequence now has six tail entries (in this order):
+    //  1. `vellum message ...` (final user turn)
+    //  2. `docker rm -f <jail-container>` (this.jail.stop())
+    //  3. `vellum retire <runId>` (the retire call we just wrapped)
+    //  4–6. `docker rm -f <runId>-<sibling>` ×3 (force-reap fallback)
+    // The reaper iterates assistant → gateway → credential-executor
+    // in `VELLUM_HATCH_SERVICES` order.
+    expect(runner.runs.map((r) => [r.command, ...r.args]).slice(-6)).toEqual([
       [
         "vellum",
         "message",
@@ -437,6 +444,9 @@ describe("VellumAgent", () => {
       ],
       ["docker", "rm", "-f", "eval-run-2-assistant-egress-jail"],
       ["vellum", "retire", "eval-run-2"],
+      ["docker", "rm", "-f", "eval-run-2-assistant"],
+      ["docker", "rm", "-f", "eval-run-2-gateway"],
+      ["docker", "rm", "-f", "eval-run-2-credential-executor"],
     ]);
     expect(runner.process.killed).toBe(true);
   });
@@ -580,6 +590,123 @@ describe("VellumAgent", () => {
     );
     expect(retireCalls).toHaveLength(1);
     expect(retireCalls[0][2]).toBe("eval-vellum-bare-x-20260524160000123-abcd");
+  });
+
+  test("force-reaps every sibling container after retire (defense-in-depth against silent retire failures)", async () => {
+    // The previous catch-path swallowed `vellum retire` failures with
+    // .catch(() => undefined), so a retire that returned non-zero left
+    // the assistant container alive and bound to port 7821, wedging the
+    // next hatch. The fallback reap calls `docker rm -f` per sibling
+    // regardless of retire's exit code — if retire's own rm succeeded
+    // we're a no-op; if it failed we close the leak.
+    class HatchOkSetupFails extends FakeRunner {
+      override async run(
+        command: string,
+        args: string[],
+        opts?: RunOptions,
+      ): Promise<CommandResult> {
+        this.runs.push({ command, args, opts });
+        if (args[0] === "exec") {
+          return { exitCode: 1, stdout: "", stderr: "setup command crashed" };
+        }
+        return { exitCode: 0, stdout: "ok", stderr: "" };
+      }
+    }
+
+    const profileWithSetup = {
+      ...profile,
+      manifest: { ...profile.manifest, setup: ["echo hello"] },
+    };
+    const runner = new HatchOkSetupFails();
+    const runId = "eval-vellum-bare-reap-20260524160000123-abcd";
+    const agent = new VellumAgent({
+      runner,
+      profile: profileWithSetup,
+      testId: "timeline-recall",
+      runId,
+    });
+
+    await expect(agent.hatch()).rejects.toThrow(/setup command/i);
+
+    // The reaper calls `docker rm -f <name>` for each of the three
+    // sibling Vellum hatch containers. Use exact equality (not
+    // startsWith) so unrelated `docker rm -f <runId>-assistant-egress-jail`
+    // calls from the jail's pre-clean step don't poison the assertion.
+    const siblingNames = new Set([
+      `${runId}-assistant`,
+      `${runId}-credential-executor`,
+      `${runId}-gateway`,
+    ]);
+    const dockerRmCalls = runner.runs
+      .filter(
+        (r) =>
+          r.command === "docker" &&
+          r.args[0] === "rm" &&
+          r.args[1] === "-f" &&
+          typeof r.args[2] === "string" &&
+          siblingNames.has(r.args[2]),
+      )
+      .map((r) => r.args[2]);
+    expect(dockerRmCalls.sort()).toEqual([...siblingNames].sort());
+  });
+
+  test("surfaces a [retire] warning when `vellum retire` exits non-zero", async () => {
+    // The previous .catch(() => undefined) gave operators no breadcrumb
+    // back to the failed retire — the cascading port-7821 collisions
+    // looked like spontaneous failures. With the structured warn, the
+    // root cause lands in the runner's subprocess log alongside the
+    // original error.
+    class HatchOkSetupFailsRetireFails extends FakeRunner {
+      override async run(
+        command: string,
+        args: string[],
+        opts?: RunOptions,
+      ): Promise<CommandResult> {
+        this.runs.push({ command, args, opts });
+        if (args[0] === "exec") {
+          return { exitCode: 1, stdout: "", stderr: "setup command crashed" };
+        }
+        if (args[0] === "retire") {
+          return {
+            exitCode: 1,
+            stdout: "",
+            stderr: "Could not find assistant entry",
+          };
+        }
+        return { exitCode: 0, stdout: "ok", stderr: "" };
+      }
+    }
+
+    const profileWithSetup = {
+      ...profile,
+      manifest: { ...profile.manifest, setup: ["echo hello"] },
+    };
+    const runner = new HatchOkSetupFailsRetireFails();
+    const runId = "eval-vellum-bare-retire-warn-20260524160000123-abcd";
+    const agent = new VellumAgent({
+      runner,
+      profile: profileWithSetup,
+      testId: "timeline-recall",
+      runId,
+    });
+
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (msg: unknown) => {
+      if (typeof msg === "string") warnings.push(msg);
+    };
+    try {
+      await expect(agent.hatch()).rejects.toThrow(/setup command/i);
+    } finally {
+      console.warn = originalWarn;
+    }
+
+    const retireWarning = warnings.find((w) =>
+      w.startsWith("[retire] vellum retire"),
+    );
+    expect(retireWarning).toBeDefined();
+    expect(retireWarning).toContain(runId);
+    expect(retireWarning).toContain("Could not find assistant entry");
   });
 
   // The two capability methods below back the LongMemEval-V2

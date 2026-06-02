@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { reapAbandonedEvalContainers } from "../adapters/docker-reaper";
+import {
+  reapAbandonedEvalContainers,
+  reapContainersForRun,
+} from "../adapters/docker-reaper";
 import { ensureRunArtifacts, RUNS_DIR, writeRunMetadata } from "../metrics";
 import type {
   CommandResult,
@@ -332,5 +335,54 @@ describe("reapAbandonedEvalContainers", () => {
       ].sort(),
     );
     expect(result.unparseable).toEqual(["eval-no-service-suffix"]);
+  });
+});
+
+describe("reapContainersForRun", () => {
+  test("force-removes every sibling container belonging to the runId", async () => {
+    const runId = "eval-force-reap-test-abc";
+    const runner = new FakeRunner();
+    runner.containers = []; // unused by this path — direct docker rm -f
+
+    const result = await reapContainersForRun(runner, runId);
+
+    expect(result.reaped.sort()).toEqual(
+      [
+        `${runId}-assistant`,
+        `${runId}-credential-executor`,
+        `${runId}-gateway`,
+      ].sort(),
+    );
+    expect(runner.rmCalls().sort()).toEqual(
+      [
+        `${runId}-assistant`,
+        `${runId}-credential-executor`,
+        `${runId}-gateway`,
+      ].sort(),
+    );
+  });
+
+  test("survives container-already-gone (per-sibling rm failures swallowed)", async () => {
+    const runId = "eval-force-reap-half-gone";
+    const runner = new FakeRunner();
+    runner.rmFailures.add(`${runId}-gateway`);
+    runner.rmFailures.add(`${runId}-credential-executor`);
+
+    const result = await reapContainersForRun(runner, runId);
+
+    // Only the assistant container was actually removed; the other two
+    // were silently treated as already-gone.
+    expect(result.reaped).toEqual([`${runId}-assistant`]);
+  });
+
+  test("refuses to operate on non-eval runIds (safety guardrail)", async () => {
+    const runner = new FakeRunner();
+
+    const result = await reapContainersForRun(runner, "not-an-eval-id");
+
+    // No docker calls at all — refuse to be tricked into reaping
+    // host-wide containers by a malformed id.
+    expect(result.reaped).toEqual([]);
+    expect(runner.calls).toEqual([]);
   });
 });

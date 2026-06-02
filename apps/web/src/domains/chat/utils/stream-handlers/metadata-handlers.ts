@@ -27,9 +27,9 @@ export function handleUsageUpdate(
     maxTokens: resolvedMax,
     fillRatio,
   };
-  const streamCtx = ctx.streamContextRef.current;
+  const streamCtx = ctx.streamContext;
   if (streamCtx) {
-    ctx.contextWindowUsageByConversationRef.current.set(
+    ctx.contextWindowUsageByConversation.set(
       streamCtx.conversationId,
       usage,
     );

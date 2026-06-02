@@ -1,8 +1,8 @@
+import type { Middleware } from "../../../types.js";
 import type {
-  Middleware,
   ToolResultTruncateArgs,
   ToolResultTruncateResult,
-} from "../../../types.js";
+} from "../types.js";
 
 /**
  * Passthrough middleware for the `toolResultTruncate` pipeline. Forwards to

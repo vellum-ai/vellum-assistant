@@ -4,7 +4,10 @@ import { SYNC_TAGS } from "../daemon/message-types/sync.js";
 import type { AssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { ROUTES as AVATAR_ROUTES } from "../runtime/routes/avatar-routes.js";
-import { publishIdentityChanged } from "../runtime/sync/resource-sync-events.js";
+import {
+  publishIdentityChanged,
+  publishIdentityIntroChanged,
+} from "../runtime/sync/resource-sync-events.js";
 
 async function waitFor(predicate: () => boolean): Promise<void> {
   const deadline = Date.now() + 500;
@@ -49,7 +52,7 @@ describe("avatar and identity sync events", () => {
     }
   });
 
-  test("identity changes emit legacy identity event and sync tag", async () => {
+  test("identity changes emit legacy identity event and identity sync tags", async () => {
     const received: AssistantEvent[] = [];
     const subscription = assistantEventHub.subscribe({
       type: "process",
@@ -78,7 +81,29 @@ describe("avatar and identity sync events", () => {
       });
       expect(received[1].message).toEqual({
         type: "sync_changed",
-        tags: [SYNC_TAGS.assistantIdentity],
+        tags: [SYNC_TAGS.assistantIdentity, SYNC_TAGS.assistantIdentityIntro],
+      });
+    } finally {
+      subscription.dispose();
+    }
+  });
+
+  test("identity intro changes emit only the identity intro sync tag", async () => {
+    const received: AssistantEvent[] = [];
+    const subscription = assistantEventHub.subscribe({
+      type: "process",
+      callback: (event) => {
+        received.push(event);
+      },
+    });
+
+    try {
+      publishIdentityIntroChanged();
+      await waitFor(() => received.length === 1);
+
+      expect(received[0].message).toEqual({
+        type: "sync_changed",
+        tags: [SYNC_TAGS.assistantIdentityIntro],
       });
     } finally {
       subscription.dispose();

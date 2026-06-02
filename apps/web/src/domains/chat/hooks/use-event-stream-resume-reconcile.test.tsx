@@ -1,16 +1,13 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
-import { useRef, type MutableRefObject } from "react";
+import { useRef } from "react";
 
-import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 import {
-  __resetEventBusForTesting,
-  useEventBusStore,
-} from "@/stores/event-bus-store";
+  __resetForTesting,
+  publish,
+} from "@/lib/event-bus";
 
 import { useEventStream } from "@/domains/chat/hooks/use-event-stream";
-
-type StreamContext = { assistantId: string; conversationId: string };
 
 function renderEventStream(params: {
   activeConversationId: string;
@@ -23,21 +20,12 @@ function renderEventStream(params: {
   startReconciliationLoop?: (epoch: number) => void;
 }) {
   return renderHook(() => {
-    const streamRef = useRef<ChatEventStream | null>(null);
-    const streamEpochRef = useRef(0);
-    const reconcileAfterNextStreamOpenRef = useRef(false);
-    const streamContextRef = useRef<StreamContext | null>(null);
-    const syncRouterRef = useRef(null) as MutableRefObject<null> as never;
     const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     useEventStream({
       assistantStateKind: "active",
       assistantId: "asst-1",
       activeConversationId: params.activeConversationId,
       conversationExistsOnServer: true,
-      streamRef,
-      streamEpochRef,
-      reconcileAfterNextStreamOpenRef,
-      streamContextRef,
       handleStreamEvent: params.handleStreamEvent ?? (() => {}),
       reconcileActiveConversation:
         params.reconcileActiveConversation ??
@@ -52,20 +40,19 @@ function renderEventStream(params: {
       reachabilityProbe: () => {},
       reachabilityPhase: "ready",
       reachabilityReset: () => {},
-      setError: () => {},
-      syncRouterRef,
+      dispatchReconnect: async () => undefined,
       conversationListInvalidatedTimerRef: timerRef,
     });
   });
 }
 
 beforeEach(() => {
-  __resetEventBusForTesting();
+  __resetForTesting();
 });
 
 afterEach(() => {
   cleanup();
-  __resetEventBusForTesting();
+  __resetForTesting();
 });
 
 describe("useEventStream — sse.opened reconcile triggers", () => {
@@ -79,7 +66,7 @@ describe("useEventStream — sse.opened reconcile triggers", () => {
       activeConversationId: "conv-A",
       reconcileActiveConversation: reconcile as never,
     });
-    useEventBusStore.getState().publish("sse.opened", {
+    publish("sse.opened", {
       assistantId: "asst-1",
       cause: "fresh",
     });
@@ -96,7 +83,7 @@ describe("useEventStream — sse.opened reconcile triggers", () => {
       activeConversationId: "conv-A",
       reconcileActiveConversation: reconcile as never,
     });
-    useEventBusStore.getState().publish("sse.opened", {
+    publish("sse.opened", {
       assistantId: "asst-1",
       cause: "resume",
     });
@@ -113,7 +100,7 @@ describe("useEventStream — sse.opened reconcile triggers", () => {
       activeConversationId: "conv-A",
       reconcileActiveConversation: reconcile as never,
     });
-    useEventBusStore.getState().publish("sse.opened", {
+    publish("sse.opened", {
       assistantId: "asst-1",
       cause: "error",
     });
@@ -134,7 +121,7 @@ describe("useEventStream — sse.opened reconcile triggers", () => {
       activeConversationId: "conv-A",
       reconcileActiveConversation: reconcile as never,
     });
-    useEventBusStore.getState().publish("sse.opened", {
+    publish("sse.opened", {
       assistantId: "asst-1",
       cause: "watchdog",
     });
@@ -155,7 +142,7 @@ describe("useEventStream — sse.opened reconcile triggers", () => {
       activeConversationId: "conv-A",
       reconcileActiveConversation: reconcile as never,
     });
-    useEventBusStore.getState().publish("sse.opened", {
+    publish("sse.opened", {
       assistantId: "asst-other",
       cause: "resume",
     });
@@ -202,12 +189,12 @@ describe("useEventStream — sse.opened reconcile triggers", () => {
     });
 
     // First reopen — bumps epoch, launches async IIFE.
-    useEventBusStore.getState().publish("sse.opened", {
+    publish("sse.opened", {
       assistantId: "asst-1",
       cause: "watchdog",
     });
     // Second reopen — bumps epoch again, launches another async IIFE.
-    useEventBusStore.getState().publish("sse.opened", {
+    publish("sse.opened", {
       assistantId: "asst-1",
       cause: "watchdog",
     });

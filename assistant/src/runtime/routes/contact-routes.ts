@@ -35,11 +35,7 @@ import {
   revokeIngressInvite,
   triggerInviteCall,
 } from "../invite-service.js";
-import {
-  BadRequestError,
-  ConflictError,
-  NotFoundError,
-} from "./errors.js";
+import { BadRequestError, ConflictError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 function withGuardianNameOverride<
@@ -80,6 +76,39 @@ function isChannelStatus(value: string): value is ChannelStatus {
 function isChannelPolicy(value: string): value is ChannelPolicy {
   return (VALID_CHANNEL_POLICIES as readonly string[]).includes(value);
 }
+
+// ---------------------------------------------------------------------------
+// Response schemas (drive OpenAPI spec → codegen → typed SDK)
+// ---------------------------------------------------------------------------
+
+const contactChannelSchema = z.object({
+  id: z.string(),
+  contactId: z.string(),
+  type: z.string(),
+  address: z.string(),
+  isPrimary: z.boolean(),
+  externalUserId: z.string().nullable(),
+  status: z.string(),
+  policy: z.string(),
+  verifiedAt: z.number().nullable(),
+  verifiedVia: z.string().nullable(),
+  lastSeenAt: z.number().nullable(),
+  interactionCount: z.number(),
+  lastInteraction: z.number().nullable(),
+  revokedReason: z.string().nullable(),
+  blockedReason: z.string().nullable(),
+});
+
+const contactSchema = z.object({
+  id: z.string(),
+  displayName: z.string(),
+  role: z.string(),
+  notes: z.string().nullable().optional(),
+  contactType: z.string().nullable().optional(),
+  lastInteraction: z.number().nullable().optional(),
+  interactionCount: z.number(),
+  channels: z.array(contactChannelSchema),
+});
 
 // ---------------------------------------------------------------------------
 // Contact handlers (transport-agnostic)
@@ -295,7 +324,7 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({
       ok: z.boolean(),
       contacts: z
-        .array(z.unknown())
+        .array(contactSchema)
         .describe("Contact objects with channels and metadata"),
     }),
     handler: ({ queryParams }: RouteHandlerArgs) =>
@@ -469,7 +498,7 @@ export const ROUTES: RouteDefinition[] = [
       channelType: z.string().optional(),
       limit: z.number().optional(),
     }),
-    responseBody: z.array(z.object({}).passthrough()),
+    responseBody: z.array(contactSchema),
     handler: ({ body = {} }: RouteHandlerArgs) => {
       const parsed = z
         .object({
@@ -498,10 +527,14 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["contacts"],
     responseBody: z.object({
       ok: z.boolean(),
-      contact: z.object({}).passthrough().describe("Contact details"),
+      contact: contactSchema,
       assistantMetadata: z
-        .object({})
-        .passthrough()
+        .object({
+          contactId: z.string(),
+          species: z.string(),
+          metadata: z.object({}).passthrough().nullable(),
+        })
+        .optional()
         .describe("Assistant-side metadata"),
     }),
     handler: ({ pathParams }: RouteHandlerArgs) =>
@@ -526,7 +559,7 @@ export const ROUTES: RouteDefinition[] = [
     }),
     responseBody: z.object({
       ok: z.boolean(),
-      contact: z.object({}).passthrough().describe("Merged contact"),
+      contact: contactSchema.describe("Merged contact"),
     }),
     handler: (args: RouteHandlerArgs) => handleMergeContactsRoute(args),
   },
@@ -542,15 +575,14 @@ export const ROUTES: RouteDefinition[] = [
     description: "Update status, policy, or reason on a contact's channel.",
     tags: ["contacts"],
     requestBody: z.object({
-      status: z.string().describe("Channel status"),
-      policy: z.string().describe("Channel policy"),
-      reason: z.string().describe("Reason for the change"),
+      status: z.string().optional().describe("Channel status"),
+      policy: z.string().optional().describe("Channel policy"),
+      reason: z.string().optional().describe("Reason for the change"),
     }),
     responseBody: z.object({
       ok: z.boolean(),
-      contact: z
-        .object({})
-        .passthrough()
+      contact: contactSchema
+        .optional()
         .describe("Updated contact (if applicable)"),
     }),
     handler: (args: RouteHandlerArgs) => handleUpdateContactChannelRoute(args),
@@ -640,5 +672,3 @@ function handleUpdateContactChannelRoute(args: RouteHandlerArgs) {
       : undefined,
   };
 }
-
-

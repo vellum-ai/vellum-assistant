@@ -56,11 +56,12 @@ import type { TranscriptItem } from "@/domains/chat/transcript/types";
 
 import { Transcript } from "@/domains/chat/transcript/transcript";
 
+import { textBody } from "@/domains/chat/utils/message-test-helpers";
 function userMessage(id: string, content: string): TranscriptItem {
   const msg: DisplayMessage = {
     id,
     role: "user",
-    content,
+    ...textBody(content),
   };
   return { kind: "message", key: id, message: msg };
 }
@@ -69,7 +70,7 @@ function assistantMessage(id: string, content: string): TranscriptItem {
   const msg: DisplayMessage = {
     id,
     role: "assistant",
-    content,
+    ...textBody(content),
   };
   return { kind: "message", key: id, message: msg };
 }

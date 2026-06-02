@@ -164,6 +164,10 @@ function makeFakeContext(opts: {
         compactedMessages: 0,
       } as never;
     },
+    trustContext: {
+      trustClass: "guardian" as const,
+      guardianPrincipalId: "user-1",
+    },
     setTransportHints() {},
     applyHostEnvFromTransport() {},
     ensureHostProxiesForTurn() {},

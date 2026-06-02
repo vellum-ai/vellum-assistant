@@ -1,45 +1,11 @@
-export interface Schedule {
-  id: string;
-  name: string;
-  enabled: boolean;
-  syntax: "cron" | "rrule";
-  expression: string | null;
-  cronExpression: string | null;
-  timezone: string | null;
-  message: string;
-  script: string | null;
-  nextRunAt: number;
-  lastRunAt: number | null;
-  lastStatus: string | null;
-  description: string;
-  mode: "execute" | "notify" | "script";
-  status: "active" | "firing" | "fired" | "cancelled";
-  routingIntent: string;
-  reuseConversation: boolean;
-  timeoutMs: number | null;
-  isOneShot: boolean;
-}
+import type {
+  SchedulesByIdRunsGetResponse,
+  SchedulesGetResponse,
+} from "@/generated/daemon/types.gen";
 
-export interface SchedulesListResponse {
-  schedules: Schedule[];
-}
+export type Schedule = SchedulesGetResponse["schedules"][number];
 
-export interface ScheduleRun {
-  id: string;
-  jobId: string;
-  status: string;
-  startedAt: number;
-  finishedAt: number | null;
-  durationMs: number | null;
-  output: string | null;
-  error: string | null;
-  conversationId: string | null;
-  createdAt: number;
-}
-
-export interface ScheduleRunsResponse {
-  runs: ScheduleRun[];
-}
+export type ScheduleRun = SchedulesByIdRunsGetResponse["runs"][number];
 
 export type SystemTaskKind = "heartbeat" | "consolidation";
 

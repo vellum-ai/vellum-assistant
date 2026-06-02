@@ -12,12 +12,12 @@ export function handleStreamError(
   event: ErrorEvent,
   ctx: StreamHandlerContext,
 ): void {
-  const convId = ctx.streamContextRef.current?.conversationId;
+  const convId = ctx.streamContext?.conversationId;
   if (convId) {
     // Mirrors the cache patch in `handleMessageComplete` — terminal
     // errors must also clear the cached `isProcessing: true` snapshot
     // so the OR derivation in chat-route-content can't latch.
-    patchConversation(ctx.queryClient, ctx.assistantIdRef.current, convId, {
+    patchConversation(ctx.queryClient, ctx.assistantId, convId, {
       isProcessing: false,
     });
   }
@@ -31,8 +31,7 @@ export function handleStreamError(
     code: event.code,
     errorCategory: event.errorCategory,
   });
-  ctx.streamRef.current?.cancel();
-  ctx.streamRef.current = null;
+  ctx.cancelAndClearStream();
 }
 
 export function handleConversationErrorEvent(
@@ -42,15 +41,14 @@ export function handleConversationErrorEvent(
   const isBannerError = shouldSuppressGenericChatErrorNotice(event);
 
   // `ConversationErrorEvent` carries `conversationId` as a required
-  // field; prefer it over `streamContextRef.current?.conversationId`
-  // (which is a mirror that may be cleared by a stream teardown
-  // racing the error event) — same fallback shape as the other
-  // terminal handlers.
+  // field; prefer it over `streamContext?.conversationId` (which is
+  // a mirror that may be cleared by a stream teardown racing the
+  // error event) — same fallback shape as the other terminal handlers.
   const convId =
-    event.conversationId ?? ctx.streamContextRef.current?.conversationId;
+    event.conversationId ?? ctx.streamContext?.conversationId;
   if (convId) {
     // See `handleStreamError` for the stale-snapshot rationale.
-    patchConversation(ctx.queryClient, ctx.assistantIdRef.current, convId, {
+    patchConversation(ctx.queryClient, ctx.assistantId, convId, {
       isProcessing: false,
     });
   }
@@ -65,7 +63,6 @@ export function handleConversationErrorEvent(
   });
 
   if (!isBannerError) {
-    ctx.streamRef.current?.cancel();
-    ctx.streamRef.current = null;
+    ctx.cancelAndClearStream();
   }
 }

@@ -8,10 +8,11 @@
  * - https://tanstack.com/query/latest/docs/reference/QueryClient#queryclientinvalidatequeries
  */
 
-import { type MutableRefObject, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { RefreshOutcome } from "@/domains/chat/transcript/transcript";
 
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { haptic } from "@/utils/haptics";
 import { isPointerCoarse } from "@/utils/pointer";
 
@@ -27,7 +28,6 @@ const PULL_REFRESH_TIMEOUT_MS = 15_000;
 
 interface UsePullRefreshParams {
   activeConversationId: string | null | undefined;
-  messagesRef: MutableRefObject<{ length: number }>;
   /** Invalidate the TQ history cache and refetch. Resolves when the refetch completes. */
   invalidateHistory: () => Promise<void>;
   /** Also bump the conversation-list refresh epoch (non-history side-effects). */
@@ -48,7 +48,6 @@ interface UsePullRefreshReturn {
 
 export function usePullRefresh({
   activeConversationId,
-  messagesRef,
   invalidateHistory,
   onRefreshEpoch,
 }: UsePullRefreshParams): UsePullRefreshReturn {
@@ -70,7 +69,7 @@ export function usePullRefresh({
     }
 
     abortRef.current = false;
-    const beforeCount = messagesRef.current.length;
+    const beforeCount = useChatSessionStore.getState().messages.length;
 
     // Also refresh the conversation list.
     onRefreshEpoch();
@@ -97,7 +96,7 @@ export function usePullRefresh({
         return { kind: "no-change" };
       }
 
-      const afterCount = messagesRef.current.length;
+      const afterCount = useChatSessionStore.getState().messages.length;
       const delta = afterCount - beforeCount;
       const outcome: RefreshOutcome =
         delta > 0
@@ -127,7 +126,7 @@ export function usePullRefresh({
     } finally {
       if (timer != null) clearTimeout(timer);
     }
-  }, [activeConversationId, messagesRef, invalidateHistory, onRefreshEpoch]);
+  }, [activeConversationId, invalidateHistory, onRefreshEpoch]);
 
   // Abort any in-flight pull-refresh when the active conversation changes.
   useEffect(() => {

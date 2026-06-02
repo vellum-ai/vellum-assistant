@@ -1,4 +1,4 @@
-import * as Sentry from "@sentry/react";
+import { captureError } from "@/lib/sentry/capture-error";
 import {
   useCallback,
   useEffect,
@@ -34,16 +34,16 @@ import { useVellumCommands } from "@/runtime/vellum-commands";
 import { useConversationStore } from "@/stores/conversation-store";
 import { requestComposerFocus } from "./composer-focus";
 import {
-  conversationsQueryKey,
   useConversationGroupsQuery,
   useConversationListQuery,
-} from "@/domains/conversations/conversation-queries";
-import { useAttentionTracking } from "@/domains/conversations/use-attention-tracking";
-import { useConversationActions } from "@/domains/conversations/use-conversation-actions";
-import { useConversationGroupActions } from "@/domains/conversations/use-conversation-group-actions";
-import { RenameConversationDialog } from "@/domains/conversations/rename-conversation-dialog";
-import { useRenameRequestStore } from "@/domains/conversations/rename-request-store";
-import { patchConversation } from "@/domains/conversations/conversation-queries";
+} from "@/hooks/conversation-queries";
+import { conversationsQueryKey } from "@/lib/sync/query-tags";
+import { patchConversation } from "@/utils/conversation-cache";
+import { useAttentionTracking } from "@/domains/chat/hooks/use-attention-tracking";
+import { useConversationActions } from "@/domains/chat/hooks/use-conversation-actions";
+import { useConversationGroupActions } from "@/domains/chat/hooks/use-conversation-group-actions";
+import { RenameConversationDialog } from "@/domains/chat/components/rename-conversation-dialog";
+import { useRenameRequestStore } from "@/domains/chat/rename-request-store";
 import { conversationsByIdNamePatch } from "@/generated/daemon/sdk.gen";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
@@ -455,9 +455,7 @@ export function ChatLayout() {
         queryKey: conversationsQueryKey(assistantId),
       });
     } catch (err) {
-      Sentry.captureException(err, {
-        tags: { context: "refresh_conversations" },
-      });
+      captureError(err, { context: "refresh_conversations" });
     }
   }, [assistantId, queryClient]);
 
@@ -763,9 +761,7 @@ function RenameDialogFromStore({ assistantId }: { assistantId: string | null }) 
         patchConversation(queryClient, assistantId, conversationId, {
           title: currentTitle,
         });
-        Sentry.captureException(err, {
-          tags: { context: "renameConversation" },
-        });
+        captureError(err, { context: "renameConversation" });
       }
     },
     [assistantId, queryClient, renameRequest, clearRename],
@@ -849,9 +845,7 @@ function ChatConversationHeader() {
         queryKey: conversationsQueryKey(assistantId),
       });
     } catch (err) {
-      Sentry.captureException(err, {
-        tags: { context: "refresh_conversations" },
-      });
+      captureError(err, { context: "refresh_conversations" });
     }
   }, [assistantId, queryClient]);
 

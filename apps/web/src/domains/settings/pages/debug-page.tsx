@@ -19,7 +19,12 @@ type DebugTabId = (typeof ALL_TABS)[number]["id"];
 export function DebugPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const doctorEnabled = useClientFeatureFlagStore.use.doctor();
-  const platformGate = usePlatformGate();
+  // Terminal tab is platform-routed and should be hidden when the active
+  // assistant is self-hosted — `platformHostedOnly: true` is the correct
+  // variant. The standard gate would still resolve to "full" on a
+  // platform-mode app pointed at a self-hosted assistant, leaving the
+  // tab visible and letting the user land on a doomed terminal connection.
+  const platformGate = usePlatformGate({ platformHostedOnly: true });
 
   const tabs = useMemo(
     () =>

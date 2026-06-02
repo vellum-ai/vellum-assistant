@@ -1,50 +1,58 @@
-
-import { client } from "@/generated/api/client.gen";
+import { searchGlobalGet } from "@/generated/daemon/sdk.gen";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-interface GlobalSearchConversation {
-  id: string;
-  title: string | null;
-  updatedAt: number;
-  excerpt: string;
-  matchCount: number;
-}
-
-interface GlobalSearchSchedule {
-  id: string;
-  name: string;
-  cronExpression: string;
-  nextRunAt: number | null;
-  enabled: boolean;
-}
-
-interface GlobalSearchContact {
-  id: string;
-  name: string;
-  email?: string;
-  phone?: string;
-}
-
+/**
+ * Search results grouped by category, as returned by the daemon.
+ *
+ * The generated `SearchGlobalGetResponse["results"]` type resolves to
+ * `{ [key: string]: unknown }` because HeyAPI collapses the inline nested
+ * object despite the spec having full property definitions. This interface
+ * mirrors the Zod schemas in `assistant/src/runtime/routes/global-search-routes.ts`
+ * (lines 34–76) so consumers get proper type safety.
+ */
 export interface GlobalSearchResponse {
-  conversations: GlobalSearchConversation[];
-  schedules: GlobalSearchSchedule[];
-  contacts: GlobalSearchContact[];
+  conversations: Array<{
+    id: string;
+    title: string | null;
+    updatedAt: number;
+    excerpt: string;
+    matchCount: number;
+  }>;
+  memories: Array<{
+    id: string;
+    kind: string;
+    text: string;
+    subject: string | null;
+    confidence: number;
+    updatedAt: number;
+    source: "lexical" | "semantic";
+  }>;
+  schedules: Array<{
+    id: string;
+    name: string;
+    expression: string | null;
+    message: string;
+    enabled: boolean;
+    nextRunAt: number | null;
+  }>;
+  contacts: Array<{
+    id: string;
+    displayName: string;
+    notes: string | null;
+    lastInteraction: number | null;
+  }>;
 }
 
 // ---------------------------------------------------------------------------
 // API
 // ---------------------------------------------------------------------------
 
-const SDK_BASE_OPTIONS =
-  typeof window === "undefined"
-    ? ({ baseUrl: "http://localhost" } as const)
-    : ({} as const);
-
 const EMPTY_RESULTS: GlobalSearchResponse = {
   conversations: [],
+  memories: [],
   schedules: [],
   contacts: [],
 };
@@ -63,9 +71,7 @@ export async function searchGlobal(
   const limit = options?.limit ?? 20;
 
   try {
-    const { data, response } = await client.get<GlobalSearchResponse, unknown>({
-      ...SDK_BASE_OPTIONS,
-      url: "/v1/assistants/{assistant_id}/search/global",
+    const { data, response } = await searchGlobalGet({
       path: { assistant_id: assistantId },
       query: {
         q: query,
@@ -76,32 +82,11 @@ export async function searchGlobal(
       signal: options?.signal,
     });
 
-    if (!response?.ok) {
+    if (!response?.ok || !data) {
       return EMPTY_RESULTS;
     }
 
-    // Validate the shape minimally — the daemon may evolve its response.
-    // The daemon wraps category arrays inside a `results` object:
-    //   { query: string, results: { conversations, schedules, contacts } }
-    if (data && typeof data === "object") {
-      const results =
-        (data as unknown as Record<string, unknown>).results ?? data;
-      if (results && typeof results === "object") {
-        return {
-          conversations: Array.isArray((results as GlobalSearchResponse).conversations)
-            ? (results as GlobalSearchResponse).conversations
-            : [],
-          schedules: Array.isArray((results as GlobalSearchResponse).schedules)
-            ? (results as GlobalSearchResponse).schedules
-            : [],
-          contacts: Array.isArray((results as GlobalSearchResponse).contacts)
-            ? (results as GlobalSearchResponse).contacts
-            : [],
-        };
-      }
-    }
-
-    return EMPTY_RESULTS;
+    return data.results as unknown as GlobalSearchResponse;
   } catch (err) {
     // AbortError is expected when debounced queries supersede each other.
     if (err instanceof DOMException && err.name === "AbortError") {

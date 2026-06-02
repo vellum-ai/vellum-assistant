@@ -203,14 +203,9 @@ const pendingInteractionResolver: GuardianRequestResolver = {
         reason: `conversation_not_found: ${interaction.conversationId}`,
       };
     }
-    conversation.handleConfirmationResponse(
-      request.id,
-      userDecision,
-      undefined,
-      undefined,
-      undefined,
-      ctx.emissionContext,
-    );
+    conversation.handleConfirmationResponse(request.id, userDecision, {
+      emissionContext: ctx.emissionContext,
+    });
 
     log.info(
       {
@@ -505,7 +500,9 @@ const accessRequestResolver: GuardianRequestResolver = {
           sourceChannel: "phone",
           externalUserId: requesterExternalUserId,
           ...(requesterChatId ? { externalChatId: requesterChatId } : {}),
-          ...(requesterDisplayName ? { displayName: requesterDisplayName } : {}),
+          ...(requesterDisplayName
+            ? { displayName: requesterDisplayName }
+            : {}),
         },
       };
     }

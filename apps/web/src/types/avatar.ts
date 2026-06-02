@@ -50,3 +50,49 @@ export function isCharacterTraits(value: unknown): value is CharacterTraits {
     typeof obj.color === "string"
   );
 }
+
+export type AvatarKind = "character" | "image" | "none";
+
+export type AvatarSource = "builder" | "upload" | "ai";
+
+export interface AvatarImageMeta {
+  updatedAt: string;
+  etag: string;
+}
+
+/**
+ * Authoritative avatar render manifest served by the daemon's
+ * `GET /avatar/state` endpoint. `kind` drives rendering; `source` is
+ * metadata. Mirrors the daemon's `AvatarState` manifest shape.
+ */
+export interface AvatarState {
+  kind: AvatarKind;
+  traits: CharacterTraits | null;
+  source: AvatarSource | null;
+  image: AvatarImageMeta | null;
+}
+
+function isAvatarKind(value: unknown): value is AvatarKind {
+  return value === "character" || value === "image" || value === "none";
+}
+
+function isAvatarSource(value: unknown): value is AvatarSource {
+  return value === "builder" || value === "upload" || value === "ai";
+}
+
+function isAvatarImageMeta(value: unknown): value is AvatarImageMeta {
+  if (typeof value !== "object" || value === null) return false;
+  const obj = value as Record<string, unknown>;
+  return typeof obj.updatedAt === "string" && typeof obj.etag === "string";
+}
+
+export function isAvatarState(value: unknown): value is AvatarState {
+  if (typeof value !== "object" || value === null) return false;
+  const obj = value as Record<string, unknown>;
+  return (
+    isAvatarKind(obj.kind) &&
+    (obj.traits === null || isCharacterTraits(obj.traits)) &&
+    (obj.source === null || isAvatarSource(obj.source)) &&
+    (obj.image === null || isAvatarImageMeta(obj.image))
+  );
+}

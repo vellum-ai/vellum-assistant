@@ -18,7 +18,11 @@ import {
   assistantEventHub,
   broadcastMessage,
 } from "../runtime/assistant-event-hub.js";
-import { enforceSameActorOrErrorResult } from "../runtime/auth/same-actor.js";
+import {
+  ambiguousSameUserError,
+  enforceSameActorOrErrorResult,
+  pickSameUserAutoResolve,
+} from "../runtime/auth/same-actor.js";
 import type {
   InteractiveUiRequest,
   InteractiveUiResult,
@@ -504,6 +508,7 @@ export interface SurfaceConversationContext {
     }>;
     display?: string;
     persistent?: boolean;
+    toolCallId?: string;
   }>;
   /** Optional proxy for delegating computer-use actions to a connected desktop client. */
   hostCuProxy?: HostCuProxy;
@@ -1966,6 +1971,7 @@ export async function surfaceProxyResolver(
   toolName: string,
   input: Record<string, unknown>,
   signal?: AbortSignal,
+  toolUseId?: string,
 ): Promise<ToolExecutionResult> {
   // Route CU proxy tools (all computer_use_* action tools)
   if (toolName.startsWith("computer_use_")) {
@@ -2030,43 +2036,28 @@ export async function surfaceProxyResolver(
       if (rejection) return rejection;
     }
 
-    // Guard: require explicit targeting when multiple same-user CU-capable
-    // clients are connected. The tool schemas document target_client_id as
-    // "required when multiple clients support host_cu" but nothing enforced
-    // it at runtime until now. Without this guard, the request would
-    // broadcast to all capable clients simultaneously, causing the same CU
-    // action to execute on multiple machines. The filter mirrors
-    // HostFileProxy's auto-resolve: only same-user clients participate, so
-    // a cross-user client connected to the same daemon does not falsely
-    // trigger this ambiguity error.
-    //
-    // Asymmetry with host_bash / host_file (host-shell.ts): the bash/file
-    // guard additionally checks `transportInterface != null &&
-    // !supportsHostProxy(transportInterface)` and so only fires for non-host-
-    // proxy transports (web, Slack). For CU that check would be a no-op:
-    // every host_cu-capable client is host-proxy-capable by definition
-    // (host_cu only ships on macOS and the Chrome extension), so there is no
-    // host_cu-capable transport for which auto-routing-to-self would be
-    // appropriate. We therefore fire whenever there is genuine ambiguity.
+    // Untargeted CU must resolve to exactly one same-user capable client
+    // before dispatch. Otherwise the proxy would broadcast without a target
+    // actor binding, which is unsafe in shared runtimes.
     if (targetClientId == null) {
-      const allCuClients = assistantEventHub.listClientsByCapability("host_cu");
-      const sameUserCuClients = allCuClients.filter(
-        (c) => c.actorPrincipalId === sourceActorPrincipalId,
-      );
-      if (sameUserCuClients.length > 1) {
+      const resolved = pickSameUserAutoResolve({
+        hub: assistantEventHub,
+        capability: "host_cu",
+        sourceActorPrincipalId,
+      });
+      if (resolved.kind === "ambiguous") {
+        return ambiguousSameUserError("host_cu");
+      }
+      if (resolved.kind === "match") {
+        targetClientId = resolved.clientId;
+      } else if (
+        assistantEventHub.listClientsByCapability("host_cu").length > 0
+      ) {
         return {
-          content: `Error: multiple clients support host_cu. Specify which client to target with \`target_client_id\`. Run \`assistant clients list --capability host_cu\` to see client IDs and labels.`,
+          content:
+            "Computer use is not available for the current actor. Connect a host_cu-capable client as the same user.",
           isError: true,
         };
-      }
-      // When cross-user host_cu clients are connected, we MUST auto-resolve
-      // to the unique same-user client (or fail explicitly) — otherwise the
-      // proxy would broadcast untargeted and the CU action would reach the
-      // cross-user client too. Setting targetClientId here forces the proxy
-      // to deliver only to that client, with the same-user check below as
-      // belt-and-suspenders.
-      if (sameUserCuClients.length === 1 && allCuClients.length > 1) {
-        targetClientId = sameUserCuClients[0].clientId;
       }
     }
 
@@ -2152,23 +2143,24 @@ export async function surfaceProxyResolver(
     }
 
     if (targetClientId == null) {
-      const allAcClients =
-        assistantEventHub.listClientsByCapability("host_app_control");
-      const sameUserAcClients = allAcClients.filter(
-        (c) => c.actorPrincipalId === sourceActorPrincipalId,
-      );
-      if (sameUserAcClients.length > 1) {
+      const resolved = pickSameUserAutoResolve({
+        hub: assistantEventHub,
+        capability: "host_app_control",
+        sourceActorPrincipalId,
+      });
+      if (resolved.kind === "ambiguous") {
+        return ambiguousSameUserError("host_app_control");
+      }
+      if (resolved.kind === "match") {
+        targetClientId = resolved.clientId;
+      } else if (
+        assistantEventHub.listClientsByCapability("host_app_control").length > 0
+      ) {
         return {
-          content: `Error: multiple clients support host_app_control. Specify which client to target with \`target_client_id\`. Run \`assistant clients list --capability host_app_control\` to see client IDs and labels.`,
+          content:
+            "App control is not available for the current actor. Connect a host_app_control-capable client as the same user.",
           isError: true,
         };
-      }
-      // When cross-user host_app_control clients are connected, auto-
-      // resolve to the unique same-user client. Otherwise the proxy would
-      // dispatch untargeted and the action could reach a cross-user
-      // client. Belt-and-suspenders: the proxy re-checks same-user.
-      if (sameUserAcClients.length === 1 && allAcClients.length > 1) {
-        targetClientId = sameUserAcClients[0].clientId;
       }
     }
 
@@ -2311,6 +2303,7 @@ export async function surfaceProxyResolver(
       actions: mappedActions,
       display,
       ...(persistent ? { persistent: true } : {}),
+      ...(toolUseId ? { toolCallId: toolUseId } : {}),
     } as unknown as UiSurfaceShow);
 
     // Track surface for persistence with the message
@@ -2322,6 +2315,7 @@ export async function surfaceProxyResolver(
       actions: mappedActions,
       display,
       ...(persistent ? { persistent: true } : {}),
+      ...(toolUseId ? { toolCallId: toolUseId } : {}),
     });
 
     if (awaitAction) {
@@ -2495,6 +2489,7 @@ export async function surfaceProxyResolver(
         title: app.name,
         data: surfaceData,
         display: "inline",
+        ...(toolUseId ? { toolCallId: toolUseId } : {}),
       } as UiSurfaceShow);
 
       // Track for message persistence so the inline card survives history reload.
@@ -2504,6 +2499,7 @@ export async function surfaceProxyResolver(
         title: app.name,
         data: surfaceData,
         display: "inline",
+        ...(toolUseId ? { toolCallId: toolUseId } : {}),
       });
 
       return { content: JSON.stringify({ surfaceId, appId }), isError: false };
@@ -2522,6 +2518,7 @@ export async function surfaceProxyResolver(
       surfaceType: "dynamic_page",
       title: app.name,
       data: surfaceData,
+      ...(toolUseId ? { toolCallId: toolUseId } : {}),
     } as UiSurfaceShow);
 
     // Track surface for persistence
@@ -2530,6 +2527,7 @@ export async function surfaceProxyResolver(
       surfaceType: "dynamic_page",
       title: app.name,
       data: surfaceData,
+      ...(toolUseId ? { toolCallId: toolUseId } : {}),
     });
 
     ctx.pendingSurfaceActions.set(surfaceId, { surfaceType: "dynamic_page" });

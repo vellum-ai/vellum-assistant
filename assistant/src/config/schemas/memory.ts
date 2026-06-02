@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   MemoryCleanupConfigSchema,
   MemoryJobsConfigSchema,
+  MemoryMaintenanceConfigSchema,
   MemoryRetentionConfigSchema,
 } from "./memory-lifecycle.js";
 import {
@@ -43,6 +44,9 @@ export const MemoryConfigSchema = z
     ),
     cleanup: MemoryCleanupConfigSchema.default(
       MemoryCleanupConfigSchema.parse({}),
+    ),
+    maintenance: MemoryMaintenanceConfigSchema.default(
+      MemoryMaintenanceConfigSchema.parse({}),
     ),
     extraction: MemoryExtractionConfigSchema.default(
       MemoryExtractionConfigSchema.parse({}),

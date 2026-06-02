@@ -55,7 +55,7 @@ import { TERMINAL_STATUSES } from "../subagent/types.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getWorkspaceDir, getWorkspacePromptPath } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
-import { filterMessagesForUntrustedActor } from "./conversation-lifecycle.js";
+import { filterMessagesForUntrustedActor } from "./message-provenance.js";
 import { type PkbContextConversation } from "./pkb-context-tracker.js";
 import type { TrustContext } from "./trust-context.js";
 
@@ -301,7 +301,7 @@ function injectActiveSurfaceContext(
     lines.push(
       `The user is viewing app "${ctx.appName ?? "Untitled"}" (app_id: "${ctx.appId}", slug: "${slug}") in workspace mode.`,
       "",
-      'PREREQUISITE: If `app_refresh` is not yet available, call `skill_load` with `id: "app-builder"` first to load it.',
+      'PREREQUISITE: If `app_refresh` is not yet available, call `skill_load` with `skill: "app-builder"` first to load it.',
       "",
       "RULES FOR WORKSPACE MODIFICATION:",
       `1. Use \`file_edit\` to make surgical changes to app files. The file path is \`${getAppDirPath(ctx.appId)}/<path>\`.`,

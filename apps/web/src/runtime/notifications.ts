@@ -20,11 +20,6 @@ import {
 import { client } from "@/generated/api/client.gen";
 import { isNativePlatform } from "@/runtime/native-auth";
 
-const SDK_BASE_OPTIONS =
-  typeof window === "undefined"
-    ? ({ baseUrl: "http://localhost" } as const)
-    : ({} as const);
-
 /**
  * Payload stored alongside each native notification so the tap handler can
  * deep-link back to the originating conversation. Kept intentionally small —
@@ -234,7 +229,6 @@ export async function sendNotificationIntentAck(
     // base URL, and credentials stay consistent with `submitConfirmation` and
     // friends.
     await client.post<unknown, unknown>({
-      ...SDK_BASE_OPTIONS,
       url: "/v1/assistants/{assistant_id}/notification-intent-result/",
       path: { assistant_id: assistantId },
       body,
@@ -291,8 +285,7 @@ export async function postLocalNotification(
 
   if (isNativePlatform()) {
     const seed =
-      args.deliveryId ??
-      `${args.sourceEventName}:${args.title}:${args.body}`;
+      args.deliveryId ?? `${args.sourceEventName}:${args.title}:${args.body}`;
     const notification: LocalNotificationSchema = {
       id: toNotificationId(seed),
       title: args.title,
@@ -314,8 +307,7 @@ export async function postLocalNotification(
     // browser's single-tag lane), so include title + body in the seed to
     // keep distinct notifications distinct.
     const tag =
-      args.deliveryId ??
-      `${args.sourceEventName}:${args.title}:${args.body}`;
+      args.deliveryId ?? `${args.sourceEventName}:${args.title}:${args.body}`;
     try {
       const n = new Notification(args.title, {
         body: args.body,

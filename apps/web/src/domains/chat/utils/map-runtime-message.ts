@@ -1,5 +1,6 @@
 import { runtimeAttachmentsToDisplay } from "@/domains/chat/utils/attachment-mapping";
 import { parseAttachmentSummariesFromContent } from "@/domains/chat/utils/parse-attachment-summaries";
+import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 import type {
   DisplayAttachment,
   DisplayMessage,
@@ -20,7 +21,6 @@ import { mapRuntimeToolCalls, normalizeContentOrder, normalizeTextSegments, type
  * via `mapRuntimeToDisplayMessage`.
  */
 export interface PreparedRuntimeMessage {
-  cleanedContent: string;
   parsedAttachments: DisplayAttachment[] | undefined;
   structuredAttachments: DisplayAttachment[] | undefined;
   normalizedSegments:
@@ -52,37 +52,49 @@ export function parseRuntimeTimestamp(
  * Parse and normalize all server-side fields from a `RuntimeMessage`.
  *
  * This is the single source of truth for interpreting a RuntimeMessage's raw
- * fields into display-ready values. Content is cleaned (attachment summary
- * lines stripped), text segments are normalized with the first segment synced
- * to cleaned content, attachments are mapped from structured metadata, and
- * timestamps are coerced to epoch ms.
+ * fields into display-ready values. Text segments are normalized and have their
+ * inlined attachment summary lines stripped, fallback attachment stubs are
+ * reconstructed from those lines, structured attachments are mapped from the
+ * daemon's metadata, and timestamps are coerced to epoch ms.
  */
 export function prepareServerMessage(m: RuntimeMessage): PreparedRuntimeMessage {
-  const { cleanedContent, attachments: parsedAttachments } =
-    parseAttachmentSummariesFromContent(m.content);
-
   const structuredAttachments =
     m.attachments && m.attachments.length > 0
       ? runtimeAttachmentsToDisplay(m.attachments)
       : undefined;
 
-  // Clean each text segment individually. `renderHistoryContent` in the
-  // daemon appends `[File attachment]` summary lines to whichever text
-  // segment is open at the end of the message body, which can be ANY
-  // segment when text is interleaved with `tool_use` / `ui_surface`
-  // blocks. Patching only segments[0] (as a prior implementation did)
-  // left raw "[File attachment]" text in trailing segments, which the
-  // transcript renderer then printed into chat bubbles. LUM-1527.
+  // Clean each text segment individually and harvest fallback attachment
+  // stubs from the cleaned-off lines. `renderHistoryContent` in the daemon
+  // appends `[File attachment]` summary lines to whichever text segment is
+  // open at the end of the message body, which can be ANY segment when text
+  // is interleaved with `tool_use` / `ui_surface` blocks. Patching only
+  // segments[0] (as a prior implementation did) left raw "[File attachment]"
+  // text in trailing segments, which the transcript renderer then printed
+  // into chat bubbles. LUM-1527.
   const rawSegments = normalizeTextSegments(m.textSegments as unknown[]);
+  const parsedAttachmentsAccum: DisplayAttachment[] = [];
   const normalizedSegments = rawSegments
     ? rawSegments.map((seg) => {
-        const { cleanedContent: segCleaned } =
+        const { cleanedContent: segCleaned, attachments: segAttachments } =
           parseAttachmentSummariesFromContent(seg.content);
+        if (segAttachments) {
+          parsedAttachmentsAccum.push(...segAttachments);
+        }
         return segCleaned === seg.content
           ? seg
           : { ...seg, content: segCleaned };
       })
     : undefined;
+
+  // Re-index the synthesized `rehydrated:` ids so they stay unique even in
+  // the (unusual) case where summary lines span more than one segment.
+  const parsedAttachments =
+    parsedAttachmentsAccum.length > 0
+      ? parsedAttachmentsAccum.map((att, i) => ({
+          ...att,
+          id: `rehydrated:${i}`,
+        }))
+      : undefined;
 
   const normalizedContentOrder = normalizeContentOrder(
     m.contentOrder as unknown[],
@@ -96,7 +108,6 @@ export function prepareServerMessage(m: RuntimeMessage): PreparedRuntimeMessage 
   const timestamp = parseRuntimeTimestamp(m.timestamp);
 
   return {
-    cleanedContent,
     parsedAttachments,
     structuredAttachments,
     normalizedSegments,
@@ -120,7 +131,6 @@ export function mapRuntimeToDisplayMessage(m: RuntimeMessage): DisplayMessage {
   const msg: DisplayMessage = {
     id: m.id,
     role: m.role,
-    content: prepared.cleanedContent,
   };
   if (m.mergedMessageIds?.length) msg.mergedMessageIds = m.mergedMessageIds;
   if (m.surfaces) msg.surfaces = m.surfaces;
@@ -136,4 +146,17 @@ export function mapRuntimeToDisplayMessage(m: RuntimeMessage): DisplayMessage {
   if (attachments) msg.attachments = attachments;
 
   return msg;
+}
+
+/**
+ * Derive the cleaned, flat plain-text body of a raw `RuntimeMessage`.
+ *
+ * Normalizes and cleans the wire `textSegments` (stripping inlined
+ * attachment summary lines) and joins them with the daemon's spacing rules,
+ * yielding text identical to what `DisplayMessage` rows expose via
+ * `segmentsToPlainText`. Used where a raw server message must be compared
+ * against a display row (reconciliation) or summarized (diagnostics, inspector).
+ */
+export function runtimeMessagePlainText(m: RuntimeMessage): string {
+  return segmentsToPlainText(prepareServerMessage(m).normalizedSegments);
 }

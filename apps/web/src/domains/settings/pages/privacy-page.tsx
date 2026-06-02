@@ -7,6 +7,7 @@ import { BiometricSettingsCard } from "@/domains/settings/components/biometric-s
 import { AccessConsentSetting } from "@/domains/settings/components/access-consent-setting";
 import { RiskToleranceSettings } from "@/domains/settings/components/risk-tolerance-settings";
 import { TrustRules } from "@/domains/settings/components/trust-rules/trust-rules";
+import { usePlatformGate } from "@/hooks/use-platform-gate";
 import {
   getDeviceBool,
   getDeviceSetting,
@@ -59,6 +60,9 @@ function Divider() {
 }
 
 export function PrivacyPage() {
+  // platformHostedOnly so the divider visibility matches the gate inside
+  // `AccessConsentSetting` exactly.
+  const platformGate = usePlatformGate({ platformHostedOnly: true });
   const [shareAnalytics, setShareAnalytics] = useState(
     () => getDeviceBool("shareAnalytics", true),
   );
@@ -108,7 +112,12 @@ export function PrivacyPage() {
           />
           <Divider />
           <AccessConsentSetting />
-          <Divider />
+          {/*
+            `AccessConsentSetting` returns null when gated (self-hosted
+            assistants). Hide the trailing divider in that case so we
+            don't render two adjacent dividers around a missing row.
+          */}
+          {platformGate !== "gated" && <Divider />}
           <div>
             <label
               htmlFor="llm-log-retention"

@@ -394,6 +394,19 @@ export function handleSubscribeAssistantEvents(
   // replay window we just drained.
   let highWaterReplaySeq = -1;
 
+  // Per-conversation subscriber-filtered sequence counters. Incremented
+  // for each conversation-scoped event this specific subscriber receives
+  // (after capability/client/interface targeting), producing a gap-free
+  // sequence from the subscriber's perspective. Clients use `clientSeq`
+  // for gap detection instead of the global `seq` to avoid false
+  // positives from targeted events they never receive.
+  const clientSeqCounters = new Map<string, number>();
+  function nextClientSeqFor(conversationId: string): number {
+    const next = (clientSeqCounters.get(conversationId) ?? 0) + 1;
+    clientSeqCounters.set(conversationId, next);
+    return next;
+  }
+
   const callback: AssistantEventCallback = (event) => {
     const controller = controllerRef;
     if (!controller) return;
@@ -412,7 +425,11 @@ export function handleSubscribeAssistantEvents(
         cleanup();
         return;
       }
-      controller.enqueue(encoder.encode(formatSseFrame(event)));
+      const frame =
+        event.conversationId != null && event.seq != null
+          ? { ...event, clientSeq: nextClientSeqFor(event.conversationId) }
+          : event;
+      controller.enqueue(encoder.encode(formatSseFrame(frame)));
       instrumentation.eventsDelivered += 1;
     } catch {
       sub.dispose();
@@ -490,7 +507,14 @@ export function handleSubscribeAssistantEvents(
           );
           if (window !== null) {
             for (const replayed of window) {
-              controller.enqueue(encoder.encode(formatSseFrame(replayed)));
+              const frame =
+                replayed.conversationId != null && replayed.seq != null
+                  ? {
+                      ...replayed,
+                      clientSeq: nextClientSeqFor(replayed.conversationId),
+                    }
+                  : replayed;
+              controller.enqueue(encoder.encode(formatSseFrame(frame)));
               instrumentation.eventsDelivered += 1;
               if (replayed.seq != null && replayed.seq > highWaterReplaySeq) {
                 highWaterReplaySeq = replayed.seq;

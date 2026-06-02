@@ -1,12 +1,10 @@
 /**
- * Terminal handler for the default `persistence` pipeline.
+ * Default `persistence` behavior: writes conversation messages to the database
+ * (and optionally the JSONL disk view).
  *
  * This module is side-effect free: importing it does not register any plugin.
- * The terminal is wired in as the pipeline's `terminal` argument by the
- * `runPipeline` call sites in `daemon/conversation-agent-loop.ts` and
- * `daemon/conversation-agent-loop-handlers.ts`.
  *
- * The terminal dispatches on the discriminated {@link PersistArgs.op} field:
+ * The handler dispatches on the discriminated {@link PersistArgs.op} field:
  *
  * - `add`           → {@link addMessage}, optionally followed by
  *                     {@link syncMessageToDisk} when `args.syncToDisk` is true.
@@ -32,10 +30,8 @@ import { syncMessageToDisk } from "../../../memory/conversation-disk-view.js";
 import type { PersistArgs, PersistResult } from "../../types.js";
 
 /**
- * Terminal handler for the `persistence` pipeline. Exported so tests can
- * verify default behavior directly without going through `runPipeline`, and
- * so the `daemon/conversation-agent-loop*.ts` call sites can pass it as the
- * `terminal` argument to `runPipeline`.
+ * Persist a message according to `args.op`. Exported so the agent-loop call
+ * sites can invoke it directly and tests can verify each op in isolation.
  */
 export async function defaultPersistenceTerminal(
   args: PersistArgs,

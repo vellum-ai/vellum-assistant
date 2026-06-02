@@ -6,6 +6,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { Button } from "@vellum/design-library";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import type { RuntimeMessage } from "@/domains/chat/api/messages";
+import { runtimeMessagePlainText } from "@/domains/chat/utils/map-runtime-message";
 import { canUseLlmInspector } from "@/domains/chat/inspector/access";
 import {
   useConversationMessageList,
@@ -438,7 +439,7 @@ function buildMessageScopeOptions(messages: RuntimeMessage[]): ScopeOption[] {
     const id = m.id;
     if (!id || seen.has(id)) continue;
     seen.add(id);
-    const preview = previewContent(m.content);
+    const preview = previewContent(runtimeMessagePlainText(m));
     const roleLabel = m.role === "assistant" ? "Assistant" : "User";
     const label = preview
       ? `${index}. ${roleLabel} · ${preview}`

@@ -28,10 +28,26 @@ import type { AssistantState } from "./types";
 
 interface LifecycleState {
   assistantState: AssistantState;
+  /**
+   * Auto-greet one-shot: set when any hatch path completes, cleared
+   * on chat-surface exit conditions (first message arrived, 10s
+   * safety, conversation switch) or on terminal lifecycle transitions
+   * (error/retired/logout).
+   *
+   * Lives in the store rather than as a private service field so
+   * React consumers subscribe via atomic selector — producers can
+   * fire from inside the ChatPage tree (e.g. the version-selection
+   * screen, the pre-chat sessionStorage detector) and the gate updates
+   * without needing a mount/remount. A non-reactive field would
+   * force every producer to also flip a local mirror; this avoids
+   * the mirror entirely.
+   */
+  expectingFirstMessage: boolean;
 }
 
 const useAssistantLifecycleStoreBase = create<LifecycleState>(() => ({
   assistantState: { kind: "loading" },
+  expectingFirstMessage: false,
 }));
 
 export const useAssistantLifecycleStore = createSelectors(

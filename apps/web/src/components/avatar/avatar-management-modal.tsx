@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Image as ImageIcon, Sparkles, Trash2, Wrench, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Image as ImageIcon, Sparkles, Wrench, X } from "lucide-react";
 import {
   type ChangeEvent,
   type KeyboardEvent,
@@ -28,7 +28,6 @@ interface AvatarManagementModalProps {
   onSaveCharacter: (traits: CharacterTraits) => void;
   onUploadImage: () => void;
   onGenerateWithAI?: () => void;
-  onDeleteAvatar?: () => void;
 }
 
 export function AvatarManagementModal({
@@ -41,7 +40,6 @@ export function AvatarManagementModal({
   onSaveCharacter,
   onUploadImage,
   onGenerateWithAI,
-  onDeleteAvatar,
 }: AvatarManagementModalProps) {
   const titleId = useId();
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -132,11 +130,6 @@ export function AvatarManagementModal({
     handleClose();
     onGenerateWithAI?.();
   }, [handleClose, onGenerateWithAI]);
-
-  const handleDeleteAvatar = useCallback(() => {
-    handleClose();
-    onDeleteAvatar?.();
-  }, [handleClose, onDeleteAvatar]);
 
   const handleCharacterSave = useCallback(
     (savedTraits: CharacterTraits) => {
@@ -313,18 +306,6 @@ export function AvatarManagementModal({
                   </button>
                 )}
               </div>
-
-              {onDeleteAvatar && (
-                <button
-                  type="button"
-                  onClick={handleDeleteAvatar}
-                  className="flex items-center gap-1.5 text-body-small-default transition-colors hover:opacity-70"
-                  style={{ color: "var(--content-tertiary)" }}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  Reset to default
-                </button>
-              )}
             </div>
           ) : (
             <AvatarCustomizationPanel
