@@ -5,6 +5,7 @@ import { resolveScopeProfile } from "../../auth/scopes.js";
 import { parseSub } from "../../auth/subject.js";
 import { validateEdgeToken } from "../../auth/token-exchange.js";
 import type { Scope } from "../../auth/types.js";
+import { AuthFallbackLogThrottle } from "../../auth-fallback-log-throttle.js";
 import type { AuthRateLimiter } from "../../auth-rate-limiter.js";
 import { credentialKey } from "../../credential-key.js";
 import { readCredential } from "../../credential-reader.js";
@@ -12,6 +13,12 @@ import { getLogger } from "../../logger.js";
 import { isLoopbackPeer } from "../../util/is-loopback-address.js";
 
 const log = getLogger("auth");
+
+// Suppresses repeat "legacy loopback fallback" warnings: each (guard, path)
+// logs at most once per cooldown window so the rollout signal stays visible
+// without per-request noise. Process-lifetime — createAuthMiddleware is invoked
+// per request, so this state can't live in its closure.
+const loopbackFallbackLogThrottle = new AuthFallbackLogThrottle();
 
 type GetClientIp = () => string;
 
@@ -72,9 +79,10 @@ export function logAuthBypassState(): void {
  * Build edge-auth guard functions that share a rate limiter and IP resolver.
  *
  * All three guards retain a tokenless legacy loopback fallback for local-only
- * clients and log loudly so callers missing auth are visible during rollout.
- * Requests that do send Authorization are never allowed through loopback
- * fallback. Beyond that:
+ * clients. Each fallback endpoint logs once per cooldown window (see
+ * `loopbackFallbackLogThrottle`) so callers still missing auth are visible
+ * during rollout without per-request log noise. Requests that do send
+ * Authorization are never allowed through loopback fallback. Beyond that:
  *
  *   - `requireEdgeAuth` — validates a JWT bearer token (aud=vellum-gateway)
  *     OR (when bypass is active) cross-checks X-Vellum-User-Id against the
@@ -290,17 +298,20 @@ export function createAuthMiddleware(
   ): boolean {
     if (!server || !isLoopbackPeer(server, req)) return false;
 
-    const peer = server.requestIP(req);
-    log.warn(
-      {
-        path: new URL(req.url).pathname,
-        guard,
-        peerIp: peer?.address,
-        authFallback: "legacy_loopback",
-        ...extra,
-      },
-      "Gateway auth allowed via legacy loopback fallback because request did not include bearer auth",
-    );
+    const path = new URL(req.url).pathname;
+    if (loopbackFallbackLogThrottle.shouldLog(`${guard} ${path}`)) {
+      const peer = server.requestIP(req);
+      log.warn(
+        {
+          path,
+          guard,
+          peerIp: peer?.address,
+          authFallback: "legacy_loopback",
+          ...extra,
+        },
+        "Gateway auth allowed via legacy loopback fallback because request did not include bearer auth (throttled to one log per endpoint per hour)",
+      );
+    }
     return true;
   }
 
