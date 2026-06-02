@@ -171,6 +171,7 @@ export interface ChatRouteContentProps {
   sanitizedMessagesRef: MutableRefObject<DisplayMessage[]>;
   transcriptItemsRef: MutableRefObject<TranscriptItem[]>;
   transcriptRef: RefObject<TranscriptHandle | null>;
+  uiContextRef: MutableRefObject<UIContext | null>;
 
   // Onboarding (local state in ActiveChatView)
   onboardingTasksEmpty: boolean;
@@ -214,6 +215,7 @@ export function ChatRouteContent({
   sanitizedMessagesRef,
   transcriptItemsRef,
   transcriptRef,
+  uiContextRef,
   onboardingTasksEmpty,
   didOnboarding,
   onboardingConversationId,
@@ -506,16 +508,41 @@ export function ChatRouteContent({
     lastCompleteAssistantMsgId,
   });
 
-  const uiContext: UIContext = {
-    hasStreamingAssistantMessage,
-    hasPendingSecret: !!pendingSecret,
-    hasPendingConfirmation: !!pendingConfirmation,
-    hasPendingQuestion: !!pendingQuestion,
-    hasPendingContactRequest: !!pendingContactRequest,
-    hasUncompletedVisibleSurface,
-    activeConversationIsProcessing,
-    hasPendingAssistantResponse: activeConversationHasPendingAssistantResponse,
-  };
+  const uiContext: UIContext = useMemo(
+    () => ({
+      hasStreamingAssistantMessage,
+      hasPendingSecret: !!pendingSecret,
+      hasPendingConfirmation: !!pendingConfirmation,
+      hasPendingQuestion: !!pendingQuestion,
+      hasPendingContactRequest: !!pendingContactRequest,
+      hasUncompletedVisibleSurface,
+      activeConversationIsProcessing,
+      hasPendingAssistantResponse: activeConversationHasPendingAssistantResponse,
+    }),
+    [
+      hasStreamingAssistantMessage,
+      pendingSecret,
+      pendingConfirmation,
+      pendingQuestion,
+      pendingContactRequest,
+      hasUncompletedVisibleSurface,
+      activeConversationIsProcessing,
+      activeConversationHasPendingAssistantResponse,
+    ],
+  );
+
+  // Publish the rendered context (in an effect, after commit — never mutate a
+  // ref during render) so the debug API reports on-screen state instead of a
+  // separate recomputation (see useChatDebugRegistration). Clear it on unmount
+  // so the debug API falls back to its empty default instead of reporting the
+  // last rendered frame (which could claim a badge is processing) while no chat
+  // content is on screen.
+  useEffect(() => {
+    uiContextRef.current = uiContext;
+    return () => {
+      uiContextRef.current = null;
+    };
+  }, [uiContextRef, uiContext]);
 
   const showThinking = shouldShowThinkingIndicator(turnState, uiContext);
   const isAssistantStreaming =
