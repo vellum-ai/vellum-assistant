@@ -50,6 +50,45 @@ final class ChatProfilePickerTests: XCTestCase {
         )
     }
 
+    func testLabelShowsAutoForExplicitAutoProfile() {
+        let profiles = [InferenceProfile(name: "balanced", label: "Balanced")]
+        XCTAssertEqual(
+            ChatProfilePicker.label(
+                current: InferenceProfile.autoProfileName,
+                profiles: profiles,
+                activeProfile: "balanced",
+                autoRouting: true
+            ),
+            "Auto"
+        )
+    }
+
+    func testLabelShowsDefaultWhenRoutingEnabledButActiveProfileIsNotAuto() {
+        let profiles = [InferenceProfile(name: "balanced", label: "Balanced")]
+        XCTAssertEqual(
+            ChatProfilePicker.label(
+                current: nil,
+                profiles: profiles,
+                activeProfile: "balanced",
+                autoRouting: true
+            ),
+            "Default (Balanced)"
+        )
+    }
+
+    func testLabelShowsAutoWhenActiveProfileIsAuto() {
+        let profiles = [InferenceProfile(name: "balanced", label: "Balanced")]
+        XCTAssertEqual(
+            ChatProfilePicker.label(
+                current: nil,
+                profiles: profiles,
+                activeProfile: InferenceProfile.autoProfileName,
+                autoRouting: true
+            ),
+            "Auto"
+        )
+    }
+
     // MARK: - Disabled profiles are filtered from the picker
 
     func testDisabledProfilesAreFilteredFromLabel() {

@@ -57,13 +57,16 @@ struct ChatProfilePicker: View {
     @Environment(AssistantFeatureFlagStore.self) private var assistantFeatureFlagStore
 
     /// Pill label: the override profile's display name when set, otherwise
-    /// "Auto" when auto-routing is enabled or "Default (`<activeProfile>`)"
-    /// when it is not.
+    /// "Default (`<activeProfile>`)". The seeded auto profile is surfaced as
+    /// "Auto" when it is the effective profile.
     static func label(current: String?, profiles: [InferenceProfile], activeProfile: String, autoRouting: Bool = false) -> String {
+        if current == InferenceProfile.autoProfileName {
+            return "Auto"
+        }
         if let current {
             return profiles.first(where: { $0.name == current })?.displayName ?? current
         }
-        if autoRouting {
+        if autoRouting && activeProfile == InferenceProfile.autoProfileName {
             return "Auto"
         }
         let activeDisplay = profiles.first(where: { $0.name == activeProfile })?.displayName ?? activeProfile
@@ -86,9 +89,9 @@ struct ChatProfilePicker: View {
 
     var body: some View {
         let autoRoutingEnabled = assistantFeatureFlagStore.isEnabled("query-complexity-routing")
-        let selectedProfile = current ?? (autoRoutingEnabled ? nil : activeProfile)
-        let activeProfiles = Self.visibleProfilesForPicker(profiles, selectedNames: [selectedProfile])
-        let isAutoActive = autoRoutingEnabled && current == nil
+        let effectiveProfile = current ?? activeProfile
+        let activeProfiles = Self.visibleProfilesForPicker(profiles, selectedNames: [effectiveProfile])
+        let isAutoActive = autoRoutingEnabled && effectiveProfile == InferenceProfile.autoProfileName
         let pillLabel = Self.label(current: current, profiles: activeProfiles, activeProfile: activeProfile, autoRouting: autoRoutingEnabled)
         #if os(macOS)
         ComposerPillMenu(
@@ -111,7 +114,7 @@ struct ChatProfilePicker: View {
                     isActive: isAutoActive,
                     size: .regular
                 ) {
-                    onSelect(nil)
+                    onSelect(InferenceProfile.autoProfileName)
                 } trailing: {
                     VStack(alignment: .trailing, spacing: 2) {
                         if isAutoActive {

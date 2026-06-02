@@ -153,13 +153,11 @@ struct ComposerSettingsMenu: View {
 
                 if let config, !config.profiles.isEmpty {
                     let autoRoutingEnabled = assistantFeatureFlagStore.isEnabled("query-complexity-routing")
-                    let hasOverride = config.current != nil
-                    let isAutoActive = autoRoutingEnabled && !hasOverride
                     let effectiveProfile = config.current ?? config.activeProfile
-                    let selectedProfile = config.current ?? (autoRoutingEnabled ? nil : config.activeProfile)
+                    let isAutoActive = autoRoutingEnabled && effectiveProfile == InferenceProfile.autoProfileName
                     let visibleProfiles = ChatProfilePicker.visibleProfilesForPicker(
                         config.profiles,
-                        selectedNames: [selectedProfile]
+                        selectedNames: [effectiveProfile]
                     )
 
                     if autoRoutingEnabled || !visibleProfiles.isEmpty {
@@ -172,7 +170,7 @@ struct ComposerSettingsMenu: View {
                                 isActive: isAutoActive,
                                 size: .regular
                             ) {
-                                config.onSelect(nil)
+                                config.onSelect(InferenceProfile.autoProfileName)
                             } trailing: {
                                 if isAutoActive {
                                     VIconView(.check, size: 12)
