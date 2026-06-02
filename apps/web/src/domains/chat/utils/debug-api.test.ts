@@ -300,6 +300,34 @@ describe("createChatDebugApi.getTranscriptItems", () => {
 });
 
 // ---------------------------------------------------------------------------
+//  createChatDebugApi — getPhase
+// ---------------------------------------------------------------------------
+
+describe("createChatDebugApi.getPhase", () => {
+  test("returns the turn-store phase", () => {
+    const api = createChatDebugApi(
+      makeRefs({ turn: { ...INITIAL_TURN_STATE, phase: "streaming" } }),
+    );
+    expect(api.getPhase()).toBe("streaming");
+  });
+
+  test("defaults to idle for the initial turn state", () => {
+    const api = createChatDebugApi(makeRefs());
+    expect(api.getPhase()).toBe("idle");
+  });
+
+  test("reads through to getTurnState on every call (no caching)", () => {
+    let phase: TurnState["phase"] = "queued";
+    const api = createChatDebugApi(
+      makeRefs({ getTurnState: () => ({ ...INITIAL_TURN_STATE, phase }) }),
+    );
+    expect(api.getPhase()).toBe("queued");
+    phase = "thinking";
+    expect(api.getPhase()).toBe("thinking");
+  });
+});
+
+// ---------------------------------------------------------------------------
 //  createChatDebugApi — thinkingIndicator
 // ---------------------------------------------------------------------------
 
@@ -669,6 +697,7 @@ describe("createChatDebugApi.help", () => {
     const text = consoleSpy.logged.join("\n");
     expect(text).toContain(".getClientMessages(");
     expect(text).toContain(".getTranscriptItems(");
+    expect(text).toContain(".getPhase()");
     expect(text).toContain(".thinkingIndicator()");
     expect(text).toContain(".forceReconcile()");
     expect(text).toContain(".serverMessages()");

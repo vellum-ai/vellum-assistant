@@ -289,6 +289,21 @@ export interface ChatDebugApi {
    */
   getTranscriptItems(): TranscriptItem[];
   /**
+   * Current turn phase — the `phase` field of the turn-store state
+   * machine (`useTurnStore`). One of `idle`, `queued`, `thinking`,
+   * `streaming`, `awaiting_user_input`, or `errored`.
+   *
+   * Console-callable mirror of the `useTurnStore.use.phase()` render hook:
+   * reads `useTurnStore.getState().phase` so it returns the live value
+   * without creating a subscription. Use it to answer "what phase is the
+   * turn in right now?" at a glance; for the full lifecycle picture
+   * (terminal signal, failing thinking-indicator clauses) use
+   * {@link thinkingIndicator}.
+   *
+   * Synchronous and side-effect-free.
+   */
+  getPhase(): TurnPhase;
+  /**
    * Live evaluation of the thinking-indicator predicate
    * ({@link shouldShowThinkingIndicator}) plus turn-state lifecycle info.
    *
@@ -465,6 +480,10 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     // Read straight from the snapshot the render path already wrote.
     // Same array `<Transcript />` iterates — no projection, no cloning.
     return refs.transcriptItemsRef.current ?? [];
+  }
+
+  function getPhase(): TurnPhase {
+    return refs.getTurnState().phase;
   }
 
   function thinkingIndicator(): ChatDebugThinkingIndicator {
@@ -733,6 +752,7 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       "",
       "  .getClientMessages(n?)     last N DisplayMessage[] the UI is rendering (post-sanitize)",
       "  .getTranscriptItems()      full virtualized row list — messages + thinking + pending prompts",
+      "  .getPhase()                current turn phase (idle/queued/thinking/streaming/awaiting_user_input/errored)",
       "  .thinkingIndicator()       live evaluation of the `...` predicate + done signal",
       "                              .visible / .failingConditions tell you why dots are or aren't showing",
       "                              .done.terminal / .done.lastTerminalReason tell you if the turn is finished",
@@ -752,6 +772,7 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
   return {
     getClientMessages,
     getTranscriptItems,
+    getPhase,
     thinkingIndicator,
     forceReconcile,
     serverMessages,
