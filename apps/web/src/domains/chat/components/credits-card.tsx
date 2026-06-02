@@ -1,4 +1,4 @@
-import { Button, cn } from "@vellum/design-library";
+import { Button } from "@vellum/design-library";
 import { Coins, Gift, Plus } from "lucide-react";
 
 interface CreditsCardProps {
@@ -6,7 +6,6 @@ interface CreditsCardProps {
   balance: string | null;
   onAddCredits: () => void;
   onEarnCredits: () => void;
-  className?: string;
 }
 
 /**
@@ -19,14 +18,10 @@ export function CreditsCard({
   balance,
   onAddCredits,
   onEarnCredits,
-  className,
 }: CreditsCardProps) {
   return (
     <div
-      className={cn(
-        "flex flex-col gap-4 rounded-lg border px-3 pt-3 pb-4 w-full",
-        className,
-      )}
+      className="flex flex-col gap-4 rounded-lg border px-3 pt-3 pb-4 w-full"
       style={{
         borderColor: "var(--surface-base)",
         background: "var(--surface-overlay)",
