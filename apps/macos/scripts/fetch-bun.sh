@@ -25,7 +25,12 @@ if [ -x "$RESOURCES_DIR/bun" ]; then
   fi
 fi
 
-# Detect architecture
+# Detect architecture from the build host. This is intentional for local-dev
+# builds where host == target. For cross-compilation (e.g. building arm64 on
+# x64 CI), this must be replaced with an explicit target-arch parameter — the
+# full pattern lives in clients/macos/build.sh (fetch_bundled_bun), which
+# accepts aarch64|x64|universal. That will be wired up alongside universal
+# build and CI packaging support.
 ARCH=$(uname -m)
 case "$ARCH" in
   aarch64|arm64)
