@@ -1,50 +1,32 @@
 /**
  * Tests for the Plugins tab: installed + catalog sections rendered
- * together, catalog suppression of already-installed entries, error
- * branch.
+ * together, catalog suppression of already-installed entries.
  *
  * Strategy: pre-populate the React Query cache with the data we want
  * the tab to render — `renderToStaticMarkup` is single-pass, so a
  * useQuery whose queryFn hasn't resolved yet always reports
  * `isLoading=true`. Pre-populating skips the pending state on first
- * render. We mock the api module so the queryFn is never invoked.
+ * render.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ReactNode } from "react";
 
+import {
+  pluginsGetQueryKey,
+  pluginsSearchGetQueryKey,
+} from "@/generated/daemon/@tanstack/react-query.gen";
+import type { Options } from "@/generated/daemon/sdk.gen";
 import type {
+  PluginsGetData,
   PluginsGetResponse,
+  PluginsSearchGetData,
   PluginsSearchGetResponse,
 } from "@/generated/daemon/types.gen";
 
-// ---------------------------------------------------------------------------
-// Module mocks
-// ---------------------------------------------------------------------------
-
-// The api module is mocked so the pre-populated cache wins — no real
-// fetch ever fires. The mock functions stay no-op since useQuery only
-// calls them on cache miss.
-mock.module("@/domains/intelligence/plugins/api", () => ({
-  fetchPlugins: async (): Promise<PluginsGetResponse> => ({ plugins: [] }),
-  fetchPluginCatalog: async (): Promise<PluginsSearchGetResponse> => ({
-    query: "",
-    ref: "main",
-    matches: [],
-  }),
-  ApiError: class ApiError extends Error {
-    status: number;
-    constructor(status: number, message: string) {
-      super(message);
-      this.status = status;
-    }
-  },
-}));
-
-const { PluginsTab } =
-  await import("@/domains/intelligence/components/plugins/plugins-tab");
+import { PluginsTab } from "./plugins-tab";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -61,17 +43,21 @@ function renderTab(state: CachedState): string {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  // Pre-populate installed-plugins query
   if (state.installed) {
     client.setQueryData(
-      ["assistantPlugins", ASSISTANT_ID, { q: "" }],
+      pluginsGetQueryKey({
+        path: { assistant_id: ASSISTANT_ID },
+        query: { q: undefined },
+      } as Options<PluginsGetData>),
       state.installed,
     );
   }
-  // Pre-populate catalog query
   if (state.catalog) {
     client.setQueryData(
-      ["assistantPluginCatalog", ASSISTANT_ID, { q: "" }],
+      pluginsSearchGetQueryKey({
+        path: { assistant_id: ASSISTANT_ID },
+        query: { q: undefined },
+      } as Options<PluginsSearchGetData>),
       state.catalog,
     );
   }
@@ -172,9 +158,6 @@ describe("PluginsTab", () => {
         ],
       },
     });
-    // The catalog row for the installed plugin should not render its
-    // install hint — the row is suppressed entirely. The other catalog
-    // entry's row should still surface.
     expect(html).not.toContain("assistant plugins install simple-memory");
     expect(html).toContain("assistant plugins install apollo-bot-brain");
   });
@@ -194,11 +177,4 @@ describe("PluginsTab", () => {
     });
     expect(html).toContain("Catalog is empty");
   });
-
-  // The catalog error branch (`CatalogErrorState`) is not exercised
-  // here because `renderToStaticMarkup` is single-pass — React Query's
-  // observer can't transition into the error state between render and
-  // string emission. The error propagation is covered by
-  // `api.test.ts` ("throws ApiError on 500"); the visual branch is
-  // straightforward CSS and verified by hand.
 });
