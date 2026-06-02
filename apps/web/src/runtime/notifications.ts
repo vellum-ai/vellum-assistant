@@ -17,7 +17,8 @@ import {
   type LocalNotificationSchema,
 } from "@capacitor/local-notifications";
 
-import { client } from "@/generated/api/client.gen";
+import { notificationintentresultPost } from "@/generated/daemon/sdk.gen";
+import type { NotificationintentresultPostData } from "@/generated/daemon/types.gen";
 import { isNativePlatform } from "@/runtime/native-auth";
 
 /**
@@ -220,16 +221,14 @@ export async function sendNotificationIntentAck(
   errorMessage?: string,
 ): Promise<void> {
   try {
-    const body: Record<string, unknown> = { deliveryId, success };
-    if (errorMessage) body.errorMessage = errorMessage;
-    // The daemon's notification route (`v1/notification-intent-result`) is not
-    // a first-class resource in the cloud OpenAPI schema — it reaches the pod
-    // through `RuntimeProxyView`, which transparently strips the
-    // `/v1/assistants/{id}/` prefix. Use the HeyAPI client anyway so auth,
-    // base URL, and credentials stay consistent with `submitConfirmation` and
-    // friends.
-    await client.post<unknown, unknown>({
-      url: "/v1/assistants/{assistant_id}/notification-intent-result/",
+    const body: NotificationintentresultPostData["body"] = {
+      deliveryId,
+      success,
+    };
+    if (errorMessage) {
+      body.errorMessage = errorMessage;
+    }
+    await notificationintentresultPost({
       path: { assistant_id: assistantId },
       body,
       throwOnError: false,
