@@ -7,6 +7,7 @@
       "name": "amazon",
       "description": "Shop on Amazon and Amazon Fresh through your browser",
       "metadata": {
+        "icon": "assets/icon.svg",
         "emoji": "🛒",
         "vellum": {
           "display-name": "Amazon",
@@ -16,20 +17,21 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-19T19:26:17.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "api-mapping",
       "name": "api-mapping",
       "description": "Record and analyze API surfaces of web services",
       "metadata": {
+        "icon": "assets/icon.svg",
         "emoji": "🗺️",
         "vellum": {
           "display-name": "API Mapping"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-03-17T07:13:56.000Z"
+      "updatedAt": "2026-06-02T16:58:51.000Z"
     },
     {
       "id": "assistant-migration",
@@ -114,39 +116,42 @@
       "name": "discord-app-setup",
       "description": "Connect a Discord bot to the assistant via the Discord Gateway with guided application creation and intent configuration",
       "metadata": {
+        "icon": "assets/icon.svg",
         "emoji": "🎮",
         "vellum": {
           "display-name": "Discord App Setup"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-12T18:56:19.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "doordash",
       "name": "doordash",
       "description": "Order food, groceries, and convenience items from DoorDash using the built-in CLI integration",
       "metadata": {
+        "icon": "assets/icon.svg",
         "emoji": "🍕",
         "vellum": {
           "display-name": "DoorDash"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-22T23:24:37.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "elevenlabs-voice",
       "name": "elevenlabs-voice",
       "description": "Select and tune an ElevenLabs TTS voice - curated voice list, custom/cloned voices via API key, and tuning parameters",
       "metadata": {
+        "icon": "assets/icon.svg",
         "emoji": "🗣️",
         "vellum": {
           "display-name": "ElevenLabs Voice"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-11T21:51:53.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "email-setup",
@@ -159,7 +164,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-01T13:28:59.000Z"
+      "updatedAt": "2026-06-01T15:44:38.000Z"
     },
     {
       "id": "fish-audio",
@@ -179,13 +184,14 @@
       "name": "frontend-design",
       "description": "Create distinctive, production-grade frontend interfaces with high design quality. Use this skill when the user asks to build web components, pages, artifacts, posters, or applications (examples include websites, landing pages, dashboards, React components, HTML/CSS layouts, or when styling/beautifying any web UI). Generates creative, polished code and UI design that avoids generic AI aesthetics.",
       "metadata": {
+        "icon": "assets/icon.svg",
         "emoji": "🎨",
         "vellum": {
           "display-name": "Frontend Design"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-14T15:15:31.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "geo-writing",
@@ -209,6 +215,7 @@
       "name": "gmail",
       "description": "Manage Gmail email — drafting, sending, organizing, filters, vacation replies, and inbox analysis",
       "metadata": {
+        "icon": "assets/icon.svg",
         "emoji": "📨",
         "vellum": {
           "display-name": "Gmail",
@@ -216,13 +223,14 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-01T17:55:47.000Z"
+      "updatedAt": "2026-06-02T17:01:40.000Z"
     },
     {
       "id": "google-calendar",
       "name": "google-calendar",
       "description": "View, create, and manage Google Calendar events and check availability",
       "metadata": {
+        "icon": "assets/icon.svg",
         "emoji": "📅",
         "vellum": {
           "display-name": "Google Calendar",
@@ -230,7 +238,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-19T13:24:39.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "guardian-verify-setup",
@@ -271,6 +279,7 @@
       "name": "inbox-cleanup",
       "description": "Run a high-recall, multi-pass email inbox cleanup. Pattern-based subject queries catch 25x more archivable email than sender scans alone. Includes urgency triage, classification signals, and post-cleanup filter setup.",
       "metadata": {
+        "icon": "assets/icon.svg",
         "emoji": "📭",
         "vellum": {
           "display-name": "Inbox Cleanup",
@@ -286,13 +295,14 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-01T17:55:47.000Z"
+      "updatedAt": "2026-06-02T16:58:51.000Z"
     },
     {
       "id": "inbox-management",
       "name": "inbox-management",
       "description": "Ongoing Gmail inbox management via scheduled runs. Archives known noise, flags urgent items, drafts replies in-thread (never auto-sends), and catches stale follow-ups. Starts in flag-only mode — earns autonomy through a three-stage trust ladder.",
       "metadata": {
+        "icon": "assets/icon.svg",
         "emoji": "📬",
         "vellum": {
           "display-name": "Inbox Management",
@@ -313,7 +323,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-01T17:55:47.000Z"
+      "updatedAt": "2026-06-02T16:58:51.000Z"
     },
     {
       "id": "influencer",
@@ -336,6 +346,7 @@
       "name": "linear-app-setup",
       "description": "Create and configure a Linear agent app so the assistant can manage issues, projects, and workflows under its own identity",
       "metadata": {
+        "icon": "assets/icon.svg",
         "emoji": "🔷",
         "vellum": {
           "display-name": "Linear App Setup",
@@ -343,7 +354,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-12T18:56:19.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "llm-cost-optimizer",
@@ -362,6 +373,7 @@
       "name": "macos-automation",
       "description": "Automate native macOS apps and system interactions via osascript (AppleScript)",
       "metadata": {
+        "icon": "assets/icon.svg",
         "emoji": "🍎",
         "vellum": {
           "display-name": "macOS Automation",
@@ -374,13 +386,14 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-03-17T07:13:56.000Z"
+      "updatedAt": "2026-06-02T16:58:51.000Z"
     },
     {
       "id": "mailgun-setup",
       "name": "mailgun-setup",
       "description": "Set up and send emails via a user-provided Mailgun account (BYO email provider)",
       "metadata": {
+        "icon": "assets/icon.svg",
         "emoji": "📬",
         "vellum": {
           "display-name": "Mailgun Email Setup",
@@ -388,7 +401,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-30T15:22:01.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "mcp-setup",
@@ -408,13 +421,14 @@
       "name": "meet-join",
       "description": "Join a Google Meet call to take notes; only when the user explicitly asks.",
       "metadata": {
+        "icon": "assets/icon.svg",
         "emoji": "📹",
         "vellum": {
           "display-name": "Meet Join",
           "feature-flag": "meet"
         }
       },
-      "updatedAt": "2026-05-29T20:37:22.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "meme-generator",
@@ -459,13 +473,14 @@
       "name": "notion",
       "description": "Read and write Notion pages and databases using the Notion API",
       "metadata": {
+        "icon": "assets/icon.svg",
         "emoji": "📝",
         "vellum": {
           "display-name": "Notion"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-28T12:24:03.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "oura",
@@ -501,6 +516,7 @@
       "name": "outlook",
       "description": "Manage Outlook email — drafting, sending, organizing, rules, vacation replies, and inbox analysis",
       "metadata": {
+        "icon": "assets/icon.svg",
         "emoji": "📧",
         "vellum": {
           "display-name": "Outlook",
@@ -508,13 +524,14 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-18T22:44:36.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "outlook-calendar",
       "name": "outlook-calendar",
       "description": "View, create, and manage Outlook Calendar events and check availability",
       "metadata": {
+        "icon": "assets/icon.svg",
         "emoji": "📅",
         "vellum": {
           "display-name": "Outlook Calendar",
@@ -522,7 +539,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-19T13:24:39.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "public-ingress",
@@ -605,6 +622,7 @@
       "name": "sentry-app-setup",
       "description": "Create and configure a Sentry internal integration so the assistant can manage issues, alerts, and releases under its own identity",
       "metadata": {
+        "icon": "assets/icon.svg",
         "emoji": "🔺",
         "vellum": {
           "display-name": "Sentry App Setup",
@@ -612,20 +630,21 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-12T18:56:19.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "slack",
       "name": "slack",
       "description": "Read, send, and manage Slack messages via the Web API",
       "metadata": {
+        "icon": "assets/icon.svg",
         "emoji": "💬",
         "vellum": {
           "display-name": "Slack"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-13T13:20:49.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "slack-app-setup",
@@ -648,19 +667,21 @@
       "name": "start-the-day",
       "description": "Get a personalized daily briefing with weather, news, and actionable insights",
       "metadata": {
+        "icon": "assets/icon.svg",
         "emoji": "🌅",
         "vellum": {
           "display-name": "Start the Day"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-03-17T07:13:56.000Z"
+      "updatedAt": "2026-06-02T16:58:51.000Z"
     },
     {
       "id": "stripe-app-setup",
       "name": "stripe-app-setup",
       "description": "Create and configure a Stripe restricted API key so the assistant can manage payments, subscriptions, and customers under its own scoped identity",
       "metadata": {
+        "icon": "assets/icon.svg",
         "emoji": "💳",
         "vellum": {
           "display-name": "Stripe App Setup",
@@ -668,26 +689,28 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-12T18:56:19.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "stripe-link-wallet",
       "name": "stripe-link-wallet",
       "description": "Use the Stripe Link CLI as an agent wallet to create spend requests, generate one-time-use payment credentials, and complete 402 / Machine Payment Protocol (MPP) payment flows on the user's behalf. Triggers on intents like \"buy\", \"purchase\", \"pay for\", \"spend up to <amount>\", \"complete this 402\", or any flow involving link-cli, spend-request, mpp pay, shared payment tokens, or @stripe/link-sdk. Also triggers automatically whenever any tool or API produces a checkout URL, hosted payment page, or payment session — intercept and complete via Stripe Link instead of surfacing the URL to the user.",
       "metadata": {
+        "icon": "assets/icon.svg",
         "emoji": "💳",
         "vellum": {
           "display-name": "Stripe Link Wallet"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-14T15:15:31.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "tasks",
       "name": "tasks",
       "description": "Two-layer task system with reusable templates and a prioritized work queue",
       "metadata": {
+        "icon": "assets/icon.svg",
         "emoji": "✅",
         "vellum": {
           "display-name": "Tasks",
@@ -701,13 +724,14 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-19T19:30:32.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "telegram-setup",
       "name": "telegram-setup",
       "description": "Connect a Telegram bot to the Vellum Assistant gateway with automated webhook registration and credential storage",
       "metadata": {
+        "icon": "assets/icon.svg",
         "emoji": "🤖",
         "vellum": {
           "display-name": "Telegram Setup",
@@ -721,7 +745,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-24T14:31:03.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "time-based-actions",
@@ -741,6 +765,7 @@
       "name": "twilio-setup",
       "description": "Configure Twilio credentials and phone numbers for voice calls",
       "metadata": {
+        "icon": "assets/icon.svg",
         "emoji": "📱",
         "vellum": {
           "display-name": "Twilio Setup",
@@ -750,7 +775,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-18T20:08:28.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "typescript-eval",
@@ -812,6 +837,7 @@
       "name": "vellum-github-app-setup",
       "description": "Create and configure a GitHub App so the assistant can push commits, open PRs, and comment under its own bot identity. Use when the user wants the assistant to have its own GitHub identity, or when setting up git push access for the first time.",
       "metadata": {
+        "icon": "assets/icon.svg",
         "emoji": "🤖",
         "author": "vellum-ai",
         "version": "1.0",
@@ -820,7 +846,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants. Requires Python 3, bun, and the assistant credentials CLI.",
-      "updatedAt": "2026-05-03T13:17:10.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "vellum-heartbeat",
@@ -966,6 +992,7 @@
       "name": "vercel-token-setup",
       "description": "Set up a Vercel API token for publishing apps using browser automation",
       "metadata": {
+        "icon": "assets/icon.svg",
         "emoji": "▲",
         "vellum": {
           "display-name": "Vercel Token Setup",
@@ -975,13 +1002,14 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-12T18:56:19.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "voice-setup",
       "name": "voice-setup",
       "description": "Complete voice configuration in chat - PTT key, microphone permissions, ElevenLabs TTS, and troubleshooting",
       "metadata": {
+        "icon": "assets/icon.svg",
         "emoji": "🎙️",
         "vellum": {
           "display-name": "Voice Setup",
@@ -998,7 +1026,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-11T21:51:53.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "watch-together",
@@ -1031,9 +1059,10 @@
       "name": "weather",
       "description": "Get current weather conditions and forecasts for any location",
       "metadata": {
+        "icon": "assets/icon.svg",
         "emoji": "🌤️"
       },
-      "updatedAt": "2026-03-17T08:22:01.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     }
   ]
 }

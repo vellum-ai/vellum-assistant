@@ -10,6 +10,7 @@
   "scripts": {
     "predev": "bun run postinstall && bun run openapi-ts",
     "dev": "bun --bun vite",
+    "prebuild": "node scripts/copy-skill-assets.mjs",
     "build": "bun --bun vite build",
     "preview": "bun --bun vite preview",
     "lint": "eslint",

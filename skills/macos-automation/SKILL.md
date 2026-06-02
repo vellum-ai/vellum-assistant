@@ -3,6 +3,7 @@ name: macos-automation
 description: Automate native macOS apps and system interactions via osascript (AppleScript)
 compatibility: "Designed for Vellum personal assistants"
 metadata:
+  icon: assets/icon.svg
   emoji: "🍎"
   vellum:
     display-name: "macOS Automation"
@@ -30,6 +31,7 @@ Use this skill to interact with native macOS apps and system-level features via 
 **Creative:** Adobe Photoshop, Final Cut Pro
 
 For any unlisted app, check scriptability first:
+
 ```bash
 osascript -e 'tell application "AppName" to get name'
 ```

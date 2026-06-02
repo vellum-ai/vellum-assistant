@@ -3,6 +3,7 @@ name: sentry-app-setup
 description: Create and configure a Sentry internal integration so the assistant can manage issues, alerts, and releases under its own identity
 compatibility: "Designed for Vellum personal assistants"
 metadata:
+  icon: assets/icon.svg
   emoji: "🔺"
   vellum:
     display-name: "Sentry App Setup"

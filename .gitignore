@@ -136,3 +136,6 @@ clients/chrome-extension/vellum-browser-relay.zip
 
 # vel command
 apps/web/.vel/watchers.json
+
+# Build-generated skill assets copied into SPA public dir
+apps/web/public/skills/

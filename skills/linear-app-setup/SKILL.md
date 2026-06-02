@@ -3,6 +3,7 @@ name: linear-app-setup
 description: Create and configure a Linear agent app so the assistant can manage issues, projects, and workflows under its own identity
 compatibility: "Designed for Vellum personal assistants"
 metadata:
+  icon: assets/icon.svg
   emoji: "🔷"
   vellum:
     display-name: "Linear App Setup"

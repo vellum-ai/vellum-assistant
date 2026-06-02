@@ -3,6 +3,7 @@ name: mailgun-setup
 description: Set up and send emails via a user-provided Mailgun account (BYO email provider)
 compatibility: "Designed for Vellum personal assistants"
 metadata:
+  icon: assets/icon.svg
   emoji: "📬"
   vellum:
     display-name: "Mailgun Email Setup"

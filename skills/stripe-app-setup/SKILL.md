@@ -3,6 +3,7 @@ name: stripe-app-setup
 description: Create and configure a Stripe restricted API key so the assistant can manage payments, subscriptions, and customers under its own scoped identity
 compatibility: "Designed for Vellum personal assistants"
 metadata:
+  icon: assets/icon.svg
   emoji: "💳"
   vellum:
     display-name: "Stripe App Setup"
