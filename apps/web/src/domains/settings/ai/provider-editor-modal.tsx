@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Button } from "@vellum/design-library/components/button";
 import { Dropdown } from "@vellum/design-library/components/dropdown";
@@ -8,16 +8,14 @@ import { Typography } from "@vellum/design-library/components/typography";
 import { ChevronRight, Loader2 } from "lucide-react";
 
 import {
-  inferenceChatgptsubscriptionAuthExchangePost,
-  inferenceChatgptsubscriptionAuthPost,
   inferenceProviderconnectionsByNamePatch,
-  inferenceProviderconnectionsGet,
   inferenceProviderconnectionsPost,
   secretsGet,
   secretsPost,
   secretsReadPost,
 } from "@/generated/daemon/sdk.gen";
 
+import { ChatgptOAuthSection } from "@/domains/settings/ai/chatgpt-oauth-section";
 import {
   type Auth,
   type ConnectionProvider,
@@ -29,7 +27,7 @@ import {
   parseCredentialEntries,
 } from "@/domains/settings/ai/provider-connections-client";
 import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
-import { toKebabCase } from "@/domains/settings/ai/slugify";
+import { useLabelKeySync } from "@/domains/settings/ai/use-label-key-sync";
 import { providerSupportsPlatformAuth } from "@/assistant/llm-model-catalog";
 
 // ---------------------------------------------------------------------------
@@ -168,8 +166,12 @@ export function ProviderEditorContent({
     return options;
   }, [openAICompatibleEndpointsEnabled, provider]);
 
-  // keyDirty tracks whether the user has manually edited the key field
-  const keyDirty = useRef(false);
+  const { handleLabelChange: onLabelChange, handleKeyChange: handleNameChange, resetDirty } =
+    useLabelKeySync(effectiveMode, setName);
+
+  function handleLabelChange(newLabel: string) {
+    onLabelChange(newLabel, setLabel);
+  }
 
   // New state for inline API key editing
   const [apiKeyValue, setApiKeyValue] = useState("");
@@ -182,110 +184,6 @@ export function ProviderEditorContent({
   const [isCreatingNewCredential, setIsCreatingNewCredential] = useState(false);
   const [newCredentialName, setNewCredentialName] = useState("");
   const [isSavingKey, setIsSavingKey] = useState(false);
-
-  // -- ChatGPT Subscription OAuth state -------------------------------------
-  type ChatgptOAuthState =
-    | "idle"
-    | "starting"
-    | "paste_url"
-    | "exchanging"
-    | "completed"
-    | "failed";
-  const [chatgptOAuthState, setChatgptOAuthState] =
-    useState<ChatgptOAuthState>("idle");
-  const [chatgptPastedUrl, setChatgptPastedUrl] = useState("");
-  const [chatgptOAuthError, setChatgptOAuthError] = useState<string | null>(
-    null,
-  );
-  const chatgptStateRef = useRef<string>("");
-
-  async function handleChatgptSignIn() {
-    setChatgptOAuthState("starting");
-    setChatgptOAuthError(null);
-    const popup = window.open("about:blank", "_blank");
-    try {
-      const { data: { authorize_url, state } } =
-        await inferenceChatgptsubscriptionAuthPost({
-          path: { assistant_id: assistantId },
-          throwOnError: true,
-        });
-      chatgptStateRef.current = state;
-      if (popup) {
-        popup.opener = null;
-        popup.location.href = authorize_url;
-      } else {
-        window.open(authorize_url, "_blank", "noopener");
-      }
-      setChatgptOAuthState("paste_url");
-    } catch {
-      popup?.close();
-      setChatgptOAuthState("failed");
-      setChatgptOAuthError("Failed to start ChatGPT sign-in. Please try again.");
-    }
-  }
-
-  async function handleChatgptUrlSubmit() {
-    setChatgptOAuthError(null);
-    const trimmed = chatgptPastedUrl.trim();
-    if (!trimmed) {
-      setChatgptOAuthError("Please paste the URL from the error page.");
-      return;
-    }
-    let parsedUrl: URL;
-    try {
-      parsedUrl = new URL(trimmed);
-    } catch {
-      setChatgptOAuthError("Invalid URL. Please paste the full URL from the address bar.");
-      return;
-    }
-    const code = parsedUrl.searchParams.get("code");
-    const state = parsedUrl.searchParams.get("state");
-    if (!code) {
-      setChatgptOAuthError("The URL is missing the authorization code. Make sure you copied the full URL.");
-      return;
-    }
-    if (!state) {
-      setChatgptOAuthError("The URL is missing the state parameter. Make sure you copied the full URL.");
-      return;
-    }
-    setChatgptOAuthState("exchanging");
-    try {
-      await inferenceChatgptsubscriptionAuthExchangePost({
-        path: { assistant_id: assistantId },
-        body: { code, state },
-        throwOnError: true,
-      });
-      setChatgptOAuthState("completed");
-      const { data } = await inferenceProviderconnectionsGet({
-        path: { assistant_id: assistantId },
-        query: { provider: "openai" },
-        throwOnError: true,
-      });
-      const conns = data.connections;
-      const chatgptConn = conns.find(
-        (c) =>
-          c.name === "chatgpt-subscription" || c.name === "openai-chatgpt",
-      );
-      if (chatgptConn) {
-        onSave(chatgptConn);
-      } else {
-        onSave({
-          name: "chatgpt-subscription",
-          provider: "openai",
-          auth: { type: "oauth_subscription", credential: "credential/openai/chatgpt-subscription" },
-          label: "ChatGPT Subscription",
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-          baseUrl: null,
-          models: null,
-          isManaged: false,
-        });
-      }
-    } catch {
-      setChatgptOAuthState("failed");
-      setChatgptOAuthError("Failed to complete sign-in. Please try again.");
-    }
-  }
 
   const loadCredentialPresence = useCallback(
     async (credRef: string) => {
@@ -344,7 +242,7 @@ export function ProviderEditorContent({
     } else {
       setCredential("");
     }
-    keyDirty.current = false;
+    resetDirty();
 
     setError(null);
 
@@ -364,12 +262,6 @@ export function ProviderEditorContent({
     setIsSavingKey(false);
     setIsAdvancedExpanded(false);
 
-    // Reset ChatGPT OAuth state
-    setChatgptOAuthState("idle");
-    setChatgptPastedUrl("");
-    setChatgptOAuthError(null);
-    chatgptStateRef.current = "";
-
     // Load credential data for edit mode with api_key auth
     if (connection?.auth.type === "api_key") {
       void loadCredentialPresence(connection.auth.credential);
@@ -378,20 +270,7 @@ export function ProviderEditorContent({
       // Create mode: pre-load available credentials for the Advanced section
       void loadAvailableCredentials();
     }
-  }, [connection, loadCredentialPresence, loadAvailableCredentials]);
-
-  // Auto-derive key from label when not dirty and in create mode
-  function handleLabelChange(newLabel: string) {
-    setLabel(newLabel);
-    if (effectiveMode === "create" && !keyDirty.current) {
-      setName(toKebabCase(newLabel));
-    }
-  }
-
-  function handleNameChange(newName: string) {
-    keyDirty.current = true;
-    setName(newName);
-  }
+  }, [connection, loadCredentialPresence, loadAvailableCredentials, resetDirty]);
 
   /// Save as New: clone the currently-displayed connection into a fresh
   /// "create" mode session. The user keeps the provider + label as a
@@ -409,7 +288,7 @@ export function ProviderEditorContent({
     // flag so subsequent Label edits auto-derive the Key, matching the
     // create-mode default UX.
     setName("");
-    keyDirty.current = false;
+    resetDirty();
     if (provider === "ollama") {
       setAuthType("none");
       setCredential("");
@@ -540,7 +419,11 @@ export function ProviderEditorContent({
           setError(connectionSaveErrorMessage(createRes?.status, name.trim()));
           return;
         }
-        saved = created!;
+        if (!created) {
+          setError("Server returned an empty response. Please try again.");
+          return;
+        }
+        saved = created;
       } else {
         const input: UpdateConnectionInput = {
           auth,
@@ -556,14 +439,18 @@ export function ProviderEditorContent({
           }),
         };
         const { data: updated, response: updateRes } = await inferenceProviderconnectionsByNamePatch({
-          path: { assistant_id: assistantId, name: connection!.name },
+          path: { assistant_id: assistantId, name: connection?.name ?? name.trim() },
           body: input,
         });
         if (!updateRes?.ok) {
           setError(connectionSaveErrorMessage(updateRes?.status, name.trim()));
           return;
         }
-        saved = updated!;
+        if (!updated) {
+          setError("Server returned an empty response. Please try again.");
+          return;
+        }
+        saved = updated;
       }
       onSave(saved);
     } catch {
@@ -583,8 +470,8 @@ export function ProviderEditorContent({
   // mid-create of a named credential OR we're editing an existing
   // `api_key` connection (so the user can always see their current
   // reference, even if `availableCredentials` came back empty due to
-  // an out-of-band deletion or daemon hiccup — Devin finding on
-  // PR #6535). In the create-mode empty state the API Key field above
+  // an out-of-band deletion or daemon hiccup). In the create-mode
+  // empty state the API Key field above
   // is the only path needed — saving a key auto-creates
   // `credential/<provider>/api_key` under the hood, so the disclosure
   // has nothing meaningful to offer. Mirrors macOS
@@ -852,8 +739,7 @@ export function ProviderEditorContent({
                       in the list (e.g. credential deleted out-of-band, or
                       daemon returned an empty list while editing), prepend
                       a synthetic option for it so the user still sees
-                      their actual reference rather than a blank dropdown.
-                      Devin finding on PR #6535. */}
+                      their actual reference rather than a blank dropdown. */}
                   {(() => {
                     const baseOptions = providerCredentials.map((c) => {
                       const ref = `credential/${c.service}/${c.field}`;
@@ -947,142 +833,10 @@ export function ProviderEditorContent({
 
         {/* ChatGPT Subscription OAuth — shown when auth type is oauth_subscription */}
         {authType === "oauth_subscription" && (
-          <div className="space-y-3 rounded-lg border border-[var(--border-base)] p-4">
-            <Typography
-              variant="body-small-default"
-              as="p"
-              className="text-[var(--content-tertiary)]"
-            >
-              Connect your ChatGPT subscription to use OpenAI models without an
-              API key.
-            </Typography>
-
-            {chatgptOAuthState === "idle" || chatgptOAuthState === "paste_url" ? (
-              <div className="space-y-3">
-                <div className="space-y-1">
-                  <Typography
-                    variant="body-small-default"
-                    as="p"
-                    className={
-                      chatgptOAuthState === "paste_url"
-                        ? "text-[var(--content-tertiary)] line-through"
-                        : "text-[var(--content-secondary)]"
-                    }
-                  >
-                    1. Click &ldquo;Sign in with ChatGPT&rdquo;
-                    {chatgptOAuthState === "idle" ? " below" : null} to open a
-                    popup
-                  </Typography>
-                  <Typography
-                    variant="body-small-default"
-                    as="p"
-                    className="text-[var(--content-secondary)]"
-                  >
-                    2. Sign in, then you&apos;ll land on an error page &mdash;
-                    that&apos;s expected
-                  </Typography>
-                  <Typography
-                    variant="body-small-default"
-                    as="p"
-                    className="text-[var(--content-secondary)]"
-                  >
-                    3. Copy the full URL from that page&apos;s address bar and
-                    paste it below
-                  </Typography>
-                </div>
-
-                {chatgptOAuthState === "idle" ? (
-                  <Button
-                    variant="outlined"
-                    size="compact"
-                    onClick={() => void handleChatgptSignIn()}
-                  >
-                    Sign in with ChatGPT
-                  </Button>
-                ) : (
-                  <>
-                    <Input
-                      value={chatgptPastedUrl}
-                      onChange={(e) => {
-                        setChatgptPastedUrl(e.target.value);
-                        setChatgptOAuthError(null);
-                      }}
-                      placeholder="Paste callback URL here..."
-                      fullWidth
-                    />
-                    <div className="flex justify-end">
-                      <Button
-                        variant="primary"
-                        size="compact"
-                        disabled={!chatgptPastedUrl.trim()}
-                        onClick={() => void handleChatgptUrlSubmit()}
-                      >
-                        Complete Sign In
-                      </Button>
-                    </div>
-                  </>
-                )}
-              </div>
-            ) : null}
-
-            {chatgptOAuthState === "starting" ? (
-              <div className="flex items-center gap-2">
-                <Loader2 className="h-4 w-4 animate-spin text-[var(--content-tertiary)]" />
-                <Typography
-                  variant="body-small-default"
-                  className="text-[var(--content-tertiary)]"
-                >
-                  Starting sign-in...
-                </Typography>
-              </div>
-            ) : null}
-
-            {chatgptOAuthState === "exchanging" ? (
-              <div className="flex items-center gap-2">
-                <Loader2 className="h-4 w-4 animate-spin text-[var(--content-tertiary)]" />
-                <Typography
-                  variant="body-small-default"
-                  className="text-[var(--content-tertiary)]"
-                >
-                  Completing sign-in...
-                </Typography>
-              </div>
-            ) : null}
-
-            {chatgptOAuthState === "completed" ? (
-              <Typography
-                variant="body-small-default"
-                as="p"
-                className="text-[var(--system-positive-strong)]"
-              >
-                ChatGPT subscription connected successfully.
-              </Typography>
-            ) : null}
-
-            {chatgptOAuthError ? (
-              <Typography
-                variant="body-small-default"
-                as="p"
-                className="text-(--system-negative-strong)"
-              >
-                {chatgptOAuthError}
-              </Typography>
-            ) : null}
-
-            {chatgptOAuthState === "failed" ? (
-              <Button
-                variant="outlined"
-                size="compact"
-                onClick={() => {
-                  setChatgptOAuthState("idle");
-                  setChatgptPastedUrl("");
-                  setChatgptOAuthError(null);
-                }}
-              >
-                Try Again
-              </Button>
-            ) : null}
-          </div>
+          <ChatgptOAuthSection
+            assistantId={assistantId}
+            onConnected={onSave}
+          />
         )}
 
         {error && (
