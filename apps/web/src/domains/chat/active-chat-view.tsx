@@ -15,7 +15,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { createPortal } from "react-dom";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 
 import { useAuthStore } from "@/stores/auth-store";
@@ -48,8 +47,7 @@ import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
 import { type UIContext } from "@/domains/chat/turn-selectors";
-import { peekPendingPreChatContext, type PreChatOnboardingContext } from "@/domains/onboarding/prechat";
-import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
+import { peekPendingPreChatContext } from "@/domains/onboarding/prechat";
 import type { WebSyncRouter } from "@/lib/sync/web-sync-router";
 import type { SyncChangedEvent } from "@/lib/sync/types";
 
@@ -61,7 +59,7 @@ import { useDiskPressureMonitor } from "@/assistant/use-disk-pressure-monitor";
 import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
 import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
 import { useConversationLoader } from "@/domains/chat/hooks/use-conversation-loader";
-import { useMobileOverlayTarget } from "@/domains/chat/hooks/use-mobile-overlay-target";
+import { useOnboardingOrchestrator } from "@/domains/chat/hooks/use-onboarding-orchestrator";
 import type { ChatHeaderSupplements } from "@/components/layout/chat-layout-slots-store";
 import { useConversationSecondaryActions } from "@/domains/chat/hooks/use-conversation-secondary-actions";
 import { canUseLlmInspector } from "@/domains/chat/inspector/access";
@@ -115,12 +113,8 @@ const CommandPalette = lazy(() =>
   })),
 );
 import { shouldHandleShortcut } from "@/domains/chat/chat-layout";
-import { subagentsByIdAbortPost } from "@/generated/daemon/sdk.gen";
 import { lifecycleService } from "@/assistant/lifecycle-service";
-import { MobileAppOverlay } from "@/domains/chat/components/mobile-app-overlay";
-import { MobileDocumentOverlay } from "@/domains/chat/components/mobile-document-overlay";
-import { MobileSubagentDetailOverlay } from "@/domains/chat/components/mobile-subagent-detail-overlay";
-import { MobileToolDetailOverlay } from "@/domains/chat/components/mobile-tool-detail-overlay";
+import { MobileChatOverlays } from "@/domains/chat/components/mobile-chat-overlays";
 
 import { routes } from "@/utils/routes";
 import { haptic } from "@/utils/haptics";
@@ -146,7 +140,6 @@ export function ActiveChatView() {
   const setOnSearchClick = useChatLayoutSlotsStore.use.setOnSearchClick();
   const assistantId = useAssistantSelectionStore.use.activeAssistantId();
   const assistantState = useAssistantLifecycleStore.use.assistantState();
-  const deployToVercel = useAssistantFeatureFlagStore.use.deployToVercel();
   const conversationGroupsUI = useAssistantFeatureFlagStore.use.conversationGroupsUI();
 
   // -------------------------------------------------------------------------
@@ -207,15 +200,6 @@ export function ActiveChatView() {
   // -------------------------------------------------------------------------
   const activeConversationId = useConversationStore.use.activeConversationId();
   const processingConversationIds = useConversationStore.use.processingConversationIds();
-  const mainView = useViewerStore.use.mainView();
-  const openedAppState = useViewerStore.use.openedAppState();
-  const openedDocumentState = useViewerStore.use.openedDocumentState();
-  const isAppMinimized = useViewerStore.use.isAppMinimized();
-  const activeSubagentId = useViewerStore.use.activeSubagentId();
-  const activeToolDetail = useViewerStore.use.activeToolDetail();
-  const subagentById = useSubagentStore.use.byId();
-  const isSharing = useDeployStore.use.isSharing();
-  const isDeploying = useDeployStore.use.isDeploying();
   const isTokenDialogOpen = useDeployStore.use.isTokenDialogOpen();
   const complexDeployApp = useDeployStore.use.complexDeployApp();
 
@@ -275,13 +259,18 @@ export function ActiveChatView() {
   const assistantIdRef = useRef<string | null>(assistantId);
   useEffect(() => { assistantIdRef.current = assistantId; }, [assistantId]);
 
+  // -------------------------------------------------------------------------
+  // Onboarding orchestrator — owns onboarding refs, flags, and effects.
+  // Refs are shared with useSendMessage + useConversationLoader below.
+  // -------------------------------------------------------------------------
+  const {
+    didOnboarding,
+    onboardingTasksEmpty,
+    onboardingConversationId,
+    pendingOnboardingContextRef,
+    onboardingDraftConversationIdRef,
+  } = useOnboardingOrchestrator();
 
-
-  const pendingOnboardingContextRef = useRef<PreChatOnboardingContext | null>(null);
-  const onboardingDraftConversationIdRef = useRef<string | null>(null);
-  const [didOnboarding, setDidOnboarding] = useState(false);
-  const [onboardingTasksEmpty, setOnboardingTasksEmpty] = useState(false);
-  const [onboardingConversationId, setOnboardingConversationId] = useState<string | null>(null);
   const initialPageOldestTsRef = useRef<number | null>(null);
   const conversationListInvalidatedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingInitialMessageRef = useRef<{ conversationId: string; content: string } | null>(null);
@@ -452,31 +441,6 @@ export function ActiveChatView() {
     },
     [rawStartNewConversation],
   );
-
-  // -------------------------------------------------------------------------
-  // Onboarding signal consumption
-  // -------------------------------------------------------------------------
-  // Consume the `?onboarding=1` signal left by `/onboarding/hatching` when
-  // it forwards the user after a successful hatch. Owns the post-hatch
-  // draft conversation creation + redirect; the auto-greet gate itself
-  // is driven by `lifecycleService.expectingFirstMessage` (set by the
-  // hatching screens before they navigate). The flag is stripped from
-  // the URL immediately so a page refresh doesn't re-trigger the greet.
-  useEffect(() => {
-    if (searchParams.get("onboarding") !== "1") return;
-    setDidOnboarding(true);
-    const onboardingDraftConversationId =
-      onboardingDraftConversationIdRef.current ?? createDraftConversationId();
-    onboardingDraftConversationIdRef.current = onboardingDraftConversationId;
-    setOnboardingConversationId(onboardingDraftConversationId);
-    useConversationStore.getState().setActiveConversationId(onboardingDraftConversationId);
-    // Do NOT drain sessionStorage here — this ActiveChatView instance unmounts
-    // when we navigate to /conversations/:key (different route entry),
-    // losing all refs. Leave the context in sessionStorage so the new
-    // mount's sendMessage hook and auto-send effect can consume it.
-    void navigate(routes.conversation(onboardingDraftConversationId), { replace: true });
-  }, [searchParams, navigate]);
-
 
   // -------------------------------------------------------------------------
   // Message reconciliation
@@ -672,22 +636,6 @@ export function ActiveChatView() {
     }
   }, [activeConversationId]);
 
-  // Derive onboardingTasksEmpty from the pending context in sessionStorage.
-  // Runs once on mount — if initial message key is present, this is an
-  // onboarding mount, so peek at the context for the tasks-empty flag.
-  useEffect(() => {
-    try {
-      const raw = globalThis.sessionStorage?.getItem("onboarding.prechat.pendingContext");
-      if (!raw) return;
-      const ctx = JSON.parse(raw) as { tasks?: string[] };
-      if (Array.isArray(ctx.tasks) && ctx.tasks.length === 0) {
-        setOnboardingTasksEmpty(true);
-      }
-    } catch {
-      // Storage or parse failure — ignore.
-    }
-  }, []);
-
   // Deep-link: ?app=<id> auto-opens the app viewer on initial load.
   const deepLinkAppConsumed = useRef(false);
   useEffect(() => {
@@ -715,17 +663,6 @@ export function ActiveChatView() {
   useEffect(() => {
     useSubagentStore.getState().reset();
   }, [activeConversationId]);
-
-  // -------------------------------------------------------------------------
-  // Subagent detail fetching
-  // -------------------------------------------------------------------------
-  const handleRequestSubagentDetail = useCallback(
-    (subagentId: string) => {
-      if (!assistantId) return;
-      void useSubagentStore.getState().fetchDetailIfNeeded(assistantId, subagentId);
-    },
-    [assistantId],
-  );
 
   // Stable signal: changes only when the set of subagent IDs that need a
   // detail fetch changes (entry appears with conversationId + no events,
@@ -960,11 +897,6 @@ export function ActiveChatView() {
   }, [topBarRightContent, setTopBarRightSlot]);
 
   // -------------------------------------------------------------------------
-  // Mobile overlay portal — resolve after DOM commit (CONVENTIONS.md §SSR)
-  // -------------------------------------------------------------------------
-  const overlayTarget = useMobileOverlayTarget();
-
-  // -------------------------------------------------------------------------
   // Debug API — UIContext snapshot (read lazily by useChatDebugApi closure)
   // -------------------------------------------------------------------------
   const _debugUiContext = useMemo<UIContext>(() => {
@@ -1101,93 +1033,7 @@ export function ActiveChatView() {
           />
         </LazyBoundary>
       ) : null}
-      {overlayTarget &&
-        createPortal(
-          <>
-            <MobileAppOverlay
-              openedAppState={
-                mainView === "app" ? openedAppState : null
-              }
-              isAppMinimized={isAppMinimized}
-              assistantId={assistantId}
-              onToggleMinimized={() => {
-                useViewerStore.getState().toggleAppMinimized();
-              }}
-              onClose={() => {
-                useViewerStore.getState().closeApp();
-                useConversationStore.getState().setEditingConversationId(null);
-              }}
-              onShare={() => {
-                const app = useViewerStore.getState().openedAppState;
-                if (app && assistantId) void useDeployStore.getState().shareApp(assistantId, app.appId, app.name);
-              }}
-              isSharing={isSharing}
-              onDeploy={
-                deployToVercel
-                  ? () => {
-                      const app = useViewerStore.getState().openedAppState;
-                      if (app && assistantId) void useDeployStore.getState().deployApp(assistantId, app.appId, app.name, app.html);
-                    }
-                  : undefined
-              }
-              isDeploying={isDeploying}
-            />
-            <MobileDocumentOverlay
-              openedDocumentState={
-                mainView === "document"
-                  ? openedDocumentState
-                  : null
-              }
-              assistantId={assistantId}
-              onClose={() => {
-                useViewerStore.getState().closeDocument();
-              }}
-              onSubmitFeedback={() => {
-                const docState = useViewerStore.getState().openedDocumentState;
-                if (!docState) return;
-                const prompt = `Please review and address my comments on "${docState.documentName}".`;
-                navigate(
-                  `${routes.conversation(docState.conversationId)}?prompt=${encodeURIComponent(prompt)}`,
-                );
-              }}
-            />
-            <MobileSubagentDetailOverlay
-              entry={
-                mainView === "subagent-detail" &&
-                activeSubagentId
-                  ? subagentById[activeSubagentId] ?? null
-                  : null
-              }
-              onClose={() => {
-                useViewerStore.getState().closeSubagentDetail();
-              }}
-              onStop={async (subagentId: string) => {
-                if (!assistantId || !activeConversationId) return;
-                try {
-                  await subagentsByIdAbortPost({
-                    path: { assistant_id: assistantId, id: subagentId },
-                    body: { conversationId: activeConversationId },
-                    throwOnError: true,
-                  });
-                } catch {
-                  // Best-effort — the daemon may have already completed
-                }
-              }}
-              onRequestDetail={handleRequestSubagentDetail}
-            />
-            <MobileToolDetailOverlay
-              detail={
-                mainView === "tool-detail"
-                  ? activeToolDetail
-                  : null
-              }
-              onClose={() => {
-                useViewerStore.getState().closeToolDetail();
-              }}
-            />
-          </>,
-          overlayTarget,
-        )}
+      <MobileChatOverlays />
     </>
   );
 }
