@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
@@ -9,6 +9,8 @@ import type {
   CharacterTraits,
 } from "@/types/avatar";
 import { avatarQueryKey } from "@/lib/sync/query-tags";
+import { MIN_VERSION } from "@/lib/backwards-compat/avatar-state-manifest";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 const components: CharacterComponents = {
   bodyShapes: [
@@ -61,11 +63,13 @@ const noneState: AvatarState = {
 const fetchCharacterComponents = mock(async () => components);
 const fetchAvatarState = mock(async () => noneState as AvatarState | null);
 const fetchAvatarImageUrl = mock(async () => null as string | null);
+const fetchCharacterTraits = mock(async () => null as CharacterTraits | null);
 
 mock.module("@/assistant/avatar-api", () => ({
   fetchCharacterComponents,
   fetchAvatarState,
   fetchAvatarImageUrl,
+  fetchCharacterTraits,
 }));
 
 const { useAssistantAvatar } = await import("@/hooks/use-assistant-avatar");
@@ -80,14 +84,23 @@ function createWrapper() {
   };
 }
 
+beforeEach(() => {
+  // Default to a manifest-capable assistant so the `/avatar/state` path is
+  // exercised; legacy-path tests override the version explicitly.
+  useAssistantIdentityStore.getState().setIdentity("test-asst", MIN_VERSION);
+});
+
 afterEach(() => {
   cleanup();
+  useAssistantIdentityStore.getState().clearIdentity();
   fetchCharacterComponents.mockClear();
   fetchAvatarState.mockClear();
   fetchAvatarImageUrl.mockClear();
+  fetchCharacterTraits.mockClear();
   fetchCharacterComponents.mockResolvedValue(components);
   fetchAvatarState.mockResolvedValue(noneState);
   fetchAvatarImageUrl.mockResolvedValue(null);
+  fetchCharacterTraits.mockResolvedValue(null);
 });
 
 describe("useAssistantAvatar", () => {
@@ -179,5 +192,42 @@ describe("useAssistantAvatar", () => {
     expect(second.result.current.traits).toEqual(traits);
     expect(second.result.current.customImageUrl).toBeNull();
     second.unmount();
+  });
+
+  test("pre-manifest assistants infer character traits from the sidecar files", async () => {
+    useAssistantIdentityStore.getState().setIdentity("test-asst", "0.8.6");
+    fetchCharacterTraits.mockResolvedValueOnce(traits);
+
+    const { result } = renderHook(() => useAssistantAvatar("asst-1"), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.traits).toEqual(traits);
+    });
+
+    // Legacy path: no image ⇒ read traits sidecar, never touch `/avatar/state`.
+    expect(result.current.customImageUrl).toBeNull();
+    expect(fetchAvatarImageUrl).toHaveBeenCalledTimes(1);
+    expect(fetchCharacterTraits).toHaveBeenCalledTimes(1);
+    expect(fetchAvatarState).not.toHaveBeenCalled();
+  });
+
+  test("pre-manifest assistants render a custom image and skip the traits fetch", async () => {
+    useAssistantIdentityStore.getState().setIdentity("test-asst", "0.8.6");
+    fetchAvatarImageUrl.mockResolvedValueOnce("blob:legacy-image");
+
+    const { result } = renderHook(() => useAssistantAvatar("asst-1"), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.customImageUrl).toBe("blob:legacy-image");
+    });
+
+    // A custom image exists ⇒ traits are intentionally not fetched.
+    expect(result.current.traits).toBeNull();
+    expect(fetchCharacterTraits).not.toHaveBeenCalled();
+    expect(fetchAvatarState).not.toHaveBeenCalled();
   });
 });
