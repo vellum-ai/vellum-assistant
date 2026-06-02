@@ -19,13 +19,15 @@ export interface ActiveConversationMessagesRefreshResult {
   assistantProgress: boolean;
 }
 
+const NOOP = () => {};
+
 export interface WebSyncRouterOptions {
   invalidateAvatar: () => void;
   refreshAssistantIdentity: (force?: boolean) => Promise<void>;
   invalidateAssistantIdentityIntro: () => void;
-  invalidateAssistantConfig: () => void;
-  invalidateAssistantSounds: () => void;
-  invalidateAssistantSchedules: () => void;
+  invalidateAssistantConfig?: () => void;
+  invalidateAssistantSounds?: () => void;
+  invalidateAssistantSchedules?: () => void;
   invalidateApps?: () => void;
   scheduleConversationListRefetch: () => void;
   refreshActiveConversationMessages: () => Promise<ActiveConversationMessagesRefreshResult>;
@@ -69,17 +71,17 @@ export function createWebSyncRouter(
     ),
     registry.register(
       SYNC_TAGS.assistantConfig,
-      options.invalidateAssistantConfig,
+      options.invalidateAssistantConfig ?? NOOP,
     ),
     registry.register(
       SYNC_TAGS.assistantSounds,
-      options.invalidateAssistantSounds,
+      options.invalidateAssistantSounds ?? NOOP,
     ),
     registry.register(
       SYNC_TAGS.assistantSchedules,
-      options.invalidateAssistantSchedules,
+      options.invalidateAssistantSchedules ?? NOOP,
     ),
-    registry.register(SYNC_TAGS.appsList, options.invalidateApps ?? (() => {})),
+    registry.register(SYNC_TAGS.appsList, options.invalidateApps ?? NOOP),
     registry.register(
       SYNC_TAGS.conversationsList,
       options.scheduleConversationListRefetch,

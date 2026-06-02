@@ -39,7 +39,7 @@ import { recordLifecycleDiagnostic } from "@/lib/diagnostics";
 import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 import type {
   ActiveConversationMessagesRefreshResult,
-  WebSyncRouter,
+  WebSyncReconnectResult,
 } from "@/lib/sync/web-sync-router";
 import type { AssistantEvent } from "@/types/event-types";
 import type { UseAssistantReachabilityResult } from "@/assistant/use-assistant-reachability";
@@ -66,8 +66,8 @@ export interface UseEventStreamParams {
   reachabilityPhase: string;
   reachabilityReset: () => void;
 
-  // Sync router ref for post-reconnect reconcile
-  syncRouterRef: MutableRefObject<WebSyncRouter | null>;
+  // Sync router dispatch for post-reconnect reconcile
+  dispatchReconnect: () => Promise<WebSyncReconnectResult | undefined>;
 
   // Conversation list invalidated timer ref — cleaned up on unmount
   conversationListInvalidatedTimerRef: MutableRefObject<ReturnType<
@@ -87,7 +87,7 @@ export function useEventStream({
   reachabilityProbe,
   reachabilityPhase,
   reachabilityReset,
-  syncRouterRef,
+  dispatchReconnect,
   conversationListInvalidatedTimerRef,
 }: UseEventStreamParams): void {
   // ---- Ref-stabilize unstable callback params ----
@@ -108,6 +108,9 @@ export function useEventStream({
 
   const reachabilityResetRef = useRef(reachabilityReset);
   reachabilityResetRef.current = reachabilityReset;
+
+  const dispatchReconnectRef = useRef(dispatchReconnect);
+  dispatchReconnectRef.current = dispatchReconnect;
 
   const reachabilityPhaseRef = useRef(reachabilityPhase);
   const backgroundReachabilityProbeRef = useRef(false);
@@ -239,7 +242,7 @@ export function useEventStream({
       reconcileActive: () => reconcileActiveConversationRef.current(),
       startReconciliationLoop: (epoch) =>
         startReconciliationLoopRef.current(epoch),
-      syncRouterRef,
+      dispatchReconnect: dispatchReconnectRef.current,
     });
 
     return subscribe("sse.opened", (payload) =>
@@ -249,7 +252,6 @@ export function useEventStream({
     assistantStateKind,
     assistantId,
     activeConversationId,
-    syncRouterRef,
   ]);
 
   // --------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
-import { useRef, type MutableRefObject } from "react";
+import { useRef } from "react";
 
 import {
   __resetForTesting,
@@ -20,7 +20,6 @@ function renderEventStream(params: {
   startReconciliationLoop?: (epoch: number) => void;
 }) {
   return renderHook(() => {
-    const syncRouterRef = useRef(null) as MutableRefObject<null> as never;
     const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     useEventStream({
       assistantStateKind: "active",
@@ -41,7 +40,7 @@ function renderEventStream(params: {
       reachabilityProbe: () => {},
       reachabilityPhase: "ready",
       reachabilityReset: () => {},
-      syncRouterRef,
+      dispatchReconnect: async () => undefined,
       conversationListInvalidatedTimerRef: timerRef,
     });
   });

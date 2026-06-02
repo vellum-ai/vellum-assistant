@@ -33,7 +33,7 @@ import {
 } from "@/lib/diagnostics";
 import type {
   ActiveConversationMessagesRefreshResult,
-  WebSyncRouter,
+  WebSyncReconnectResult,
 } from "@/lib/sync/web-sync-router";
 
 type SseOpenedCause = "fresh" | "error" | "watchdog" | "resume";
@@ -47,8 +47,8 @@ export interface ReconcileOnReopenDeps {
   reconcileActive: () => Promise<ActiveConversationMessagesRefreshResult>;
   /** Start the reconciliation loop on a given epoch. */
   startReconciliationLoop: (epoch: number) => void;
-  /** Sync router used for the transport-recovery path. */
-  syncRouterRef: { current: WebSyncRouter | null };
+  /** Dispatch a sync-router reconnect; returns undefined when no router is mounted. */
+  dispatchReconnect: () => Promise<WebSyncReconnectResult | undefined>;
 }
 
 export interface ReconcileOnReopen {
@@ -110,7 +110,7 @@ async function runTransportRecoveryReconcile(
   epoch: number,
   cause: "watchdog" | "error",
 ): Promise<void> {
-  const { assistantId, conversationId, syncRouterRef } = deps;
+  const { assistantId, conversationId, dispatchReconnect } = deps;
   recordLifecycleDiagnostic("sse_stream_reconnect", {
     assistantId,
     conversationId,
@@ -128,8 +128,7 @@ async function runTransportRecoveryReconcile(
   // never run, and the bus's next reopen would have no idea anything
   // went wrong.
   try {
-    const syncReconnectResult =
-      await syncRouterRef.current?.dispatchReconnect();
+    const syncReconnectResult = await dispatchReconnect();
     reconcileResult =
       syncReconnectResult?.activeConversationMessages ??
       (await deps.reconcileActive());
