@@ -52,10 +52,10 @@ mock.module("../util/logger.js", () => ({
 }));
 
 import {
-  _titleQueueDrain,
   generateAndPersistConversationTitle,
   queueGenerateConversationTitle,
   regenerateConversationTitle,
+  titleMutex,
 } from "../memory/conversation-title-service.js";
 
 describe("conversation-title-service", () => {
@@ -421,7 +421,7 @@ describe("conversation-title-service", () => {
 
     // Release the first call
     resolveFirst();
-    await _titleQueueDrain();
+    await titleMutex.withLock(async () => {});
 
     // Second should have started only after first finished
     expect(callOrder).toEqual(["first:start", "first:end", "second:start"]);
@@ -463,7 +463,7 @@ describe("conversation-title-service", () => {
       userMessage: "will succeed",
     });
 
-    await _titleQueueDrain();
+    await titleMutex.withLock(async () => {});
 
     // Both calls went through — failure didn't break the chain
     expect(mockRunBtwSidechain).toHaveBeenCalledTimes(2);

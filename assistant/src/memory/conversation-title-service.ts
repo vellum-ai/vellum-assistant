@@ -11,6 +11,7 @@ import { getConfiguredProvider } from "../providers/provider-send-message.js";
 import type { Provider } from "../providers/types.js";
 import { runBtwSidechain } from "../runtime/btw-sidechain.js";
 import { getLogger } from "../util/logger.js";
+import { Mutex } from "../util/mutex.js";
 import {
   getConversation,
   getMessages,
@@ -187,30 +188,24 @@ export async function generateAndPersistConversationTitle(
  * wait). Both initial generation and second-pass regeneration share
  * this queue since they hit the same provider.
  */
-let titleQueueTail: Promise<void> = Promise.resolve();
-
-function enqueueTitleWork(work: () => Promise<void>): void {
-  titleQueueTail = titleQueueTail.then(work, work);
-}
-
-/** Exposed for tests that need to await the full queue drain. */
-export function _titleQueueDrain(): Promise<void> {
-  return titleQueueTail;
-}
+export const titleMutex = new Mutex();
 
 /**
  * Fire-and-forget wrapper for title generation. Failures are logged
  * but do not propagate. On failure, replaces loading placeholder with
  * a stable fallback title so loading state is never permanent.
  *
- * Calls are serialized via {@link enqueueTitleWork} so burst
- * conversation creation does not overwhelm the LLM provider.
+ * Calls are serialized via {@link titleMutex} so burst conversation
+ * creation does not overwhelm the LLM provider.
  */
 export function queueGenerateConversationTitle(
   params: GenerateTitleParams,
 ): void {
-  enqueueTitleWork(async () => {
-    await generateAndPersistConversationTitle(params).catch((err) => {
+  void titleMutex
+    .withLock(async () => {
+      await generateAndPersistConversationTitle(params);
+    })
+    .catch((err) => {
       log.warn(
         { err, conversationId: params.conversationId },
         "Failed to generate conversation title (non-fatal)",
@@ -228,7 +223,6 @@ export function queueGenerateConversationTitle(
         // Best-effort
       }
     });
-  });
 }
 
 // ── Title regeneration (second pass) ─────────────────────────────────
@@ -306,20 +300,21 @@ export async function regenerateConversationTitle(
 /**
  * Fire-and-forget wrapper for title regeneration.
  *
- * Serialized via the same queue as initial generation — see
- * {@link enqueueTitleWork}.
+ * Serialized via the same {@link titleMutex} as initial generation.
  */
 export function queueRegenerateConversationTitle(
   params: RegenerateTitleParams,
 ): void {
-  enqueueTitleWork(async () => {
-    await regenerateConversationTitle(params).catch((err) => {
+  void titleMutex
+    .withLock(async () => {
+      await regenerateConversationTitle(params);
+    })
+    .catch((err) => {
       log.warn(
         { err, conversationId: params.conversationId },
         "Failed to regenerate conversation title (non-fatal)",
       );
     });
-  });
 }
 
 // ── Internal helpers ─────────────────────────────────────────────────
