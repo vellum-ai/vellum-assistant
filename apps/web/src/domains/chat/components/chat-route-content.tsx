@@ -172,6 +172,7 @@ export interface ChatRouteContentProps {
   sanitizedMessagesRef: MutableRefObject<DisplayMessage[]>;
   transcriptItemsRef: MutableRefObject<TranscriptItem[]>;
   transcriptRef: RefObject<TranscriptHandle | null>;
+  uiContextRef: MutableRefObject<UIContext | null>;
 
   // Onboarding (local state in ActiveChatView)
   onboardingTasksEmpty: boolean;
@@ -215,6 +216,7 @@ export function ChatRouteContent({
   sanitizedMessagesRef,
   transcriptItemsRef,
   transcriptRef,
+  uiContextRef,
   onboardingTasksEmpty,
   didOnboarding,
   onboardingConversationId,
@@ -517,6 +519,10 @@ export function ChatRouteContent({
     activeConversationIsProcessing,
     hasPendingAssistantResponse: activeConversationHasPendingAssistantResponse,
   };
+
+  // Publish the rendered context so the debug API reports on-screen state
+  // instead of a separate recomputation (see useChatDebugRegistration).
+  uiContextRef.current = uiContext;
 
   // When the `useProgressBadge` debug flag is on, suppress the
   // transcript-trailer thinking dots — the avatar badge takes over the
