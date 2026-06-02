@@ -1,13 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@vellum/design-library/components/button";
 import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Input, Textarea } from "@vellum/design-library/components/input";
-import { Toggle } from "@vellum/design-library/components/toggle";
 import { Modal } from "@vellum/design-library/components/modal";
-import { SegmentControl } from "@vellum/design-library/components/segment-control";
-import { Slider } from "@vellum/design-library/components/slider";
 import { Tag } from "@vellum/design-library/components/tag";
+import { Toggle } from "@vellum/design-library/components/toggle";
 import { Typography } from "@vellum/design-library/components/typography";
 
 import {
@@ -17,13 +15,14 @@ import {
 } from "@/assistant/llm-model-catalog";
 
 import type { ProfileEntry } from "@/domains/settings/ai/ai-types";
-import { formatCompactTokens } from "@/domains/settings/ai/ai-utils";
 import { type Profile } from "@/domains/settings/ai/manage-profiles-modal";
-import { geminiThinkingLevels, resolveProfileParamVisibility } from "@/domains/settings/ai/profile-param-visibility";
+import {
+  ProfileAdvancedParams,
+  THINKING_LEVEL_INHERIT,
+} from "@/domains/settings/ai/profile-advanced-params";
+import { resolveProfileParamVisibility } from "@/domains/settings/ai/profile-param-visibility";
 import { type ConnectionModel, type ProviderConnection } from "@/domains/settings/ai/provider-connections-client";
-import { toKebabCase as toKebabCaseImpl } from "@/domains/settings/ai/slugify";
-
-export { toKebabCaseImpl as toKebabCase };
+import { useLabelKeySync } from "@/domains/settings/ai/use-label-key-sync";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -39,18 +38,7 @@ const CODEX_SUBSCRIPTION_MODEL_IDS = new Set([
   "gpt-5.3-codex",
 ]);
 
-const EFFORT_OPTIONS = ["none", "low", "medium", "high", "xhigh", "max"] as const;
-const SPEED_OPTIONS = ["standard", "fast"] as const;
-const VERBOSITY_OPTIONS = ["low", "medium", "high"] as const;
-// Sentinel for the Gemini thinking-level selector: "inherit" → omit
-// thinking.level so the daemon applies the model default (mirrors effort's
-// "none"). Concrete levels come from `geminiThinkingLevels(model)`.
-const THINKING_LEVEL_INHERIT = "default";
 
-const DEFAULT_MAX_OUTPUT_TOKENS = 64_000;
-const MIN_MAX_OUTPUT_TOKENS = 1_000; // matches TOKEN_SLIDER_MIN_TOKENS in page.tsx
-const DEFAULT_CONTEXT_WINDOW_TOKENS = 200_000;
-const MIN_CONTEXT_WINDOW_TOKENS = 1_000; // matches TOKEN_SLIDER_MIN_TOKENS in page.tsx
 
 // ---------------------------------------------------------------------------
 // Types
@@ -63,7 +51,6 @@ export interface ProfileEditorModalProps {
   mode: "create" | "edit" | "view";
   profileName?: string;
   initialValues?: Profile;
-  assistantId: string;
   existingNames: string[];
   /**
    * Provider connections, supplied by the parent (`ManageProfilesModal`).
@@ -79,9 +66,6 @@ export interface ProfileEditorModalProps {
    *   filter runs and yields empty, the empty-state hint fires, and
    *   the user is steered to Providers instead of picking a provider
    *   the daemon can't dispatch through.
-   *
-   * Mirrors macOS `InferenceProfileEditor.connections: [ProviderConnection]?`
-   * (vellum-assistant PR #30330).
    */
   connections?: ProviderConnection[];
   openAICompatibleEndpointsEnabled?: boolean;
@@ -94,7 +78,7 @@ export interface ProfileEditorModalProps {
    *     single deep-merge PATCH so unspecified fields (provider, model,
    *     advanced params) survive. Required for managed-profile policy
    *     edits — view mode sends only `{label, status}` and we must not
-   *     destroy the seed-owned fields. Codex P1 / Devin 🔴 on PR #6543.
+   *     destroy the seed-owned fields.
    */
   onSave: (
     name: string,
@@ -113,7 +97,6 @@ export function ProfileEditorModal({
   mode,
   profileName,
   initialValues,
-  assistantId: _assistantId,
   existingNames,
   connections,
   openAICompatibleEndpointsEnabled = false,
@@ -196,10 +179,9 @@ function ProfileEditorModalInner({
   );
   const [provider, setProvider] = useState(initialValues?.provider ?? "");
   const [model, setModel] = useState(initialValues?.model ?? "");
-  // Per-profile provider-connection binding (audit finding #5). Empty string
-  // means no explicit binding — daemon falls back to its first-connection
-  // dispatch in that case. Snake_case `provider_connection` on the wire
-  // (matches Zod schema in `assistant/src/config/schemas/llm.ts`).
+  // Per-profile provider-connection binding. Empty string means no explicit
+  // binding — daemon falls back to its first-connection dispatch. Snake_case
+  // `provider_connection` matches the wire schema.
   const [providerConnection, setProviderConnection] = useState(
     initialValues?.provider_connection ?? "",
   );
@@ -324,7 +306,7 @@ function ProfileEditorModalInner({
   // caller confirmed zero connections, so the filter runs and yields empty
   // — the empty-state hint below fires and steers the user to Providers
   // instead of letting them save a profile bound to a non-dispatchable
-  // provider. Mirrors macOS `availableProviderIds` in PR #30330.
+  // provider. Mirrors the macOS `availableProviderIds` filter.
   const providerOptionsSource =
     connections === undefined ? allProvidersForPicker : visibleProviders;
 
@@ -348,26 +330,13 @@ function ProfileEditorModalInner({
     (availableConnectionsForProvider.length > 0 ||
       providerConnection !== "");
 
-  // keyDirty tracks whether the user has manually edited the key field
-  const keyDirty = useRef(false);
+  const { handleLabelChange, handleKeyChange, resetDirty } =
+    useLabelKeySync(effectiveMode, setLabel, setKey);
 
-  // Reset state when modal opens with new values
+  // Reset dirty tracking when modal re-opens with new values.
   useEffect(() => {
-    keyDirty.current = false;
-  }, [profileName, mode]);
-
-  // Auto-derive key from label when not dirty and in create mode
-  function handleLabelChange(newLabel: string) {
-    setLabel(newLabel);
-    if (effectiveMode === "create" && !keyDirty.current) {
-      setKey(toKebabCaseImpl(newLabel));
-    }
-  }
-
-  function handleKeyChange(newKey: string) {
-    keyDirty.current = true;
-    setKey(newKey);
-  }
+    resetDirty();
+  }, [profileName, mode, resetDirty]);
 
   function handleProviderChange(newProvider: string) {
     // Guard: re-selecting the same provider is a no-op — don't clear fields
@@ -458,7 +427,7 @@ function ProfileEditorModalInner({
     // cycle and send a single deep-merge PATCH. Without this, the seed
     // fields (provider, model, advanced params) would be destroyed by
     // the recreate step that only writes back the partial `{label, status}`
-    // entry. Codex P1 / Devin 🔴 on PR #6543.
+    // entry.
     if (isReadOnly) {
       if (!hasViewModeChanges) return;
       setSaving(true);
@@ -480,14 +449,13 @@ function ProfileEditorModalInner({
     setSaveError(null);
     try {
       const entry: ProfileEntry = {};
-      // Stale bindings are auto-cleared on save (audit finding #5, P1
-      // feedback from Codex/Devin on PR #6418): if the saved
+      // Stale bindings are auto-cleared on save: if the saved
       // provider_connection doesn't match any known connection for the
-      // current provider, opening-and-saving the profile would silently
-      // re-persist the broken binding. Treat it as cleared instead.
-      // Also: when providerConnection is empty and there's exactly one
-      // available connection, resolve to that connection's name so profiles
-      // always persist with an explicit binding.
+      // current provider, treat it as cleared instead of silently
+      // re-persisting the broken binding. When providerConnection is
+      // empty and there's exactly one available connection, resolve to
+      // that connection's name so profiles always persist with an
+      // explicit binding.
       const resolvedBinding =
         providerConnection === "" && availableConnectionsForProvider.length === 1
           ? availableConnectionsForProvider[0].name
@@ -869,203 +837,34 @@ function ProfileEditorModalInner({
           </>}
 
           {/* Advanced params — hidden for the auto meta-profile */}
-          {!isAutoProfile && <>
-          {/* Max Output Tokens */}
-          {visibility.maxTokens && (
-            <div className="space-y-1">
-              <div className="flex items-center justify-between">
-                <label className="block text-body-small-default text-[var(--content-tertiary)]">
-                  Max Output Tokens
-                </label>
-                <span className="text-body-small-default text-[var(--content-tertiary)]">
-                  {maxTokens !== null ? formatCompactTokens(maxTokens) : "Inherit"}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="flex-1">
-                  <Slider
-                    value={maxTokens ?? DEFAULT_MAX_OUTPUT_TOKENS}
-                    onValueChange={(v) => setMaxTokens(typeof v === "number" ? v : v[0])}
-                    min={MIN_MAX_OUTPUT_TOKENS}
-                    max={selectedModel?.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS}
-                    step={1_000}
-                    disabled={isReadOnly}
-                  />
-                </div>
-                <Button
-                  variant="ghost"
-                  size="compact"
-                  onClick={() => setMaxTokens(null)}
-                  disabled={isReadOnly || maxTokens === null}
-                >
-                  Inherit
-                </Button>
-              </div>
-            </div>
+          {!isAutoProfile && (
+            <ProfileAdvancedParams
+              visibility={visibility}
+              isReadOnly={isReadOnly}
+              model={model}
+              selectedModel={selectedModel}
+              maxTokens={maxTokens}
+              onMaxTokensChange={setMaxTokens}
+              contextWindowMaxInputTokens={contextWindowMaxInputTokens}
+              onContextWindowChange={setContextWindowMaxInputTokens}
+              effort={effort}
+              onEffortChange={setEffort}
+              speed={speed}
+              onSpeedChange={setSpeed}
+              verbosity={verbosity}
+              onVerbosityChange={setVerbosity}
+              temperatureEnabled={temperatureEnabled}
+              onTemperatureEnabledChange={setTemperatureEnabled}
+              temperature={temperature}
+              onTemperatureChange={setTemperature}
+              thinkingEnabled={thinkingEnabled}
+              onThinkingEnabledChange={setThinkingEnabled}
+              thinkingStreamThinking={thinkingStreamThinking}
+              onThinkingStreamThinkingChange={setThinkingStreamThinking}
+              thinkingLevel={thinkingLevel}
+              onThinkingLevelChange={setThinkingLevel}
+            />
           )}
-
-          {/* Context Window */}
-          {visibility.contextWindow && (
-            <div className="space-y-1">
-              <div className="flex items-center justify-between">
-                <label className="block text-body-small-default text-[var(--content-tertiary)]">
-                  Context Window
-                </label>
-                <span className="text-body-small-default text-[var(--content-tertiary)]">
-                  {contextWindowMaxInputTokens !== null
-                    ? formatCompactTokens(contextWindowMaxInputTokens)
-                    : "Inherit"}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="flex-1">
-                  <Slider
-                    value={contextWindowMaxInputTokens ?? DEFAULT_CONTEXT_WINDOW_TOKENS}
-                    onValueChange={(v) =>
-                      setContextWindowMaxInputTokens(typeof v === "number" ? v : v[0])
-                    }
-                    min={MIN_CONTEXT_WINDOW_TOKENS}
-                    max={selectedModel?.contextWindowTokens ?? DEFAULT_CONTEXT_WINDOW_TOKENS}
-                    step={50_000}
-                    disabled={isReadOnly || !selectedModel}
-                  />
-                </div>
-                <Button
-                  variant="ghost"
-                  size="compact"
-                  onClick={() => setContextWindowMaxInputTokens(null)}
-                  disabled={isReadOnly || contextWindowMaxInputTokens === null}
-                >
-                  Inherit
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {/* Effort */}
-          {visibility.effort && (
-            <div className="space-y-1">
-              <label className="block text-body-small-default text-[var(--content-tertiary)]">
-                Effort{" "}
-                <span className="text-[var(--content-disabled)]">(none = inherit)</span>
-              </label>
-              <SegmentControl
-                items={EFFORT_OPTIONS.map((v) => ({ value: v, label: v }))}
-                value={effort as typeof EFFORT_OPTIONS[number]}
-                onChange={(v) => setEffort(v)}
-                ariaLabel="Effort"
-              />
-            </div>
-          )}
-
-          {/* Speed */}
-          {visibility.speed && (
-            <div className="space-y-1">
-              <label className="block text-body-small-default text-[var(--content-tertiary)]">
-                Speed
-              </label>
-              <SegmentControl
-                items={SPEED_OPTIONS.map((v) => ({ value: v, label: v }))}
-                value={speed as typeof SPEED_OPTIONS[number]}
-                onChange={(v) => setSpeed(v)}
-                ariaLabel="Speed"
-              />
-            </div>
-          )}
-
-          {/* Verbosity */}
-          {visibility.verbosity && (
-            <div className="space-y-1">
-              <label className="block text-body-small-default text-[var(--content-tertiary)]">
-                Verbosity
-              </label>
-              <SegmentControl
-                items={VERBOSITY_OPTIONS.map((v) => ({ value: v, label: v }))}
-                value={verbosity as typeof VERBOSITY_OPTIONS[number]}
-                onChange={(v) => setVerbosity(v)}
-                ariaLabel="Verbosity"
-              />
-            </div>
-          )}
-
-          {/* Temperature */}
-          {visibility.temperature && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <label className="block text-body-small-default text-[var(--content-tertiary)]">
-                  Temperature
-                </label>
-                <Toggle
-                  checked={temperatureEnabled}
-                  onChange={(v) => setTemperatureEnabled(v)}
-                  disabled={isReadOnly}
-                  aria-label="Enable temperature override"
-                />
-              </div>
-              {temperatureEnabled && (
-                <div className="flex items-center justify-between">
-                  <div className="flex-1">
-                    <Slider
-                      value={temperature}
-                      onValueChange={(v) => setTemperature(typeof v === "number" ? v : v[0])}
-                      min={0}
-                      max={2}
-                      step={0.01}
-                      disabled={isReadOnly}
-                      showValue
-                      formatValue={(v) => (typeof v === "number" ? v.toFixed(2) : String(v))}
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Thinking */}
-          {visibility.thinking && (
-            <div className="space-y-3">
-              <Toggle
-                checked={thinkingEnabled}
-                onChange={(v) => {
-                  setThinkingEnabled(v);
-                  if (!v) setThinkingStreamThinking(false);
-                }}
-                label="Enable extended thinking"
-                disabled={isReadOnly}
-              />
-              {thinkingEnabled && (
-                <div className="pl-4">
-                  <Toggle
-                    checked={thinkingStreamThinking}
-                    onChange={(v) => setThinkingStreamThinking(v)}
-                    label="Stream thinking tokens"
-                    disabled={isReadOnly}
-                  />
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Thinking level (Gemini) */}
-          {visibility.thinkingLevel && (
-            <div className="space-y-1">
-              <label className="block text-body-small-default text-[var(--content-tertiary)]">
-                Thinking level{" "}
-                <span className="text-[var(--content-disabled)]">(default = inherit)</span>
-              </label>
-              <SegmentControl
-                items={[THINKING_LEVEL_INHERIT, ...geminiThinkingLevels(model)].map((v) => ({
-                  value: v,
-                  label: v,
-                }))}
-                value={thinkingLevel}
-                onChange={(v) => setThinkingLevel(v)}
-                ariaLabel="Thinking level"
-              />
-            </div>
-          )}
-
-          </>}
 
           {/* Save error */}
           {saveError ? (
@@ -1092,7 +891,7 @@ function ProfileEditorModalInner({
               onClick={() => {
                 setEffectiveMode("create");
                 setKey("");
-                keyDirty.current = false;
+                resetDirty();
               }}
               disabled={saving}
             >
