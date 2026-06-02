@@ -6,13 +6,13 @@ import path from "node:path";
 
 import {
   readAllowedGatewayPorts,
-  resolveGatewayProxyTarget,
   resolveLockfilePaths,
 } from "@vellumai/local-mode";
 
 import { installAbout, openAboutWindow } from "./about";
 import { APP_PROTOCOL } from "./app-config";
 import { resolveAppProtocolPath } from "./app-protocol";
+import { planGatewayForward } from "./gateway-forward";
 import {
   extractDeepLinkFromArgv,
   handleDeepLink,
@@ -150,49 +150,35 @@ const fileExists = async (candidate: string): Promise<boolean> => {
 };
 
 /**
- * Forward a gateway data-plane request (`/assistant/__gateway/{port}/*`) to
- * the local gateway on loopback, or return `null` when the URL is not a
- * gateway request so the caller serves it as a static asset. `net.fetch` runs
- * in the main process, so the renderer only ever talks to its own secure
- * `app://` origin — main does the `http://127.0.0.1` hop. The streaming
- * `Response` is returned verbatim, preserving SSE and chunked transfers
- * (Electron's `stream: true` scheme privilege). The shared decision applies
- * the lockfile port-allowlist identically to the Vite dev proxy.
+ * Forward a gateway data-plane request (`/assistant/__gateway/{port}/*`) to the
+ * local gateway on loopback, or return `null` when the URL is not a gateway
+ * request so the caller serves it as a static asset. `net.fetch` runs in the
+ * main process, so the renderer only ever talks to its own secure `app://`
+ * origin — main does the `http://127.0.0.1` hop. The streaming `Response` is
+ * returned verbatim, preserving SSE and chunked transfers (Electron's
+ * `stream: true` scheme privilege). `planGatewayForward` owns the allowlist and
+ * header decisions; this wrapper is just the effect.
  */
 const forwardGatewayRequest = async (
   request: GlobalRequest,
   getAllowedPorts: () => Set<number>,
 ): Promise<Response | null> => {
-  const url = new URL(request.url);
-  const decision = resolveGatewayProxyTarget(
-    url.pathname + url.search,
-    getAllowedPorts,
-  );
-
-  switch (decision.kind) {
+  const plan = planGatewayForward(request, getAllowedPorts);
+  switch (plan.kind) {
     case "pass":
       return null;
-    case "invalid-port":
-      return new Response("Port must be between 1024 and 65535", {
-        status: 400,
-      });
-    case "forbidden-port":
-      return new Response("Gateway port is not active in lockfile", {
-        status: 403,
-      });
-    case "forward": {
-      const { port, path: targetPath } = decision.target;
-      const hasBody = request.method !== "GET" && request.method !== "HEAD";
-      return net.fetch(`http://127.0.0.1:${port}${targetPath}`, {
-        method: request.method,
-        headers: request.headers,
-        body: hasBody ? request.body : undefined,
+    case "reject":
+      return new Response(plan.message, { status: plan.status });
+    case "forward":
+      return net.fetch(plan.url, {
+        method: plan.method,
+        headers: plan.headers,
+        body: plan.hasBody ? request.body : undefined,
         // Stream the request body instead of buffering it; required by the
         // fetch spec whenever a `ReadableStream` body is supplied.
-        ...(hasBody ? { duplex: "half" } : {}),
+        ...(plan.hasBody ? { duplex: "half" } : {}),
         redirect: "manual",
       });
-    }
   }
 };
 
