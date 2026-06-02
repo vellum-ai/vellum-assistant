@@ -67,7 +67,7 @@ export function UpgradeSuccessPage() {
     });
   }, [queryClient]);
 
-  const { data, isError } = useQuery({
+  const { data: queryData, isError: queryIsError } = useQuery({
     ...organizationsBillingSubscriptionRetrieveOptions(),
     // Fetch-tier predicate: strict on `isPlatformHosted`, not just the
     // page-level `platformGate === "full"`. During the lifecycle-loading
@@ -85,6 +85,21 @@ export function UpgradeSuccessPage() {
     },
     refetchIntervalInBackground: false,
   });
+  // Cached-data leak guard (Trap 6 cached-state variant — banked on PR-2.5
+  // commit `49c35d7c3`, restated for new code on this PR).
+  //
+  // `useQuery` with `enabled: false` still exposes cached `data` / `isError`
+  // from any prior visit to billing in the same session. A user who saw
+  // `plan_id: "pro"` earlier and then re-enters via Stripe's success URL
+  // would have `queryData.plan_id === "pro"` in the lifecycle-loading
+  // window BEFORE any actual poll runs — `reachedPro` flips true, success
+  // state renders, redirect fires, all before we've confirmed hosting.
+  //
+  // Re-derive every observer-state piece through the same gate that's on
+  // `enabled`. This keeps the page in PendingState until polling is
+  // genuinely active, regardless of cache contents.
+  const data = isPollingEnabled ? queryData : undefined;
+  const isError = isPollingEnabled ? queryIsError : false;
 
   // Hard timeout: even if Stripe + the webhook never converge, stop
   // hammering. Tied to `isPollingEnabled` so the 10-second clock starts
