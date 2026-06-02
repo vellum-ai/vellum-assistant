@@ -13,11 +13,12 @@ export interface LocalEndpointConfig {
 }
 
 /**
- * Resolve config from environment variables (Vite plugin context, where
- * `env` comes from `loadEnv` and process.env).
+ * Resolve config from environment variables. Accepts any environment-shaped
+ * map, including `process.env` (whose values are `string | undefined`) and the
+ * Vite plugin's `loadEnv` result.
  */
 export function resolveLocalConfigFromEnv(
-  env: Record<string, string>,
+  env: Record<string, string | undefined>,
 ): LocalEndpointConfig {
   const vellumEnv = env.VELLUM_ENVIRONMENT || PRODUCTION_ENVIRONMENT_NAME;
   const seed = SEEDS[vellumEnv] ?? SEEDS[PRODUCTION_ENVIRONMENT_NAME]!;
@@ -30,7 +31,9 @@ export function resolveLocalConfigFromEnv(
   };
 }
 
-export function resolveLockfilePaths(env: Record<string, string>): string[] {
+export function resolveLockfilePaths(
+  env: Record<string, string | undefined>,
+): string[] {
   const vellumEnv = env.VELLUM_ENVIRONMENT || PRODUCTION_ENVIRONMENT_NAME;
   const lockfileDir = env.VELLUM_LOCKFILE_DIR;
 
@@ -48,7 +51,9 @@ export function resolveLockfilePaths(env: Record<string, string>): string[] {
   return [path.join(dir, "lockfile.json")];
 }
 
-export function resolveConfigDir(env: Record<string, string>): string {
+export function resolveConfigDir(
+  env: Record<string, string | undefined>,
+): string {
   const vellumEnv = env.VELLUM_ENVIRONMENT || PRODUCTION_ENVIRONMENT_NAME;
   const xdgConfigHome =
     env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config");
