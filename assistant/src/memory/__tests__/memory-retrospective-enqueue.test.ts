@@ -12,6 +12,7 @@ mock.module("../../util/logger.js", () => ({
 // ---------------------------------------------------------------------------
 
 let sourceTag: string | null = null;
+let incognitoFlag = 0;
 const upsertCalls: Array<{
   payload: { conversationId: string };
   runAfter: number;
@@ -19,6 +20,7 @@ const upsertCalls: Array<{
 
 mock.module("../conversation-crud.js", () => ({
   getConversationSource: (_id: string) => sourceTag,
+  getConversation: (_id: string) => ({ incognito: incognitoFlag }),
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
@@ -47,6 +49,7 @@ import {
 describe("enqueueMemoryRetrospectiveIfEnabled", () => {
   beforeEach(() => {
     sourceTag = null;
+    incognitoFlag = 0;
     upsertCalls.length = 0;
   });
 
@@ -85,6 +88,28 @@ describe("enqueueMemoryRetrospectiveIfEnabled", () => {
     });
     expect(upsertCalls).toHaveLength(0);
   });
+
+  test("incognito conversation skips enqueue across triggers", () => {
+    incognitoFlag = 1;
+    for (const trigger of [
+      "interval",
+      "message_count",
+      "compaction",
+      "lifecycle",
+    ] as const) {
+      enqueueMemoryRetrospectiveIfEnabled({ conversationId: "c1", trigger });
+    }
+    expect(upsertCalls).toHaveLength(0);
+  });
+
+  test("non-incognito conversation still enqueues", () => {
+    incognitoFlag = 0;
+    enqueueMemoryRetrospectiveIfEnabled({
+      conversationId: "c1",
+      trigger: "interval",
+    });
+    expect(upsertCalls).toHaveLength(1);
+  });
 });
 
 describe("isMemoryRetrospectiveConversation", () => {
@@ -111,6 +136,7 @@ describe("isMemoryRetrospectiveConversation", () => {
 describe("enqueueMemoryRetrospectiveOnCompaction", () => {
   beforeEach(() => {
     sourceTag = null;
+    incognitoFlag = 0;
     upsertCalls.length = 0;
   });
 

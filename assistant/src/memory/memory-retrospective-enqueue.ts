@@ -18,7 +18,7 @@ import {
   type TrustClass,
 } from "../runtime/actor-trust-resolver.js";
 import { getLogger } from "../util/logger.js";
-import { getConversationSource } from "./conversation-crud.js";
+import { getConversation, getConversationSource } from "./conversation-crud.js";
 import {
   isMemoryEnabled,
   upsertMemoryRetrospectiveJob,
@@ -49,6 +49,15 @@ export function enqueueMemoryRetrospectiveIfEnabled(args: {
     log.debug(
       { conversationId, trigger },
       "Skipping memory-retrospective enqueue: source is a memory-retrospective conversation",
+    );
+    return;
+  }
+
+  const conversation = getConversation(conversationId);
+  if (conversation?.incognito) {
+    log.debug(
+      { conversationId, trigger },
+      "Skipping memory-retrospective enqueue: conversation is incognito",
     );
     return;
   }
