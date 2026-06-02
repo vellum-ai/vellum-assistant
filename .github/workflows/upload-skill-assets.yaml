@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "skills/*/assets/**"
+      - "skills/*/assets/icon.*"
   workflow_dispatch:
 
 jobs:
