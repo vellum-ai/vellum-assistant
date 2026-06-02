@@ -28,6 +28,7 @@ mock.module("@/hooks/conversation-queries", () => ({
     conversations: [],
     isPending: false,
   }),
+  conversationGroupsQueryKey: () => ["groups"],
 }));
 
 import type { Conversation } from "@/types/conversation-types";
