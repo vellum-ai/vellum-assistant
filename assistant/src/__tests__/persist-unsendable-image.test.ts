@@ -1,0 +1,217 @@
+/**
+ * Regression tests for the image-too-large persistence path (JARVIS-1037).
+ *
+ * When the provider rejects an oversized image, the agent loop swaps it for a
+ * text note in memory and retries. Before this fix that swap was transient:
+ * the stored message row kept the full-size image block, so every later turn
+ * rehydrated the rejected image from the DB and the model would report seeing
+ * both the original (rejected) image and a freshly re-uploaded smaller one.
+ *
+ * `persistUnsendableImageDowngrades` makes the swap durable for images that can
+ * never be transmitted, so the rejected upload cannot resurface.
+ *
+ * Uses the real SQLite DB wired up via `test-preload.ts` (per-file temp
+ * workspace).
+ */
+
+import { beforeEach, describe, expect, test } from "bun:test";
+
+import { persistUnsendableImageDowngrades } from "../daemon/persist-unsendable-image.js";
+import {
+  addMessage,
+  createConversation,
+  getMessages,
+} from "../memory/conversation-crud.js";
+import { getDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
+import type { ContentBlock } from "../providers/types.js";
+
+initializeDb();
+
+function resetTables(): void {
+  const db = getDb();
+  db.run("DELETE FROM message_attachments");
+  db.run("DELETE FROM attachments");
+  db.run("DELETE FROM memory_segments");
+  db.run("DELETE FROM memory_embeddings");
+  db.run("DELETE FROM messages");
+  db.run("DELETE FROM conversations");
+}
+
+/**
+ * Build a minimal PNG whose IHDR declares the given dimensions. Only the
+ * 8-byte signature and the width/height fields (read by `parseImageDimensions`)
+ * need to be correct; the rest is padding. `optimizeImageForTransport` cannot
+ * downscale this off macOS (no `sips`), so it stays a no-op — exactly the
+ * host condition that produces an unsendable stored image.
+ */
+function makePngBase64(width: number, height: number, padBytes = 0): string {
+  const header = Buffer.from(
+    Uint8Array.from([
+      0x89,
+      0x50,
+      0x4e,
+      0x47,
+      0x0d,
+      0x0a,
+      0x1a,
+      0x0a, // PNG signature
+      0x00,
+      0x00,
+      0x00,
+      0x0d, // IHDR length (13)
+      0x49,
+      0x48,
+      0x44,
+      0x52, // "IHDR"
+      (width >>> 24) & 0xff,
+      (width >>> 16) & 0xff,
+      (width >>> 8) & 0xff,
+      width & 0xff,
+      (height >>> 24) & 0xff,
+      (height >>> 16) & 0xff,
+      (height >>> 8) & 0xff,
+      height & 0xff,
+      0x08,
+      0x06,
+      0x00,
+      0x00,
+      0x00, // bit depth / color type / etc.
+    ]),
+  ).toString("base64");
+  return padBytes > 0 ? header + "A".repeat(padBytes) : header;
+}
+
+function imageBlock(data: string): ContentBlock {
+  return {
+    type: "image",
+    source: { type: "base64", media_type: "image/png", data },
+  };
+}
+
+function storedContent(conversationId: string): ContentBlock[][] {
+  return getMessages(conversationId).map(
+    (row) => JSON.parse(row.content) as ContentBlock[],
+  );
+}
+
+const PROVIDER_MAX_IMAGE_DIMENSION = 8000;
+
+describe("persistUnsendableImageDowngrades", () => {
+  beforeEach(() => {
+    resetTables();
+  });
+
+  /** A stored image past the provider pixel cap is swapped for a text note. */
+  test("replaces an oversized image block with a text note", async () => {
+    // GIVEN a message holding text plus an image past the pixel cap
+    const conv = createConversation();
+    const oversized = makePngBase64(PROVIDER_MAX_IMAGE_DIMENSION + 1000, 6000);
+    await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([
+        { type: "text", text: "look at this" },
+        imageBlock(oversized),
+      ]),
+      { skipIndexing: true },
+    );
+
+    // WHEN the downgrade is persisted
+    const rewritten = persistUnsendableImageDowngrades(conv.id);
+
+    // THEN one message is rewritten with no image block left
+    expect(rewritten).toBe(1);
+    const [content] = storedContent(conv.id);
+    expect(content.some((b) => b.type === "image")).toBe(false);
+    // AND the original text is preserved alongside the substituted note
+    expect(content.filter((b) => b.type === "text")).toHaveLength(2);
+  });
+
+  /** The JARVIS-1037 scenario: the rejected original must not resurface next
+   *  to a valid re-upload. */
+  test("re-uploaded smaller image survives while the rejected original is removed", async () => {
+    // GIVEN turn 1 contains an oversized upload that was rejected
+    const conv = createConversation();
+    await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([imageBlock(makePngBase64(12000, 9000))]),
+      { skipIndexing: true },
+    );
+    // AND turn 2 contains a properly sized re-upload
+    await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([imageBlock(makePngBase64(800, 600))]),
+      { skipIndexing: true },
+    );
+
+    // WHEN the downgrade is persisted
+    const rewritten = persistUnsendableImageDowngrades(conv.id);
+
+    // THEN only the rejected original is removed
+    expect(rewritten).toBe(1);
+    const [first, second] = storedContent(conv.id);
+    expect(first.some((b) => b.type === "image")).toBe(false);
+    // AND the valid re-upload is left intact
+    expect(second.some((b) => b.type === "image")).toBe(true);
+  });
+
+  /** Sendable images are never disturbed by the recovery path. */
+  test("leaves a normally-sized image untouched", async () => {
+    // GIVEN a message with an image well within provider limits
+    const conv = createConversation();
+    await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([imageBlock(makePngBase64(1024, 768))]),
+      { skipIndexing: true },
+    );
+
+    // WHEN the downgrade is persisted
+    const rewritten = persistUnsendableImageDowngrades(conv.id);
+
+    // THEN nothing is rewritten and the image remains
+    expect(rewritten).toBe(0);
+    const [content] = storedContent(conv.id);
+    expect(content.some((b) => b.type === "image")).toBe(true);
+  });
+
+  /** The byte-size cap is enforced independently of pixel dimensions. */
+  test("removes an image whose payload exceeds the per-image byte cap", async () => {
+    // GIVEN an image within the pixel cap but with a payload over 5 MB
+    const conv = createConversation();
+    const huge = makePngBase64(1000, 1000, 6 * 1024 * 1024);
+    await addMessage(conv.id, "user", JSON.stringify([imageBlock(huge)]), {
+      skipIndexing: true,
+    });
+
+    // WHEN the downgrade is persisted
+    const rewritten = persistUnsendableImageDowngrades(conv.id);
+
+    // THEN the oversized-payload image is removed
+    expect(rewritten).toBe(1);
+    const [content] = storedContent(conv.id);
+    expect(content.some((b) => b.type === "image")).toBe(false);
+  });
+
+  /** Re-running after a rewrite is a safe no-op (no image blocks remain). */
+  test("is idempotent — a second run rewrites nothing", async () => {
+    // GIVEN a conversation whose oversized image has already been downgraded
+    const conv = createConversation();
+    await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([imageBlock(makePngBase64(10000, 10000))]),
+      { skipIndexing: true },
+    );
+    expect(persistUnsendableImageDowngrades(conv.id)).toBe(1);
+
+    // WHEN the downgrade runs a second time
+    const secondRun = persistUnsendableImageDowngrades(conv.id);
+
+    // THEN nothing further is rewritten
+    expect(secondRun).toBe(0);
+  });
+});

@@ -218,6 +218,10 @@ import type { MemoryRecalled } from "./message-types/memory.js";
 import type { ConfirmationStateChanged } from "./message-types/messages.js";
 import { conversationMetadataSyncTag } from "./message-types/sync.js";
 import { parseActualTokensFromError } from "./parse-actual-tokens-from-error.js";
+import {
+  persistUnsendableImageDowngrades,
+  UNSENDABLE_IMAGE_NOTE,
+} from "./persist-unsendable-image.js";
 import type { TraceEmitter } from "./trace-emitter.js";
 import type { TrustContext } from "./trust-context.js";
 import { stripHistoricalWebSearchResults } from "./web-search-history.js";
@@ -2324,15 +2328,21 @@ export async function runAgentLoopImpl(
             }
             // Can't resize — replace with a text annotation so the model
             // can explain the situation rather than silently dropping context
-            return [
-              {
-                type: "text" as const,
-                text: "(An image was attached but could not be sent — its dimensions exceed the provider limit and automatic resize was not available. Please resize the image and try again.)",
-              },
-            ];
+            return [{ type: "text" as const, text: UNSENDABLE_IMAGE_NOTE }];
           }),
         };
       });
+      // The transform above is transient — it only touches ctx.messages for
+      // this retry. Persist the downgrade for images that can never be sent
+      // so the rejected upload doesn't rehydrate from the DB and resurface on
+      // every later turn (JARVIS-1037).
+      const rewritten = persistUnsendableImageDowngrades(ctx.conversationId);
+      if (rewritten > 0) {
+        rlog.info(
+          { phase: "image-recovery", rewritten },
+          "Persisted unsendable-image downgrades so they cannot resurface",
+        );
+      }
       runMessages = ctx.messages;
       updatedHistory = await runAgentLoop(runMessages);
       if (state.imageTooLargeDetected) {
