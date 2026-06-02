@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { isPlaceholderSentinelText } from "../../anthropic/client.js";
+import { isPlaceholderSentinelText } from "../../placeholder-sentinels.js";
 import {
   EMPTY_ASSISTANT_TURN_PLACEHOLDER,
   OpenAIChatCompletionsProvider,
@@ -350,7 +350,7 @@ describe("OpenAIChatCompletionsProvider reasoning parsing", () => {
     expect(assistantMsg.reasoning_content).toBeUndefined();
   });
 
-  test("backfills placeholder content for a reasoning-only assistant turn", async () => {
+  test("backfills placeholder content for a reasoning-only assistant turn when enabled", async () => {
     const { provider, requests } = stubProvider(
       [
         {
@@ -358,7 +358,10 @@ describe("OpenAIChatCompletionsProvider reasoning parsing", () => {
           usage: { prompt_tokens: 2, completion_tokens: 1 },
         },
       ],
-      { assistantReasoningField: "reasoning" },
+      {
+        assistantReasoningField: "reasoning",
+        backfillEmptyAssistantContent: true,
+      },
     );
 
     await provider.sendMessage([
@@ -395,6 +398,40 @@ describe("OpenAIChatCompletionsProvider reasoning parsing", () => {
       true,
     );
     expect(EMPTY_ASSISTANT_TURN_PLACEHOLDER).not.toContain("\x00");
+  });
+
+  test("leaves reasoning-only assistant content null when backfill is disabled", async () => {
+    const { provider, requests } = stubProvider(
+      [
+        {
+          choices: [{ delta: { content: "ok" }, finish_reason: "stop" }],
+          usage: { prompt_tokens: 2, completion_tokens: 1 },
+        },
+      ],
+      { assistantReasoningField: "reasoning_content" },
+    );
+
+    await provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "question" }] },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "thinking",
+            thinking: "truncated chain of thought",
+            signature: "",
+          },
+        ],
+      },
+    ]);
+
+    const params = requests[0] as {
+      messages: Array<{ role: string; content: string | null }>;
+    };
+    const assistantMsg = params.messages.find((m) => m.role === "assistant")!;
+    // Backfill defaults off, so providers that tolerate null assistant content
+    // (e.g. OpenAI proper) are unaffected by the OpenRouter-specific guard.
+    expect(assistantMsg.content).toBeNull();
   });
 
   test("does not backfill content when tool calls are present", async () => {
