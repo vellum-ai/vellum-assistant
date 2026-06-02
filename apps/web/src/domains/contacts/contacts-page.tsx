@@ -210,7 +210,7 @@ export function ContactsPage({
         throwOnError: false,
       });
       if (!response || response.status === 404) {
-        return { channels: DEFAULT_CHANNELS } as ChannelsAvailableGetResponse;
+        return { channels: DEFAULT_CHANNELS } satisfies ChannelsAvailableGetResponse;
       }
       if (!response.ok) {
         throw error ?? new Error("Failed to fetch channel availability");
