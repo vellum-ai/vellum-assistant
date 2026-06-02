@@ -67,6 +67,7 @@ function renderMessage(
   props: {
     assistantDisplayName?: string | null;
     onInspectMessage?: (messageId: string) => void;
+    isStreaming?: boolean;
   } = {},
 ): string {
   return renderToStaticMarkup(
@@ -78,6 +79,7 @@ function renderMessage(
       expandedThinkingKeys={new Map()}
       onSurfaceAction={noop}
       onInspectMessage={props.onInspectMessage}
+      isStreaming={props.isStreaming}
     />,
   );
 }
@@ -884,22 +886,44 @@ describe("TranscriptMessageBody", () => {
     expect(html).not.toContain("Thinking…");
   });
 
-  test("labels trailing reasoning as 'Thinking…' while still streaming", () => {
+  test("labels trailing reasoning as 'Thinking…' while the row is live", () => {
     // GIVEN an assistant row mid-reasoning: a thinking block is the last
     // content entry with no text or tool output after it yet
-    // WHEN it is rendered
-    const html = renderMessage({
-      id: "m-think-live",
-      role: "assistant",
-      textSegments: [],
-      thinkingSegments: ["reasoning in progress"],
-      contentOrder: [{ type: "thinking", id: "0" }],
-      timestamp: 1_000,
-    });
+    // WHEN it is rendered as the in-flight turn (isStreaming)
+    const html = renderMessage(
+      {
+        id: "m-think-live",
+        role: "assistant",
+        textSegments: [],
+        thinkingSegments: ["reasoning in progress"],
+        contentOrder: [{ type: "thinking", id: "0" }],
+        timestamp: 1_000,
+      },
+      { isStreaming: true },
+    );
 
     // THEN the block reads as still-streaming
     expect(html).toContain("Thinking…");
     expect(html).not.toContain("Thought process");
+  });
+
+  test("labels trailing reasoning of a completed turn as 'Thought process'", () => {
+    // GIVEN a persisted/completed assistant turn that ends in reasoning with
+    // nothing after it (e.g. a reasoning-only or truncated turn restored from
+    // history, or after message_complete / cancellation)
+    // WHEN it is rendered as a settled row (not streaming)
+    const html = renderMessage({
+      id: "m-think-done",
+      role: "assistant",
+      textSegments: [],
+      thinkingSegments: ["reasoning that finished"],
+      contentOrder: [{ type: "thinking", id: "0" }],
+      timestamp: 1_000,
+    });
+
+    // THEN the trailing block reads as finished, not perpetually streaming
+    expect(html).toContain("Thought process");
+    expect(html).not.toContain("Thinking…");
   });
 
   test("renders a thinking block interleaved with tool calls", () => {

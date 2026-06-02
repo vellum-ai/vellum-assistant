@@ -740,7 +740,7 @@ export function TranscriptMessageBody({
                 <ThinkingBlock
                   key={`thinking-${gi}`}
                   content={thinkingContent}
-                  isStreaming={gi === groups.length - 1}
+                  isStreaming={isStreaming && gi === groups.length - 1}
                   expansionKey={`${message.id}-th${group.ids[0] ?? "0"}`}
                   expandedThinkingKeys={expandedThinkingKeys}
                 />
@@ -865,8 +865,9 @@ export function TranscriptMessageBody({
     // Buffer consecutive `thinking` ids so a run of reasoning renders as a
     // single block (matching the interleaved path and macOS grouping). The
     // buffer is flushed before any non-thinking entry and once more after the
-    // loop; a flush at the loop's end is the trailing block, so it reads as
-    // still-streaming until text or a tool call follows it.
+    // loop. A trailing block reads as still-streaming only while the row is
+    // actually live; a completed turn that ends in reasoning (history reload,
+    // message_complete, cancellation) renders as a finished "Thought process".
     let pendingThinkingIds: string[] = [];
     const flushThinking = (isStreaming: boolean) => {
       if (pendingThinkingIds.length === 0) {
@@ -930,8 +931,8 @@ export function TranscriptMessageBody({
         }
       }
     }
-    // Trailing reasoning with nothing after it reads as still-streaming.
-    flushThinking(true);
+    // Trailing reasoning reads as still-streaming only while the row is live.
+    flushThinking(isStreaming);
     if (contentEntries.length === 0 && messageText) {
       contentEntries.push({
         type: "text",
