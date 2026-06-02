@@ -586,14 +586,11 @@ export type TitleGenerateResult = TitleResult;
  * mislead it into resending text the user already saw.
  */
 export interface EmptyResponseArgs {
-  /** Content blocks produced by the assistant on this turn. */
-  readonly responseContent: ReadonlyArray<ContentBlock>;
   /**
-   * Number of `tool_use` blocks in `responseContent`. Mirrors the loop's own
-   * count so middleware doesn't have to recompute it. When > 0 the turn is
-   * not empty — the model issued tool calls.
+   * Content blocks produced by the assistant on this turn. The decision only
+   * runs at the stop boundary, so these never contain `tool_use` blocks.
    */
-  readonly toolUseBlocksLength: number;
+  readonly responseContent: ReadonlyArray<ContentBlock>;
   /** 0-based index of the tool-use turn being evaluated. */
   readonly toolUseTurns: number;
   /** How many empty-response nudges the loop has already issued this run. */
