@@ -329,22 +329,45 @@ const visibleContacts = contacts.filter((c) => c.id !== deletingId);
 Rollback is automatic — when the mutation fails, `isPending` becomes
 `false` and the derivation stops.
 
-**"Via the Cache"** — write to the query cache in `onMutate`, snapshot
-for rollback in `onError`, invalidate in `onSettled`. Use this when
-optimistic state must be visible to **multiple unrelated components**
-that read from the same query cache.
+**"Via the Cache"** — write to the query cache in `onMutate`, roll back
+in `onError`, invalidate in `onSettled`. Use this when optimistic state
+must be visible to **multiple unrelated components** that read from the
+same query cache.
+
+**Always `cancelQueries` first** — an in-flight refetch (e.g. from
+another mutation's `onSettled` invalidation or `refetchOnWindowFocus`)
+can resolve after your optimistic write and overwrite it with stale
+server data. `cancelQueries` aborts those requests so they can't
+interfere.
+
+**Roll back only the changed field, not the full snapshot** — if
+concurrent mutations are possible (e.g. toggling profile A while
+profile B is being edited), restoring a full-config snapshot from
+`onMutate` would silently revert the other mutation's successful
+optimistic update. Instead, capture only the specific field(s) you're
+about to change, and in `onError` use an updater function to patch
+only those fields back. This keeps the rest of the cache intact.
 
 ```ts
 const mutation = useMutation({
-  mutationFn: (id: string) => archiveConversation(id),
-  onMutate: async (id) => {
+  mutationFn: (vars: { id: string; isActive: boolean }) =>
+    patchItem(vars),
+  onMutate: async (vars) => {
     await queryClient.cancelQueries({ queryKey });
-    const previous = queryClient.getQueryData(queryKey);
-    queryClient.setQueryData(queryKey, optimisticUpdate);
-    return { previous };
+    // Snapshot only the field we're changing
+    const previousIsActive = queryClient.getQueryData<Item>(queryKey)?.isActive;
+    // Optimistic update via updater function (always reads latest cache)
+    queryClient.setQueryData<Item>(queryKey, (old) =>
+      old ? { ...old, isActive: vars.isActive } : old,
+    );
+    return { previousIsActive };
   },
   onError: (_err, _vars, ctx) => {
-    queryClient.setQueryData(queryKey, ctx?.previous);
+    // Roll back only the changed field — concurrent updates to other
+    // fields stay intact
+    queryClient.setQueryData<Item>(queryKey, (old) =>
+      old ? { ...old, isActive: ctx?.previousIsActive } : old,
+    );
   },
   onSettled: () => queryClient.invalidateQueries({ queryKey }),
 });
