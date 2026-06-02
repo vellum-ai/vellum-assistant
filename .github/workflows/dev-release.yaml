@@ -1220,6 +1220,12 @@ jobs:
       contents: read
       actions: read
     steps:
+      - name: Checkout config
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: .github/config/github_slack_mapping.yaml
+          sparse-checkout-cone-mode: false
+
       - name: Build Slack payload
         id: build
         env:
