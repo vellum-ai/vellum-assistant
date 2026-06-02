@@ -83,6 +83,14 @@ export function useDaemonConfigQuery() {
     [profiles, profileOrder],
   );
 
+  const resolveAssistantId = useCallback(async (): Promise<string> => {
+    if (assistantId) return assistantId;
+    const list = await queryClient.fetchQuery(assistantsListOptions());
+    const resolved = list.results?.[0]?.id;
+    if (!resolved) throw new Error("No assistant found");
+    return resolved;
+  }, [assistantId, queryClient]);
+
   const invalidateConfig = useCallback(() => {
     void queryClient.invalidateQueries({
       queryKey: assistantDaemonConfigQueryKey(assistantId),
@@ -99,6 +107,7 @@ export function useDaemonConfigQuery() {
     orderedProfiles,
     activeProfile,
     callSites,
+    resolveAssistantId,
     invalidateConfig,
   };
 }

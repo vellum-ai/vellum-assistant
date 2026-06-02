@@ -26,8 +26,8 @@ import { modelImagegenPut } from "@/generated/daemon/sdk.gen";
 
 export function ImageGenerationCard() {
   const {
-    assistantId,
     config: daemonConfig,
+    resolveAssistantId,
     invalidateConfig,
   } = useDaemonConfigQuery();
   const configMutation = useDaemonConfigMutation();
@@ -65,20 +65,19 @@ export function ImageGenerationCard() {
         captureError(error, { context: "patch_daemon_config" });
         throw error;
       });
-      if (assistantId) {
-        try {
-          await modelImagegenPut({
-            path: { assistant_id: assistantId },
-            body: { modelId: imageGenModel },
-            throwOnError: true,
-          });
-        } catch (error) {
-          toast.error("Failed to update image generation model. Please try again.");
-          captureError(error, { context: "set_image_gen_model" });
-          throw error;
-        } finally {
-          invalidateConfig();
-        }
+      const resolvedId = await resolveAssistantId();
+      try {
+        await modelImagegenPut({
+          path: { assistant_id: resolvedId },
+          body: { modelId: imageGenModel },
+          throwOnError: true,
+        });
+      } catch (error) {
+        toast.error("Failed to update image generation model. Please try again.");
+        captureError(error, { context: "set_image_gen_model" });
+        throw error;
+      } finally {
+        invalidateConfig();
       }
     } catch {
       setSaving(false);
@@ -98,12 +97,12 @@ export function ImageGenerationCard() {
       toast.error("Saved, but local preferences could not be written.");
     }
   }, [
-    assistantId,
     imageGenApiKey,
     imageGenMode,
     imageGenModel,
     configMutation,
     provisionProviderKey,
+    resolveAssistantId,
     invalidateConfig,
   ]);
 
