@@ -168,9 +168,11 @@ function MessageCopyButton({ text }: { text: string }) {
 
 function ToolCallBlock({ entry }: { entry: ChatEntry }) {
   const [expanded, setExpanded] = useState(false);
-  const toolName = (entry.meta?.toolName as string) ?? "tool";
-  const input = entry.meta?.input as Record<string, unknown> | undefined;
-  const result = (entry.meta?.result as string) ?? undefined;
+  const toolName = typeof entry.meta?.toolName === "string" ? entry.meta.toolName : "tool";
+  const input = entry.meta?.input && typeof entry.meta.input === "object" && !Array.isArray(entry.meta.input)
+    ? (entry.meta.input as Record<string, unknown>)
+    : undefined;
+  const result = typeof entry.meta?.result === "string" ? entry.meta.result : undefined;
   const isError = entry.meta?.isError === true;
   const isRunning = entry.meta?.status === "running";
 
@@ -300,9 +302,11 @@ function ApprovalBlock({
   onRespond: (response: string) => void;
   disabled: boolean;
 }) {
-  const toolName = (entry.meta?.toolName as string) ?? "tool";
-  const description = (entry.meta?.description as string) ?? "";
-  const input = entry.meta?.input as Record<string, unknown> | undefined;
+  const toolName = typeof entry.meta?.toolName === "string" ? entry.meta.toolName : "tool";
+  const description = typeof entry.meta?.description === "string" ? entry.meta.description : "";
+  const input = entry.meta?.input && typeof entry.meta.input === "object" && !Array.isArray(entry.meta.input)
+    ? (entry.meta.input as Record<string, unknown>)
+    : undefined;
   const [showDetails, setShowDetails] = useState(false);
 
   const hasDetails = !!toolName || !!description || !!input;
@@ -397,7 +401,7 @@ function BackupPromptBlock({
   onRespond: (response: string) => void;
   disabled: boolean;
 }) {
-  const toolName = (entry.meta?.toolName as string) ?? "tool";
+  const toolName = typeof entry.meta?.toolName === "string" ? entry.meta.toolName : "tool";
 
   return (
     <div className="rounded-lg border border-[var(--border-base)] bg-[var(--surface-lift)] p-4">
@@ -726,7 +730,7 @@ export function DoctorPanel({
               const idx = prev.findIndex(
                 (e) =>
                   e.kind === "tool_call" &&
-                  (e.meta?.id as string) === event.toolCallId,
+                  typeof e.meta?.id === "string" && e.meta.id === event.toolCallId,
               );
               if (idx === -1) return prev;
               const updated = [...prev];
@@ -945,9 +949,11 @@ export function DoctorPanel({
           },
         );
         if (!resp.ok) {
-          const body = await resp.json().catch(() => ({}));
+          const body: unknown = await resp.json().catch(() => ({}));
           const detail =
-            (body as Record<string, unknown>).detail ?? resp.statusText;
+            body && typeof body === "object" && "detail" in body && typeof body.detail === "string"
+              ? body.detail
+              : resp.statusText;
           appendEntry({
             kind: "error",
             content: `Failed to send message: ${detail}`,

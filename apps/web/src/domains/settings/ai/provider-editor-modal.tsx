@@ -8,6 +8,17 @@ import { Typography } from "@vellum/design-library/components/typography";
 import { ChevronRight, Loader2 } from "lucide-react";
 
 import {
+  inferenceChatgptsubscriptionAuthExchangePost,
+  inferenceChatgptsubscriptionAuthPost,
+  inferenceProviderconnectionsByNamePatch,
+  inferenceProviderconnectionsGet,
+  inferenceProviderconnectionsPost,
+  secretsGet,
+  secretsPost,
+  secretsReadPost,
+} from "@/generated/daemon/sdk.gen";
+
+import {
   type Auth,
   type ConnectionProvider,
   type CreateConnectionInput,
@@ -15,14 +26,7 @@ import {
   PROVIDER_DISPLAY_NAMES,
   type ProviderConnection,
   type UpdateConnectionInput,
-  createConnection,
-  exchangeChatgptAuthCode,
-  listConnections,
-  listCredentials,
-  readSecret,
-  startChatgptSubscriptionAuth,
-  updateConnection,
-  writeSecret,
+  parseCredentialEntries,
 } from "@/domains/settings/ai/provider-connections-client";
 import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
 import { toKebabCase } from "@/domains/settings/ai/slugify";
@@ -179,8 +183,11 @@ export function ProviderEditorContent({
     setChatgptOAuthError(null);
     const popup = window.open("about:blank", "_blank");
     try {
-      const { authorize_url, state } =
-        await startChatgptSubscriptionAuth(assistantId);
+      const { data: { authorize_url, state } } =
+        await inferenceChatgptsubscriptionAuthPost({
+          path: { assistant_id: assistantId },
+          throwOnError: true,
+        });
       chatgptStateRef.current = state;
       if (popup) {
         popup.opener = null;
@@ -222,9 +229,18 @@ export function ProviderEditorContent({
     }
     setChatgptOAuthState("exchanging");
     try {
-      await exchangeChatgptAuthCode(assistantId, code, state);
+      await inferenceChatgptsubscriptionAuthExchangePost({
+        path: { assistant_id: assistantId },
+        body: { code, state },
+        throwOnError: true,
+      });
       setChatgptOAuthState("completed");
-      const conns = await listConnections(assistantId, "openai");
+      const { data } = await inferenceProviderconnectionsGet({
+        path: { assistant_id: assistantId },
+        query: { provider: "openai" },
+        throwOnError: true,
+      });
+      const conns = data.connections;
       const chatgptConn = conns.find(
         (c) =>
           c.name === "chatgpt-subscription" || c.name === "openai-chatgpt",
@@ -241,6 +257,7 @@ export function ProviderEditorContent({
           updatedAt: Date.now(),
           baseUrl: null,
           models: null,
+          isManaged: false,
         });
       }
     } catch {
@@ -260,11 +277,11 @@ export function ProviderEditorContent({
       const field = parts.slice(2).join("/");
       setIsLoadingCredential(true);
       try {
-        const result = await readSecret(
-          assistantId,
-          "credential",
-          `${service}:${field}`,
-        );
+        const { data: result } = await secretsReadPost({
+          path: { assistant_id: assistantId },
+          body: { type: "credential", name: `${service}:${field}` },
+          throwOnError: true,
+        });
         setHasStoredCredential(result.found);
       } catch {
         setHasStoredCredential(false);
@@ -276,8 +293,13 @@ export function ProviderEditorContent({
   );
 
   const loadAvailableCredentials = useCallback(async () => {
-    const creds = await listCredentials(assistantId);
-    setAvailableCredentials(creds);
+    const { data } = await secretsGet({
+      path: { assistant_id: assistantId },
+      throwOnError: true,
+    });
+    setAvailableCredentials(
+      parseCredentialEntries(data.secrets ?? data.accounts ?? []),
+    );
   }, [assistantId]);
 
   // Reset form when connection prop changes (e.g. switching between edit
@@ -413,14 +435,25 @@ export function ProviderEditorContent({
             if (parts.length >= 3 && parts[0] === "credential") {
               const service = parts[1];
               const field = parts.slice(2).join("/");
-              await writeSecret(
-                assistantId,
-                "credential",
-                `${service}:${field}`,
-                trimmedKey,
-              );
+              await secretsPost({
+                path: { assistant_id: assistantId },
+                body: {
+                  type: "credential",
+                  name: `${service}:${field}`,
+                  value: trimmedKey,
+                },
+                throwOnError: true,
+              });
             } else {
-              await writeSecret(assistantId, "api_key", provider, trimmedKey);
+              await secretsPost({
+                path: { assistant_id: assistantId },
+                body: {
+                  type: "api_key",
+                  name: provider,
+                  value: trimmedKey,
+                },
+                throwOnError: true,
+              });
             }
             setHasStoredCredential(true);
           } catch {
@@ -478,7 +511,12 @@ export function ProviderEditorContent({
               : null,
           }),
         };
-        saved = await createConnection(assistantId, input);
+        const { data: created } = await inferenceProviderconnectionsPost({
+          path: { assistant_id: assistantId },
+          body: input,
+          throwOnError: true,
+        });
+        saved = created;
       } else {
         const input: UpdateConnectionInput = {
           auth,
@@ -493,11 +531,19 @@ export function ProviderEditorContent({
               : null,
           }),
         };
-        saved = await updateConnection(assistantId, connection!.name, input);
+        const { data: updated } = await inferenceProviderconnectionsByNamePatch({
+          path: { assistant_id: assistantId, name: connection!.name },
+          body: input,
+          throwOnError: true,
+        });
+        saved = updated;
       }
       onSave(saved);
     } catch (err) {
-      const httpStatus = (err as { status?: number })?.status;
+      const httpStatus =
+        err && typeof err === "object" && "status" in err
+          ? (err as { status: number }).status
+          : undefined;
       if (httpStatus === 409) {
         setError(`A connection named "${name.trim()}" already exists.`);
       } else if (httpStatus === 404) {

@@ -7,10 +7,13 @@ import { Tag } from "@vellum/design-library/components/tag";
 import { Typography } from "@vellum/design-library/components/typography";
 
 import {
+  inferenceProviderconnectionsByNameDelete,
+  inferenceProviderconnectionsGet,
+} from "@/generated/daemon/sdk.gen";
+
+import {
   PROVIDER_DISPLAY_NAMES,
   type ProviderConnection,
-  deleteConnection,
-  listConnections,
 } from "@/domains/settings/ai/provider-connections-client";
 import { ProviderEditorContent } from "@/domains/settings/ai/provider-editor-modal";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
@@ -30,7 +33,7 @@ function formatAuthSummary(auth: ProviderConnection["auth"]): string {
     case "none":
       return "None (local)";
     default:
-      return (auth as { type: string }).type;
+      return auth.type;
   }
 }
 
@@ -73,16 +76,19 @@ export function ManageProvidersModal({
     const version = ++listVersionRef.current;
     setLoading(true);
     setLoadError(null);
-    void listConnections(assistantId)
-      .then((conns) => {
-        if (listVersionRef.current !== version) return; // stale response
+    void inferenceProviderconnectionsGet({
+      path: { assistant_id: assistantId },
+      throwOnError: true,
+    })
+      .then(({ data }) => {
+        if (listVersionRef.current !== version) return;
         setConnections(
-          filterFlaggedConnections(conns, openAICompatibleEndpoints),
+          filterFlaggedConnections(data.connections, openAICompatibleEndpoints),
         );
         setLoading(false);
       })
       .catch(() => {
-        if (listVersionRef.current !== version) return; // stale response
+        if (listVersionRef.current !== version) return;
         setLoadError("Failed to load connections. Please try again.");
         setLoading(false);
       });
@@ -223,10 +229,16 @@ function ManageProvidersModalInner({
       return next;
     });
     try {
-      await deleteConnection(assistantId, name);
+      await inferenceProviderconnectionsByNameDelete({
+        path: { assistant_id: assistantId, name },
+        throwOnError: true,
+      });
       onConnectionDeleted(name);
     } catch (err) {
-      const status = (err as { status?: number })?.status;
+      const status =
+        err && typeof err === "object" && "status" in err
+          ? (err as { status: number }).status
+          : undefined;
       if (status === 409) {
         setDeleteErrors((prev) => ({
           ...prev,

@@ -16,10 +16,9 @@ import {
   AUTO_PROFILE_NAME,
   gateAutoProfile,
 } from "@/domains/settings/ai/profile-pickers";
-import {
-  listConnections,
-  type ProviderConnection,
-} from "@/domains/settings/ai/provider-connections-client";
+import { inferenceProviderconnectionsGet } from "@/generated/daemon/sdk.gen";
+
+import { type ProviderConnection } from "@/domains/settings/ai/provider-connections-client";
 
 function filterFlaggedConnections(
   connections: ProviderConnection[],
@@ -110,7 +109,7 @@ export function ManageProfilesModal({
   // from another tab) are picked up before the user opens another profile.
   //
   // `undefined` vs `[]` is meaningful:
-  // - `undefined` → `listConnections` has not yet resolved (pre-load window).
+  // - `undefined` → connections query has not yet resolved (pre-load window).
   //   The editor's provider picker falls back to the full catalog so the
   //   trigger isn't empty during that gap.
   // - `[]` → fetch returned zero connections. Fresh workspace with nothing
@@ -127,10 +126,16 @@ export function ManageProfilesModal({
     let cancelled = false;
     (async () => {
       try {
-        const fresh = await listConnections(assistantId);
+        const { data } = await inferenceProviderconnectionsGet({
+          path: { assistant_id: assistantId },
+          throwOnError: true,
+        });
         if (!cancelled) {
           setConnections(
-            filterFlaggedConnections(fresh, openAICompatibleEndpoints),
+            filterFlaggedConnections(
+              data.connections,
+              openAICompatibleEndpoints,
+            ),
           );
         }
       } catch {
