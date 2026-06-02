@@ -88,6 +88,12 @@ afterAll(() => {
 // Import after the env var is set so getWorkspaceDir() resolves to the tmpdir.
 const { recallTool, rememberTool } = await import("./register.js");
 const { getConfig } = await import("../../config/loader.js");
+const { initializeDb } = await import("../../memory/db-init.js");
+
+// handleRemember now reads the conversation row to gate incognito writes, so
+// the DB schema must exist. The synthetic conversation IDs used here resolve
+// to `null` (incognito gate bypassed).
+initializeDb();
 
 function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
   return {

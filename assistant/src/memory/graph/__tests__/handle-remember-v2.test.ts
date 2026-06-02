@@ -58,6 +58,13 @@ afterAll(() => {
 // `getWorkspaceDir()` resolves to the tmpdir.
 const { handleRemember } = await import("../tool-handlers.js");
 const { applyNestedDefaults } = await import("../../../config/loader.js");
+const { createConversation } = await import("../../conversation-crud.js");
+const { initializeDb } = await import("../../db-init.js");
+
+// handleRemember now reads the conversation row to gate incognito writes, so
+// the DB schema must exist. Synthetic conversation IDs used by the routing
+// tests simply resolve to `null` (incognito gate bypassed).
+initializeDb();
 
 const CONFIG = applyNestedDefaults({});
 const CONFIG_V2_OFF = {
@@ -206,5 +213,43 @@ describe("handleRemember — memory.v2.enabled off (v1 PKB path)", () => {
     for (const call of enqueueCalls) {
       expect(call.pkbRoot).toBe(pkbDir);
     }
+  });
+});
+
+describe("handleRemember — incognito conversations", () => {
+  test("returns failure and writes nothing for an incognito conversation", () => {
+    const { id } = createConversation({ incognito: true });
+
+    const result = handleRemember(
+      { content: "Should never be remembered" },
+      id,
+      "default",
+      CONFIG,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.message).toContain("incognito");
+    // No buffer write in either the v2 or v1 tree.
+    expect(existsSync(join(tmpWorkspace, "memory", "buffer.md"))).toBe(false);
+    expect(existsSync(join(tmpWorkspace, "pkb", "buffer.md"))).toBe(false);
+    expect(enqueueCalls).toEqual([]);
+  });
+
+  test("a normal conversation still writes", () => {
+    const { id } = createConversation({ incognito: false });
+
+    const result = handleRemember(
+      { content: "Normal conversations remember fine" },
+      id,
+      "default",
+      CONFIG,
+    );
+
+    expect(result.success).toBe(true);
+    const buffer = readFileSync(
+      join(tmpWorkspace, "memory", "buffer.md"),
+      "utf-8",
+    );
+    expect(buffer).toContain("Normal conversations remember fine");
   });
 });
