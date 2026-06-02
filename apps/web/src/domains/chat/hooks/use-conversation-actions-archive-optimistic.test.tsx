@@ -7,15 +7,22 @@
  * TanStack Query cache, which meant the archived row stayed visible in
  * the sidebar for the full duration of the round trip. Unarchive had the
  * inverse problem — patched only after the API resolved. Both paths now
- * patch the cache up front and roll back on failure.
+ * use the TanStack-recommended `useMutation` lifecycle with optimistic
+ * updates in `onMutate`, snapshot-based rollback in `onError`, and
+ * full cache invalidation in `onSettled`.
  *
- * The hook fires the cache patch synchronously, before the first `await`,
- * so each test:
- *   1. Wraps the action call in `act(() => { promise = handle(...) })`
- *      without awaiting (so we can observe the in-flight state).
- *   2. Asserts the cache reflects the optimistic value.
- *   3. Resolves the deferred API mock and awaits the captured promise.
- *   4. Asserts the post-resolution state (or rollback, for error tests).
+ * Each `useMutation` follows:
+ *   `onMutate`  → `cancelQueries`, snapshot, optimistic `setQueryData`
+ *   `onError`   → restore snapshot
+ *   `onSettled` → `invalidateQueries` (refetch from server)
+ *
+ * The `mutate()` call is fire-and-forget; `onMutate` runs as a microtask
+ * before `mutationFn` starts. Tests use the `act()` / deferred pattern:
+ *   1. Wrap the handler call in `await act(async () => { handle(...) })`
+ *      to flush `onMutate` microtasks.
+ *   2. Assert the cache reflects the optimistic value.
+ *   3. Resolve the deferred API mock inside a second `act()`.
+ *   4. Assert the post-resolution state (or rollback, for error tests).
  */
 
 import {
@@ -26,7 +33,7 @@ import {
   mock,
   test,
 } from "bun:test";
-import { act, cleanup, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createElement, type ReactNode } from "react";
 
@@ -87,7 +94,7 @@ function makeConversation(overrides: Partial<Conversation> = {}): Conversation {
 
 function seedClient(conversations: Conversation[]): QueryClient {
   const client = new QueryClient({
-    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    defaultOptions: { queries: { retry: false } },
   });
   client.setQueryData(conversationsQueryKey(ASSISTANT_ID), conversations);
   return client;
@@ -100,7 +107,6 @@ function setupHook(opts: {
   const client = seedClient(opts.conversations);
   const switchCalls: string[] = [];
   const startNewCalls: number[] = [];
-  let refreshCalls = 0;
 
   const { result } = renderHook(
     () =>
@@ -108,9 +114,6 @@ function setupHook(opts: {
         assistantId: ASSISTANT_ID,
         activeConversationId: opts.activeConversationId ?? null,
         conversations: opts.conversations,
-        refreshConversations: async () => {
-          refreshCalls += 1;
-        },
         switchConversation: (conversationId: string) => {
           switchCalls.push(conversationId);
         },
@@ -130,7 +133,6 @@ function setupHook(opts: {
     client,
     switchCalls,
     startNewCalls,
-    getRefreshCalls: () => refreshCalls,
   };
 }
 
@@ -176,22 +178,17 @@ describe("handleArchiveConversation — optimistic update", () => {
     const d = deferred();
     archiveImpl = () => d.promise;
 
-    let archivePromise: Promise<void> | undefined;
-    act(() => {
-      archivePromise = result.current.handleArchiveConversation(conv);
+    await act(async () => {
+      result.current.handleArchiveConversation(conv);
     });
 
     // The optimistic patch is the whole point — assert it lands without
     // waiting for the network round trip to complete.
     expect(readArchived(client, "conv-1")).toEqual(expect.any(Number));
 
-    d.resolve({ data: undefined, response: { ok: true } });
-    await archivePromise;
-
-    // Post-resolution the row stays archived; in production this value
-    // gets replaced by the server-authoritative timestamp via
-    // `refreshConversations()`.
-    expect(readArchived(client, "conv-1")).toEqual(expect.any(Number));
+    await act(async () => {
+      d.resolve({ data: undefined, response: { ok: true } });
+    });
   });
 
   test("switches to the next foreground conversation before the API resolves", async () => {
@@ -205,16 +202,16 @@ describe("handleArchiveConversation — optimistic update", () => {
     const d = deferred();
     archiveImpl = () => d.promise;
 
-    let archivePromise: Promise<void> | undefined;
-    act(() => {
-      archivePromise = result.current.handleArchiveConversation(archived);
+    await act(async () => {
+      result.current.handleArchiveConversation(archived);
     });
 
     // The switch fires synchronously, before the network round trip.
     expect(switchCalls).toEqual(["next"]);
 
-    d.resolve({ data: undefined, response: { ok: true } });
-    await archivePromise;
+    await act(async () => {
+      d.resolve({ data: undefined, response: { ok: true } });
+    });
   });
 
   test("rolls back the cache patch when the API rejects", async () => {
@@ -226,46 +223,21 @@ describe("handleArchiveConversation — optimistic update", () => {
     };
 
     await act(async () => {
-      await result.current.handleArchiveConversation(conv);
+      result.current.handleArchiveConversation(conv);
     });
 
-    // Rollback restored `archivedAt` to its prior `undefined` value, so
-    // the row reappears in the active sidebar.
-    expect(readArchived(client, "conv-1")).toBeUndefined();
-  });
-
-  test("calls refreshConversations once on success", async () => {
-    const conv = makeConversation({ conversationId: "conv-1" });
-    const { result, getRefreshCalls } = setupHook({ conversations: [conv] });
-
-    await act(async () => {
-      await result.current.handleArchiveConversation(conv);
+    // onError restores the snapshot — `archivedAt` reverts to `undefined`
+    // so the row reappears in the active sidebar.
+    await waitFor(() => {
+      expect(readArchived(client, "conv-1")).toBeUndefined();
     });
-
-    expect(getRefreshCalls()).toBe(1);
   });
 
-  test("does not refresh when the archive API fails", async () => {
-    const conv = makeConversation({ conversationId: "conv-1" });
-    const { result, getRefreshCalls } = setupHook({ conversations: [conv] });
-
-    archiveImpl = async () => {
-      throw new Error("network failure");
-    };
-
-    await act(async () => {
-      await result.current.handleArchiveConversation(conv);
-    });
-
-    expect(getRefreshCalls()).toBe(0);
-  });
-
-  test("invalidates the archived list cache on success", async () => {
+  test("invalidates conversation caches on success", async () => {
     const conv = makeConversation({ conversationId: "conv-1" });
     const { result, client } = setupHook({ conversations: [conv] });
 
-    // Seed the archived cache with a stale entry — invalidation should
-    // mark it for refetch (`isInvalidated: true`) without removing it.
+    // Seed the archived cache — onSettled should invalidate it.
     client.setQueryData(archivedConversationsQueryKey(ASSISTANT_ID), []);
     const beforeState = client.getQueryState(
       archivedConversationsQueryKey(ASSISTANT_ID),
@@ -273,13 +245,39 @@ describe("handleArchiveConversation — optimistic update", () => {
     expect(beforeState?.isInvalidated).toBe(false);
 
     await act(async () => {
-      await result.current.handleArchiveConversation(conv);
+      result.current.handleArchiveConversation(conv);
     });
 
-    const afterState = client.getQueryState(
-      archivedConversationsQueryKey(ASSISTANT_ID),
-    );
-    expect(afterState?.isInvalidated).toBe(true);
+    await waitFor(() => {
+      const afterState = client.getQueryState(
+        archivedConversationsQueryKey(ASSISTANT_ID),
+      );
+      expect(afterState?.isInvalidated).toBe(true);
+    });
+  });
+
+  test("invalidates conversation caches even on error", async () => {
+    const conv = makeConversation({ conversationId: "conv-1" });
+    const { result, client } = setupHook({ conversations: [conv] });
+
+    client.setQueryData(archivedConversationsQueryKey(ASSISTANT_ID), []);
+
+    archiveImpl = async () => {
+      throw new Error("network failure");
+    };
+
+    await act(async () => {
+      result.current.handleArchiveConversation(conv);
+    });
+
+    // onSettled runs on both success and error — cache is invalidated so
+    // TanStack Query refetches the server-authoritative state.
+    await waitFor(() => {
+      const afterState = client.getQueryState(
+        archivedConversationsQueryKey(ASSISTANT_ID),
+      );
+      expect(afterState?.isInvalidated).toBe(true);
+    });
   });
 });
 
@@ -298,19 +296,19 @@ describe("handleUnarchiveConversation — optimistic update", () => {
     const d = deferred();
     unarchiveImpl = () => d.promise;
 
-    let unarchivePromise: Promise<void> | undefined;
-    act(() => {
-      unarchivePromise = result.current.handleUnarchiveConversation(conv);
+    await act(async () => {
+      result.current.handleUnarchiveConversation(conv);
     });
 
-    // The optimistic clear lands synchronously, before the API resolves —
+    // The optimistic clear lands before the API resolves —
     // mirroring the archive path.
-    expect(readArchived(client, "conv-1")).toBeUndefined();
+    await waitFor(() => {
+      expect(readArchived(client, "conv-1")).toBeUndefined();
+    });
 
-    d.resolve({ data: undefined, response: { ok: true } });
-    await unarchivePromise;
-
-    expect(readArchived(client, "conv-1")).toBeUndefined();
+    await act(async () => {
+      d.resolve({ data: undefined, response: { ok: true } });
+    });
   });
 
   test("rolls back to the prior archivedAt when the API rejects", async () => {
@@ -325,31 +323,16 @@ describe("handleUnarchiveConversation — optimistic update", () => {
     };
 
     await act(async () => {
-      await result.current.handleUnarchiveConversation(conv);
+      result.current.handleUnarchiveConversation(conv);
     });
 
     // The original timestamp is restored — the row re-archives in the UI.
-    expect(readArchived(client, "conv-1")).toBe(1234);
+    await waitFor(() => {
+      expect(readArchived(client, "conv-1")).toBe(1234);
+    });
   });
 
-  test("refreshes the active list on success", async () => {
-    const conv = makeConversation({
-      conversationId: "conv-1",
-      archivedAt: 1234,
-    });
-    const { result, getRefreshCalls } = setupHook({ conversations: [conv] });
-
-    await act(async () => {
-      await result.current.handleUnarchiveConversation(conv);
-    });
-
-    // The active list refresh is necessary because archived rows aren't
-    // in the active cache anymore — without it the unarchived row would
-    // be missing from the sidebar until the next manual refetch.
-    expect(getRefreshCalls()).toBe(1);
-  });
-
-  test("invalidates the archived list cache on success", async () => {
+  test("invalidates conversation caches on success", async () => {
     const conv = makeConversation({
       conversationId: "conv-1",
       archivedAt: 1234,
@@ -363,30 +346,39 @@ describe("handleUnarchiveConversation — optimistic update", () => {
     expect(beforeState?.isInvalidated).toBe(false);
 
     await act(async () => {
-      await result.current.handleUnarchiveConversation(conv);
+      result.current.handleUnarchiveConversation(conv);
     });
 
-    const afterState = client.getQueryState(
-      archivedConversationsQueryKey(ASSISTANT_ID),
-    );
-    expect(afterState?.isInvalidated).toBe(true);
+    await waitFor(() => {
+      const afterState = client.getQueryState(
+        archivedConversationsQueryKey(ASSISTANT_ID),
+      );
+      expect(afterState?.isInvalidated).toBe(true);
+    });
   });
 
-  test("does not refresh when the unarchive API fails", async () => {
+  test("invalidates conversation caches even on error", async () => {
     const conv = makeConversation({
       conversationId: "conv-1",
       archivedAt: 1234,
     });
-    const { result, getRefreshCalls } = setupHook({ conversations: [conv] });
+    const { result, client } = setupHook({ conversations: [conv] });
+
+    client.setQueryData(archivedConversationsQueryKey(ASSISTANT_ID), [conv]);
 
     unarchiveImpl = async () => {
       throw new Error("network failure");
     };
 
     await act(async () => {
-      await result.current.handleUnarchiveConversation(conv);
+      result.current.handleUnarchiveConversation(conv);
     });
 
-    expect(getRefreshCalls()).toBe(0);
+    await waitFor(() => {
+      const afterState = client.getQueryState(
+        archivedConversationsQueryKey(ASSISTANT_ID),
+      );
+      expect(afterState?.isInvalidated).toBe(true);
+    });
   });
 });

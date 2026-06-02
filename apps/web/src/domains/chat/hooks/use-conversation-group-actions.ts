@@ -37,10 +37,13 @@ import type { ConversationGroup } from "@/types/conversation-types";
 /**
  * Folder/group CRUD actions: create, rename, and delete conversation groups.
  *
- * Each action applies an optimistic update against the TanStack Query
- * groups cache before hitting the API. On failure, create/rename roll back
- * optimistically; delete invalidates both the chat-context and groups
- * caches so subscribers refetch for accuracy.
+ * Each action uses the TanStack-recommended optimistic update lifecycle:
+ *   onMutate  → cancel queries, snapshot, apply optimistic update
+ *   onError   → restore from snapshot
+ *   onSettled → invalidate so TanStack refetches from server
+ *
+ * References:
+ * - https://tanstack.com/query/latest/docs/framework/react/guides/optimistic-updates
  *
  * @returns Stable callbacks: `handleCreateGroup`, `handleRenameGroup`,
  *   `handleDeleteGroup`.
@@ -88,6 +91,9 @@ export function useConversationGroupActions({
     const trimmed = name.trim();
     if (!trimmed) return;
 
+    const groupsKey = conversationGroupsQueryKey(assistantId);
+    await queryClient.cancelQueries({ queryKey: groupsKey });
+
     const optimisticId = `optimistic-${Date.now()}`;
     appendGroup(queryClient, assistantId, { id: optimisticId, name: trimmed, sortPosition: 0, isSystemGroup: false });
 
@@ -99,6 +105,8 @@ export function useConversationGroupActions({
       replaceOptimisticGroup(queryClient, assistantId, optimisticId, created);
     } catch {
       removeGroup(queryClient, assistantId, optimisticId);
+    } finally {
+      void queryClient.invalidateQueries({ queryKey: groupsKey });
     }
   }, [assistantId, queryClient, createGroupAsync]);
 
@@ -114,6 +122,9 @@ export function useConversationGroupActions({
       const trimmed = next.trim();
       if (!trimmed || trimmed === current) return;
 
+      const groupsKey = conversationGroupsQueryKey(assistantId);
+      await queryClient.cancelQueries({ queryKey: groupsKey });
+
       patchGroup(queryClient, assistantId, groupId, { name: trimmed });
 
       try {
@@ -123,6 +134,8 @@ export function useConversationGroupActions({
         } as Options<GroupsByGroupIdPatchData>);
       } catch {
         patchGroup(queryClient, assistantId, groupId, { name: current });
+      } finally {
+        void queryClient.invalidateQueries({ queryKey: groupsKey });
       }
     },
     [assistantId, conversationGroups, queryClient, patchGroupAsync],
@@ -133,6 +146,13 @@ export function useConversationGroupActions({
       if (!assistantId) return;
       haptic.medium();
 
+      const groupsKey = conversationGroupsQueryKey(assistantId);
+      const convsKey = conversationsQueryKey(assistantId);
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: groupsKey }),
+        queryClient.cancelQueries({ queryKey: convsKey }),
+      ]);
+
       deleteGroupAndResetConversations(queryClient, assistantId, groupId);
 
       try {
@@ -140,12 +160,12 @@ export function useConversationGroupActions({
           path: { assistant_id: assistantId, groupId },
         } as Options<GroupsByGroupIdDeleteData>);
       } catch {
-        void queryClient.invalidateQueries({
-          queryKey: conversationsQueryKey(assistantId),
-        });
-        void queryClient.invalidateQueries({
-          queryKey: conversationGroupsQueryKey(assistantId),
-        });
+        // Full rollback not possible — the group's prior state is destroyed
+        // by `deleteGroupAndResetConversations`. Invalidate both caches so
+        // TanStack refetches the server-authoritative state.
+      } finally {
+        void queryClient.invalidateQueries({ queryKey: convsKey });
+        void queryClient.invalidateQueries({ queryKey: groupsKey });
       }
     },
     [assistantId, queryClient, deleteGroupAsync],
