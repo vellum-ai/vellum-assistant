@@ -264,22 +264,15 @@ export function useMessageReconciliation({
           message: "poll_reconciled_rescue",
           data: { messagesAdded, turnId: snapshotTurnId },
         });
-        // Only emit to Sentry when messages were actually rescued.
-        // messagesAdded=0 means the turn was unstuck but no SSE message
-        // data was lost — just the idle signal. Those account for ~37%
-        // of events and provide no actionable signal beyond the
-        // breadcrumb above.
-        if (messagesAdded > 0) {
-          Sentry.captureMessage("sse_poll_reconciled_rescue", {
-            level: "warning",
-            tags: {
-              context: "sse_terminal",
-              platform: resolvePlatformTag(),
-              messagesAddedBucket: bucketMessagesAdded(messagesAdded),
-            },
-            extra: { messagesAdded, turnId: snapshotTurnId },
-          });
-        }
+        Sentry.captureMessage("sse_poll_reconciled_rescue", {
+          level: "warning",
+          tags: {
+            context: "sse_terminal",
+            platform: resolvePlatformTag(),
+            messagesAddedBucket: bucketMessagesAdded(messagesAdded),
+          },
+          extra: { messagesAdded, turnId: snapshotTurnId },
+        });
       }
 
       // Force-complete stale running tool calls. After onPollReconciled the
