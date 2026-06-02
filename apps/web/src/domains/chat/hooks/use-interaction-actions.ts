@@ -37,6 +37,43 @@ import { submitSurfaceAction } from "@/domains/chat/api/surfaces";
 // ---------------------------------------------------------------------------
 
 /**
+ * Credential-bearing input keys whose values are redacted before the command
+ * text is sent to the suggestion LLM. Mirrors the macOS `sensitiveKeys` set
+ * (ChatMessage.swift) so neither client leaks secrets into the prompt.
+ */
+const SENSITIVE_INPUT_KEYS = new Set([
+  "value", "secret", "password", "token", "client_secret", "api_key",
+  "authorization", "access_token", "refresh_token", "api_secret",
+  "accesstoken", "refreshtoken", "apikey", "apisecret", "clientsecret",
+  "x-api-key",
+]);
+
+function isSensitiveKey(key: string): boolean {
+  return SENSITIVE_INPUT_KEYS.has(key.toLowerCase());
+}
+
+/**
+ * Stringifies a tool-input value for the suggestion prompt. Strings pass
+ * through; objects/arrays are JSON-encoded (so nested structures don't become
+ * `"[object Object]"`) with sensitive keys redacted at any depth.
+ */
+function stringifyInputValue(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  try {
+    return JSON.stringify(value, (key, val) =>
+      key && isSensitiveKey(key) ? "[redacted]" : val,
+    );
+  } catch {
+    return String(value);
+  }
+}
+
+/**
  * Builds a full command text from tool call input for the suggestion endpoint.
  * Formats all key-value pairs rather than extracting just the primary field,
  * giving the LLM full context for pattern suggestion.
@@ -52,9 +89,12 @@ function buildFullCommandText(input?: Record<string, unknown>): string {
     return "";
   }
   if (entries.length === 1) {
-    return String(entries[0][1]);
+    const [k, v] = entries[0];
+    return isSensitiveKey(k) ? "[redacted]" : stringifyInputValue(v);
   }
-  return entries.map(([k, v]) => `${k}: ${String(v)}`).join("\n");
+  return entries
+    .map(([k, v]) => `${k}: ${isSensitiveKey(k) ? "[redacted]" : stringifyInputValue(v)}`)
+    .join("\n");
 }
 
 // ---------------------------------------------------------------------------
