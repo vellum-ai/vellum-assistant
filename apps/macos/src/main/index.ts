@@ -4,6 +4,12 @@ import fs from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 
+import {
+  readAllowedGatewayPorts,
+  resolveGatewayProxyTarget,
+  resolveLockfilePaths,
+} from "@vellumai/local-mode";
+
 import { installAbout, openAboutWindow } from "./about";
 import { APP_PROTOCOL } from "./app-config";
 import { resolveAppProtocolPath } from "./app-protocol";
@@ -101,8 +107,19 @@ const registerAppProtocol = (): void => {
   // ../renderer relative to the main process bundle.
   const rendererRoot = path.join(__dirname, "../renderer");
   const indexHtml = path.join(rendererRoot, "index.html");
+  const lockfilePaths = resolveLockfilePaths(process.env);
+  const getAllowedGatewayPorts = (): Set<number> =>
+    readAllowedGatewayPorts(lockfilePaths);
 
   protocol.handle(APP_PROTOCOL, async (request) => {
+    // The renderer addresses local gateways at the same `app://` origin via
+    // `/assistant/__gateway/{port}/*`. Forward those to loopback here so the
+    // secure renderer never touches an insecure `http://127.0.0.1` origin
+    // directly; the lockfile allowlist is the security boundary. Mirrors the
+    // Vite dev-server proxy (`apps/web/vite-plugin-local-mode.ts`).
+    const proxied = await forwardGatewayRequest(request, getAllowedGatewayPorts);
+    if (proxied) return proxied;
+
     const result = resolveAppProtocolPath(
       rendererRoot,
       request.url,
@@ -129,6 +146,53 @@ const fileExists = async (candidate: string): Promise<boolean> => {
     return stat.isFile();
   } catch {
     return false;
+  }
+};
+
+/**
+ * Forward a gateway data-plane request (`/assistant/__gateway/{port}/*`) to
+ * the local gateway on loopback, or return `null` when the URL is not a
+ * gateway request so the caller serves it as a static asset. `net.fetch` runs
+ * in the main process, so the renderer only ever talks to its own secure
+ * `app://` origin — main does the `http://127.0.0.1` hop. The streaming
+ * `Response` is returned verbatim, preserving SSE and chunked transfers
+ * (Electron's `stream: true` scheme privilege). The shared decision applies
+ * the lockfile port-allowlist identically to the Vite dev proxy.
+ */
+const forwardGatewayRequest = async (
+  request: GlobalRequest,
+  getAllowedPorts: () => Set<number>,
+): Promise<Response | null> => {
+  const url = new URL(request.url);
+  const decision = resolveGatewayProxyTarget(
+    url.pathname + url.search,
+    getAllowedPorts,
+  );
+
+  switch (decision.kind) {
+    case "pass":
+      return null;
+    case "invalid-port":
+      return new Response("Port must be between 1024 and 65535", {
+        status: 400,
+      });
+    case "forbidden-port":
+      return new Response("Gateway port is not active in lockfile", {
+        status: 403,
+      });
+    case "forward": {
+      const { port, path: targetPath } = decision.target;
+      const hasBody = request.method !== "GET" && request.method !== "HEAD";
+      return net.fetch(`http://127.0.0.1:${port}${targetPath}`, {
+        method: request.method,
+        headers: request.headers,
+        body: hasBody ? request.body : undefined,
+        // Stream the request body instead of buffering it; required by the
+        // fetch spec whenever a `ReadableStream` body is supplied.
+        ...(hasBody ? { duplex: "half" } : {}),
+        redirect: "manual",
+      });
+    }
   }
 };
 

@@ -167,6 +167,17 @@ export interface VellumBridge {
      * on failure rather than rejecting.
      */
     retire(assistantId: string): Promise<{ ok: boolean; error?: string }>;
+    /**
+     * Acquire a fresh guardian access token for a local assistant, reading
+     * the token file from disk and refreshing it via the CLI when expired.
+     * Authorizes the gateway token exchange.
+     */
+    guardianToken(
+      assistantId: string,
+    ): Promise<
+      | { ok: true; accessToken: string }
+      | { ok: false; status: number; error: string }
+    >;
   };
   mainWindow: {
     /**
@@ -296,6 +307,14 @@ const bridge: VellumBridge = {
         ok: boolean;
         error?: string;
       }>,
+    guardianToken: (assistantId: string) =>
+      ipcRenderer.invoke(
+        "vellum:localMode:guardianToken",
+        assistantId,
+      ) as Promise<
+        | { ok: true; accessToken: string }
+        | { ok: false; status: number; error: string }
+      >,
   },
   mainWindow: {
     ensureVisible: (): Promise<void> =>

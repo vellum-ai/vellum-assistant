@@ -71,6 +71,12 @@ declare global {
           | { ok: false; error: string }
         >;
         retire(assistantId: string): Promise<{ ok: boolean; error?: string }>;
+        guardianToken(
+          assistantId: string,
+        ): Promise<
+          | { ok: true; accessToken: string }
+          | { ok: false; status: number; error: string }
+        >;
       };
       mainWindow: {
         ensureVisible(): Promise<void>;

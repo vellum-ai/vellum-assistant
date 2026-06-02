@@ -13,7 +13,7 @@ import {
   runHatch,
   runRetire,
   getGuardianAccessToken,
-  parseGatewayUrl,
+  resolveGatewayProxyTarget,
   readAllowedGatewayPorts,
   type CliInvocation,
 } from "@vellumai/local-mode";
@@ -359,25 +359,26 @@ function gatewayProxyMiddleware(
   lockfilePaths: string[],
 ): Connect.NextHandleFunction {
   return (req, res, next) => {
-    const result = parseGatewayUrl(req.url ?? "");
-    if (!result.match) return next();
+    const decision = resolveGatewayProxyTarget(req.url ?? "", () =>
+      readAllowedGatewayPorts(lockfilePaths),
+    );
+    if (decision.kind === "pass") return next();
 
     if (rejectUnlessLoopback(req, res)) return;
 
-    if (!result.valid) {
+    if (decision.kind === "invalid-port") {
       res.statusCode = 400;
       res.end("Port must be between 1024 and 65535");
       return;
     }
 
-    const { target } = result;
-    const allowedPorts = readAllowedGatewayPorts(lockfilePaths);
-    if (!allowedPorts.has(target.port)) {
+    if (decision.kind === "forbidden-port") {
       res.statusCode = 403;
       res.end("Gateway port is not active in lockfile");
       return;
     }
 
+    const { target } = decision;
     const proxyOptions: http.RequestOptions = {
       hostname: "127.0.0.1",
       port: target.port,

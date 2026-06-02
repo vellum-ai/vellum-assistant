@@ -2,13 +2,16 @@ import { app, ipcMain } from "electron";
 import path from "node:path";
 
 import {
+  getGuardianAccessToken,
   getLockfileData,
   replacePlatformAssistants,
+  resolveConfigDir,
   resolveLockfilePaths,
   runHatch,
   runRetire,
   upsertLockfileAssistant,
   type CliInvocation,
+  type TokenResult,
 } from "@vellumai/local-mode";
 
 /**
@@ -107,6 +110,7 @@ export const installLocalMode = (): void => {
   installed = true;
 
   const lockfilePaths = resolveLockfilePaths(process.env);
+  const configDir = resolveConfigDir(process.env);
 
   ipcMain.handle("vellum:localMode:hatch", (_event, species: unknown) => {
     const requested =
@@ -157,4 +161,28 @@ export const installLocalMode = (): void => {
     }
     return retire(assistantId);
   });
+
+  ipcMain.handle(
+    "vellum:localMode:guardianToken",
+    (_event, assistantId: unknown): Promise<TokenResult> => {
+      if (typeof assistantId !== "string" || assistantId.length === 0) {
+        return Promise.resolve({
+          ok: false,
+          status: 400,
+          error: "Missing assistantId",
+        });
+      }
+      const invocation = resolveCliInvocation();
+      if (invocation === null) {
+        return Promise.resolve({
+          ok: false,
+          status: 501,
+          error: PACKAGED_UNSUPPORTED,
+        });
+      }
+      // The IPC channel is reachable only from our own renderer, so the
+      // loopback gate the dev middleware enforces is implicit here.
+      return getGuardianAccessToken(assistantId, configDir, invocation, true);
+    },
+  );
 };

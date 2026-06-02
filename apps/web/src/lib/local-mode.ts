@@ -11,6 +11,7 @@ import {
 } from "@/lib/auth/gateway-session";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import {
+  fetchGuardianTokenHost,
   loadLockfileHost,
   replacePlatformAssistantsHost,
   retireLocalAssistantHost,
@@ -229,43 +230,21 @@ export function getLocalGatewayUrl(): string | undefined {
 }
 
 // ---------------------------------------------------------------------------
-// Guardian token
-// ---------------------------------------------------------------------------
-
-/**
- * Fetch the guardian access token for a local assistant from the Vite dev
- * middleware. The middleware reads the token from disk and handles refresh
- * via the CLI if the access token is expired.
- *
- * Transport: fetch to Vite dev middleware endpoint.
- * In Electron, replace with IPC call to main process.
- */
-export async function fetchGuardianToken(assistantId: string): Promise<string> {
-  const res = await fetch(`/assistant/__local/guardian-token/${encodeURIComponent(assistantId)}`);
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({})) as { error?: string };
-    throw new Error(body.error ?? `Guardian token request failed: ${res.status}`);
-  }
-  const { accessToken } = (await res.json()) as { accessToken: string };
-  return accessToken;
-}
-
-// ---------------------------------------------------------------------------
 // Gateway connection setup
 // ---------------------------------------------------------------------------
 
 /**
  * Acquire a gateway token and prime the self-hosted connection for the
- * selected local assistant.
- *
- * Transport: fetch to Vite dev middleware gateway proxy.
- * In Electron, replace with direct IPC token acquisition. (LUM-1999)
+ * selected local assistant. The guardian token and gateway exchange both ride
+ * the host's local-mode transport, so this stays host-agnostic.
  */
 export async function primeLocalGatewayConnection(): Promise<void> {
   const tokenUrl = getLocalTokenUrl();
   if (!tokenUrl) return;
   const assistant = getSelectedAssistant();
-  const guardianToken = assistant ? await fetchGuardianToken(assistant.assistantId) : undefined;
+  const guardianToken = assistant
+    ? await fetchGuardianTokenHost(assistant.assistantId)
+    : undefined;
   await ensureGatewayToken(tokenUrl, guardianToken);
   const localGateway = getLocalGatewayUrl();
   if (!localGateway) return;

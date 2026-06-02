@@ -12,6 +12,7 @@ const {
   saveLockfileAssistantHost,
   replacePlatformAssistantsHost,
   retireLocalAssistantHost,
+  fetchGuardianTokenHost,
 } = await import("./local-mode-host");
 
 const realFetch = globalThis.fetch;
@@ -203,5 +204,60 @@ describe("retireLocalAssistantHost", () => {
     expect(await retireLocalAssistantHost("a-1")).toEqual({ ok: true });
     expect(retire).toHaveBeenCalledWith("a-1");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("fetchGuardianTokenHost", () => {
+  test("web/dev host GETs the guardian-token middleware and returns the access token", async () => {
+    const fetchMock = mock(async () => ({
+      ok: true,
+      json: async () => ({ accessToken: "tok-web" }),
+    }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    expect(await fetchGuardianTokenHost("a 1")).toBe("tok-web");
+    const [url] = fetchMock.mock.calls[0] as unknown as [string];
+    expect(url).toBe("/assistant/__local/guardian-token/a%201");
+  });
+
+  test("web/dev host throws the middleware error body on a non-ok response", async () => {
+    globalThis.fetch = mock(async () => ({
+      ok: false,
+      status: 404,
+      json: async () => ({ error: "assistant not found" }),
+    })) as unknown as typeof fetch;
+
+    await expect(fetchGuardianTokenHost("a-1")).rejects.toThrow(
+      "assistant not found",
+    );
+  });
+
+  test("Electron host reads through the bridge and never touches fetch", async () => {
+    const guardianToken = mock(async () => ({
+      ok: true,
+      accessToken: "tok-electron",
+    }));
+    const fetchMock = mock(async () => {
+      throw new Error("fetch must not run on the Electron branch");
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    setElectronBridge({ guardianToken });
+
+    expect(await fetchGuardianTokenHost("a-1")).toBe("tok-electron");
+    expect(guardianToken).toHaveBeenCalledWith("a-1");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("Electron host throws the bridge error when acquisition fails", async () => {
+    const guardianToken = mock(async () => ({
+      ok: false,
+      status: 500,
+      error: "refresh failed",
+    }));
+    setElectronBridge({ guardianToken });
+
+    await expect(fetchGuardianTokenHost("a-1")).rejects.toThrow(
+      "refresh failed",
+    );
   });
 });

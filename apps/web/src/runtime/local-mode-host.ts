@@ -1,9 +1,8 @@
 import { isElectron } from "@/runtime/is-electron";
 
 /**
- * Transport seam for local-mode lifecycle operations (hatch, retire, and
- * lockfile reads/writes; guardian-token and gateway follow as later tickets
- * land).
+ * Transport seam for local-mode lifecycle operations (hatch, retire, lockfile
+ * reads/writes, and guardian-token acquisition).
  *
  * Local mode provisions an assistant on the user's own machine by driving the
  * Vellum CLI and reading/writing its lockfile. That work runs in a trusted
@@ -23,6 +22,13 @@ import { isElectron } from "@/runtime/is-electron";
  * functions are NOT no-ops off Electron — the web/dev branch is a real
  * implementation, because local mode is a first-class web/dev capability, not
  * a desktop-only nicety.
+ *
+ * The gateway *data plane* deliberately has no seam function: callers fetch
+ * the same-origin `/assistant/__gateway/{port}/*` URL on both hosts, and each
+ * host proxies it to the local gateway transparently (the Vite dev middleware
+ * on web/dev; the Electron `app://` protocol handler in the desktop shell).
+ * The transport branch lives in the host, not the renderer, so the data-plane
+ * URL stays byte-identical everywhere.
  */
 
 export interface LocalAssistantResources {
@@ -163,4 +169,34 @@ export async function retireLocalAssistantHost(
     body: JSON.stringify({ assistantId }),
   });
   return res.json() as Promise<LocalRetireResult>;
+}
+
+/**
+ * Acquire a fresh guardian access token for a local assistant, used to
+ * authorize the gateway token exchange. Reading the token file and refreshing
+ * it via the CLI is a trusted disk/CLI operation, so it runs in the host:
+ * the Electron main process behind `window.vellum.localMode.guardianToken`,
+ * the Vite dev server behind `/assistant/__local/guardian-token/{id}`. Throws
+ * on failure so callers surface the same connect error regardless of host.
+ */
+export async function fetchGuardianTokenHost(
+  assistantId: string,
+): Promise<string> {
+  if (isElectron()) {
+    const result = await window.vellum!.localMode.guardianToken(assistantId);
+    if (!result.ok) throw new Error(result.error);
+    return result.accessToken;
+  }
+
+  const res = await fetch(
+    `/assistant/__local/guardian-token/${encodeURIComponent(assistantId)}`,
+  );
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(
+      body.error ?? `Guardian token request failed: ${res.status}`,
+    );
+  }
+  const { accessToken } = (await res.json()) as { accessToken: string };
+  return accessToken;
 }

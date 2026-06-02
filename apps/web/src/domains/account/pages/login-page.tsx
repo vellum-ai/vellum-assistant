@@ -17,8 +17,8 @@ import {
   getPlatformAssistants,
   setSelectedAssistantId,
   gatewayProxyUrl,
-  fetchGuardianToken,
 } from "@/lib/local-mode";
+import { fetchGuardianTokenHost } from "@/runtime/local-mode-host";
 import { startLoopbackAuth, useIsPlatformLocal } from "@/lib/auth/loopback-auth";
 import {
   startAuthFlow,
@@ -282,7 +282,7 @@ function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
       setConnectError(null);
       setConnectingId(assistant.assistantId);
       try {
-        const guardianToken = await fetchGuardianToken(assistant.assistantId);
+        const guardianToken = await fetchGuardianTokenHost(assistant.assistantId);
         const tokenUrl = `${gatewayProxyUrl(assistant.resources!.gatewayPort)}/auth/token`;
         setSelectedAssistantId(assistant.assistantId);
         await ensureGatewayToken(tokenUrl, guardianToken);

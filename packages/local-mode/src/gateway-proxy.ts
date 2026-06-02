@@ -22,6 +22,48 @@ export function parseGatewayUrl(pathname: string): GatewayParseResult {
   return { match: true, valid: true, target: { port, path: match[2] || "/" } };
 }
 
+/**
+ * Verdict for a gateway-proxy URL, combining the URL parse with the
+ * lockfile port-allowlist check into one decision a host can act on
+ * without re-deriving the rules.
+ *
+ *   - `pass`          — not a gateway URL; the host serves it normally.
+ *   - `invalid-port`  — a gateway URL whose port is outside 1024–65535.
+ *   - `forbidden-port`— a well-formed gateway URL for a port that isn't
+ *                       registered in the lockfile (the security
+ *                       boundary: the proxy only reaches gateway ports
+ *                       the user actually hatched, never arbitrary
+ *                       loopback services).
+ *   - `forward`       — forward to `127.0.0.1:{port}{path}`.
+ */
+export type GatewayProxyDecision =
+  | { kind: "pass" }
+  | { kind: "invalid-port" }
+  | { kind: "forbidden-port"; port: number }
+  | { kind: "forward"; target: GatewayTarget };
+
+/**
+ * Resolve a request pathname to a gateway-proxy verdict. Identical across every
+ * host that proxies the data plane (the Vite dev middleware and the Electron
+ * `app://` protocol handler).
+ *
+ * `getAllowedPorts` is a thunk (typically `() => readAllowedGatewayPorts(...)`)
+ * so the lockfile is read only once a gateway URL is matched — the hot path of
+ * static-asset and non-gateway requests never touches disk.
+ */
+export function resolveGatewayProxyTarget(
+  pathname: string,
+  getAllowedPorts: () => Set<number>,
+): GatewayProxyDecision {
+  const parsed = parseGatewayUrl(pathname);
+  if (!parsed.match) return { kind: "pass" };
+  if (!parsed.valid) return { kind: "invalid-port" };
+  if (!getAllowedPorts().has(parsed.target.port)) {
+    return { kind: "forbidden-port", port: parsed.target.port };
+  }
+  return { kind: "forward", target: parsed.target };
+}
+
 function addPortFromUrl(url: unknown, ports: Set<number>): void {
   if (typeof url !== "string") return;
   try {
