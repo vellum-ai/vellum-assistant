@@ -3,8 +3,16 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import {
   buildBillingUsageSeriesQuery,
   buildBillingUsageTotalsQuery,
+  getDefaultDateRange,
   type UsageChartState,
 } from "./use-billing-usage-data";
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function daysApart(from: string, to: string): number {
+  const ms = Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`);
+  return Math.round(ms / 86_400_000) + 1;
+}
 
 function makeState(): UsageChartState {
   return {
@@ -30,6 +38,29 @@ describe("buildBillingUsageTotalsQuery", () => {
     expect(query.tz).toBe("America/New_York");
     expect(query.from).toBe("2026-01-01");
     expect(query.to).toBe("2026-01-31");
+  });
+});
+
+describe("getDefaultDateRange", () => {
+  test("computes a 30-day range as YYYY-MM-DD bounds in the given tz", () => {
+    const { from, to } = getDefaultDateRange("America/New_York");
+    expect(from).toMatch(DATE_RE);
+    expect(to).toMatch(DATE_RE);
+    expect(daysApart(from, to)).toBe(30);
+  });
+
+  test("uses the supplied tz so dates can differ from another zone at a boundary", () => {
+    // Across a wide UTC offset gap, the calendar 'today' can differ. We assert
+    // each zone yields a self-consistent, well-formed 30-day range; at the
+    // right instant Kiritimati (UTC+14) and Niue (UTC-11) sit on different
+    // calendar days, so the computed bounds are independent per zone.
+    const east = getDefaultDateRange("Pacific/Kiritimati");
+    const west = getDefaultDateRange("Pacific/Niue");
+    for (const r of [east, west]) {
+      expect(r.from).toMatch(DATE_RE);
+      expect(r.to).toMatch(DATE_RE);
+      expect(daysApart(r.from, r.to)).toBe(30);
+    }
   });
 });
 

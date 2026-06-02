@@ -15,3 +15,16 @@ export function toLocalDateString(d: Date): string {
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
 }
+
+/**
+ * Format a `Date` as a "YYYY-MM-DD" string representing the calendar date in
+ * the given IANA timezone. `en-CA` yields ISO-like `YYYY-MM-DD` output.
+ */
+export function toTimezoneDateString(d: Date, tz: string): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}

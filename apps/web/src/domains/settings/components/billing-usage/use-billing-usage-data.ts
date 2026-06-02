@@ -1,7 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 
-import type { DateRange } from "@/components/charts/date-range-select";
-import { toLocalDateString } from "@/components/charts/format-date-label";
+import {
+  type DateRange,
+  computeRangeInTimezone,
+} from "@/components/charts/date-range-select";
 import {
   organizationsBillingUsageSeriesRetrieveOptions,
   organizationsBillingUsageTotalsRetrieveOptions,
@@ -18,14 +20,12 @@ import {
 } from "@/utils/llm-dimension";
 import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 
-export function getDefaultDateRange(): DateRange {
-  const today = new Date();
-  const from = new Date(today);
-  from.setDate(from.getDate() - 29);
-  return {
-    from: toLocalDateString(from),
-    to: toLocalDateString(today),
-  };
+/**
+ * Default "Last 30 days" range, with calendar bounds computed in the effective
+ * timezone so they stay aligned with the `tz` sent to the billing backend.
+ */
+export function getDefaultDateRange(tz: string = getEffectiveTimezone()): DateRange {
+  return computeRangeInTimezone(30, tz);
 }
 
 export type UsageChartState = {
