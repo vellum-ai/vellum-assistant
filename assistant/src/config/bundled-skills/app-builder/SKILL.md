@@ -79,13 +79,24 @@ assistant inference session list
 
 **If a session is already active at quality-optimized** → skip this step.
 
-**If the active profile is `balanced`, `cost-optimized`, or any non-quality profile** → ask the user before switching. Do NOT open a session without explicit confirmation.
+**If the active profile is `balanced`, `cost-optimized`, or any non-quality profile** → ask the user before switching. Do NOT open a session without explicit confirmation. Use the `ui_show` tool to present an inline `confirmation` surface and wait for the action. Do not call the shell command `assistant ui confirm`; that CLI-mediated confirmation can block the build flow before the app work starts.
 
 ```
-assistant ui confirm --message "App building works best with a high-quality model. Switch to the quality profile for this build? (You can switch back after.)"
+ui_show({
+  surface_type: "confirmation",
+  title: "Use quality model for this app?",
+  data: {
+    message: "The current model profile is `<profile>`. App building works best with `quality-optimized` because it makes better design decisions, writes cleaner components, and produces more visually polished results.",
+    detail: "Choose whether to switch for this build or keep the current profile and build now.",
+    confirmLabel: "Switch for this build",
+    cancelLabel: "Keep current profile"
+  },
+  display: "inline",
+  await_action: true
+})
 ```
 
-If `ui confirm` is unavailable, ask directly in conversation. Wait for the answer.
+If `ui_show` is unavailable or the current channel cannot render confirmation surfaces, ask the user directly in conversation as a fallback. Wait for the answer.
 
 **If user confirms:**
 
@@ -100,7 +111,7 @@ assistant config get llm.profiles
 assistant inference session open <highest-quality-profile> --ttl 1h
 ```
 
-**If user declines** → proceed with the current profile. Skip the session close in Step 6.
+**If user declines** → proceed with the current profile. Skip the session close in Step 7.
 
 **If `assistant inference session` is unavailable on this binary** → proceed without it.
 

@@ -7,8 +7,8 @@ describe("app-builder skill instructions", () => {
       new URL("../config/bundled-skills/app-builder/SKILL.md", import.meta.url),
       "utf8",
     );
-    const preflightStart = skillText.indexOf("### 0. Preflight");
-    const preflightEnd = skillText.indexOf("### 1. Gather Requirements");
+    const preflightStart = skillText.indexOf("### Step 0");
+    const preflightEnd = skillText.indexOf("### Step 1");
     const preflight = skillText.slice(preflightStart, preflightEnd);
 
     expect(preflight).not.toContain("assistant ui confirm --message");
