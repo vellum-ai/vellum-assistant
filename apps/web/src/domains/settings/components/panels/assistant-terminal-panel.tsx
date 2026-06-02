@@ -10,7 +10,8 @@ import {
   useActiveAssistantLifecycleIsLoading,
   usePlatformGate,
 } from "@/hooks/use-platform-gate";
-import { reportError } from "@/utils/error-report";
+import { toast } from "@vellum/design-library";
+import { captureError } from "@/lib/sentry/capture-error";
 
 type TerminalService = "assistant" | "gateway" | "credential-executor";
 
@@ -58,10 +59,8 @@ export function AssistantTerminalPanel() {
         setMaintenanceMode(result.data.maintenance_mode);
       }
     } catch (error) {
-      reportError(error, {
-        context: "fetch_assistant_for_terminal",
-        userMessage: "Failed to load assistant info",
-      });
+      captureError(error, { context: "fetch_assistant_for_terminal" });
+      toast.error("Failed to load assistant info");
     } finally {
       setLoading(false);
     }

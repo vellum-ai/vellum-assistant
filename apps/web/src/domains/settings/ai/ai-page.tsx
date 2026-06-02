@@ -48,7 +48,7 @@ import {
   assistantsListQueryKey,
   organizationsBillingSubscriptionRetrieveOptions,
 } from "@/generated/api/@tanstack/react-query.gen";
-import { reportError } from "@/utils/error-report";
+import { captureError } from "@/lib/sentry/capture-error";
 import { useEnvironmentStore } from "@/stores/environment-store";
 import {
   type LlmCatalogModel,
@@ -1139,7 +1139,8 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
       });
       invalidateEmailQueries();
       toast.success("Email address removed.");
-    } catch {
+    } catch (err) {
+      captureError(err, { context: "email_address_delete" });
       toast.error("Failed to remove email address.");
     }
   }, [address?.id, assistantId, deleteAddress, invalidateEmailQueries]);
@@ -1159,7 +1160,8 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
       setSubdomainDraft(releasedSubdomain);
       invalidateEmailQueries();
       toast.success("Domain released.");
-    } catch {
+    } catch (err) {
+      captureError(err, { context: "email_domain_release" });
       toast.error("Failed to release domain.");
     }
   }, [
@@ -1597,10 +1599,7 @@ export function AiPage() {
         if (!(error instanceof Error && error.message === "No assistant found")) {
           toast.error(`Failed to save ${providerName} API key. Please try again.`);
         }
-        reportError(error, {
-          context: "provision_provider_key",
-          userMessage: `Failed to provision ${providerName} API key`,
-        });
+        captureError(error, { context: "provision_provider_key" });
         throw error;
       }
     },
@@ -1621,10 +1620,7 @@ export function AiPage() {
         });
       } catch (error) {
         toast.error("Failed to update assistant configuration. Please try again.");
-        reportError(error, {
-          context: "patch_daemon_config",
-          userMessage: "Failed to patch daemon config",
-        });
+        captureError(error, { context: "patch_daemon_config" });
         throw error;
       }
     },
@@ -1645,10 +1641,7 @@ export function AiPage() {
         });
       } catch (error) {
         toast.error("Failed to update image generation model. Please try again.");
-        reportError(error, {
-          context: "set_image_gen_model",
-          userMessage: `Failed to set image gen model ${modelId}`,
-        });
+        captureError(error, { context: "set_image_gen_model" });
         throw error;
       }
     },
@@ -1795,7 +1788,7 @@ export function AiPage() {
       } catch (error) {
         if (cancelled) return;
         setWebSearchHasStoredKey(false);
-        reportError(error, { context: "settings-ai-web-search-read-secret" });
+        captureError(error, { context: "settings-ai-web-search-read-secret" });
       }
     })();
 
@@ -1905,7 +1898,7 @@ export function AiPage() {
       remoteSaved = true;
       void queryClient.invalidateQueries({ queryKey: assistantDaemonConfigQueryKey(assistantId) });
     } catch {
-      // Errors already surfaced via toast + reportError inside the callees.
+      // Errors already surfaced via toast + captureError inside the callees.
     }
     if (!remoteSaved) {
       setWebSearchSaving(false);
@@ -1928,10 +1921,8 @@ export function AiPage() {
       }
       toast.success("Web search settings saved.");
     } catch (err) {
-      reportError(err, {
-        context: "settings-ai-web-search-persist-local",
-        userMessage: "Saved, but local preferences could not be written.",
-      });
+      captureError(err, { context: "settings-ai-web-search-persist-local" });
+      toast.error("Saved, but local preferences could not be written.");
     } finally {
       setWebSearchSaving(false);
     }
@@ -1967,7 +1958,7 @@ export function AiPage() {
       remoteSaved = true;
       void queryClient.invalidateQueries({ queryKey: assistantDaemonConfigQueryKey(assistantId) });
     } catch {
-      // Errors already surfaced via toast + reportError inside the callees.
+      // Errors already surfaced via toast + captureError inside the callees.
     }
     if (!remoteSaved) {
       setImageGenSaving(false);
@@ -1983,10 +1974,8 @@ export function AiPage() {
       }
       toast.success("Image generation settings saved.");
     } catch (err) {
-      reportError(err, {
-        context: "settings-ai-image-gen-persist-local",
-        userMessage: "Saved, but local preferences could not be written.",
-      });
+      captureError(err, { context: "settings-ai-image-gen-persist-local" });
+      toast.error("Saved, but local preferences could not be written.");
     } finally {
       setImageGenSaving(false);
     }

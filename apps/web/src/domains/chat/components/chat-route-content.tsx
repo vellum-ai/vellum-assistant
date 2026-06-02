@@ -18,7 +18,7 @@
  * @see Phase 3: Extract LibraryRouteContent, AppRouteContent
  */
 
-import * as Sentry from "@sentry/react";
+import { captureError } from "@/lib/sentry/capture-error";
 import { type Dispatch, type FormEvent, type MutableRefObject, type ReactNode, type RefObject, type SetStateAction, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
@@ -976,19 +976,17 @@ export function ChatRouteContent({
     })
       .then((result) => {
         if (!result.ok) {
-          Sentry.captureException(
+          captureError(
             new Error(`question-response close failed: ${result.error}`),
             {
-              tags: { context: "submit_question_response_close" },
+              context: "submit_question_response_close",
               extra: { status: result.status },
             },
           );
         }
       })
       .catch((err) => {
-        Sentry.captureException(err, {
-          tags: { context: "submit_question_response_close" },
-        });
+        captureError(err, { context: "submit_question_response_close" });
       });
   }, []);
 

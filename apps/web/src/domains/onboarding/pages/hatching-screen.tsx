@@ -1,4 +1,5 @@
 import * as Sentry from "@sentry/browser";
+import { captureError } from "@/lib/sentry/capture-error";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
@@ -182,9 +183,7 @@ export function HatchingScreen() {
       try {
         writeSelectedVersion("");
       } catch (err) {
-        Sentry.captureException(err, {
-          tags: { context: "onboarding_mark_completed" },
-        });
+        captureError(err, { context: "onboarding_mark_completed" });
       }
       markPrivacyConsent(userId);
       setDisplayProgress(1);
@@ -201,9 +200,7 @@ export function HatchingScreen() {
             try {
               setOnboardingCompleted(true);
             } catch (err) {
-              Sentry.captureException(err, {
-                tags: { context: "hatching_mark_onboarding_completed_native" },
-              });
+              captureError(err, { context: "hatching_mark_onboarding_completed_native" });
             }
             clearPrivacyConsent();
             // Native flow skips the pre-chat screen, so there's no
@@ -299,9 +296,7 @@ export function HatchingScreen() {
             try {
               await applyPendingProviderKey(result.assistantId);
             } catch (err) {
-              Sentry.captureException(err, {
-                tags: { context: "onboarding_apply_provider_key" },
-              });
+              captureError(err, { context: "onboarding_apply_provider_key" });
             }
           }
 
@@ -348,9 +343,7 @@ export function HatchingScreen() {
         }
       } catch (err) {
         platformHatchPromise = null;
-        Sentry.captureException(err, {
-          tags: { context: "onboarding_hatch_assistant" },
-        });
+        captureError(err, { context: "onboarding_hatch_assistant" });
         if (cancelled) return;
       }
 
@@ -385,9 +378,7 @@ export function HatchingScreen() {
               if (existing) return;
               return saveCharacterTraits(assistantId, hatchTraits);
             }).catch((err) => {
-              Sentry.captureException(err, {
-                tags: { context: "onboarding_avatar_sync" },
-              });
+              captureError(err, { context: "onboarding_avatar_sync" });
             });
             if (isLocalMode()) {
               void saveLockfileAssistant({
@@ -411,9 +402,7 @@ export function HatchingScreen() {
         }
         scheduleNextPoll(POLL_INTERVAL_MS);
       } catch (err) {
-        Sentry.captureException(err, {
-          tags: { context: "onboarding_poll_assistant" },
-        });
+        captureError(err, { context: "onboarding_poll_assistant" });
         if (cancelled) return;
         scheduleNextPoll(POLL_INTERVAL_MS);
       }

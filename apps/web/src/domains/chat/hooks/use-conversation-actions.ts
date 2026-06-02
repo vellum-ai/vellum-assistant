@@ -1,5 +1,5 @@
 
-import * as Sentry from "@sentry/react";
+import { captureError } from "@/lib/sentry/capture-error";
 import { type MutableRefObject, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -157,9 +157,7 @@ export function useConversationActions({
         patchConversation(queryClient, assistantId, conversation.conversationId, {
           archivedAt: originalArchivedAt,
         });
-        Sentry.captureException(err, {
-          tags: { context: "archiveConversation" },
-        });
+        captureError(err, { context: "archiveConversation" });
       }
     },
     [
@@ -205,9 +203,7 @@ export function useConversationActions({
         patchConversation(queryClient, assistantId, conversation.conversationId, {
           archivedAt: originalArchivedAt,
         });
-        Sentry.captureException(err, {
-          tags: { context: "unarchiveConversation" },
-        });
+        captureError(err, { context: "unarchiveConversation" });
       }
     },
     [assistantId, queryClient, refreshConversations],
@@ -230,9 +226,7 @@ export function useConversationActions({
         });
         patchConversation(queryClient, assistantId, conversation.conversationId, { hasUnseenLatestAssistantMessage: true });
       } catch (err) {
-        Sentry.captureException(err, {
-          tags: { context: "markConversationUnread" },
-        });
+        captureError(err, { context: "markConversationUnread" });
       }
     },
     [assistantId, queryClient],
@@ -250,9 +244,7 @@ export function useConversationActions({
         });
         patchConversation(queryClient, assistantId, conversation.conversationId, { hasUnseenLatestAssistantMessage: false });
       } catch (err) {
-        Sentry.captureException(err, {
-          tags: { context: "markConversationRead" },
-        });
+        captureError(err, { context: "markConversationRead" });
       }
     },
     [assistantId, queryClient],
@@ -296,9 +288,7 @@ export function useConversationActions({
           prePinGroupIdsRef.current.delete(conversation.conversationId);
         }
         patchConversation(queryClient, assistantId, conversation.conversationId, { isPinned: prevIsPinned, groupId: prevGroupId });
-        Sentry.captureException(err, {
-          tags: { context: "moveToGroup" },
-        });
+        captureError(err, { context: "moveToGroup" });
       }
     },
     [assistantId, prePinGroupIdsRef, queryClient],
@@ -357,9 +347,7 @@ export function useConversationActions({
               hasUnseenLatestAssistantMessage: false,
             });
           } catch (err) {
-            Sentry.captureException(err, {
-              tags: { context: "markAllReadInGroup" },
-            });
+            captureError(err, { context: "markAllReadInGroup" });
           }
         }),
       );
@@ -412,9 +400,7 @@ export function useConversationActions({
             patchConversation(queryClient, assistantId, c.conversationId, {
               archivedAt: c.archivedAt,
             });
-            Sentry.captureException(err, {
-              tags: { context: "archiveAllInGroup" },
-            });
+            captureError(err, { context: "archiveAllInGroup" });
             throw err;
           }
         }),

@@ -11,7 +11,7 @@
  * @see send-message-utils.ts — pure helpers reused here
  */
 
-import * as Sentry from "@sentry/react";
+import { captureError } from "@/lib/sentry/capture-error";
 import { type Dispatch, type SetStateAction, useCallback, useState } from "react";
 
 import { addTrustRule } from "@/lib/trust-rules-api";
@@ -146,7 +146,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
           }
         }, 1500);
       } catch (err) {
-        Sentry.captureException(err, { tags: { context: "submit_secret" } });
+        captureError(err, { context: "submit_secret" });
         setError({ message: "Failed to submit secret. Please try again." });
         useInteractionStore.getState().submitSecretEnd();
       }
@@ -208,7 +208,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
           }
         }, 1500);
       } catch (err) {
-        Sentry.captureException(err, { tags: { context: "submit_contact_prompt" } });
+        captureError(err, { context: "submit_contact_prompt" });
         setError({ message: "Failed to save contact. Please try again." });
         useInteractionStore.getState().submitContactRequestEnd();
       }
@@ -405,7 +405,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
         }
         cleanupAfterConfirmationDecision(snapshot!, mappedToolCallId, decision);
       } catch (err) {
-        Sentry.captureException(err, { tags: { context: "submit_confirmation" } });
+        captureError(err, { context: "submit_confirmation" });
         setError({ message: "Failed to submit confirmation. Please try again." });
         useInteractionStore.getState().submitConfirmationEnd();
       }
@@ -451,7 +451,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
           useInteractionStore.getState().submitQuestionEnd();
         }
       } catch (err) {
-        Sentry.captureException(err, { tags: { context: "submit_question_response" } });
+        captureError(err, { context: "submit_question_response" });
         setError({ message: "Failed to submit response. Please try again." });
         useInteractionStore.getState().submitQuestionEnd();
       }
@@ -509,7 +509,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
       setRuleEditorContext({ ...editorContext, requestId: "" });
       setShowRuleEditor(true);
     } catch (err) {
-      Sentry.captureException(err, { tags: { context: "allow_and_create_rule" } });
+      captureError(err, { context: "allow_and_create_rule" });
       useInteractionStore.getState().setInlineConfirmationToolCallId(null);
       setMessages((prev: DisplayMessage[]) => clearConfirmationByRequestId(prev, snapshot.requestId));
       setRuleEditorContext(editorContext);
@@ -554,7 +554,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
             scope: rule.scope,
           });
         } catch (err) {
-          Sentry.captureException(err, { tags: { context: "save_trust_rule_direct" } });
+          captureError(err, { context: "save_trust_rule_direct" });
           setError({ message: "Failed to save trust rule. Please try again." });
         } finally {
           setIsSavingRule(false);
@@ -581,7 +581,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
           return;
         }
       } catch (err) {
-        Sentry.captureException(err, { tags: { context: "save_trust_rule" } });
+        captureError(err, { context: "save_trust_rule" });
         setShowRuleEditor(false);
         setRuleEditorContext(null);
         setError({ message: "Failed to save trust rule. Please try again." });
@@ -630,7 +630,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
           data,
         );
       } catch (err) {
-        Sentry.captureException(err, { tags: { context: "submit_surface_action" } });
+        captureError(err, { context: "submit_surface_action" });
         setError({ message: "Failed to submit. Please try again." });
         throw err;
       }

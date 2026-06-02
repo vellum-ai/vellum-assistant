@@ -36,7 +36,7 @@
  * - https://tanstack.com/query/latest/docs/framework/react/guides/updates-from-mutation-responses
  */
 
-import * as Sentry from "@sentry/browser";
+import { captureError } from "@/lib/sentry/capture-error";
 import { type QueryClient, useQuery } from "@tanstack/react-query";
 
 import {
@@ -183,9 +183,9 @@ async function fetchMergedConversationList(
   if (backgroundResult.status === "fulfilled") {
     background = backgroundResult.value;
   } else {
-    Sentry.captureException(backgroundResult.reason, {
+    captureError(backgroundResult.reason, {
+      context: `fetchMergedConversationList.background(${archiveStatus})`,
       level: "warning",
-      tags: { context: `fetchMergedConversationList.background(${archiveStatus})` },
       extra: { assistantId },
     });
   }
