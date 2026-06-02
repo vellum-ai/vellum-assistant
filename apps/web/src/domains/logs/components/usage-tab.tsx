@@ -8,7 +8,7 @@ import { Dropdown } from "@vellum/design-library";
 import { storePendingInitialMessage } from "@/utils/initial-message-launch";
 import { routes } from "@/utils/routes";
 import { formatCost, formatTokens } from "@/domains/logs/format";
-import { getBrowserTimezone } from "@/utils/browser-timezone";
+import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 import {
   buildCallSiteMetadataMap,
   fetchUsageCallSiteCatalog,
@@ -90,9 +90,13 @@ export function UsageTab({ assistantId }: UsageTabProps) {
   const [groupBy, setGroupBy] = useState<UsageGroupBy>(
     DEFAULT_USAGE_GROUP_BY,
   );
-  const rangeWindow = useMemo(() => resolveRangeWindow(range), [range]);
+  const timezone = useEffectiveTimezone();
+  // Depend on `timezone` so bounded ranges (e.g. "Today", "Last 7 days")
+  // recompute their browser-local from/to boundaries when the live zone
+  // changes (OS or `device:timezone` update), keeping them aligned with the
+  // `tz` sent to the backend instead of using stale boundaries.
+  const rangeWindow = useMemo(() => resolveRangeWindow(range), [range, timezone]);
   const granularity = useMemo(() => resolveUsageGranularity(range), [range]);
-  const [timezone] = useState(getBrowserTimezone);
 
   const startCostConversation = (message: string) => {
     storePendingInitialMessage(message);
