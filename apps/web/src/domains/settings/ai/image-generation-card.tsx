@@ -21,18 +21,16 @@ import {
 } from "@/domains/settings/ai/ai-types";
 import { reconcileFromDaemonConfig } from "@/domains/settings/ai/ai-utils";
 import { ServiceCard, SaveButton, ResetButton } from "@/domains/settings/ai/ai-shared-ui";
-import { useDaemonConfig } from "@/domains/settings/ai/use-daemon-config";
+import { useDaemonConfigQuery, useDaemonConfigMutation, useProvisionProviderKey } from "@/domains/settings/ai/use-daemon-config";
+import { modelImagegenPut } from "@/generated/daemon/sdk.gen";
 
 export function ImageGenerationCard() {
   const {
+    assistantId,
     config: daemonConfig,
-    invalidateConfig,
-    provisionProviderKey,
-    patchDaemonConfig,
-    setImageGenModelOnDaemon,
-  } = useDaemonConfig();
-
-  const [saving, setSaving] = useState(false);
+  } = useDaemonConfigQuery();
+  const configMutation = useDaemonConfigMutation();
+  const provisionProviderKey = useProvisionProviderKey();
   const [imageGenMode, setImageGenMode] = useState<ServiceMode>(
     () => getLocalSetting(LS_IMAGE_GEN_MODE, "your-own") as ServiceMode,
   );
@@ -51,25 +49,23 @@ export function ImageGenerationCard() {
   }, [daemonConfig]);
 
   const handleSave = useCallback(async () => {
-    setSaving(true);
     const trimmed = imageGenApiKey.trim();
     const hasUserKey = imageGenMode === "your-own" && trimmed.length > 0;
-    let remoteSaved = false;
     try {
       if (hasUserKey) {
         await provisionProviderKey("gemini", trimmed);
       }
-      await patchDaemonConfig({
+      await configMutation.mutateAsync({
         services: { "image-generation": { mode: imageGenMode } },
       });
-      await setImageGenModelOnDaemon(imageGenModel);
-      remoteSaved = true;
-      invalidateConfig();
+      if (assistantId) {
+        await modelImagegenPut({
+          path: { assistant_id: assistantId },
+          body: { modelId: imageGenModel },
+          throwOnError: true,
+        });
+      }
     } catch {
-      // Errors already surfaced via toast + captureError inside the callees.
-    }
-    if (!remoteSaved) {
-      setSaving(false);
       return;
     }
     try {
@@ -83,17 +79,14 @@ export function ImageGenerationCard() {
     } catch (err) {
       captureError(err, { context: "settings-ai-image-gen-persist-local" });
       toast.error("Saved, but local preferences could not be written.");
-    } finally {
-      setSaving(false);
     }
   }, [
+    assistantId,
     imageGenApiKey,
     imageGenMode,
     imageGenModel,
-    patchDaemonConfig,
+    configMutation,
     provisionProviderKey,
-    invalidateConfig,
-    setImageGenModelOnDaemon,
   ]);
 
   const handleReset = useCallback(() => {
@@ -125,8 +118,8 @@ export function ImageGenerationCard() {
                 label: IMAGE_GEN_MODEL_DISPLAY_NAMES[model] ?? model,
               }))}
             />
-            <SaveButton onClick={handleSave} disabled={saving} />
-            {saving && (
+            <SaveButton onClick={handleSave} disabled={configMutation.isPending} />
+            {configMutation.isPending && (
               <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />
             )}
           </div>
@@ -157,8 +150,8 @@ export function ImageGenerationCard() {
           </div>
 
           <div className="flex items-center gap-2">
-            <SaveButton onClick={handleSave} disabled={saving} />
-            {saving && <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />}
+            <SaveButton onClick={handleSave} disabled={configMutation.isPending} />
+            {configMutation.isPending && <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />}
             <ResetButton onClick={handleReset} />
           </div>
         </div>

@@ -10,7 +10,7 @@ import { Tag } from "@vellum/design-library/components/tag";
 import { Typography } from "@vellum/design-library/components/typography";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
-import type { DaemonConfig, ProfileEntry, ProfileWithName } from "@/domains/settings/ai/ai-types";
+import type { CallSiteOverrideDraft, DaemonConfig, DaemonConfigPatch, ProfileEntry, ProfileWithName } from "@/domains/settings/ai/ai-types";
 import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal";
 import {
   AUTO_PROFILE_NAME,
@@ -18,7 +18,7 @@ import {
 } from "@/domains/settings/ai/profile-pickers";
 import { inferenceProviderconnectionsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import { filterFlaggedConnections } from "@/domains/settings/ai/provider-connections-client";
-import { useDaemonConfig, useDaemonConfigMutation } from "@/domains/settings/ai/use-daemon-config";
+import { useDaemonConfigQuery, useDaemonConfigMutation } from "@/domains/settings/ai/use-daemon-config";
 import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
 
 // ---------------------------------------------------------------------------
@@ -53,7 +53,7 @@ export function ManageProfilesModal({
     orderedProfiles,
     activeProfile,
     callSites,
-  } = useDaemonConfig();
+  } = useDaemonConfigQuery();
   const configMutation = useDaemonConfigMutation();
 
   const openAICompatibleEndpoints = useAssistantFeatureFlagStore.use.openAICompatibleEndpoints();
@@ -362,23 +362,23 @@ function ManageProfilesModalInner({
     setBlockedDeleteSaving(true);
     setBlockedDeleteError(null);
 
-    const patches: Record<string, unknown> = {};
+    const llmPatch: NonNullable<DaemonConfigPatch["llm"]> = {};
 
     if (blockedDelete.isActive) {
-      patches.activeProfile = blockedDeleteReplacement;
+      llmPatch.activeProfile = blockedDeleteReplacement;
     }
 
     if (blockedDelete.callSiteIds.length > 0) {
-      const callSitePatch: Record<string, unknown> = {};
+      const callSitePatch: Record<string, CallSiteOverrideDraft | null> = {};
       for (const id of blockedDelete.callSiteIds) {
         callSitePatch[id] = { profile: blockedDeleteReplacement };
       }
-      patches.callSites = callSitePatch;
+      llmPatch.callSites = callSitePatch;
     }
 
-    if (Object.keys(patches).length > 0) {
+    if (Object.keys(llmPatch).length > 0) {
       try {
-        await configMutation.mutateAsync({ llm: patches });
+        await configMutation.mutateAsync({ llm: llmPatch });
       } catch {
         setBlockedDeleteError("Failed to reassign references. Please try again.");
         setBlockedDeleteSaving(false);
