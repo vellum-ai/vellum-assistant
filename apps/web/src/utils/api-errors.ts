@@ -19,7 +19,7 @@ export function toErrorObject(
   response?: Response,
 ): Record<string, unknown> {
   if (error && typeof error === "object" && !Array.isArray(error)) {
-    return error as Record<string, unknown>;
+    return error as Record<string, unknown>; // narrowed from `object`
   }
 
   if (typeof error === "string" && !error.trimStart().startsWith("<")) {
@@ -43,17 +43,23 @@ export function extractErrorMessage(
   fallback?: string,
 ): string {
   if (error && typeof error === "object" && !Array.isArray(error)) {
-    const body = error as Record<string, unknown>;
-    if (typeof body.detail === "string") return body.detail;
-    if (typeof body.error === "string") return body.error;
-    if (
-      body.error &&
-      typeof body.error === "object" &&
-      typeof (body.error as Record<string, unknown>).message === "string"
-    ) {
-      return (body.error as Record<string, unknown>).message as string;
+    if ("detail" in error && typeof error.detail === "string") {
+      return error.detail;
     }
-    if (typeof body.message === "string") return body.message;
+    if ("error" in error) {
+      if (typeof error.error === "string") return error.error;
+      if (
+        error.error &&
+        typeof error.error === "object" &&
+        "message" in error.error &&
+        typeof error.error.message === "string"
+      ) {
+        return error.error.message;
+      }
+    }
+    if ("message" in error && typeof error.message === "string") {
+      return error.message;
+    }
   }
 
   if (

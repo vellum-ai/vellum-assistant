@@ -78,8 +78,11 @@ export function ApiKeyScreen() {
               aria-label="Provider"
               value={provider}
               onChange={(v) => {
-                setProvider(v as OnboardingProviderId);
-                setApiKey("");
+                const match = onboardingProvider(v);
+                if (match) {
+                  setProvider(match.id);
+                  setApiKey("");
+                }
               }}
               options={ONBOARDING_PROVIDERS.map((p) => ({
                 value: p.id,
