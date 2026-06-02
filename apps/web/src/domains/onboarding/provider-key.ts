@@ -8,6 +8,8 @@ import type { OnboardingProviderId } from "@/domains/onboarding/provider-catalog
 
 const PENDING_KEY_STORAGE = "onboarding.providerKey";
 
+const OPENAI_COMPATIBLE_FLAG = "openai-compatible-endpoints";
+
 export interface PendingProviderKey {
   provider: OnboardingProviderId;
   /** Empty for keyless providers (e.g. Ollama). */
@@ -66,6 +68,25 @@ export function consumePendingProviderKey(): PendingProviderKey | null {
 // than importing domains/settings/ai/provider-connections-client (cross-domain
 // imports are ESLint-gated in apps/web).
 
+// Raw template-literal URL (gateway route), matching
+// assistant-feature-flag-store.ts; the generated client has no typed path for
+// this endpoint.
+async function enableAssistantFeatureFlag(
+  assistantId: string,
+  flagKey: string,
+): Promise<void> {
+  const result = await client.patch({
+    url: `/v1/assistants/${assistantId}/feature-flags/${flagKey}`,
+    body: { enabled: true },
+    headers: { "Content-Type": "application/json" },
+  });
+  if (!result.response?.ok) {
+    throw Object.assign(new Error("Failed to enable feature flag"), {
+      status: result.response?.status,
+    });
+  }
+}
+
 async function writeApiKeySecret(
   assistantId: string,
   provider: OnboardingProviderId,
@@ -94,23 +115,36 @@ async function createProviderConnection(
   const auth = hasKey
     ? { type: "api_key", credential: `credential/${provider}/api_key` }
     : { type: "none" };
-  const result = await client.post({
-    url: "/v1/assistants/{assistant_id}/inference/provider-connections",
-    path: { assistant_id: assistantId },
-    body: {
-      name: provider,
-      provider,
-      auth,
-      ...(baseUrl ? { base_url: baseUrl } : {}),
-      ...(models && models.length > 0
-        ? { models: models.map((id) => ({ id })) }
-        : {}),
-    },
-    headers: { "Content-Type": "application/json" },
-  });
-  if (!result.response?.ok) {
+  const body = {
+    name: provider,
+    provider,
+    auth,
+    ...(baseUrl ? { base_url: baseUrl } : {}),
+    ...(models && models.length > 0
+      ? { models: models.map((id) => ({ id })) }
+      : {}),
+  };
+  // The daemon refreshes its feature-flag cache asynchronously, so right after
+  // enableAssistantFeatureFlag() returns it may still read
+  // openai-compatible-endpoints as disabled and reject the create with HTTP 400.
+  // Retry briefly to absorb that gateway->daemon propagation delay. Other
+  // providers (and genuine validation 400s) surface immediately.
+  const maxAttempts = provider === "openai-compatible" ? 5 : 1;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const result = await client.post({
+      url: "/v1/assistants/{assistant_id}/inference/provider-connections",
+      path: { assistant_id: assistantId },
+      body,
+      headers: { "Content-Type": "application/json" },
+    });
+    if (result.response?.ok) return;
+    const status = result.response?.status;
+    if (provider === "openai-compatible" && status === 400 && attempt < maxAttempts) {
+      await new Promise((r) => setTimeout(r, 250));
+      continue;
+    }
     throw Object.assign(new Error("Failed to create provider connection"), {
-      status: result.response?.status,
+      status,
     });
   }
 }
@@ -128,6 +162,9 @@ export async function applyPendingProviderKey(
   if (!pending) return;
   const trimmed = pending.key.trim();
   const hasKey = trimmed.length > 0;
+  if (pending.provider === "openai-compatible") {
+    await enableAssistantFeatureFlag(assistantId, OPENAI_COMPATIBLE_FLAG);
+  }
   if (hasKey) {
     await writeApiKeySecret(assistantId, pending.provider, trimmed);
   }
