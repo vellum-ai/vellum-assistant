@@ -50,6 +50,11 @@ export function conversationGroupsQueryKey(
   } as Options<GroupsGetData>);
 }
 
+/**
+ * @deprecated Use `configGetQueryKey` from the generated daemon SDK and
+ * predicate-based invalidation via {@link invalidateAssistantConfigQueries}
+ * instead. Retained temporarily for the sync migration.
+ */
 export function assistantDaemonConfigQueryKey(
   assistantId: string | null | undefined,
 ) {
@@ -112,8 +117,21 @@ export function invalidateAssistantConfigQueries(
   assistantId: string | null | undefined,
 ): void {
   if (!assistantId) return;
+  // Invalidate both the legacy hand-rolled key and the generated SDK key
+  // so queries using either shape are refreshed. The legacy key is removed
+  // once all consumers migrate to `configGetOptions`.
   void queryClient.invalidateQueries({
     queryKey: assistantDaemonConfigQueryKey(assistantId),
+  });
+  void queryClient.invalidateQueries({
+    predicate: (query) => {
+      const first = query.queryKey[0];
+      return (
+        first !== null &&
+        typeof first === "object" &&
+        (first as { _id?: unknown })._id === "configGet"
+      );
+    },
   });
 }
 

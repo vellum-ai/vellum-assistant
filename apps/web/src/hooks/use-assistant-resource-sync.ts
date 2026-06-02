@@ -79,6 +79,12 @@ export function useAssistantResourceSync(
               void queryClient.invalidateQueries({
                 queryKey: assistantDaemonConfigQueryKey(assistantId),
               });
+              // Also invalidate the generated SDK query key used by
+              // service cards that call `configGetOptions()` directly.
+              void queryClient.invalidateQueries({
+                predicate: (query) =>
+                  isGeneratedQueryKey(query.queryKey, "configGet"),
+              });
               break;
             case SYNC_TAGS.assistantSounds:
               void queryClient.invalidateQueries({

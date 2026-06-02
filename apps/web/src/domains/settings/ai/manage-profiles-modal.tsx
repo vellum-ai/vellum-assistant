@@ -11,7 +11,7 @@ import { Typography } from "@vellum/design-library/components/typography";
 import { client } from "@/generated/api/client.gen";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
-import { type ProfileEntry } from "@/domains/settings/ai/ai-page";
+import type { ProfileEntry } from "@/domains/settings/ai/ai-types";
 import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal";
 import {
   AUTO_PROFILE_NAME,

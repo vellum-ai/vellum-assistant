@@ -15,7 +15,11 @@ import { captureError } from "@/lib/sentry/capture-error";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { getDefaultModelForProvider, getModelsForProvider } from "@/assistant/llm-model-catalog";
 
-import { INFERENCE_PROVIDER_DISPLAY_NAMES, INFERENCE_PROVIDERS } from "@/domains/settings/ai/ai-page";
+import {
+  INFERENCE_PROVIDER_DISPLAY_NAMES,
+  INFERENCE_PROVIDERS,
+  type CallSiteOverrideDraft,
+} from "@/domains/settings/ai/ai-types";
 import {
   profilePickerLabel,
   visibleProfilesForPicker,
@@ -50,12 +54,6 @@ interface CallSiteDomain {
 interface CallSiteCatalog {
   domains: CallSiteDomain[];
   callSites: CallSiteEntry[];
-}
-
-export interface CallSiteOverrideDraft {
-  profile?: string | null;
-  provider?: string | null;
-  model?: string | null;
 }
 
 export interface CallSiteOverridesModalProps {
