@@ -6,6 +6,7 @@ import {
   conversationsQueryKey,
   backgroundConversationsQueryKey,
   scheduledConversationsQueryKey,
+  archivedConversationsQueryKey,
 } from "@/lib/sync/query-tags";
 
 import {
@@ -16,6 +17,7 @@ import {
   updateConversationsCache,
   updateBackgroundConversationsCache,
   updateScheduledConversationsCache,
+  updateArchivedConversationsCache,
   updateAllConversationCaches,
   findConversation,
   mergeConversationLists,
@@ -52,6 +54,10 @@ function seedScheduled(qc: QueryClient, conversations: Conversation[]) {
   qc.setQueryData(scheduledConversationsQueryKey(ASSISTANT_ID), conversations);
 }
 
+function seedArchived(qc: QueryClient, conversations: Conversation[]) {
+  qc.setQueryData(archivedConversationsQueryKey(ASSISTANT_ID), conversations);
+}
+
 function getForeground(qc: QueryClient): Conversation[] {
   return qc.getQueryData<Conversation[]>(conversationsQueryKey(ASSISTANT_ID)) ?? [];
 }
@@ -62,6 +68,10 @@ function getBackground(qc: QueryClient): Conversation[] {
 
 function getScheduled(qc: QueryClient): Conversation[] {
   return qc.getQueryData<Conversation[]>(scheduledConversationsQueryKey(ASSISTANT_ID)) ?? [];
+}
+
+function getArchived(qc: QueryClient): Conversation[] {
+  return qc.getQueryData<Conversation[]>(archivedConversationsQueryKey(ASSISTANT_ID)) ?? [];
 }
 
 // ---------------------------------------------------------------------------
@@ -193,11 +203,26 @@ describe("updateScheduledConversationsCache", () => {
 // updateAllConversationCaches
 // ---------------------------------------------------------------------------
 
+describe("updateArchivedConversationsCache", () => {
+  test("applies updater to archived cache only", () => {
+    seedForeground(qc, [makeConversation({ conversationId: "c1" })]);
+    seedArchived(qc, []);
+
+    updateArchivedConversationsCache(qc, ASSISTANT_ID, () => [
+      makeConversation({ conversationId: "a1" }),
+    ]);
+
+    expect(getArchived(qc)).toHaveLength(1);
+    expect(getForeground(qc)).toHaveLength(1);
+  });
+});
+
 describe("updateAllConversationCaches", () => {
-  test("applies updater to all three caches", () => {
+  test("applies updater to all four caches", () => {
     seedForeground(qc, [makeConversation({ conversationId: "c1", title: "old" })]);
     seedBackground(qc, [makeConversation({ conversationId: "bg1", title: "old" })]);
     seedScheduled(qc, [makeConversation({ conversationId: "s1", title: "old" })]);
+    seedArchived(qc, [makeConversation({ conversationId: "a1", title: "old" })]);
 
     updateAllConversationCaches(qc, ASSISTANT_ID, (list) =>
       list.map((c) => ({ ...c, title: "new" })),
@@ -206,6 +231,7 @@ describe("updateAllConversationCaches", () => {
     expect(getForeground(qc)[0].title).toBe("new");
     expect(getBackground(qc)[0].title).toBe("new");
     expect(getScheduled(qc)[0].title).toBe("new");
+    expect(getArchived(qc)[0].title).toBe("new");
   });
 });
 
@@ -238,10 +264,21 @@ describe("findConversation", () => {
     expect(result?.title).toBe("Sched");
   });
 
+  test("finds conversation in archived cache", () => {
+    seedForeground(qc, []);
+    seedBackground(qc, []);
+    seedScheduled(qc, []);
+    seedArchived(qc, [makeConversation({ conversationId: "a1", title: "Archived" })]);
+
+    const result = findConversation(qc, ASSISTANT_ID, "a1");
+    expect(result?.title).toBe("Archived");
+  });
+
   test("returns undefined when not found in any cache", () => {
     seedForeground(qc, []);
     seedBackground(qc, []);
     seedScheduled(qc, []);
+    seedArchived(qc, []);
 
     expect(findConversation(qc, ASSISTANT_ID, "nonexistent")).toBeUndefined();
   });
@@ -300,13 +337,14 @@ describe("mergeConversationLists", () => {
 // ---------------------------------------------------------------------------
 
 describe("getConversations", () => {
-  test("merges all three caches", () => {
+  test("merges all four caches", () => {
     seedForeground(qc, [makeConversation({ conversationId: "c1" })]);
     seedBackground(qc, [makeConversation({ conversationId: "bg1" })]);
     seedScheduled(qc, [makeConversation({ conversationId: "s1" })]);
+    seedArchived(qc, [makeConversation({ conversationId: "a1" })]);
 
     const result = getConversations(qc, ASSISTANT_ID);
-    expect(result).toHaveLength(3);
+    expect(result).toHaveLength(4);
   });
 
   test("returns empty array when no caches populated", () => {

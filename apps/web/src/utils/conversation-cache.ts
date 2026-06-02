@@ -11,10 +11,12 @@
  * - **Scheduled** under `scheduledConversationsQueryKey` — scheduled jobs
  *   only. Fetched lazily and independently, only once the user reveals the
  *   Scheduled sidebar section.
+ * - **Archived** under `archivedConversationsQueryKey` — archived
+ *   conversations. Fetched lazily when the user opens the archive view.
  *
  * A conversation lives in exactly one cache, so the cross-cache helpers
  * (`findConversation`, `getConversations`, `patchConversation`) read from
- * all three and write to all three — the caches that don't hold the row are
+ * all four and write to all four — the caches that don't hold the row are
  * a no-op. This lets every mutation, stream handler, and attention sweep
  * keep a single call site regardless of which bucket a conversation
  * belongs to.
@@ -49,7 +51,7 @@ import type { Conversation } from "@/types/conversation-types";
 // ---------------------------------------------------------------------------
 
 /** All conversation query keys for the given assistant. */
-function allConversationQueryKeys(assistantId: string) {
+function allConversationQueryKeys(assistantId: string | null) {
   return [
     conversationsQueryKey(assistantId),
     backgroundConversationsQueryKey(assistantId),
@@ -186,10 +188,26 @@ export function updateScheduledConversationsCache(
 }
 
 /**
- * Apply `updater` to all conversation caches. The caches that don't
- * contain the targeted row return their list unchanged, so the write is a
- * no-op there. Callers that mutate a row by id without knowing whether it
- * is a foreground, background, or scheduled conversation use this.
+ * Apply `updater` to the archived conversation cache.
+ */
+export function updateArchivedConversationsCache(
+  queryClient: QueryClient,
+  assistantId: string | null,
+  updater: ConversationUpdater,
+): void {
+  updateCache(
+    queryClient,
+    archivedConversationsQueryKey(assistantId),
+    updater,
+  );
+}
+
+/**
+ * Apply `updater` to all conversation caches (foreground, background,
+ * scheduled, and archived). The caches that don't contain the targeted row
+ * return their list unchanged, so the write is a no-op there. Callers that
+ * mutate a row by id without knowing which bucket a conversation belongs to
+ * use this.
  */
 export function updateAllConversationCaches(
   queryClient: QueryClient,
@@ -199,6 +217,7 @@ export function updateAllConversationCaches(
   updateConversationsCache(queryClient, assistantId, updater);
   updateBackgroundConversationsCache(queryClient, assistantId, updater);
   updateScheduledConversationsCache(queryClient, assistantId, updater);
+  updateArchivedConversationsCache(queryClient, assistantId, updater);
 }
 
 /**
@@ -211,11 +230,7 @@ export function findConversation(
   assistantId: string | null,
   key: string,
 ): Conversation | undefined {
-  for (const queryKey of [
-    conversationsQueryKey(assistantId),
-    backgroundConversationsQueryKey(assistantId),
-    scheduledConversationsQueryKey(assistantId),
-  ]) {
+  for (const queryKey of allConversationQueryKeys(assistantId)) {
     const match = queryClient
       .getQueryData<Conversation[]>(queryKey)
       ?.find((c) => c.conversationId === key);
@@ -264,19 +279,10 @@ export function getConversations(
   queryClient: QueryClient,
   assistantId: string | null,
 ): Conversation[] {
-  const foreground =
-    queryClient.getQueryData<Conversation[]>(
-      conversationsQueryKey(assistantId),
-    ) ?? [];
-  const background =
-    queryClient.getQueryData<Conversation[]>(
-      backgroundConversationsQueryKey(assistantId),
-    ) ?? [];
-  const scheduled =
-    queryClient.getQueryData<Conversation[]>(
-      scheduledConversationsQueryKey(assistantId),
-    ) ?? [];
-  return mergeConversationLists(foreground, background, scheduled);
+  const lists = allConversationQueryKeys(assistantId).map(
+    (key) => queryClient.getQueryData<Conversation[]>(key) ?? [],
+  );
+  return mergeConversationLists(...lists);
 }
 
 /**

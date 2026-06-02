@@ -352,7 +352,18 @@ describe("resolveDraftKey", () => {
 // ---------------------------------------------------------------------------
 
 describe("appendGroup", () => {
-  it("auto-computes sortPosition from the current group count", () => {
+  it("auto-computes sortPosition from the current group count when undefined", () => {
+    const qc = new QueryClient();
+    seedGroups(qc, [makeGroup("g1", "First", { sortPosition: 0 })]);
+    const group = makeGroup("g2", "Second");
+    (group as Record<string, unknown>).sortPosition = undefined;
+    appendGroup(qc, ASSISTANT_ID, group);
+    const groups = getGroups(qc);
+    expect(groups).toHaveLength(2);
+    expect(groups[1]!.sortPosition).toBe(1);
+  });
+
+  it("preserves sortPosition of 0", () => {
     const qc = new QueryClient();
     seedGroups(qc, [makeGroup("g1", "First", { sortPosition: 0 })]);
     appendGroup(
@@ -362,7 +373,7 @@ describe("appendGroup", () => {
     );
     const groups = getGroups(qc);
     expect(groups).toHaveLength(2);
-    expect(groups[1]!.sortPosition).toBe(1);
+    expect(groups[1]!.sortPosition).toBe(0);
   });
 });
 

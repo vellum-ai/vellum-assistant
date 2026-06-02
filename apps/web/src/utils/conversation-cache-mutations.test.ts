@@ -7,6 +7,7 @@ import {
   conversationsQueryKey,
   backgroundConversationsQueryKey,
   scheduledConversationsQueryKey,
+  archivedConversationsQueryKey,
   conversationGroupsQueryKey,
 } from "@/lib/sync/query-tags";
 
@@ -61,6 +62,10 @@ function seedScheduled(qc: QueryClient, conversations: Conversation[]) {
   qc.setQueryData(scheduledConversationsQueryKey(ASSISTANT_ID), conversations);
 }
 
+function seedArchived(qc: QueryClient, conversations: Conversation[]) {
+  qc.setQueryData(archivedConversationsQueryKey(ASSISTANT_ID), conversations);
+}
+
 function seedGroups(qc: QueryClient, groups: ConversationGroup[]) {
   qc.setQueryData<GroupsGetResponse>(
     conversationGroupsQueryKey(ASSISTANT_ID),
@@ -78,6 +83,10 @@ function getBackground(qc: QueryClient): Conversation[] {
 
 function getScheduled(qc: QueryClient): Conversation[] {
   return qc.getQueryData<Conversation[]>(scheduledConversationsQueryKey(ASSISTANT_ID)) ?? [];
+}
+
+function getArchived(qc: QueryClient): Conversation[] {
+  return qc.getQueryData<Conversation[]>(archivedConversationsQueryKey(ASSISTANT_ID)) ?? [];
 }
 
 function getGroups(qc: QueryClient): ConversationGroup[] {
@@ -249,6 +258,16 @@ describe("removeConversation", () => {
     expect(getScheduled(qc)).toHaveLength(0);
   });
 
+  test("removes from archived cache", () => {
+    seedArchived(qc, [
+      makeConversation({ conversationId: "a1" }),
+    ]);
+
+    removeConversation(qc, ASSISTANT_ID, "a1");
+
+    expect(getArchived(qc)).toHaveLength(0);
+  });
+
   test("returns same reference when conversation not found", () => {
     const original = [makeConversation({ conversationId: "c1" })];
     seedForeground(qc, original);
@@ -413,7 +432,7 @@ describe("deleteGroupAndResetConversations", () => {
     expect(convs[1].groupId).toBe("g2");
   });
 
-  test("clears groupId across all caches", () => {
+  test("clears groupId across all caches including archived", () => {
     seedGroups(qc, [makeGroup({ id: "g1", name: "Delete" })]);
     seedForeground(qc, [
       makeConversation({ conversationId: "c1", groupId: "g1" }),
@@ -424,12 +443,16 @@ describe("deleteGroupAndResetConversations", () => {
     seedScheduled(qc, [
       makeConversation({ conversationId: "s1", groupId: "g1", conversationType: "scheduled" }),
     ]);
+    seedArchived(qc, [
+      makeConversation({ conversationId: "a1", groupId: "g1" }),
+    ]);
 
     deleteGroupAndResetConversations(qc, ASSISTANT_ID, "g1");
 
     expect(getForeground(qc)[0].groupId).toBeUndefined();
     expect(getBackground(qc)[0].groupId).toBeUndefined();
     expect(getScheduled(qc)[0].groupId).toBeUndefined();
+    expect(getArchived(qc)[0].groupId).toBeUndefined();
   });
 
   test("no-op on conversations when no conversations have the groupId", () => {
