@@ -7,7 +7,8 @@
  * transient compile error.
  *
  * - `building`: a recompile started; `html` is the current (last-good)
- *   resolved html so the client can show a building overlay without blanking.
+ *   resolved html so the client can keep showing the last-good preview while a
+ *   rebuild is in flight.
  * - `ok`: recompile succeeded; `html` is the fresh resolved html and
  *   `reloadGeneration` is bumped so the client swaps the iframe.
  * - `error`: recompile failed; `html` is the previous good html, `buildErrors`

@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
   __getAppCompilerContextStats,
   __resetAppCompilerContextStats,
+  __setEsbuildLoaderOverride,
   compileApp,
   disposeAppCompilerContexts,
 } from "../bundler/app-compiler.js";
@@ -503,6 +504,50 @@ console.log("styled");`,
     expect(result.errors[0].location?.file).toBeTruthy();
     expect(typeof result.errors[0].location?.line).toBe("number");
     expect(typeof result.errors[0].location?.column).toBe("number");
+  });
+
+  // -------------------------------------------------------------------------
+  // Native-CLI fallback path (compiled macOS binary, where the esbuild JS API
+  // can't resolve). Forced by injecting a loader that reports it unavailable.
+  // -------------------------------------------------------------------------
+  describe("native-CLI fallback (JS API unavailable)", () => {
+    afterAll(() => __setEsbuildLoaderOverride(null));
+
+    test("falls back to the CLI binary and produces the same success shape", async () => {
+      // null = JS API cannot be resolved → compileBundle uses compileWithCli.
+      __setEsbuildLoaderOverride(async () => null);
+
+      const appDir = await scaffold("cli-fallback-ok", {
+        "main.tsx": `import { render } from "preact";
+const App = () => <div>cli-fallback</div>;
+render(<App />, document.body);`,
+        "index.html": MINIMAL_HTML,
+      });
+
+      const result = await compileApp(appDir);
+      expect(result.ok).toBe(true);
+      expect(result.errors).toHaveLength(0);
+
+      const js = await readFile(join(appDir, "dist", "main.js"), "utf-8");
+      expect(js).toContain("cli-fallback");
+      const html = await readFile(join(appDir, "dist", "index.html"), "utf-8");
+      expect(html).toContain('src="main.js"');
+    });
+
+    test("CLI fallback returns parsed diagnostics on a compile error", async () => {
+      __setEsbuildLoaderOverride(async () => null);
+
+      const appDir = await scaffold("cli-fallback-error", {
+        "main.tsx": `const x = <<<broken>>>;`,
+        "index.html": MINIMAL_HTML,
+      });
+
+      const result = await compileApp(appDir);
+      expect(result.ok).toBe(false);
+      expect(result.errors.length).toBeGreaterThan(0);
+      expect(typeof result.errors[0].text).toBe("string");
+      expect(result.errors[0].text.length).toBeGreaterThan(0);
+    });
   });
 });
 
