@@ -1220,12 +1220,6 @@ jobs:
       contents: read
       actions: read
     steps:
-      - name: Checkout config
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          sparse-checkout: .github/config/github_slack_mapping.yaml
-          sparse-checkout-cone-mode: false
-
       - name: Build Slack payload
         id: build
         env:
@@ -1301,11 +1295,11 @@ jobs:
 
           # Each line: "<first line of commit message> — @<author>", oldest first.
           # When the commit author is a bot (e.g. devin-ai-integration[bot]),
-          # resolve to the human Co-authored-by email via email_to_github mapping.
-          EMAIL_MAP=$(yq -o=json '.email_to_github' .github/config/github_slack_mapping.yaml)
+          # resolve to the human Co-authored-by email via the GitHub commits
+          # search API (no static mapping needed).
 
-          # jq filter: resolve bot authors to human co-authors, escape mrkdwn,
-          # and linkify PR references.
+          # jq filter: format a commit line, using $email_map to resolve bot
+          # authors to human co-authors.
           JQ_COMMIT_LINE='
             def escape: gsub("&";"&amp;") | gsub("<";"&lt;") | gsub(">";"&gt;");
             def linkify: gsub("\\(#(?<n>[0-9]+)\\)"; "(<https://github.com/\($repo)/pull/\(.n)|#\(.n)>)");
@@ -1320,11 +1314,39 @@ jobs:
             "\((.commit.message | split("\n")[0]) | escape | linkify) — @\($author)"
           '
 
+          # resolve_email_map: fetch commits, extract unique co-author emails
+          # from bot-authored commits, resolve each to a GitHub login via the
+          # commits search API, and build a JSON map.
+          resolve_email_map() {
+            local tmpfile="$1"
+            local map='{}'
+            local emails
+            emails=$(jq -r '
+              select((.author.login // "") | test("\\[bot\\]$")) |
+              [.commit.message | scan("(?i)co-authored-by:\\s*[^<]*<([^>]+)>")] |
+              map(.[0]) | map(select(test("\\[bot\\]|noreply") | not)) | .[]
+            ' "$tmpfile" | sort -u)
+
+            while IFS= read -r email; do
+              [ -z "$email" ] && continue
+              local login
+              login=$(gh api "/search/commits?q=author-email:${email}+repo:${REPO}&per_page=1" --jq '.items[0].author.login // empty' 2>/dev/null || true)
+              if [ -n "$login" ]; then
+                map=$(echo "$map" | jq --arg e "$email" --arg l "$login" '. + {($e): $l}')
+              fi
+            done <<< "$emails"
+            echo "$map"
+          }
+
           if [ -n "$PREV_SHA" ] && [ "$PREV_SHA" != "$HEAD_SHA" ]; then
             COMPARE_URL="https://github.com/${REPO}/compare/${PREV_SHA}...${HEAD_SHA}"
             TOTAL=$(gh api "repos/${REPO}/compare/${PREV_SHA}...${HEAD_SHA}" --jq '.total_commits')
-            mapfile -t LINES < <(gh api "repos/${REPO}/compare/${PREV_SHA}...${HEAD_SHA}" --paginate \
-              --jq '.commits[]' | jq -r --argjson email_map "$EMAIL_MAP" --arg repo "${REPO}" "$JQ_COMMIT_LINE")
+
+            TMPFILE=$(mktemp)
+            gh api "repos/${REPO}/compare/${PREV_SHA}...${HEAD_SHA}" --paginate --jq '.commits[]' > "$TMPFILE"
+            EMAIL_MAP=$(resolve_email_map "$TMPFILE")
+            mapfile -t LINES < <(jq -r --argjson email_map "$EMAIL_MAP" --arg repo "${REPO}" "$JQ_COMMIT_LINE" "$TMPFILE")
+            rm -f "$TMPFILE"
           else
             # First tracked release (or no new commits): fall back to HEAD itself.
             COMPARE_URL="https://github.com/${REPO}/commit/${HEAD_SHA}"
@@ -1333,8 +1355,11 @@ jobs:
               LINES=()
             else
               TOTAL=1
-              mapfile -t LINES < <(gh api "repos/${REPO}/commits/${HEAD_SHA}" \
-                | jq -r --argjson email_map "$EMAIL_MAP" --arg repo "${REPO}" "$JQ_COMMIT_LINE")
+              TMPFILE=$(mktemp)
+              gh api "repos/${REPO}/commits/${HEAD_SHA}" > "$TMPFILE"
+              EMAIL_MAP=$(resolve_email_map "$TMPFILE")
+              mapfile -t LINES < <(jq -r --argjson email_map "$EMAIL_MAP" --arg repo "${REPO}" "$JQ_COMMIT_LINE" "$TMPFILE")
+              rm -f "$TMPFILE"
             fi
           fi
 

@@ -1,22 +1,3 @@
-# Maps commit author emails to GitHub usernames. Used by the dev-release
-# notification to resolve bot commits (e.g. devin-ai-integration[bot]) to the
-# human co-author when a Co-authored-by trailer is present.
-email_to_github:
-  noa@vellum.ai: noanflaherty
-  anitakirkovska@gmail.com: AnitaKirkovska
-  ashlee@vellum.ai: ashleeradka
-  tirmansidhu@gmail.com: TirmanSidhu
-  jason@vellum.ai: Jasonnnz
-  jasonczhou3@gmail.com: Jasonnnz
-  trajk.marina@gmail.com: marinatrajk
-  agarg5@alumni.stanford.edu: agarg5
-  pragun@vellum.ai: pragunseth23
-  siddseethepalli@gmail.com: siddseethepalli
-  emmiekehoe@gmail.com: emmiekehoe
-  carson.s.shaar@gmail.com: Shaarson
-  vargas@vellum.ai: dvargasfuertes
-  dvargas92495@gmail.com: dvargas92495
-
 github_to_slack_all_notifications:
   noanflaherty: U04C2QS2404
   AnitaKirkovska: U060M1MUT7F
