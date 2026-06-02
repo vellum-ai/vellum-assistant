@@ -114,6 +114,7 @@ function makeState(
     },
     status: "running",
     conversationId: "conv-sub-1",
+    resolvedRole: "general",
     isFork: false,
     createdAt: Date.now(),
     usage: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },

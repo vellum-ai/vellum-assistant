@@ -25,6 +25,11 @@ import { ProviderNotConfiguredError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { getSandboxWorkingDir } from "../util/platform.js";
 import {
+  emitSubagentSpawnTelemetry,
+  emitSubagentTerminalTelemetry,
+  type SubagentBuildOutcome,
+} from "./telemetry.js";
+import {
   SUBAGENT_LIMITS,
   SUBAGENT_ROLE_REGISTRY,
   type SubagentConfig,
@@ -269,6 +274,7 @@ export class SubagentManager {
       },
       status: "pending",
       conversationId: conversationRecord.id,
+      resolvedRole: role,
       isFork,
       createdAt: now,
       usage: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
@@ -387,6 +393,16 @@ export class SubagentManager {
       },
       "Subagent spawned",
     );
+
+    // Per-phase telemetry: record the spawn with its tier (overrideProfile) so
+    // the tiered app-builder flow's fan-out is measurable per tier/phase.
+    emitSubagentSpawnTelemetry({
+      subagentId,
+      label: config.label,
+      role,
+      overrideProfile: config.overrideProfile,
+      isFork,
+    });
 
     // ── Kick off the agent loop (fire-and-forget), bounded by the cap ─
     // If we're already at the concurrency cap, leave the subagent in `pending`
@@ -522,6 +538,8 @@ export class SubagentManager {
 
         log.info({ subagentId }, "Subagent completed");
 
+        this.emitTerminalTelemetry(managed, "completed");
+
         // Notify the parent conversation so the LLM can call subagent_read.
         this.notifyParentTerminal(managed, "completed");
       }
@@ -536,6 +554,7 @@ export class SubagentManager {
       // Only update status if not already terminal (e.g. aborted).
       if (!TERMINAL_STATUSES.has(managed.state.status)) {
         this.setStatus(subagentId, "failed", getSender(), errorMsg);
+        this.emitTerminalTelemetry(managed, "failed");
         this.notifyParentTerminal(managed, "failed");
       }
 
@@ -636,6 +655,11 @@ export class SubagentManager {
     } else {
       managed.state.status = "aborted";
     }
+
+    // Per-phase telemetry. Usage may be partial here (the agent loop's usage
+    // copy races the abort), but tier/phase/duration/outcome are accurate —
+    // which is what tiering + failure-rate analysis needs.
+    this.emitTerminalTelemetry(managed, "aborted");
 
     log.info({ subagentId }, "Subagent aborted");
     return true;
@@ -920,6 +944,36 @@ export class SubagentManager {
       error,
       usage: managed.state.usage,
     } as ServerMessage);
+  }
+
+  /**
+   * Emit per-phase build telemetry for a subagent that has reached a terminal
+   * state. Pulls timing/tokens off the subagent's state (already populated by
+   * the caller) and tags the event with the resolved role (build phase) and
+   * overrideProfile (tier).
+   */
+  private emitTerminalTelemetry(
+    managed: ManagedSubagent,
+    outcome: SubagentBuildOutcome,
+  ): void {
+    const { state } = managed;
+    const durationMs =
+      state.startedAt !== undefined && state.completedAt !== undefined
+        ? state.completedAt - state.startedAt
+        : undefined;
+    emitSubagentTerminalTelemetry({
+      subagentId: state.config.id,
+      label: state.config.label,
+      role: state.resolvedRole,
+      overrideProfile: state.config.overrideProfile,
+      isFork: state.isFork,
+      outcome,
+      durationMs,
+      inputTokens: state.usage.inputTokens,
+      outputTokens: state.usage.outputTokens,
+      estimatedCost: state.usage.estimatedCost,
+      ...(state.error ? { error: state.error } : {}),
+    });
   }
 
   // ── Child → Parent notification ────────────────────────────────────
