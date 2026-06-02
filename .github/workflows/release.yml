@@ -2808,6 +2808,11 @@ jobs:
         with:
           bun-version: '1.3.11'
 
+      - name: Install workspace package dependencies
+        run: |
+          cd packages/environments && bun install --frozen-lockfile
+          cd ../local-mode && bun install --frozen-lockfile
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
         working-directory: cli
