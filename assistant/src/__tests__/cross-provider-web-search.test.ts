@@ -272,6 +272,13 @@ function executeWebSearch(input: Record<string, unknown>) {
   return webSearchTool.execute(input, {} as never);
 }
 
+function executeWebSearchWithSignal(
+  input: Record<string, unknown>,
+  signal: AbortSignal,
+) {
+  return webSearchTool.execute(input, { signal } as never);
+}
+
 // ---------------------------------------------------------------------------
 // OpenAI Responses API provider tests
 // ---------------------------------------------------------------------------
@@ -787,5 +794,26 @@ describe("Cross-Provider Web Search — app-side backend failure normalization",
     expect(result.content).not.toContain("do-not-leak-429");
     expect(meta?.errorMessage).not.toContain("quota burned");
     expect(meta?.errorMessage).not.toContain("do-not-leak-429");
+  });
+
+  test("caller abort re-throws instead of producing a backend failure (no telemetry)", async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    // A caller-aborted request surfaces an AbortError from fetch.
+    globalThis.fetch = (async () => {
+      const abortError = new Error("The operation was aborted");
+      abortError.name = "AbortError";
+      throw abortError;
+    }) as unknown as typeof fetch;
+
+    // The cancellation must re-throw so the executor's abort handling takes
+    // over — NOT resolve to the friendly backend-failure result.
+    await expect(
+      executeWebSearchWithSignal({ query: "cancel me" }, controller.signal),
+    ).rejects.toThrow();
+
+    // No spurious backend-failure telemetry for a user/external cancellation.
+    expect(backendFailureLog()).toBeUndefined();
   });
 });
