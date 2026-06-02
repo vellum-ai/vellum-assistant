@@ -29,9 +29,10 @@ Works with any connected email provider. Adapt query syntax to whatever the prov
 Do this before touching anything. Ask the user:
 
 **1. Aggressiveness level**
-- *Conservative* — newsletters with unsubscribe headers + obvious spam only
-- *Standard* — above + cold outreach heuristics (subject patterns, unknown senders)
-- *Aggressive* — above + anything from senders with no prior thread history
+
+- _Conservative_ — newsletters with unsubscribe headers + obvious spam only
+- _Standard_ — above + cold outreach heuristics (subject patterns, unknown senders)
+- _Aggressive_ — above + anything from senders with no prior thread history
 
 **2. Age threshold**
 Archive everything older than X days? Common choices: 30 / 60 / 90 days. Or no age filter.
@@ -43,6 +44,7 @@ Build an explicit keep list. Do not archive anything matching it, ever, regardle
 
 **4. Categories to confirm before archiving**
 These need a sample + explicit approval before bulk action:
+
 - Financial/billing alerts
 - Legal/contracts
 - Account suspension notices
@@ -52,17 +54,17 @@ These need a sample + explicit approval before bulk action:
 
 ## Phase 2: Urgency Triage (do this before any archiving)
 
-Scan the inbox first for high-stakes items that should be *surfaced*, not archived. Look for:
+Scan the inbox first for high-stakes items that should be _surfaced_, not archived. Look for:
 
-| Signal | Why it matters |
-|--------|---------------|
-| "past due", "overdue", "final notice", "balance due" | Outstanding invoice — financial consequence |
-| "will be suspended", "account suspension", "service interruption" | Service shutoff — operational consequence |
-| "collections", "case #", "recovery" in sender domain | Collections agency — credit/legal consequence |
-| "signature required", "agreement", "DocuSign pending" | Legal action needed |
-| Government TLDs (.gov), "IRS", "state of", "department of" | Regulatory — can't be skipped |
+| Signal                                                            | Why it matters                                |
+| ----------------------------------------------------------------- | --------------------------------------------- |
+| "past due", "overdue", "final notice", "balance due"              | Outstanding invoice — financial consequence   |
+| "will be suspended", "account suspension", "service interruption" | Service shutoff — operational consequence     |
+| "collections", "case #", "recovery" in sender domain              | Collections agency — credit/legal consequence |
+| "signature required", "agreement", "DocuSign pending"             | Legal action needed                           |
+| Government TLDs (.gov), "IRS", "state of", "department of"        | Regulatory — can't be skipped                 |
 
-Surface these to the user *before* running the cleanup. They're easy to miss buried in a big inbox.
+Surface these to the user _before_ running the cleanup. They're easy to miss buried in a big inbox.
 
 ---
 
@@ -79,6 +81,7 @@ Search for all inbox messages older than the user's age threshold (e.g. 30 days)
 ### Pass 2: Personalized cold outreach (subject patterns)
 
 Ask the user for their first name and company name, then search for subject lines containing patterns like:
+
 - `[FirstName] -`, `[FirstName],`, `for [FirstName]`, `hi [FirstName]`, `hey [FirstName]`, `[FirstName] |`
 - `[CompanyName] -`, `[CompanyName]?`, `for [CompanyName]`, `re: [CompanyName]`, `[CompanyName] AI`
 
@@ -87,6 +90,7 @@ These are the highest-recall patterns for cold outreach and partnership spam. A 
 ### Pass 3: Generic cold outreach phrases
 
 Search for subject lines containing:
+
 - "quick question", "quick note", "checking in"
 - "following up", "just following up", "circling back"
 - "would love to connect", "15 minutes", "quick call"
@@ -96,12 +100,14 @@ Search for subject lines containing:
 ### Pass 4: No-reply & newsletters
 
 Search for:
+
 - Messages from noreply/no-reply/donotreply sender addresses
 - Subject lines containing "unsubscribe", "newsletter", "weekly digest", "monthly digest"
 
 ### Pass 5: Calendar noise
 
 Search for subject lines containing:
+
 - "accepted:", "declined:", "tentative:"
 - "has accepted", "has declined", "invitation:"
 
@@ -110,6 +116,7 @@ Calendar response confirmations are pure noise. Safe to bulk archive without rev
 ### Pass 6: Transactional/receipts
 
 Search for subject lines containing:
+
 - "your order", "order confirmation", "your receipt"
 - "shipment", "has shipped", "delivered"
 
@@ -188,16 +195,16 @@ After cleanup, propose Gmail filters so the same categories don't re-accumulate.
 
 One-time bulk archiving and permanent auto-archiving are different risk levels. The auto-filter script only derives candidates from patterns marked "Yes" below:
 
-| Pattern | Safe as permanent filter? | Notes |
-|---------|--------------------------|-------|
-| noreply / no-reply / donotreply senders | Yes | Automated senders, never personal |
-| Calendar responses (accepted/declined in subject) | Yes | Pure noise |
-| Specific spam domains identified during cleanup | Yes | Domain-level, not pattern-level |
-| Sketchy TLDs (.shop, .biz, .xyz, .info) | Yes | High spam signal, low false positive risk |
-| Known newsletter senders confirmed during cleanup | Yes | User just explicitly confirmed unwanted |
-| Generic phrases ("quick question", "checking in") | Risky | Real colleagues use these — don't filter |
-| Name/company subject patterns ("for [Name]", "[Company] -") | No | Too broad — will catch real emails |
-| Age-based | No | Not generally supported as a filter condition |
+| Pattern                                                     | Safe as permanent filter? | Notes                                         |
+| ----------------------------------------------------------- | ------------------------- | --------------------------------------------- |
+| noreply / no-reply / donotreply senders                     | Yes                       | Automated senders, never personal             |
+| Calendar responses (accepted/declined in subject)           | Yes                       | Pure noise                                    |
+| Specific spam domains identified during cleanup             | Yes                       | Domain-level, not pattern-level               |
+| Sketchy TLDs (.shop, .biz, .xyz, .info)                     | Yes                       | High spam signal, low false positive risk     |
+| Known newsletter senders confirmed during cleanup           | Yes                       | User just explicitly confirmed unwanted       |
+| Generic phrases ("quick question", "checking in")           | Risky                     | Real colleagues use these — don't filter      |
+| Name/company subject patterns ("for [Name]", "[Company] -") | No                        | Too broad — will catch real emails            |
+| Age-based                                                   | No                        | Not generally supported as a filter condition |
 
 ### Running auto-filter generation
 
@@ -214,6 +221,7 @@ bun run scripts/gmail-auto-filters.ts generate --run-id "<cleanup-run-id>"
 If `--run-id` is omitted, the script finds the most recent completed cleanup run automatically.
 
 The script:
+
 1. Reads the cleanup run's op-log to extract archived patterns
 2. Derives filter candidates from safe categories only
 3. Fetches existing Gmail filters and skips duplicates
@@ -228,6 +236,7 @@ Every auto-filter applies an `auto/*` label instead of silently archiving. This 
 ### After filter creation
 
 Tell the user:
+
 - How many filters were created and what each covers
 - How to find auto-archived emails (search by label, e.g. `label:auto/no-reply`)
 - How to remove a filter: `bun run scripts/gmail-manage.ts filters --action delete --filter-id "<id>"`
@@ -238,15 +247,15 @@ Tell the user:
 
 From a single cleanup session on a startup founder's inbox (April 2026):
 
-| Pass | Approx. catch |
-|------|--------------|
-| Older than 30 days | ~7,200 |
-| Name-personalized subject patterns | ~35,000 |
-| Company-name subject patterns | ~50,000 |
-| Sketchy TLDs (.shop/.biz/.xyz) | ~3,741 |
-| Newsletters/digests | ~1,014 |
-| Calendar responses | ~142 |
-| Generic cold outreach phrases | ~23 |
-| Completed DocuSigns | ~34 |
+| Pass                               | Approx. catch |
+| ---------------------------------- | ------------- |
+| Older than 30 days                 | ~7,200        |
+| Name-personalized subject patterns | ~35,000       |
+| Company-name subject patterns      | ~50,000       |
+| Sketchy TLDs (.shop/.biz/.xyz)     | ~3,741        |
+| Newsletters/digests                | ~1,014        |
+| Calendar responses                 | ~142          |
+| Generic cold outreach phrases      | ~23           |
+| Completed DocuSigns                | ~34           |
 
 **Total: ~90,000+ emails in one session.** The name/company pattern passes alone accounted for ~85k. This is why patterns dominate sender scans.

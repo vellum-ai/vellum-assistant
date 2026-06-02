@@ -17,7 +17,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-19T19:26:17.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "api-mapping",
@@ -31,7 +31,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-03-17T07:13:56.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "assistant-migration",
@@ -123,7 +123,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-12T18:56:19.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "doordash",
@@ -137,7 +137,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-22T23:24:37.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "elevenlabs-voice",
@@ -151,7 +151,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-11T21:51:53.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "email-setup",
@@ -191,7 +191,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-14T15:15:31.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "geo-writing",
@@ -223,7 +223,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-01T17:55:47.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "google-calendar",
@@ -238,7 +238,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-19T13:24:39.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "guardian-verify-setup",
@@ -295,7 +295,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-01T17:55:47.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "inbox-management",
@@ -323,7 +323,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-01T17:55:47.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "influencer",
@@ -354,7 +354,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-12T18:56:19.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "llm-cost-optimizer",
@@ -386,7 +386,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-03-17T07:13:56.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "mailgun-setup",
@@ -401,7 +401,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-30T15:22:01.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "mcp-setup",
@@ -428,7 +428,7 @@
           "feature-flag": "meet"
         }
       },
-      "updatedAt": "2026-05-29T20:37:22.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "meme-generator",
@@ -480,7 +480,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-28T12:24:03.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "oura",
@@ -524,7 +524,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-18T22:44:36.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "outlook-calendar",
@@ -539,7 +539,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-19T13:24:39.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "public-ingress",
@@ -630,7 +630,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-12T18:56:19.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "slack",
@@ -644,7 +644,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-13T13:20:49.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "slack-app-setup",
@@ -674,7 +674,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-03-17T07:13:56.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "stripe-app-setup",
@@ -689,7 +689,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-12T18:56:19.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "stripe-link-wallet",
@@ -703,7 +703,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-14T15:15:31.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "tasks",
@@ -724,7 +724,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-19T19:30:32.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "telegram-setup",
@@ -745,7 +745,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-24T14:31:03.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "time-based-actions",
@@ -775,7 +775,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-18T20:08:28.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "typescript-eval",
@@ -846,7 +846,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants. Requires Python 3, bun, and the assistant credentials CLI.",
-      "updatedAt": "2026-05-03T13:17:10.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "vellum-heartbeat",
@@ -1002,7 +1002,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-12T18:56:19.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "voice-setup",
@@ -1026,7 +1026,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-11T21:51:53.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     },
     {
       "id": "watch-together",
@@ -1062,7 +1062,7 @@
         "icon": "assets/icon.svg",
         "emoji": "🌤️"
       },
-      "updatedAt": "2026-03-17T08:22:01.000Z"
+      "updatedAt": "2026-06-02T16:56:28.000Z"
     }
   ]
 }

@@ -78,5 +78,5 @@ map <domain> --manual --duration <secs> --json  # Manual mode with custom timeou
    - `POST /api/v3/syncRecordValues` - fetches page content
    - `POST /api/v3/submitTransaction` - creates/updates pages
    - `POST /api/v3/enqueueTask` - async operations (export, duplicate)
-   Authentication: Cookie-based session with `token_v2`."
+     Authentication: Cookie-based session with `token_v2`."
 7. Offer: "Want me to create a CLI tool that wraps these endpoints for managing Notion pages?"
