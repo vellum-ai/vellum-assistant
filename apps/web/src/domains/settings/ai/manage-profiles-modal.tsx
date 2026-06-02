@@ -8,7 +8,7 @@ import { Toggle } from "@vellum/design-library/components/toggle";
 import { Modal } from "@vellum/design-library/components/modal";
 import { Tag } from "@vellum/design-library/components/tag";
 import { Typography } from "@vellum/design-library/components/typography";
-import { client } from "@/generated/api/client.gen";
+import { configPatch } from "@/generated/daemon/sdk.gen";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 import type { ProfileEntry } from "@/domains/settings/ai/ai-types";
@@ -130,11 +130,9 @@ export function ManageProfilesModal({
     // branch, view-mode Save would destroy provider/model/advanced params
     // because the recreate step writes back ONLY the partial entry.
     if (mode === "merge" && !isNew) {
-      await client.patch({
-        url: `/v1/assistants/{assistant_id}/config`,
+      await configPatch({
         path: { assistant_id: assistantId },
         body: { llm: { profiles: { [name]: entry } } },
-        headers: { "Content-Type": "application/json" },
         throwOnError: true,
       });
       // Mirror the server's deep-merge in the in-memory state so the
@@ -181,32 +179,25 @@ export function ManageProfilesModal({
     // also fails, the error is still re-thrown so the caller surfaces it.
     if (!isNew) {
       const oldEntry = profiles[name];
-      await client.patch({
-        url: `/v1/assistants/{assistant_id}/config`,
+      await configPatch({
         path: { assistant_id: assistantId },
         body: { llm: { profiles: { [name]: null } } },
-        headers: { "Content-Type": "application/json" },
         throwOnError: true,
       });
       try {
-        await client.patch({
-          url: `/v1/assistants/{assistant_id}/config`,
+        await configPatch({
           path: { assistant_id: assistantId },
           body: { llm: llmPatch },
-          headers: { "Content-Type": "application/json" },
           throwOnError: true,
         });
       } catch (recreateErr) {
         // Best-effort rollback: restore old entry so the profile isn't lost
         if (oldEntry != null) {
-          await client
-            .patch({
-              url: `/v1/assistants/{assistant_id}/config`,
-              path: { assistant_id: assistantId },
-              body: { llm: { profiles: { [name]: oldEntry } } },
-              headers: { "Content-Type": "application/json" },
-              throwOnError: true,
-            })
+          await configPatch({
+            path: { assistant_id: assistantId },
+            body: { llm: { profiles: { [name]: oldEntry } } },
+            throwOnError: true,
+          })
             .catch(() => {
               /* rollback failed — original error still propagates */
             });
@@ -214,11 +205,9 @@ export function ManageProfilesModal({
         throw recreateErr;
       }
     } else {
-      await client.patch({
-        url: `/v1/assistants/{assistant_id}/config`,
+      await configPatch({
         path: { assistant_id: assistantId },
         body: { llm: llmPatch },
-        headers: { "Content-Type": "application/json" },
         throwOnError: true,
       });
     }
@@ -256,11 +245,9 @@ export function ManageProfilesModal({
       },
     });
     try {
-      await client.patch({
-        url: `/v1/assistants/{assistant_id}/config`,
+      await configPatch({
         path: { assistant_id: assistantId },
         body: { llm: { profiles: { [profile.name]: { status: wireStatus } } } },
-        headers: { "Content-Type": "application/json" },
         throwOnError: true,
       });
       return true;
@@ -482,11 +469,9 @@ function ManageProfilesModalInner({
     });
     try {
       const newOrder = profileOrder.filter((n) => n !== name);
-      await client.patch({
-        url: `/v1/assistants/{assistant_id}/config`,
+      await configPatch({
         path: { assistant_id: assistantId },
         body: { llm: { profiles: { [name]: null }, profileOrder: newOrder } },
-        headers: { "Content-Type": "application/json" },
         throwOnError: true,
       });
       onProfilesChanged({
@@ -546,11 +531,9 @@ function ManageProfilesModalInner({
 
     if (Object.keys(patches).length > 0) {
       try {
-        await client.patch({
-          url: `/v1/assistants/{assistant_id}/config`,
+        await configPatch({
           path: { assistant_id: assistantId },
           body: { llm: patches },
-          headers: { "Content-Type": "application/json" },
           throwOnError: true,
         });
         // Propagate all reassigned fields so the parent can invalidate its
@@ -605,11 +588,9 @@ function ManageProfilesModalInner({
     onProfilesChanged({ profileOrder: newOrder });
 
     try {
-      await client.patch({
-        url: `/v1/assistants/{assistant_id}/config`,
+      await configPatch({
         path: { assistant_id: assistantId },
         body: { llm: { profileOrder: newOrder } },
-        headers: { "Content-Type": "application/json" },
         throwOnError: true,
       });
       // Record the confirmed server state so concurrent-drag rollbacks

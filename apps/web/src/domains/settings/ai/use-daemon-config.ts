@@ -20,10 +20,10 @@ import {
 } from "@/generated/api/@tanstack/react-query.gen";
 import {
   configGet,
+  configPatch,
   secretsPost,
   modelImagegenPut,
 } from "@/generated/daemon/sdk.gen";
-import { client } from "@/generated/api/client.gen";
 import { captureError } from "@/lib/sentry/capture-error";
 import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
 import { assertProvisionSuccess } from "@/domains/settings/ai/ai-utils";
@@ -96,17 +96,12 @@ export function useDaemonConfig() {
     [resolveAssistantId],
   );
 
-  // PATCHes `assistants/{id}/config`, which Django's RuntimeProxyWildcardView
-  // forwards to the daemon. The generated `configPatch` has `body?: never`
-  // because the OpenAPI spec doesn't define a request body yet, so we use the
-  // raw client for now.
   const patchConfigMutation = useMutation({
     mutationFn: async (vars: {
       assistantId: string;
       partial: Record<string, unknown>;
     }) => {
-      const { data } = await client.patch<Record<string, unknown>, unknown, true>({
-        url: `/v1/assistants/{assistant_id}/config`,
+      const { data } = await configPatch({
         path: { assistant_id: vars.assistantId },
         body: vars.partial,
         throwOnError: true,

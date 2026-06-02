@@ -11,6 +11,7 @@ import { Toggle } from "@vellum/design-library/components/toggle";
 import { Modal } from "@vellum/design-library/components/modal";
 import { toast } from "@vellum/design-library/components/toast";
 import { client } from "@/generated/api/client.gen";
+import { configPatch } from "@/generated/daemon/sdk.gen";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { getDefaultModelForProvider, getModelsForProvider } from "@/assistant/llm-model-catalog";
@@ -402,11 +403,9 @@ function CallSiteOverridesModalInner({
           ? { profile: d?.profile ?? null, provider: d?.provider ?? null, model: d?.model ?? null }
           : null;
       }
-      await client.patch({
-        url: `/v1/assistants/{assistant_id}/config`,
+      await configPatch({
         path: { assistant_id: assistantId },
         body: { llm: { callSites: patch } },
-        headers: { "Content-Type": "application/json" },
         throwOnError: true,
       });
       onSaved();
@@ -430,11 +429,9 @@ function CallSiteOverridesModalInner({
       for (const id of Object.keys(drafts)) {
         resetPatch[id] = null;
       }
-      await client.patch({
-        url: `/v1/assistants/{assistant_id}/config`,
+      await configPatch({
         path: { assistant_id: assistantId },
         body: { llm: { callSites: resetPatch } },
-        headers: { "Content-Type": "application/json" },
         throwOnError: true,
       });
       onSaved();
