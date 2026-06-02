@@ -112,6 +112,21 @@ export interface OpenedAppState {
   dirName?: string;
   name: string;
   html: string;
+  /**
+   * Live-build status from the daemon's `app_preview_update` stream.
+   * Undefined for apps that haven't received a live-build event (e.g. just
+   * opened). `error` surfaces a non-blocking badge over the last-good html.
+   */
+  compileStatus?: "building" | "ok" | "error";
+  /** Compile diagnostics from the last `error` event; surfaced in the badge. */
+  buildErrors?: string[];
+  /**
+   * Generation counter bumped by the daemon on every SUCCESSFUL recompile
+   * (`compileStatus: "ok"`). Folded into the iframe key so a successful
+   * rebuild force-swaps the preview even when the resolved html is
+   * byte-identical to the currently open one.
+   */
+  reloadGeneration?: number;
 }
 
 export interface OpenedDocumentState {
@@ -163,6 +178,15 @@ export interface ViewerActions {
   openApp: (appId: string) => void;
   loadApp: (assistantId: string, appId: string) => Promise<void>;
   setLoadedApp: (app: OpenedAppState) => void;
+  updateOpenedAppPreview: (
+    appId: string,
+    update: {
+      html?: string;
+      compileStatus: "building" | "ok" | "error";
+      buildErrors?: string[];
+      reloadGeneration: number;
+    },
+  ) => void;
   handleAppLoadFailed: () => void;
   closeApp: () => void;
   toggleAppMinimized: () => void;
@@ -277,6 +301,57 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
 
   setLoadedApp: (app) => {
     set({ openedAppState: app });
+  },
+
+  /**
+   * Apply a daemon `app_preview_update` live-build event to the open app.
+   *
+   * No-ops unless the event targets the currently active app and that app is
+   * already loaded — stale events for a since-closed/switched app are dropped.
+   *
+   * Keep-last-good: only an `ok` event carries fresh html and swaps the
+   * preview. `building`/`error` update the status/errors but leave `html`
+   * AND `reloadGeneration` untouched so the last working preview stays
+   * visible and the iframe is not remounted on a transient failure.
+   *
+   * The daemon bumps `reloadGeneration` on every successful recompile so
+   * clients force-swap the iframe (it's folded into the iframe key). A
+   * successful rebuild whose resolved html is byte-identical therefore still
+   * remounts the preview — so the no-op guard below only skips when the html,
+   * generation, AND status are all unchanged.
+   */
+  updateOpenedAppPreview: (
+    appId,
+    { html, compileStatus, buildErrors, reloadGeneration },
+  ) => {
+    const prev = get().openedAppState;
+    if (!prev || get().activeAppId !== appId || prev.appId !== appId) return;
+    const isOk = compileStatus === "ok";
+    const nextHtml = isOk && html !== undefined ? html : prev.html;
+    // Only an `ok` event advances the stored generation; building/error keep
+    // the last-good generation so a transient failure never remounts.
+    const nextGeneration = isOk ? reloadGeneration : prev.reloadGeneration;
+    // Skip the update (and the re-render / iframe churn it triggers) when
+    // nothing observable changed — e.g. a repeated `building` heartbeat, or a
+    // successful recompile that resolved to byte-identical html AND did not
+    // bump the generation.
+    if (
+      prev.html === nextHtml &&
+      prev.reloadGeneration === nextGeneration &&
+      prev.compileStatus === compileStatus &&
+      prev.buildErrors === buildErrors
+    ) {
+      return;
+    }
+    set({
+      openedAppState: {
+        ...prev,
+        html: nextHtml,
+        compileStatus,
+        buildErrors,
+        reloadGeneration: nextGeneration,
+      },
+    });
   },
 
   handleAppLoadFailed: () => {

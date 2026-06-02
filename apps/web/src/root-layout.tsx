@@ -10,6 +10,7 @@ import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useAuthStore } from "@/stores/auth-store";
 import { useEnvironmentStore } from "@/stores/environment-store";
 import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
+import { useAppPreviewSync } from "@/hooks/use-app-preview-sync";
 import { useDocumentEditorSync } from "@/hooks/use-document-editor-sync";
 import { useNotificationIntentSync } from "@/hooks/use-notification-intent-sync";
 import { useConversationSync } from "@/hooks/use-conversation-sync";
@@ -80,6 +81,7 @@ export function RootLayout() {
   useFeatureFlagBusSync(assistantId, isAssistantActive);
   useNotificationIntentSync(assistantId);
   useDocumentEditorSync();
+  useAppPreviewSync();
 
   useEventBusInit({ assistantId, isAssistantActive });
   // Inbound deep-link navigation + window activation. Mounted here
