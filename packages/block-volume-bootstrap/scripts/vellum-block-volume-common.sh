@@ -10,26 +10,6 @@ block_log() {
   echo "vellum block volume: $*" >&2
 }
 
-block_is_dry_run() {
-  [ "${VELLUM_BLOCK_DRY_RUN:-}" = "1" ]
-}
-
-block_dry_run() {
-  if block_is_dry_run; then
-    echo "DRY-RUN: $*" >&2
-  fi
-}
-
-block_run() {
-  display="$1"
-  shift
-  if block_is_dry_run; then
-    block_dry_run "${display}"
-    return 0
-  fi
-  "$@"
-}
-
 block_require_value() {
   name="$1"
   value="$2"
@@ -79,11 +59,6 @@ block_normalize_absolute_non_root_path() {
 }
 
 block_detect_fs_type() {
-  if block_is_dry_run; then
-    block_dry_run "blkid -o value -s TYPE ${BLOCK_DEVICE}"
-    printf '%s\n' "${VELLUM_BLOCK_DRY_RUN_BLKID_TYPE:-}"
-    return 0
-  fi
   blkid -o value -s TYPE "${BLOCK_DEVICE}" 2>/dev/null || true
 }
 
@@ -122,11 +97,6 @@ block_wait_for_device() {
   timeout="${VELLUM_BLOCK_DEVICE_WAIT_TIMEOUT_SECONDS:-60}"
   block_validate_number "VELLUM_BLOCK_DEVICE_WAIT_TIMEOUT_SECONDS" "${timeout}"
 
-  if block_is_dry_run; then
-    block_dry_run "wait for block device ${BLOCK_DEVICE}"
-    return 0
-  fi
-
   elapsed=0
   while [ ! -b "${BLOCK_DEVICE}" ]; do
     if [ "${elapsed}" -ge "${timeout}" ]; then
@@ -138,8 +108,7 @@ block_wait_for_device() {
 }
 
 block_ensure_dir() {
-  path="$1"
-  block_run "mkdir -p ${path}" mkdir -p "${path}"
+  mkdir -p "$1"
 }
 
 block_find_mount_details() {
@@ -147,23 +116,6 @@ block_find_mount_details() {
   BLOCK_MOUNT_SOURCE=""
   BLOCK_MOUNT_OPTIONS=""
   BLOCK_MOUNT_FSROOT=""
-
-  if block_is_dry_run; then
-    block_dry_run "findmnt --mountpoint ${target}"
-    if [ "${VELLUM_BLOCK_DRY_RUN_FINDMNT_MOUNTED:-}" != "1" ]; then
-      return 1
-    fi
-    if [ -n "${VELLUM_BLOCK_DRY_RUN_FINDMNT_TARGET:-}" ] &&
-      [ "${VELLUM_BLOCK_DRY_RUN_FINDMNT_TARGET}" != "${target}" ]; then
-      return 1
-    fi
-    BLOCK_MOUNT_SOURCE="${VELLUM_BLOCK_DRY_RUN_FINDMNT_SOURCE:-}"
-    BLOCK_MOUNT_OPTIONS="${VELLUM_BLOCK_DRY_RUN_FINDMNT_OPTIONS:-}"
-    BLOCK_MOUNT_FSROOT="${VELLUM_BLOCK_DRY_RUN_FINDMNT_FSROOT:-}"
-    [ -n "${BLOCK_MOUNT_SOURCE}" ] || block_die "unable to determine mount source for ${target}"
-    [ -n "${BLOCK_MOUNT_OPTIONS}" ] || block_die "unable to determine mount options for ${target}"
-    return 0
-  fi
 
   if ! findmnt --mountpoint "${target}" >/dev/null 2>&1; then
     return 1
@@ -183,7 +135,7 @@ block_sources_match() {
   [ "${expected}" = "${actual}" ] && return 0
   [ "${expected}[/]" = "${actual}" ] && return 0
 
-  if ! block_is_dry_run && command -v readlink >/dev/null 2>&1; then
+  if command -v readlink >/dev/null 2>&1; then
     expected_real="$(readlink -f "${expected}" 2>/dev/null || true)"
     actual_real="$(readlink -f "${actual}" 2>/dev/null || true)"
     if [ -n "${expected_real}" ] && [ -n "${actual_real}" ] &&
@@ -212,7 +164,7 @@ block_mount_source_matches_device_fsroot() {
     return 0
   fi
 
-  if ! block_is_dry_run && command -v readlink >/dev/null 2>&1; then
+  if command -v readlink >/dev/null 2>&1; then
     device_real="$(readlink -f "${BLOCK_DEVICE}" 2>/dev/null || true)"
     if [ -n "${device_real}" ] &&
       [ "${actual_source}" = "${device_real}[${expected_fsroot}]" ]; then
@@ -260,7 +212,7 @@ block_mount_root() {
     block_log "${BLOCK_ROOT} is already mounted"
     return 0
   fi
-  block_run "mount ${BLOCK_DEVICE} ${BLOCK_ROOT}" mount "${BLOCK_DEVICE}" "${BLOCK_ROOT}"
+  mount "${BLOCK_DEVICE}" "${BLOCK_ROOT}"
 }
 
 block_parse_bind_spec() {

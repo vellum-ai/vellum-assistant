@@ -9,8 +9,8 @@ block_print_resize_evidence() {
   path="$1"
   [ -n "${path}" ] || return 0
 
-  block_run "findmnt --target ${path}" findmnt --target "${path}"
-  block_run "df -h ${path}" df -h "${path}"
+  findmnt --target "${path}"
+  df -h "${path}"
 }
 
 block_validate_mode_env
@@ -41,5 +41,5 @@ case "${fs_type}" in
     ;;
 esac
 
-block_run "resize2fs ${BLOCK_DEVICE}" resize2fs "${BLOCK_DEVICE}"
+resize2fs "${BLOCK_DEVICE}"
 block_print_resize_evidence "${evidence_path}"

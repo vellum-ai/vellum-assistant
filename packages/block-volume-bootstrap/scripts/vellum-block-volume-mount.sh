@@ -30,24 +30,16 @@ block_mount_bind_spec() {
       block_verify_mount_mode "${target}" "ro" "${BLOCK_MOUNT_OPTIONS}"
     fi
   else
-    block_run "mount --bind ${source_path} ${target}" mount --bind "${source_path}" "${target}"
+    mount --bind "${source_path}" "${target}"
   fi
 
   if [ "${requested_mode}" = "ro" ]; then
-    block_run "mount -o remount,bind,ro ${target}" mount -o remount,bind,ro "${target}"
+    mount -o remount,bind,ro "${target}"
   fi
 }
 
 block_hide_root_before_exec() {
-  block_run "umount ${BLOCK_ROOT}" umount "${BLOCK_ROOT}"
-}
-
-block_join_command() {
-  joined=""
-  for arg in "$@"; do
-    joined="${joined}${joined:+ }${arg}"
-  done
-  printf '%s\n' "${joined}"
+  umount "${BLOCK_ROOT}"
 }
 
 block_validate_exec_env() {
@@ -71,22 +63,8 @@ block_exec_service() {
   uid="${VELLUM_BLOCK_EXEC_UID:-}"
   gid="${VELLUM_BLOCK_EXEC_GID:-}"
 
-  command_display="$(block_join_command "$@")"
-
   if [ -n "${uid}" ]; then
-    setpriv_display="setpriv --reuid ${uid} --regid ${gid} --clear-groups -- ${command_display}"
-
-    if block_is_dry_run; then
-      block_dry_run "exec ${setpriv_display}"
-      return 0
-    fi
-
     exec setpriv --reuid "${uid}" --regid "${gid}" --clear-groups -- "$@"
-  fi
-
-  if block_is_dry_run; then
-    block_dry_run "exec ${command_display}"
-    return 0
   fi
   exec "$@"
 }

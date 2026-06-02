@@ -10,7 +10,7 @@ block_prepare_top_level_dir() {
   owner="$2"
   path="$(block_child_path "${name}")"
   block_ensure_dir "${path}"
-  block_run "chown ${owner} ${path}" chown "${owner}" "${path}"
+  chown "${owner}" "${path}"
 }
 
 block_validate_mode_env
@@ -20,7 +20,7 @@ block_wait_for_device
 fs_type="$(block_detect_fs_type)"
 case "${fs_type}" in
   '')
-    block_run "mkfs.ext4 -F ${BLOCK_DEVICE}" mkfs.ext4 -F "${BLOCK_DEVICE}"
+    mkfs.ext4 -F "${BLOCK_DEVICE}"
     ;;
   ext4)
     block_log "${BLOCK_DEVICE} already contains an ext4 filesystem"
