@@ -21,6 +21,21 @@ mock.module("@/utils/device-settings", () => ({
   },
 }));
 
+// The hook subscribes to the cross-domain bus `app.resume` signal via
+// `useBusSubscription`, which calls `subscribe` from `@/lib/event-bus`.
+// Capture the registered event + handler so we can invoke it directly, and
+// expose an unsubscribe mock so we can assert teardown on unmount.
+let busEvent: string | null = null;
+let busHandler: (() => void) | null = null;
+const busUnsubscribe = mock(() => {});
+mock.module("@/lib/event-bus", () => ({
+  subscribe: (event: string, handler: () => void) => {
+    busEvent = event;
+    busHandler = handler;
+    return busUnsubscribe;
+  },
+}));
+
 const { useEffectiveTimezone } = await import("@/utils/use-effective-timezone");
 
 function renderTracked() {
@@ -34,7 +49,10 @@ function renderTracked() {
 beforeEach(() => {
   currentZone = "America/New_York";
   watchCallback = null;
+  busEvent = null;
+  busHandler = null;
   unwatch.mockClear();
+  busUnsubscribe.mockClear();
   localStorage.clear();
 });
 
@@ -61,34 +79,21 @@ describe("useEffectiveTimezone", () => {
     expect(result.current).toBe("Europe/Paris");
   });
 
-  test("updates on visibilitychange to visible", () => {
+  test("subscribes to the bus `app.resume` signal", () => {
+    renderHook(() => useEffectiveTimezone());
+    expect(busEvent).toBe("app.resume");
+    expect(busHandler).not.toBeNull();
+  });
+
+  test("updates when the bus `app.resume` signal fires", () => {
     const { result } = renderHook(() => useEffectiveTimezone());
 
     currentZone = "Asia/Tokyo";
-    Object.defineProperty(document, "visibilityState", {
-      value: "visible",
-      configurable: true,
-    });
     act(() => {
-      window.dispatchEvent(new Event("visibilitychange"));
+      busHandler?.();
     });
 
     expect(result.current).toBe("Asia/Tokyo");
-  });
-
-  test("ignores visibilitychange when not visible", () => {
-    const { result } = renderHook(() => useEffectiveTimezone());
-
-    currentZone = "Asia/Tokyo";
-    Object.defineProperty(document, "visibilityState", {
-      value: "hidden",
-      configurable: true,
-    });
-    act(() => {
-      window.dispatchEvent(new Event("visibilitychange"));
-    });
-
-    expect(result.current).toBe("America/New_York");
   });
 
   test("updates when the device:timezone watcher fires", () => {
@@ -103,13 +108,15 @@ describe("useEffectiveTimezone", () => {
     expect(result.current).toBe("Europe/London");
   });
 
-  test("calls the watcher cleanup on unmount", () => {
+  test("calls the watcher and bus cleanups on unmount", () => {
     const { unmount } = renderHook(() => useEffectiveTimezone());
     expect(unwatch).not.toHaveBeenCalled();
+    expect(busUnsubscribe).not.toHaveBeenCalled();
 
     unmount();
 
     expect(unwatch).toHaveBeenCalledTimes(1);
+    expect(busUnsubscribe).toHaveBeenCalledTimes(1);
   });
 
   test("does not re-render when the recomputed value is unchanged", () => {
