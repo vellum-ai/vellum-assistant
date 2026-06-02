@@ -31,8 +31,6 @@ import {
   assistantSoundsAvailableQueryKey,
   assistantSoundsConfigQueryKey,
   avatarQueryKey,
-  HOME_FEED_QUERY_KEY_PREFIX,
-  HOME_STATE_QUERY_KEY_PREFIX,
 } from "@/lib/sync/query-tags";
 import { SYNC_TAGS } from "@/lib/sync/types";
 
@@ -109,16 +107,16 @@ export function useAssistantResourceSync(
 
       case "home_feed_updated":
         void queryClient.invalidateQueries({
-          queryKey: [HOME_FEED_QUERY_KEY_PREFIX],
+          predicate: (query) => isHomeFeedGetQueryKey(query.queryKey),
         });
         return;
 
       case "relationship_state_updated":
         void queryClient.invalidateQueries({
-          queryKey: [HOME_FEED_QUERY_KEY_PREFIX],
+          predicate: (query) => isHomeFeedGetQueryKey(query.queryKey),
         });
         void queryClient.invalidateQueries({
-          queryKey: [HOME_STATE_QUERY_KEY_PREFIX],
+          predicate: (query) => isHomeStateGetQueryKey(query.queryKey),
         });
         return;
 
@@ -137,11 +135,26 @@ export function useAssistantResourceSync(
   });
 }
 
-function isAppsGetQueryKey(queryKey: readonly unknown[]): boolean {
+function isGeneratedQueryKey(
+  queryKey: readonly unknown[],
+  id: string,
+): boolean {
   const firstKeyPart = queryKey[0];
   return (
     firstKeyPart !== null &&
     typeof firstKeyPart === "object" &&
-    (firstKeyPart as { _id?: unknown })._id === "appsGet"
+    (firstKeyPart as { _id?: unknown })._id === id
   );
+}
+
+function isAppsGetQueryKey(queryKey: readonly unknown[]): boolean {
+  return isGeneratedQueryKey(queryKey, "appsGet");
+}
+
+function isHomeFeedGetQueryKey(queryKey: readonly unknown[]): boolean {
+  return isGeneratedQueryKey(queryKey, "homeFeedGet");
+}
+
+function isHomeStateGetQueryKey(queryKey: readonly unknown[]): boolean {
+  return isGeneratedQueryKey(queryKey, "homeStateGet");
 }
