@@ -43,7 +43,7 @@ import {
   prependConversation,
   removeConversation,
   resolveDraftKey,
-} from "@/hooks/conversation-cache-mutations";
+} from "@/utils/conversation-cache-mutations";
 import { findConversation } from "@/utils/conversation-cache";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import {

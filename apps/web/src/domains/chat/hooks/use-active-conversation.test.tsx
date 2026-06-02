@@ -32,10 +32,9 @@ mock.module("@/hooks/conversation-queries", () => ({
   useConversationListQuery: () => ({ conversations: foregroundImpl }),
   useBackgroundConversationListQuery: () => ({ conversations: backgroundImpl }),
   useScheduledConversationListQuery: () => ({ conversations: scheduledImpl }),
-  conversationGroupsQueryKey: () => ["groups"],
 }));
 
-mock.module("@/hooks/conversation-cache-mutations", () => ({
+mock.module("@/utils/conversation-cache-mutations", () => ({
   refreshConversationRow: async (
     _queryClient: unknown,
     assistantId: string | null,

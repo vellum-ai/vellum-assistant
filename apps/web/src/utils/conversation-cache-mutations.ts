@@ -28,7 +28,7 @@ import {
   CONVERSATION_NOT_FOUND,
   fetchConversationDetail,
 } from "@/utils/fetch-conversation-detail";
-import { conversationGroupsQueryKey } from "@/hooks/conversation-queries";
+import { conversationGroupsQueryKey } from "@/lib/sync/query-tags";
 
 // ---------------------------------------------------------------------------
 // Conversation cache helpers

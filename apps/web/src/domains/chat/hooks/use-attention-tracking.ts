@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { useConversationStore } from "@/stores/conversation-store";
 import { useConversationListQuery } from "@/hooks/conversation-queries";
-import { markConversationSeenLocal } from "@/hooks/conversation-cache-mutations";
+import { markConversationSeenLocal } from "@/utils/conversation-cache-mutations";
 import { getConversations } from "@/utils/conversation-cache";
 import { conversationsSeenPost } from "@/generated/daemon/sdk.gen";
 import { listConversationIdsWithPendingInteractions } from "@/domains/chat/api/interactions";

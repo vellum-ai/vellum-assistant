@@ -16,7 +16,6 @@ mock.module("@/hooks/conversation-queries", () => ({
     conversations: [],
     isPending: false,
   }),
-  conversationGroupsQueryKey: () => ["groups"],
 }));
 
 const { SIDEBAR_CONVERSATION_LIMIT, useSidebarState } = await import(

@@ -6,8 +6,8 @@
  * companion `conversation-store.ts` keeps only the client-side slice —
  * active/editing key, processing/attention sets, and snapshots.
  *
- * Fetch functions live in `conversation-list-fetchers.ts`.
- * Cache mutation helpers live in `conversation-cache-mutations.ts`.
+ * Fetch functions live in `utils/conversation-list-fetchers.ts`.
+ * Cache mutation helpers live in `utils/conversation-cache-mutations.ts`.
  *
  * References:
  * - https://tanstack.com/query/latest/docs/framework/react/guides/queries
@@ -18,7 +18,6 @@ import { useQuery } from "@tanstack/react-query";
 
 import {
   groupsGetOptions,
-  groupsGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { Options } from "@/generated/daemon/sdk.gen";
 import type {
@@ -37,24 +36,7 @@ import {
   listBackgroundConversations,
   listConversations,
   listScheduledConversations,
-} from "@/hooks/conversation-list-fetchers";
-
-// ---------------------------------------------------------------------------
-// Query key helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Build the generated query key for conversation groups. Exported so that
- * invalidation call sites (sync stream, loader, group actions) can target
- * the same cache entry that `useConversationGroupsQuery` populates.
- */
-export function conversationGroupsQueryKey(
-  assistantId: string | null,
-): ReturnType<typeof groupsGetQueryKey> {
-  return groupsGetQueryKey({
-    path: { assistant_id: assistantId ?? "" },
-  } as Options<GroupsGetData>);
-}
+} from "@/utils/conversation-list-fetchers";
 
 // ---------------------------------------------------------------------------
 // Queries

@@ -15,15 +15,17 @@ import type {
   GroupsPostData,
 } from "@/generated/daemon/types.gen";
 
-import { conversationGroupsQueryKey } from "@/hooks/conversation-queries";
 import {
   appendGroup,
   deleteGroupAndResetConversations,
   patchGroup,
   removeGroup,
   replaceOptimisticGroup,
-} from "@/hooks/conversation-cache-mutations";
-import { conversationsQueryKey } from "@/lib/sync/query-tags";
+} from "@/utils/conversation-cache-mutations";
+import {
+  conversationGroupsQueryKey,
+  conversationsQueryKey,
+} from "@/lib/sync/query-tags";
 
 import { haptic } from "@/utils/haptics";
 import type { ConversationGroup } from "@/types/conversation-types";

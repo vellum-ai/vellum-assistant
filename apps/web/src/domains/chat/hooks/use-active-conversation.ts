@@ -26,7 +26,7 @@ import {
   useConversationListQuery,
   useScheduledConversationListQuery,
 } from "@/hooks/conversation-queries";
-import { refreshConversationRow } from "@/hooks/conversation-cache-mutations";
+import { refreshConversationRow } from "@/utils/conversation-cache-mutations";
 
 export function useActiveConversation(
   assistantId: string | null,
