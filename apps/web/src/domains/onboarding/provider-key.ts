@@ -12,6 +12,10 @@ export interface PendingProviderKey {
   provider: OnboardingProviderId;
   /** Empty for keyless providers (e.g. Ollama). */
   key: string;
+  /** Custom endpoint base URL; set only for openai-compatible. */
+  baseUrl?: string;
+  /** Model identifiers exposed by the endpoint; set only for openai-compatible. */
+  models?: string[];
 }
 
 export function setPendingProviderKey(value: PendingProviderKey | null): void {
@@ -84,6 +88,8 @@ async function createProviderConnection(
   assistantId: string,
   provider: OnboardingProviderId,
   hasKey: boolean,
+  baseUrl?: string,
+  models?: string[],
 ): Promise<void> {
   const auth = hasKey
     ? { type: "api_key", credential: `credential/${provider}/api_key` }
@@ -91,7 +97,15 @@ async function createProviderConnection(
   const result = await client.post({
     url: "/v1/assistants/{assistant_id}/inference/provider-connections",
     path: { assistant_id: assistantId },
-    body: { name: provider, provider, auth },
+    body: {
+      name: provider,
+      provider,
+      auth,
+      ...(baseUrl ? { base_url: baseUrl } : {}),
+      ...(models && models.length > 0
+        ? { models: models.map((id) => ({ id })) }
+        : {}),
+    },
     headers: { "Content-Type": "application/json" },
   });
   if (!result.response?.ok) {
@@ -117,5 +131,11 @@ export async function applyPendingProviderKey(
   if (hasKey) {
     await writeApiKeySecret(assistantId, pending.provider, trimmed);
   }
-  await createProviderConnection(assistantId, pending.provider, hasKey);
+  await createProviderConnection(
+    assistantId,
+    pending.provider,
+    hasKey,
+    pending.baseUrl?.trim() || undefined,
+    pending.models,
+  );
 }
