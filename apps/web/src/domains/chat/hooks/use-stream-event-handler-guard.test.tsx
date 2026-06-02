@@ -14,6 +14,9 @@ mock.module(
     handleAssistantTextDelta: (event: { conversationId?: string }) => {
       handlerCalls.push({ kind: "assistant_text_delta", conversationId: event.conversationId });
     },
+    handleAssistantThinkingDelta: (event: { conversationId?: string }) => {
+      handlerCalls.push({ kind: "assistant_thinking_delta", conversationId: event.conversationId });
+    },
     handleAssistantTurnStart: (event: { conversationId?: string }) => {
       handlerCalls.push({ kind: "assistant_turn_start", conversationId: event.conversationId });
     },
