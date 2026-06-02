@@ -684,9 +684,21 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["secrets"],
     responseBody: z.object({
       secrets: z
-        .array(z.unknown())
+        .array(
+          z.object({
+            type: z.enum(["api_key", "credential"]),
+            name: z.string(),
+          }),
+        )
         .describe("List of secret metadata entries, each with type and name"),
-      accounts: z.array(z.unknown()).describe("Alias for secrets (same data)"),
+      accounts: z
+        .array(
+          z.object({
+            type: z.enum(["api_key", "credential"]),
+            name: z.string(),
+          }),
+        )
+        .describe("Alias for secrets (same data)"),
     }),
     handler: handleListSecrets,
   },

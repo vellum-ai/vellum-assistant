@@ -225,11 +225,14 @@ src/
       turn-coordinator.ts          #   atomic turn-store + conversation-store transitions
       turn-selectors.ts            #   render-decision selectors from TurnState
   hooks/                           # cross-domain shared hooks
-    conversation-queries.ts        #   TanStack Query hooks + cache helpers
+    conversation-queries.ts        #   TanStack Query hooks for conversations/groups
     use-conversation-sync.ts       #   SSE-driven metadata sync
     use-is-mobile.ts
     use-visible-viewport.ts
   utils/                           # cross-domain shared utilities
+    conversation-cache.ts          #   low-level read/write over conversation caches
+    conversation-cache-mutations.ts #  domain-level cache mutation helpers
+    conversation-list-fetchers.ts  #   pure async fetch functions for conversation lists
     conversation-transforms.ts     #   daemon → client field mapping
     format.ts
     browser.ts

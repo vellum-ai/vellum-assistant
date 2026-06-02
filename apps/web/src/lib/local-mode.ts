@@ -1,5 +1,3 @@
-// Transport: Vite dev middleware for now. In Electron, swap to IPC (window.electronAPI.readLockfile).
-
 import {
   getLocalSetting,
   removeLocalSetting,
@@ -12,30 +10,32 @@ import {
   getLocalTokenUrl,
 } from "@/lib/auth/gateway-session";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
+import {
+  loadLockfileHost,
+  replacePlatformAssistantsHost,
+  retireLocalAssistantHost,
+  saveLockfileAssistantHost,
+} from "@/runtime/local-mode-host";
+import type {
+  Lockfile,
+  LockfileAssistant,
+  LocalAssistantResources,
+  LocalRetireResult,
+} from "@/runtime/local-mode-host";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export interface LocalAssistantResources {
-  gatewayPort: number;
-  daemonPort: number;
-}
-
-export interface LockfileAssistant {
-  assistantId: string;
-  name?: string;
-  cloud: string;
-  runtimeUrl: string;
-  species?: string;
-  hatchedAt?: string;
-  resources?: LocalAssistantResources;
-}
-
-export interface Lockfile {
-  assistants: LockfileAssistant[];
-  activeAssistant: string | null;
-}
+// The lockfile shape is the transport contract shared by the Electron IPC and
+// dev-server branches, so the seam owns it; re-exported here for the renderer
+// features that read and model assistants.
+export type {
+  Lockfile,
+  LockfileAssistant,
+  LocalAssistantResources,
+  LocalRetireResult,
+};
 
 // ---------------------------------------------------------------------------
 // Module-level cache
@@ -62,9 +62,7 @@ export function isLocalMode(): boolean {
 
 export async function loadLockfile(): Promise<Lockfile> {
   try {
-    const res = await fetch("/assistant/__local/lockfile");
-    if (!res.ok) throw new Error(`lockfile fetch failed: ${res.status}`);
-    const data: Lockfile = await res.json();
+    const data = await loadLockfileHost();
     lockfile = data;
     setLocalSetting(LOCKFILE_STORAGE_KEY, JSON.stringify(data));
     return data;
@@ -96,23 +94,20 @@ export function getLockfile(): Lockfile {
 // ---------------------------------------------------------------------------
 
 /**
- * Write an assistant entry to the lockfile on disk and refresh the cache.
- *
- * Transport: fetch to Vite dev middleware endpoint.
- * In Electron, replace with: window.electronAPI.saveLockfileAssistant(entry) (LUM-1998)
+ * Write an assistant entry to the lockfile on disk and refresh the cache,
+ * making it the active assistant. Silently no-ops on a write failure, matching
+ * the prior behaviour where the cache is only updated on success.
  */
 export async function saveLockfileAssistant(
   assistant: { assistantId: string; cloud: string; runtimeUrl: string; hatchedAt: string },
 ): Promise<void> {
-  const res = await fetch("/assistant/__local/lockfile", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ assistant, activeAssistant: assistant.assistantId }),
-  });
-  if (res.ok) {
-    const { lockfile: updated } = (await res.json()) as { lockfile: Lockfile };
-    lockfile = updated;
-    setLocalSetting(LOCKFILE_STORAGE_KEY, JSON.stringify(updated));
+  const result = await saveLockfileAssistantHost(
+    assistant,
+    assistant.assistantId,
+  );
+  if (result.ok) {
+    lockfile = result.lockfile;
+    setLocalSetting(LOCKFILE_STORAGE_KEY, JSON.stringify(result.lockfile));
   }
 }
 
@@ -132,15 +127,10 @@ export async function syncPlatformAssistantsToLockfile(
       hatchedAt: a.created,
     }));
 
-  const res = await fetch("/assistant/__local/lockfile", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ syncPlatform: true, platformAssistants }),
-  });
-  if (res.ok) {
-    const { lockfile: updated } = (await res.json()) as { lockfile: Lockfile };
-    lockfile = updated;
-    setLocalSetting(LOCKFILE_STORAGE_KEY, JSON.stringify(updated));
+  const result = await replacePlatformAssistantsHost(platformAssistants);
+  if (result.ok) {
+    lockfile = result.lockfile;
+    setLocalSetting(LOCKFILE_STORAGE_KEY, JSON.stringify(result.lockfile));
   }
 }
 
@@ -148,26 +138,15 @@ export async function syncPlatformAssistantsToLockfile(
 // Retire
 // ---------------------------------------------------------------------------
 
-export interface LocalRetireResult {
-  ok: boolean;
-  error?: string;
-}
-
 /**
- * Retire a local assistant via the dev server middleware (shells out to CLI).
- *
- * Transport: fetch to Vite dev middleware endpoint.
- * In Electron, replace with: window.electronAPI.retireAssistant(assistantId) (LUM-2000)
+ * Retire a local assistant, then clear its selection, gateway token, and
+ * self-hosted connection and reload the lockfile. On failure the local state
+ * is left untouched and the error is returned for the caller to surface.
  */
 export async function retireLocalAssistant(
   assistantId: string,
 ): Promise<LocalRetireResult> {
-  const res = await fetch("/assistant/__local/retire", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ assistantId }),
-  });
-  const result = (await res.json()) as LocalRetireResult;
+  const result = await retireLocalAssistantHost(assistantId);
   if (result.ok) {
     clearSelectedAssistant();
     clearGatewayToken();
@@ -181,7 +160,10 @@ export async function retireLocalAssistant(
 // Assistant queries
 // ---------------------------------------------------------------------------
 
-/** In Electron, replace with: window.electronAPI.hasAssistants() (LUM-1998) */
+/**
+ * Whether any assistant is known locally. Reads the in-memory lockfile cache,
+ * so it stays synchronous on every host — no transport hop required.
+ */
 export function hasAssistants(): boolean {
   return getLockfile().assistants.length > 0;
 }

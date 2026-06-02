@@ -56,6 +56,11 @@ import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { redactSecrets } from "../security/secret-scanner.js";
 import { extractDomain } from "../tools/network/domain-normalize.js";
 import {
+  classifyWebSearchFailure,
+  logWebSearchBackendFailure,
+  WEB_SEARCH_BACKEND_FAILURE_MESSAGE,
+} from "../tools/network/web-search-error.js";
+import {
   buildPricingUsage,
   resolveStructuredPricing,
 } from "../usage/pricing.js";
@@ -246,12 +251,32 @@ export interface EventHandlerState {
   readonly serverToolStartedAt: Map<string, number>;
   /** Original input from server_tool_start, keyed by tool_use_id, so the complete handler can read the query. */
   readonly serverToolInputs: Map<string, Record<string, unknown>>;
+  /** Request ids for which a user-facing web_search backend-failure notice was already surfaced this turn (dedup noisy repeats). Keyed by request id; each turn has a fresh request id, so this grows at most one entry per turn. */
+  readonly webSearchBackendFailureNotified: Set<string>;
   /** Active debounce timer for partial persistence; `undefined` when idle. */
   pendingPartialFlushTimer: ReturnType<typeof setTimeout> | undefined;
   /** In-flight partial flush write awaited at finalize to avoid overwrite races. */
   pendingPartialFlushPromise: Promise<void> | undefined;
   /** Running mirror of the in-flight assistant message's content. */
   currentMessageContent: ContentBlock[];
+  /**
+   * Whether the workspace top-level block should be (re)injected on this
+   * turn. Compaction's prepare phase strips the workspace / NOW.md / PKB
+   * blocks off the tail, so it is set after any successful compaction to
+   * force the workspace overview back in. On an ordinary turn the block is
+   * already present in history, so it defaults `false` to avoid burning
+   * tokens re-injecting it redundantly.
+   */
+  shouldInjectWorkspace: boolean;
+  /**
+   * Whether the reducer has compacted `ctx.messages`, gating the Slack
+   * chronological-transcript override on re-injection. The captured
+   * transcript is the full persisted history; blindly replaying it after
+   * compaction would overwrite the reduced messages and undo compaction, so
+   * once this is `true` the override falls back to the reduced
+   * `ctx.messages`.
+   */
+  reducerCompacted: boolean;
 }
 
 /** Immutable context shared across event handlers within a single agent loop run. */
@@ -311,9 +336,12 @@ export function createEventHandlerState(): EventHandlerState {
     turnStartedAt: Date.now(),
     serverToolStartedAt: new Map(),
     serverToolInputs: new Map(),
+    webSearchBackendFailureNotified: new Set(),
     pendingPartialFlushTimer: undefined,
     pendingPartialFlushPromise: undefined,
     currentMessageContent: [],
+    shouldInjectWorkspace: false,
+    reducerCompacted: false,
   };
 }
 
@@ -1828,9 +1856,65 @@ export async function dispatchAgentEvent(
         // for them would mis-label the provider and ship empty results.
         const isAnthropicNative = deps.ctx.provider.name === "anthropic";
 
-        const errorMessage = event.isError
-          ? (event.errorMessage ?? event.errorCode ?? "Search failed")
-          : undefined;
+        // Classify provider failures through the shared normalizer so the same
+        // friendly copy propagates to every client via WebSearchMetadata, while
+        // the raw provider detail stays in telemetry only (ATL-727).
+        const classification = classifyWebSearchFailure({
+          errorCode: event.errorCode,
+          error: event.errorMessage,
+          isError: event.isError,
+          hasResults: results.length > 0,
+        });
+
+        let errorMessage: string | undefined;
+        let fallbackShown = false;
+        if (event.isError) {
+          // A genuine backend failure OR an unclassifiable, message-less native
+          // failure (e.g. `isError:true` with no `error_code`) both surface the
+          // friendly backend copy: a terse "Search failed" placeholder is the
+          // confusing copy this normalization exists to eliminate (ATL-727).
+          // Recoverable categories that carry a real user message
+          // (query_too_long, max_uses_exceeded) keep their own copy.
+          const useBackendCopy =
+            classification.isBackendFailure || !classification.userMessage;
+          if (useBackendCopy) {
+            // Dedup the user-facing friendly notice per turn (request id) so a
+            // burst of failures surfaces at most one full notice. The raw
+            // provider error is preserved on every failure via telemetry below.
+            const alreadyNotified = state.webSearchBackendFailureNotified.has(
+              deps.reqId,
+            );
+            if (alreadyNotified) {
+              errorMessage = "Search is still having trouble.";
+            } else {
+              state.webSearchBackendFailureNotified.add(deps.reqId);
+              errorMessage = WEB_SEARCH_BACKEND_FAILURE_MESSAGE;
+              fallbackShown = true;
+            }
+
+            // Backend-failure telemetry (provider outages / rate limits) must
+            // fire only for genuine backend classifications so it does not
+            // count recoverable input/quota errors — or a message-less unknown
+            // failure that merely borrows the friendly copy — as provider
+            // outages.
+            if (classification.isBackendFailure) {
+              logWebSearchBackendFailure(deps.rlog, {
+                provider: isAnthropicNative
+                  ? "anthropic-native"
+                  : deps.ctx.provider.name,
+                requestId: deps.reqId,
+                errorCategory: classification.category,
+                rawDetail: classification.rawDetail,
+                fallbackShown,
+                queryLength: query.length,
+              });
+            }
+          } else {
+            // Recoverable, non-backend categories with their own user-facing
+            // copy (query_too_long, max_uses_exceeded) keep that message.
+            errorMessage = classification.userMessage;
+          }
+        }
 
         const metadata: WebSearchMetadata | undefined = isAnthropicNative
           ? {

@@ -15,7 +15,7 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { createElement, type RefObject } from "react";
+import { createElement } from "react";
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
@@ -129,7 +129,7 @@ type HookReturn = ReturnType<typeof useMessageReconciliation>;
 // ---------------------------------------------------------------------------
 
 interface HarnessProps {
-  initialPageOldestTsRef?: RefObject<number | null>;
+  latestPageOldestTimestamp?: number | null;
   collect: (result: HookReturn) => void;
 }
 
@@ -139,7 +139,7 @@ let hookModule: typeof import("./use-message-reconciliation") | null = null;
 function HookHarness(props: HarnessProps): null {
   if (!hookModule) throw new Error("hookModule not loaded");
   const result = hookModule.useMessageReconciliation({
-    initialPageOldestTsRef: props.initialPageOldestTsRef ?? makeRef(null),
+    latestPageOldestTimestamp: props.latestPageOldestTimestamp ?? null,
   });
   props.collect(result);
   return null;
@@ -158,9 +158,7 @@ let messages: DisplayMessage[] = [];
 let unsubscribeMessages: (() => void) | null = null;
 let onPollReconciledSpy: ReturnType<typeof mock>;
 
-function makeRef<T>(value: T): RefObject<T> {
-  return { current: value };
-}
+
 
 function makeMessage(
   overrides: Omit<DisplayMessage, "id"> & { id?: string },

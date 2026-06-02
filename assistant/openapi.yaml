@@ -18821,11 +18821,37 @@ paths:
                 properties:
                   secrets:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        type:
+                          type: string
+                          enum:
+                            - api_key
+                            - credential
+                        name:
+                          type: string
+                      required:
+                        - type
+                        - name
+                      additionalProperties: false
                     description: List of secret metadata entries, each with type and name
                   accounts:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        type:
+                          type: string
+                          enum:
+                            - api_key
+                            - credential
+                        name:
+                          type: string
+                      required:
+                        - type
+                        - name
+                      additionalProperties: false
                     description: Alias for secrets (same data)
                 required:
                   - secrets

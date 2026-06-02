@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "re
 
 import type { GlobalSearchResponse } from "@/domains/chat/api/global-search";
 import { searchGlobal } from "@/domains/chat/api/global-search";
+import { useCommandPaletteStore } from "@/stores/command-palette-store";
 
 export interface UseCommandPaletteOptions {
   /** Total number of items in the results list, for bounds clamping. Can be a number or a getter function for lazy evaluation to avoid stale closure issues. */
@@ -42,7 +43,10 @@ export function useCommandPalette({
   onSelect,
   assistantId,
 }: UseCommandPaletteOptions): UseCommandPaletteReturn {
-  const [isOpen, setIsOpen] = useState(false);
+  const isOpen = useCommandPaletteStore.use.isOpen();
+  const storeOpen = useCommandPaletteStore.use.open();
+  const storeClose = useCommandPaletteStore.use.close();
+
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [isSearching, setIsSearching] = useState(false);
@@ -67,18 +71,18 @@ export function useCommandPalette({
   }, []);
 
   const open = useCallback(() => {
-    setIsOpen(true);
+    storeOpen();
     setSelectedIndex(0);
-  }, []);
+  }, [storeOpen]);
 
   const close = useCallback(() => {
-    setIsOpen(false);
+    storeClose();
     setQuery("");
     setSelectedIndex(0);
     setIsSearching(false);
     setSearchResults(null);
     cancelSearch();
-  }, [cancelSearch]);
+  }, [storeClose, cancelSearch]);
 
   const toggle = useCallback(() => {
     if (isOpen) {
@@ -87,6 +91,18 @@ export function useCommandPalette({
       open();
     }
   }, [isOpen, close, open]);
+
+  // Reset local state when palette is closed externally (e.g. via the
+  // store's toggle called from the layout-level search button).
+  useEffect(() => {
+    if (!isOpen) {
+      setQuery("");
+      setSelectedIndex(0);
+      setIsSearching(false);
+      setSearchResults(null);
+      cancelSearch();
+    }
+  }, [isOpen, cancelSearch]);
 
   /**
    * Trigger a debounced search for the given query value. Immediately clears
@@ -140,7 +156,7 @@ export function useCommandPalette({
     [triggerSearch],
   );
 
-  // Cleanup on unmount.
+  // Cleanup on unmount — cancel in-flight searches.
   useEffect(() => {
     return () => {
       abortControllerRef.current?.abort();

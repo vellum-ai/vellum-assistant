@@ -131,6 +131,42 @@ export interface VellumBridge {
       assistantId?: string;
       error?: string;
     }>;
+    /**
+     * Read the local-assistant lockfile, with sensitive fields stripped.
+     * Resolves with the parsed lockfile (`{ assistants, activeAssistant }`),
+     * or an empty lockfile shape when none exists yet. Rejects on a genuine
+     * read/parse error so the renderer surfaces it.
+     */
+    readLockfile(): Promise<Record<string, unknown>>;
+    /**
+     * Insert or update one assistant in the lockfile and optionally set the
+     * active assistant. Resolves with the updated, stripped lockfile on
+     * success or `{ ok: false, error }` on a validation/write failure.
+     */
+    saveLockfileAssistant(
+      assistant: Record<string, unknown>,
+      activeAssistant?: string,
+    ): Promise<
+      | { ok: true; lockfile: Record<string, unknown> }
+      | { ok: false; error: string }
+    >;
+    /**
+     * Replace every platform (`cloud === "vellum"`) assistant in the lockfile
+     * with the provided set, preserving local assistants. Resolves with the
+     * updated, stripped lockfile on success or `{ ok: false, error }`.
+     */
+    replacePlatformAssistants(
+      platformAssistants: Array<Record<string, unknown>>,
+    ): Promise<
+      | { ok: true; lockfile: Record<string, unknown> }
+      | { ok: false; error: string }
+    >;
+    /**
+     * Retire a local assistant via the Vellum CLI's `retire`. Mirrors
+     * `hatch`'s never-reject contract: resolves with `{ ok: false, error }`
+     * on failure rather than rejecting.
+     */
+    retire(assistantId: string): Promise<{ ok: boolean; error?: string }>;
   };
   mainWindow: {
     /**
@@ -227,6 +263,37 @@ const bridge: VellumBridge = {
       ipcRenderer.invoke("vellum:localMode:hatch", species) as Promise<{
         ok: boolean;
         assistantId?: string;
+        error?: string;
+      }>,
+    readLockfile: () =>
+      ipcRenderer.invoke("vellum:localMode:readLockfile") as Promise<
+        Record<string, unknown>
+      >,
+    saveLockfileAssistant: (
+      assistant: Record<string, unknown>,
+      activeAssistant?: string,
+    ) =>
+      ipcRenderer.invoke(
+        "vellum:localMode:saveLockfileAssistant",
+        assistant,
+        activeAssistant,
+      ) as Promise<
+        | { ok: true; lockfile: Record<string, unknown> }
+        | { ok: false; error: string }
+      >,
+    replacePlatformAssistants: (
+      platformAssistants: Array<Record<string, unknown>>,
+    ) =>
+      ipcRenderer.invoke(
+        "vellum:localMode:replacePlatformAssistants",
+        platformAssistants,
+      ) as Promise<
+        | { ok: true; lockfile: Record<string, unknown> }
+        | { ok: false; error: string }
+      >,
+    retire: (assistantId: string) =>
+      ipcRenderer.invoke("vellum:localMode:retire", assistantId) as Promise<{
+        ok: boolean;
         error?: string;
       }>,
   },

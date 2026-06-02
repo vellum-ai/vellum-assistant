@@ -4,7 +4,6 @@ import { QueryClient } from "@tanstack/react-query";
 
 import {
   appendGroup,
-  conversationGroupsQueryKey,
   deleteGroupAndResetConversations,
   markConversationSeenLocal,
   patchGroup,
@@ -13,18 +12,19 @@ import {
   removeGroup,
   replaceOptimisticGroup,
   resolveDraftKey,
-} from "@/hooks/conversation-queries";
-import { conversationsQueryKey } from "@/lib/sync/query-tags";
+} from "@/utils/conversation-cache-mutations";
+import {
+  backgroundConversationsQueryKey,
+  conversationGroupsQueryKey,
+  conversationsQueryKey,
+  scheduledConversationsQueryKey,
+} from "@/lib/sync/query-tags";
 import { patchConversation } from "@/utils/conversation-cache";
 import type {
   Conversation,
   ConversationGroup,
 } from "@/types/conversation-types";
 import type { GroupsGetResponse } from "@/generated/daemon/types.gen";
-import {
-  backgroundConversationsQueryKey,
-  scheduledConversationsQueryKey,
-} from "@/lib/sync/query-tags";
 import { getConversations as getMergedConversations } from "@/utils/conversation-cache";
 
 const ASSISTANT_ID = "ast-1";

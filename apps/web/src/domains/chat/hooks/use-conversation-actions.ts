@@ -1,10 +1,16 @@
 
 import { captureError } from "@/lib/sentry/capture-error";
 import { type MutableRefObject, useCallback } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-import { patchConversation } from "@/utils/conversation-cache";
-import { archivedConversationsQueryKey } from "@/lib/sync/query-tags";
+import {
+  cancelConversationQueries,
+  invalidateConversationQueries,
+  patchConversation,
+  restoreConversationCaches,
+  snapshotConversationCaches,
+  type ConversationCacheSnapshot,
+} from "@/utils/conversation-cache";
 import { isSlackConversation } from "@/domains/chat/utils/group-conversations";
 import {
   conversationsByIdArchivePost,
@@ -64,6 +70,25 @@ export function resolveUnpinGroupId(
 }
 
 // ---------------------------------------------------------------------------
+// Mutation variable types
+// ---------------------------------------------------------------------------
+
+type ArchiveVars = { assistantId: string; conversationId: string };
+type UnarchiveVars = { assistantId: string; conversationId: string };
+type MarkReadVars = { assistantId: string; conversationId: string };
+type MarkUnreadVars = { assistantId: string; conversationId: string };
+type MoveToGroupVars = {
+  assistantId: string;
+  conversationId: string;
+  groupId: string;
+  isPinned: boolean;
+  previousIsPinned: boolean;
+  previousGroupId: string | undefined;
+};
+
+type MutationContext = { snapshot: ConversationCacheSnapshot };
+
+// ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
 
@@ -71,9 +96,19 @@ export function resolveUnpinGroupId(
  * Conversation CRUD actions: archive, unarchive, rename, mark read/unread,
  * pin/unpin, and move between groups.
  *
- * All mutations apply optimistic updates against the TanStack Query cache
- * via `patchConversation` before calling the API, and roll back on
- * failure.
+ * Single-item mutations use `useMutation` with the TanStack-recommended
+ * optimistic update lifecycle (`onMutate` → `onError` → `onSettled`):
+ *   1. Cancel outgoing refetches
+ *   2. Snapshot the cache
+ *   3. Apply the optimistic update
+ *   4. On error: restore the snapshot
+ *   5. On settle: invalidate so TanStack refetches
+ *
+ * Batch mutations (archive-all, mark-all-read) follow the same lifecycle
+ * manually with per-item rollback.
+ *
+ * References:
+ * - https://tanstack.com/query/latest/docs/framework/react/guides/optimistic-updates
  *
  * @returns Stable callbacks for each conversation action.
  */
@@ -81,7 +116,6 @@ interface UseConversationActionsParams {
   assistantId: string | null;
   activeConversationId: string | null;
   conversations: Conversation[];
-  refreshConversations: () => Promise<void>;
   switchConversation: (key: string) => void;
   startNewConversation: (opts?: { silent?: boolean }) => void;
   prePinGroupIdsRef: MutableRefObject<Map<string, string | undefined>>;
@@ -91,43 +125,156 @@ export function useConversationActions({
   assistantId,
   activeConversationId,
   conversations,
-  refreshConversations,
   switchConversation,
   startNewConversation,
   prePinGroupIdsRef,
 }: UseConversationActionsParams) {
   const queryClient = useQueryClient();
 
+  // -------------------------------------------------------------------------
+  // Mutations — TanStack-recommended onMutate / onError / onSettled lifecycle
+  //
+  // Each mutation:
+  //   onMutate  → cancelQueries, snapshot, optimistic setQueryData
+  //   onError   → restore snapshot, captureError
+  //   onSettled → invalidateQueries (refetch from server)
+  // -------------------------------------------------------------------------
+
+  const archiveMutation = useMutation<void, Error, ArchiveVars, MutationContext>({
+    mutationFn: async ({ assistantId: aid, conversationId }) => {
+      await conversationsByIdArchivePost({
+        path: { assistant_id: aid, id: conversationId },
+        throwOnError: true,
+      });
+    },
+    onMutate: async ({ assistantId: aid, conversationId }) => {
+      await cancelConversationQueries(queryClient, aid);
+      const snapshot = snapshotConversationCaches(queryClient, aid);
+      patchConversation(queryClient, aid, conversationId, { archivedAt: Date.now() });
+      return { snapshot };
+    },
+    onError: (err, _vars, context) => {
+      if (context?.snapshot) restoreConversationCaches(queryClient, context.snapshot);
+      captureError(err, { context: "archiveConversation" });
+    },
+    onSettled: (_data, _err, { assistantId: aid }) => {
+      void invalidateConversationQueries(queryClient, aid);
+    },
+  });
+
+  const unarchiveMutation = useMutation<void, Error, UnarchiveVars, MutationContext>({
+    mutationFn: async ({ assistantId: aid, conversationId }) => {
+      await conversationsByIdUnarchivePost({
+        path: { assistant_id: aid, id: conversationId },
+        throwOnError: true,
+      });
+    },
+    onMutate: async ({ assistantId: aid, conversationId }) => {
+      await cancelConversationQueries(queryClient, aid);
+      const snapshot = snapshotConversationCaches(queryClient, aid);
+      patchConversation(queryClient, aid, conversationId, { archivedAt: undefined });
+      return { snapshot };
+    },
+    onError: (err, _vars, context) => {
+      if (context?.snapshot) restoreConversationCaches(queryClient, context.snapshot);
+      captureError(err, { context: "unarchiveConversation" });
+    },
+    onSettled: (_data, _err, { assistantId: aid }) => {
+      void invalidateConversationQueries(queryClient, aid);
+    },
+  });
+
+  const markReadMutation = useMutation<void, Error, MarkReadVars, MutationContext>({
+    mutationFn: async ({ assistantId: aid, conversationId }) => {
+      await conversationsSeenPost({
+        path: { assistant_id: aid },
+        body: { conversationId },
+        throwOnError: true,
+      });
+    },
+    onMutate: async ({ assistantId: aid, conversationId }) => {
+      await cancelConversationQueries(queryClient, aid);
+      const snapshot = snapshotConversationCaches(queryClient, aid);
+      patchConversation(queryClient, aid, conversationId, { hasUnseenLatestAssistantMessage: false });
+      return { snapshot };
+    },
+    onError: (err, _vars, context) => {
+      if (context?.snapshot) restoreConversationCaches(queryClient, context.snapshot);
+      captureError(err, { context: "markConversationRead" });
+    },
+    onSettled: (_data, _err, { assistantId: aid }) => {
+      void invalidateConversationQueries(queryClient, aid);
+    },
+  });
+
+  const markUnreadMutation = useMutation<void, Error, MarkUnreadVars, MutationContext>({
+    mutationFn: async ({ assistantId: aid, conversationId }) => {
+      await conversationsUnreadPost({
+        path: { assistant_id: aid },
+        body: { conversationId },
+        throwOnError: true,
+      });
+    },
+    onMutate: async ({ assistantId: aid, conversationId }) => {
+      await cancelConversationQueries(queryClient, aid);
+      const snapshot = snapshotConversationCaches(queryClient, aid);
+      patchConversation(queryClient, aid, conversationId, { hasUnseenLatestAssistantMessage: true });
+      return { snapshot };
+    },
+    onError: (err, _vars, context) => {
+      if (context?.snapshot) restoreConversationCaches(queryClient, context.snapshot);
+      captureError(err, { context: "markConversationUnread" });
+    },
+    onSettled: (_data, _err, { assistantId: aid }) => {
+      void invalidateConversationQueries(queryClient, aid);
+    },
+  });
+
+  const moveToGroupMutation = useMutation<void, Error, MoveToGroupVars, MutationContext>({
+    mutationFn: async ({ assistantId: aid, conversationId, groupId, isPinned }) => {
+      await conversationsReorderPost({
+        path: { assistant_id: aid },
+        body: {
+          updates: [{ conversationId, isPinned, groupId }],
+        },
+        throwOnError: true,
+      });
+    },
+    onMutate: async ({ assistantId: aid, conversationId, groupId, isPinned }) => {
+      await cancelConversationQueries(queryClient, aid);
+      const snapshot = snapshotConversationCaches(queryClient, aid);
+      patchConversation(queryClient, aid, conversationId, { isPinned, groupId });
+      return { snapshot };
+    },
+    onSuccess: (_data, { conversationId, isPinned }) => {
+      if (!isPinned) {
+        prePinGroupIdsRef.current.delete(conversationId);
+      }
+    },
+    onError: (err, { conversationId, isPinned }, context) => {
+      if (context?.snapshot) restoreConversationCaches(queryClient, context.snapshot);
+      if (isPinned) {
+        prePinGroupIdsRef.current.delete(conversationId);
+      }
+      captureError(err, { context: "moveToGroup" });
+    },
+    onSettled: (_data, _err, { assistantId: aid }) => {
+      void invalidateConversationQueries(queryClient, aid);
+    },
+  });
+
+  // -------------------------------------------------------------------------
+  // Handlers — thin wrappers that compute UI side effects, then fire mutate
+  // -------------------------------------------------------------------------
+
   const handleArchiveConversation = useCallback(
-    async (conversation: Conversation) => {
+    (conversation: Conversation) => {
       if (!assistantId) return;
       haptic.medium();
 
-      const wasActive =
-        conversation.conversationId === activeConversationId;
-      let nextKey: string | null = null;
+      const wasActive = conversation.conversationId === activeConversationId;
       if (wasActive) {
-        nextKey = findNextConversationId(conversations, conversation.conversationId);
-      }
-
-      // Snapshot prior `archivedAt` so we can roll back on API failure.
-      // `undefined` is the canonical "not archived" value — sidebar
-      // grouping filters on `archivedAt == null` (see group-conversations.ts).
-      const originalArchivedAt = conversation.archivedAt;
-
-      // Optimistic update: hide the row from the sidebar immediately so it
-      // disappears in the same frame as the click, without waiting for the
-      // network round trip. Any truthy timestamp is sufficient — the real
-      // server-authoritative value gets reconciled by `refreshConversations()`
-      // once the API call succeeds.
-      patchConversation(queryClient, assistantId, conversation.conversationId, {
-        archivedAt: Date.now(),
-      });
-
-      // Switch away from the archived conversation before the network call
-      // too, so the focused chat never sits on a row that's already been
-      // filtered out of the sidebar.
-      if (wasActive) {
+        const nextKey = findNextConversationId(conversations, conversation.conversationId);
         if (nextKey) {
           switchConversation(nextKey);
         } else {
@@ -135,163 +282,60 @@ export function useConversationActions({
         }
       }
 
-      try {
-        await conversationsByIdArchivePost({
-          path: { assistant_id: assistantId, id: conversation.conversationId },
-          throwOnError: true,
-        });
-        // Refresh so the optimistic `Date.now()` guess is replaced with the
-        // server-authoritative timestamp and any other side effects sync in.
-        await refreshConversations();
-        // Invalidate the archive page's cache too so the newly-archived row
-        // appears there immediately on next visit.
-        void queryClient.invalidateQueries({
-          queryKey: archivedConversationsQueryKey(assistantId),
-        });
-      } catch (err) {
-        // Roll back the optimistic patch so the row reappears in the
-        // sidebar — the user's action effectively didn't happen. We
-        // intentionally don't try to restore the active-conversation
-        // selection: the user has already moved on visually, and yanking
-        // them back would be more disorienting than the rolled-back row.
-        patchConversation(queryClient, assistantId, conversation.conversationId, {
-          archivedAt: originalArchivedAt,
-        });
-        captureError(err, { context: "archiveConversation" });
-      }
+      archiveMutation.mutate({ assistantId, conversationId: conversation.conversationId });
     },
-    [
-      activeConversationId,
-      assistantId,
-      conversations,
-      queryClient,
-      refreshConversations,
-      startNewConversation,
-      switchConversation,
-    ],
+    [activeConversationId, assistantId, conversations, switchConversation, startNewConversation, archiveMutation],
   );
 
   const handleUnarchiveConversation = useCallback(
-    async (conversation: Conversation) => {
+    (conversation: Conversation) => {
       if (!assistantId) return;
-
-      const originalArchivedAt = conversation.archivedAt;
-
-      // Optimistic update: clear `archivedAt` so the row pops back into the
-      // active sidebar in the same frame as the click. Mirrors the
-      // optimistic archive path above. No-op when the row isn't already in
-      // the active cache (the daemon filters archived rows out of the
-      // default list); the post-success refresh below brings it in.
-      patchConversation(queryClient, assistantId, conversation.conversationId, {
-        archivedAt: undefined,
-      });
-
-      try {
-        await conversationsByIdUnarchivePost({
-          path: { assistant_id: assistantId, id: conversation.conversationId },
-          throwOnError: true,
-        });
-        // Refresh the active list so the newly-unarchived row materializes
-        // in the sidebar even when it wasn't in the cache pre-call.
-        await refreshConversations();
-        // Drop the row from the archive page's cache.
-        void queryClient.invalidateQueries({
-          queryKey: archivedConversationsQueryKey(assistantId),
-        });
-      } catch (err) {
-        // Roll back so the row re-archives in the UI.
-        patchConversation(queryClient, assistantId, conversation.conversationId, {
-          archivedAt: originalArchivedAt,
-        });
-        captureError(err, { context: "unarchiveConversation" });
-      }
+      unarchiveMutation.mutate({ assistantId, conversationId: conversation.conversationId });
     },
-    [assistantId, queryClient, refreshConversations],
+    [assistantId, unarchiveMutation],
   );
 
   const handleMarkConversationUnread = useCallback(
-    async (conversation: Conversation) => {
+    (conversation: Conversation) => {
       if (!assistantId) return;
-      if (
-        conversation.hasUnseenLatestAssistantMessage ||
-        !conversation.latestAssistantMessageAt
-      ) {
-        return;
-      }
-      try {
-        await conversationsUnreadPost({
-          path: { assistant_id: assistantId },
-          body: { conversationId: conversation.conversationId },
-          throwOnError: true,
-        });
-        patchConversation(queryClient, assistantId, conversation.conversationId, { hasUnseenLatestAssistantMessage: true });
-      } catch (err) {
-        captureError(err, { context: "markConversationUnread" });
-      }
+      if (conversation.hasUnseenLatestAssistantMessage || !conversation.latestAssistantMessageAt) return;
+      markUnreadMutation.mutate({ assistantId, conversationId: conversation.conversationId });
     },
-    [assistantId, queryClient],
+    [assistantId, markUnreadMutation],
   );
 
   const handleMarkConversationRead = useCallback(
-    async (conversation: Conversation) => {
+    (conversation: Conversation) => {
       if (!assistantId) return;
       if (!conversation.hasUnseenLatestAssistantMessage) return;
-      try {
-        await conversationsSeenPost({
-          path: { assistant_id: assistantId },
-          body: { conversationId: conversation.conversationId },
-          throwOnError: true,
-        });
-        patchConversation(queryClient, assistantId, conversation.conversationId, { hasUnseenLatestAssistantMessage: false });
-      } catch (err) {
-        captureError(err, { context: "markConversationRead" });
-      }
+      markReadMutation.mutate({ assistantId, conversationId: conversation.conversationId });
     },
-    [assistantId, queryClient],
+    [assistantId, markReadMutation],
   );
 
   const handleMoveToGroup = useCallback(
-    async (conversation: Conversation, groupId: string) => {
+    (conversation: Conversation, groupId: string) => {
       if (!assistantId) return;
       haptic.light();
 
-      const prevIsPinned = conversation.isPinned;
-      const prevGroupId = conversation.groupId;
-      const newIsPinned = groupId === "system:pinned";
+      const previousIsPinned = conversation.isPinned ?? false;
+      const previousGroupId = conversation.groupId;
+      const isPinned = groupId === "system:pinned";
 
-      if (newIsPinned) {
-        prePinGroupIdsRef.current.set(
-          conversation.conversationId,
-          conversation.groupId,
-        );
+      if (isPinned) {
+        prePinGroupIdsRef.current.set(conversation.conversationId, conversation.groupId);
       }
 
-      patchConversation(queryClient, assistantId, conversation.conversationId, { isPinned: newIsPinned, groupId });
-
-      try {
-        await conversationsReorderPost({
-          path: { assistant_id: assistantId },
-          body: {
-            updates: [{
-              conversationId: conversation.conversationId,
-              isPinned: newIsPinned,
-              groupId,
-            }],
-          },
-          throwOnError: true,
-        });
-        if (!newIsPinned) {
-          prePinGroupIdsRef.current.delete(conversation.conversationId);
-        }
-      } catch (err) {
-        if (newIsPinned) {
-          prePinGroupIdsRef.current.delete(conversation.conversationId);
-        }
-        patchConversation(queryClient, assistantId, conversation.conversationId, { isPinned: prevIsPinned, groupId: prevGroupId });
-        captureError(err, { context: "moveToGroup" });
-      }
+      moveToGroupMutation.mutate({
+        assistantId,
+        conversationId: conversation.conversationId,
+        groupId,
+        isPinned,
+        previousIsPinned,
+        previousGroupId,
+      });
     },
-    [assistantId, prePinGroupIdsRef, queryClient],
+    [assistantId, prePinGroupIdsRef, moveToGroupMutation],
   );
 
   const handleTogglePinConversation = useCallback(
@@ -301,21 +345,18 @@ export function useConversationActions({
       const targetGroupId = currentlyPinned
         ? resolveUnpinGroupId(conversation, prePinGroupIdsRef.current)
         : "system:pinned";
-      void handleMoveToGroup(conversation, targetGroupId);
+      handleMoveToGroup(conversation, targetGroupId);
     },
     [handleMoveToGroup, prePinGroupIdsRef],
   );
 
   const handleRemoveFromGroup = useCallback(
     (conversation: Conversation) => {
-      void handleMoveToGroup(conversation, "system:all");
+      handleMoveToGroup(conversation, "system:all");
     },
     [handleMoveToGroup],
   );
 
-  // Rename writes to the shared `useRenameRequestStore` so that only one
-  // `RenameConversationDialog` instance exists (in `ChatLayout`), regardless
-  // of whether the user triggers a rename from the sidebar or the header.
   const handleRenameConversation = useCallback(
     (conversation: Conversation) => {
       if (!assistantId) return;
@@ -327,6 +368,11 @@ export function useConversationActions({
     [assistantId],
   );
 
+  // -------------------------------------------------------------------------
+  // Batch operations — same lifecycle (cancel → snapshot → optimistic → API
+  // → rollback on error → invalidate) applied per item in the batch.
+  // -------------------------------------------------------------------------
+
   const handleMarkAllReadInGroup = useCallback(
     async (groupConversations: Conversation[]) => {
       if (!assistantId) return;
@@ -335,22 +381,34 @@ export function useConversationActions({
       );
       if (unread.length === 0) return;
 
-      await Promise.allSettled(
-        unread.map(async (c) => {
-          try {
-            await conversationsSeenPost({
-              path: { assistant_id: assistantId },
-              body: { conversationId: c.conversationId },
-              throwOnError: true,
-            });
-            patchConversation(queryClient, assistantId, c.conversationId, {
-              hasUnseenLatestAssistantMessage: false,
-            });
-          } catch (err) {
-            captureError(err, { context: "markAllReadInGroup" });
-          }
-        }),
-      );
+      await cancelConversationQueries(queryClient, assistantId);
+
+      for (const c of unread) {
+        patchConversation(queryClient, assistantId, c.conversationId, {
+          hasUnseenLatestAssistantMessage: false,
+        });
+      }
+
+      try {
+        await Promise.allSettled(
+          unread.map(async (c) => {
+            try {
+              await conversationsSeenPost({
+                path: { assistant_id: assistantId },
+                body: { conversationId: c.conversationId },
+                throwOnError: true,
+              });
+            } catch (err) {
+              patchConversation(queryClient, assistantId, c.conversationId, {
+                hasUnseenLatestAssistantMessage: true,
+              });
+              captureError(err, { context: "markAllReadInGroup" });
+            }
+          }),
+        );
+      } finally {
+        void invalidateConversationQueries(queryClient, assistantId);
+      }
     },
     [assistantId, queryClient],
   );
@@ -359,6 +417,8 @@ export function useConversationActions({
     async (_groupName: string, groupConversations: Conversation[]) => {
       if (!assistantId) return;
       if (groupConversations.length === 0) return;
+
+      await cancelConversationQueries(queryClient, assistantId);
 
       const activeId = activeConversationId;
       const archivingActive = groupConversations.some(
@@ -386,32 +446,27 @@ export function useConversationActions({
         }
       }
 
-      const results = await Promise.allSettled(
-        groupConversations.map(async (c) => {
-          try {
-            await conversationsByIdArchivePost({
-              path: {
-                assistant_id: assistantId,
-                id: c.conversationId,
-              },
-              throwOnError: true,
-            });
-          } catch (err) {
-            patchConversation(queryClient, assistantId, c.conversationId, {
-              archivedAt: c.archivedAt,
-            });
-            captureError(err, { context: "archiveAllInGroup" });
-            throw err;
-          }
-        }),
-      );
-
-      const anySucceeded = results.some((r) => r.status === "fulfilled");
-      if (anySucceeded) {
-        await refreshConversations();
-        void queryClient.invalidateQueries({
-          queryKey: archivedConversationsQueryKey(assistantId),
-        });
+      try {
+        await Promise.allSettled(
+          groupConversations.map(async (c) => {
+            try {
+              await conversationsByIdArchivePost({
+                path: {
+                  assistant_id: assistantId,
+                  id: c.conversationId,
+                },
+                throwOnError: true,
+              });
+            } catch (err) {
+              patchConversation(queryClient, assistantId, c.conversationId, {
+                archivedAt: c.archivedAt,
+              });
+              captureError(err, { context: "archiveAllInGroup" });
+            }
+          }),
+        );
+      } finally {
+        void invalidateConversationQueries(queryClient, assistantId);
       }
     },
     [
@@ -419,7 +474,6 @@ export function useConversationActions({
       assistantId,
       conversations,
       queryClient,
-      refreshConversations,
       startNewConversation,
       switchConversation,
     ],

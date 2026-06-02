@@ -68,15 +68,16 @@ const DRF_FIELD_KEYS = [
 
 function extractMutationError(error: unknown, fallback: string): string {
   if (error && typeof error === "object") {
-    const rec = error as Record<string, unknown>;
     for (const key of DRF_FIELD_KEYS) {
-      const msgs = rec[key];
-      if (Array.isArray(msgs) && typeof msgs[0] === "string") {
-        return msgs[0];
+      if (key in error) {
+        const msgs = (error as Record<string, unknown>)[key];
+        if (Array.isArray(msgs) && typeof msgs[0] === "string") {
+          return msgs[0];
+        }
       }
     }
-    if (typeof rec.detail === "string") {
-      return rec.detail;
+    if ("detail" in error && typeof error.detail === "string") {
+      return error.detail;
     }
   }
   return fallback;

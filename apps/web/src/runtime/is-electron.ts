@@ -56,6 +56,21 @@ declare global {
           assistantId?: string;
           error?: string;
         }>;
+        readLockfile(): Promise<Record<string, unknown>>;
+        saveLockfileAssistant(
+          assistant: Record<string, unknown>,
+          activeAssistant?: string,
+        ): Promise<
+          | { ok: true; lockfile: Record<string, unknown> }
+          | { ok: false; error: string }
+        >;
+        replacePlatformAssistants(
+          platformAssistants: Array<Record<string, unknown>>,
+        ): Promise<
+          | { ok: true; lockfile: Record<string, unknown> }
+          | { ok: false; error: string }
+        >;
+        retire(assistantId: string): Promise<{ ok: boolean; error?: string }>;
       };
       mainWindow: {
         ensureVisible(): Promise<void>;

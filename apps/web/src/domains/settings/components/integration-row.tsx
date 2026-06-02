@@ -18,18 +18,7 @@ import type { OAuthConnection } from "@/generated/api/types.gen";
 
 import { IntegrationIcon } from "@/domains/settings/components/integration-icon";
 
-function extractErrorDetail(error: unknown, fallback: string): string {
-  if (typeof error === "object" && error !== null && "detail" in error) {
-    const detail = (error as Record<string, unknown>).detail;
-    if (typeof detail === "string") {
-      return detail;
-    }
-  }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return fallback;
-}
+import { extractErrorMessage } from "@/utils/api-errors";
 
 interface IntegrationRowProps {
   assistantId: string;
@@ -83,8 +72,9 @@ export function IntegrationRow({
       queryClient.invalidateQueries({ queryKey: connectionsQueryKey });
     },
     onError(error) {
-      const detail = extractErrorDetail(
+      const detail = extractErrorMessage(
         error,
+        undefined,
         `Failed to disconnect ${displayName} account.`,
       );
       toast.error(detail);

@@ -1,17 +1,26 @@
 import { app, ipcMain } from "electron";
-import { spawn } from "node:child_process";
 import path from "node:path";
 
+import {
+  getLockfileData,
+  replacePlatformAssistants,
+  resolveLockfilePaths,
+  runHatch,
+  runRetire,
+  upsertLockfileAssistant,
+  type CliInvocation,
+} from "@vellumai/local-mode";
+
 /**
- * Local-mode lifecycle bridge: provisions local assistants via the Vellum
- * CLI, exposed to the renderer as `window.vellum.localMode.*`.
+ * Local-mode host bridge: provisions and retires local assistants and reads
+ * and writes the lockfile, exposed to the renderer as `window.vellum.localMode.*`.
  *
- * The CLI is invoked as a subprocess rather than imported in-process. This
- * keeps `apps/macos` an independent build unit: the CLI's own dependency tree
- * is never pulled into this package's typecheck or bundle (CI installs only
- * this package's deps). It also matches every other CLI consumer — the dev
- * server's `apps/web/vite-plugin-local-mode.ts` and the daemon supervisor in
- * `index.ts` both spawn the CLI rather than linking its source.
+ * Lifecycle ops delegate to `@vellumai/local-mode`, the shared host library
+ * that also backs the web app's dev-server middleware
+ * (`apps/web/vite-plugin-local-mode.ts`). The CLI is driven as a subprocess
+ * rather than imported in-process so the CLI's own dependency tree never
+ * enters this package's typecheck or bundle; the shared library owns the
+ * spawn/parse and lockfile-on-disk logic so each host wires transport once.
  *
  * DEP-2: a hatched local assistant runs its own daemon + gateway, while
  * `index.ts` also supervises a bundled daemon via `spawnDaemon`. The two
@@ -20,7 +29,23 @@ import path from "node:path";
  */
 
 const DEFAULT_SPECIES = "vellum";
-const HATCH_TIMEOUT_MS = 120_000;
+const PACKAGED_UNSUPPORTED =
+  "Local assistants aren't supported in the packaged app yet.";
+
+interface HatchResult {
+  ok: boolean;
+  assistantId?: string;
+  error?: string;
+}
+
+interface RetireResult {
+  ok: boolean;
+  error?: string;
+}
+
+type LockfileWriteResult =
+  | { ok: true; lockfile: Record<string, unknown> }
+  | { ok: false; error: string };
 
 /**
  * How to invoke the CLI for local lifecycle ops, or `null` when no CLI is
@@ -33,98 +58,42 @@ const HATCH_TIMEOUT_MS = 120_000;
  *    `index.ts` spawns it as `bun daemon`, not the CLI — so driving a hatch
  *    through it would hand CLI args to the daemon. Bundling a CLI-capable
  *    binary and reconciling it with the daemon supervisor is the DEP-2 work
- *    tracked in LUM-2085; until then this returns `null` so hatch fails
- *    explicitly instead of spawning the wrong binary.
+ *    tracked in LUM-2085; until then this returns `null` so lifecycle ops
+ *    fail explicitly instead of spawning the wrong binary.
  */
-function resolveCliInvocation(): { command: string; baseArgs: string[] } | null {
+function resolveCliInvocation(): CliInvocation | null {
   if (app.isPackaged) return null;
   const repoRoot = path.resolve(app.getAppPath(), "..", "..");
   const cliEntry = path.join(repoRoot, "cli", "src", "index.ts");
   return { command: "bun", baseArgs: ["run", cliEntry] };
 }
 
-interface HatchResult {
-  ok: boolean;
-  assistantId?: string;
-  error?: string;
+/**
+ * Provision a local assistant for the requested species. Never rejects —
+ * failures resolve with `{ ok: false, error }` so the renderer renders the
+ * same error UI it shows for the web/dev middleware path.
+ */
+async function hatch(species: string): Promise<HatchResult> {
+  const invocation = resolveCliInvocation();
+  if (invocation === null) return { ok: false, error: PACKAGED_UNSUPPORTED };
+  const result = await runHatch(invocation, species);
+  return result.ok
+    ? { ok: true, assistantId: result.assistantId }
+    : { ok: false, error: result.error };
 }
 
-/**
- * Spawn `vellum hatch <species>` and resolve with the new assistant's id.
- * Never rejects — failures resolve with `{ ok: false, error }` so the
- * renderer renders the same error UI it shows for the dev-middleware path.
- * The id is read from the CLI's stdout, matching the dev middleware's
- * contract (`apps/web/vite-plugin-local-mode.ts`).
- */
-function runHatch(species: string): Promise<HatchResult> {
-  return new Promise((resolve) => {
-    const invocation = resolveCliInvocation();
-    if (invocation === null) {
-      resolve({
-        ok: false,
-        error: "Local assistants aren't supported in the packaged app yet.",
-      });
-      return;
-    }
-    const { command, baseArgs } = invocation;
-    const child = spawn(command, [...baseArgs, "hatch", species], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+/** Retire a local assistant. Mirrors `hatch`'s never-reject contract. */
+async function retire(assistantId: string): Promise<RetireResult> {
+  const invocation = resolveCliInvocation();
+  if (invocation === null) return { ok: false, error: PACKAGED_UNSUPPORTED };
+  const result = await runRetire(invocation, assistantId);
+  return result.ok ? { ok: true } : { ok: false, error: result.error };
+}
 
-    let stdout = "";
-    let stderr = "";
-    let settled = false;
-
-    const settle = (result: HatchResult) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      resolve(result);
-    };
-
-    const timeout = setTimeout(() => {
-      child.kill("SIGTERM");
-      settle({ ok: false, error: "Hatch timed out after 120 seconds" });
-    }, HATCH_TIMEOUT_MS);
-
-    child.stdout.on("data", (chunk: Buffer) => {
-      const text = chunk.toString();
-      stdout += text;
-      process.stdout.write(`[local-mode] ${text}`);
-    });
-    child.stderr.on("data", (chunk: Buffer) => {
-      const text = chunk.toString();
-      stderr += text;
-      process.stderr.write(`[local-mode] ${text}`);
-    });
-
-    child.on("error", (err) => {
-      settle({ ok: false, error: `Failed to spawn CLI: ${err.message}` });
-    });
-
-    child.on("close", (code) => {
-      if (code !== 0) {
-        const error =
-          stderr.trim() ||
-          stdout.trim() ||
-          `Hatch failed: the CLI exited with code ${code ?? "unknown"} and produced no output.`;
-        settle({ ok: false, error });
-        return;
-      }
-      const assistantId = stdout
-        .match(/Hatching local assistant:\s+(.+)/)?.[1]
-        ?.trim();
-      if (!assistantId) {
-        settle({
-          ok: false,
-          error:
-            "Hatch reported success but no assistant id was found in the CLI output.",
-        });
-        return;
-      }
-      settle({ ok: true, assistantId });
-    });
-  });
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 let installed = false;
@@ -137,11 +106,55 @@ export const installLocalMode = (): void => {
   if (installed) return;
   installed = true;
 
+  const lockfilePaths = resolveLockfilePaths(process.env);
+
   ipcMain.handle("vellum:localMode:hatch", (_event, species: unknown) => {
     const requested =
       typeof species === "string" && species.length > 0
         ? species
         : DEFAULT_SPECIES;
-    return runHatch(requested);
+    return hatch(requested);
+  });
+
+  ipcMain.handle("vellum:localMode:readLockfile", () => {
+    const result = getLockfileData(lockfilePaths);
+    if (result.ok) return result.data;
+    throw new Error(
+      result.error ?? `Failed to read lockfile (status ${result.status})`,
+    );
+  });
+
+  ipcMain.handle(
+    "vellum:localMode:saveLockfileAssistant",
+    (_event, assistant: unknown, activeAssistant: unknown): LockfileWriteResult => {
+      const result = upsertLockfileAssistant(
+        lockfilePaths,
+        asRecord(assistant),
+        typeof activeAssistant === "string" ? activeAssistant : undefined,
+      );
+      return result.ok
+        ? { ok: true, lockfile: result.lockfile }
+        : { ok: false, error: result.error };
+    },
+  );
+
+  ipcMain.handle(
+    "vellum:localMode:replacePlatformAssistants",
+    (_event, platformAssistants: unknown): LockfileWriteResult => {
+      const list = Array.isArray(platformAssistants)
+        ? platformAssistants.map(asRecord)
+        : [];
+      const result = replacePlatformAssistants(lockfilePaths, list);
+      return result.ok
+        ? { ok: true, lockfile: result.lockfile }
+        : { ok: false, error: result.error };
+    },
+  );
+
+  ipcMain.handle("vellum:localMode:retire", (_event, assistantId: unknown) => {
+    if (typeof assistantId !== "string" || assistantId.length === 0) {
+      return { ok: false, error: "Missing assistantId" };
+    }
+    return retire(assistantId);
   });
 };

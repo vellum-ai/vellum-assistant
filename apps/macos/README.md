@@ -178,6 +178,17 @@ The preload script exposes a typed `window.vellum` API to the renderer:
   `ALLOW_ACCESSORY_MODE` until a menu-bar (tray) entry point exists;
   until then the icon stays in the Dock so the user always has a way
   back to the window.
+- `localMode.*` — provisions and retires local assistants and reads/writes
+  the lockfile that records them. `hatch(species)` and `retire(assistantId)`
+  drive the Vellum CLI as a subprocess; `readLockfile()`,
+  `saveLockfileAssistant(assistant, activeAssistant?)`, and
+  `replacePlatformAssistants(platformAssistants)` read and write the lockfile
+  on disk. Every method is a thin wrapper over [`@vellumai/local-mode`](../../packages/local-mode/),
+  the shared host library that also backs the web app's dev-server middleware,
+  so the spawn/parse and lockfile logic lives in one place. The renderer-side
+  transport seam is [`apps/web/src/runtime/local-mode-host.ts`](../web/src/runtime/local-mode-host.ts),
+  which selects this bridge on Electron and the dev-server `/assistant/__local/*`
+  middleware on web/dev so both hosts honor the same contract.
 - `auth.*` and `helper.*` — typed stubs that reject with "not implemented yet"
   until the corresponding feature tickets land.
 

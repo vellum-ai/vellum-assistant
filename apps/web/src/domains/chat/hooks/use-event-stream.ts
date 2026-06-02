@@ -18,7 +18,6 @@
  */
 
 import {
-  type MutableRefObject,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -69,10 +68,8 @@ export interface UseEventStreamParams {
   // Sync router dispatch for post-reconnect reconcile
   dispatchReconnect: () => Promise<WebSyncReconnectResult | undefined>;
 
-  // Conversation list invalidated timer ref — cleaned up on unmount
-  conversationListInvalidatedTimerRef: MutableRefObject<ReturnType<
-    typeof setTimeout
-  > | null>;
+  /** Cancel any pending debounced conversation list refetch on unmount. */
+  cancelScheduledRefetch: () => void;
 }
 
 export function useEventStream({
@@ -88,7 +85,7 @@ export function useEventStream({
   reachabilityPhase,
   reachabilityReset,
   dispatchReconnect,
-  conversationListInvalidatedTimerRef,
+  cancelScheduledRefetch,
 }: UseEventStreamParams): void {
   // ---- Ref-stabilize unstable callback params ----
   const handleStreamEventRef = useRef(handleStreamEvent);
@@ -353,10 +350,7 @@ export function useEventStream({
   useEffect(() => {
     return () => {
       cancelReconciliationRef.current();
-      if (conversationListInvalidatedTimerRef.current) {
-        clearTimeout(conversationListInvalidatedTimerRef.current);
-        conversationListInvalidatedTimerRef.current = null;
-      }
+      cancelScheduledRefetch();
     };
-  }, [conversationListInvalidatedTimerRef]);
+  }, [cancelScheduledRefetch]);
 }

@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
-import { useRef } from "react";
 
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import type { AssistantEvent } from "@/types/event-types";
@@ -17,7 +16,7 @@ function renderEventStream(
 ) {
   return renderHook(
     ({ key }: { key: string }) => {
-      const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
       useEventStream({
         assistantStateKind: "active",
         assistantId: "asst-1",
@@ -36,7 +35,7 @@ function renderEventStream(
         reachabilityPhase: "ready",
         reachabilityReset: () => {},
         dispatchReconnect: async () => undefined,
-        conversationListInvalidatedTimerRef: timerRef,
+        cancelScheduledRefetch: () => {},
       });
     },
     { initialProps: { key: activeConversationId } },
