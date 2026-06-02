@@ -48,7 +48,12 @@ function resetTables() {
 
 interface MessagePayload {
   role: string;
-  content: string;
+  textSegments?: string[];
+}
+
+/** Flatten a payload's text segments to plain text for content assertions. */
+function plainText(message: MessagePayload): string {
+  return (message.textSegments ?? []).join("");
 }
 
 describe("handleListMessages metadata.hidden filtering", () => {
@@ -79,10 +84,10 @@ describe("handleListMessages metadata.hidden filtering", () => {
     const body = response as { messages: MessagePayload[] };
 
     expect(body.messages).toHaveLength(2);
-    expect(body.messages[0].content).toBe("first visible");
-    expect(body.messages[1].content).toBe("second visible");
+    expect(plainText(body.messages[0])).toBe("first visible");
+    expect(plainText(body.messages[1])).toBe("second visible");
     expect(
-      body.messages.some((m) => m.content.includes("internal scaffolding")),
+      body.messages.some((m) => plainText(m).includes("internal scaffolding")),
     ).toBe(false);
 
     // LLM-side loader must include the hidden row so agent context is intact.
@@ -151,7 +156,7 @@ describe("handleListMessages metadata.hidden filtering", () => {
       oldestMessageId: string | null;
     };
 
-    expect(latest.messages.map((m) => m.content)).toEqual([
+    expect(latest.messages.map(plainText)).toEqual([
       "new visible 0",
       "new visible 1",
     ]);
@@ -172,7 +177,7 @@ describe("handleListMessages metadata.hidden filtering", () => {
       hasMore: boolean;
     };
 
-    expect(older.messages.map((m) => m.content)).toEqual([
+    expect(older.messages.map(plainText)).toEqual([
       "old visible 2",
       "old visible 3",
     ]);
@@ -247,10 +252,7 @@ describe("handleListMessages metadata.hidden filtering", () => {
         },
       }) as { messages: MessagePayload[]; hasMore: boolean };
 
-      expect(older.messages.map((m) => m.content)).toEqual([
-        "visible 0",
-        "visible 1",
-      ]);
+      expect(older.messages.map(plainText)).toEqual(["visible 0", "visible 1"]);
       expect(older.hasMore).toBe(false);
     } finally {
       _setPaginationScanCapForTesting(undefined);
@@ -287,7 +289,7 @@ describe("handleListMessages metadata.hidden filtering", () => {
       oldestTimestamp: number | null;
     };
 
-    expect(latest.messages.map((m) => m.content)).toEqual([
+    expect(latest.messages.map(plainText)).toEqual([
       "old visible 0",
       "old visible 1",
     ]);

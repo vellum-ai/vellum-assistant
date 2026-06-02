@@ -156,7 +156,6 @@ export interface RuntimeMessagePayload {
    */
   mergedMessageIds?: string[];
   role: string;
-  content: string;
   timestamp: string;
   attachments: RuntimeAttachmentMetadata[];
   toolCalls?: Array<{
