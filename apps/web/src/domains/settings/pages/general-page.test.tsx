@@ -18,7 +18,7 @@ import {
   mock,
   test,
 } from "bun:test";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
 
@@ -70,6 +70,12 @@ mock.module("@/domains/settings/components/timezone-picker", () => ({
       <button type="button" onClick={() => onChange("")}>
         pick-auto
       </button>
+      <button type="button" onClick={() => onChange("Europe/Paris")}>
+        pick-paris
+      </button>
+      <button type="button" onClick={() => onChange("Asia/Tokyo")}>
+        pick-tokyo
+      </button>
     </div>
   ),
 }));
@@ -120,5 +126,60 @@ describe("TimezoneCard", () => {
 
     expect(setDeviceSettingMock).toHaveBeenCalledWith("timezone", ZONE);
     expect(patchMock).not.toHaveBeenCalled();
+  });
+
+  test("serializes rapid override changes (last-writer-wins): the final value is the last write and no two PATCHes overlap", async () => {
+    // Hold every PATCH pending so we can observe overlap (or the lack of it)
+    // while several changes fire in quick succession.
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const resolvers: Array<() => void> = [];
+    patchMock.mockImplementation(
+      () =>
+        new Promise<{ data: Record<string, unknown> }>((resolve) => {
+          inFlight += 1;
+          maxInFlight = Math.max(maxInFlight, inFlight);
+          resolvers.push(() => {
+            inFlight -= 1;
+            resolve({ data: {} });
+          });
+        }),
+    );
+
+    const { getByText } = render(<TimezoneCard />);
+
+    // Three rapid changes. The first starts a PATCH; the next two only update
+    // the pending target while the first is in flight.
+    fireEvent.click(getByText("pick-zone")); // America/Los_Angeles
+    fireEvent.click(getByText("pick-paris")); // Europe/Paris
+    fireEvent.click(getByText("pick-tokyo")); // Asia/Tokyo (last writer)
+
+    // Local device setting is written synchronously for every change.
+    expect(setDeviceSettingMock).toHaveBeenLastCalledWith(
+      "timezone",
+      "Asia/Tokyo",
+    );
+
+    // Only ONE PATCH is in flight despite three changes.
+    expect(patchMock).toHaveBeenCalledTimes(1);
+    expect(patchMock.mock.calls[0]![0].body).toEqual({
+      ui: { userTimezone: ZONE },
+    });
+    expect(maxInFlight).toBe(1);
+
+    // Settle the first PATCH → the queue drains to the LAST requested value,
+    // skipping the intermediate one entirely.
+    resolvers[0]!();
+    await waitFor(() => expect(patchMock).toHaveBeenCalledTimes(2));
+    expect(patchMock.mock.calls[1]![0].body).toEqual({
+      ui: { userTimezone: "Asia/Tokyo" },
+    });
+    expect(maxInFlight).toBe(1);
+
+    // Settle the drained PATCH; no further writes follow.
+    resolvers[1]!();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(patchMock).toHaveBeenCalledTimes(2);
+    expect(maxInFlight).toBe(1);
   });
 });

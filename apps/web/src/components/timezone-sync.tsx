@@ -69,9 +69,17 @@ export function TimezoneSync(): null {
   const pendingKeyRef = useRef<string | null>(null);
 
   // Hold the live assistant id so resume/focus handlers (which capture
-  // `trySync` once) always target the current assistant.
+  // `trySync` once) always target the current assistant. Assigned in an
+  // effect (never during render) to avoid mutating a ref while rendering.
   const assistantIdRef = useRef(assistantId);
-  assistantIdRef.current = assistantId;
+  useEffect(() => {
+    assistantIdRef.current = assistantId;
+  }, [assistantId]);
+
+  // Stable indirection so `trySync`'s `.finally` drain can call the latest
+  // `trySync` without referencing `const trySync` inside its own initializer
+  // (which would be a temporal-dead-zone access).
+  const trySyncRef = useRef<() => void>(() => {});
 
   const trySync = useCallback(() => {
     const currentAssistantId = assistantIdRef.current;
@@ -104,9 +112,15 @@ export function TimezoneSync(): null {
         inFlightRef.current = false;
         const pending = pendingKeyRef.current;
         pendingKeyRef.current = null;
-        if (pending && pending !== key) trySync();
+        if (pending && pending !== key) trySyncRef.current();
       });
   }, [patchTimezone]);
+
+  // Keep the drain indirection pointed at the latest `trySync`. Assigned in an
+  // effect (never during render) for the same "no refs during render" reason.
+  useEffect(() => {
+    trySyncRef.current = trySync;
+  }, [trySync]);
 
   // Reactive path: zone or assistant change.
   useEffect(() => {

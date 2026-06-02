@@ -1,5 +1,5 @@
 import { Heart, Monitor, Moon, Sun } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { SegmentControl } from "@vellum/design-library/components/segment-control";
 import { AssistantPicker } from "@/domains/settings/components/assistant-picker";
@@ -113,26 +113,50 @@ export function TimezoneCard() {
     getDeviceSetting("timezone", ""),
   );
 
+  // Serialize the `ui.userTimezone` override PATCH (last-writer-wins): at most
+  // one in flight. A change while one is in flight only records the latest
+  // desired value; the in-flight PATCH drains to it on settle, so overlapping
+  // rapid changes can never land out of order and leave a stale override.
+  const inFlightRef = useRef(false);
+  const pendingValueRef = useRef<string | null>(null);
+
+  const syncOverride = (assistantIdValue: string, value: string) => {
+    if (inFlightRef.current) {
+      pendingValueRef.current = value;
+      return;
+    }
+    inFlightRef.current = true;
+    pendingValueRef.current = null;
+    // `value` is the chosen IANA zone, or "" when auto is selected (the schema
+    // documents "" clears the setting). Silent on error.
+    client
+      .patch<Record<string, unknown>, unknown, true>({
+        url: `/v1/assistants/{assistant_id}/config`,
+        path: { assistant_id: assistantIdValue },
+        body: { ui: { userTimezone: value } },
+        throwOnError: true,
+      })
+      .catch((error) => {
+        captureError(error, { context: "settings-timezone-override" });
+      })
+      .finally(() => {
+        inFlightRef.current = false;
+        const pending = pendingValueRef.current;
+        pendingValueRef.current = null;
+        if (pending !== null) syncOverride(assistantIdValue, pending);
+      });
+  };
+
   const handleChange = (value: string) => {
     // Local source of truth for the reactive `useEffectiveTimezone` hook.
     setTimezone(value);
     setDeviceSetting("timezone", value);
 
     // Explicit user action: write the manual override to the authoritative
-    // `ui.userTimezone` cascade tier. `value` is the chosen IANA zone, or ""
-    // when auto is selected (the schema documents "" clears the setting).
-    // Fire-and-forget; never block the local setting on the network write.
+    // `ui.userTimezone` cascade tier. Fire-and-forget; never block the local
+    // setting on the network write, and never throw out of handleChange.
     if (!assistantId) return;
-    client
-      .patch<Record<string, unknown>, unknown, true>({
-        url: `/v1/assistants/{assistant_id}/config`,
-        path: { assistant_id: assistantId },
-        body: { ui: { userTimezone: value } },
-        throwOnError: true,
-      })
-      .catch((error) => {
-        captureError(error, { context: "settings-timezone-override" });
-      });
+    syncOverride(assistantId, value);
   };
 
   return (
