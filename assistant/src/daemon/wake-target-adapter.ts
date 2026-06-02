@@ -195,6 +195,13 @@ export function conversationToWakeTarget(
       conversation.processing = on;
     },
     setTrustContext: (ctx) => conversation.setTrustContext(ctx),
+    setWakeAllowedTools: (tools) => {
+      const previous = conversation.subagentAllowedTools;
+      conversation.setSubagentAllowedTools(new Set(tools));
+      return () => {
+        conversation.setSubagentAllowedTools(previous);
+      };
+    },
     persistTailMessage: async (message) => {
       const turnChannelCtx = conversation.getTurnChannelContext();
       const turnInterfaceCtx = conversation.getTurnInterfaceContext();

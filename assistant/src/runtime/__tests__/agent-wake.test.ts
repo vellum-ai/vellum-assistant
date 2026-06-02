@@ -145,6 +145,7 @@ interface MockTarget extends WakeTarget {
     input: Message[];
     requestId?: string;
     turnContext?: unknown;
+    allowedTools?: string[];
   }>;
   processingToggles: boolean[];
   /** Tail messages handed to `persistTailMessage`, in call order. */
@@ -163,6 +164,11 @@ interface MockTarget extends WakeTarget {
    * just inferring it from the order of recorded toggles.
    */
   processingDuringDrain: boolean[];
+  /**
+   * Tool allowlist snapshots captured whenever the wake applies/restores a
+   * scope. `undefined` means unrestricted.
+   */
+  allowedToolSnapshots: Array<string[] | undefined>;
 }
 
 function makeTarget(options: {
@@ -175,6 +181,7 @@ function makeTarget(options: {
   isProcessing?: boolean;
   /** When true, omit `drainQueue` so we can verify the wake handles its absence. */
   omitDrainQueue?: boolean;
+  initialAllowedTools?: Set<string>;
 }): MockTarget {
   const emittedEvents: AgentEvent[] = [];
   const pushedMessages: Message[] = [];
@@ -182,14 +189,19 @@ function makeTarget(options: {
     input: Message[];
     requestId?: string;
     turnContext?: unknown;
+    allowedTools?: string[];
   }> = [];
   const processingToggles: boolean[] = [];
   const persistedTailCalls: Message[] = [];
   const callSequence: string[] = [];
   const processingDuringDrain: boolean[] = [];
+  const allowedToolSnapshots: Array<string[] | undefined> = [];
   const history: Message[] = [...(options.baseline ?? [])];
   let processing = options.isProcessing ?? false;
   let drainQueueCalls = 0;
+  let activeAllowedTools = options.initialAllowedTools;
+  const snapshotAllowedTools = (): string[] | undefined =>
+    activeAllowedTools ? [...activeAllowedTools].sort() : undefined;
 
   const target: MockTarget = {
     conversationId: options.conversationId ?? "conv-test",
@@ -200,6 +212,7 @@ function makeTarget(options: {
     persistedTailCalls,
     callSequence,
     processingDuringDrain,
+    allowedToolSnapshots,
     get drainQueueCalls() {
       return drainQueueCalls;
     },
@@ -213,6 +226,7 @@ function makeTarget(options: {
           input: [...input],
           requestId: runOptions?.requestId,
           turnContext: runOptions?.turnContext,
+          allowedTools: snapshotAllowedTools(),
         });
         // Emit any scripted events the test wanted us to produce.
         for (const ev of options.scriptedEvents ?? []) {
@@ -253,6 +267,19 @@ function makeTarget(options: {
     persistTailMessage: async (msg: Message) => {
       persistedTailCalls.push(msg);
       callSequence.push("persist");
+    },
+    setWakeAllowedTools: (tools: ReadonlySet<string>) => {
+      const previous = activeAllowedTools;
+      activeAllowedTools = new Set(tools);
+      allowedToolSnapshots.push(snapshotAllowedTools());
+      callSequence.push(`tools:${snapshotAllowedTools()?.join(",") ?? "all"}`);
+      return () => {
+        activeAllowedTools = previous;
+        allowedToolSnapshots.push(snapshotAllowedTools());
+        callSequence.push(
+          `tools:${snapshotAllowedTools()?.join(",") ?? "all"}`,
+        );
+      };
     },
     ...(options.omitDrainQueue
       ? {}
@@ -500,6 +527,69 @@ describe("wakeAgentForOpportunity", () => {
         },
       ],
     });
+  });
+
+  test("scopes allowed tools during the wake and restores before queued messages drain", async () => {
+    const target = makeTarget({
+      initialAllowedTools: new Set(["bash"]),
+      scriptedAssistant: {
+        role: "assistant",
+        content: [{ type: "text", text: "Saved." }],
+      },
+    });
+
+    const result = await wakeAgentForOpportunity(
+      {
+        conversationId: target.conversationId,
+        hint: "review for memories",
+        source: "memory-retrospective",
+        allowedTools: ["remember"],
+      },
+      { resolveTarget: async () => target },
+    );
+
+    expect(result).toEqual({ invoked: true, producedToolCalls: false });
+    expect(target.runCalls[0]!.allowedTools).toEqual(["remember"]);
+    expect(target.allowedToolSnapshots).toEqual([["remember"], ["bash"]]);
+
+    const restoreIndex = target.callSequence.indexOf("tools:bash");
+    const processingFalseIndex =
+      target.callSequence.indexOf("processing:false");
+    const drainIndex = target.callSequence.indexOf("drain");
+    expect(restoreIndex).toBeGreaterThan(-1);
+    expect(restoreIndex).toBeLessThan(processingFalseIndex);
+    expect(processingFalseIndex).toBeLessThan(drainIndex);
+  });
+
+  test("restores allowed tools before drain when the wake is a silent no-op", async () => {
+    const target = makeTarget({
+      scriptedAssistant: {
+        role: "assistant",
+        content: [{ type: "text", text: "" }],
+      },
+    });
+
+    const result = await wakeAgentForOpportunity(
+      {
+        conversationId: target.conversationId,
+        hint: "review for memories",
+        source: "memory-retrospective",
+        allowedTools: ["remember"],
+      },
+      { resolveTarget: async () => target },
+    );
+
+    expect(result).toEqual({ invoked: true, producedToolCalls: false });
+    expect(target.runCalls[0]!.allowedTools).toEqual(["remember"]);
+    expect(target.allowedToolSnapshots).toEqual([["remember"], undefined]);
+
+    const restoreIndex = target.callSequence.indexOf("tools:all");
+    const processingFalseIndex =
+      target.callSequence.indexOf("processing:false");
+    const drainIndex = target.callSequence.indexOf("drain");
+    expect(restoreIndex).toBeGreaterThan(-1);
+    expect(restoreIndex).toBeLessThan(processingFalseIndex);
+    expect(processingFalseIndex).toBeLessThan(drainIndex);
   });
 
   test("produces tool calls when LLM emits a tool_use block", async () => {

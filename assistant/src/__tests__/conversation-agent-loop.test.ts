@@ -956,7 +956,7 @@ describe("session-agent-loop", () => {
   });
 
   describe("proactive artifact trigger", () => {
-    test("suppresses proactive app build when the foreground turn used app tools", async () => {
+    test("does not start proactive artifact jobs after foreground user turns", async () => {
       mockConversationRow = {
         ...mockConversationRow,
         id: "test-conv",
@@ -1033,11 +1033,7 @@ describe("session-agent-loop", () => {
       );
       await new Promise((resolve) => setTimeout(resolve, 0));
 
-      expect(runProactiveArtifactJobMock).toHaveBeenCalledTimes(1);
-      expect(runProactiveArtifactJobMock.mock.calls[0]?.[0]).toMatchObject({
-        conversationId: "test-conv",
-        suppressAppBuild: true,
-      });
+      expect(runProactiveArtifactJobMock).toHaveBeenCalledTimes(0);
     });
   });
 
