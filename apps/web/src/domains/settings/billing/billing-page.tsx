@@ -154,13 +154,15 @@ export function BillingPage() {
     );
   }
 
-  // Already-resolved non-hosted states (`retired`, `error`,
-  // `awaiting_version_selection`, transitional `initializing` /
-  // `cleaning_up`): no platform-hosted assistant to manage billing for,
-  // but not self-hosted either so the `"gated"` branch above didn't
-  // match. Render a terminal Notice instead of a spinner that would wait
-  // for a hosting transition that will never happen — and keep the
-  // subcomponent queries silent.
+  // Terminal non-hosted resolved states (`retired`, `error`,
+  // `awaiting_version_selection`): no platform-hosted assistant to manage
+  // billing for, but not self-hosted either so the `"gated"` branch above
+  // didn't match. Render a terminal Notice instead of a spinner that
+  // would wait for a hosting transition that will never happen — and
+  // keep the subcomponent queries silent. Transitional `initializing` /
+  // `cleaning_up` are now caught by the spinner branch above (they're
+  // pending a terminal hosting verdict from a successful platform
+  // response — see `useActiveAssistantLifecycleIsLoading()` docstring).
   if (!isPlatformHosted) {
     return (
       <div className="max-w-5xl space-y-4">

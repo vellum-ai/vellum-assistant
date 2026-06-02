@@ -145,11 +145,12 @@ export function UpgradeSuccessPage() {
   }
 
   // Terminal non-hosted (resolved to `retired`, `error`,
-  // `awaiting_version_selection`, or transitional states): polling never
-  // becomes enabled, so PendingState would render "Finalizing your
-  // upgrade…" forever. Short-circuit to a Notice with a manual escape
-  // hatch. The lifecycle-loading window still falls through to the body
-  // (PendingState is the right UX there).
+  // `awaiting_version_selection`): polling never becomes enabled, so
+  // PendingState would render "Finalizing your upgrade…" forever.
+  // Short-circuit to a Notice with a manual escape hatch. Lifecycle-
+  // loading + transitional states (`loading`, `initializing`,
+  // `cleaning_up`) all fall through to the body via `isLifecycleLoading`
+  // — PendingState is the right UX there.
   if (!isPollingEnabled && !isLifecycleLoading) {
     return (
       <div className="max-w-4xl space-y-6">
