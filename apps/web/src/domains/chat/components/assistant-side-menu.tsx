@@ -4,6 +4,7 @@ import {
   ChevronDown,
   ChevronRight,
   Clock,
+  EyeOff,
   Hash,
   Layers,
   LayoutGrid,
@@ -16,6 +17,7 @@ import {
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 import {
   ConversationActionsMenu,
@@ -62,6 +64,8 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onOpenApp?: (appId: string) => void;
   activeAppId?: string;
   onStartNewConversation?: () => void;
+  /** Flag-gated incognito new-conversation entry. Omitted when the flag is off. */
+  onStartNewIncognitoConversation?: () => void;
   footerAction?: ReactNode;
   onClose?: () => void;
 
@@ -140,6 +144,7 @@ export function AssistantSideMenu({
   onOpenApp,
   activeAppId,
   onStartNewConversation,
+  onStartNewIncognitoConversation,
   footerAction,
   onPinConversation,
   onRenameConversation,
@@ -171,6 +176,7 @@ export function AssistantSideMenu({
   });
 
   const pinnedApps = usePinnedAppsStore.use.pinnedApps();
+  const incognitoEnabled = useAssistantFeatureFlagStore.use.incognitoConversations();
 
   // --- Render helpers (action wiring, context menu, pin toggle) ---
 
@@ -320,15 +326,28 @@ export function AssistantSideMenu({
   // --- Header actions ---
 
   const headerActions = onStartNewConversation ? (
-    <Button
-      variant="ghost"
-      size="compact"
-      iconOnly={<SquarePen />}
-      aria-label="New conversation"
-      tooltip="New conversation"
-      tooltipSide="right"
-      onClick={() => { onStartNewConversation(); onClose?.(); }}
-    />
+    <>
+      {incognitoEnabled && onStartNewIncognitoConversation ? (
+        <Button
+          variant="ghost"
+          size="compact"
+          iconOnly={<EyeOff />}
+          aria-label="New incognito conversation"
+          tooltip="New incognito conversation"
+          tooltipSide="right"
+          onClick={() => { onStartNewIncognitoConversation(); onClose?.(); }}
+        />
+      ) : null}
+      <Button
+        variant="ghost"
+        size="compact"
+        iconOnly={<SquarePen />}
+        aria-label="New conversation"
+        tooltip="New conversation"
+        tooltipSide="right"
+        onClick={() => { onStartNewConversation(); onClose?.(); }}
+      />
+    </>
   ) : null;
 
   // --- Flat conversation list renderer ---

@@ -13,6 +13,7 @@ import {
 } from "@/hooks/conversation-queries";
 import { mergeConversationLists } from "@/utils/conversation-cache";
 import { useConversationStore } from "@/stores/conversation-store";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { HomePage } from "@/domains/home/home-page";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useViewerStore } from "@/stores/viewer-store";
@@ -23,6 +24,7 @@ export function HomePageRoute() {
   const assistantId = useActiveAssistantId();
   const setTopBarCenter = useChatLayoutSlotsStore.use.setTopBarCenter();
   const isMobile = useIsMobile();
+  const incognitoEnabled = useAssistantFeatureFlagStore.use.incognitoConversations();
   const { conversations: foregroundConversations } =
     useConversationListQuery(assistantId);
   // Recap/feed items can reference background and scheduled jobs, so the home
@@ -71,6 +73,25 @@ export function HomePageRoute() {
         navigate(routes.conversation(draftConversationId));
         requestComposerFocus();
       }}
+      onStartNewIncognitoChat={
+        incognitoEnabled
+          ? () => {
+              useViewerStore.getState().setMainView("chat");
+              const draftConversationId = createDraftConversationId();
+              useConversationStore
+                .getState()
+                .setActiveConversationId(draftConversationId);
+              useConversationStore
+                .getState()
+                .setConversationSettings(draftConversationId, {
+                  incognito: true,
+                  factorInMemories: false,
+                });
+              navigate(routes.conversation(draftConversationId));
+              requestComposerFocus();
+            }
+          : undefined
+      }
       onOpenConversation={(conversationId) =>
         navigate(routes.conversation(conversationId))
       }
