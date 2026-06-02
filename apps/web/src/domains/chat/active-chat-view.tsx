@@ -578,6 +578,29 @@ export function ActiveChatView() {
     void sendMessage(prompt);
   }, [searchParams, activeConversationId, sendMessage]);
 
+  // Kick off a background reachability probe immediately when a pending
+  // onboarding message exists, instead of waiting for a 502 from
+  // the conversation list query to trigger the unreachable-bus.
+  useEffect(() => {
+    if (!assistantId) return;
+    const message = peekPendingPreChatContext()?.initialMessage;
+    if (!message) return;
+    if (reachability.state.phase === "idle") {
+      reachability.probe({ mode: "background" });
+    }
+  }, [assistantId, reachability]);
+
+  // Auto-send onboarding initial message once the daemon is reachable.
+  const initialMessageConsumedRef = useRef(false);
+  useEffect(() => {
+    if (initialMessageConsumedRef.current || !assistantId || !activeConversationId) return;
+    if (reachability.state.phase !== "ready") return;
+    const message = peekPendingPreChatContext()?.initialMessage;
+    if (!message) return;
+    initialMessageConsumedRef.current = true;
+    void sendMessage(message);
+  }, [activeConversationId, assistantId, reachability.state.phase, sendMessage]);
+
   // Clear the post-hatch loading gate once the first message appears.
   useEffect(() => {
     if (!autoGreetPending) return;
