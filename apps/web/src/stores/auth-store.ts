@@ -130,6 +130,15 @@ function syncUserScopedState(nextUserId: string | null): void {
   syncOrganizationState(nextUserId);
 }
 
+// Monotonic id stamped on each platform-session probe. Probes can overlap
+// (an app-resume refresh firing while the initial probe is still in flight),
+// and a stale completion must not mutate session state — most importantly it
+// must not flip `platformSessionResolved` back to `true` while a newer probe
+// is still pending, which would resurface the very race this state guards.
+// Only the latest probe's id matches `latestPlatformProbe`, so older probes
+// no-op.
+let latestPlatformProbe = 0;
+
 /**
  * Run the fire-and-forget platform-session probe used by the local gateway
  * auth paths, which return control before the session is known.
@@ -141,6 +150,10 @@ function syncUserScopedState(nextUserId: string | null): void {
  * missing session as confirmed must wait for this flip; until then a cached
  * platform assistant stands in as a liveness signal.
  *
+ * Overlapping probes are resolved latest-wins: each call captures a probe id
+ * and only the newest probe is allowed to settle state, so a slower earlier
+ * probe cannot retire the "unknown" window a later probe just opened.
+ *
  * `setUserOnSuccess` adopts the probed user as the active user (the
  * no-platform-assistant local path, which starts as the placeholder local
  * user). `clearOnFailure` drives `hasPlatformSession` to `false` on a negative
@@ -151,9 +164,12 @@ function probePlatformSession(
   set: (partial: Partial<AuthState>) => void,
   options: { setUserOnSuccess?: boolean; clearOnFailure?: boolean } = {},
 ): void {
+  const probeId = ++latestPlatformProbe;
+  const isStale = (): boolean => probeId !== latestPlatformProbe;
   set({ platformSessionResolved: false });
   getSession()
     .then((result) => {
+      if (isStale()) return;
       if (result.ok && result.data.user) {
         const next: Partial<AuthState> = { hasPlatformSession: true };
         if (options.setUserOnSuccess) {
@@ -165,11 +181,15 @@ function probePlatformSession(
       }
     })
     .catch(() => {
+      if (isStale()) return;
       if (options.clearOnFailure) {
         set({ hasPlatformSession: false });
       }
     })
-    .finally(() => set({ platformSessionResolved: true }));
+    .finally(() => {
+      if (isStale()) return;
+      set({ platformSessionResolved: true });
+    });
 }
 
 const useAuthStoreBase = create<AuthStore>()((set) => ({
