@@ -304,6 +304,20 @@ export {
   DictationRequestSchema,
 } from "./requests/dictation.js";
 export {
+  type ConversationMessage,
+  type ConversationMessageAttachment,
+  ConversationMessageAttachmentSchema,
+  ConversationMessageSchema,
+  type ConversationMessageSurface,
+  ConversationMessageSurfaceSchema,
+  type ConversationMessageToolCall,
+  ConversationMessageToolCallSchema,
+  type ConversationSlackMessage,
+  ConversationSlackMessageSchema,
+  type ConversationSubagentNotification,
+  ConversationSubagentNotificationSchema,
+} from "./responses/conversation-message.js";
+export {
   type DiskPressureStatusResponse,
   DiskPressureStatusResponseSchema,
 } from "./responses/disk-pressure-status.js";

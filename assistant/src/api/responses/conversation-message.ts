@@ -1,0 +1,223 @@
+/**
+ * Wire contract for the conversation history / messages endpoints.
+ *
+ *   - `GET /v1/assistants/:id/messages` → `{ messages: ConversationMessage[] }`
+ *   - `POST /v1/messages` send acks echo an `assistantMessage: ConversationMessage`
+ *
+ * Holds the canonical history-row shape produced by the daemon's
+ * `renderHistoryContent` + conversation-routes serializer and consumed by
+ * every history client (web, CLI, evals). Defining it here — rather than
+ * re-declaring it in the daemon's `http-types.ts` and again in the web's
+ * `chat/api/messages.ts` — means the producer and all consumers derive from
+ * one source and cannot drift.
+ *
+ * The arrays use a positional encoding:
+ *   - `contentOrder` entries are `"<type>:<index>"` strings (e.g. `"text:0"`,
+ *     `"thinking:1"`, `"tool:0"`, `"surface:0"`, `"attachment:0"`). The index
+ *     points into the matching array below.
+ *   - `textSegments`, `thinkingSegments` are plain string arrays.
+ *   - `toolCalls`, `surfaces`, `attachments` are object arrays.
+ *
+ * Canonical wire-contract source. Assistant code imports the types directly
+ * from this file via relative paths; external consumers (web client,
+ * gateway, evals) import via `@vellumai/assistant-api`.
+ */
+
+import { z } from "zod";
+
+// ---------------------------------------------------------------------------
+// Attachment metadata
+// ---------------------------------------------------------------------------
+
+/** Structured attachment metadata attached to a history row. */
+export const ConversationMessageAttachmentSchema = z.object({
+  id: z.string(),
+  filename: z.string(),
+  mimeType: z.string(),
+  sizeBytes: z.number(),
+  kind: z.string(),
+  /** Base64-encoded file data. Only populated for images on history reload. */
+  data: z.string().optional(),
+  /** Base64-encoded thumbnail, when one was generated. */
+  thumbnailData: z.string().optional(),
+  /** True when the attachment bytes are backed by a file on disk. */
+  fileBacked: z.boolean().optional(),
+});
+export type ConversationMessageAttachment = z.infer<
+  typeof ConversationMessageAttachmentSchema
+>;
+
+// ---------------------------------------------------------------------------
+// Tool call
+// ---------------------------------------------------------------------------
+
+const RiskScopeOptionSchema = z.object({
+  pattern: z.string(),
+  label: z.string(),
+});
+
+const RiskAllowlistOptionSchema = z.object({
+  label: z.string(),
+  description: z.string(),
+  pattern: z.string(),
+});
+
+const RiskDirectoryScopeOptionSchema = z.object({
+  scope: z.string(),
+  label: z.string(),
+});
+
+/**
+ * A single tool call rendered into a history row. Mirrors the object the
+ * daemon's `renderHistoryContent` emits; `contentOrder` references it as
+ * `tool:N` where `N` indexes into `toolCalls`.
+ */
+export const ConversationMessageToolCallSchema = z.object({
+  name: z.string(),
+  input: z.record(z.string(), z.unknown()),
+  result: z.string().optional(),
+  isError: z.boolean().optional(),
+  /** Base64-encoded image data from tool contentBlocks. @deprecated Use imageDataList. */
+  imageData: z.string().optional(),
+  /** Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot, image generation). */
+  imageDataList: z.array(z.string()).optional(),
+  /** Unix ms when the tool started executing. */
+  startedAt: z.number().optional(),
+  /** Unix ms when the tool completed. */
+  completedAt: z.number().optional(),
+  /** Confirmation decision for this tool call: "approved" | "denied" | "timed_out". */
+  confirmationDecision: z.string().optional(),
+  /** Friendly label for the confirmation (e.g. "Edit File", "Run Command"). */
+  confirmationLabel: z.string().optional(),
+  /** Risk level classification at invocation time ("low" | "medium" | "high" | "unknown"). */
+  riskLevel: z.string().optional(),
+  /** Human-readable reason for the risk classification. */
+  riskReason: z.string().optional(),
+  /** ID of the trust rule that matched this invocation (if any). */
+  matchedTrustRuleId: z.string().optional(),
+  /** @deprecated Use `approvalMode` and `approvalReason` instead. */
+  autoApproved: z.boolean().optional(),
+  /** How the approval decision was reached: prompted, auto, blocked, or unknown (legacy). */
+  approvalMode: z.string().optional(),
+  /** Why the approval decision was reached (stable enum for client display). */
+  approvalReason: z.string().optional(),
+  /** Snapshot of the auto-approve threshold at execution time. */
+  riskThreshold: z.string().optional(),
+  /** Display-only regex ladder for the rule editor (narrowest → broadest). */
+  riskScopeOptions: z.array(RiskScopeOptionSchema).optional(),
+  /** Minimatch save patterns for the rule editor (narrowest → broadest). */
+  riskAllowlistOptions: z.array(RiskAllowlistOptionSchema).optional(),
+  /** Directory scope ladder for the rule editor. */
+  riskDirectoryScopeOptions: z.array(RiskDirectoryScopeOptionSchema).optional(),
+});
+export type ConversationMessageToolCall = z.infer<
+  typeof ConversationMessageToolCallSchema
+>;
+
+// ---------------------------------------------------------------------------
+// Surface
+// ---------------------------------------------------------------------------
+
+const SurfaceActionSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  style: z.string().optional(),
+  data: z.record(z.string(), z.unknown()).optional(),
+});
+
+/**
+ * A UI surface (widget) embedded in a history row. `contentOrder` references
+ * it as `surface:N` where `N` indexes into `surfaces`.
+ */
+export const ConversationMessageSurfaceSchema = z.object({
+  surfaceId: z.string(),
+  surfaceType: z.string(),
+  title: z.string().optional(),
+  data: z.record(z.string(), z.unknown()),
+  actions: z.array(SurfaceActionSchema).optional(),
+  display: z.string().optional(),
+  persistent: z.boolean().optional(),
+  completed: z.boolean().optional(),
+  completionSummary: z.string().optional(),
+  /** Id of the tool call that produced this surface (the `ui_show` proxy tool). */
+  toolCallId: z.string().optional(),
+});
+export type ConversationMessageSurface = z.infer<
+  typeof ConversationMessageSurfaceSchema
+>;
+
+// ---------------------------------------------------------------------------
+// Subagent notification
+// ---------------------------------------------------------------------------
+
+/** Daemon-injected subagent lifecycle notification attached to a history row. */
+export const ConversationSubagentNotificationSchema = z.object({
+  subagentId: z.string(),
+  label: z.string(),
+  status: z.string(),
+  error: z.string().optional(),
+  conversationId: z.string().optional(),
+  objective: z.string().optional(),
+});
+export type ConversationSubagentNotification = z.infer<
+  typeof ConversationSubagentNotificationSchema
+>;
+
+// ---------------------------------------------------------------------------
+// Slack message envelope
+// ---------------------------------------------------------------------------
+
+const SlackMessageLinkSchema = z.object({
+  appUrl: z.string().optional(),
+  webUrl: z.string().optional(),
+});
+
+/** Slack provenance for a history row that originated from a Slack channel. */
+export const ConversationSlackMessageSchema = z.object({
+  channelId: z.string(),
+  channelName: z.string().optional(),
+  channelTs: z.string(),
+  threadTs: z.string().optional(),
+  sender: z
+    .object({
+      displayName: z.string().optional(),
+      externalUserId: z.string().optional(),
+    })
+    .optional(),
+  messageLink: SlackMessageLinkSchema.optional(),
+  threadLink: SlackMessageLinkSchema.optional(),
+});
+export type ConversationSlackMessage = z.infer<
+  typeof ConversationSlackMessageSchema
+>;
+
+// ---------------------------------------------------------------------------
+// Conversation message (history row)
+// ---------------------------------------------------------------------------
+
+/**
+ * A single consolidated history row as returned by the daemon's messages
+ * endpoint. Consecutive assistant DB rows are merged into one display row;
+ * `mergedMessageIds` records the folded ids.
+ */
+export const ConversationMessageSchema = z.object({
+  id: z.string(),
+  /**
+   * Server message ids folded into this display row when consecutive
+   * assistant messages were consolidated for history rendering.
+   */
+  mergedMessageIds: z.array(z.string()).optional(),
+  role: z.string(),
+  /** Display timestamp as an ISO-8601 string. */
+  timestamp: z.string(),
+  attachments: z.array(ConversationMessageAttachmentSchema),
+  toolCalls: z.array(ConversationMessageToolCallSchema).optional(),
+  surfaces: z.array(ConversationMessageSurfaceSchema).optional(),
+  textSegments: z.array(z.string()).optional(),
+  thinkingSegments: z.array(z.string()).optional(),
+  /** Positional `"<type>:<index>"` content ordering (e.g. `"text:0"`, `"thinking:1"`). */
+  contentOrder: z.array(z.string()).optional(),
+  subagentNotification: ConversationSubagentNotificationSchema.optional(),
+  slackMessage: ConversationSlackMessageSchema.optional(),
+});
+export type ConversationMessage = z.infer<typeof ConversationMessageSchema>;

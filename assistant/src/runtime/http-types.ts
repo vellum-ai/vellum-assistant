@@ -1,6 +1,10 @@
 /**
  * Shared types for the runtime HTTP server and its route handlers.
  */
+import type {
+  ConversationMessage,
+  ConversationMessageAttachment,
+} from "../api/responses/conversation-message.js";
 import type { ChannelId, InterfaceId } from "../channels/types.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { Conversation } from "../daemon/conversation.js";
@@ -137,74 +141,16 @@ export interface RuntimeHttpServerOptions {
   hostname?: string;
 }
 
-export interface RuntimeAttachmentMetadata {
-  id: string;
-  filename: string;
-  mimeType: string;
-  sizeBytes: number;
-  kind: string;
-  data?: string;
-  thumbnailData?: string;
-  fileBacked?: boolean;
-}
+/**
+ * Structured attachment metadata returned on a history row. Canonical wire
+ * shape lives in `@vellumai/assistant-api`; aliased here so route modules can
+ * keep importing the runtime-local name.
+ */
+export type RuntimeAttachmentMetadata = ConversationMessageAttachment;
 
-export interface RuntimeMessagePayload {
-  id: string;
-  /**
-   * Server message ids that were folded into this display row when consecutive
-   * assistant messages were consolidated for history rendering.
-   */
-  mergedMessageIds?: string[];
-  role: string;
-  timestamp: string;
-  attachments: RuntimeAttachmentMetadata[];
-  toolCalls?: Array<{
-    name: string;
-    input: Record<string, unknown>;
-    result?: string;
-    isError?: boolean;
-    riskLevel?: string;
-    riskReason?: string;
-    autoApproved?: boolean;
-    approvalMode?: string;
-    approvalReason?: string;
-    riskThreshold?: string;
-  }>;
-  surfaces?: Array<{
-    surfaceId: string;
-    surfaceType: string;
-    title?: string;
-    data: Record<string, unknown>;
-    actions?: unknown[];
-    display?: string;
-  }>;
-  textSegments?: string[];
-  thinkingSegments?: string[];
-  contentOrder?: string[];
-  subagentNotification?: {
-    subagentId: string;
-    label: string;
-    status: string;
-    error?: string;
-    conversationId?: string;
-    objective?: string;
-  };
-  slackMessage?: {
-    channelId: string;
-    channelName?: string;
-    channelTs: string;
-    threadTs?: string;
-    sender?: {
-      displayName?: string;
-      externalUserId?: string;
-    };
-    messageLink?: {
-      appUrl?: string;
-      webUrl?: string;
-    };
-    threadLink?: {
-      appUrl?: string;
-      webUrl?: string;
-    };
-  };
-}
+/**
+ * The daemon's history-row payload. Canonical wire contract lives in
+ * `@vellumai/assistant-api` (`responses/conversation-message.ts`) so the
+ * producer and every consumer (web, CLI, evals) derive from one source.
+ */
+export type RuntimeMessagePayload = ConversationMessage;
