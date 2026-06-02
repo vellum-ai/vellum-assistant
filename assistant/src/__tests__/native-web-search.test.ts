@@ -108,7 +108,6 @@ mock.module("../memory/llm-request-log-store.js", () => ({
 }));
 
 // Import after mocking
-import { AnthropicProvider } from "../providers/anthropic/client.js";
 import {
   createEventHandlerState,
   dispatchAgentEvent,
@@ -116,6 +115,7 @@ import {
   type EventHandlerState,
 } from "../daemon/conversation-agent-loop-handlers.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import { AnthropicProvider } from "../providers/anthropic/client.js";
 import { isNativeWebSearchCapableProvider } from "../providers/registry.js";
 import { WEB_SEARCH_BACKEND_FAILURE_MESSAGE } from "../tools/network/web-search-error.js";
 
