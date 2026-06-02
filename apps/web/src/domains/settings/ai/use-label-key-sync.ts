@@ -9,24 +9,25 @@ import { toKebabCase } from "@/domains/settings/ai/slugify";
  * the key with a kebab-cased slug. Once the user touches the key field
  * directly, auto-derivation stops.
  *
- * `resetDirty` is stable (empty deps) and safe in dependency arrays.
- * `handleLabelChange` and `handleKeyChange` update when `mode` or `setKey`
- * change, which is fine — they aren't used in effect dependency arrays.
+ * `resetDirty` is stable (empty deps) and safe in effect dependency arrays.
+ * `handleLabelChange` and `handleKeyChange` update when `mode`, `setLabel`,
+ * or `setKey` change — both are event handlers, not effect dependencies.
  */
 export function useLabelKeySync(
   mode: string,
+  setLabel: (value: string) => void,
   setKey: (value: string) => void,
 ) {
   const keyDirtyRef = useRef(false);
 
   const handleLabelChange = useCallback(
-    (newLabel: string, setLabel: (value: string) => void) => {
+    (newLabel: string) => {
       setLabel(newLabel);
       if (mode === "create" && !keyDirtyRef.current) {
         setKey(toKebabCase(newLabel));
       }
     },
-    [mode, setKey],
+    [mode, setLabel, setKey],
   );
 
   const handleKeyChange = useCallback(

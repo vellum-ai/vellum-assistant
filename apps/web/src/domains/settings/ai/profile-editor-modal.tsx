@@ -330,17 +330,13 @@ function ProfileEditorModalInner({
     (availableConnectionsForProvider.length > 0 ||
       providerConnection !== "");
 
-  const { handleLabelChange: onLabelChange, handleKeyChange, resetDirty } =
-    useLabelKeySync(effectiveMode, setKey);
+  const { handleLabelChange, handleKeyChange, resetDirty } =
+    useLabelKeySync(effectiveMode, setLabel, setKey);
 
   // Reset dirty tracking when modal re-opens with new values.
   useEffect(() => {
     resetDirty();
   }, [profileName, mode, resetDirty]);
-
-  function handleLabelChange(newLabel: string) {
-    onLabelChange(newLabel, setLabel);
-  }
 
   function handleProviderChange(newProvider: string) {
     // Guard: re-selecting the same provider is a no-op — don't clear fields

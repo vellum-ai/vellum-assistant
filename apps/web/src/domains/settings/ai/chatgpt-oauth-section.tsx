@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 
 import { Button } from "@vellum/design-library/components/button";
 import { Input } from "@vellum/design-library/components/input";
@@ -45,7 +45,6 @@ export function ChatgptOAuthSection({
   const [oauthState, setOauthState] = useState<ChatgptOAuthState>("idle");
   const [pastedUrl, setPastedUrl] = useState("");
   const [oauthError, setOauthError] = useState<string | null>(null);
-  const stateRef = useRef<string>("");
 
   async function handleSignIn() {
     setOauthState("starting");
@@ -53,12 +52,11 @@ export function ChatgptOAuthSection({
     const popup = window.open("about:blank", "_blank");
     try {
       const {
-        data: { authorize_url, state },
+        data: { authorize_url },
       } = await inferenceChatgptsubscriptionAuthPost({
         path: { assistant_id: assistantId },
         throwOnError: true,
       });
-      stateRef.current = state;
       if (popup) {
         popup.opener = null;
         popup.location.href = authorize_url;

@@ -166,12 +166,8 @@ export function ProviderEditorContent({
     return options;
   }, [openAICompatibleEndpointsEnabled, provider]);
 
-  const { handleLabelChange: onLabelChange, handleKeyChange: handleNameChange, resetDirty } =
-    useLabelKeySync(effectiveMode, setName);
-
-  function handleLabelChange(newLabel: string) {
-    onLabelChange(newLabel, setLabel);
-  }
+  const { handleLabelChange, handleKeyChange: handleNameChange, resetDirty } =
+    useLabelKeySync(effectiveMode, setLabel, setName);
 
   // New state for inline API key editing
   const [apiKeyValue, setApiKeyValue] = useState("");
