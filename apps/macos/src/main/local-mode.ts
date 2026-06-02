@@ -25,10 +25,9 @@ import {
  * enters this package's typecheck or bundle; the shared library owns the
  * spawn/parse and lockfile-on-disk logic so each host wires transport once.
  *
- * DEP-2: a hatched local assistant runs its own daemon + gateway, while
- * `index.ts` also supervises a bundled daemon via `spawnDaemon`. The two
- * ownership models only collide in a packaged build (which doesn't exist
- * yet); reconciling them is tracked in LUM-2085 and is out of scope here.
+ * The CLI owns all daemon + gateway process lifecycle: a hatched local
+ * assistant runs its own daemon, and this host only ever invokes the CLI as a
+ * subprocess. The Electron app does not supervise any daemon of its own.
  */
 
 const DEFAULT_SPECIES = "vellum";
@@ -56,13 +55,10 @@ type LockfileWriteResult =
  *  - Dev: the monorepo source tree, run via `bun run <repo>/cli/src/index.ts
  *    <subcommand> …`. `app.getAppPath()` is `apps/macos`; the repo root is
  *    two levels up.
- *  - Packaged: unsupported for now. The only bundled executable is
- *    `Resources/bun`, which is the daemon binary — the supervisor in
- *    `index.ts` spawns it as `bun daemon`, not the CLI — so driving a hatch
- *    through it would hand CLI args to the daemon. Bundling a CLI-capable
- *    binary and reconciling it with the daemon supervisor is the DEP-2 work
- *    tracked in LUM-2085; until then this returns `null` so lifecycle ops
- *    fail explicitly instead of spawning the wrong binary.
+ *  - Packaged: unsupported for now. No CLI-capable runtime is bundled yet, so
+ *    this returns `null` and lifecycle ops fail explicitly rather than trying
+ *    to invoke a binary that isn't there. Bundling a bun runtime and lazily
+ *    installing the CLI in packaged builds is tracked in LUM-2085.
  */
 function resolveCliInvocation(): CliInvocation | null {
   if (app.isPackaged) return null;

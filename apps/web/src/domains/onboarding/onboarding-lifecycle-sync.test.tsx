@@ -6,7 +6,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import {
   DEFAULT_PRECHAT_INITIAL_MESSAGE,
@@ -66,6 +66,8 @@ let isIOSWeb = false;
 let isMacOSWeb = false;
 let iosAppDownloaded = true;
 let macOsAppDownloaded = true;
+let isLocalModeValue = false;
+let hasPlatformSessionValue = false;
 let fetchOnboardingRecipeImpl: () => Promise<TestOnboardingRecipe | null> =
   async () => null;
 const fetchOnboardingRecipeMock = mock(() => fetchOnboardingRecipeImpl());
@@ -173,7 +175,7 @@ mock.module("@/runtime/native-auth", () => ({
 }));
 
 mock.module("@/lib/local-mode", () => ({
-  isLocalMode: () => false,
+  isLocalMode: () => isLocalModeValue,
   hasAssistants: () => false,
   getPlatformAssistants: () => [],
   getSelectedAssistant: () => undefined,
@@ -207,17 +209,52 @@ mock.module("@/stores/auth-store", () => ({
       }),
       isLoggedIn: () => true,
       isLoading: () => false,
-      hasPlatformSession: () => false,
+      hasPlatformSession: () => hasPlatformSessionValue,
     },
   },
 }));
 
+type EmulatedQueryOptions = {
+  queryKey?: unknown[];
+  queryFn?: () => Promise<unknown>;
+  enabled?: boolean;
+};
+
+// The recipe query gates the whole pre-chat render, so emulate just enough of a
+// real query (run the queryFn, track loading, honor `enabled`) to keep the
+// loading-gate and "local mode never fetches" tests meaningful. Every other
+// query in the tree (active assistant, OAuth connections) only needs canned
+// data, so it takes the static return. The emulation state lives inline in the
+// mock so the hooks run unconditionally on every `useQuery` call regardless of
+// which query it is — only the returned value branches on the query key.
 mock.module("@tanstack/react-query", () => ({
-  useQuery: () => ({
-    data: {
-      id: "asst-1",
-    },
-  }),
+  useQuery: (options?: EmulatedQueryOptions) => {
+    const isRecipeQuery =
+      Array.isArray(options?.queryKey) &&
+      options?.queryKey[0] === "onboarding-recipe";
+    const enabled = isRecipeQuery && Boolean(options?.enabled);
+    const [state, setState] = useState<{ data: unknown; isLoading: boolean }>(
+      () => ({ data: undefined, isLoading: enabled }),
+    );
+    useEffect(() => {
+      if (!enabled) {
+        setState({ data: undefined, isLoading: false });
+        return;
+      }
+      let cancelled = false;
+      setState({ data: undefined, isLoading: true });
+      void Promise.resolve(options?.queryFn?.()).then((data) => {
+        if (!cancelled) setState({ data, isLoading: false });
+      });
+      return () => {
+        cancelled = true;
+      };
+      // `options` is a fresh object every render; keying on `enabled` mirrors a
+      // real query, which only refetches when its enabled-state flips.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [enabled]);
+    return isRecipeQuery ? state : { data: { id: "asst-1" } };
+  },
   useMutation: () => ({ mutate: mock(() => {}), isPending: false }),
   useQueryClient: () => ({ fetchQuery: mock(async () => []) }),
 }));
@@ -309,6 +346,8 @@ beforeEach(() => {
   isMacOSWeb = false;
   iosAppDownloaded = true;
   macOsAppDownloaded = true;
+  isLocalModeValue = false;
+  hasPlatformSessionValue = false;
   fetchOnboardingRecipeImpl = async () => null;
   sessionStorage.clear();
   localStorage.clear();
@@ -542,6 +581,51 @@ describe("onboarding lifecycle sync", () => {
 
     await waitFor(() => expect(fetchOnboardingRecipeMock).toHaveBeenCalled());
     expect(await screen.findByTestId("name-continue")).toBeTruthy();
+    expect(checkAssistantMock).not.toHaveBeenCalled();
+  });
+
+  test("local mode never fetches the platform-only onboarding recipe", async () => {
+    isLocalModeValue = true;
+
+    render(<PreChatFlow />);
+
+    expect(await screen.findByTestId("name-continue")).toBeTruthy();
+    expect(fetchOnboardingRecipeMock).not.toHaveBeenCalled();
+  });
+
+  test("local mode without a platform session gates the prior-assistants step", async () => {
+    prechatOnboardingCondensedFlow = false;
+    isLocalModeValue = true;
+    hasPlatformSessionValue = false;
+
+    render(<PreChatFlow />);
+
+    fireEvent.click(await screen.findByTestId("name-continue"));
+    fireEvent.click(await screen.findByTestId("task-continue"));
+    fireEvent.click(await screen.findByTestId("tools-continue"));
+
+    expect(screen.queryByTestId("prior-continue")).toBeNull();
+    await waitFor(() => expect(checkAssistantMock).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(navigateMock).toHaveBeenCalledWith(
+        `${routes.assistant}?onboarding=1`,
+        { replace: true },
+      ),
+    );
+  });
+
+  test("local mode with a platform session shows the prior-assistants step", async () => {
+    prechatOnboardingCondensedFlow = false;
+    isLocalModeValue = true;
+    hasPlatformSessionValue = true;
+
+    render(<PreChatFlow />);
+
+    fireEvent.click(await screen.findByTestId("name-continue"));
+    fireEvent.click(await screen.findByTestId("task-continue"));
+    fireEvent.click(await screen.findByTestId("tools-continue"));
+
+    expect(await screen.findByTestId("prior-continue")).toBeTruthy();
     expect(checkAssistantMock).not.toHaveBeenCalled();
   });
 });

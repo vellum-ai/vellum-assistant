@@ -56,6 +56,7 @@ function Probe(props: {
   conversationId: string | null;
   lastCompleteAssistantMsgId: string | null;
 }) {
+  // eslint-disable-next-line react-hooks/globals -- synchronous renderToStaticMarkup test harness
   lastReturn = useGhostTextSuggestion(props);
   return null;
 }

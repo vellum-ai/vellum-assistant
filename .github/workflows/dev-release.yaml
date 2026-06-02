@@ -1295,14 +1295,17 @@ jobs:
 
           # Each line: "<first line of commit message> — @<author>", oldest first.
           # Escape Slack mrkdwn metacharacters in the message text.
+          # When the commit author is a bot (e.g. devin-ai-integration[bot]),
+          # use the first human Co-authored-by email instead.
           ESCAPE='gsub("&";"&amp;") | gsub("<";"&lt;") | gsub(">";"&gt;")'
           LINKIFY='gsub("\\(#(?<n>[0-9]+)\\)"; "(<https://github.com/'"${REPO}"'/pull/\(.n)|#\(.n)>)")'
+          RESOLVE_AUTHOR='if ((.author.login // "") | test("\\[bot\\]$")) then (([.commit.message | scan("(?i)co-authored-by:\\s*[^<]*<([^>]+)>")] | map(.[0]) | map(select(test("\\[bot\\]") | not)) | .[0]) // .author.login) else (.author.login // .commit.author.name) end'
 
           if [ -n "$PREV_SHA" ] && [ "$PREV_SHA" != "$HEAD_SHA" ]; then
             COMPARE_URL="https://github.com/${REPO}/compare/${PREV_SHA}...${HEAD_SHA}"
             TOTAL=$(gh api "repos/${REPO}/compare/${PREV_SHA}...${HEAD_SHA}" --jq '.total_commits')
             mapfile -t LINES < <(gh api "repos/${REPO}/compare/${PREV_SHA}...${HEAD_SHA}" --paginate \
-              --jq ".commits[] | \"\((.commit.message | split(\"\n\")[0]) | ${ESCAPE} | ${LINKIFY}) — @\(.author.login // .commit.author.name)\"")
+              --jq ".commits[] | (${RESOLVE_AUTHOR}) as \$a | \"\((.commit.message | split(\"\n\")[0]) | ${ESCAPE} | ${LINKIFY}) — @\(\$a)\"")
           else
             # First tracked release (or no new commits): fall back to HEAD itself.
             COMPARE_URL="https://github.com/${REPO}/commit/${HEAD_SHA}"
@@ -1312,7 +1315,7 @@ jobs:
             else
               TOTAL=1
               mapfile -t LINES < <(gh api "repos/${REPO}/commits/${HEAD_SHA}" \
-                --jq "\"\((.commit.message | split(\"\n\")[0]) | ${ESCAPE} | ${LINKIFY}) — @\(.author.login // .commit.author.name)\"")
+                --jq "(${RESOLVE_AUTHOR}) as \$a | \"\((.commit.message | split(\"\n\")[0]) | ${ESCAPE} | ${LINKIFY}) — @\(\$a)\"")
             fi
           fi
 

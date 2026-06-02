@@ -124,11 +124,6 @@ import type {
   TurnContext as PluginTurnContext,
 } from "../plugins/types.js";
 import { PluginExecutionError, PluginTimeoutError } from "../plugins/types.js";
-import {
-  hasProactiveArtifactCompleted,
-  runProactiveArtifactJob,
-  tryClaimProactiveArtifactTrigger,
-} from "../proactive-artifact/index.js";
 import type {
   ContentBlock,
   Message,
@@ -2081,6 +2076,7 @@ export async function runAgentLoopImpl(
       rlog,
       turnChannelContext: capturedTurnChannelContext,
       turnInterfaceContext: capturedTurnInterfaceContext,
+      applyCompaction: applySuccessfulCompaction,
     };
     const eventHandler = (event: AgentEvent): Promise<void> =>
       dispatchAgentEvent(state, deps, event);
@@ -2133,11 +2129,6 @@ export async function runAgentLoopImpl(
             actorTrustClass: ctx.trustContext?.trustClass,
           },
         };
-      },
-      applyResult: async (result, rawHistory) => {
-        await applySuccessfulCompaction(result, rawHistory);
-        state.reducerCompacted = true;
-        state.shouldInjectWorkspace = true;
       },
       reinject: async () => {
         // stripInjectionsForCompaction() unconditionally removed the existing
@@ -3244,42 +3235,6 @@ export async function runAgentLoopImpl(
             : {}),
         });
         publishLoopMessagesChanged();
-
-        // Proactive artifact: fire once when the processed turn was the 4th user message.
-        // Only trigger for real user-authored turns (not subagent/system messages).
-        {
-          const paConv = getConversation(ctx.conversationId);
-          if (
-            paConv &&
-            paConv.conversationType === "standard" &&
-            options?.isUserMessage
-          ) {
-            void (async () => {
-              try {
-                if (hasProactiveArtifactCompleted()) return;
-                const userMsg = getMessageById(
-                  userMessageId,
-                  ctx.conversationId,
-                );
-                if (!userMsg) return;
-                if (!tryClaimProactiveArtifactTrigger(userMsg.createdAt))
-                  return;
-                await runProactiveArtifactJob({
-                  conversationId: ctx.conversationId,
-                  userMessageCutoff: userMsg.createdAt,
-                  assistantMessageId: state.lastAssistantMessageId,
-                  suppressAppBuild: state.appBuildToolUsedThisRun,
-                  broadcastMessage,
-                });
-              } catch (err) {
-                log.warn(
-                  { err, conversationId: ctx.conversationId },
-                  "Proactive artifact trigger failed",
-                );
-              }
-            })();
-          }
-        }
       }
     }
 

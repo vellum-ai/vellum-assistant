@@ -16,7 +16,8 @@ import { cleanup, render } from "@testing-library/react";
 import type { ChatAttachment } from "@/domains/chat/components/chat-attachments/use-chat-attachments";
 import { INITIAL_TURN_STATE, type TurnState, useTurnStore } from "@/domains/chat/turn-store";
 
-import { ChatComposer, computeGhostSuffix, shouldSubmitOnEnter } from "@/domains/chat/components/chat-composer/chat-composer";
+import { ChatComposer } from "@/domains/chat/components/chat-composer/chat-composer";
+import { computeGhostSuffix, shouldSubmitOnEnter } from "@/domains/chat/components/chat-composer/chat-composer-utils";
 
 let mockIsMobile = false;
 mock.module("@/hooks/use-is-mobile", () => ({

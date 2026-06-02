@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useLayoutEffect, useRef } from "react";
 
 import * as Sentry from "@sentry/react";
 
@@ -124,7 +124,9 @@ export function useMessageReconciliation({
   latestPageOldestTimestamp,
 }: UseMessageReconciliationArgs): UseMessageReconciliationReturn {
   const initialPageOldestTsRef = useRef<number | null>(latestPageOldestTimestamp);
-  initialPageOldestTsRef.current = latestPageOldestTimestamp;
+  useLayoutEffect(() => {
+    initialPageOldestTsRef.current = latestPageOldestTimestamp;
+  }, [latestPageOldestTimestamp]);
   const setMessages = useChatSessionStore.use.setMessages();
   const reconcileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 

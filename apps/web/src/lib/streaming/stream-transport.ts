@@ -98,9 +98,10 @@ const STREAM_MAX_RECONNECT_ATTEMPTS = 5;
 const STREAM_MAX_RECONNECT_DELAY_MS = 30_000;
 // Idle watchdog: if no SSE traffic (events OR heartbeat comments) is
 // received within this window, treat the stream as silently stalled
-// and force-reconnect. The daemon emits a heartbeat comment every 30 s
-// (see assistant/src/runtime/routes/events-routes.ts), so this value
-// must comfortably exceed that interval to avoid false positives on a
+// and force-reconnect. The daemon emits a heartbeat comment every 7 s
+// (DEFAULT_HEARTBEAT_INTERVAL_MS in events-routes.ts); in managed mode
+// vembda injects additional keepalives every 10 s. This value must
+// comfortably exceed both intervals to avoid false positives on a
 // healthy connection that is idle between user turns.
 const STREAM_IDLE_TIMEOUT_MS = 45_000;
 

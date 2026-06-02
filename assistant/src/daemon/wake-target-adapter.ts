@@ -140,6 +140,7 @@ function translateAgentEventToServerMessage(
     case "context_compacting":
     case "compaction_circuit_open":
     case "compaction_circuit_closed":
+    case "compaction_applied":
     case "agent_loop_exit":
       return null;
     case "llm_call_started":
@@ -195,6 +196,13 @@ export function conversationToWakeTarget(
       conversation.processing = on;
     },
     setTrustContext: (ctx) => conversation.setTrustContext(ctx),
+    setWakeAllowedTools: (tools) => {
+      const previous = conversation.subagentAllowedTools;
+      conversation.setSubagentAllowedTools(new Set(tools));
+      return () => {
+        conversation.setSubagentAllowedTools(previous);
+      };
+    },
     persistTailMessage: async (message) => {
       const turnChannelCtx = conversation.getTurnChannelContext();
       const turnInterfaceCtx = conversation.getTurnInterfaceContext();

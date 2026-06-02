@@ -1,8 +1,11 @@
 import type { QueryClient } from "@tanstack/react-query";
 
-import { groupsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
+import {
+  configGetQueryKey,
+  groupsGetQueryKey,
+} from "@/generated/daemon/@tanstack/react-query.gen";
 import type { Options } from "@/generated/daemon/sdk.gen";
-import type { GroupsGetData } from "@/generated/daemon/types.gen";
+import type { ConfigGetData, GroupsGetData } from "@/generated/daemon/types.gen";
 
 export const AVATAR_QUERY_KEY_PREFIX = "assistantAvatar";
 
@@ -50,10 +53,17 @@ export function conversationGroupsQueryKey(
   } as Options<GroupsGetData>);
 }
 
+/**
+ * Build the generated query key for the daemon config. All consumers —
+ * sync handler, service cards, imperative invalidation — share one cache
+ * entry via this key.
+ */
 export function assistantDaemonConfigQueryKey(
   assistantId: string | null | undefined,
-) {
-  return ["daemon-config", assistantId] as const;
+): ReturnType<typeof configGetQueryKey> {
+  return configGetQueryKey({
+    path: { assistant_id: assistantId ?? "" },
+  } as Options<ConfigGetData>);
 }
 
 export function assistantSoundsConfigQueryKey(

@@ -2,10 +2,10 @@
  * @jest-environment happy-dom
  */
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import type { MutableRefObject } from "react";
 
-import type { TranscriptHandle } from "@/domains/chat/transcript/use-transcript-scroll";
+import type { TranscriptHandle } from "@/domains/chat/transcript/transcript";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import type { RuntimeMessage } from "@/domains/chat/api/messages";
@@ -525,85 +525,6 @@ describe("createChatDebugApi.thinkingIndicator", () => {
 });
 
 // ---------------------------------------------------------------------------
-//  createChatDebugApi — thinkingIndicator.progressBadge
-// ---------------------------------------------------------------------------
-
-describe("createChatDebugApi.thinkingIndicator progressBadge", () => {
-  // The badge gate reads the `useProgressBadge` flag straight from
-  // localStorage; keep the key isolated so the default-state cases don't
-  // see a stray override left by an enabled-flag case.
-  const PROGRESS_BADGE_KEY = "vellum:debug:useProgressBadge";
-  afterEach(() => {
-    localStorage.removeItem(PROGRESS_BADGE_KEY);
-  });
-
-  test("flag off + not processing → hidden, both gates failing", () => {
-    const api = createChatDebugApi(makeRefs());
-    const { progressBadge } = api.thinkingIndicator();
-    expect(progressBadge.visible).toBe(false);
-    expect(progressBadge.flagEnabled).toBe(false);
-    expect(progressBadge.isProcessing).toBe(false);
-    expect(progressBadge.failingConditions).toEqual([
-      "flagDisabled",
-      "notProcessing",
-    ]);
-    expect(progressBadge.explanation).toBe(
-      "hidden: useProgressBadge flag is off AND the conversation is not processing",
-    );
-  });
-
-  test("flag off + processing → hidden, only flagDisabled blocking", () => {
-    const api = createChatDebugApi(
-      makeRefs({ uiContext: { activeConversationIsProcessing: true } }),
-    );
-    const { progressBadge } = api.thinkingIndicator();
-    expect(progressBadge.visible).toBe(false);
-    expect(progressBadge.flagEnabled).toBe(false);
-    expect(progressBadge.isProcessing).toBe(true);
-    expect(progressBadge.failingConditions).toEqual(["flagDisabled"]);
-    expect(progressBadge.explanation).toContain("toggleProgressBadge(true)");
-  });
-
-  test("flag on + not processing → hidden, only notProcessing blocking", () => {
-    localStorage.setItem(PROGRESS_BADGE_KEY, "true");
-    const api = createChatDebugApi(makeRefs());
-    const { progressBadge } = api.thinkingIndicator();
-    expect(progressBadge.visible).toBe(false);
-    expect(progressBadge.flagEnabled).toBe(true);
-    expect(progressBadge.isProcessing).toBe(false);
-    expect(progressBadge.failingConditions).toEqual(["notProcessing"]);
-    expect(progressBadge.explanation).toContain("not processing");
-  });
-
-  test("flag on + processing → visible, no failing conditions", () => {
-    localStorage.setItem(PROGRESS_BADGE_KEY, "true");
-    const api = createChatDebugApi(
-      makeRefs({ uiContext: { activeConversationIsProcessing: true } }),
-    );
-    const { progressBadge } = api.thinkingIndicator();
-    expect(progressBadge.visible).toBe(true);
-    expect(progressBadge.flagEnabled).toBe(true);
-    expect(progressBadge.isProcessing).toBe(true);
-    expect(progressBadge.failingConditions).toEqual([]);
-    expect(progressBadge.explanation).toBe(
-      "visible: useProgressBadge flag is on and the conversation is processing",
-    );
-  });
-
-  test("gradient variant + processing → visible, treated as enabled", () => {
-    localStorage.setItem(PROGRESS_BADGE_KEY, "gradient");
-    const api = createChatDebugApi(
-      makeRefs({ uiContext: { activeConversationIsProcessing: true } }),
-    );
-    const { progressBadge } = api.thinkingIndicator();
-    expect(progressBadge.visible).toBe(true);
-    expect(progressBadge.flagEnabled).toBe(true);
-    expect(progressBadge.isProcessing).toBe(true);
-    expect(progressBadge.failingConditions).toEqual([]);
-  });
-});
-
-// ---------------------------------------------------------------------------
 //  createChatDebugApi — serverMessages
 // ---------------------------------------------------------------------------
 
@@ -802,9 +723,6 @@ type DebugWindow = Window & {
     events?: { getClients: unknown; getEvents: unknown };
     flags?: {
       impersonateVersion?: (v?: string | null) => string | null;
-      toggleProgressBadge?: (
-        v?: boolean | "dots" | "gradient" | null,
-      ) => "dots" | "gradient" | null;
       toggleSeqGapDetection?: (v?: boolean | null) => boolean;
     };
     other?: unknown;
@@ -813,9 +731,6 @@ type DebugWindow = Window & {
 
 const makeFlagsApi = () => ({
   impersonateVersion: (_value?: string | null): string | null => null,
-  toggleProgressBadge: (
-    _value?: boolean | "dots" | "gradient" | null,
-  ): "dots" | "gradient" | null => null,
   toggleSeqGapDetection: (_value?: boolean | null): boolean => false,
 });
 
@@ -830,7 +745,7 @@ describe("installVellumDebugApi", () => {
     expect(typeof root?.events?.getClients).toBe("function");
     expect(typeof root?.events?.getEvents).toBe("function");
     expect(typeof root?.flags?.impersonateVersion).toBe("function");
-    expect(typeof root?.flags?.toggleProgressBadge).toBe("function");
+    expect(typeof root?.flags?.toggleSeqGapDetection).toBe("function");
     uninstall();
   });
 

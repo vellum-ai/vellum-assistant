@@ -9,9 +9,13 @@ on:
 
 jobs:
   upload:
-    name: Upload skill assets
+    name: Upload skill assets (${{ matrix.environment }})
     runs-on: ubuntu-latest
-    environment: production
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [dev, staging, production]
+    environment: ${{ matrix.environment }}
     permissions:
       contents: read
       id-token: write

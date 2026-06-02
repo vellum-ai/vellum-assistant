@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { GlobalSearchResponse } from "@/domains/chat/api/global-search";
 
-import { buildServerResultSections } from "@/domains/chat/hooks/use-command-palette-sections";
+import { buildServerResultSections } from "@/domains/chat/hooks/command-palette-utils";
 
 const searchResults: GlobalSearchResponse = {
   conversations: [

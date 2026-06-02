@@ -22,6 +22,7 @@ import {
 import { persistPreChatOnboardingProfile } from "@/domains/onboarding/prechat-profile";
 import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
 import { pickConversationIdWireField } from "@/lib/backwards-compat/conversation-id-wire-field";
+import { getEffectiveTimezone } from "@/utils/effective-timezone";
 
 const POLL_INTERVAL_MS = 1000;
 const POLL_TIMEOUT_MS = 120_000;
@@ -507,6 +508,15 @@ export async function postChatMessage(
     sourceChannel: "vellum",
     interface: "vellum",
   };
+  // Read the effective timezone LIVE at send time (not from cached state) so
+  // every message carries the user's current zone, keeping the assistant's
+  // per-turn time awareness fresh as the OS/browser timezone changes. The
+  // daemon route consumes this field in its turn-timezone cascade (see
+  // `assistant/src/runtime/routes/conversation-routes.ts`, where the request
+  // schema accepts `clientTimezone: z.string().optional()` and forwards it
+  // into `resolveTurnTimezoneContext`).
+  const clientTimezone = getEffectiveTimezone();
+  if (clientTimezone) body.clientTimezone = clientTimezone;
   const conversationField = pickConversationIdWireField();
   if (conversationId !== null || conversationField !== "conversationId") {
     body[conversationField] = conversationId;

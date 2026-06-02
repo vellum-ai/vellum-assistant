@@ -14,7 +14,8 @@
  *     trailing user message satisfies providers that reject assistant
  *     prefill. The bookend user messages are hardcoded strings with no
  *     dynamic content, so they cannot carry injection payloads.
- *   - Invokes the agent loop with all conversation tools available.
+ *   - Invokes the agent loop with all conversation tools available unless
+ *     the caller provides an explicit `allowedTools` scope.
  *   - No tool calls AND no assistant text → silent no-op (nothing persisted,
  *     nothing emitted). Returns `{ invoked: true, producedToolCalls: false }`.
  *   - Tool calls produced → normal tool execution runs (the conversation's
@@ -164,6 +165,12 @@ export interface WakeTarget {
    * `trustContext` through the wake.
    */
   setTrustContext?(ctx: TrustContext): void;
+  /**
+   * Temporarily restrict the tools visible/executable during this wake.
+   * Returns a restore callback so the wake can release the scope before any
+   * queued user turn is drained.
+   */
+  setWakeAllowedTools?(tools: ReadonlySet<string>): () => void;
 }
 
 export interface WakeOptions {
@@ -238,6 +245,12 @@ export interface WakeOptions {
    * retrospectives whose conversation title already says "(Retrospective)").
    */
   suppressWakeSurface?: boolean;
+  /**
+   * Optional exact tool allowlist for this wake. Used by internal maintenance
+   * jobs that need the assistant's judgment but must not execute arbitrary
+   * side-effect tools.
+   */
+  allowedTools?: readonly string[];
 }
 
 /**
@@ -834,11 +847,55 @@ export async function wakeAgentForOpportunity(
       overrideProfile,
     });
 
+    let wakeToolScopeRestored = false;
+    let restoreWakeToolScope: (() => void) | null = null;
+    const restoreWakeAllowedTools = (): void => {
+      if (wakeToolScopeRestored) return;
+      wakeToolScopeRestored = true;
+      if (!restoreWakeToolScope) return;
+      try {
+        restoreWakeToolScope();
+      } catch (err) {
+        log.warn(
+          { conversationId, source, err },
+          "agent-wake: failed to restore tool allowlist; continuing",
+        );
+      }
+    };
+    const applyWakeAllowedTools = (): boolean => {
+      if (!opts.allowedTools) return true;
+      if (!target.setWakeAllowedTools) {
+        log.warn(
+          { conversationId, source, allowedTools: opts.allowedTools },
+          "agent-wake: target cannot apply requested tool allowlist; skipping",
+        );
+        return false;
+      }
+      try {
+        restoreWakeToolScope = target.setWakeAllowedTools(
+          new Set(opts.allowedTools),
+        );
+        return true;
+      } catch (err) {
+        log.warn(
+          { conversationId, source, allowedTools: opts.allowedTools, err },
+          "agent-wake: failed to apply requested tool allowlist; skipping",
+        );
+        return false;
+      }
+    };
+
     // Mark processing for the duration of the run so a concurrent user
     // send is queued by `enqueueMessage()` rather than spawning a second
     // concurrent agent loop on the same conversation (which would
-    // interleave writes to `conversation.messages`).
-    target.markProcessing(true);
+    // interleave writes to `conversation.messages`). This happens before
+    // applying a wake-scoped tool allowlist so a concurrent user turn cannot
+    // start under the wake's restricted tool set.
+    try {
+      target.markProcessing(true);
+    } catch (err) {
+      throw err;
+    }
 
     // Fires after each tool-execution turn finalizes (assistant message
     // + matching tool_result user message both in history). A single
@@ -860,6 +917,14 @@ export async function wakeAgentForOpportunity(
     let tailMessageCount = 0;
     let drainedInTry = false;
     try {
+      if (!applyWakeAllowedTools()) {
+        return {
+          invoked: false,
+          producedToolCalls: false,
+          reason: "no_resolver" as const,
+        };
+      }
+
       let updatedHistory: Message[];
       try {
         ({ history: updatedHistory } = await target.agentLoop.run(
@@ -943,6 +1008,7 @@ export async function wakeAgentForOpportunity(
       // accepts entries while processing === true, and drain expects
       // processing to already be false). The finally block handles the
       // error/early-return paths where no tail was produced.
+      restoreWakeAllowedTools();
       try {
         target.markProcessing(false);
       } catch (err) {
@@ -971,6 +1037,7 @@ export async function wakeAgentForOpportunity(
       // exit the try body before reaching the drain block, so
       // `drainedInTry` is still false.
       if (!drainedInTry) {
+        restoreWakeAllowedTools();
         try {
           target.markProcessing(false);
         } catch (err) {

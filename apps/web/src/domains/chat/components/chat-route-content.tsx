@@ -9,7 +9,7 @@
  */
 
 import { captureError } from "@/lib/sentry/capture-error";
-import { type Dispatch, type FormEvent, type MutableRefObject, type ReactNode, type RefObject, type SetStateAction, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type Dispatch, type FormEvent, type MutableRefObject, type ReactNode, type RefObject, type SetStateAction, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
 
@@ -45,7 +45,6 @@ import { QueuedMessagesDrawer } from "@/domains/chat/components/queued-messages-
 import { AppViewerContainer } from "@/components/app-viewer-container";
 import { DocumentViewerContainer } from "@/domains/chat/components/document-viewer-container";
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
-import { isProgressBadgeEnabled } from "@/lib/feature-flags/progress-badge-flag";
 import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";
 import { ContextWindowIndicator } from "@/domains/chat/components/context-window-indicator";
 const SubagentDetailPanel = lazy(() =>
@@ -520,27 +519,20 @@ export function ChatRouteContent({
     hasPendingAssistantResponse: activeConversationHasPendingAssistantResponse,
   };
 
-  // Publish the rendered context so the debug API reports on-screen state
-  // instead of a separate recomputation (see useChatDebugRegistration).
-  uiContextRef.current = uiContext;
-
-  // Clear the published context on unmount so the debug API falls back to its
-  // empty default instead of reporting the last rendered frame (which could
-  // claim a badge is processing) while no chat content is on screen.
-  useEffect(
-    () => () => {
+  // Publish the rendered context (in an effect, after commit — never mutate a
+  // ref during render) so the debug API reports on-screen state instead of a
+  // separate recomputation (see useChatDebugRegistration). Clear it on unmount
+  // so the debug API falls back to its empty default instead of reporting the
+  // last rendered frame (which could claim a badge is processing) while no chat
+  // content is on screen.
+  useEffect(() => {
+    uiContextRef.current = uiContext;
+    return () => {
       uiContextRef.current = null;
-    },
-    [uiContextRef],
-  );
+    };
+  }, [uiContextRef, uiContext]);
 
-  // When the `useProgressBadge` debug flag is on, suppress the
-  // transcript-trailer thinking dots — the avatar badge takes over the
-  // "the assistant is working" affordance. Default (flag off) keeps the
-  // long-standing dots in charge.
-  const showThinking =
-    !isProgressBadgeEnabled() &&
-    shouldShowThinkingIndicator(turnState, uiContext);
+  const showThinking = shouldShowThinkingIndicator(turnState, uiContext);
   const isAssistantStreaming =
     showThinking || hasStreamingAssistantMessage;
   const canStopGenerating = canStopGeneration(turnState, uiContext);
@@ -707,7 +699,7 @@ export function ChatRouteContent({
     [messages],
   );
 
-  sanitizedMessagesRef.current = sanitizedMessages;
+  useLayoutEffect(() => { sanitizedMessagesRef.current = sanitizedMessages; });
 
   const transcriptItems = useMemo(
     () =>
@@ -748,7 +740,7 @@ export function ChatRouteContent({
     ],
   );
 
-  transcriptItemsRef.current = transcriptItems;
+  useLayoutEffect(() => { transcriptItemsRef.current = transcriptItems; });
 
   // -------------------------------------------------------------------------
   // Scroll coordination
