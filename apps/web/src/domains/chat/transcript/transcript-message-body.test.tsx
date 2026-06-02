@@ -7,8 +7,19 @@ mock.module("@/domains/chat/components/chat-attachments/message-attachments", ()
 }));
 
 mock.module("@/domains/chat/components/chat-markdown-message", () => ({
-  ChatMarkdownMessage: ({ content }: { content: string }) => (
-    <div data-testid="markdown">{content}</div>
+  ChatMarkdownMessage: ({
+    content,
+    hardLineBreaks,
+  }: {
+    content: string;
+    hardLineBreaks?: boolean;
+  }) => (
+    <div
+      data-testid="markdown"
+      data-hard-line-breaks={hardLineBreaks ? "true" : "false"}
+    >
+      {content}
+    </div>
   ),
 }));
 
@@ -41,6 +52,7 @@ import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
 
+import { textBody } from "@/domains/chat/utils/message-test-helpers";
 const noop = () => {};
 
 afterAll(() => {
@@ -70,11 +82,33 @@ function renderMessage(
 }
 
 describe("TranscriptMessageBody", () => {
+  test("enables hard line breaks for assistant messages (JARVIS-1007)", () => {
+    const html = renderMessage({
+      id: "m1",
+      role: "assistant",
+      ...textBody("line one\nline two"),
+      timestamp: 1_000,
+    });
+
+    expect(html).toContain('data-hard-line-breaks="true"');
+  });
+
+  test("enables hard line breaks for user messages too", () => {
+    const html = renderMessage({
+      id: "m1",
+      role: "user",
+      ...textBody("line one\nline two"),
+      timestamp: 1_000,
+    });
+
+    expect(html).toContain('data-hard-line-breaks="true"');
+  });
+
   test("uses the latest tool completion as the message activity timestamp", () => {
     const html = renderMessage({
       id: "m1",
       role: "assistant",
-      content: "",
+      ...textBody(""),
       timestamp: 1_000,
       toolCalls: [
         {
@@ -96,7 +130,7 @@ describe("TranscriptMessageBody", () => {
     const html = renderMessage({
       id: "m1",
       role: "assistant",
-      content: "",
+      ...textBody(""),
       timestamp: 1_000,
       toolCalls: [
         {
@@ -118,7 +152,7 @@ describe("TranscriptMessageBody", () => {
       {
         id: "m1",
         role: "assistant",
-        content: "hello from Slack",
+        ...textBody("hello from Slack"),
         slackMessage: {
           channelId: "C123",
           channelTs: "1710000000.000300",
@@ -140,7 +174,7 @@ describe("TranscriptMessageBody", () => {
         message={{
           id: "slack-1",
           role: "assistant",
-          content: "Slack context",
+          ...textBody("Slack context"),
           slackMessage: {
             channelId: "C123",
             channelTs: "1710000000.000300",
@@ -187,7 +221,7 @@ describe("TranscriptMessageBody", () => {
           message={{
             id: "slack-1",
             role: "assistant",
-            content: "Slack context",
+            ...textBody("Slack context"),
             slackMessage: {
               channelId: "C123",
               channelTs: "1710000000.000300",
@@ -227,7 +261,7 @@ describe("TranscriptMessageBody", () => {
         message={{
           id: "local-1",
           role: "assistant",
-          content: "hello",
+          ...textBody("hello"),
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
@@ -247,7 +281,7 @@ describe("TranscriptMessageBody", () => {
         message={{
           id: "message-1",
           role: "user",
-          content: "hello",
+          ...textBody("hello"),
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
@@ -260,24 +294,22 @@ describe("TranscriptMessageBody", () => {
     expect(inspectedIds).toEqual(["message-1"]);
   });
 
-  test("auto-expands the latest interleaved tool-call group while the row is streaming", () => {
+  test("auto-expands the latest interleaved tool-call group while a tool is running", () => {
     const { getByTestId } = render(
       <TranscriptMessageBody
         message={{
           id: "m1",
           role: "assistant",
-          content: "",
           contentOrder: [{ type: "tool", id: "tc-1" }],
           toolCalls: [
             {
               id: "tc-1",
               toolName: "bash",
               input: {},
-              status: "completed",
+              status: "running",
             },
           ],
         }}
-        isStreaming
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
         onSurfaceAction={noop}
@@ -289,13 +321,40 @@ describe("TranscriptMessageBody", () => {
     ).toBe("true");
   });
 
+  test("does not auto-expand a latest interleaved tool-call group whose tools have all completed", () => {
+    const { getByTestId } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m1",
+          role: "assistant",
+          ...textBody(""),
+          contentOrder: [{ type: "tool", id: "tc-1" }],
+          toolCalls: [
+            {
+              id: "tc-1",
+              toolName: "bash",
+              input: {},
+              status: "completed",
+            },
+          ],
+        }}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(
+      getByTestId("tool-progress-card").getAttribute("data-auto-expand"),
+    ).toBe("false");
+  });
+
   test("collapses an interleaved tool-call group once response text follows", () => {
     const { getByTestId } = render(
       <TranscriptMessageBody
         message={{
           id: "m1",
           role: "assistant",
-          content: "",
           contentOrder: [
             { type: "tool", id: "tc-1" },
             { type: "text", id: "0" },
@@ -310,7 +369,6 @@ describe("TranscriptMessageBody", () => {
             },
           ],
         }}
-        isStreaming
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
         onSurfaceAction={noop}
@@ -328,7 +386,6 @@ describe("TranscriptMessageBody", () => {
         message={{
           id: "m1",
           role: "assistant",
-          content: "",
           contentOrder: [
             { type: "tool", id: "tc-1" },
             { type: "text", id: "0" },
@@ -350,7 +407,6 @@ describe("TranscriptMessageBody", () => {
             },
           ],
         }}
-        isStreaming
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
         onSurfaceAction={noop}
@@ -364,13 +420,199 @@ describe("TranscriptMessageBody", () => {
     ).toEqual(["false", "true"]);
   });
 
-  test("auto-expands legacy tool-only streaming messages until content appears", () => {
-    const { getByTestId, rerender } = render(
+  test("renders user text and an image attachment inside a single bubble", () => {
+    const { container } = render(
       <TranscriptMessageBody
         message={{
-          id: "m1",
+          id: "u1",
+          role: "user",
+          ...textBody("look at this"),
+          attachments: [
+            {
+              id: "att-1",
+              filename: "photo.png",
+              mimeType: "image/png",
+              sizeBytes: 1234,
+              previewUrl: "blob:preview",
+            },
+          ],
+        }}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    const bubbles = container.querySelectorAll(
+      "[class*='bg-[var(--surface-lift)]']",
+    );
+    // Exactly one bubble container carries the surface-lift background.
+    expect(bubbles.length).toBe(1);
+
+    const bubble = bubbles[0]!;
+    // Text lives inside the bubble.
+    expect(bubble.querySelector("[data-testid='markdown']")?.textContent).toBe(
+      "look at this",
+    );
+    // The inline image preview is a descendant of the same bubble, not a sibling.
+    const img = bubble.querySelector("img");
+    expect(img).not.toBeNull();
+    expect(img?.getAttribute("src")).toBe("blob:preview");
+
+    // The legacy separate strip is not rendered for user messages.
+    expect(container.querySelector("[data-testid='attachments']")).toBeNull();
+  });
+
+  test("renders an attachment-only user message inside a single bubble", () => {
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "u2",
+          role: "user",
+          ...textBody(""),
+          attachments: [
+            {
+              id: "att-1",
+              filename: "photo.png",
+              mimeType: "image/png",
+              sizeBytes: 1234,
+              previewUrl: "blob:preview",
+            },
+          ],
+        }}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    const bubbles = container.querySelectorAll(
+      "[class*='bg-[var(--surface-lift)]']",
+    );
+    expect(bubbles.length).toBe(1);
+    expect(bubbles[0]!.querySelector("img")?.getAttribute("src")).toBe(
+      "blob:preview",
+    );
+    expect(container.querySelector("[data-testid='attachments']")).toBeNull();
+  });
+
+  test("renders assistant attachments via the separate MessageAttachments strip", () => {
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "a1",
           role: "assistant",
-          content: "",
+          ...textBody("here you go"),
+          attachments: [
+            {
+              id: "att-1",
+              filename: "photo.png",
+              mimeType: "image/png",
+              sizeBytes: 1234,
+              previewUrl: "blob:preview",
+            },
+          ],
+        }}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    // Assistant path unchanged: separate strip still renders, no surface-lift bubble.
+    expect(container.querySelector("[data-testid='attachments']")).not.toBeNull();
+    expect(
+      container.querySelector("[class*='bg-[var(--surface-lift)]']"),
+    ).toBeNull();
+  });
+
+  test("renders a user-message surface outside the surface-lift bubble", () => {
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "u3",
+          role: "user",
+          contentOrder: [
+            { type: "text", id: "0" },
+            { type: "surface", id: "s-1" },
+          ],
+          textSegments: [{ type: "text", content: "do this" }],
+          surfaces: [{ surfaceId: "s-1" } as never],
+        }}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    const bubble = container.querySelector(
+      "[class*='bg-[var(--surface-lift)]']",
+    );
+    expect(bubble).not.toBeNull();
+    // Text lives inside the bubble.
+    expect(bubble!.querySelector("[data-testid='markdown']")?.textContent).toBe(
+      "do this",
+    );
+    // The surface renders, but OUTSIDE the bubble (not a descendant).
+    const surface = container.querySelector("[data-testid='surface']");
+    expect(surface).not.toBeNull();
+    expect(bubble!.contains(surface)).toBe(false);
+  });
+
+  test("preserves contentOrder for a [surface, text] user message (surface before text, outside the bubble)", () => {
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "u-order-1",
+          role: "user",
+          contentOrder: [
+            { type: "surface", id: "s-1" },
+            { type: "text", id: "0" },
+          ],
+          textSegments: [{ type: "text", content: "after surface" }],
+          surfaces: [{ surfaceId: "s-1" } as never],
+        }}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    const surface = container.querySelector("[data-testid='surface']");
+    const markdown = container.querySelector("[data-testid='markdown']");
+    expect(surface).not.toBeNull();
+    expect(markdown?.textContent).toBe("after surface");
+
+    // DOM order matches contentOrder: surface appears before the text.
+    expect(
+      surface!.compareDocumentPosition(markdown!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    // The surface is NOT inside a surface-lift bubble; the text IS.
+    const bubble = container.querySelector(
+      "[class*='bg-[var(--surface-lift)]']",
+    );
+    expect(bubble).not.toBeNull();
+    expect(bubble!.contains(surface)).toBe(false);
+    expect(bubble!.contains(markdown)).toBe(true);
+  });
+
+  test("preserves contentOrder for an interleaved [text, tool, text] user message (tool between text, outside bubbles)", () => {
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "u-order-2",
+          role: "user",
+          contentOrder: [
+            { type: "text", id: "0" },
+            { type: "tool", id: "tc-1" },
+            { type: "text", id: "1" },
+          ],
+          textSegments: [
+            { type: "text", content: "before tool" },
+            { type: "text", content: "after tool" },
+          ],
           toolCalls: [
             {
               id: "tc-1",
@@ -380,7 +622,92 @@ describe("TranscriptMessageBody", () => {
             },
           ],
         }}
-        isStreaming
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    const markdowns = container.querySelectorAll("[data-testid='markdown']");
+    const toolCard = container.querySelector(
+      "[data-testid='tool-progress-card']",
+    );
+    expect(markdowns.length).toBe(2);
+    expect(markdowns[0]!.textContent).toBe("before tool");
+    expect(markdowns[1]!.textContent).toBe("after tool");
+    expect(toolCard).not.toBeNull();
+
+    // DOM order matches contentOrder: text → tool → text.
+    expect(
+      markdowns[0]!.compareDocumentPosition(toolCard!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      toolCard!.compareDocumentPosition(markdowns[1]!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    // Two separate surface-lift bubbles wrap the two text runs; the tool card
+    // is outside both.
+    const bubbles = container.querySelectorAll(
+      "[class*='bg-[var(--surface-lift)]']",
+    );
+    expect(bubbles.length).toBe(2);
+    for (const bubble of bubbles) {
+      expect(bubble.contains(toolCard)).toBe(false);
+    }
+  });
+
+  test("omits the user bubble when an interleaved user message has no text or attachments", () => {
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "u4",
+          role: "user",
+          ...textBody(""),
+          contentOrder: [{ type: "tool", id: "tc-1" }],
+          toolCalls: [
+            {
+              id: "tc-1",
+              toolName: "bash",
+              input: {},
+              status: "completed",
+            },
+          ],
+        }}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    // No visible text and no attachments: the empty surface-lift bubble must
+    // not render.
+    expect(
+      container.querySelector("[class*='bg-[var(--surface-lift)]']"),
+    ).toBeNull();
+    // Non-text elements (the tool-call card) still render.
+    expect(
+      container.querySelector("[data-testid='tool-progress-card']"),
+    ).not.toBeNull();
+  });
+
+  test("auto-expands legacy tool-only messages while a tool runs, until content appears", () => {
+    const { getByTestId, rerender } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m1",
+          role: "assistant",
+          ...textBody(""),
+          toolCalls: [
+            {
+              id: "tc-1",
+              toolName: "bash",
+              input: {},
+              status: "running",
+            },
+          ],
+        }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
         onSurfaceAction={noop}
@@ -395,7 +722,7 @@ describe("TranscriptMessageBody", () => {
         message={{
           id: "m1",
           role: "assistant",
-          content: "Done.",
+          ...textBody("Done."),
           toolCalls: [
             {
               id: "tc-1",
@@ -405,7 +732,6 @@ describe("TranscriptMessageBody", () => {
             },
           ],
         }}
-        isStreaming
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
         onSurfaceAction={noop}

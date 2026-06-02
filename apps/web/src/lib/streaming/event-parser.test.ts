@@ -3159,7 +3159,6 @@ describe("RuntimeMessage metadata types", () => {
     const msg: import("@/domains/chat/api/messages").RuntimeMessage = {
       id: "msg-1",
       role: "assistant",
-      content: "Hello",
       surfaces: [
         {
           surfaceId: "s-1",
@@ -3184,7 +3183,6 @@ describe("RuntimeMessage metadata types", () => {
     const msg: import("@/domains/chat/api/messages").RuntimeMessage = {
       id: "msg-2",
       role: "user",
-      content: "Hi",
     };
     expect(msg.surfaces).toBeUndefined();
     expect(msg.textSegments).toBeUndefined();
@@ -3196,7 +3194,6 @@ describe("RuntimeMessage metadata types", () => {
     const msg: import("@/domains/chat/api/event-types").ChatMessage = {
       id: "msg-3",
       role: "assistant",
-      content: "With metadata",
       surfaces: [{ surfaceId: "s-2", surfaceType: "form", data: {} }],
       textSegments: [{ type: "markdown", content: "# Header" }],
       contentOrder: [{ type: "surface", id: "s-2" }],

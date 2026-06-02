@@ -1338,10 +1338,20 @@ export async function handleSendMessage(
   }
 
   const isInteractive = isInteractiveInterface(sourceInterface);
+  // Use the JWT-verified requester principal — not guardianPrincipalId,
+  // which is the workspace owner and would let a trusted contact's web
+  // turn match against the guardian's macOS client.
+  const sourceActorPrincipalId = actorPrincipalId ?? undefined;
   // Bash/File/Transfer singletons are globally available via isAvailable() —
   // no per-conversation gating needed. CU is per-conversation (owns step
   // count, AX tree history, loop detection).
-  if (shouldAttachHostProxyForCapability("host_cu", sourceInterface)) {
+  if (
+    shouldAttachHostProxyForCapability(
+      "host_cu",
+      sourceInterface,
+      sourceActorPrincipalId,
+    )
+  ) {
     if (!conversation.isProcessing() || !conversation.hostCuProxy) {
       conversation.setHostCuProxy(new HostCuProxy());
     }
@@ -1354,7 +1364,13 @@ export async function handleSendMessage(
   // lives in the skill-projection layer (which reads the `feature-flag:
   // app-control` declaration in SKILL.md frontmatter), so an attached proxy
   // is harmless when the flag resolves to off.
-  if (shouldAttachHostProxyForCapability("host_app_control", sourceInterface)) {
+  if (
+    shouldAttachHostProxyForCapability(
+      "host_app_control",
+      sourceInterface,
+      sourceActorPrincipalId,
+    )
+  ) {
     if (!conversation.isProcessing() || !conversation.hostAppControlProxy) {
       conversation.setHostAppControlProxy(
         new HostAppControlProxy(mapping.conversationId),
@@ -1367,7 +1383,11 @@ export async function handleSendMessage(
   // this message will be queued and preactivation is deferred to dequeue
   // time in drainQueueImpl to avoid mutating in-flight turn state.
   if (!conversation.isProcessing()) {
-    preactivateHostProxySkills(conversation, sourceInterface);
+    preactivateHostProxySkills(
+      conversation,
+      sourceInterface,
+      sourceActorPrincipalId,
+    );
   }
   // Wire sendToClient to the SSE hub so all subsystems can reach the HTTP client.
   // hasNoClient must remain `!isInteractive` so downstream tool gating
@@ -1404,11 +1424,12 @@ export async function handleSendMessage(
   // user's behalf instead of the canned greeting, so the assistant generates a
   // real first response. Gated behind the `self-intro-greeting` flag (default
   // off); `undefined` (flag off or no names) falls back to the canned path.
-  const selfIntro =
+  const selfIntroGreetingEnabled =
     isWakeUp &&
-    isAssistantFeatureFlagEnabled(SELF_INTRO_GREETING_FLAG, getConfig())
-      ? buildSelfIntroMessage(body.onboarding ?? undefined)
-      : undefined;
+    isAssistantFeatureFlagEnabled(SELF_INTRO_GREETING_FLAG, getConfig());
+  const selfIntro = selfIntroGreetingEnabled
+    ? buildSelfIntroMessage(body.onboarding ?? undefined)
+    : undefined;
 
   let effectiveContent: string | undefined;
   if (isScanPath) {
@@ -1417,7 +1438,7 @@ export async function handleSendMessage(
       : ("content-source" as const);
     effectiveContent = buildScanFirstMessage(scanUrl, scanVariant);
     // Fall through to normal inference path below
-  } else if (isWakeUp && body.onboarding?.initialMessage) {
+  } else if (selfIntroGreetingEnabled && body.onboarding?.initialMessage) {
     effectiveContent = body.onboarding.initialMessage;
   } else if (isWakeUp && selfIntro) {
     // Rewrite to the self-introduction and fall through to real inference
@@ -1883,11 +1904,7 @@ export async function handleSendMessage(
           clientMessageId,
         });
         publishConversationMessagesChanged(conversationId, originClientId);
-        conversation.emitActivityState(
-          "thinking",
-          "context_compacting",
-          "assistant_turn",
-        );
+        conversation.emitActivityState("thinking", "context_compacting");
         const result = await conversation.forceCompact({
           targetInputTokensOverride: slashResult.targetInputTokensOverride,
         });

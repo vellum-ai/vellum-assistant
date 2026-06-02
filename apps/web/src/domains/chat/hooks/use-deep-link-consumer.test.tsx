@@ -9,6 +9,7 @@ import {
 const sentryBreadcrumbMock = mock((_args: unknown) => undefined);
 mock.module("@sentry/browser", () => ({
   addBreadcrumb: sentryBreadcrumbMock,
+  captureException: () => {},
 }));
 
 const { useDeepLinkConsumer } = await import("./use-deep-link-consumer");

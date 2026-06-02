@@ -8,7 +8,6 @@
  */
 
 import { client } from "@/generated/api/client.gen";
-import { SDK_BASE_OPTIONS } from "@/utils/api-errors";
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import { parseAssistantEvent } from "@/lib/streaming/event-parser";
 
@@ -19,6 +18,7 @@ import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 import {
   markClientEstablished,
   pushSseEvent,
+  recordSseTraffic,
   registerSseClient,
   unregisterSseClient,
 } from "@/lib/streaming/stream-debug";
@@ -225,7 +225,6 @@ export function subscribeChatEvents(
       const query = buildEventsQuery(requestedConversationId, isReconnect);
       const { stream } = await client.sse.get<Record<string, unknown> | string>(
         {
-          ...SDK_BASE_OPTIONS,
           url: "/v1/assistants/{assistant_id}/events/",
           path: { assistant_id: assistantId },
           ...(Object.keys(query).length > 0 ? { query } : {}),
@@ -249,6 +248,7 @@ export function subscribeChatEvents(
             if (isData) {
               markClientEstablished(sseDebugClientId);
             }
+            recordSseTraffic(sseDebugClientId, isData);
             watchdog.recordTraffic(isData);
             if (!cancelled) {
               watchdog.arm(abortController, reconnectCount);

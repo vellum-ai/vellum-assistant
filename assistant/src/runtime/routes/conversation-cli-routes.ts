@@ -44,7 +44,7 @@ function handleListCli({ body = {} }: RouteHandlerArgs) {
 
   const rows = listConversations(
     limit,
-    false,
+    "standard",
     0,
     includeArchived ? "all" : "active",
   );
@@ -128,7 +128,12 @@ function handleExportCli({ body = {} }: RouteHandlerArgs) {
   // behavior of letting `vellum export <prefix>` resolve an archived row.
   let conversation = getConversation(conversationId);
   if (!conversation) {
-    const all = listConversations(Number.MAX_SAFE_INTEGER, false, 0, "all");
+    const all = listConversations(
+      Number.MAX_SAFE_INTEGER,
+      "standard",
+      0,
+      "all",
+    );
     const match = all.find((c) => c.id.startsWith(conversationId!));
     if (match) {
       conversation = match;

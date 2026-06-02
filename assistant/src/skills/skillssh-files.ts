@@ -24,6 +24,7 @@ import {
   sanitizeRelativePath,
   SKIP_DIRS,
 } from "./catalog-files.js";
+import { inferCategory } from "./category-inference.js";
 import type { SkillFileProvider } from "./skill-file-provider.js";
 import type { GitHubContentsEntry } from "./skillssh-registry.js";
 import {
@@ -383,6 +384,7 @@ export function createSkillsShProvider(): SkillFileProvider {
           kind: "catalog",
           status: "available",
           origin: "skillssh",
+          category: inferCategory(source.skillSlug, ""),
           slug: skillId,
           sourceRepo: `${source.owner}/${source.repo}`,
           installs: 0,

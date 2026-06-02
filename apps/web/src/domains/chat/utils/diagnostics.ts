@@ -8,13 +8,15 @@
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import type { RuntimeMessage } from "@/domains/chat/api/messages";
+import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
+import { runtimeMessagePlainText } from "@/domains/chat/utils/map-runtime-message";
 import { roleCounts } from "@/lib/diagnostics";
 
 export function summarizeDisplayMessage(message: DisplayMessage): Record<string, unknown> {
   return {
     id: message.id,
     role: message.role,
-    contentLength: message.content.length,
+    contentLength: segmentsToPlainText(message.textSegments).length,
     timestamp: message.timestamp ?? null,
     queueStatus: message.queueStatus ?? null,
     queuePosition: message.queuePosition ?? null,
@@ -30,7 +32,7 @@ export function summarizeRuntimeMessage(message: RuntimeMessage): Record<string,
   return {
     id: message.id,
     role: message.role,
-    contentLength: message.content.length,
+    contentLength: runtimeMessagePlainText(message).length,
     timestamp: message.timestamp ?? null,
     toolCallCount: message.toolCalls?.length ?? 0,
     surfaceCount: message.surfaces?.length ?? 0,

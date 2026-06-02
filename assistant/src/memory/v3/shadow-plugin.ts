@@ -35,17 +35,16 @@ import type { AssistantConfig } from "../../config/schema.js";
 import { getMessages } from "../../memory/conversation-crud.js";
 import { getDb, getSqliteFrom } from "../../memory/db-connection.js";
 import { stringifyMessageContent } from "../../memory/message-content.js";
-import { registerPlugin } from "../../plugins/registry.js";
 import {
   type InjectionBlock,
   type Injector,
   type Plugin,
-  PluginExecutionError,
   type TurnContext as PluginTurnContext,
 } from "../../plugins/types.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { getPageIndex } from "../v2/page-index.js";
+import { injectCapabilitiesLeaf, isCapabilitySlug } from "./capabilities.js";
 import { loadCore } from "./core.js";
 import type { NeedleIndex } from "./needle.js";
 import { buildNeedleIndex } from "./needle.js";
@@ -132,6 +131,17 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
   }
   const tree = await loadLeafTree(dataDir, pageLeaves);
   const core = await loadCore(dataDir);
+
+  // Always-on synthetic capabilities leaf: skill + CLI-command rows the page
+  // index already carries (with summaries). Injecting them as leaf members puts
+  // them in the needle corpus (`tree.byPage`) and, via `core`, makes L1 always
+  // open the leaf so L2 selects the relevant subset each turn — matching v2's
+  // "always in the pool, router-selected" capability surfacing. Done before
+  // `buildNeedleIndex` so the synthetic members are indexed.
+  const capabilitySlugs = pageIndex.entries
+    .map((entry) => entry.slug)
+    .filter(isCapabilitySlug);
+  injectCapabilitiesLeaf(tree, core, capabilitySlugs);
 
   const needle = await buildNeedleIndex(tree, pageSummary);
   const workingSet = new WorkingSet(
@@ -367,20 +377,3 @@ export const memoryV3ShadowPlugin: Plugin = {
   },
   injectors: [memoryV3Injector],
 };
-
-// Module-load side effect: register at import time so the registry is
-// populated even for callers that skip `bootstrapPlugins()`. Idempotent via
-// the swallowed duplicate-name check — mirrors the other default plugins.
-try {
-  registerPlugin(memoryV3ShadowPlugin);
-} catch (err) {
-  if (
-    err instanceof PluginExecutionError &&
-    err.message.includes("already registered")
-  ) {
-    // already registered — expected when both index.ts and the direct file
-    // are imported in the same process
-  } else {
-    throw err;
-  }
-}

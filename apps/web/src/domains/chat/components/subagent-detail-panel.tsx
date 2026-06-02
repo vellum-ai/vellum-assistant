@@ -142,17 +142,10 @@ export function SubagentDetailPanel({
   onRequestDetail,
 }: SubagentDetailPanelProps) {
   const isRunning = isActiveStatus(entry.status);
-  const requestedRef = useRef<string | null>(null);
   const components = useBundledAvatarComponents();
 
   useEffect(() => {
-    if (
-      onRequestDetail &&
-      entry.conversationId &&
-      entry.events.length === 0 &&
-      requestedRef.current !== entry.subagentId
-    ) {
-      requestedRef.current = entry.subagentId;
+    if (onRequestDetail && entry.conversationId && entry.events.length === 0) {
       onRequestDetail(entry.subagentId);
     }
   }, [entry.subagentId, entry.conversationId, entry.events.length, onRequestDetail]);

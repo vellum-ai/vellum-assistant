@@ -10,25 +10,9 @@ import {
 } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
 
-import { __resetEventBusForTesting } from "@/stores/event-bus-store";
-
-// `mock.module` for `stream-transport` + `lifecycle-service` is a
-// workaround for a pre-existing main-branch issue: the import chain
-// `sseService → lifecycleService → assistant/api` references
-// `DiskPressureStatusResponseSchema`, which is mid-migration to
-// `@vellumai/assistant-api` and not yet exported there. Without the
-// mocks the module load throws before any test runs. When the
-// canonical package catches up, drop both mocks — they're not part
-// of the hook's actual contract.
-mock.module("@/lib/streaming/stream-transport", () => ({
-  subscribeChatEvents: () => ({ cancel: () => {} }),
-}));
-mock.module("@/assistant/lifecycle-service", () => ({
-  lifecycleService: { checkAssistant: async () => {} },
-}));
-
-const { sseService } = await import("@/assistant/sse-service");
-const { useEventBusInit } = await import("@/hooks/use-event-bus-init");
+import { sseService } from "@/assistant/sse-service";
+import { useEventBusInit } from "@/hooks/use-event-bus-init";
+import { __resetForTesting } from "@/lib/event-bus";
 
 const detachMock = mock(() => {});
 const attachSpy = spyOn(sseService, "attach").mockImplementation(
@@ -36,14 +20,14 @@ const attachSpy = spyOn(sseService, "attach").mockImplementation(
 );
 
 beforeEach(() => {
-  __resetEventBusForTesting();
+  __resetForTesting();
   attachSpy.mockClear();
   detachMock.mockClear();
 });
 
 afterEach(() => {
   cleanup();
-  __resetEventBusForTesting();
+  __resetForTesting();
 });
 
 afterAll(() => {
@@ -76,6 +60,6 @@ describe("useEventBusInit — attach gating", () => {
       useEventBusInit({ assistantId: "asst-1", isAssistantActive: true }),
     );
     expect(attachSpy).toHaveBeenCalledTimes(1);
-    expect(attachSpy.mock.calls[0]![1]).toBe("asst-1");
+    expect(attachSpy.mock.calls[0]![0]).toBe("asst-1");
   });
 });

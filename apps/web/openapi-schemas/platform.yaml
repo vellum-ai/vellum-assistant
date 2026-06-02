@@ -3560,7 +3560,6 @@ paths:
       tags:
       - organizations
       security:
-      - VellumAPIKey: []
       - cookieAuth: []
       - XSessionTokenAuth: []
       responses:
@@ -3606,7 +3605,6 @@ paths:
               $ref: '#/components/schemas/ComputeTierChangeRequestRequest'
         required: true
       security:
-      - VellumAPIKey: []
       - cookieAuth: []
       - XSessionTokenAuth: []
       responses:
@@ -3652,7 +3650,6 @@ paths:
               $ref: '#/components/schemas/StorageTierChangeRequestRequest'
         required: true
       security:
-      - VellumAPIKey: []
       - cookieAuth: []
       - XSessionTokenAuth: []
       responses:
@@ -3798,7 +3795,6 @@ paths:
               $ref: '#/components/schemas/SubscriptionUpgradeRequestRequest'
         required: true
       security:
-      - VellumAPIKey: []
       - cookieAuth: []
       - XSessionTokenAuth: []
       responses:

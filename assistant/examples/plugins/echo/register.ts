@@ -48,8 +48,6 @@ import type {
   CompactionResult,
   EmptyResponseArgs,
   EmptyResponseResult,
-  HistoryRepairArgs,
-  HistoryRepairResult,
   LLMCallArgs,
   LLMCallResult,
   MemoryArgs,
@@ -156,9 +154,6 @@ const echoPlugin: Plugin = {
       "toolExecute",
     ),
     memoryRetrieval: makeObserver<MemoryArgs, MemoryResult>("memoryRetrieval"),
-    historyRepair: makeObserver<HistoryRepairArgs, HistoryRepairResult>(
-      "historyRepair",
-    ),
     tokenEstimate: makeObserver<TokenEstimateArgs, TokenEstimateResult>(
       "tokenEstimate",
     ),

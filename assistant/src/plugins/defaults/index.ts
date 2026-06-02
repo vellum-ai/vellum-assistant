@@ -7,21 +7,20 @@
  *
  * Consumers:
  *
- * - `daemon/external-plugins-bootstrap.ts` — production/registry boot path;
- *   calls {@link registerDefaultPlugins} inside `bootstrapPlugins()`.
+ * - `daemon/external-plugins-bootstrap.ts` — the daemon's `initializePlugins()`
+ *   calls {@link registerDefaultPlugins} explicitly at startup, before
+ *   `loadUserPlugins()` closes the registration window, so the defaults compose
+ *   innermost (ahead of any user plugins). `bootstrapPlugins()` replays it;
+ *   idempotent, so already-registered defaults are skipped.
  * - integration tests that reset the registry and then need a
  *   production-parity state (e.g. `conversation-agent-loop.test.ts`); those
  *   call {@link resetPluginRegistryAndRegisterDefaults}.
  *
- * Each `defaults/<name>/register.ts` module self-registers at module load via a local
- * side effect. Importing this aggregator (or any individual default file)
- * populates the registry — the self-registration is idempotent, and so are
- * {@link registerDefaultPlugins} and {@link resetPluginRegistryAndRegisterDefaults}.
- * Per-file self-registration is what keeps registration attached to each
- * file's own already-initialized plugin identifier, so importing
- * `defaults/index.ts` mid-cycle (e.g. through the
- * `memory-retrieval/register.ts` → … → `pipeline.ts` → `defaults/index.ts`
- * chain) does not trip a TDZ.
+ * Each `defaults/<name>/register.ts` module only builds and exports its
+ * `Plugin` object; registration is centralized here. The plugin identifiers
+ * are dereferenced inside {@link registerDefaultPlugins} at call time, once
+ * every module has finished initializing, so importing this aggregator does no
+ * registration work.
  */
 
 import { memoryV3ShadowPlugin } from "../../memory/v3/shadow-plugin.js";
@@ -44,10 +43,9 @@ import { defaultToolResultTruncatePlugin } from "./tool-result-truncate/register
 
 /**
  * Full set of first-party default plugins. Used by
- * {@link registerDefaultPlugins} to drive the idempotent re-registration
- * loop; actual registration-order in the registry is determined by the
- * module-load side effects in each per-file default (whichever loader
- * evaluates a file first wins, later attempts are swallowed as duplicates).
+ * {@link registerDefaultPlugins} to drive the registration loop; the array
+ * order is the registration order, which determines onion order for middleware
+ * composition (defaults innermost, user plugins outermost).
  *
  * Returned by a function rather than a top-level `const` so the array
  * contents are read at call time, after every imported plugin identifier is
@@ -79,11 +77,6 @@ function getAllDefaultPlugins(): readonly Plugin[] {
  * an "already registered" message) are swallowed so repeat bootstrap or test
  * setup calls do not throw. Every other error (shape failure, version
  * mismatch) re-throws.
- *
- * In practice every call after the first is a no-op: each default's
- * module-load side effect registers itself the first time its file is
- * imported, which for production happens via `pipeline.ts`'s side-effect
- * import of this aggregator.
  */
 export function registerDefaultPlugins(): void {
   for (const plugin of getAllDefaultPlugins()) {

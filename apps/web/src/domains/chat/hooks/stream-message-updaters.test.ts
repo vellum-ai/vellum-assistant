@@ -17,6 +17,10 @@ import {
 import type { Surface } from "@/domains/chat/types/types";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import {
+  messageText as text,
+  textBody as seg,
+} from "@/domains/chat/utils/message-test-helpers";
 
 function makeAssistantMsg(
   overrides: Partial<DisplayMessage> = {},
@@ -24,9 +28,7 @@ function makeAssistantMsg(
   return {
     id: "stable-1",
     role: "assistant",
-    content: "hello",
-    textSegments: [{ type: "text", content: "hello" }],
-    contentOrder: [{ type: "text", id: "0" }],
+    ...seg("hello"),
     timestamp: 1000,
     ...overrides,
   };
@@ -35,7 +37,7 @@ function makeAssistantMsg(
 const userMsg: DisplayMessage = {
   id: "user-1",
   role: "user",
-  content: "hi",
+  ...seg("hi"),
   timestamp: 999,
 };
 
@@ -54,7 +56,7 @@ describe("createStreamingBubble", () => {
     const bubble = result[1]!;
     expect(bubble.role).toBe("assistant");
     expect(liveAssistantRowId(result, true)).toBe(bubble.id);
-    expect(bubble.content).toBe("Hello");
+    expect(text(bubble)).toBe("Hello");
     expect(bubble.id).toBe("msg-1");
     expect(bubble.id).toBeDefined();
   });
@@ -80,12 +82,12 @@ describe("createStreamingBubble", () => {
 
 describe("appendTextDelta", () => {
   it("appends text to the last streaming assistant message", () => {
-    const msg = makeAssistantMsg({ content: "He" });
+    const msg = makeAssistantMsg(seg("He"));
     const result = appendTextDelta([userMsg, msg], "llo");
 
     expect(result).toHaveLength(2);
     const last = result[1]!;
-    expect(last.content).toBe("Hello");
+    expect(text(last)).toBe("Hello");
   });
 
   it("creates a new streaming bubble when last message is a user message", () => {
@@ -96,7 +98,7 @@ describe("appendTextDelta", () => {
     expect(result).toHaveLength(2);
     expect(result[1]!.role).toBe("assistant");
     expect(liveAssistantRowId(result, true)).toBe(result[1]!.id);
-    expect(result[1]!.content).toBe("text");
+    expect(text(result[1]!)).toBe("text");
   });
 
   it("uses the supplied messageId when creating a new bubble", () => {
@@ -107,10 +109,10 @@ describe("appendTextDelta", () => {
   });
 
   it("does not mutate the original array", () => {
-    const msg = makeAssistantMsg({ content: "a" });
+    const msg = makeAssistantMsg(seg("a"));
     const prev = [msg];
     appendTextDelta(prev, "b");
-    expect(prev[0]!.content).toBe("a");
+    expect(text(prev[0]!)).toBe("a");
   });
 
   it("extends the matching row when messageId matches, regardless of tail position", () => {
@@ -121,7 +123,6 @@ describe("appendTextDelta", () => {
     // the same id.
     const reservedFromReconcile = makeAssistantMsg({
       id: "row-X",
-      content: "",
       textSegments: [],
       contentOrder: [],
     });
@@ -133,7 +134,7 @@ describe("appendTextDelta", () => {
 
     expect(result).toHaveLength(2);
     expect(result[1]!.id).toBe("row-X");
-    expect(result[1]!.content).toBe("Hello");
+    expect(text(result[1]!)).toBe("Hello");
     expect(liveAssistantRowId(result, true)).toBe("row-X");
     expect(result[1]!.textSegments).toEqual([{ type: "text", content: "Hello" }]);
   });
@@ -148,7 +149,6 @@ describe("appendTextDelta", () => {
     // GIVEN the first LLM call has finalized into an assistant tail
     const call1Final = makeAssistantMsg({
       id: "row-A",
-      content: "Hello",
       textSegments: [{ type: "text", content: "Hello" }],
       contentOrder: [{ type: "text", id: "0" }],
     });
@@ -160,7 +160,7 @@ describe("appendTextDelta", () => {
     expect(result).toHaveLength(2);
     const tail = result[1]!;
     expect(tail.id).toBe("row-A");
-    expect(tail.content).toBe("Hello world");
+    expect(text(tail)).toBe("Hello world");
     expect(liveAssistantRowId(result, true)).toBe("row-A");
 
     // AND the new messageId is recorded as an alias so later events for it
@@ -181,7 +181,7 @@ describe("appendTextDelta", () => {
     // THEN a fresh streaming bubble opens, keyed by the messageId
     expect(result).toHaveLength(2);
     expect(result[1]!.id).toBe("row-B");
-    expect(result[1]!.content).toBe("text");
+    expect(text(result[1]!)).toBe("text");
     expect(liveAssistantRowId(result, true)).toBe("row-B");
     expect(result[1]!.mergedMessageIds).toBeUndefined();
   });
@@ -196,7 +196,6 @@ describe("appendTextDelta", () => {
     // GIVEN an anchor row that already owns "row-B" as a merged alias
     const anchor = makeAssistantMsg({
       id: "row-A",
-      content: "Hello",
       textSegments: [{ type: "text", content: "Hello" }],
       contentOrder: [{ type: "text", id: "0" }],
       mergedMessageIds: ["row-B"],
@@ -208,7 +207,7 @@ describe("appendTextDelta", () => {
     // THEN it extends the anchor and leaves the alias set unchanged
     expect(result).toHaveLength(2);
     expect(result[1]!.id).toBe("row-A");
-    expect(result[1]!.content).toBe("Hello world");
+    expect(text(result[1]!)).toBe("Hello world");
     expect(result[1]!.mergedMessageIds).toEqual(["row-B"]);
   });
 
@@ -222,7 +221,7 @@ describe("appendTextDelta", () => {
 
     expect(state).toHaveLength(2);
     expect(state[1]!.id).toBe("row-A");
-    expect(state[1]!.content).toBe("Hello world");
+    expect(text(state[1]!)).toBe("Hello world");
   });
 
 });
@@ -253,7 +252,7 @@ describe("finalizeMessageComplete", () => {
     expect(result).toHaveLength(2);
     expect(result[1]!.role).toBe("assistant");
     expect(result[1]!.id).toBe("row-A");
-    expect(result[1]!.content).toBe("");
+    expect(text(result[1]!)).toBe("");
     expect(result[1]!.attachments).toHaveLength(1);
   });
 
@@ -286,7 +285,7 @@ describe("finalizeMessageComplete", () => {
   });
 
   it("finalizes a streaming assistant tail and keeps tail.id (anchor preservation)", () => {
-    const msg = makeAssistantMsg({ id: "bubble-anchor", content: "hello world" });
+    const msg = makeAssistantMsg({ id: "bubble-anchor", ...seg("hello world") });
     const result = finalizeMessageComplete([userMsg, msg], {
       type: "message_complete",
       conversationId: "c-1",
@@ -297,7 +296,7 @@ describe("finalizeMessageComplete", () => {
     expect(result[1]!.id).toBe("bubble-anchor");
     // Bubble content stays whatever the text-delta accumulator left it as —
     // message_complete no longer carries body content on the wire.
-    expect(result[1]!.content).toBe("hello world");
+    expect(text(result[1]!)).toBe("hello world");
   });
 
   it("finalizes running tool calls when finalizing", () => {
@@ -321,7 +320,7 @@ describe("finalizeMessageComplete", () => {
     // from the previous call. Should keep id.
     const tail = makeAssistantMsg({
       id: "bubble-anchor",
-      content: "first call done",
+      ...seg("first call done"),
     });
     const result = finalizeMessageComplete([userMsg, tail], {
       type: "message_complete",
@@ -333,7 +332,7 @@ describe("finalizeMessageComplete", () => {
     expect(result[1]!.id).toBe("bubble-anchor");
     // Tail content preserved across multi-call merge — message_complete no
     // longer brings its own content.
-    expect(result[1]!.content).toBe("first call done");
+    expect(text(result[1]!)).toBe("first call done");
   });
 
   it("adopts the server messageId for an optimistic streaming tail (first message_complete)", () => {
@@ -344,7 +343,7 @@ describe("finalizeMessageComplete", () => {
     // diverges from the bubble text reconciles to a duplicate row.
     const optimistic = makeAssistantMsg({
       id: "client-uuid",
-      content: "Spawning a researcher on this now.",
+      ...seg("Spawning a researcher on this now."),
       isOptimistic: true,
     });
     const result = finalizeMessageComplete([userMsg, optimistic], {
@@ -379,15 +378,15 @@ describe("finalizeMessageComplete", () => {
 
 describe("handleConversationError", () => {
   it("finalizes the assistant tail and keeps message with content", () => {
-    const msg = makeAssistantMsg({ content: "partial response" });
+    const msg = makeAssistantMsg(seg("partial response"));
     const result = handleConversationError([userMsg, msg]);
 
     expect(result).toHaveLength(2);
-    expect(result[1]!.content).toBe("partial response");
+    expect(text(result[1]!)).toBe("partial response");
   });
 
   it("removes empty streaming bubble", () => {
-    const msg = makeAssistantMsg({ content: "", toolCalls: undefined });
+    const msg = makeAssistantMsg({ ...seg(""), toolCalls: undefined });
     const result = handleConversationError([userMsg, msg]);
 
     expect(result).toHaveLength(1);
@@ -396,7 +395,7 @@ describe("handleConversationError", () => {
 
   it("keeps message with tool calls but no text content", () => {
     const msg = makeAssistantMsg({
-      content: "",
+      ...seg(""),
       toolCalls: [
         {
           id: "tc-1",
@@ -486,7 +485,7 @@ describe("upsertToolCall", () => {
     // duplicate bubble.
     const anchor = makeAssistantMsg({
       id: "anchor-1",
-      content: "",
+      ...seg(""),
       toolCalls: undefined,
       contentOrder: undefined,
     });
@@ -509,7 +508,7 @@ describe("upsertToolCall", () => {
     // GIVEN the first LLM call has finalized into an assistant tail
     const call1Final = makeAssistantMsg({
       id: "row-A",
-      content: "Hello",
+      ...seg("Hello"),
     });
 
     // WHEN the next LLM call's tool_use_start arrives with a new messageId
@@ -534,7 +533,7 @@ describe("upsertToolCall", () => {
     // GIVEN an anchor row that already owns "row-B" as a merged alias
     const anchor = makeAssistantMsg({
       id: "row-A",
-      content: "Hello",
+      ...seg("Hello"),
       mergedMessageIds: ["row-B"],
     });
 
@@ -743,7 +742,7 @@ describe("finalizeOnIdle", () => {
   it("finalizes running tool calls across all assistant messages", () => {
     const msg1 = makeAssistantMsg({
       id: "a1",
-      content: "",
+      ...seg(""),
       toolCalls: [
         { id: "tc-1", toolName: "web_search", input: {}, status: "running" },
       ],
@@ -751,7 +750,7 @@ describe("finalizeOnIdle", () => {
     });
     const msg2 = makeAssistantMsg({
       id: "a2",
-      content: "some text",
+      ...seg("some text"),
       toolCalls: [
         { id: "tc-2", toolName: "web_fetch", input: {}, status: "running" },
       ],
@@ -829,7 +828,7 @@ describe("applyToolResult — cross-message matching", () => {
     // then tool_result arrives with toolUseId pointing to msg1's tool call.
     const msg1 = makeAssistantMsg({
       id: "a1",
-      content: "",
+      ...seg(""),
       toolCalls: [
         { id: "tc-early", toolName: "web_search", input: {}, status: "running" },
       ],
@@ -837,7 +836,7 @@ describe("applyToolResult — cross-message matching", () => {
     });
     const msg2 = makeAssistantMsg({
       id: "a2",
-      content: "some later text",
+      ...seg("some later text"),
       toolCalls: [
         { id: "tc-later", toolName: "bash", input: {}, status: "running" },
       ],
@@ -858,14 +857,14 @@ describe("applyToolResult — cross-message matching", () => {
   it("falls back to last assistant message when toolUseId is not provided", () => {
     const msg1 = makeAssistantMsg({
       id: "a1",
-      content: "",
+      ...seg(""),
       toolCalls: [
         { id: "tc-1", toolName: "web_search", input: {}, status: "running" },
       ],
     });
     const msg2 = makeAssistantMsg({
       id: "a2",
-      content: "",
+      ...seg(""),
       toolCalls: [
         { id: "tc-2", toolName: "bash", input: {}, status: "running" },
       ],
@@ -915,7 +914,7 @@ describe("applyUserMessageEcho", () => {
     expect(result[1]).toEqual({
       id: "msg-server-1",
       role: "user",
-      content: "from another device",
+      ...seg("from another device"),
       timestamp: result[1]!.timestamp,
     });
   });
@@ -934,7 +933,7 @@ describe("applyUserMessageEcho", () => {
     // THEN an optimistic user row is appended
     expect(result).toHaveLength(1);
     expect(result[0]!.role).toBe("user");
-    expect(result[0]!.content).toBe("surface prompt");
+    expect(text(result[0]!)).toBe("surface prompt");
     expect(result[0]!.isOptimistic).toBe(true);
   });
 
@@ -946,7 +945,7 @@ describe("applyUserMessageEcho", () => {
      */
     // GIVEN an optimistic user row matching the echo text
     const prev: DisplayMessage[] = [
-      { id: "client-uuid", role: "user", content: "hello", isOptimistic: true, timestamp: 1 },
+      { id: "client-uuid", role: "user", ...seg("hello"), isOptimistic: true, timestamp: 1 },
     ];
 
     // WHEN the echo for that send arrives with a server id
@@ -968,7 +967,7 @@ describe("applyUserMessageEcho", () => {
      */
     // GIVEN a row already keyed by the server id
     const prev: DisplayMessage[] = [
-      { id: "msg-server-3", role: "user", content: "hello", timestamp: 1 },
+      { id: "msg-server-3", role: "user", ...seg("hello"), timestamp: 1 },
     ];
 
     // WHEN a duplicate echo for the same id arrives
@@ -991,7 +990,7 @@ describe("applyUserMessageEcho", () => {
       {
         id: "client-uuid",
         role: "user",
-        content: "hello",
+        ...seg("hello"),
         mergedMessageIds: ["msg-server-4"],
         timestamp: 1,
       },

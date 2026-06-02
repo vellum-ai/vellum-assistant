@@ -67,10 +67,9 @@ import {
   cleanAssistantContent,
   drainDirectiveDisplayBuffer,
 } from "./assistant-attachments.js";
-import {
-  type AgentLoopConversationContext,
-  type AssistantSurface,
-  trackCompactionOutcome,
+import type {
+  AgentLoopConversationContext,
+  AssistantSurface,
 } from "./conversation-agent-loop.js";
 import {
   buildConversationErrorMessage,
@@ -91,6 +90,7 @@ import type {
   WebSearchMetadata,
   WebSearchResultItem,
 } from "./message-types/web-activity.js";
+import { FALLBACK_TURN_TRUST } from "./trust-context.js";
 
 const log = getLogger("agent-loop-handlers");
 
@@ -119,11 +119,10 @@ function buildHandlerTurnContext(deps: EventHandlerDeps): TurnContext {
     requestId: deps.reqId,
     conversationId: deps.ctx.conversationId,
     turnIndex: deps.ctx.turnCount,
-    trust: deps.ctx.currentTurnTrustContext ??
-      deps.ctx.trustContext ?? {
-        sourceChannel: "vellum",
-        trustClass: "unknown",
-      },
+    trust:
+      deps.ctx.currentTurnTrustContext ??
+      deps.ctx.trustContext ??
+      FALLBACK_TURN_TRUST,
   };
 }
 
@@ -338,6 +337,7 @@ function buildPersistedAssistantContent(
       actions: surface.actions,
       display: surface.display,
       ...(surface.persistent ? { persistent: true } : {}),
+      ...(surface.toolCallId ? { toolCallId: surface.toolCallId } : {}),
     } as unknown as ContentBlock);
   }
   return withSurfaces.map((block) => {
@@ -696,13 +696,10 @@ function handleTextDelta(
   if (drained.emitText.length > 0) {
     if (!state.firstTextDeltaEmitted) {
       state.firstTextDeltaEmitted = true;
-      deps.ctx.emitActivityState(
-        "streaming",
-        "first_text_delta",
-        "assistant_turn",
-        deps.reqId,
-        "Thinking",
-      );
+      deps.ctx.emitActivityState("streaming", "first_text_delta", {
+        requestId: deps.reqId,
+        statusText: "Thinking",
+      });
     }
     deps.onEvent({
       type: "assistant_text_delta",
@@ -735,13 +732,10 @@ function handleThinkingDelta(
     // assistantStatusText for every assistant_activity_state event.
     if (lastToolName) {
       const statusText = `Processing ${friendlyToolName(lastToolName)} results`;
-      deps.ctx.emitActivityState(
-        "thinking",
-        "thinking_delta",
-        "assistant_turn",
-        deps.reqId,
+      deps.ctx.emitActivityState("thinking", "thinking_delta", {
+        requestId: deps.reqId,
         statusText,
-      );
+      });
     }
   }
   if (!deps.ctx.streamThinking) return;
@@ -767,13 +761,10 @@ export function handleToolUse(
   state.currentToolUseId = event.id;
   state.currentTurnToolUseIds.push(event.id);
   const statusText = computeToolUseStatusText(event.name, event.input);
-  deps.ctx.emitActivityState(
-    "tool_running",
-    "tool_use_start",
-    "assistant_turn",
-    deps.reqId,
+  deps.ctx.emitActivityState("tool_running", "tool_use_start", {
+    requestId: deps.reqId,
     statusText,
-  );
+  });
   deps.onEvent({
     type: "tool_use_start",
     toolName: event.name,
@@ -797,13 +788,10 @@ export function handleToolUsePreviewStart(
     messageId: state.lastAssistantMessageId,
   });
   const statusText = `Preparing ${friendlyToolName(event.toolName)}...`;
-  deps.ctx.emitActivityState(
-    "tool_running",
-    "preview_start",
-    "assistant_turn",
-    deps.reqId,
+  deps.ctx.emitActivityState("tool_running", "preview_start", {
+    requestId: deps.reqId,
     statusText,
-  );
+  });
 }
 
 function handleToolOutputChunk(
@@ -991,13 +979,10 @@ export function handleToolResult(
   const statusText = `Processing ${friendlyToolName(
     state.lastCompletedToolName ?? "",
   )} results`;
-  deps.ctx.emitActivityState(
-    "thinking",
-    "tool_result_received",
-    "assistant_turn",
-    deps.reqId,
+  deps.ctx.emitActivityState("thinking", "tool_result_received", {
+    requestId: deps.reqId,
     statusText,
-  );
+  });
 
   // Once all tools for this turn have completed, annotate the persisted
   // assistant message with timing and confirmation metadata.
@@ -1129,6 +1114,7 @@ function annotatePersistedAssistantMessage(
         actions: surface.actions,
         display: surface.display,
         ...(surface.persistent ? { persistent: true } : {}),
+        ...(surface.toolCallId ? { toolCallId: surface.toolCallId } : {}),
       } as unknown as ContentBlock);
     }
     modified = true;
@@ -1779,13 +1765,10 @@ export async function dispatchAgentEvent(
         const query =
           typeof event.input.query === "string" ? event.input.query : "";
         const statusText = formatSearchStatusText(event.name, query);
-        deps.ctx.emitActivityState(
-          "tool_running",
-          "tool_use_start",
-          "assistant_turn",
-          deps.reqId,
+        deps.ctx.emitActivityState("tool_running", "tool_use_start", {
+          requestId: deps.reqId,
           statusText,
-        );
+        });
         state.serverToolStartedAt.set(event.toolUseId, Date.now());
         state.serverToolInputs.set(event.toolUseId, event.input);
         deps.onEvent({
@@ -1799,13 +1782,10 @@ export async function dispatchAgentEvent(
         break;
       }
       case "server_tool_complete": {
-        deps.ctx.emitActivityState(
-          "streaming",
-          "tool_result_received",
-          "assistant_turn",
-          deps.reqId,
-          "Thinking",
-        );
+        deps.ctx.emitActivityState("streaming", "tool_result_received", {
+          requestId: deps.reqId,
+          statusText: "Thinking",
+        });
 
         // Prefer `resolvedInput` (Anthropic's accumulated server-tool input,
         // populated on content_block_stop) over the input captured at
@@ -1880,19 +1860,18 @@ export async function dispatchAgentEvent(
         break;
       }
       case "context_compacting":
-        deps.ctx.emitActivityState(
-          "thinking",
-          "context_compacting",
-          "assistant_turn",
-          deps.reqId,
-          "Compacting context",
-        );
+        deps.ctx.emitActivityState("thinking", "context_compacting", {
+          requestId: deps.reqId,
+          statusText: "Compacting context",
+        });
         break;
-      case "compaction_timed_out":
-        // A compaction-pipeline timeout is recorded against this
-        // conversation's durable compaction circuit breaker, which trips
-        // after repeated timeouts to suspend auto-compaction.
-        await trackCompactionOutcome(deps.ctx, true, deps.onEvent);
+      case "compaction_circuit_open":
+      case "compaction_circuit_closed":
+        // Circuit-breaker transitions are already in wire-contract shape
+        // (a subset of ServerMessage), so forward them to the client sink
+        // unchanged. They drive the client's "auto-compaction paused"
+        // banner.
+        deps.onEvent(event);
         break;
       case "error":
         handleError(state, deps, event);

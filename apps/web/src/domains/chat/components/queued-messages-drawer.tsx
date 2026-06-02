@@ -4,6 +4,7 @@ import { useCallback, type ReactNode } from "react";
 
 import { Button } from "@vellum/design-library";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -53,7 +54,7 @@ function QueuedMessageRow({
 
       {/* Message preview */}
       <span className="min-w-0 flex-1 truncate text-body-small-default text-[var(--content-secondary)]">
-        {message.content}
+        {segmentsToPlainText(message.textSegments)}
       </span>
 
       {/* Action icons */}

@@ -12,7 +12,9 @@ import {
   getAssistantHealthz,
 } from "@/assistant/api";
 import { useAuthStore } from "@/stores/auth-store";
-import { reportError } from "@/utils/error-report";
+import { toast } from "@vellum/design-library";
+import { captureError } from "@/lib/sentry/capture-error";
+import { isTransientNetworkError } from "@/utils/is-transient-network-error";
 import { useEnvironmentStore } from "@/stores/environment-store";
 import { DevModeVersionUnlock } from "@/domains/settings/components/dev-mode-version-unlock";
 
@@ -102,16 +104,11 @@ export function useAssistantWithHealthz(): AssistantWithHealthz {
       } catch (error) {
         if (requestId !== healthzRequestIdRef.current) return null;
         if (!opts?.keepStaleOnError) setHealthz(null);
-        const isNetworkError =
-          error instanceof TypeError &&
-          /failed to fetch|load failed|networkerror/i.test(error.message);
         // Transient unreachability during a resize restart is expected — don't
         // report it while polling.
-        if (!isNetworkError && !opts?.keepStaleOnError) {
-          reportError(error, {
-            context: "fetch_assistant_healthz",
-            userMessage: "Failed to load assistant info",
-          });
+        if (!isTransientNetworkError(error) && !opts?.keepStaleOnError) {
+          captureError(error, { context: "fetch_assistant_healthz" });
+          toast.error("Failed to load assistant info");
         }
         return null;
       } finally {

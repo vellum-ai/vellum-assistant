@@ -1,4 +1,5 @@
 import { prepareServerMessage } from "@/domains/chat/utils/map-runtime-message";
+import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
 import { dedupeDisplayMessages, mergeLatestHistoryMessage, messagesEqual } from "@/domains/chat/utils/message-merge";
 import { sortByTimestamp, sortedByTimestamp, timestampToMs } from "@/domains/chat/utils/message-sorting";
@@ -139,7 +140,7 @@ function selectStreamingAssistantFallbackIndex(
 /**
  * A row whose `id` is a client-generated placeholder rather than a
  * server-assigned id. Used as the signal for latest-history merge to
- * fall back to content matching instead of id matching.
+ * fall back to derived-text matching instead of id matching.
  */
 function hasPlaceholderIdentity(message: DisplayMessage): boolean {
   return message.isOptimistic === true;
@@ -151,12 +152,13 @@ function findLatestHistoryFallbackIndex(
   claimedIndexes: Set<number>,
   liveRowId: string | null,
 ): number | undefined {
+  const incomingText = segmentsToPlainText(incoming.textSegments);
   const exactIdx = messages.findIndex(
     (message, index) =>
       !claimedIndexes.has(index) &&
       hasPlaceholderIdentity(message) &&
       message.role === incoming.role &&
-      message.content === incoming.content,
+      segmentsToPlainText(message.textSegments) === incomingText,
   );
   if (exactIdx !== -1) {
     return exactIdx;
@@ -181,8 +183,8 @@ function findLatestHistoryFallbackIndex(
     }
 
     const match = streamingAssistantPrefixMatch(
-      message.content,
-      incoming.content,
+      segmentsToPlainText(message.textSegments),
+      incomingText,
     );
     if (!match) {
       continue;
@@ -304,7 +306,7 @@ export function reconcileMessages(
         return [];
       }
 
-      const msg: DisplayMessage = { id: m.id, role: m.role, content: prepared.cleanedContent };
+      const msg: DisplayMessage = { id: m.id, role: m.role };
       if (m.mergedMessageIds?.length) msg.mergedMessageIds = m.mergedMessageIds;
       if (m.metadata) msg.metadata = m.metadata;
       if (m.subagentNotification) msg.isSubagentNotification = true;
@@ -443,8 +445,11 @@ export function reconcileMessages(
       // row in favor of the server-derived row, but transfer client-side
       // state that the server snapshot doesn't carry (timestamp, and
       // crucially blob-URL attachments for in-browser preview).
+      const optimisticText = segmentsToPlainText(m.textSegments);
       const match = reconciled.find(
-        (r) => r.role === "user" && r.content === m.content,
+        (r) =>
+          r.role === "user" &&
+          segmentsToPlainText(r.textSegments) === optimisticText,
       );
       if (match) {
         if (!match.timestamp && m.timestamp) {

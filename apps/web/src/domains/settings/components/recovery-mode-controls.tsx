@@ -8,8 +8,11 @@ import {
   assistantsMaintenanceModeExitCreate,
 } from "@/generated/api/sdk.gen";
 import type { MaintenanceMode } from "@/generated/api/types.gen";
-import { usePlatformGate } from "@/hooks/use-platform-gate";
-import { reportError } from "@/utils/error-report";
+import {
+  useActiveAssistantLifecycleIsLoading,
+  usePlatformGate,
+} from "@/hooks/use-platform-gate";
+import { captureError } from "@/lib/sentry/capture-error";
 
 interface RecoveryModeControlsProps {
   assistantId: string;
@@ -24,7 +27,18 @@ export function RecoveryModeControls({
 }: RecoveryModeControlsProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const platformGate = usePlatformGate();
+  // Recovery Mode is platform-managed — self-hosted assistants have no
+  // equivalent, so `platformHostedOnly: true` flips "gated" when the active
+  // assistant is self-hosted regardless of platform-session state.
+  const platformGate = usePlatformGate({ platformHostedOnly: true });
+  // Settings routes are NOT mounted under `<ActiveAssistantGate>`, so this
+  // panel can render while lifecycle is `{ kind: "loading" }`. Pair the
+  // permissive gate value with the lifecycle-loading signal so the
+  // enter/exit-mutation buttons stay disabled during the deep-link
+  // resolution race — but NOT in already-resolved non-hosted states
+  // (`retired`, `error`, `awaiting_version_selection`) where the parent
+  // wouldn't render this panel anyway (`maintenanceMode` would be null).
+  const isLifecycleLoading = useActiveAssistantLifecycleIsLoading();
 
   const handleEnter = useCallback(async () => {
     setLoading(true);
@@ -37,20 +51,14 @@ export function RecoveryModeControls({
       if (response?.ok) {
         await onMaintenanceModeChange();
       } else {
-        reportError(
+        captureError(
           new Error("Enter maintenance mode returned non-ok response"),
-          {
-            context: "enter_maintenance_mode",
-            userMessage: "Failed to enter maintenance mode",
-          },
+          { context: "enter_maintenance_mode" },
         );
         setError("Failed to enter Recovery Mode. Please try again.");
       }
     } catch (err) {
-      reportError(err, {
-        context: "enter_maintenance_mode",
-        userMessage: "Failed to enter maintenance mode",
-      });
+      captureError(err, { context: "enter_maintenance_mode" });
       setError("Failed to enter Recovery Mode. Please try again.");
     } finally {
       setLoading(false);
@@ -68,20 +76,14 @@ export function RecoveryModeControls({
       if (response?.ok) {
         await onMaintenanceModeChange();
       } else {
-        reportError(
+        captureError(
           new Error("Exit maintenance mode returned non-ok response"),
-          {
-            context: "exit_maintenance_mode",
-            userMessage: "Failed to exit maintenance mode",
-          },
+          { context: "exit_maintenance_mode" },
         );
         setError("Failed to exit Recovery Mode. Please try again.");
       }
     } catch (err) {
-      reportError(err, {
-        context: "exit_maintenance_mode",
-        userMessage: "Failed to exit maintenance mode",
-      });
+      captureError(err, { context: "exit_maintenance_mode" });
       setError("Failed to exit Recovery Mode. Please try again.");
     } finally {
       setLoading(false);
@@ -90,11 +92,17 @@ export function RecoveryModeControls({
 
   // Self-hosted assistants don't run platform-managed Recovery Mode.
   // Early return must follow every hook above so that gate transitions
-  // (e.g. `disabled` -> `gated` as `platformFeaturesInLocalMode` hydrates)
+  // (e.g. lifecycle flipping to `self_hosted` after the API resolves)
   // never skip a hook and trigger a hook-order violation.
   if (platformGate === "gated") return null;
 
   const isActive = maintenanceMode?.enabled === true;
+  // Treat the lifecycle-loading window as effective loading: the existing
+  // spinner branch already replaces the action button while a mutation is
+  // in flight, so reusing it here keeps UX consistent and prevents the
+  // race-window click on a fresh deep-link.
+  const isResolving = platformGate === "full" && isLifecycleLoading;
+  const effectiveLoading = loading || isResolving;
 
   return (
     <div className="space-y-2">
@@ -121,7 +129,7 @@ export function RecoveryModeControls({
         </div>
 
         <div className="ml-4 flex shrink-0 items-center gap-2">
-          {platformGate === "disabled" ? null : loading ? (
+          {platformGate === "disabled" ? null : effectiveLoading ? (
             <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />
           ) : isActive ? (
             <Button variant="outlined" onClick={handleExit}>

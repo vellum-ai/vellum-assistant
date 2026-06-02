@@ -29,6 +29,7 @@ import {
   type TranscriptHandle,
 } from "@/domains/chat/transcript/use-transcript-scroll";
 
+import { textBody } from "@/domains/chat/utils/message-test-helpers";
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
@@ -42,7 +43,7 @@ function makeMessage(id: string): TranscriptItem {
     message: {
       id,
       role: "assistant",
-      content: "",
+      ...textBody(""),
     },
   };
 }
@@ -56,7 +57,7 @@ function makeUserMessage(id: string): TranscriptItem {
     message: {
       id,
       role: "user",
-      content: "",
+      ...textBody(""),
     },
   };
 }

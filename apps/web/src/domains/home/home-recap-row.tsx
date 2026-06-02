@@ -4,7 +4,11 @@ import { type ReactNode, useState } from "react";
 import { cn, Tooltip } from "@vellum/design-library";
 import { formatRelativeDate } from "@/utils/format-date";
 import { CATEGORY_STYLES } from "./home-feed-filter-bar";
-import type { FeedItem, FeedItemCategory, FeedItemStatus } from "./types";
+import type {
+  FeedItem,
+  FeedItemCategory,
+  FeedItemStatus,
+} from "@vellumai/assistant-api";
 
 function HoverIconButton({
   label,
@@ -123,26 +127,30 @@ export function HomeRecapRow({
               label={isUnread ? "Mark as read" : "Mark as unread"}
               onClick={() => onToggleRead(item.id, isUnread ? "seen" : "new")}
             >
-              {isUnread ? <MailOpen width={14} height={14} /> : <Mail width={14} height={14} />}
+              {isUnread ? (
+                <MailOpen width={14} height={14} />
+              ) : (
+                <Mail width={14} height={14} />
+              )}
             </HoverIconButton>
           )}
-          {onGoToThread && item.conversationId && (!validConversationIds || validConversationIds.has(item.conversationId)) && (
-            <HoverIconButton
-              label="Go to thread"
-              onClick={() => {
-                if (isUnread && onToggleRead) {
-                  onToggleRead(item.id, "seen");
-                }
-                onGoToThread(item.conversationId!);
-              }}
-            >
-              <MessageSquare width={14} height={14} />
-            </HoverIconButton>
-          )}
-          <HoverIconButton
-            label="Dismiss"
-            onClick={() => onDismiss(item.id)}
-          >
+          {onGoToThread &&
+            item.conversationId &&
+            (!validConversationIds ||
+              validConversationIds.has(item.conversationId)) && (
+              <HoverIconButton
+                label="Go to thread"
+                onClick={() => {
+                  if (isUnread && onToggleRead) {
+                    onToggleRead(item.id, "seen");
+                  }
+                  onGoToThread(item.conversationId!);
+                }}
+              >
+                <MessageSquare width={14} height={14} />
+              </HoverIconButton>
+            )}
+          <HoverIconButton label="Dismiss" onClick={() => onDismiss(item.id)}>
             <Trash2 width={14} height={14} />
           </HoverIconButton>
         </span>

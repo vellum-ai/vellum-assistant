@@ -9,7 +9,12 @@ import type { MemoryJob } from "../../jobs-store.js";
 import { readPage, writePage } from "../../v2/page-store.js";
 import type { ConceptPage } from "../../v2/types.js";
 import type { AssignPageResult, AssignPagesOptions } from "../assign.js";
-import { maintainJob, type MaintainJobDeps } from "../maintain-job.js";
+import {
+  type ClassifyCandidate,
+  computeClassifyTargets,
+  maintainJob,
+  type MaintainJobDeps,
+} from "../maintain-job.js";
 import type { LeafNode, LeafPath, LeafTree, Slug } from "../types.js";
 
 const FLAG_SHADOW = "memory-v3-shadow";
@@ -66,9 +71,9 @@ describe("maintainJob", () => {
 
   function deps(overrides: Partial<MaintainJobDeps> = {}): {
     deps: MaintainJobDeps;
-    calls: { assign: number; invalidate: number };
+    calls: { assign: number; invalidate: number; commit: number };
   } {
-    const calls = { assign: 0, invalidate: 0 };
+    const calls = { assign: 0, invalidate: 0, commit: 0 };
     const base: MaintainJobDeps = {
       workspaceDir,
       loadTree: async () => makeTree(["domain/topic-a", "domain/topic-b"]),
@@ -77,6 +82,10 @@ describe("maintainJob", () => {
       ): Promise<AssignPageResult[]> => {
         calls.assign += 1;
         return [];
+      },
+      selectClassifyTargets: async () => [],
+      commitClassifyHighWater: () => {
+        calls.commit += 1;
       },
       invalidateLanes: () => {
         calls.invalidate += 1;
@@ -181,5 +190,99 @@ describe("maintainJob", () => {
     expect(outcome.failures).toContain("load_tree");
     expect(calls.assign).toBe(0);
     expect(calls.invalidate).toBe(1);
+  });
+
+  test("classifies the selected delta targets (passes them to assignPages)", async () => {
+    setOverridesForTesting({ [FLAG_SHADOW]: true });
+    let seenSlugs: Slug[] | undefined;
+    const { deps: d } = deps({
+      selectClassifyTargets: async () => ["p-new", "p-edited"],
+      assignPages: async (opts: AssignPagesOptions) => {
+        seenSlugs = opts.slugs;
+        return [];
+      },
+    });
+    await maintainJob(JOB, CONFIG, d);
+    expect(seenSlugs).toEqual(["p-new", "p-edited"]);
+  });
+
+  test("advances the high-water mark after a successful classify pass", async () => {
+    setOverridesForTesting({ [FLAG_SHADOW]: true });
+    const { deps: d, calls } = deps();
+    await maintainJob(JOB, CONFIG, d);
+    expect(calls.commit).toBe(1);
+  });
+
+  test("does not advance the high-water mark when classify throws", async () => {
+    setOverridesForTesting({ [FLAG_SHADOW]: true });
+    const { deps: d, calls } = deps({
+      assignPages: async () => {
+        throw new Error("assign boom");
+      },
+    });
+    const outcome = await maintainJob(JOB, CONFIG, d);
+    expect(outcome.failures).toContain("assign");
+    expect(calls.commit).toBe(0);
+  });
+});
+
+describe("computeClassifyTargets", () => {
+  const page = (
+    slug: string,
+    modifiedAt: number,
+    leaves: string[] = [],
+  ): ClassifyCandidate => ({ slug, modifiedAt, leaves });
+
+  test("first run (null high-water) classifies only unassigned pages", () => {
+    const targets = computeClassifyTargets(
+      [page("unassigned", 100, []), page("assigned-recent", 200, ["domain/a"])],
+      null,
+    );
+    expect(targets).toEqual(["unassigned"]);
+  });
+
+  test("re-classifies an already-assigned page edited since the high-water", () => {
+    const targets = computeClassifyTargets(
+      [page("assigned-edited", 300, ["domain/a"])],
+      200,
+    );
+    expect(targets).toEqual(["assigned-edited"]);
+  });
+
+  test("skips an assigned page untouched since the high-water (no self-trigger / drift)", () => {
+    const targets = computeClassifyTargets(
+      [page("assigned-stale", 150, ["domain/a"])],
+      200,
+    );
+    expect(targets).toEqual([]);
+  });
+
+  test("still classifies unassigned pages regardless of mtime", () => {
+    const targets = computeClassifyTargets(
+      [page("unassigned-old", 10, [])],
+      200,
+    );
+    expect(targets).toEqual(["unassigned-old"]);
+  });
+
+  test("excludes synthetic skill/CLI rows (modifiedAt 0) despite empty leaves", () => {
+    const targets = computeClassifyTargets(
+      [page("skills/meet-join", 0, []), page("real", 300, [])],
+      200,
+    );
+    expect(targets).toEqual(["real"]);
+  });
+
+  test("targets = unassigned ∪ recently-edited, excluding assigned-and-stale", () => {
+    const targets = computeClassifyTargets(
+      [
+        page("unassigned-old", 10, []),
+        page("assigned-stale", 150, ["domain/a"]),
+        page("assigned-fresh", 300, ["domain/a"]),
+        page("skills/x", 0, []),
+      ],
+      200,
+    );
+    expect(targets).toEqual(["unassigned-old", "assigned-fresh"]);
   });
 });

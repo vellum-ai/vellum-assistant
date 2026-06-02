@@ -20,18 +20,18 @@
  * leaked dedup timestamps, no stale `current` reference). Exported
  * as an object rather than a bare function so the React adapter's
  * test can `spyOn(sseService, "attach")` without resorting to
- * `mock.module` (which is process-global in bun and would shadow the
- * real implementation in `sse-service.test.ts`).
+ * `mock.module` (which is process-global in bun and would shadow
+ * the real implementation in `sse-service.test.ts`).
  */
 
 import * as Sentry from "@sentry/browser";
 
 import { lifecycleService } from "@/assistant/lifecycle-service";
+import { publish, subscribe } from "@/lib/event-bus";
 import {
   subscribeChatEvents,
   type ChatEventStream,
 } from "@/lib/streaming/stream-transport";
-import type { EventBusActions } from "@/stores/event-bus-store";
 
 const RESUME_DEDUP_WINDOW_MS = 1000;
 
@@ -44,11 +44,11 @@ export interface SseService {
    * assistant becomes active and the returned detach when it changes
    * or unmounts.
    */
-  attach(bus: EventBusActions, assistantId: string): () => void;
+  attach(assistantId: string): () => void;
 }
 
 export const sseService: SseService = {
-  attach(bus, assistantId) {
+  attach(assistantId) {
     let current: ChatEventStream | null = null;
     let cancelled = false;
     // Independent dedup windows per handler. A shared timestamp was
@@ -68,11 +68,11 @@ export const sseService: SseService = {
         assistantId,
         null,
         (envelope) => {
-          bus.publish("sse.event", envelope);
+          publish("sse.event", envelope);
         },
         (err) => {
           current = null;
-          bus.publish("sse.closed", { reason: err.message });
+          publish("sse.closed", { reason: err.message });
           Sentry.addBreadcrumb({
             category: "event_bus.sse",
             level: "warning",
@@ -81,7 +81,7 @@ export const sseService: SseService = {
         },
         {
           onReconnect: (cause) => {
-            bus.publish("sse.opened", { assistantId, cause });
+            publish("sse.opened", { assistantId, cause });
           },
         },
       );
@@ -90,7 +90,7 @@ export const sseService: SseService = {
         return;
       }
       current = stream;
-      bus.publish("sse.opened", { assistantId, cause: causeAtOpen });
+      publish("sse.opened", { assistantId, cause: causeAtOpen });
     };
 
     const teardown = () => {
@@ -145,27 +145,18 @@ export const sseService: SseService = {
 
     open();
 
-    const unsubHidden = bus.subscribe("app.hidden", teardownIfOpen);
+    const unsubHidden = subscribe("app.hidden", teardownIfOpen);
     // System-level suspend: gracefully close the SSE so the daemon
     // sees us go away cleanly instead of waiting for TCP timeouts.
     // The resume / unlock handlers above will reopen on wake; if
     // the teardown here is missed (suspend events occasionally
     // drop on macOS), the bounce-on-resume path still recovers a
     // half-dead socket.
-    const unsubPowerSuspend = bus.subscribe(
-      "power.suspend",
-      teardownIfOpen,
-    );
-    const unsubResume = bus.subscribe("app.resume", handleAppResume);
-    const unsubPowerResume = bus.subscribe(
-      "power.resume",
-      handlePowerResume,
-    );
-    const unsubPowerUnlock = bus.subscribe(
-      "power.unlock",
-      handlePowerResume,
-    );
-    const unsubReachabilityRetry = bus.subscribe(
+    const unsubPowerSuspend = subscribe("power.suspend", teardownIfOpen);
+    const unsubResume = subscribe("app.resume", handleAppResume);
+    const unsubPowerResume = subscribe("power.resume", handlePowerResume);
+    const unsubPowerUnlock = subscribe("power.unlock", handlePowerResume);
+    const unsubReachabilityRetry = subscribe(
       "reachability.retry-requested",
       () => {
         // Label the next open as a recovery rather than the default

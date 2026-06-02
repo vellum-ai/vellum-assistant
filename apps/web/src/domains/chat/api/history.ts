@@ -26,11 +26,6 @@ import type {
   RuntimeSubagentNotification,
 } from "@/domains/chat/api/messages";
 
-const SDK_BASE_OPTIONS =
-  typeof window === "undefined"
-    ? ({ baseUrl: "http://localhost" } as const)
-    : ({} as const);
-
 export type { PaginatedHistoryResult };
 
 const DEFAULT_LATEST_LIMIT = 50;
@@ -108,7 +103,6 @@ async function fetchPaginatedHistory(
     PaginatedHistoryResponseBody,
     unknown
   >({
-    ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/messages/",
     path: { assistant_id: assistantId },
     query,

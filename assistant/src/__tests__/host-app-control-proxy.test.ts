@@ -13,6 +13,7 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
       cap === "host_app_control" && mockHasClient
         ? { id: "mock-client" }
         : null,
+    listClientsByCapability: () => [],
     getActorPrincipalIdForClient: (clientId: string) =>
       mockActorMap.get(clientId),
   },
@@ -1290,6 +1291,7 @@ describe("HostAppControlProxy", () => {
 
   describe("actor principal + targetClientId plumbing", () => {
     test("request() accepts sourceActorPrincipalId and targetClientId without crashing", async () => {
+      mockActorMap.set("client-A", "actor-principal-1");
       const proxy = new HostAppControlProxy("conv-1");
       const ctrl = new AbortController();
       _setActiveAppControlSession({

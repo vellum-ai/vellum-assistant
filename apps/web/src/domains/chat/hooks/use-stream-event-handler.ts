@@ -1,5 +1,4 @@
 import {
-  type MutableRefObject,
   type Dispatch,
   type SetStateAction,
   useCallback,
@@ -8,11 +7,12 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useConversationStore } from "@/stores/conversation-store";
-import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import { tailIsAssistant } from "@/domains/chat/hooks/stream-message-updaters";
 import { useTurnStore } from "@/domains/chat/turn-store";
 import { endTurn } from "@/domains/chat/turn-coordinator";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { useStreamStore } from "@/domains/chat/stream-store";
 
 import { recordDiagnostic, summarizeAssistantEvent } from "@/lib/diagnostics";
 import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat";
@@ -66,10 +66,7 @@ import {
   handleSubagentStatusChanged,
   handleSubagentEvent,
 } from "@/domains/chat/utils/stream-handlers/subagent-handlers";
-import type {
-  StreamHandlerContext,
-  StreamContext,
-} from "@/domains/chat/utils/stream-handlers/types";
+import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 
 export type {
   ChatError,
@@ -78,10 +75,8 @@ export type {
   PendingSecretState,
 } from "@/domains/chat/types";
 
-import type { ChatError } from "@/domains/chat/types";
 import type { AssistantEvent } from "@/types/event-types";
 import type { SyncChangedEvent } from "@/lib/sync/types";
-import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 
 // ---------------------------------------------------------------------------
 // Params & return types
@@ -93,49 +88,18 @@ export interface UseStreamEventHandlerParams {
   push: (url: string) => void;
   isNative: boolean;
 
-  // --- Stream context ---
-  streamEpochRef: MutableRefObject<number>;
-  streamContextRef: MutableRefObject<StreamContext | null>;
-  assistantIdRef: MutableRefObject<string | null>;
-
-  // --- Messages ---
-  setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
-  messagesRef: MutableRefObject<DisplayMessage[]>;
-
-  // --- Error & stream lifecycle ---
-  setError: Dispatch<SetStateAction<ChatError | null>>;
-  streamRef: MutableRefObject<ChatEventStream | null>;
-
   // --- Reconciliation ---
   cancelReconciliation: () => void;
   startReconciliationLoop: (epoch: number) => void;
 
-  // --- Interaction state (secret, confirmation, contact request) ---
-  confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
-
   // --- UI surfaces ---
   setAssetsRefreshKey: Dispatch<SetStateAction<number>>;
-  dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
-
-  // --- Context window ---
-  contextWindowUsageByConversationRef: MutableRefObject<
-    Map<string, ContextWindowUsage>
-  >;
-  setContextWindowUsage: Dispatch<SetStateAction<ContextWindowUsage | null>>;
 
   // --- Conversations ---
   scheduleConversationListRefetch: () => void;
 
-  // --- Compaction ---
-  setCompactionCircuitOpenUntil: Dispatch<SetStateAction<Date | null>>;
-
   // --- Sync router ---
   dispatchSyncChanged: (event: SyncChangedEvent) => void;
-
-  // --- Queue management ---
-  pendingQueuedMessageIdsRef: MutableRefObject<string[]>;
-  requestIdToMessageIdRef: MutableRefObject<Map<string, string>>;
-  pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
 }
 
 interface UseStreamEventHandlerReturn {
@@ -150,8 +114,10 @@ interface UseStreamEventHandlerReturn {
  * Routes incoming SSE events from the assistant stream to domain handler
  * functions (message, error, tool-call, metadata, etc.).
  *
- * Builds a `StreamHandlerContext` on each call and delegates to the
- * appropriate handler based on event type via an exhaustive switch.
+ * Builds a `StreamHandlerContext` on each call from infrastructure refs
+ * (stream lifecycle) and `useChatSessionStore.getState()` (per-conversation
+ * mutable state). Delegates to the appropriate handler based on event type
+ * via an exhaustive switch.
  *
  * @returns `handleStreamEvent(event, epoch)` — call this for each SSE event.
  */
@@ -163,26 +129,11 @@ export function useStreamEventHandler(
   const {
     push,
     isNative,
-    streamEpochRef,
-    streamContextRef,
-    assistantIdRef,
-    setMessages,
-    messagesRef,
-    setError,
-    streamRef,
     cancelReconciliation,
     startReconciliationLoop,
-    confirmationToolCallMapRef,
     setAssetsRefreshKey,
-    dismissedSurfaceIdsRef,
-    contextWindowUsageByConversationRef,
-    setContextWindowUsage,
     scheduleConversationListRefetch,
-    setCompactionCircuitOpenUntil,
     dispatchSyncChanged,
-    pendingQueuedMessageIdsRef,
-    requestIdToMessageIdRef,
-    pendingLocalDeletionsRef,
   } = params;
 
   // --- Refs owned by this hook (only used inside handleStreamEvent) ---
@@ -196,17 +147,18 @@ export function useStreamEventHandler(
     (event: AssistantEvent, epoch: number) => {
       // Discard events from stale/previous streams
       const eventSummary = summarizeAssistantEvent(event);
-      if (epoch !== streamEpochRef.current) {
+      const streamState = useStreamStore.getState();
+      if (epoch !== streamState.streamEpoch) {
         recordDiagnostic("sse_event_stale", {
           epoch,
-          currentEpoch: streamEpochRef.current,
+          currentEpoch: streamState.streamEpoch,
           activeConversationId:
             useConversationStore.getState().activeConversationId,
           ...eventSummary,
         });
         return;
       }
-      const streamConversationId = streamContextRef.current?.conversationId;
+      const streamConversationId = streamState.streamContext?.conversationId;
       // Defense-in-depth: even though useEventStream's filter already
       // rejects conversation-scoped events without an explicit matching
       // conversationId, gate here too so any future caller of
@@ -220,7 +172,7 @@ export function useStreamEventHandler(
             epoch,
             activeConversationId:
               useConversationStore.getState().activeConversationId,
-            streamContext: streamContextRef.current,
+            streamContext: streamState.streamContext,
             reason: !event.conversationId ? "missing" : "no_stream_context",
             ...eventSummary,
           });
@@ -231,20 +183,22 @@ export function useStreamEventHandler(
             epoch,
             activeConversationId:
               useConversationStore.getState().activeConversationId,
-            streamContext: streamContextRef.current,
+            streamContext: streamState.streamContext,
             reason: "mismatch",
             ...eventSummary,
           });
           return;
         }
       }
+
+      // Snapshot store state once per event for the context object.
+      const store = useChatSessionStore.getState();
+
       // Suppress per-chunk text_delta noise — only log the first delta of a
-      // new assistant message. Derived from `messagesRef` instead of a latch
-      // so any write site that updates the messages array is naturally
-      // reflected here.
+      // new assistant message.
       if (
         event.type !== "assistant_text_delta" ||
-        !tailIsAssistant(messagesRef.current)
+        !tailIsAssistant(store.messages)
       ) {
         recordDiagnostic(
           event.type === "assistant_text_delta"
@@ -254,7 +208,7 @@ export function useStreamEventHandler(
             epoch,
             activeConversationId:
               useConversationStore.getState().activeConversationId,
-            streamContext: streamContextRef.current,
+            streamContext: streamState.streamContext,
             ...eventSummary,
           },
         );
@@ -264,28 +218,28 @@ export function useStreamEventHandler(
       const ctx: StreamHandlerContext = {
         router: { push },
         isNative,
-        streamContextRef,
-        assistantIdRef,
-        setMessages,
-        messagesRef,
+        streamContext: streamState.streamContext,
+        assistantId: useAssistantSelectionStore.getState().activeAssistantId,
+        setMessages: store.setMessages,
+        messages: store.messages,
         turnActions: useTurnStore.getState(),
         getTurnState: () => useTurnStore.getState(),
         endTurn,
-        setError,
-        streamRef,
+        setError: store.setError,
+        cancelAndClearStream: useStreamStore.getState().cancelAndClearStream,
         cancelReconciliation,
         startReconciliationLoop,
-        confirmationToolCallMapRef,
+        confirmationToolCallMap: store.confirmationToolCallMap,
         setAssetsRefreshKey,
-        dismissedSurfaceIdsRef,
-        contextWindowUsageByConversationRef,
-        setContextWindowUsage,
+        dismissedSurfaceIds: store.dismissedSurfaceIds,
+        contextWindowUsageByConversation: store.contextWindowUsageByConversation,
+        setContextWindowUsage: store.setContextWindowUsage,
         scheduleConversationListRefetch,
         queryClient,
-        setCompactionCircuitOpenUntil,
-        pendingQueuedMessageIdsRef,
-        requestIdToMessageIdRef,
-        pendingLocalDeletionsRef,
+        setCompactionCircuitOpenUntil: store.setCompactionCircuitOpenUntil,
+        pendingQueuedMessageIds: store.pendingQueuedMessageIds,
+        requestIdToMessageId: store.requestIdToMessageId,
+        pendingLocalDeletions: store.pendingLocalDeletions,
         lastActivityVersionRef,
         toolCallIdCounterRef,
         currentAssistantMessageIdRef,
@@ -442,26 +396,10 @@ export function useStreamEventHandler(
       startReconciliationLoop,
       scheduleConversationListRefetch,
       // Stable deps listed for correctness — React guarantees identity
-      // stability for state setters and refs, so these never trigger
-      // re-creation of the callback.
+      // stability for refs, and store getState is module-level stable.
       dispatchSyncChanged,
       queryClient,
-      streamEpochRef,
-      streamContextRef,
-      assistantIdRef,
-      setMessages,
-      messagesRef,
-      setError,
-      streamRef,
-      confirmationToolCallMapRef,
       setAssetsRefreshKey,
-      dismissedSurfaceIdsRef,
-      contextWindowUsageByConversationRef,
-      setContextWindowUsage,
-      setCompactionCircuitOpenUntil,
-      pendingQueuedMessageIdsRef,
-      requestIdToMessageIdRef,
-      pendingLocalDeletionsRef,
     ],
   );
 

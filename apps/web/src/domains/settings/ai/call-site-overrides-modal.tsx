@@ -11,7 +11,7 @@ import { Toggle } from "@vellum/design-library/components/toggle";
 import { Modal } from "@vellum/design-library/components/modal";
 import { toast } from "@vellum/design-library/components/toast";
 import { client } from "@/generated/api/client.gen";
-import { reportError } from "@/utils/error-report";
+import { captureError } from "@/lib/sentry/capture-error";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { getDefaultModelForProvider, getModelsForProvider } from "@/assistant/llm-model-catalog";
 
@@ -413,10 +413,7 @@ function CallSiteOverridesModalInner({
       toast.success("Overrides saved.");
     } catch (error) {
       toast.error("Failed to save overrides. Please try again.");
-      reportError(error, {
-        context: "call_site_overrides_save",
-        userMessage: "Failed to save overrides",
-      });
+      captureError(error, { context: "call_site_overrides_save" });
     } finally {
       setSaving(false);
       onSavingChange?.(false);
@@ -444,10 +441,7 @@ function CallSiteOverridesModalInner({
       toast.success("Overrides reset.");
     } catch (error) {
       toast.error("Failed to reset overrides. Please try again.");
-      reportError(error, {
-        context: "call_site_overrides_reset",
-        userMessage: "Failed to reset overrides",
-      });
+      captureError(error, { context: "call_site_overrides_reset" });
     } finally {
       setSaving(false);
       onSavingChange?.(false);

@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { Outlet, useLocation } from "react-router";
 
+import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { routes } from "@/utils/routes";
@@ -21,12 +22,25 @@ export function SettingsLayout() {
   const settingsDeveloperNav = useAssistantFeatureFlagStore.use.settingsDeveloperNav();
   const platformNotifications = useClientFeatureFlagStore.use.platformNotifications();
   const sounds = useAssistantFeatureFlagStore.use.sounds();
+  // platformHostedOnly so the sidebar filter fires on self-hosted active
+  // assistants (lifecycle `kind: "self_hosted"` OR `kind: "active",
+  // isLocal: true`) — not just on local-mode-with-features-off, which is
+  // what the standard gate's `"gated"` state means.
+  const platformGate = usePlatformGate({ platformHostedOnly: true });
   const { pathname } = useLocation();
 
   const filteredItems = useMemo(
     () =>
       SETTINGS_SIDEBAR.filter((item) => {
-        if (item.id === "notifications" && !platformNotifications) {
+        // Notifications are an organization-scoped platform concept. Hide the
+        // sidebar item entirely when the active assistant is self-hosted so
+        // users don't land on an empty page. `NotificationsPage` itself also
+        // early-returns null for the same gate, as defense in depth for
+        // direct URL navigation.
+        if (
+          item.id === "notifications" &&
+          (!platformNotifications || platformGate === "gated")
+        ) {
           return false;
         }
         if (item.id === "sounds" && !sounds) {
@@ -37,7 +51,7 @@ export function SettingsLayout() {
         }
         return true;
       }),
-    [platformNotifications, sounds],
+    [platformNotifications, sounds, platformGate],
   );
 
   const bottomItems = useMemo(

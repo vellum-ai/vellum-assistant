@@ -60,6 +60,7 @@ export const routes = {
   onboarding: {
     welcome: r("/assistant/onboarding/welcome"),
     hosting: r("/assistant/onboarding/hosting"),
+    apiKey: r("/assistant/onboarding/api-key"),
     privacy: r("/assistant/onboarding/privacy"),
     prechat: r("/assistant/onboarding/prechat"),
     hatching: r("/assistant/onboarding/hatching"),
@@ -111,6 +112,7 @@ export const routes = {
   },
 
   docs: {
+    hostingOptions: r("/docs/hosting-options"),
     legal: {
       privacyPolicy: r("/docs/privacy-policy"),
       termsOfUse: r("/docs/vellum-terms-of-use"),
@@ -127,6 +129,11 @@ const WWW_DOMAIN = "vellum.ai";
 export function legalUrl(
   path: (typeof routes.docs.legal)[keyof typeof routes.docs.legal],
 ): string {
+  return docsUrl(path);
+}
+
+/** Full external URL for a docs page hosted on the marketing site. */
+export function docsUrl(path: string): string {
   return `https://${WWW_DOMAIN}${path}`;
 }
 

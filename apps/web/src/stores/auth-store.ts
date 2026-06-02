@@ -40,7 +40,7 @@ import { deleteBiometricToken } from "@/runtime/native-biometric";
 import { syncOnboardingUser, clearOnboardingFlags } from "@/utils/onboarding-cleanup";
 import { clearOrganization } from "@/stores/organization-store";
 import { clearUserScopedStorage } from "@/lib/auth/session-cleanup";
-import { useEventBusStore } from "@/stores/event-bus-store";
+import { subscribe } from "@/lib/event-bus";
 import { isNativePlatform, installSessionCookies, waitForNativeSessionCookie } from "@/runtime/native-auth";
 import { isBiometricEnabled, retrieveBiometricToken } from "@/runtime/native-biometric";
 
@@ -95,6 +95,7 @@ type AuthStore = AuthState & AuthActions;
 
 let previousUserId: string | null = null;
 let broadcastChannel: BroadcastChannel | null = null;
+let suppressPlatformProbe = false;
 
 const GATEWAY_LOCAL_USER: AuthUser = {
   id: "gateway-local",
@@ -179,14 +180,17 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
         return;
       }
       set({ isLoggedIn: true, isLoading: false, user: GATEWAY_LOCAL_USER });
-      getSession()
-        .then((result) => {
-          if (result.ok && result.data.user) {
-            const user = toAuthUser(result.data.user);
-            set({ hasPlatformSession: true, user });
-          }
-        })
-        .catch(() => {});
+      if (!suppressPlatformProbe) {
+        getSession()
+          .then((result) => {
+            if (result.ok && result.data.user) {
+              const user = toAuthUser(result.data.user);
+              set({ hasPlatformSession: true, user });
+            }
+          })
+          .catch(() => {});
+      }
+      suppressPlatformProbe = false;
       return;
     }
 
@@ -279,6 +283,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       return;
     }
 
+    suppressPlatformProbe = true;
     try {
       await allauthLogout();
     } finally {
@@ -315,11 +320,9 @@ export function setupAuthListeners(): () => void {
       console.warn("auth.refreshSession failed", err),
     );
 
-  const unsubResume = useEventBusStore
-    .getState()
-    .subscribe("app.resume", () => {
-      void safeRefresh();
-    });
+  const unsubResume = subscribe("app.resume", () => {
+    void safeRefresh();
+  });
   cleanups.push(unsubResume);
 
   if (typeof BroadcastChannel !== "undefined") {

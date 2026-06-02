@@ -82,7 +82,7 @@ jobs:
       # `path` is resolved from the workspace root and is NOT affected by the
       # job's `working-directory` default, so it must be the full `apps/web/dist`.
       - name: Upload SPA artifact
-        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: web-dist-${{ inputs.environment }}
           path: apps/web/dist
@@ -100,7 +100,7 @@ jobs:
       # Download into workspace-root `dist/` (this job sets no working-directory
       # default), matching the `dist/...` paths the publish step references.
       - name: Download SPA artifact
-        uses: actions/download-artifact@95815c38cf15ff21684b820601a6c15f4d7f6513 # v4.2.1
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: web-dist-${{ inputs.environment }}
           path: dist

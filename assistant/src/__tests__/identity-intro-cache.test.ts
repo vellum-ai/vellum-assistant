@@ -295,31 +295,46 @@ describe("parseGreetingsSection", () => {
   });
 
   test("handles asterisk bullets", () => {
-    const content = [
-      "## Greetings",
-      "* Hello!",
-      "* Hi there.",
-    ].join("\n");
+    const content = ["## Greetings", "* Hello!", "* Hi there."].join("\n");
 
     expect(parseGreetingsSection(content)).toEqual(["Hello!", "Hi there."]);
   });
 
-  test("returns null when section is missing", () => {
+  test("handles plus and numbered bullets", () => {
     const content = [
-      "# Soul",
-      "## Personality",
-      "Be friendly.",
+      "## Greetings",
+      "+ Welcome back.",
+      "1. Ready when you are.",
+      "2) What are we building today?",
     ].join("\n");
+
+    expect(parseGreetingsSection(content)).toEqual([
+      "Welcome back.",
+      "Ready when you are.",
+      "What are we building today?",
+    ]);
+  });
+
+  test("only starts at a level-two Greetings heading", () => {
+    const content = [
+      "# Greetings",
+      "- Not the section contract.",
+      "",
+      "## Greetings",
+      "- The real greeting.",
+    ].join("\n");
+
+    expect(parseGreetingsSection(content)).toEqual(["The real greeting."]);
+  });
+
+  test("returns null when section is missing", () => {
+    const content = ["# Soul", "## Personality", "Be friendly."].join("\n");
 
     expect(parseGreetingsSection(content)).toBeNull();
   });
 
   test("returns null when section is empty", () => {
-    const content = [
-      "## Greetings",
-      "",
-      "## Next Section",
-    ].join("\n");
+    const content = ["## Greetings", "", "## Next Section"].join("\n");
 
     expect(parseGreetingsSection(content)).toBeNull();
   });
@@ -339,16 +354,22 @@ describe("parseGreetingsSection", () => {
     ]);
   });
 
-  test("stops at next heading", () => {
+  test("allows nested headings and stops at the next same-or-higher heading", () => {
     const content = [
       "## Greetings",
       "- First",
       "- Second",
       "### Sub-heading",
+      "- Third",
+      "## Other Section",
       "- Should not appear",
     ].join("\n");
 
-    expect(parseGreetingsSection(content)).toEqual(["First", "Second"]);
+    expect(parseGreetingsSection(content)).toEqual([
+      "First",
+      "Second",
+      "Third",
+    ]);
   });
 });
 

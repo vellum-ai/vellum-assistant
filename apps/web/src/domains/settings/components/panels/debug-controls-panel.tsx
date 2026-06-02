@@ -9,7 +9,7 @@ import { RestartAssistant } from "@/domains/settings/components/restart-assistan
 import { RecoveryModeControls } from "@/domains/settings/components/recovery-mode-controls";
 import { type Assistant, getAssistant } from "@/assistant/api";
 import { useAuthStore } from "@/stores/auth-store";
-import { reportError } from "@/utils/error-report";
+import { captureError } from "@/lib/sentry/capture-error";
 import { clearOnboardingFlags } from "@/utils/onboarding-cleanup";
 import { routes } from "@/utils/routes";
 
@@ -49,10 +49,8 @@ export function DebugControlsPanel() {
         setAssistant(null);
       }
     } catch (error) {
-      reportError(error, {
-        context: "fetch_assistant_for_debug_controls",
-        userMessage: "Failed to load assistant info",
-      });
+      captureError(error, { context: "fetch_assistant_for_debug_controls" });
+      toast.error("Failed to load assistant info");
     } finally {
       setLoading(false);
     }

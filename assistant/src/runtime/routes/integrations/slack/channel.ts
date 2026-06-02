@@ -6,6 +6,8 @@
  * DELETE /v1/integrations/slack/channel/config        — clear credentials
  */
 
+import { z } from "zod";
+
 import {
   clearSlackChannelConfig,
   getSlackChannelConfig,
@@ -74,6 +76,10 @@ export const ROUTES: RouteDefinition[] = [
     description: "Validate and store Slack channel credentials.",
     tags: ["integrations"],
     handler: handleSetSlackChannelConfig,
+    requestBody: z.object({
+      botToken: z.string().describe("Slack bot token"),
+      appToken: z.string().describe("Slack app-level token"),
+    }),
   },
   {
     operationId: "integrations_slack_channel_config_delete",

@@ -1,6 +1,7 @@
-import { type MutableRefObject, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useIsIOSWeb, useIsMacOSWeb } from "@/runtime/platform-detection";
 import {
   readIOSAssistantTurnsSeen,
@@ -71,8 +72,6 @@ export interface AppNudgesState {
  *
  * @param messages - Current transcript messages (used to count completed assistant turns).
  * @param conversationCount - Total conversation count (gates the Discord nudge).
- * @param streamingMessageIdsRef - Tracks assistant rows seen while live so a
- *   row leaving the live position counts as one completed turn.
  * @param liveAssistantMessageId - Id of the currently-live assistant row, or
  *   `null` when nothing is streaming. Derived from message position and the
  *   conversation's processing state.
@@ -80,7 +79,6 @@ export interface AppNudgesState {
 export function useAppNudges(
   messages: readonly DisplayMessage[],
   conversationCount: number,
-  streamingMessageIdsRef: MutableRefObject<Set<string>>,
   liveAssistantMessageId: string | null,
 ): AppNudgesState {
   // -------------------------------------------------------------------------
@@ -112,10 +110,11 @@ export function useAppNudges(
       if (m.role !== "assistant") {
         continue;
       }
+      const streamingIds = useChatSessionStore.getState().streamingMessageIds;
       if (m.id === liveAssistantMessageId) {
-        streamingMessageIdsRef.current.add(m.id);
-      } else if (streamingMessageIdsRef.current.has(m.id)) {
-        streamingMessageIdsRef.current.delete(m.id);
+        streamingIds.add(m.id);
+      } else if (streamingIds.has(m.id)) {
+        streamingIds.delete(m.id);
         newlyCompleted++;
       } else {
         break;
