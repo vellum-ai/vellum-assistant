@@ -4705,18 +4705,14 @@ paths:
               type: object
               properties:
                 status:
-                  type: string
                   description: Channel status
+                  type: string
                 policy:
-                  type: string
                   description: Channel policy
-                reason:
                   type: string
+                reason:
                   description: Reason for the change
-              required:
-                - status
-                - policy
-                - reason
+                  type: string
               additionalProperties: false
   /v1/contacts:
     get:

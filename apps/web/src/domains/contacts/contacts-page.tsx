@@ -204,24 +204,18 @@ export function ContactsPage({
     }),
     enabled: Boolean(assistantId),
     queryFn: async ({ signal }) => {
-      try {
-        const { data } = await channelsAvailableGet({
-          path: { assistant_id: assistantId },
-          signal,
-          throwOnError: true,
-        });
-        return data;
-      } catch (err: unknown) {
-        if (
-          err &&
-          typeof err === "object" &&
-          "status" in err &&
-          (err as { status: number }).status === 404
-        ) {
-          return { channels: DEFAULT_CHANNELS } as ChannelsAvailableGetResponse;
-        }
-        throw err;
+      const { data, error, response } = await channelsAvailableGet({
+        path: { assistant_id: assistantId },
+        signal,
+        throwOnError: false,
+      });
+      if (!response || response.status === 404) {
+        return { channels: DEFAULT_CHANNELS } as ChannelsAvailableGetResponse;
       }
+      if (!response.ok) {
+        throw error ?? new Error("Failed to fetch channel availability");
+      }
+      return data!;
     },
     select: (data) => data.channels,
   });
@@ -417,7 +411,7 @@ export function ContactsPage({
     (channelId: string, _type: string) => {
       revokeMutation.mutate({
         path: { assistant_id: assistantId, contactChannelId: channelId },
-        body: { status: "revoked", policy: "blocked", reason: "Revoked by user" },
+        body: { status: "revoked" },
       });
     },
     [revokeMutation, assistantId],

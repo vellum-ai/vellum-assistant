@@ -575,9 +575,9 @@ export const ROUTES: RouteDefinition[] = [
     description: "Update status, policy, or reason on a contact's channel.",
     tags: ["contacts"],
     requestBody: z.object({
-      status: z.string().describe("Channel status"),
-      policy: z.string().describe("Channel policy"),
-      reason: z.string().describe("Reason for the change"),
+      status: z.string().optional().describe("Channel status"),
+      policy: z.string().optional().describe("Channel policy"),
+      reason: z.string().optional().describe("Reason for the change"),
     }),
     responseBody: z.object({
       ok: z.boolean(),
