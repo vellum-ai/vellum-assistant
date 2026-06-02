@@ -20,6 +20,9 @@ import {
   useAssistantWithHealthz,
 } from "@/domains/settings/components/assistant-status-panel";
 
+import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { client } from "@/generated/api/client.gen";
+import { captureError } from "@/lib/sentry/capture-error";
 import { useAuthStore } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
@@ -104,14 +107,32 @@ function ThemeCard() {
   );
 }
 
-function TimezoneCard() {
+export function TimezoneCard() {
+  const assistantId = useAssistantSelectionStore.use.activeAssistantId();
   const [timezone, setTimezone] = useState<string>(() =>
     getDeviceSetting("timezone", ""),
   );
 
   const handleChange = (value: string) => {
+    // Local source of truth for the reactive `useEffectiveTimezone` hook.
     setTimezone(value);
     setDeviceSetting("timezone", value);
+
+    // Explicit user action: write the manual override to the authoritative
+    // `ui.userTimezone` cascade tier. `value` is the chosen IANA zone, or ""
+    // when auto is selected (the schema documents "" clears the setting).
+    // Fire-and-forget; never block the local setting on the network write.
+    if (!assistantId) return;
+    client
+      .patch<Record<string, unknown>, unknown, true>({
+        url: `/v1/assistants/{assistant_id}/config`,
+        path: { assistant_id: assistantId },
+        body: { ui: { userTimezone: value } },
+        throwOnError: true,
+      })
+      .catch((error) => {
+        captureError(error, { context: "settings-timezone-override" });
+      });
   };
 
   return (
