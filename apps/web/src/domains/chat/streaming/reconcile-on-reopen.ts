@@ -96,7 +96,8 @@ export function createReconcileOnReopen(
         captureError(err, {
           context: "sse_resume_reconcile",
           level: "warning",
-          extra: { assistantId, conversationId, epoch, cause, platform: resolvePlatformTag() },
+          tags: { cause, platform: resolvePlatformTag() },
+          extra: { assistantId, conversationId, epoch },
         });
       });
       deps.startReconciliationLoop(epoch);
@@ -143,7 +144,8 @@ async function runTransportRecoveryReconcile(
     captureError(err, {
       context: "sse_transport_recovery",
       level: "warning",
-      extra: { assistantId, conversationId, epoch, cause, platform: resolvePlatformTag() },
+      tags: { cause, platform: resolvePlatformTag() },
+      extra: { assistantId, conversationId, epoch },
     });
     return;
   }

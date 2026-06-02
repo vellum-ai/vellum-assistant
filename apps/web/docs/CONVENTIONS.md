@@ -175,12 +175,16 @@ use `captureError()` from `lib/sentry/capture-error.ts`:
 import { captureError } from "@/lib/sentry/capture-error";
 
 captureError(err, { context: "my_operation" });
+// With additional indexed Sentry tags:
+captureError(err, { context: "my_operation", tags: { cause, platform } });
 ```
 
 `captureError` handles: transient network-error filtering (via
 `isTransientNetworkError` in `utils/`), `console.error` logging, and
-Sentry capture with structured `context` tags. Toast/UI display stays
-at the call site — `captureError` never shows user-facing UI.
+Sentry capture with structured tags. `context` is always added as a tag;
+pass additional indexed tags via `tags` and unindexed metadata via `extra`.
+Toast/UI display stays at the call site — `captureError` never shows
+user-facing UI.
 
 **Do not use bare `Sentry.captureException`.** The only exceptions are
 framework-level integration points that need raw Sentry scope

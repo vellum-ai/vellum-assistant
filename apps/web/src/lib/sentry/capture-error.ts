@@ -23,6 +23,7 @@ export function captureError(
   opts: {
     context: string;
     level?: Sentry.SeverityLevel;
+    tags?: Record<string, string>;
     extra?: Record<string, unknown>;
   },
 ): void {
@@ -30,7 +31,7 @@ export function captureError(
   console.error(`[${opts.context}]`, error);
   Sentry.captureException(error, {
     level: opts.level,
-    tags: { context: opts.context },
+    tags: { context: opts.context, ...opts.tags },
     ...(opts.extra ? { extra: opts.extra } : {}),
   });
 }
