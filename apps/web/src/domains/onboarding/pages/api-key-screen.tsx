@@ -28,16 +28,32 @@ export function ApiKeyScreen() {
   const [apiKey, setApiKey] = useState(
     () => peekPendingProviderKey()?.key ?? "",
   );
+  const [baseUrl, setBaseUrl] = useState(
+    () => peekPendingProviderKey()?.baseUrl ?? "",
+  );
+  const [modelsRaw, setModelsRaw] = useState(() =>
+    (peekPendingProviderKey()?.models ?? []).join(", "),
+  );
 
   const entry = onboardingProvider(provider) ?? DEFAULT_ONBOARDING_PROVIDER;
   const requiresKey = entry.requiresKey;
-  const canContinue = !requiresKey || apiKey.trim().length > 0;
+  const isCustom = entry.requiresBaseUrl ?? false;
+  const models = modelsRaw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const keyOk = !requiresKey || apiKey.trim().length > 0;
+  const baseUrlOk = !isCustom || baseUrl.trim().length > 0;
+  const modelsOk = !isCustom || models.length > 0;
+  const canContinue = keyOk && baseUrlOk && modelsOk;
 
   const onContinue = () => {
     if (!canContinue) return;
     setPendingProviderKey({
       provider,
-      key: requiresKey ? apiKey.trim() : "",
+      key: requiresKey || isCustom ? apiKey.trim() : "",
+      ...(isCustom ? { baseUrl: baseUrl.trim(), models } : {}),
     });
     void navigate(
       hosting
@@ -82,6 +98,8 @@ export function ApiKeyScreen() {
                 if (match) {
                   setProvider(match.id);
                   setApiKey("");
+                  setBaseUrl("");
+                  setModelsRaw("");
                 }
               }}
               options={ONBOARDING_PROVIDERS.map((p) => ({
@@ -91,11 +109,45 @@ export function ApiKeyScreen() {
             />
           </div>
 
-          {requiresKey && (
+          {isCustom && (
+            <>
+              <div className="flex flex-col gap-1">
+                <label className="text-body-small-default text-[var(--content-tertiary)]">
+                  Base URL
+                </label>
+                <Input
+                  placeholder="https://api.example.com/v1"
+                  value={baseUrl}
+                  onChange={(e) => setBaseUrl(e.target.value)}
+                  fullWidth
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-body-small-default text-[var(--content-tertiary)]">
+                  Models
+                </label>
+                <Input
+                  placeholder="model-1, model-2"
+                  value={modelsRaw}
+                  onChange={(e) => setModelsRaw(e.target.value)}
+                  fullWidth
+                />
+                <p className="text-body-small-default text-[var(--content-tertiary)]">
+                  Comma-separated model identifiers exposed by your endpoint.
+                </p>
+              </div>
+            </>
+          )}
+
+          {(requiresKey || isCustom) && (
             <div className="flex flex-col gap-3">
               <Input
                 type="password"
-                label={`${entry.displayName} API Key`}
+                label={
+                  isCustom && !requiresKey
+                    ? `${entry.displayName} API Key (optional)`
+                    : `${entry.displayName} API Key`
+                }
                 placeholder={entry.apiKeyPlaceholder ?? "Enter your API key"}
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
