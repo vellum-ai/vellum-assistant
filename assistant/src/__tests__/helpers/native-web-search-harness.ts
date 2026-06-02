@@ -75,6 +75,7 @@ export function createHandlerDeps(reqId = "req-web-search"): HandlerHarness {
       assistantMessageInterface: "macos",
     } as EventHandlerDeps["turnInterfaceContext"],
     applyCompaction: async () => {},
+    commitCompactionBasis: () => {},
   } as EventHandlerDeps;
   return { deps, events, warnings };
 }

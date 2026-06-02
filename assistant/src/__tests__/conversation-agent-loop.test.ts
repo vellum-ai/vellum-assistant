@@ -580,11 +580,12 @@ async function simulateInlineCompaction(
   compactionCircuit: CompactionCircuit,
 ): Promise<Message[] | null> {
   await onEvent({ type: "context_compacting" });
-  // The agent loop strips runtime injections before calling prepare (the strip
-  // is identity-stubbed in this suite); prepare commits the stripped history to
-  // durable state and returns only the pipeline options.
+  // The agent loop strips runtime injections (identity-stubbed in this suite),
+  // commits the stripped basis to durable state via `compaction_basis_committed`,
+  // then prepare returns only the pipeline options.
   const rawHistory = stripInjectionsForCompaction(history);
-  const { options } = compaction.prepare(rawHistory);
+  await onEvent({ type: "compaction_basis_committed", basis: rawHistory });
+  const { options } = compaction.prepare();
   let result: CompactionResult;
   try {
     result = await runPipeline<CompactionArgs, CompactionResult>(

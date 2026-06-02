@@ -306,6 +306,15 @@ export interface EventHandlerDeps {
     result: ContextWindowResult,
     basis: Message[],
   ) => Promise<void>;
+  /**
+   * Commit the loop-stripped pre-compaction history as the conversation's
+   * durable message state. Invoked from the `compaction_basis_committed`
+   * dispatch case before the compaction pipeline runs, so re-injection
+   * re-applies onto the stripped base even when the pipeline does not compact.
+   * Supplied by the orchestrator because it writes `ctx.messages` and the
+   * history-stripped marker the loop is intentionally blind to.
+   */
+  readonly commitCompactionBasis: (basis: Message[]) => void;
 }
 
 // ── Factory ──────────────────────────────────────────────────────────
@@ -1983,6 +1992,13 @@ export async function dispatchAgentEvent(
         await deps.applyCompaction(event.result, event.basis);
         state.reducerCompacted = true;
         state.shouldInjectWorkspace = true;
+        break;
+      case "compaction_basis_committed":
+        // Commit the loop-stripped history as the durable message base before
+        // the pipeline runs. Best-effort by construction (an in-memory write
+        // plus a swallowed marker write), so unlike `compaction_applied` this
+        // is not on the re-throw allowlist below.
+        deps.commitCompactionBasis(event.basis);
         break;
       case "error":
         handleError(state, deps, event);

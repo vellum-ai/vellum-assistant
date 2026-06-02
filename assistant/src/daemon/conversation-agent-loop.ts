@@ -2077,6 +2077,10 @@ export async function runAgentLoopImpl(
       turnChannelContext: capturedTurnChannelContext,
       turnInterfaceContext: capturedTurnInterfaceContext,
       applyCompaction: applySuccessfulCompaction,
+      commitCompactionBasis: (basis) => {
+        ctx.messages = basis;
+        markHistoryStrippedBestEffort(ctx.conversationId, Date.now(), rlog);
+      },
     };
     const eventHandler = (event: AgentEvent): Promise<void> =>
       dispatchAgentEvent(state, deps, event);
@@ -2110,11 +2114,10 @@ export async function runAgentLoopImpl(
     // state the loop is intentionally blind to. Durable persistence and
     // re-injection stay orchestrator-supplied for now.
     const midLoopCompaction: MidLoopCompaction = {
-      prepare: (rawHistory) => {
-        // The loop already stripped runtime injections; commit the raw
-        // persistent messages to durable state and resolve pipeline options.
-        ctx.messages = rawHistory;
-        markHistoryStrippedBestEffort(ctx.conversationId, Date.now(), rlog);
+      prepare: () => {
+        // The loop strips runtime injections and commits the stripped basis to
+        // durable state via the `compaction_basis_committed` event; this hook
+        // only resolves the pipeline options.
         return {
           options: {
             lastCompactedAt: ctx.contextCompactedAt ?? undefined,

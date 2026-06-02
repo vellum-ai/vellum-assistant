@@ -141,6 +141,7 @@ function translateAgentEventToServerMessage(
     case "compaction_circuit_open":
     case "compaction_circuit_closed":
     case "compaction_applied":
+    case "compaction_basis_committed":
     case "agent_loop_exit":
       return null;
     case "llm_call_started":
