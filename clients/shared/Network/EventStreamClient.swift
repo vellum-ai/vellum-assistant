@@ -492,6 +492,7 @@ public final class EventStreamClient {
                 self.hasConnectedAtLeastOnce = true
 
                 self.startSSEIdleWatchdog()
+                let myWatchdog = self.sseIdleWatchdogTask
 
                 var receivedTraffic = false
                 for try await line in bytes.lines {
@@ -524,11 +525,14 @@ public final class EventStreamClient {
                 }
             }
 
-            // The read loop exited — cancel the watchdog so a stale
-            // timer cannot fire during the reconnect backoff and
-            // defeat exponential backoff by resetting the delay.
-            self.sseIdleWatchdogTask?.cancel()
-            self.sseIdleWatchdogTask = nil
+            // Cancel only the watchdog this stream created. If a
+            // replacement stream connected while this task was
+            // finishing, its watchdog is already installed — an
+            // unconditional nil would leave that stream unmonitored.
+            if self.sseIdleWatchdogTask === myWatchdog {
+                self.sseIdleWatchdogTask?.cancel()
+                self.sseIdleWatchdogTask = nil
+            }
 
             if !Task.isCancelled {
                 self.handleSSEDisconnect()
