@@ -10,12 +10,19 @@ import { Input } from "@vellum/design-library/components/input";
 import { Toggle } from "@vellum/design-library/components/toggle";
 import { Modal } from "@vellum/design-library/components/modal";
 import { toast } from "@vellum/design-library/components/toast";
-import { client } from "@/generated/api/client.gen";
+import { configLlmCallsitesGet } from "@/generated/daemon/sdk.gen";
+import type { ConfigLlmCallsitesGetResponse } from "@/generated/daemon/types.gen";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
-import { getDefaultModelForProvider, getModelsForProvider } from "@/assistant/llm-model-catalog";
+import {
+  getDefaultModelForProvider,
+  getModelsForProvider,
+} from "@/assistant/llm-model-catalog";
 
-import { INFERENCE_PROVIDER_DISPLAY_NAMES, INFERENCE_PROVIDERS } from "@/domains/settings/ai/ai-types";
+import {
+  INFERENCE_PROVIDER_DISPLAY_NAMES,
+  INFERENCE_PROVIDERS,
+} from "@/domains/settings/ai/ai-types";
 import {
   profilePickerLabel,
   visibleProfilesForPicker,
@@ -23,7 +30,10 @@ import {
   selectSeedProfileForOverride,
   type ProfilePickerEntry,
 } from "@/domains/settings/ai/profile-pickers";
-import { useDaemonConfig, useDaemonConfigMutation } from "@/domains/settings/ai/use-daemon-config";
+import {
+  useDaemonConfig,
+  useDaemonConfigMutation,
+} from "@/domains/settings/ai/use-daemon-config";
 
 // ---------------------------------------------------------------------------
 // Sentinel value for the "Custom" profile picker option
@@ -35,23 +45,9 @@ export const CUSTOM_SENTINEL = "__custom__";
 // Types
 // ---------------------------------------------------------------------------
 
-interface CallSiteEntry {
-  id: string;
-  displayName: string;
-  description: string;
-  domain: string;
-  defaultProfile?: string;
-}
-
-interface CallSiteDomain {
-  id: string;
-  displayName: string;
-}
-
-interface CallSiteCatalog {
-  domains: CallSiteDomain[];
-  callSites: CallSiteEntry[];
-}
+type CallSiteCatalog = ConfigLlmCallsitesGetResponse;
+type CallSiteEntry = CallSiteCatalog["callSites"][number];
+type CallSiteDomain = CallSiteCatalog["domains"][number];
 
 export interface CallSiteOverrideDraft {
   profile?: string | null;
@@ -110,7 +106,9 @@ export function CallSiteOverridesModal({
         <CallSiteOverridesModalInner
           assistantId={assistantId}
           onClose={onClose}
-          onSavingChange={(s) => { savingRef.current = s; }}
+          onSavingChange={(s) => {
+            savingRef.current = s;
+          }}
         />
       ) : null}
     </Modal.Root>
@@ -132,26 +130,38 @@ function CallSiteOverridesModalInner({
   onClose,
   onSavingChange,
 }: InnerProps) {
-  const { profiles, profileOrder, callSites: persistedOverrides, config: daemonConfig } = useDaemonConfig();
+  const {
+    profiles,
+    profileOrder,
+    callSites: persistedOverrides,
+    config: daemonConfig,
+  } = useDaemonConfig();
   const configMutation = useDaemonConfigMutation();
 
   const [search, setSearch] = useState("");
-  const [drafts, setDrafts] = useState<Record<string, CallSiteOverrideDraft | null>>({});
+  const [drafts, setDrafts] = useState<
+    Record<string, CallSiteOverrideDraft | null>
+  >({});
   const [saving, setSaving] = useState(false);
   const [isSeeded, setIsSeeded] = useState(false);
   const [showResetConfirmation, setShowResetConfirmation] = useState(false);
   const seeded = useRef(false);
-  const analyzeConversationEnabled = useAssistantFeatureFlagStore.use.analyzeConversation();
+  const analyzeConversationEnabled =
+    useAssistantFeatureFlagStore.use.analyzeConversation();
 
-  const { data: catalog, isLoading, isError, refetch } = useQuery({
+  const {
+    data: catalog,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ["call-site-catalog", assistantId],
     queryFn: async () => {
-      const { data } = await client.get<CallSiteCatalog, unknown, true>({
-        url: `/v1/assistants/{assistant_id}/config/llm/call-sites`,
+      const { data } = await configLlmCallsitesGet({
         path: { assistant_id: assistantId },
         throwOnError: true,
       });
-      return data as CallSiteCatalog;
+      return data;
     },
     enabled: !!assistantId,
     staleTime: 60_000,
@@ -159,7 +169,9 @@ function CallSiteOverridesModalInner({
   });
 
   const gatedCallSites = useMemo(() => {
-    const all = (catalog?.callSites ?? []).filter((cs) => cs.id !== "mainAgent");
+    const all = (catalog?.callSites ?? []).filter(
+      (cs) => cs.id !== "mainAgent",
+    );
     if (analyzeConversationEnabled) return all;
     return all.filter((cs) => cs.id !== "analyzeConversation");
   }, [catalog, analyzeConversationEnabled]);
@@ -198,7 +210,12 @@ function CallSiteOverridesModalInner({
     setDrafts(initial);
     seeded.current = true;
     setIsSeeded(true);
-  }, [catalogLoaded, daemonConfigLoaded, catalogCallSiteIds, persistedOverrides]);
+  }, [
+    catalogLoaded,
+    daemonConfigLoaded,
+    catalogCallSiteIds,
+    persistedOverrides,
+  ]);
 
   // ---------------------------------------------------------------------------
   // Derived state
@@ -248,7 +265,10 @@ function CallSiteOverridesModalInner({
         queryComplexityRoutingEnabled,
       );
       return [
-        ...visible.map((p) => ({ value: p.name, label: profilePickerLabel(p) })),
+        ...visible.map((p) => ({
+          value: p.name,
+          label: profilePickerLabel(p),
+        })),
         { value: CUSTOM_SENTINEL, label: "Custom" },
       ];
     },
@@ -278,9 +298,14 @@ function CallSiteOverridesModalInner({
       }
     }
     const knownDomains = new Set(domainOrder);
-    const unknownSites = filteredCallSites.filter((cs) => !knownDomains.has(cs.domain));
+    const unknownSites = filteredCallSites.filter(
+      (cs) => !knownDomains.has(cs.domain),
+    );
     if (unknownSites.length > 0) {
-      groups.push({ domain: { id: "other", displayName: "Other" }, sites: unknownSites });
+      groups.push({
+        domain: { id: "other", displayName: "Other" },
+        sites: unknownSites,
+      });
     }
     return groups;
   }, [catalog, filteredCallSites]);
@@ -337,7 +362,10 @@ function CallSiteOverridesModalInner({
     } else if (val === "") {
       setDrafts((prev) => ({ ...prev, [id]: null }));
     } else {
-      setDrafts((prev) => ({ ...prev, [id]: { profile: val, provider: null, model: null } }));
+      setDrafts((prev) => ({
+        ...prev,
+        [id]: { profile: val, provider: null, model: null },
+      }));
     }
   }
 
@@ -365,7 +393,11 @@ function CallSiteOverridesModalInner({
       for (const id of Object.keys(drafts)) {
         const d = drafts[id] ?? null;
         patch[id] = isDraftActive(d)
-          ? { profile: d?.profile ?? null, provider: d?.provider ?? null, model: d?.model ?? null }
+          ? {
+              profile: d?.profile ?? null,
+              provider: d?.provider ?? null,
+              model: d?.model ?? null,
+            }
           : null;
       }
       await configMutation.mutateAsync({ llm: { callSites: patch } });
@@ -409,7 +441,8 @@ function CallSiteOverridesModalInner({
       <Modal.Header>
         <Modal.Title>Action Overrides</Modal.Title>
         <Modal.Description>
-          Customize which model profile specific actions should use. Uses your default profile if no override is set.
+          Customize which model profile specific actions should use. Uses your
+          default profile if no override is set.
         </Modal.Description>
       </Modal.Header>
 
@@ -442,7 +475,11 @@ function CallSiteOverridesModalInner({
             <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
               Make sure your assistant is running
             </p>
-            <Button variant="outlined" size="compact" onClick={() => void refetch()}>
+            <Button
+              variant="outlined"
+              size="compact"
+              onClick={() => void refetch()}
+            >
               Retry
             </Button>
           </div>
@@ -468,15 +505,20 @@ function CallSiteOverridesModalInner({
                       const profileVal = getProfilePickerValue(cs.id);
                       const isCustom = profileVal === CUSTOM_SENTINEL;
                       const draft = getDraft(cs.id);
-                      const currentProvider = draft?.provider ?? availableProviders[0];
-                      const availableModels = getModelsForProvider(currentProvider ?? "anthropic");
+                      const currentProvider =
+                        draft?.provider ?? availableProviders[0];
+                      const availableModels = getModelsForProvider(
+                        currentProvider ?? "anthropic",
+                      );
                       const modelOptions = availableModels.map((m) => ({
                         value: m.id,
                         label: m.displayName,
                       }));
                       const hasModelError = !!draft?.provider && !draft?.model;
                       const profileOptions = buildProfileOptionsForRow(
-                        profileVal === "" || profileVal === CUSTOM_SENTINEL ? null : profileVal,
+                        profileVal === "" || profileVal === CUSTOM_SENTINEL
+                          ? null
+                          : profileVal,
                       );
 
                       return (
@@ -493,15 +535,19 @@ function CallSiteOverridesModalInner({
                               {cs.description && (
                                 <p className="mt-0.5 text-body-small-default text-[var(--content-tertiary)]">
                                   {cs.description}
-                                  {cs.defaultProfile && (() => {
-                                    const p = orderedProfiles.find((op) => op.name === cs.defaultProfile);
-                                    const label = p?.label ?? cs.defaultProfile;
-                                    return (
-                                      <span className="ml-1.5 text-body-small-default text-[var(--content-tertiary)] opacity-60">
-                                        &middot; Default: {label}
-                                      </span>
-                                    );
-                                  })()}
+                                  {cs.defaultProfile &&
+                                    (() => {
+                                      const p = orderedProfiles.find(
+                                        (op) => op.name === cs.defaultProfile,
+                                      );
+                                      const label =
+                                        p?.label ?? cs.defaultProfile;
+                                      return (
+                                        <span className="ml-1.5 text-body-small-default text-[var(--content-tertiary)] opacity-60">
+                                          &middot; Default: {label}
+                                        </span>
+                                      );
+                                    })()}
                                 </p>
                               )}
                             </div>
@@ -509,14 +555,18 @@ function CallSiteOverridesModalInner({
                               {overrideOn && (
                                 <Dropdown
                                   value={profileVal}
-                                  onChange={(val) => handleProfilePickerChange(cs.id, val)}
+                                  onChange={(val) =>
+                                    handleProfilePickerChange(cs.id, val)
+                                  }
                                   options={profileOptions}
                                   className="w-36"
                                 />
                               )}
                               <Toggle
                                 checked={overrideOn}
-                                onChange={(on) => handleToggle(cs.id, on, cs.defaultProfile)}
+                                onChange={(on) =>
+                                  handleToggle(cs.id, on, cs.defaultProfile)
+                                }
                                 aria-label={`Override ${cs.displayName}`}
                               />
                             </div>
@@ -532,10 +582,14 @@ function CallSiteOverridesModalInner({
                                   </label>
                                   <Dropdown
                                     value={currentProvider ?? ""}
-                                    onChange={(val) => handleProviderChange(cs.id, val)}
+                                    onChange={(val) =>
+                                      handleProviderChange(cs.id, val)
+                                    }
                                     options={availableProviders.map((p) => ({
                                       value: p,
-                                      label: INFERENCE_PROVIDER_DISPLAY_NAMES[p] ?? p,
+                                      label:
+                                        INFERENCE_PROVIDER_DISPLAY_NAMES[p] ??
+                                        p,
                                     }))}
                                   />
                                 </div>
@@ -545,7 +599,9 @@ function CallSiteOverridesModalInner({
                                   </label>
                                   <Dropdown
                                     value={draft?.model ?? ""}
-                                    onChange={(val) => handleModelChange(cs.id, val)}
+                                    onChange={(val) =>
+                                      handleModelChange(cs.id, val)
+                                    }
                                     options={modelOptions}
                                   />
                                 </div>
@@ -581,7 +637,12 @@ function CallSiteOverridesModalInner({
             Reset to Defaults
           </Button>
         )}
-        <Button variant="outlined" size="compact" onClick={onClose} disabled={saving}>
+        <Button
+          variant="outlined"
+          size="compact"
+          onClick={onClose}
+          disabled={saving}
+        >
           Cancel
         </Button>
         <Button
