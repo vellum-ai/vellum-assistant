@@ -75,17 +75,20 @@ git commit --no-verify
 
 ### pre-push
 
-Runs before pushing to catch issues that would fail CI.
+Runs fast static checks before pushing. **Tests are not run here — CI is the source of truth.**
 
 **What it checks:**
 
-1. **TypeScript type check** — Runs `tsc --noEmit` on `assistant/` when `.ts`/`.tsx` files changed. This backstops the pre-commit type check which is skipped in worktrees for performance.
-2. **Lint** — Runs `eslint` on changed `.ts`/`.tsx`/`.js`/`.jsx`/`.mjs` files in `assistant/`, `cli/`, and `gateway/`.
-3. **Related tests** — Finds and runs test files matching changed source file stems using filename heuristics.
+1. **Swift build** (`clients/`) — `swift build --product vellum-assistant` when `.swift` files changed. Skip with `SKIP_SWIFT_BUILD=1`.
+2. **Design token guard** (`clients/`) — strict-mode `check-design-tokens.sh` when `.swift` files changed.
+3. **TypeScript type check** — `tsc --noEmit` on `assistant/` and `clients/chrome-extension/` when their `.ts`/`.tsx` files changed. Backstops the pre-commit type check which is skipped in worktrees for performance.
+4. **Lint** — `eslint` on changed `.ts`/`.tsx`/`.js`/`.jsx`/`.mjs` files in `assistant/`, `cli/`, `gateway/`, and `clients/chrome-extension/`.
+
+Tests used to run here via a dependency-graph + filename-heuristic discovery pass, but were removed: small changes routinely pulled 900+ tests into the push path, blocking agents and pushing humans to `--no-verify` by default. CI runs the suite; that's enough.
 
 **Merge-aware:** When the push range contains merge commits, diffs against the `origin/main` merge-base instead of the remote branch tip, so after merging main into a feature branch only the feature branch's own changes are checked — not every file that came in from main.
 
-**Bypass (not recommended):**
+**Bypass:**
 ```bash
 git push --no-verify
 ```
