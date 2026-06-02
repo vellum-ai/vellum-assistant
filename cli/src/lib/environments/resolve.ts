@@ -8,8 +8,7 @@ import {
 import { homedir } from "os";
 import { dirname, join } from "path";
 
-import { SEEDS } from "./seeds.js";
-import type { EnvironmentDefinition } from "./types.js";
+import { SEEDS, type EnvironmentDefinition } from "@vellumai/environments";
 
 const DEFAULT_ENVIRONMENT_NAME = "production";
 
@@ -115,7 +114,7 @@ export function getCurrentEnvironment(
       // writers don't end up in disjoint states on a typo.
       process.stderr.write(
         `warning: unknown environment "${name}"; falling back to "${DEFAULT_ENVIRONMENT_NAME}". ` +
-          `Add it to cli/src/lib/environments/seeds.ts and rebuild if this was intentional.\n`,
+          `Add it to packages/environments/src/seeds.ts and rebuild if this was intentional.\n`,
       );
     }
     const fallback = SEEDS[DEFAULT_ENVIRONMENT_NAME];
@@ -174,5 +173,3 @@ export function resolveEnvironmentSource(override?: string): {
   }
   return { name: DEFAULT_ENVIRONMENT_NAME, source: "default" };
 }
-
-

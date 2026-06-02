@@ -11,9 +11,10 @@ import {
 import { platform } from "os";
 import { dirname, join } from "path";
 
+import { SEEDS } from "@vellumai/environments";
+
 import { getConfigDir } from "./environments/paths.js";
 import { getCurrentEnvironment } from "./environments/resolve.js";
-import { SEEDS } from "./environments/seeds.js";
 
 const DEVICE_ID_SALT = "vellum-assistant-host-id";
 
@@ -176,7 +177,8 @@ export async function refreshGuardianToken(
   // Gateway persists expiresAt as epoch-ms numbers; Date.parse("1234567890000")
   // returns NaN. new Date() accepts both ISO strings and epoch-ms numbers.
   const refreshExpiry = new Date(tokenData.refreshTokenExpiresAt).getTime();
-  if (!Number.isFinite(refreshExpiry) || refreshExpiry <= Date.now()) return null;
+  if (!Number.isFinite(refreshExpiry) || refreshExpiry <= Date.now())
+    return null;
 
   try {
     const response = await fetch(`${gatewayUrl}/v1/guardian/refresh`, {
@@ -191,11 +193,16 @@ export async function refreshGuardianToken(
 
     const json = (await response.json()) as Record<string, unknown>;
     const refreshed: GuardianTokenData = {
-      guardianPrincipalId: (json.guardianPrincipalId as string) ?? tokenData.guardianPrincipalId,
+      guardianPrincipalId:
+        (json.guardianPrincipalId as string) ?? tokenData.guardianPrincipalId,
       accessToken: json.accessToken as string,
-      accessTokenExpiresAt: (json.accessTokenExpiresAt as string | number) ?? tokenData.accessTokenExpiresAt,
+      accessTokenExpiresAt:
+        (json.accessTokenExpiresAt as string | number) ??
+        tokenData.accessTokenExpiresAt,
       refreshToken: (json.refreshToken as string) ?? tokenData.refreshToken,
-      refreshTokenExpiresAt: (json.refreshTokenExpiresAt as string | number) ?? tokenData.refreshTokenExpiresAt,
+      refreshTokenExpiresAt:
+        (json.refreshTokenExpiresAt as string | number) ??
+        tokenData.refreshTokenExpiresAt,
       refreshAfter: (json.refreshAfter as string) ?? tokenData.refreshAfter,
       isNew: false,
       deviceId: tokenData.deviceId,
