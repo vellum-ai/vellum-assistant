@@ -231,6 +231,8 @@ export interface ConversationRow {
   inferenceProfileSessionId: string | null;
   inferenceProfileExpiresAt: number | null;
   lastNotifiedInferenceProfile: string | null;
+  incognito: number;
+  factorInMemories: number;
 }
 
 export const parseConversation = createRowMapper<
@@ -265,6 +267,8 @@ export const parseConversation = createRowMapper<
   inferenceProfileSessionId: "inferenceProfileSessionId",
   inferenceProfileExpiresAt: "inferenceProfileExpiresAt",
   lastNotifiedInferenceProfile: "lastNotifiedInferenceProfile",
+  incognito: "incognito",
+  factorInMemories: "factorInMemories",
 });
 
 /** Allowed values for the `role` column on `messages`. */
@@ -501,6 +505,8 @@ export function createConversation(
         scheduleJobId?: string;
         groupId?: string;
         forkParentConversationId?: string;
+        incognito?: boolean;
+        factorInMemories?: boolean;
       },
 ) {
   const db = getDb();
@@ -540,6 +546,8 @@ export function createConversation(
     memoryScopeId,
     scheduleJobId: opts.scheduleJobId ?? null,
     forkParentConversationId: opts.forkParentConversationId ?? null,
+    incognito: opts.incognito ? 1 : 0,
+    factorInMemories: opts.factorInMemories === false ? 0 : 1,
   };
 
   // Retry on SQLITE_BUSY and SQLITE_IOERR — transient disk I/O errors or WAL
