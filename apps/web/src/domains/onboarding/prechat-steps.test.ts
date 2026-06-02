@@ -6,6 +6,7 @@ import {
   prevStep,
   resolveNativeSteps,
   resolveWebSteps,
+  restoreNativeStep,
   type PreChatStepId,
   type WebStepCapabilities,
 } from "@/domains/onboarding/prechat-steps";
@@ -151,6 +152,25 @@ describe("resolveNativeSteps", () => {
     const steps = resolveNativeSteps();
     expect(steps.map((s) => s.id)).toEqual(["nativeName", "nativeVibe"]);
     expect(steps.every((s) => s.funnelStep === null)).toBe(true);
+  });
+});
+
+describe("restoreNativeStep", () => {
+  test("restores the vibe step from the current persisted value", () => {
+    expect(restoreNativeStep("nativeVibe")).toBe("nativeVibe");
+  });
+
+  test("restores the vibe step from the legacy numeric value", () => {
+    // An older build persisted the raw screen index; a user who updated the
+    // app mid-onboarding must still land on the vibe step, not the start.
+    expect(restoreNativeStep("1")).toBe("nativeVibe");
+  });
+
+  test("starts from the top when nothing is persisted or the value is unknown", () => {
+    expect(restoreNativeStep(null)).toBeNull();
+    expect(restoreNativeStep("nativeName")).toBeNull();
+    expect(restoreNativeStep("0")).toBeNull();
+    expect(restoreNativeStep("garbage")).toBeNull();
   });
 });
 

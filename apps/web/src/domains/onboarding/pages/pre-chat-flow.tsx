@@ -10,10 +10,7 @@ import { useNavigate, useSearchParams } from "react-router";
 
 import { useIsIOSWeb } from "@/runtime/platform-detection";
 import { readIOSAppDownloaded } from "@/hooks/use-ios-app-nudge";
-import {
-  fetchOnboardingRecipe,
-  type OnboardingRecipe,
-} from "@/domains/onboarding/recipe-client.js";
+import { fetchOnboardingRecipe } from "@/domains/onboarding/recipe-client.js";
 import {
   emitOnboardingFunnelStepCompleted,
   onboardingFunnelVariantFromCondensedFlag,
@@ -42,6 +39,7 @@ import {
   prevStep,
   resolveNativeSteps,
   resolveWebSteps,
+  restoreNativeStep,
   type PreChatStep,
   type PreChatStepId,
 } from "@/domains/onboarding/prechat-steps";
@@ -94,10 +92,6 @@ export function PreChatFlow() {
   const activeAssistantId =
     useAssistantSelectionStore.use.activeAssistantId();
   const [, setOnboardingCompleted] = useOnboardingCompleted();
-  const [recipe, setRecipe] = useState<OnboardingRecipe | null>(null);
-  const [recipeLoadState, setRecipeLoadState] = useState<"loading" | "ready">(
-    "loading",
-  );
 
   const localMode = isLocalMode();
   const isReplay = searchParams.get("replay") === "1";
@@ -146,14 +140,22 @@ export function PreChatFlow() {
   useLayoutEffect(() => {
     if (!screenStorageKey) return;
     try {
-      const saved = sessionStorage.getItem(screenStorageKey);
-      if (saved === "nativeVibe") setCurrentStep("nativeVibe");
+      const restored = restoreNativeStep(sessionStorage.getItem(screenStorageKey));
+      if (restored) setCurrentStep(restored);
     } catch {
       // sessionStorage can throw under privacy modes — ignore.
     }
     // Restore only when the active user changes (mount, or logout→login).
     // Omitting `currentStep` from deps so we don't re-restore mid-flow.
   }, [screenStorageKey]);
+
+  // Persist the native position as a pure consequence of the current step, so
+  // neither transition has to remember to write it. The web flow isn't
+  // persisted — it has no WKWebView memory-reclaim problem to recover from.
+  useEffect(() => {
+    if (!isNative) return;
+    persistNativeStep(currentStep === "nativeVibe" ? "nativeVibe" : null);
+  }, [isNative, currentStep, persistNativeStep]);
 
   const hasPlatformSession = useAuthStore.use.hasPlatformSession();
   const [selectedTools, setSelectedTools] = useState<Set<string>>(
@@ -181,6 +183,18 @@ export function PreChatFlow() {
     enabled:
       !isAuthLoading && isLoggedIn && (!localMode || hasPlatformSession),
   });
+  // The onboarding recipe is platform-only marketing-funnel data, resolved on
+  // the platform from a UTM attribution cookie. Native and local runtimes have
+  // no marketing cohort, so the query is disabled there and the flow proceeds
+  // with a null recipe. It's server state, so it's a query keyed by user —
+  // not a hand-rolled fetch with its own loading flag and cancellation guard.
+  const { data: fetchedRecipe, isLoading: recipeLoading } = useQuery({
+    queryKey: ["onboarding-recipe", userId],
+    queryFn: fetchOnboardingRecipe,
+    enabled: !isAuthLoading && isLoggedIn && !isNative && !localMode,
+    staleTime: Infinity,
+  });
+  const recipe = fetchedRecipe ?? null;
   const googleAssistantId =
     activeAssistant?.id ?? activeAssistantId ?? localPlatformAssistantId;
   const canOfferGoogleStep =
@@ -223,39 +237,6 @@ export function PreChatFlow() {
   }, [consent, isAuthLoading, isLoggedIn, userId]);
 
   useEffect(() => {
-    if (isAuthLoading || !isLoggedIn) {
-      setRecipe(null);
-      setRecipeLoadState("loading");
-      return;
-    }
-    // The onboarding recipe is platform-only marketing-funnel data, resolved
-    // on the platform from a UTM campaign cookie / stored attribution. Local
-    // and native runtimes have no marketing cohort, so a null recipe is the
-    // correct, complete behavior — there is no recipe endpoint to fetch here.
-    if (isNative || localMode) {
-      setRecipe(null);
-      setRecipeLoadState("ready");
-      return;
-    }
-    let cancelled = false;
-    setRecipe(null);
-    setRecipeLoadState("loading");
-    void fetchOnboardingRecipe()
-      .then((fetched) => {
-        if (!cancelled) setRecipe(fetched);
-      })
-      .catch(() => {
-        if (!cancelled) setRecipe(null);
-      })
-      .finally(() => {
-        if (!cancelled) setRecipeLoadState("ready");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [isAuthLoading, isLoggedIn, isNative, localMode, userId]);
-
-  useEffect(() => {
     if (isAuthLoading) return;
     if (!isLoggedIn) {
       void navigate(routes.account.login, { replace: true });
@@ -283,7 +264,7 @@ export function PreChatFlow() {
   ]);
 
   const consentReady = isNative || consentDecision === "ok";
-  const recipeReady = isNative || recipeLoadState === "ready";
+  const recipeReady = !recipeLoading;
   const shouldHidePrechat =
     isAuthLoading ||
     !isLoggedIn ||
@@ -376,9 +357,23 @@ export function PreChatFlow() {
     void navigate(routes.onboarding.privacy);
   }
 
+  // The terminal action is the only thing that differs between flows past the
+  // last step: web builds the handoff context and routes to chat, native
+  // routes to the privacy screen. Everything before it is shared.
+  const reachTerminal = (finishArgs?: {
+    connectedScopes?: string[];
+    selectedPriorAssistants?: Set<string>;
+  }): void => {
+    if (isNative) {
+      finishNativePreChat();
+    } else {
+      void finish(finishArgs);
+    }
+  };
+
   // Advance past `from`: emit its funnel event, then move to the next enabled
-  // step — or finish when `from` is the last one. `finishArgs` only matters
-  // when this advance ends the flow.
+  // step — or reach the terminal action when `from` is the last one.
+  // `finishArgs` only matters when this advance ends the flow.
   const advance = (
     from: PreChatStep,
     finishArgs?: {
@@ -391,7 +386,7 @@ export function PreChatFlow() {
     if (next) {
       setCurrentStep(next);
     } else {
-      void finish(finishArgs);
+      reachTerminal(finishArgs);
     }
   };
 
@@ -406,54 +401,49 @@ export function PreChatFlow() {
     return null;
   }
 
-  const activeStep = steps.find((step) => step.id === currentStep);
+  const activeStep = steps.find((step) => step.id === currentStep) ?? steps[0];
   if (!activeStep) {
     return null;
   }
 
-  // ── iOS native flow: NameStep → VibeStep → Privacy → Hatching → Chat ──
-  if (isNative) {
-    if (currentStep === "nativeName") {
-      // Continue and Skip both advance to the vibe step and persist the
-      // position so the user lands back here after an OS memory reclaim.
-      const goToVibeStep = () => {
-        setCurrentStep("nativeVibe");
-        persistNativeStep("nativeVibe");
-      };
-      return (
-        <NameStepScreen
-          userName={userName}
-          assistantName={assistantName}
-          displayedAssistantNames={displayedAssistantNames}
-          onUserNameChange={handleUserNameChange}
-          onAssistantNameChange={setAssistantName}
-          onContinue={goToVibeStep}
-          onSkip={goToVibeStep}
-          currentStep={0}
-          totalSteps={IOS_TOTAL_STEPS}
-        />
-      );
-    }
+  // The reachable path is data (`steps`); rendering is one switch on the
+  // resolved step id. Native and web ids are disjoint, so both flows share the
+  // same switch and the same advance/goBack helpers — only the screen differs.
+  //
+  // Native:     NameStep → VibeStep → Privacy → Hatching → Chat
+  // Control:    NameExchange → TaskTone → Tools → PriorAssistants → Google → iOS App
+  // Pared-down: NameExchange → Google → Chat
+  if (activeStep.id === "nativeName") {
+    return (
+      <NameStepScreen
+        userName={userName}
+        assistantName={assistantName}
+        displayedAssistantNames={displayedAssistantNames}
+        onUserNameChange={handleUserNameChange}
+        onAssistantNameChange={setAssistantName}
+        onContinue={() => advance(activeStep)}
+        onSkip={() => advance(activeStep)}
+        currentStep={0}
+        totalSteps={IOS_TOTAL_STEPS}
+      />
+    );
+  }
+
+  if (activeStep.id === "nativeVibe") {
     return (
       <VibeStepScreen
         selectedGroupId={selectedGroupId}
         onGroupChange={setSelectedGroupId}
-        onBack={() => {
-          setCurrentStep("nativeName");
-          persistNativeStep(null);
-        }}
-        onContinue={finishNativePreChat}
-        onSkip={finishNativePreChat}
+        onBack={() => goBack(activeStep.id)}
+        onContinue={() => advance(activeStep)}
+        onSkip={() => advance(activeStep)}
         currentStep={1}
         totalSteps={IOS_TOTAL_STEPS}
       />
     );
   }
 
-  // ── Web flow (control + pared-down funnel variants share one step list) ──
-  // Control:    NameExchange → TaskTone → Tools → PriorAssistants → Google → iOS App
-  // Pared-down: NameExchange → Google → Chat
-  if (currentStep === "name") {
+  if (activeStep.id === "name") {
     return (
       <NameExchangeScreen
         userName={userName}
@@ -469,7 +459,7 @@ export function PreChatFlow() {
     );
   }
 
-  if (currentStep === "taskTone") {
+  if (activeStep.id === "taskTone") {
     return (
       <TaskToneSelectionScreen
         selectedTasks={selectedTasks}
@@ -481,7 +471,7 @@ export function PreChatFlow() {
     );
   }
 
-  if (currentStep === "tools") {
+  if (activeStep.id === "tools") {
     return (
       <ToolSelectionScreen
         selectedTools={selectedTools}
@@ -493,7 +483,7 @@ export function PreChatFlow() {
     );
   }
 
-  if (currentStep === "priorAssistants") {
+  if (activeStep.id === "priorAssistants") {
     return (
       <PriorAssistantSelectionScreen
         selectedAssistants={selectedPriorAssistants}
@@ -511,7 +501,7 @@ export function PreChatFlow() {
     );
   }
 
-  if (currentStep === "google") {
+  if (activeStep.id === "google") {
     if (!googleAssistantId) {
       return null;
     }
@@ -530,7 +520,7 @@ export function PreChatFlow() {
     );
   }
 
-  if (currentStep === "iosApp") {
+  if (activeStep.id === "iosApp") {
     return <GetIOSAppScreen onComplete={() => advance(activeStep)} />;
   }
 

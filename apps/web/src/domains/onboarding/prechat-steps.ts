@@ -109,6 +109,26 @@ export function resolveNativeSteps(): PreChatStep[] {
   ];
 }
 
+/**
+ * The value earlier builds persisted for the native vibe step (a raw screen
+ * index). The macOS/iOS shell and the platform don't ship together, so a user
+ * can update mid-onboarding and still have this written; we keep accepting it
+ * so the restore lands them on the vibe step instead of the start.
+ */
+const LEGACY_NATIVE_VIBE_VALUE = "1";
+
+/**
+ * Map a persisted native position back to a step id. `nativeName` is the
+ * default mount, so only a persisted `nativeVibe` (or its legacy alias) needs
+ * restoring; anything else means "start from the top".
+ */
+export function restoreNativeStep(saved: string | null): PreChatStepId | null {
+  if (saved === "nativeVibe" || saved === LEGACY_NATIVE_VIBE_VALUE) {
+    return "nativeVibe";
+  }
+  return null;
+}
+
 /** The next enabled step after `current`, or `null` if `current` is last. */
 export function nextStep(
   steps: PreChatStep[],

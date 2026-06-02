@@ -6,7 +6,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import {
   DEFAULT_PRECHAT_INITIAL_MESSAGE,
@@ -214,12 +214,49 @@ mock.module("@/stores/auth-store", () => ({
   },
 }));
 
+type EmulatedQueryOptions = {
+  queryKey?: unknown[];
+  queryFn?: () => Promise<unknown>;
+  enabled?: boolean;
+};
+
+// The recipe query gates the whole pre-chat render, so emulate just enough of a
+// real query (run the queryFn, track loading, honor `enabled`) to keep the
+// loading-gate and "local mode never fetches" tests meaningful. Every other
+// query in the tree (active assistant, OAuth connections) only needs canned
+// data, so it takes the static branch.
+function useEmulatedRecipeQuery(options: EmulatedQueryOptions) {
+  const enabled = Boolean(options.enabled);
+  const [state, setState] = useState<{ data: unknown; isLoading: boolean }>(
+    () => ({ data: undefined, isLoading: enabled }),
+  );
+  useEffect(() => {
+    if (!enabled) {
+      setState({ data: undefined, isLoading: false });
+      return;
+    }
+    let cancelled = false;
+    setState({ data: undefined, isLoading: true });
+    void Promise.resolve(options.queryFn?.()).then((data) => {
+      if (!cancelled) setState({ data, isLoading: false });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled]);
+  return state;
+}
+
 mock.module("@tanstack/react-query", () => ({
-  useQuery: () => ({
-    data: {
-      id: "asst-1",
-    },
-  }),
+  useQuery: (options?: EmulatedQueryOptions) => {
+    if (
+      Array.isArray(options?.queryKey) &&
+      options.queryKey[0] === "onboarding-recipe"
+    ) {
+      return useEmulatedRecipeQuery(options);
+    }
+    return { data: { id: "asst-1" } };
+  },
   useMutation: () => ({ mutate: mock(() => {}), isPending: false }),
   useQueryClient: () => ({ fetchQuery: mock(async () => []) }),
 }));
