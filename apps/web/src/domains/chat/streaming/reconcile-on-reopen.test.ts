@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type {
   ActiveConversationMessagesRefreshResult,
-  WebSyncRouter,
+  WebSyncReconnectResult,
 } from "@/lib/sync/web-sync-router";
 
 // Mock stream store — tracks epoch so tests can simulate races.
@@ -57,21 +57,21 @@ const makeDeps = (override: Partial<{
   conversationId: string;
   reconcileActive: () => Promise<ActiveConversationMessagesRefreshResult>;
   startReconciliationLoop: (epoch: number) => void;
-  syncRouterRef: { current: WebSyncRouter | null };
+  dispatchReconnect: () => Promise<WebSyncReconnectResult | undefined>;
 }> = {}) => {
   const reconcileActive = override.reconcileActive ?? mock(async () => makeReconcileResult());
   const startReconciliationLoop = override.startReconciliationLoop ?? mock(() => {});
-  const syncRouterRef = override.syncRouterRef ?? { current: null };
+  const dispatchReconnect = override.dispatchReconnect ?? mock(async () => undefined);
   return {
     reconcileActive,
     startReconciliationLoop,
-    syncRouterRef,
+    dispatchReconnect,
     deps: {
       assistantId: override.assistantId ?? "asst-1",
       conversationId: override.conversationId ?? "conv-1",
       reconcileActive,
       startReconciliationLoop,
-      syncRouterRef,
+      dispatchReconnect,
     },
   };
 };
@@ -157,10 +157,11 @@ describe("reconcile-on-reopen — resume cause", () => {
 describe("reconcile-on-reopen — transport recovery (watchdog / error)", () => {
   test("watchdog with sync router available: uses sync router result, no fallback reconcile", async () => {
     const dispatchReconnect = mock(async () => ({
+      dispatch: { handledTags: [], unknownTags: [], invokedHandlers: 0, errors: [] },
       activeConversationMessages: makeReconcileResult({ messagesAdded: 3 }),
     }));
     const { deps, reconcileActive, startReconciliationLoop } = makeDeps({
-      syncRouterRef: { current: { dispatchReconnect } as unknown as WebSyncRouter },
+      dispatchReconnect,
     });
     const handler = createReconcileOnReopen(deps);
 
@@ -280,9 +281,7 @@ describe("reconcile-on-reopen — transport recovery (watchdog / error)", () => 
     const reconcileActive = mock(async () => makeReconcileResult());
     const { deps, startReconciliationLoop } = makeDeps({
       reconcileActive,
-      syncRouterRef: {
-        current: { dispatchReconnect } as unknown as WebSyncRouter,
-      },
+      dispatchReconnect,
     });
     const handler = createReconcileOnReopen(deps);
 

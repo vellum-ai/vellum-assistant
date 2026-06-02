@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
 import { act } from "react";
-import { useRef, type MutableRefObject } from "react";
+import { useRef } from "react";
 
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import type { AssistantEvent } from "@/types/event-types";
@@ -30,9 +30,6 @@ function renderEventStreamWithCapture(
   const result = renderHook(
     ({ key }: { key: string }) => {
       observeKeyRef.current = key;
-      const syncRouterRef = useRef(null) as MutableRefObject<
-        null
-      > as never;
       const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
       useEventStream({
         assistantStateKind: "active",
@@ -53,7 +50,7 @@ function renderEventStreamWithCapture(
         reachabilityProbe: () => {},
         reachabilityPhase: "ready",
         reachabilityReset: () => {},
-        syncRouterRef,
+        dispatchReconnect: async () => undefined,
         conversationListInvalidatedTimerRef: timerRef,
       });
     },

@@ -1,17 +1,19 @@
 /**
  * Owns the WebSyncRouter lifecycle — creation, disposal, and the
- * `dispatchSyncChanged` callback consumed by the stream event handler.
+ * stable dispatch callbacks consumed by the stream event handler and
+ * the reconnect-reconcile module.
  *
  * The sync router maps `sync_changed` SSE tags to invalidation handlers
  * (avatar, identity, conversation list, etc.) so that the chat UI stays
  * consistent with server-side state changes.
  */
 
-import { type MutableRefObject, useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 import {
   createWebSyncRouter,
   type ActiveConversationMessagesRefreshResult,
+  type WebSyncReconnectResult,
   type WebSyncRouter,
 } from "@/lib/sync/web-sync-router";
 import type { SyncChangedEvent } from "@/lib/sync/types";
@@ -25,8 +27,8 @@ export interface UseSyncRouterOptions {
 }
 
 export interface UseSyncRouterResult {
-  syncRouterRef: MutableRefObject<WebSyncRouter | null>;
   dispatchSyncChanged: (event: SyncChangedEvent) => void;
+  dispatchReconnect: () => Promise<WebSyncReconnectResult | undefined>;
 }
 
 export function useSyncRouter({
@@ -43,9 +45,6 @@ export function useSyncRouter({
       invalidateAvatar,
       refreshAssistantIdentity,
       invalidateAssistantIdentityIntro,
-      invalidateAssistantConfig: () => {},
-      invalidateAssistantSounds: () => {},
-      invalidateAssistantSchedules: () => {},
       scheduleConversationListRefetch,
       refreshActiveConversationMessages: reconcileActiveConversation,
     });
@@ -69,5 +68,10 @@ export function useSyncRouter({
     [],
   );
 
-  return { syncRouterRef, dispatchSyncChanged };
+  const dispatchReconnect = useCallback(
+    () => syncRouterRef.current?.dispatchReconnect() ?? Promise.resolve(undefined),
+    [],
+  );
+
+  return { dispatchSyncChanged, dispatchReconnect };
 }

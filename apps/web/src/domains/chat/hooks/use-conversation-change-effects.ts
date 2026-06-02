@@ -1,31 +1,29 @@
 /**
  * Consolidates side effects that fire when `activeConversationId` changes:
  *
- * - Dismiss any pending interactive prompt (question, confirmation, etc.)
- * - Reset subagent tracking state
+ * - Reset subagent tracking state (needed for URL-navigation paths that
+ *   bypass the `switchConversation` / `startNewConversation` wrappers)
  * - Auto-fetch detail for subagents reconstructed from conversation history
  *   (entries with a `conversationId` but no events yet)
  *
- * These effects are orthogonal to the main orchestration flow (SSE, send
- * message, reconciliation) and only depend on `activeConversationId` plus
- * stable store references.
+ * Note: interaction store cleanup (`dismissQuestion`, `resetAll`) is NOT
+ * handled here — `switchToConversation()` in `chat-session-store` already
+ * calls `useInteractionStore.getState().resetAll()` on every conversation
+ * switch, covering both wrapper-initiated and URL-navigation paths.
  */
 
 import { useEffect } from "react";
 
-import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 
 export function useConversationChangeEffects(
   assistantId: string | null,
   activeConversationId: string | null,
 ): void {
-  // Dismiss any pending question / confirmation / secret prompt
-  useEffect(() => {
-    useInteractionStore.getState().dismissQuestion();
-  }, [activeConversationId]);
-
-  // Reset subagent tracking state
+  // Reset subagent tracking on conversation change. The wrapper-initiated
+  // path (`switchConversation` / `startNewConversation`) also resets eagerly
+  // to prevent stale UI flashes — the double-reset is harmless (idempotent).
+  // This effect catches the URL-navigation path where wrappers don't run.
   useEffect(() => {
     useSubagentStore.getState().reset();
   }, [activeConversationId]);

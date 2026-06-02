@@ -485,7 +485,7 @@ export function ActiveChatView() {
   // -------------------------------------------------------------------------
   const invalidateAvatar = useCallback(() => { avatar.invalidate(); }, [avatar.invalidate]);
 
-  const { syncRouterRef, dispatchSyncChanged } = useSyncRouter({
+  const { dispatchSyncChanged, dispatchReconnect } = useSyncRouter({
     invalidateAvatar,
     refreshAssistantIdentity,
     invalidateAssistantIdentityIntro,
@@ -640,7 +640,7 @@ export function ActiveChatView() {
     reachabilityProbe: reachability.probe,
     reachabilityPhase: reachability.state.phase,
     reachabilityReset: reachability.reset,
-    syncRouterRef,
+    dispatchReconnect,
     conversationListInvalidatedTimerRef,
   });
 
