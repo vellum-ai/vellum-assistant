@@ -418,6 +418,38 @@ describe("TranscriptMessageBody", () => {
     ).toEqual(["false", "true"]);
   });
 
+  test("keeps a streaming message's last tool-call group open once trailing answer text streams in", () => {
+    const { getByTestId } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m1",
+          role: "assistant",
+          contentOrder: [
+            { type: "tool", id: "tc-1" },
+            { type: "text", id: "0" },
+          ],
+          textSegments: [{ type: "text", content: "Here is what I found." }],
+          toolCalls: [
+            {
+              id: "tc-1",
+              toolName: "bash",
+              input: {},
+              status: "completed",
+            },
+          ],
+        }}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        onSurfaceAction={noop}
+        isStreaming
+      />,
+    );
+
+    expect(
+      getByTestId("tool-progress-card").getAttribute("data-auto-expand"),
+    ).toBe("true");
+  });
+
   test("collapses an interleaved tool-call group once response text follows", () => {
     const { getByTestId } = render(
       <TranscriptMessageBody

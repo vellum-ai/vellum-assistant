@@ -242,9 +242,11 @@ function shouldAutoExpandToolCallGroup({
   if (!isCurrentGroup) {
     return false;
   }
-  // The last group of an actively-streaming message stays open for the whole
-  // turn. Outside a stream (history) it only expands while a tool is running,
-  // which keeps completed turns collapsed and compact.
+  // `isCurrentGroup` is the message's last tool-call group, computed
+  // independently of any trailing text/surface groups. While the turn streams
+  // it stays open for the whole turn — even once its tools finish and the model
+  // starts writing the answer below. Outside a stream (history) it only expands
+  // while a tool is running, which keeps completed turns collapsed and compact.
   if (isStreaming) {
     return true;
   }
@@ -635,6 +637,17 @@ export function TranscriptMessageBody({
       }
     }
 
+    // The last group that actually holds tool calls, regardless of any text or
+    // surface groups that stream in after it. Anchoring auto-expansion here
+    // (rather than the last group overall) keeps a streaming message's final
+    // tool-call card open while the model writes its trailing answer.
+    let lastToolCallGroupIndex = -1;
+    groups.forEach((group, gi) => {
+      if (group.type === "toolCalls") {
+        lastToolCallGroupIndex = gi;
+      }
+    });
+
     const resolveToolCall = (id: string): ChatMessageToolCall | undefined => {
       const tc = message.toolCalls?.find((t) => t.id === id);
       if (tc) {
@@ -681,7 +694,7 @@ export function TranscriptMessageBody({
                       onExpandChange={handleExpandChange}
                       expandedCardIds={expandedCardIds}
                       autoExpand={shouldAutoExpandToolCallGroup({
-                        isCurrentGroup: gi === groups.length - 1,
+                        isCurrentGroup: gi === lastToolCallGroupIndex,
                         isStreaming,
                         toolCalls,
                       })}
