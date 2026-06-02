@@ -171,31 +171,63 @@ export async function generateAndPersistConversationTitle(
   return { title: fallback, updated: true };
 }
 
+// ── Serial title-generation queue ────────────────────────────────────
+
+/**
+ * Each title generation makes an LLM call. Without serialization, burst
+ * conversation creation (e.g. 5 new chats in quick succession) fires N
+ * concurrent requests that can hit provider rate limits or contend for
+ * API capacity, causing later calls to time out and fall back to
+ * "Untitled Conversation".
+ *
+ * A serial queue ensures at most one title-generation LLM call is
+ * in-flight at a time. Each call is lightweight (~1–3 s for a ≤5-word
+ * title), so the added serial latency is modest and invisible to the
+ * user (the UI shows "Generating title…" as a placeholder during the
+ * wait). Both initial generation and second-pass regeneration share
+ * this queue since they hit the same provider.
+ */
+let titleQueueTail: Promise<void> = Promise.resolve();
+
+function enqueueTitleWork(work: () => Promise<void>): void {
+  titleQueueTail = titleQueueTail.then(work, work);
+}
+
+/** Exposed for tests that need to await the full queue drain. */
+export function _titleQueueDrain(): Promise<void> {
+  return titleQueueTail;
+}
+
 /**
  * Fire-and-forget wrapper for title generation. Failures are logged
  * but do not propagate. On failure, replaces loading placeholder with
  * a stable fallback title so loading state is never permanent.
+ *
+ * Calls are serialized via {@link enqueueTitleWork} so burst
+ * conversation creation does not overwhelm the LLM provider.
  */
 export function queueGenerateConversationTitle(
   params: GenerateTitleParams,
 ): void {
-  generateAndPersistConversationTitle(params).catch((err) => {
-    log.warn(
-      { err, conversationId: params.conversationId },
-      "Failed to generate conversation title (non-fatal)",
-    );
-    // Replace loading placeholder with stable fallback
-    try {
-      const conversation = getConversation(params.conversationId);
-      if (conversation && conversation.title === GENERATING_TITLE) {
-        const fallback =
-          deriveFallbackTitle(params.context) ?? UNTITLED_FALLBACK;
-        updateConversationTitle(params.conversationId, fallback);
-        params.onTitleUpdated?.(fallback);
+  enqueueTitleWork(async () => {
+    await generateAndPersistConversationTitle(params).catch((err) => {
+      log.warn(
+        { err, conversationId: params.conversationId },
+        "Failed to generate conversation title (non-fatal)",
+      );
+      // Replace loading placeholder with stable fallback
+      try {
+        const conversation = getConversation(params.conversationId);
+        if (conversation && conversation.title === GENERATING_TITLE) {
+          const fallback =
+            deriveFallbackTitle(params.context) ?? UNTITLED_FALLBACK;
+          updateConversationTitle(params.conversationId, fallback);
+          params.onTitleUpdated?.(fallback);
+        }
+      } catch {
+        // Best-effort
       }
-    } catch {
-      // Best-effort
-    }
+    });
   });
 }
 
@@ -273,15 +305,20 @@ export async function regenerateConversationTitle(
 
 /**
  * Fire-and-forget wrapper for title regeneration.
+ *
+ * Serialized via the same queue as initial generation — see
+ * {@link enqueueTitleWork}.
  */
 export function queueRegenerateConversationTitle(
   params: RegenerateTitleParams,
 ): void {
-  regenerateConversationTitle(params).catch((err) => {
-    log.warn(
-      { err, conversationId: params.conversationId },
-      "Failed to regenerate conversation title (non-fatal)",
-    );
+  enqueueTitleWork(async () => {
+    await regenerateConversationTitle(params).catch((err) => {
+      log.warn(
+        { err, conversationId: params.conversationId },
+        "Failed to regenerate conversation title (non-fatal)",
+      );
+    });
   });
 }
 
