@@ -18,6 +18,16 @@
  * older reader. Unknown fields are preserved on disk by the write path (see
  * `lockfile.ts`); the validated value returned to callers carries only the
  * modeled shape.
+ *
+ * `assistantId` is the only required field — it is the entry's identity (the
+ * key every reader and the write path look entries up by) and the one field
+ * the CLI always writes. Everything else is optional on disk: older entries
+ * predate the `cloud` field, the runtime URL has historically been persisted
+ * under a different key (`localUrl`), and resource ports are only present for
+ * multi-instance local setups. The parser therefore salvages any entry that
+ * has a string `assistantId` and copies the remaining modeled fields only when
+ * they are present and well-typed, rather than discarding an otherwise-usable
+ * assistant because an optional field is missing or malformed.
  */
 
 export interface LocalAssistantResources {
@@ -28,8 +38,8 @@ export interface LocalAssistantResources {
 export interface LockfileAssistant {
   assistantId: string;
   name?: string;
-  cloud: string;
-  runtimeUrl: string;
+  cloud?: string;
+  runtimeUrl?: string;
   species?: string;
   hatchedAt?: string;
   resources?: LocalAssistantResources;
@@ -61,22 +71,20 @@ function parseResources(value: unknown): LocalAssistantResources | undefined {
 }
 
 /**
- * Validate a single assistant entry, returning the modeled shape or `null` if a
- * required field is missing or mistyped. Optional fields are copied only when
- * present and well-typed; unknown fields are dropped.
+ * Validate a single assistant entry. Returns `null` only when the entry lacks a
+ * string `assistantId` (its identity); any other entry is salvaged. Each
+ * optional field is copied only when present and well-typed — a missing or
+ * mistyped optional field is dropped from the result without discarding the
+ * entry — and unknown fields are ignored.
  */
 function parseAssistant(value: unknown): LockfileAssistant | null {
   if (!isRecord(value)) return null;
   if (typeof value.assistantId !== "string") return null;
-  if (typeof value.cloud !== "string") return null;
-  if (typeof value.runtimeUrl !== "string") return null;
 
-  const assistant: LockfileAssistant = {
-    assistantId: value.assistantId,
-    cloud: value.cloud,
-    runtimeUrl: value.runtimeUrl,
-  };
+  const assistant: LockfileAssistant = { assistantId: value.assistantId };
   if (typeof value.name === "string") assistant.name = value.name;
+  if (typeof value.cloud === "string") assistant.cloud = value.cloud;
+  if (typeof value.runtimeUrl === "string") assistant.runtimeUrl = value.runtimeUrl;
   if (typeof value.species === "string") assistant.species = value.species;
   if (typeof value.hatchedAt === "string") assistant.hatchedAt = value.hatchedAt;
   const resources = parseResources(value.resources);

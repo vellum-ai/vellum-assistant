@@ -39,6 +39,28 @@ describe("parseLockfile", () => {
     });
   });
 
+  test("salvages a legacy entry that has only an assistantId", () => {
+    // The oldest persisted entries carry just the identity; the CLI fills the
+    // rest in lazily. assistantId is the only required field, so the entry
+    // must survive intact rather than being discarded.
+    const parsed = parseLockfile({
+      activeAssistant: "asst_1",
+      assistants: [{ assistantId: "asst_1" }],
+    });
+    expect(parsed.assistants).toEqual([{ assistantId: "asst_1" }]);
+  });
+
+  test("salvages an entry whose cloud and runtimeUrl are absent", () => {
+    // Older CLI builds predate the `cloud` field and persisted the runtime URL
+    // under a different key (`localUrl`), so a real on-disk entry can lack both
+    // modeled fields. It must still be returned (the macOS↔CLI skew window).
+    const parsed = parseLockfile({
+      activeAssistant: null,
+      assistants: [{ assistantId: "asst_1", localUrl: "http://127.0.0.1:7777" }],
+    });
+    expect(parsed.assistants).toEqual([{ assistantId: "asst_1" }]);
+  });
+
   test("drops malformed entries but salvages valid siblings", () => {
     const raw = {
       activeAssistant: "asst_ok",
@@ -100,11 +122,28 @@ describe("parseLockfile", () => {
     expect(parseLockfile(123)).toEqual(empty);
   });
 
-  test("drops entries with a mistyped required field", () => {
+  test("drops a mistyped optional field but keeps the entry", () => {
+    // assistantId is the only required field. A mistyped optional field (here
+    // cloud / runtimeUrl) is dropped from the result, but the entry survives on
+    // the strength of its identity rather than being discarded wholesale.
     const raw = {
       assistants: [
         { assistantId: "asst_1", cloud: 7, runtimeUrl: "http://a" }, // cloud not a string
         { assistantId: "asst_2", cloud: "local", runtimeUrl: 7 }, // runtimeUrl not a string
+      ],
+      activeAssistant: null,
+    };
+    expect(parseLockfile(raw).assistants).toEqual([
+      { assistantId: "asst_1", runtimeUrl: "http://a" },
+      { assistantId: "asst_2", cloud: "local" },
+    ]);
+  });
+
+  test("drops an entry only when its assistantId is missing or mistyped", () => {
+    const raw = {
+      assistants: [
+        { cloud: "local", runtimeUrl: "http://a" }, // no assistantId
+        { assistantId: 42, cloud: "local" }, // assistantId not a string
       ],
       activeAssistant: null,
     };

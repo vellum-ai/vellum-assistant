@@ -59,6 +59,26 @@ describe("getLockfileData", () => {
     }
   });
 
+  test("salvages a legacy entry that predates cloud/runtimeUrl", () => {
+    // An entry written by an older CLI: no `cloud`, and the runtime URL stored
+    // under the legacy `localUrl` key rather than `runtimeUrl`. Only the
+    // identity is guaranteed, so the entry must still be returned (the modeled
+    // fields it lacks are simply absent on the wire value).
+    writeOnDisk({
+      activeAssistant: "asst_legacy",
+      assistants: [
+        { assistantId: "asst_legacy", localUrl: "http://127.0.0.1:7777" },
+      ],
+    });
+
+    const result = getLockfileData([lockfilePath]);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.assistants).toEqual([{ assistantId: "asst_legacy" }]);
+      expect(result.data.activeAssistant).toBe("asst_legacy");
+    }
+  });
+
   test("fails with status 500 on malformed JSON", () => {
     fs.writeFileSync(lockfilePath, "{ not json");
     const result = getLockfileData([lockfilePath]);

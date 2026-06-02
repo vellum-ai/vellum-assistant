@@ -204,18 +204,38 @@ describe("lockfile IPC handlers", () => {
   });
 
   test("saveLockfileAssistant persists the assistant and makes it active", () => {
+    // Include an unmodeled field to pin the intended split: the on-disk file
+    // preserves everything the caller wrote (so a newer writer's fields survive
+    // a round-trip through an older build), while the validated wire value the
+    // bridge returns carries only the modeled shape. The two are deliberately
+    // NOT equal — asserting equality here would only hold for fixtures that
+    // happen to contain modeled fields and would hide that distinction.
     const result = saveLockfileAssistant(
-      { assistantId: "asst-1", cloud: "local", runtimeUrl: "http://127.0.0.1:1" },
+      {
+        assistantId: "asst-1",
+        cloud: "local",
+        runtimeUrl: "http://127.0.0.1:1",
+        futureField: "keep-me",
+      },
       "asst-1",
     );
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.lockfile.activeAssistant).toBe("asst-1");
-    expect(result.lockfile.assistants).toHaveLength(1);
-    expect(JSON.parse(fs.readFileSync(lockfilePath, "utf-8"))).toEqual(
-      result.lockfile,
-    );
+    expect(result.lockfile.assistants).toEqual([
+      { assistantId: "asst-1", cloud: "local", runtimeUrl: "http://127.0.0.1:1" },
+    ]);
+
+    const onDisk = JSON.parse(fs.readFileSync(lockfilePath, "utf-8")) as {
+      assistants: Array<Record<string, unknown>>;
+    };
+    expect(onDisk.assistants[0]).toEqual({
+      assistantId: "asst-1",
+      cloud: "local",
+      runtimeUrl: "http://127.0.0.1:1",
+      futureField: "keep-me",
+    });
   });
 
   test("saveLockfileAssistant fails without mutating disk when the entry has no id", () => {
