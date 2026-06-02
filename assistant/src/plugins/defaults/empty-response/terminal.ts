@@ -47,7 +47,7 @@ import type { EmptyResponseArgs, EmptyResponseResult } from "../../types.js";
  * Wire-compat note: this is shown to the LLM, not the user. Edits here
  * affect model behavior but not end-user UX directly.
  */
-const NUDGE_TEXT =
+export const NUDGE_TEXT =
   "<system_notice>Your previous response was empty. You must respond to the user with a summary of what you found or did. Do not use any tools — just respond with text.</system_notice>";
 
 /**
