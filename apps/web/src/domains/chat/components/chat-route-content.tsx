@@ -17,6 +17,7 @@ import { ChatBody } from "@/domains/chat/components/chat-body";
 import { SlackChannelFooter } from "@/domains/chat/components/slack-channel-footer";
 import { ConversationStarterGrid } from "@/domains/chat/components/conversation-starter-grid";
 import { ComposerNotices } from "@/domains/chat/components/composer-notices";
+import { ChatRuleEditorModal } from "@/domains/chat/components/chat-rule-editor-modal";
 import { SendErrorModal } from "@/domains/chat/components/send-error-modal";
 import { ConfirmationPromptCard } from "@/domains/chat/components/confirmation-prompt-card";
 import { ContactPromptCard } from "@/domains/chat/components/contact-prompt-card";
@@ -291,6 +292,11 @@ export function ChatRouteContent({
     handleConfirmationSubmit,
     handleAllowAndCreateRule,
     handleOpenRuleEditorForToolCall,
+    handleSaveRule,
+    showRuleEditor,
+    ruleEditorContext,
+    dismissRuleEditor,
+    isSavingRule,
     handleQuestionResponse,
     handleSurfaceAction,
     unknownNudgeToolCallIds,
@@ -585,6 +591,16 @@ export function ChatRouteContent({
           }
           setError(null);
         }}
+      />
+    ) : null;
+
+  const ruleEditorModalNode =
+    showRuleEditor && ruleEditorContext ? (
+      <ChatRuleEditorModal
+        context={ruleEditorContext}
+        isSaving={isSavingRule}
+        onSave={handleSaveRule}
+        onDismiss={dismissRuleEditor}
       />
     ) : null;
 
@@ -1470,6 +1486,7 @@ export function ChatRouteContent({
           }
         />
         {sendErrorModalNode}
+        {ruleEditorModalNode}
       </>
     );
   }
@@ -1497,6 +1514,7 @@ export function ChatRouteContent({
             }
           />
           {sendErrorModalNode}
+          {ruleEditorModalNode}
         </>
       );
     }
@@ -1521,6 +1539,7 @@ export function ChatRouteContent({
           }
         />
         {sendErrorModalNode}
+        {ruleEditorModalNode}
       </>
     );
   }
@@ -1529,6 +1548,7 @@ export function ChatRouteContent({
     <>
       {chatContent}
       {sendErrorModalNode}
+      {ruleEditorModalNode}
     </>
   );
 }
