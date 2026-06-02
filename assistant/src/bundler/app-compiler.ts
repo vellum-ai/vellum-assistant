@@ -74,9 +74,12 @@ function toDiagnostic(message: esbuild.Message): CompileDiagnostic {
 /**
  * Parse esbuild CLI stderr into structured diagnostics matching the JS API's
  * CompileDiagnostic shape. Used by the native-CLI fallback path. esbuild
- * outputs errors like:
+ * prints a BLANK LINE between the summary line and the location frame:
  *   ✘ [ERROR] Could not resolve "foo"
+ *
  *       src/main.tsx:3:7:
+ * so the frame is not at lines[i + 1] — we scan forward past blank lines to
+ * find it, bounded so a diagnostic with no frame can't absorb a later one's.
  */
 function parseEsbuildStderr(stderr: string): {
   errors: CompileDiagnostic[];
@@ -94,18 +97,12 @@ function parseEsbuildStderr(stderr: string): {
       const text = (errorMatch ?? warnMatch)![1];
       const diag: CompileDiagnostic = { text };
 
-      // Next non-empty line may have location: "    file:line:col:"
-      const locLine = lines[i + 1]?.trim();
-      if (locLine) {
-        const locMatch = locLine.match(/^(.+):(\d+):(\d+):?$/);
-        if (locMatch) {
-          diag.location = {
-            file: locMatch[1],
-            line: parseInt(locMatch[2], 10),
-            column: parseInt(locMatch[3], 10),
-          };
-        }
-      }
+      // The location frame ("    file:line:col:") follows the summary after a
+      // blank line. Scan forward past blanks within a small window, stopping
+      // at the next diagnostic summary so a frame-less diagnostic doesn't
+      // absorb a later one's frame.
+      const location = findLocationFrame(lines, i + 1);
+      if (location) diag.location = location;
 
       if (errorMatch) errors.push(diag);
       else warnings.push(diag);
@@ -113,6 +110,36 @@ function parseEsbuildStderr(stderr: string): {
   }
 
   return { errors, warnings };
+}
+
+/** How many lines past a summary to search for its location frame. */
+const LOCATION_FRAME_WINDOW = 3;
+
+/**
+ * Scan forward from `start` for the first `file:line:column:` location frame,
+ * skipping blank lines. Stops (returning undefined) at the next diagnostic
+ * summary or after LOCATION_FRAME_WINDOW lines, so a diagnostic with no frame
+ * never claims a later diagnostic's location.
+ */
+function findLocationFrame(
+  lines: string[],
+  start: number,
+): CompileDiagnostic["location"] | undefined {
+  const end = Math.min(lines.length, start + LOCATION_FRAME_WINDOW);
+  for (let j = start; j < end; j++) {
+    const line = lines[j].trim();
+    if (!line) continue; // blank line between summary and frame
+    if (/[✘▲]/.test(lines[j])) break; // next diagnostic begins
+    const locMatch = line.match(/^(.+):(\d+):(\d+):?$/);
+    if (locMatch) {
+      return {
+        file: locMatch[1],
+        line: parseInt(locMatch[2], 10),
+        column: parseInt(locMatch[3], 10),
+      };
+    }
+  }
+  return undefined;
 }
 
 /**
