@@ -123,8 +123,7 @@ export function ContactsPage({
   const [selection, setSelection] = useState<ContactSelection>({
     kind: "assistant",
   });
-  const [pendingChannelKey, setPendingChannelKey] =
-    useState<AssistantChannelState["key"] | null>(null);
+
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
@@ -366,11 +365,7 @@ export function ContactsPage({
         await integrationsTwilioCredentialsDelete(opts);
       }
     },
-    onMutate: (channelKey) => setPendingChannelKey(channelKey),
-    onSettled: () => {
-      setPendingChannelKey(null);
-      invalidateReadiness();
-    },
+    onSettled: () => invalidateReadiness(),
   });
 
   const revokeMutation = useMutation({
@@ -456,9 +451,7 @@ export function ContactsPage({
   const handleAssistantSetup = useCallback(
     (channelKey: AssistantChannelState["key"]) => {
       if (!onStartSetupConversation) return;
-      setPendingChannelKey(channelKey);
       onStartSetupConversation(ASSISTANT_SETUP_PROMPTS[channelKey]);
-      window.setTimeout(() => setPendingChannelKey(null), 1000);
     },
     [onStartSetupConversation],
   );
@@ -602,7 +595,11 @@ export function ContactsPage({
           <AssistantChannelsDetail
             assistantName={assistantName}
             channels={channels}
-            pendingChannelKey={pendingChannelKey}
+            pendingChannelKey={
+              disconnectMutation.isPending
+                ? disconnectMutation.variables ?? null
+                : null
+            }
             onSetup={onStartSetupConversation ? handleAssistantSetup : undefined}
             onDisconnect={handleDisconnect}
             onSaveTelegramToken={handleSaveTelegramToken}
