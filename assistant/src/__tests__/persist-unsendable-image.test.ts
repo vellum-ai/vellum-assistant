@@ -1,14 +1,12 @@
 /**
  * Regression tests for the image-too-large persistence path (JARVIS-1037).
  *
- * When the provider rejects an oversized image, the agent loop swaps it for a
- * text note in memory and retries. Before this fix that swap was transient:
- * the stored message row kept the full-size image block, so every later turn
- * rehydrated the rejected image from the DB and the model would report seeing
- * both the original (rejected) image and a freshly re-uploaded smaller one.
- *
- * `persistUnsendableImageDowngrades` makes the swap durable for images that can
- * never be transmitted, so the rejected upload cannot resurface.
+ * An image the provider can never accept — over the per-side pixel cap or the
+ * per-image byte cap, and not shrinkable on this host — must be durably swapped
+ * for a text note in its stored message. If it stays in the stored content,
+ * every later turn rehydrates it from the DB and the model reports seeing both
+ * the rejected image and any smaller re-upload. `persistUnsendableImageDowngrades`
+ * makes the swap durable so the rejected upload cannot resurface.
  *
  * Uses the real SQLite DB wired up via `test-preload.ts` (per-file temp
  * workspace).

@@ -2332,15 +2332,23 @@ export async function runAgentLoopImpl(
           }),
         };
       });
-      // The transform above is transient — it only touches ctx.messages for
-      // this retry. Persist the downgrade for images that can never be sent
-      // so the rejected upload doesn't rehydrate from the DB and resurface on
-      // every later turn (JARVIS-1037).
-      const rewritten = persistUnsendableImageDowngrades(ctx.conversationId);
-      if (rewritten > 0) {
-        rlog.info(
-          { phase: "image-recovery", rewritten },
-          "Persisted unsendable-image downgrades so they cannot resurface",
+      // The transform above only mutates ctx.messages for the current retry.
+      // Persist the downgrade for images that can never be sent so the rejected
+      // upload doesn't rehydrate from the DB and resurface on later turns. This
+      // is cleanup for future turns, so a persistence failure must never abort
+      // the retry that is about to run — log it and continue.
+      try {
+        const rewritten = persistUnsendableImageDowngrades(ctx.conversationId);
+        if (rewritten > 0) {
+          rlog.info(
+            { phase: "image-recovery", rewritten },
+            "Persisted unsendable-image downgrades so they cannot resurface",
+          );
+        }
+      } catch (err) {
+        rlog.warn(
+          { phase: "image-recovery", err },
+          "Failed to persist unsendable-image downgrade; continuing with in-memory recovery",
         );
       }
       runMessages = ctx.messages;
