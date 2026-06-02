@@ -39,7 +39,7 @@ import {
 // Sentinel value for the "Custom" profile picker option
 // ---------------------------------------------------------------------------
 
-export const CUSTOM_SENTINEL = "__custom__";
+const CUSTOM_SENTINEL = "__custom__";
 
 // ---------------------------------------------------------------------------
 // Types

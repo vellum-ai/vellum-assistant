@@ -11,7 +11,6 @@ import { Typography } from "@vellum/design-library/components/typography";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 import type { DaemonConfig, ProfileEntry, ProfileWithName } from "@/domains/settings/ai/ai-types";
-import { buildOrderedProfiles } from "@/domains/settings/ai/ai-utils";
 import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal";
 import {
   AUTO_PROFILE_NAME,
@@ -51,6 +50,7 @@ export function ManageProfilesModal({
   const {
     profiles,
     profileOrder,
+    orderedProfiles,
     activeProfile,
     callSites,
   } = useDaemonConfig();
@@ -145,6 +145,7 @@ export function ManageProfilesModal({
           <ManageProfilesModalInner
             profiles={profiles}
             profileOrder={profileOrder}
+            orderedProfiles={orderedProfiles}
             activeProfile={activeProfile}
             assistantId={assistantId}
             callSiteOverrides={callSites}
@@ -192,6 +193,7 @@ export function ManageProfilesModal({
 interface ManageProfilesModalInnerProps {
   profiles: Record<string, ProfileEntry>;
   profileOrder: string[];
+  orderedProfiles: ProfileWithName[];
   activeProfile: string | null;
   assistantId: string;
   callSiteOverrides: Record<string, { profile?: string | null } | null | undefined>;
@@ -203,6 +205,7 @@ interface ManageProfilesModalInnerProps {
 function ManageProfilesModalInner({
   profiles,
   profileOrder,
+  orderedProfiles,
   activeProfile,
   assistantId,
   callSiteOverrides,
@@ -237,11 +240,8 @@ function ManageProfilesModalInner({
 
   // Build ordered profile list
   const allOrderedProfiles: ProfileWithName[] = useMemo(() => {
-    return gateAutoProfile(
-      buildOrderedProfiles(profiles, profileOrder),
-      queryComplexityRouting,
-    );
-  }, [profiles, profileOrder, queryComplexityRouting]);
+    return gateAutoProfile(orderedProfiles, queryComplexityRouting);
+  }, [orderedProfiles, queryComplexityRouting]);
 
   async function handleStatusToggle(
     profile: ProfileWithName,
