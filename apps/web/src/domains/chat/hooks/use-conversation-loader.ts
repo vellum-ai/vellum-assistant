@@ -146,7 +146,7 @@ export function useConversationLoader({
   }, [assistantId, conversationGroupsUI, queryClient]);
 
   // Keep the ref in sync so the debounced scheduler always calls the latest.
-  useEffect(() => {
+  useLayoutEffect(() => {
     refreshConversationsRef.current = refreshConversations;
   }, [refreshConversations]);
 

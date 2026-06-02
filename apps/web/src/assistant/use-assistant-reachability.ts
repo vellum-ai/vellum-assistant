@@ -1,5 +1,5 @@
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import {
   assistantsConnectionStatus,
@@ -295,7 +295,7 @@ export function useAssistantReachability(
     [clearTimer],
   );
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     runProbeRef.current = runProbe;
   }, [runProbe]);
 
@@ -358,7 +358,7 @@ export function useAssistantReachability(
   // owns the retry budget, and a "failed" state should stay failed
   // until the user retries.
   const phaseRef = useRef(state.phase);
-  useEffect(() => {
+  useLayoutEffect(() => {
     phaseRef.current = state.phase;
   }, [state.phase]);
   useEffect(() => {
