@@ -1,12 +1,14 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
-import { computeRangeInTimezone } from "@/components/charts/date-range-select";
+import {
+  computeRangeInTimezone,
+  presetDaysFromRange,
+} from "@/components/charts/date-range-select";
 
 import {
   buildBillingUsageSeriesQuery,
   buildBillingUsageTotalsQuery,
   getDefaultDateRange,
-  reconcilePresetRange,
   type UsageChartState,
 } from "./use-billing-usage-data";
 
@@ -67,33 +69,58 @@ describe("getDefaultDateRange", () => {
   });
 });
 
-describe("reconcilePresetRange", () => {
+describe("presetDaysFromRange", () => {
+  for (const days of [7, 30, 90]) {
+    test(`maps a ${days}-day range back to its preset identity`, () => {
+      expect(presetDaysFromRange(computeRangeInTimezone(days))).toBe(days);
+    });
+  }
+
+  test("falls back to the 30-day default for a non-preset span", () => {
+    // 45 days apart matches none of the 7/30/90 presets.
+    expect(presetDaysFromRange({ from: "2025-12-01", to: "2026-01-14" })).toBe(
+      30,
+    );
+  });
+});
+
+describe("preset identity → range derivation (tz change)", () => {
+  // The panel stores the preset identity (days) and derives bounds from that
+  // identity + the live tz. This is what makes a tz change recompute the
+  // ACTIVE preset correctly, even across a calendar-day rollover.
+  //
   // Pacific/Kiritimati (UTC+14) and Pacific/Niue (UTC-11) sit a full calendar
   // day apart at most instants, so a preset's bounds differ between the zones.
   const EAST = "Pacific/Kiritimati";
   const WEST = "Pacific/Niue";
 
   for (const days of [7, 30, 90]) {
-    test(`recomputes the active ${days}-day preset across a tz change`, () => {
-      const current = computeRangeInTimezone(days, EAST);
-      const result = reconcilePresetRange(current, EAST, WEST);
-      expect(result).toEqual(computeRangeInTimezone(days, WEST));
+    test(`deriving the ${days}-day preset by identity yields new-tz bounds`, () => {
+      // The range the panel was showing before the tz change. Its bounds are
+      // irrelevant to the new computation — only the stored identity matters.
+      const beforeTzChange = computeRangeInTimezone(days, EAST);
+      // On tz change the panel recomputes from identity (days) + new tz.
+      const afterTzChange = computeRangeInTimezone(days, WEST);
+
+      expect(afterTzChange).toEqual(computeRangeInTimezone(days, WEST));
+      // The two zones sit a calendar day apart, so the bounds actually moved —
+      // proving the derivation followed the new tz rather than the stale range.
+      expect(afterTzChange).not.toEqual(beforeTzChange);
     });
   }
 
-  test("leaves a range that matches no preset unchanged", () => {
-    // 45 days apart matches none of the 7/30/90 presets.
-    const custom = { from: "2025-12-01", to: "2026-01-14" };
-    const result = reconcilePresetRange(custom, EAST, WEST);
-    expect(result).toBe(custom);
-  });
+  test("rollover: a stale prior-day range is ignored, identity wins", () => {
+    // Simulate the bug's setup: the active range was computed on a PRIOR
+    // calendar day (a fixed, now-stale 7-day range). Reverse-matching this
+    // against freshly recomputed prev-tz bounds would fail and strand it as
+    // "custom". Deriving from the stored identity (7) sidesteps that entirely.
+    const stalePriorDayRange = { from: "2026-01-01", to: "2026-01-07" };
+    const presetDays = presetDaysFromRange(stalePriorDayRange); // 7
 
-  test("returns the same reference when the matched preset is unchanged", () => {
-    // Same tz on both sides: the preset's bounds are identical, so the helper
-    // must bail out referentially rather than allocate a new range.
-    const current = computeRangeInTimezone(7, EAST);
-    const result = reconcilePresetRange(current, EAST, EAST);
-    expect(result).toBe(current);
+    const recomputed = computeRangeInTimezone(presetDays, WEST);
+
+    expect(daysApart(recomputed.from, recomputed.to)).toBe(7);
+    expect(recomputed).toEqual(computeRangeInTimezone(7, WEST));
   });
 });
 
