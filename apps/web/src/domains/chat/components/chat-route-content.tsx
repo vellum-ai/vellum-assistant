@@ -410,6 +410,30 @@ export function ChatRouteContent({
   const activeToolDetail = useViewerStore.use.activeToolDetail();
   const closeToolDetail = useViewerStore.use.closeToolDetail();
 
+  /** Open the rule editor for the tool call shown in the detail panel. */
+  const handleToolDetailRiskBadgeClick = useCallback(() => {
+    if (!activeToolDetail) {
+      return;
+    }
+    const tc = messages
+      .flatMap((m) => m.toolCalls ?? [])
+      .find((t) => t.id === activeToolDetail.toolCallId);
+    if (!tc) {
+      return;
+    }
+    handleOpenRuleEditorForToolCall({
+      toolName: tc.toolName,
+      riskLevel: tc.riskLevel,
+      riskReason: tc.riskReason,
+      input: tc.input ?? {},
+      allowlistOptions: tc.allowlistOptions ?? [],
+      scopeOptions: tc.scopeOptions ?? [],
+      riskScopeOptions: tc.riskScopeOptions ?? [],
+      directoryScopeOptions: tc.directoryScopeOptions ?? [],
+      matchedTrustRuleId: tc.matchedTrustRuleId,
+    });
+  }, [activeToolDetail, messages, handleOpenRuleEditorForToolCall]);
+
   // -------------------------------------------------------------------------
   // Feature flags
   // -------------------------------------------------------------------------
@@ -1536,6 +1560,7 @@ export function ChatRouteContent({
               <ToolDetailPanel
                 detail={activeToolDetail}
                 onClose={closeToolDetail}
+                onRiskBadgeClick={handleToolDetailRiskBadgeClick}
               />
             </LazyBoundary>
           }

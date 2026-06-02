@@ -9,6 +9,7 @@ export type {
   DirectoryScopeOption,
   QuestionEntry,
   QuestionOption,
+  RiskScopeOption,
   ScopeOption,
 } from "@vellumai/assistant-api";
 

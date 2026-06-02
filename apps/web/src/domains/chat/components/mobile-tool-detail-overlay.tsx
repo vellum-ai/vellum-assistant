@@ -14,6 +14,8 @@ interface MobileToolDetailOverlayProps {
   detail: ToolDetailPayload | null;
   /** Closes the overlay. */
   onClose: () => void;
+  /** Opens the trust-rule editor for the displayed tool call. */
+  onRiskBadgeClick?: () => void;
 }
 
 /**
@@ -25,6 +27,7 @@ interface MobileToolDetailOverlayProps {
 export function MobileToolDetailOverlay({
   detail,
   onClose,
+  onRiskBadgeClick,
 }: MobileToolDetailOverlayProps) {
   if (!detail) {
     return null;
@@ -51,7 +54,7 @@ export function MobileToolDetailOverlay({
       onClick={handleBackdropClick}
     >
       <LazyBoundary>
-        <ToolDetailPanel detail={detail} onClose={onClose} />
+        <ToolDetailPanel detail={detail} onClose={onClose} onRiskBadgeClick={onRiskBadgeClick} />
       </LazyBoundary>
     </div>
   );

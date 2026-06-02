@@ -27,7 +27,7 @@ import {
   type ToolCallCardStep,
 } from "@/domains/chat/hooks/use-tool-call-card-data";
 import type { ConfirmationDecision } from "@/types/event-types";
-import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
+import type { AllowlistOption, DirectoryScopeOption, RiskScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 
 export interface ToolCallProgressCardProps {
@@ -54,6 +54,7 @@ export interface ToolCallProgressCardProps {
     input?: Record<string, unknown>;
     allowlistOptions: AllowlistOption[];
     scopeOptions: ScopeOption[];
+    riskScopeOptions: RiskScopeOption[];
     directoryScopeOptions: DirectoryScopeOption[];
     matchedTrustRuleId?: string;
   }) => void;
@@ -324,6 +325,7 @@ function UnifiedToolCallProgressCard({
                             input: tc.input ?? {},
                             allowlistOptions: tc.allowlistOptions ?? [],
                             scopeOptions: tc.scopeOptions ?? [],
+                            riskScopeOptions: tc.riskScopeOptions ?? [],
                             directoryScopeOptions: tc.directoryScopeOptions ?? [],
                             matchedTrustRuleId: tc.matchedTrustRuleId,
                           });
@@ -406,6 +408,7 @@ function UnknownCommandNudge({
             input: toolCall.input ?? {},
             allowlistOptions: toolCall.allowlistOptions ?? [],
             scopeOptions: toolCall.scopeOptions ?? [],
+            riskScopeOptions: toolCall.riskScopeOptions ?? [],
             directoryScopeOptions: toolCall.directoryScopeOptions ?? [],
           })
         }

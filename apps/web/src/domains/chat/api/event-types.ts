@@ -12,6 +12,7 @@ import type {
   DirectoryScopeOption,
   QuestionEntry,
   QuestionRequestEvent,
+  RiskScopeOption,
   ScopeOption,
 } from "@vellumai/assistant-api";
 
@@ -49,6 +50,8 @@ export interface ChatMessageToolCall {
   riskThreshold?: string;
   allowlistOptions?: AllowlistOption[];
   scopeOptions?: ScopeOption[];
+  /** Display-only regex-flavored scope ladder from `tool_result.riskScopeOptions`. */
+  riskScopeOptions?: RiskScopeOption[];
   directoryScopeOptions?: DirectoryScopeOption[];
   pendingConfirmation?: PendingToolConfirmation | null;
   workingDir?: string;

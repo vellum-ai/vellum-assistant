@@ -114,9 +114,11 @@ function SectionLabel({ children }: { children: string }) {
 export function ToolDetailPanel({
   detail,
   onClose,
+  onRiskBadgeClick,
 }: {
   detail: ToolDetailPayload;
   onClose: () => void;
+  onRiskBadgeClick?: () => void;
 }) {
   const { iconName } = deriveStepLabelFromName(detail.toolName, detail.input);
   const Glyph = ICON_MAP[iconName] ?? Bolt;
@@ -140,7 +142,7 @@ export function ToolDetailPanel({
         >
           {title}
         </Typography>
-        <RiskBadge level={detail.riskLevel} />
+        <RiskBadge level={detail.riskLevel} onClick={onRiskBadgeClick} />
         <span className="flex-1" />
         <Button
           variant="ghost"

@@ -24,7 +24,7 @@ import { getRiskBadgeStyle, getProvenanceText, wasExpected, getEffectiveRiskDisp
 import { formatStartTime, useElapsedTime } from "@/domains/chat/hooks/use-elapsed-time";
 
 import type { ConfirmationDecision } from "@/types/event-types";
-import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
+import type { AllowlistOption, DirectoryScopeOption, RiskScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import {
   extractInputSummary,
@@ -44,6 +44,7 @@ export interface ToolCallChipProps {
     input: Record<string, unknown>;
     allowlistOptions: AllowlistOption[];
     scopeOptions: ScopeOption[];
+    riskScopeOptions: RiskScopeOption[];
     directoryScopeOptions: DirectoryScopeOption[];
   }) => void;
   isSubmittingConfirmation?: boolean;
@@ -333,6 +334,7 @@ export function ToolCallChip({
                 input: toolCall.input,
                 allowlistOptions: toolCall.allowlistOptions ?? [],
                 scopeOptions: toolCall.scopeOptions ?? [],
+                riskScopeOptions: toolCall.riskScopeOptions ?? [],
                 directoryScopeOptions: toolCall.directoryScopeOptions ?? [],
               });
             }}

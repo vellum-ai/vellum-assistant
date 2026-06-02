@@ -26,7 +26,7 @@ import { endTurn } from "@/domains/chat/turn-coordinator";
 import { clearConfirmationByRequestId } from "@/domains/chat/hooks/send-message-utils";
 import { deriveCommandText } from "@/domains/chat/utils/chat";
 import type { ConfirmationDecision } from "@/types/event-types";
-import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
+import type { AllowlistOption, DirectoryScopeOption, RiskScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 import type { TrustRuleItem, TrustRuleSuggestion } from "@/types/trust-rules";
 import type { QuestionResponseEntry } from "@/domains/chat/api/event-types";
 import { submitConfirmation, submitContactPrompt, submitQuestionResponse, submitSecretResponse } from "@/domains/chat/api/interactions";
@@ -83,6 +83,7 @@ export interface ToolCallRuleContext {
   input?: Record<string, unknown>;
   allowlistOptions: AllowlistOption[];
   scopeOptions: ScopeOption[];
+  riskScopeOptions: RiskScopeOption[];
   directoryScopeOptions: DirectoryScopeOption[];
   matchedTrustRuleId?: string;
 }
@@ -561,11 +562,28 @@ export function useInteractionActions(): UseInteractionActionsReturn {
       suggestionAbortRef.current?.abort();
       suggestionAbortRef.current = null;
 
+      // 3-tier fallback matching macOS AssistantProgressView.scopeOptions(from:):
+      // 1. allowlistOptions (glob patterns, saveable as trust rules)
+      // 2. riskScopeOptions (regex-flavored display-only ladder from tool_result)
+      // 3. Empty — the modal's ensureAllowlistOptions synthesizes a wildcard
+      let resolvedAllowlistOptions: AllowlistOption[];
+      if (context.allowlistOptions.length > 0) {
+        resolvedAllowlistOptions = context.allowlistOptions;
+      } else if (context.riskScopeOptions.length > 0) {
+        resolvedAllowlistOptions = context.riskScopeOptions.map((o) => ({
+          pattern: o.pattern,
+          label: o.label,
+          description: "",
+        }));
+      } else {
+        resolvedAllowlistOptions = [];
+      }
+
       const baseContext: RuleEditorContext = {
         requestId: "",
         toolName: context.toolName,
         riskLevel: context.riskLevel ?? "medium",
-        allowlistOptions: context.allowlistOptions,
+        allowlistOptions: resolvedAllowlistOptions,
         scopeOptions: context.scopeOptions,
         directoryScopeOptions: context.directoryScopeOptions,
         commandText: deriveCommandText(context.input, context.toolName),
@@ -598,8 +616,8 @@ export function useInteractionActions(): UseInteractionActionsReturn {
         suggestionAbortRef.current = abortController;
 
         const commandForSuggestion = buildFullCommandText(context.input);
-        const scopeOpts = context.allowlistOptions.length > 0
-          ? context.allowlistOptions.map((o) => ({ pattern: o.pattern, label: o.label }))
+        const scopeOpts = resolvedAllowlistOptions.length > 0
+          ? resolvedAllowlistOptions.map((o) => ({ pattern: o.pattern, label: o.label }))
           : context.scopeOptions.map((o) => ({ pattern: o.scope, label: o.label }));
 
         try {

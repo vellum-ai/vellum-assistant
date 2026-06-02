@@ -27,9 +27,11 @@ import type { RuleEditorContext } from "@/domains/chat/hooks/use-interaction-act
 
 /**
  * Ensures there is always at least one scope option for the "Apply to"
- * section. Matches the macOS `AssistantProgressView.scopeOptions(from:)`
- * fallback: when the daemon provides no allowlist options, synthesize a
- * wildcard "Any {toolName} call" entry.
+ * section. The caller (`handleOpenRuleEditorForToolCall`) already applies
+ * the 3-tier fallback matching macOS `scopeOptions(from:)`:
+ *   1. `riskAllowlistOptions` (glob patterns)
+ *   2. `riskScopeOptions` (regex-flavored display-only patterns)
+ *   3. Empty → this function synthesizes a wildcard "Any {toolName} call"
  */
 function ensureAllowlistOptions(
   options: AllowlistOption[],
