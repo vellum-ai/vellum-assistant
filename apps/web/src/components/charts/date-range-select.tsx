@@ -16,7 +16,12 @@ export interface DateRange {
 
 interface DateRangeSelectProps {
   readonly value: DateRange;
-  readonly onChange: (range: DateRange) => void;
+  /**
+   * Called when the user picks a preset. Emits both the computed range and the
+   * preset identity (`days`) so consumers can persist the active preset and
+   * recompute its bounds on a timezone change without reverse-matching.
+   */
+  readonly onChange: (range: DateRange, presetDays: number) => void;
 }
 
 /**
@@ -25,6 +30,9 @@ interface DateRangeSelectProps {
  * preset is active when the effective timezone changes.
  */
 export const PRESET_DAYS = [7, 30, 90] as const;
+
+/** Preset selected by default (matches the "Last 30 days" billing default). */
+export const DEFAULT_PRESET_DAYS = 30;
 
 type PresetDays = `${(typeof PRESET_DAYS)[number]}`;
 
@@ -59,18 +67,30 @@ function daysBetween(from: string, to: string): number {
   return Math.round((toDate.getTime() - fromDate.getTime()) / msPerDay) + 1;
 }
 
+/**
+ * Map a range's span to the preset identity (`days`) this control would show
+ * for it, defaulting to `DEFAULT_PRESET_DAYS` for any span that isn't 7 or 90.
+ * Shared so consumers can derive the active preset with the same rule the
+ * dropdown uses for its selected option.
+ */
+export function presetDaysFromRange({ from, to }: DateRange): number {
+  const days = daysBetween(from, to);
+  if (days === 7) return 7;
+  if (days === 90) return 90;
+  return DEFAULT_PRESET_DAYS;
+}
+
 export function DateRangeSelect({ value, onChange }: DateRangeSelectProps) {
   const tz = useEffectiveTimezone();
 
-  const selectedPreset = useMemo<PresetDays>(() => {
-    const days = daysBetween(value.from, value.to);
-    if (days === 7) return "7";
-    if (days === 90) return "90";
-    return "30";
-  }, [value.from, value.to]);
+  const selectedPreset = useMemo<PresetDays>(
+    () => `${presetDaysFromRange(value)}` as PresetDays,
+    [value],
+  );
 
   const handleChange = (preset: PresetDays) => {
-    onChange(computeRangeInTimezone(Number(preset), tz));
+    const days = Number(preset);
+    onChange(computeRangeInTimezone(days, tz), days);
   };
 
   return (
