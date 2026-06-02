@@ -41,6 +41,7 @@ const IMAGE_FILENAME = "avatar-image.png";
 const TRAITS_FILENAME = "character-traits.json";
 const ASCII_FILENAME = "character-ascii.txt";
 const MANIFEST_FILENAME = "avatar.json";
+const NATIVE_RENDER_TEST_TIMEOUT_MS = 15_000;
 
 interface ManifestShape {
   kind: string;
@@ -84,35 +85,39 @@ describe("avatar-store", () => {
   };
 
   describe("setCharacter", () => {
-    test("writes traits + PNG and a character manifest when render succeeds", () => {
-      const result = setCharacter(VALID_TRAITS);
+    test(
+      "writes traits + PNG and a character manifest when render succeeds",
+      () => {
+        const result = setCharacter(VALID_TRAITS);
 
-      // The native @resvg/resvg-js binding may be absent in this environment.
-      // When it is, the store returns `native_unavailable` and writes nothing —
-      // we assert that contract instead of the success path so the suite is
-      // deterministic either way.
-      if (!result.ok) {
-        expect(result.reason).toBe("native_unavailable");
-        expect(existsSync(path(TRAITS_FILENAME))).toBe(false);
-        expect(existsSync(path(IMAGE_FILENAME))).toBe(false);
-        expect(existsSync(path(MANIFEST_FILENAME))).toBe(false);
-        return;
-      }
+        // The native @resvg/resvg-js binding may be absent in this environment.
+        // When it is, the store returns `native_unavailable` and writes nothing —
+        // we assert that contract instead of the success path so the suite is
+        // deterministic either way.
+        if (!result.ok) {
+          expect(result.reason).toBe("native_unavailable");
+          expect(existsSync(path(TRAITS_FILENAME))).toBe(false);
+          expect(existsSync(path(IMAGE_FILENAME))).toBe(false);
+          expect(existsSync(path(MANIFEST_FILENAME))).toBe(false);
+          return;
+        }
 
-      expect(existsSync(path(TRAITS_FILENAME))).toBe(true);
-      expect(existsSync(path(IMAGE_FILENAME))).toBe(true);
-      expect(JSON.parse(readFileSync(path(TRAITS_FILENAME), "utf-8"))).toEqual(
-        VALID_TRAITS,
-      );
+        expect(existsSync(path(TRAITS_FILENAME))).toBe(true);
+        expect(existsSync(path(IMAGE_FILENAME))).toBe(true);
+        expect(
+          JSON.parse(readFileSync(path(TRAITS_FILENAME), "utf-8")),
+        ).toEqual(VALID_TRAITS);
 
-      const manifest = readManifestFile();
-      expect(manifest).not.toBeNull();
-      expect(manifest!.kind).toBe("character");
-      expect(manifest!.traits).toEqual(VALID_TRAITS);
-      expect(manifest!.source).toBe("builder");
-      expect(manifest!.image).not.toBeNull();
-      expect(manifest!.image!.etag).toMatch(/^[0-9a-f]{16}$/);
-    });
+        const manifest = readManifestFile();
+        expect(manifest).not.toBeNull();
+        expect(manifest!.kind).toBe("character");
+        expect(manifest!.traits).toEqual(VALID_TRAITS);
+        expect(manifest!.source).toBe("builder");
+        expect(manifest!.image).not.toBeNull();
+        expect(manifest!.image!.etag).toMatch(/^[0-9a-f]{16}$/);
+      },
+      NATIVE_RENDER_TEST_TIMEOUT_MS,
+    );
 
     test("propagates invalid_traits without writing a manifest", () => {
       const result = setCharacter({ bodyShape: "", eyeStyle: "", color: "" });
