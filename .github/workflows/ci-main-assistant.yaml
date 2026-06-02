@@ -11,6 +11,7 @@ on:
       - 'skills/meet-join/contracts/**'
       - 'meta/feature-flags/**'
       - '.github/workflows/ci-main-assistant.yaml'
+      - '.github/actions/install-shared-packages/**'
 
 jobs:
   lint:

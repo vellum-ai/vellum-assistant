@@ -8,6 +8,7 @@ on:
       - 'packages/**'
       - 'meta/feature-flags/**'
       - '.github/workflows/pr-gateway.yaml'
+      - '.github/actions/install-shared-packages/**'
 
 concurrency:
   group: pr-gateway-${{ github.event.pull_request.number }}

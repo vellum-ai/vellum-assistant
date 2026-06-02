@@ -10,6 +10,7 @@ on:
       - 'packages/environments/**'
       - 'clients/shared/App/VellumEnvironment.swift'
       - '.github/workflows/ci-main-cli.yaml'
+      - '.github/actions/install-shared-packages/**'
 
 jobs:
   checks:

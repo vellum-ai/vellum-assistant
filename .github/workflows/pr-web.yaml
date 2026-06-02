@@ -9,6 +9,7 @@ on:
       - 'packages/local-mode/**'
       - 'packages/environments/**'
       - '.github/workflows/pr-web.yaml'
+      - '.github/actions/install-shared-packages/**'
 
 concurrency:
   group: pr-web-${{ github.event.pull_request.number }}

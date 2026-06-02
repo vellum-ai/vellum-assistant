@@ -12,6 +12,7 @@ on:
       - 'scripts/skills/**'
       - 'meta/feature-flags/**'
       - '.github/workflows/pr-assistant.yaml'
+      - '.github/actions/install-shared-packages/**'
 
 concurrency:
   group: pr-assistant-${{ github.event.pull_request.number }}

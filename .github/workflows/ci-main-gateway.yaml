@@ -9,6 +9,7 @@ on:
       - 'packages/**'
       - 'meta/feature-flags/**'
       - '.github/workflows/ci-main-gateway.yaml'
+      - '.github/actions/install-shared-packages/**'
 
 jobs:
   checks:

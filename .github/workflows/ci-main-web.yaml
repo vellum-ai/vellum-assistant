@@ -10,6 +10,7 @@ on:
       - 'packages/local-mode/**'
       - 'packages/environments/**'
       - '.github/workflows/ci-main-web.yaml'
+      - '.github/actions/install-shared-packages/**'
       # The deploy/publish logic lives in this reusable workflow, so a change to
       # it alone must still exercise the full web CI/CD pipeline.
       - '.github/workflows/deploy-web-spa.yaml'
