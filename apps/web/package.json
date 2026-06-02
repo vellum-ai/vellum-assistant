@@ -109,7 +109,7 @@
     "@vitejs/plugin-react": "6.0.1",
     "eslint": "10.2.0",
     "eslint-plugin-react-hooks": "7.1.1",
-    "happy-dom": "18.0.1",
+    "happy-dom": "20.8.9",
     "js-yaml": "4.1.1",
     "storybook": "10.4.0",
     "tailwindcss": "4.1.8",
