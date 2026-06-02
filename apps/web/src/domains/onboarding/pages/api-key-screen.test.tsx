@@ -83,6 +83,60 @@ describe("ApiKeyScreen — openai-compatible", () => {
     expect(continueButton().disabled).toBe(false);
   });
 
+  test("a base URL without an http(s) scheme keeps Continue disabled and shows a hint", () => {
+    setPendingProviderKey({ provider: "openai-compatible", key: "" });
+    render(<ApiKeyScreen />);
+
+    fireEvent.change(
+      screen.getByPlaceholderText("https://api.example.com/v1"),
+      { target: { value: "localhost:1234/v1" } },
+    );
+    fireEvent.change(screen.getByPlaceholderText("model-1, model-2"), {
+      target: { value: "local-model" },
+    });
+
+    expect(continueButton().disabled).toBe(true);
+    expect(
+      screen.getByText(
+        "Enter a full http(s) URL, e.g. http://localhost:1234/v1",
+      ),
+    ).toBeTruthy();
+  });
+
+  test("no validation hint is shown while the base URL field is empty", () => {
+    setPendingProviderKey({ provider: "openai-compatible", key: "" });
+    render(<ApiKeyScreen />);
+
+    expect(
+      screen.queryByText(
+        "Enter a full http(s) URL, e.g. http://localhost:1234/v1",
+      ),
+    ).toBeNull();
+  });
+
+  test("a valid http(s) base URL enables Continue and persists on click", () => {
+    setPendingProviderKey({ provider: "openai-compatible", key: "" });
+    render(<ApiKeyScreen />);
+
+    fireEvent.change(
+      screen.getByPlaceholderText("https://api.example.com/v1"),
+      { target: { value: "http://localhost:1234/v1" } },
+    );
+    fireEvent.change(screen.getByPlaceholderText("model-1, model-2"), {
+      target: { value: "local-model" },
+    });
+
+    expect(continueButton().disabled).toBe(false);
+    expect(
+      screen.queryByText(
+        "Enter a full http(s) URL, e.g. http://localhost:1234/v1",
+      ),
+    ).toBeNull();
+
+    fireEvent.click(continueButton());
+    expect(peekPendingProviderKey()?.baseUrl).toBe("http://localhost:1234/v1");
+  });
+
   test("persists baseUrl + models on the pending key and navigates to privacy", () => {
     setPendingProviderKey({ provider: "openai-compatible", key: "" });
     render(<ApiKeyScreen />);

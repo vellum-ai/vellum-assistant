@@ -17,6 +17,15 @@ import {
 } from "@/domains/onboarding/provider-key";
 import { routes } from "@/utils/routes";
 
+function isValidHttpUrl(value: string): boolean {
+  try {
+    const u = new URL(value);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 export function ApiKeyScreen() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -43,10 +52,12 @@ export function ApiKeyScreen() {
     .map((s) => s.trim())
     .filter(Boolean);
 
+  const trimmedBaseUrl = baseUrl.trim();
   const keyOk = !requiresKey || apiKey.trim().length > 0;
-  const baseUrlOk = !isCustom || baseUrl.trim().length > 0;
+  const baseUrlOk = !isCustom || isValidHttpUrl(trimmedBaseUrl);
   const modelsOk = !isCustom || models.length > 0;
   const canContinue = keyOk && baseUrlOk && modelsOk;
+  const showBaseUrlError = isCustom && trimmedBaseUrl.length > 0 && !baseUrlOk;
 
   const onContinue = () => {
     if (!canContinue) return;
@@ -121,6 +132,11 @@ export function ApiKeyScreen() {
                   onChange={(e) => setBaseUrl(e.target.value)}
                   fullWidth
                 />
+                {showBaseUrlError && (
+                  <p className="text-body-small-default text-[var(--content-tertiary)]">
+                    Enter a full http(s) URL, e.g. http://localhost:1234/v1
+                  </p>
+                )}
               </div>
               <div className="flex flex-col gap-1">
                 <label className="text-body-small-default text-[var(--content-tertiary)]">
