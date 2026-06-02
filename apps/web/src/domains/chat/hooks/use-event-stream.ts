@@ -13,6 +13,11 @@
  *    10s window retry budget; on success publishes
  *    `reachability.retry-requested` so the bus bounces its SSE).
  *
+ * Bus subscriptions use `useBusSubscription` per EVENT_BUS.md. The
+ * stream-context lifecycle (setup / teardown of the stream-store
+ * sentinel) remains in a plain `useEffect` since it is resource
+ * management, not event handling.
+ *
  * Visibility / app-state are owned by `useEventBusInit`. This hook
  * does not register any `visibilitychange` listener of its own.
  */
@@ -20,6 +25,7 @@
 import {
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
 } from "react";
 
@@ -33,7 +39,7 @@ import { createReconcileOnReopen } from "@/domains/chat/streaming/reconcile-on-r
 import { createSseEventConsumer } from "@/domains/chat/streaming/sse-event-consumer";
 import { endTurn } from "@/domains/chat/turn-coordinator";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
-import { subscribe } from "@/lib/event-bus";
+import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { recordLifecycleDiagnostic } from "@/lib/diagnostics";
 import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 import type {
@@ -88,6 +94,10 @@ export function useEventStream({
   cancelScheduledRefetch,
 }: UseEventStreamParams): void {
   // ---- Ref-stabilize unstable callback params ----
+  //
+  // These refs serve multiple consumers (useMemo factories, non-bus
+  // effects, bus handlers) so they remain even though useBusSubscription
+  // auto-stabilizes its own handler ref.
   const handleStreamEventRef = useRef(handleStreamEvent);
   handleStreamEventRef.current = handleStreamEvent;
 
@@ -152,7 +162,9 @@ export function useEventStream({
   }
 
   // --------------------------------------------------------------------------
-  // Effect 1: Subscribe to the bus-owned SSE for the active conversation.
+  // Stream context lifecycle — setup / teardown of the stream-store
+  // sentinel. Not a bus subscription; resource management that must
+  // track the active conversation's identity.
   // --------------------------------------------------------------------------
   useEffect(() => {
     if (
@@ -177,32 +189,11 @@ export function useEventStream({
     // `use-send-message.ts` reads `stream` as a presence bit to decide
     // whether SSE will deliver the response. We write a sentinel whose
     // `cancel()` is a no-op — the real teardown is the bus unsubscribe
-    // in the cleanup function below.
+    // in `useBusSubscription`.
     const presence: ChatEventStream = { cancel: () => {} };
     ss.setStream(presence);
 
-    const consumer = createSseEventConsumer({
-      activeConversationIdRef: activeConversationIdLatestRef,
-      handleStreamEvent: (event, epoch) =>
-        handleStreamEventRef.current(event, epoch),
-      reconcileActive: () => reconcileActiveConversationRef.current(),
-    });
-
-    const unsubEvent = subscribe("sse.event", (envelope) =>
-      consumer.handleSseEvent(envelope),
-    );
-
-    // clientSeq resets to 1 on each new SSE subscription (fresh
-    // server-side counter map). Reset the consumer's seq tracking on
-    // reconnect so the first post-reconnect event re-seeds the cursor
-    // instead of triggering a false generation reset.
-    const unsubOpened = subscribe("sse.opened", () =>
-      consumer.notifyReconnect(),
-    );
-
     return () => {
-      unsubEvent();
-      unsubOpened();
       useStreamStore.getState().bumpEpoch();
       // Clear stream/context only if they still belong to this
       // subscription — a newer subscription may have already replaced
@@ -228,46 +219,73 @@ export function useEventStream({
   ]);
 
   // --------------------------------------------------------------------------
-  // Effect 2: React to bus-owned SSE (re)opens — runs the post-reconnect
-  // reconcile pass via the `reconcileOnReopen` module.
+  // SSE event consumer — recreated per conversation so internal seq-
+  // tracking state resets on switch. Reads callback params from stable
+  // refs at call time, so the factory deps are only the identity keys.
   // --------------------------------------------------------------------------
-  useEffect(() => {
+  const consumer = useMemo(() => {
+    if (
+      assistantStateKind !== "active" ||
+      !assistantId ||
+      !activeConversationId ||
+      !conversationExistsOnServer
+    ) {
+      return null;
+    }
+    return createSseEventConsumer({
+      activeConversationIdRef: activeConversationIdLatestRef,
+      handleStreamEvent: (event, epoch) =>
+        handleStreamEventRef.current(event, epoch),
+      reconcileActive: () => reconcileActiveConversationRef.current(),
+    });
+  }, [
+    assistantStateKind,
+    assistantId,
+    activeConversationId,
+    conversationExistsOnServer,
+  ]);
+
+  // --------------------------------------------------------------------------
+  // Post-reconnect reconcile handler — recreated per conversation so
+  // diagnostics capture the correct assistant/conversation pair and the
+  // handler's captured-id filter stays current.
+  // --------------------------------------------------------------------------
+  const reconcileHandler = useMemo(() => {
     if (
       assistantStateKind !== "active" ||
       !assistantId ||
       !activeConversationId
     ) {
-      return;
+      return null;
     }
-
-    const handler = createReconcileOnReopen({
+    return createReconcileOnReopen({
       assistantId,
       conversationId: activeConversationId,
       reconcileActive: () => reconcileActiveConversationRef.current(),
       startReconciliationLoop: (epoch) =>
         startReconciliationLoopRef.current(epoch),
-      dispatchReconnect: dispatchReconnectRef.current,
+      dispatchReconnect: () => dispatchReconnectRef.current(),
     });
-
-    return subscribe("sse.opened", (payload) =>
-      handler.handleSseOpened(payload),
-    );
-  }, [
-    assistantStateKind,
-    assistantId,
-    activeConversationId,
-  ]);
+  }, [assistantStateKind, assistantId, activeConversationId]);
 
   // --------------------------------------------------------------------------
-  // Effect 3: React to bus-owned SSE close events.
-  //
-  // The bus emits `sse.closed` on transport errors. We clear any
-  // in-flight assistant streaming flag so the composer doesn't sit in
-  // "thinking" forever, drop the matching processing key so the
-  // sidebar's indicator clears, and bounce reachability so the
-  // burst-limiter below can kick a retry.
+  // Bus subscriptions — per EVENT_BUS.md, React code uses
+  // `useBusSubscription` instead of raw `subscribe` inside useEffect.
+  // The helper auto-stabilizes the handler ref (useLayoutEffect) so
+  // inline closures are safe and subscriptions are never torn down /
+  // re-registered on re-render.
   // --------------------------------------------------------------------------
-  useEffect(() => {
+
+  useBusSubscription("sse.event", (envelope) => {
+    consumer?.handleSseEvent(envelope);
+  });
+
+  useBusSubscription("sse.opened", (payload) => {
+    consumer?.notifyReconnect();
+    reconcileHandler?.handleSseOpened(payload);
+  });
+
+  useBusSubscription("sse.closed", ({ reason }) => {
     if (
       assistantStateKind !== "active" ||
       !assistantId ||
@@ -275,39 +293,31 @@ export function useEventStream({
     ) {
       return;
     }
-    const capturedAssistantId = assistantId;
-    const capturedConversationId = activeConversationId;
-
-    return subscribe("sse.closed", ({ reason }) => {
-      const hadActiveTurn = isSending(useTurnStore.getState());
-      const streamState = useStreamStore.getState();
-      recordLifecycleDiagnostic("sse_stream_error", {
-        assistantId: capturedAssistantId,
-        conversationId: capturedConversationId,
-        epoch: streamState.streamEpoch,
-        messageLength: reason.length,
-      });
-      endTurn({
-        conversationId: streamState.streamContext?.conversationId,
-        reason: "session_error",
-      });
-      // Idle SSE drops should reopen the stream without interrupting the
-      // user; active turns still surface the reconnect state immediately.
-      if (hadActiveTurn) {
-        reachabilityProbeRef.current({ showConnectingImmediately: true });
-      } else {
-        backgroundReachabilityProbeRef.current = true;
-        reachabilityProbeRef.current({ mode: "background" });
-      }
+    const hadActiveTurn = isSending(useTurnStore.getState());
+    const streamState = useStreamStore.getState();
+    recordLifecycleDiagnostic("sse_stream_error", {
+      assistantId,
+      conversationId: activeConversationId,
+      epoch: streamState.streamEpoch,
+      messageLength: reason.length,
     });
-  }, [
-    assistantStateKind,
-    assistantId,
-    activeConversationId,
-  ]);
+    endTurn({
+      conversationId: streamState.streamContext?.conversationId,
+      reason: "session_error",
+    });
+    // Idle SSE drops should reopen the stream without interrupting the
+    // user; active turns still surface the reconnect state immediately.
+    if (hadActiveTurn) {
+      reachabilityProbeRef.current({ showConnectingImmediately: true });
+    } else {
+      backgroundReachabilityProbeRef.current = true;
+      reachabilityProbeRef.current({ mode: "background" });
+    }
+  });
 
   // --------------------------------------------------------------------------
-  // Effect 4: Upgrade hidden background checks once a turn becomes active.
+  // Upgrade hidden background checks once a turn becomes active.
+  // (Zustand store subscription, not a bus event.)
   // --------------------------------------------------------------------------
   useEffect(() => {
     if (
@@ -335,17 +345,17 @@ export function useEventStream({
   }, [assistantStateKind, assistantId, activeConversationId]);
 
   // --------------------------------------------------------------------------
-  // Effect 5: Reachability retry — drive the burst-limiter from the
-  // probe's phase. The limiter publishes `reachability.retry-requested`
-  // on success so the bus bounces its SSE; `reconcileOnReopen` runs
-  // the post-reconnect reconcile on the resulting `sse.opened`.
+  // Reachability retry — drive the burst-limiter from the probe's
+  // phase. The limiter publishes `reachability.retry-requested` on
+  // success so the bus bounces its SSE; `reconcileOnReopen` runs the
+  // post-reconnect reconcile on the resulting `sse.opened`.
   // --------------------------------------------------------------------------
   useEffect(() => {
     burstLimiterRef.current!.handleReachabilityPhase(reachabilityPhase);
   }, [reachabilityPhase]);
 
   // --------------------------------------------------------------------------
-  // Effect 6: Unmount cleanup.
+  // Unmount cleanup.
   // --------------------------------------------------------------------------
   useEffect(() => {
     return () => {
