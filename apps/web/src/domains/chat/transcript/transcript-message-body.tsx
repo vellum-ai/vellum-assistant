@@ -234,31 +234,6 @@ function shouldAutoExpandToolCallGroup({
   return toolCalls.some((toolCall) => toolCall.status === "running");
 }
 
-function latestMessageActivityTimestamp(
-  message: DisplayMessage,
-): number | undefined {
-  const latestToolTimestamp = message.toolCalls?.reduce<number | undefined>(
-    (latest, toolCall) => {
-      const toolTimestamp = toolCall.completedAt ?? toolCall.startedAt;
-      if (toolTimestamp == null) {
-        return latest;
-      }
-      return latest == null ? toolTimestamp : Math.max(latest, toolTimestamp);
-    },
-    undefined,
-  );
-
-  if (latestToolTimestamp == null) {
-    return message.timestamp;
-  }
-
-  if (message.timestamp == null) {
-    return latestToolTimestamp;
-  }
-
-  return Math.max(message.timestamp, latestToolTimestamp);
-}
-
 function fallbackRoleLabel(
   role: DisplayMessage["role"],
   assistantDisplayName?: string | null,
@@ -450,7 +425,6 @@ export function TranscriptMessageBody({
   const isSuppressedUiTool = (tc: ChatMessageToolCall) =>
     !tc.pendingConfirmation &&
     (tc.toolName === "ui_show" || tc.toolName === "ui_update" || tc.toolName === "ui_dismiss");
-  const messageTimestamp = latestMessageActivityTimestamp(message);
 
   // Hard line breaks are enabled for every transcript message regardless of
   // role: single `\n`s in assistant output (not just user Shift+Enter input)
@@ -801,9 +775,7 @@ export function TranscriptMessageBody({
           />
           <div className="h-6 opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100 has-[:focus-visible]:opacity-100 group-data-[revealed=true]/msg:opacity-100">
             <MessageHoverActions
-              content={messageText}
-              timestamp={messageTimestamp}
-              role={message.role}
+              message={message}
               openInSlackUrl={slackMessageUrl}
               onFork={forkHandler}
               onInspect={inspectHandler}
@@ -977,9 +949,7 @@ export function TranscriptMessageBody({
         />
         <div className="h-6 opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100 has-[:focus-visible]:opacity-100 group-data-[revealed=true]/msg:opacity-100">
           <MessageHoverActions
-            content={messageText}
-            timestamp={messageTimestamp}
-            role={message.role}
+            message={message}
             openInSlackUrl={slackMessageUrl}
             onFork={forkHandler}
             onInspect={inspectHandler}
