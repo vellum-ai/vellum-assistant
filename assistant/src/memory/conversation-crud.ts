@@ -1803,6 +1803,24 @@ export function setConversationInferenceProfile(
 }
 
 /**
+ * Set whether an incognito conversation should factor in existing memories.
+ * Stored as 1/0 in the `factor_in_memories` column. Bumps `updatedAt`.
+ */
+export function setConversationFactorInMemories(
+  id: string,
+  factorInMemories: boolean,
+): void {
+  const db = getDb();
+  db.update(conversations)
+    .set({
+      factorInMemories: factorInMemories ? 1 : 0,
+      updatedAt: Date.now(),
+    })
+    .where(eq(conversations.id, id))
+    .run();
+}
+
+/**
  * Atomically set the inference profile, session id, and expiry timestamp for
  * a conversation. Pass `null` for all three to clear the session-backed
  * override and fall back to the workspace `llm.activeProfile` resolution.
