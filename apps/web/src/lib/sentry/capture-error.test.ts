@@ -8,9 +8,9 @@ mock.module("@sentry/react", () => ({
   captureException: captureExceptionMock,
 }));
 
-const { captureError, normalizeToError } = await import(
-  "@/lib/sentry/capture-error"
-);
+const { captureError, normalizeToError, isExpectedDaemonTransientError } =
+  await import("@/lib/sentry/capture-error");
+const { ApiError } = await import("@/utils/api-errors");
 
 describe("normalizeToError", () => {
   test("returns Error instances unchanged", () => {
@@ -110,5 +110,90 @@ describe("captureError", () => {
     captureExceptionMock.mockClear();
     captureError(new TypeError("Failed to fetch"), { context: "test-ctx" });
     expect(captureExceptionMock).not.toHaveBeenCalled();
+  });
+
+  test("reports daemon transient errors without bestEffort flag", () => {
+    captureExceptionMock.mockClear();
+    captureError(new ApiError(503, "Your assistant is still starting up."), {
+      context: "test-ctx",
+    });
+    expect(captureExceptionMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("silently drops daemon transient errors with bestEffort flag", () => {
+    captureExceptionMock.mockClear();
+    captureError(new ApiError(503, "Your assistant is still starting up."), {
+      context: "test-ctx",
+      bestEffort: true,
+    });
+    expect(captureExceptionMock).not.toHaveBeenCalled();
+  });
+
+  test("reports unexpected ApiError even with bestEffort flag", () => {
+    captureExceptionMock.mockClear();
+    captureError(new ApiError(500, "Internal Server Error"), {
+      context: "test-ctx",
+      bestEffort: true,
+    });
+    expect(captureExceptionMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("isExpectedDaemonTransientError", () => {
+  test("returns true for 503 daemon starting up", () => {
+    expect(
+      isExpectedDaemonTransientError(
+        new ApiError(503, "Your assistant is still starting up."),
+      ),
+    ).toBe(true);
+  });
+
+  test("returns true for 502 bad gateway", () => {
+    expect(
+      isExpectedDaemonTransientError(new ApiError(502, "Bad gateway")),
+    ).toBe(true);
+  });
+
+  test("returns true for 401 auth race", () => {
+    expect(
+      isExpectedDaemonTransientError(
+        new ApiError(401, "Authentication credentials were not provided."),
+      ),
+    ).toBe(true);
+  });
+
+  test("returns true for 400 org-header missing", () => {
+    expect(
+      isExpectedDaemonTransientError(
+        new ApiError(400, "Vellum-Organization-Id header is required."),
+      ),
+    ).toBe(true);
+  });
+
+  test("returns false for 400 without org-header message", () => {
+    expect(
+      isExpectedDaemonTransientError(
+        new ApiError(400, "Invalid request body."),
+      ),
+    ).toBe(false);
+  });
+
+  test("returns false for 500 internal server error", () => {
+    expect(
+      isExpectedDaemonTransientError(
+        new ApiError(500, "Internal Server Error"),
+      ),
+    ).toBe(false);
+  });
+
+  test("returns false for non-ApiError instances", () => {
+    expect(isExpectedDaemonTransientError(new Error("random error"))).toBe(
+      false,
+    );
+    expect(
+      isExpectedDaemonTransientError(new TypeError("Failed to fetch")),
+    ).toBe(false);
+    expect(isExpectedDaemonTransientError("string error")).toBe(false);
+    expect(isExpectedDaemonTransientError(null)).toBe(false);
   });
 });

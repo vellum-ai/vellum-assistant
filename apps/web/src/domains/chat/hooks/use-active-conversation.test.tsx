@@ -23,6 +23,7 @@ import type { Conversation } from "@/types/conversation-types";
 let foregroundImpl: Conversation[] = [];
 let backgroundImpl: Conversation[] = [];
 let scheduledImpl: Conversation[] = [];
+let isOrgReadyImpl = true;
 const refreshConversationRowCalls: Array<{
   assistantId: string | null;
   conversationId: string;
@@ -32,6 +33,10 @@ mock.module("@/hooks/conversation-queries", () => ({
   useConversationListQuery: () => ({ conversations: foregroundImpl }),
   useBackgroundConversationListQuery: () => ({ conversations: backgroundImpl }),
   useScheduledConversationListQuery: () => ({ conversations: scheduledImpl }),
+}));
+
+mock.module("@/hooks/use-is-org-ready", () => ({
+  useIsOrgReady: () => isOrgReadyImpl,
 }));
 
 mock.module("@/utils/conversation-cache-mutations", () => ({
@@ -67,6 +72,7 @@ beforeEach(() => {
   foregroundImpl = [];
   backgroundImpl = [];
   scheduledImpl = [];
+  isOrgReadyImpl = true;
   refreshConversationRowCalls.length = 0;
 });
 
@@ -151,6 +157,23 @@ describe("useActiveConversation", () => {
     });
 
     // THEN no single-row fetch is issued
+    await Promise.resolve();
+    expect(refreshConversationRowCalls).toHaveLength(0);
+  });
+
+  test("does not fetch when org is not ready", async () => {
+    // GIVEN the org store has not hydrated yet
+    isOrgReadyImpl = false;
+    foregroundImpl = [];
+    backgroundImpl = [];
+
+    // WHEN the hook runs with org not ready
+    renderHook(
+      () => useActiveConversation("asst-1", "bg-unloaded", true),
+      { wrapper },
+    );
+
+    // THEN no fetch is issued (prevents 400 org-header errors)
     await Promise.resolve();
     expect(refreshConversationRowCalls).toHaveLength(0);
   });

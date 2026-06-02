@@ -1,5 +1,6 @@
 import * as Sentry from "@sentry/react";
 
+import { ApiError } from "@/utils/api-errors";
 import { isTransientNetworkError } from "@/utils/is-transient-network-error";
 
 /**
@@ -46,12 +47,48 @@ export function normalizeToError(value: unknown): Error {
 }
 
 /**
+ * Detects expected transient HTTP errors from daemon API calls that
+ * occur during normal startup sequences and auth-session hydration.
+ *
+ * These are valid HTTP responses (not browser-level network failures)
+ * that indicate the daemon or its infrastructure is not yet ready:
+ *
+ * - **503** — Daemon still starting up ("Your assistant is still starting up")
+ * - **502** — Reverse proxy cannot reach the daemon pod yet
+ * - **401** — Auth session not yet established (race during login)
+ * - **400 with org-header message** — Org store has not hydrated yet;
+ *   the `Vellum-Organization-Id` header interceptor read `null`
+ *
+ * Only `ApiError` instances are matched. Other error types (TypeError,
+ * generic Error, plain objects) pass through — they represent network
+ * failures (handled by `isTransientNetworkError`) or application bugs.
+ */
+export function isExpectedDaemonTransientError(error: unknown): boolean {
+  if (!(error instanceof ApiError)) return false;
+  if (error.status === 503) return true;
+  if (error.status === 502) return true;
+  if (error.status === 401) return true;
+  if (
+    error.status === 400 &&
+    error.message.includes("Organization-Id header")
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * Captures a non-transient error to Sentry with structured tags.
  *
  * Transient browser-level fetch failures (network drop, DNS timeout,
  * device sleep) are silently dropped — they are not application bugs
  * and the app handles them gracefully via TanStack Query retries,
  * best-effort sync patterns, and error-state UI.
+ *
+ * When `bestEffort` is `true`, expected daemon transient HTTP errors
+ * (503/502/401/400-org-header) are also silently dropped. Use this for
+ * background fetches that fire optimistically and have natural retry
+ * surfaces (SSE reconnect, dependency-change re-renders, navigation).
  *
  * Non-Error values (e.g. HeyAPI response bodies thrown by
  * `throwOnError: true`) are normalized into `Error` instances before
@@ -72,9 +109,11 @@ export function captureError(
     level?: Sentry.SeverityLevel;
     tags?: Record<string, string>;
     extra?: Record<string, unknown>;
+    bestEffort?: boolean;
   },
 ): void {
   if (isTransientNetworkError(error)) return;
+  if (opts.bestEffort && isExpectedDaemonTransientError(error)) return;
   console.error(`[${opts.context}]`, error);
 
   const normalized = normalizeToError(error);

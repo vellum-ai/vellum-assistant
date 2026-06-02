@@ -145,7 +145,7 @@ function handleConversationSyncTags(
         ).catch((err: unknown) => {
           captureError(err, {
             context: "useConversationSync.refreshRow",
-            level: "warning",
+            bestEffort: true,
             extra: {
               assistantId,
               conversationId: parsed.conversationId,

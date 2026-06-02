@@ -186,6 +186,17 @@ pass additional indexed tags via `tags` and unindexed metadata via `extra`.
 Toast/UI display stays at the call site — `captureError` never shows
 user-facing UI.
 
+For **best-effort background fetches** (imperative daemon calls that fire
+optimistically and have natural retry surfaces like SSE reconnect or
+navigation), pass `bestEffort: true`. This additionally filters expected
+daemon transient errors (503 startup, 502 bad-gateway, 401 auth-race,
+400 org-header-not-ready) while still reporting unexpected errors (500,
+data-integrity, programming errors) to Sentry:
+
+```ts
+captureError(err, { context: "useActiveConversation.refreshRow", bestEffort: true });
+```
+
 **Do not use bare `Sentry.captureException`.** The only exceptions are
 framework-level integration points that need raw Sentry scope
 manipulation: `RouteErrorBoundary`, `RouterProvider.onError`, and
