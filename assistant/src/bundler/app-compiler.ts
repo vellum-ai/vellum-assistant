@@ -277,13 +277,15 @@ const compileSlots = new Map<string, CompileSlot>();
  *
  * The first compile for an appDir creates a context and caches it; subsequent
  * compiles call ctx.rebuild(), which reuses esbuild's hot module graph and is
- * typically sub-second. The cached entryPoints are recorded so the context can
- * be torn down and rebuilt if the set of entry points changes (e.g. a new
- * top-level source file is added).
+ * typically sub-second. A stable `key` fingerprinting the resolution-relevant
+ * build options (entry points + nodePaths) is recorded so the context can be
+ * torn down and rebuilt if any of them change — e.g. a new top-level source
+ * file is added, or the user adds an allowed third-party import whose newly
+ * installed package cache extends nodePaths.
  */
 interface CachedContext {
   ctx: esbuild.BuildContext;
-  entryPoints: string[];
+  key: string;
 }
 
 const appContexts = new Map<string, CachedContext>();
@@ -308,11 +310,19 @@ export function __resetAppCompilerContextStats(): void {
   contextStats.rebuildCount = 0;
 }
 
-/** True if the two entry-point lists are identical (order-insensitive). */
-function sameEntryPoints(a: string[], b: string[]): boolean {
-  if (a.length !== b.length) return false;
-  const set = new Set(a);
-  return b.every((p) => set.has(p));
+/**
+ * Build a stable identity key for the resolution-relevant build options.
+ *
+ * Two contexts are interchangeable only if they share the same entry points
+ * AND the same module-resolution roots (nodePaths). Sorting makes the key
+ * order-insensitive so a reorder alone never forces a needless recreate, while
+ * any added/removed entry point or nodePath does.
+ */
+function contextKey(entryPoints: string[], nodePaths: string[]): string {
+  return JSON.stringify({
+    entryPoints: [...entryPoints].sort(),
+    nodePaths: [...nodePaths].sort(),
+  });
 }
 
 /**
@@ -324,7 +334,8 @@ let esbuildBinaryConfigured = false;
 
 /**
  * Get (or lazily create) the warm esbuild context for an appDir, recreating it
- * if the resolved entry points changed since it was cached.
+ * if any resolution-relevant build option (entry points or nodePaths) changed
+ * since it was cached.
  */
 async function getOrCreateContext(
   appDir: string,
@@ -332,13 +343,15 @@ async function getOrCreateContext(
   distDir: string,
   nodePaths: string[],
 ): Promise<esbuild.BuildContext> {
+  const key = contextKey(entryPoints, nodePaths);
   const cached = appContexts.get(appDir);
   if (cached) {
-    if (sameEntryPoints(cached.entryPoints, entryPoints)) {
+    if (cached.key === key) {
       contextStats.rebuildCount++;
       return cached.ctx;
     }
-    // Entry points changed — dispose the stale context and build a fresh one.
+    // A resolution input changed (entry points or nodePaths) — dispose the
+    // stale context and build a fresh one so esbuild picks up the new paths.
     appContexts.delete(appDir);
     await cached.ctx.dispose();
   }
@@ -365,7 +378,7 @@ async function getOrCreateContext(
     absWorkingDir: appDir,
   });
   contextStats.createCount++;
-  appContexts.set(appDir, { ctx, entryPoints });
+  appContexts.set(appDir, { ctx, key });
   return ctx;
 }
 
