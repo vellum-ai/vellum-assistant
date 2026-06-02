@@ -5,7 +5,8 @@
     "scripts/**/*.ts",
     "src/daemon/main.ts!",
     "src/plugin-api/index.ts!",
-    "src/api/index.ts!"
+    "src/api/index.ts!",
+    "src/config/bundled-skills/app-builder/__evals__/index.ts!"
   ],
   "project": ["src/**/*.ts!", "src/**/*.tsx!", "scripts/**/*.ts"],
   "ignoreDependencies": [
