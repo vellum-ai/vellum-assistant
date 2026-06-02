@@ -2,12 +2,14 @@ import { useEffect } from "react";
 
 import { Navigate, useNavigate } from "react-router";
 
+import { Button } from "@vellum/design-library/components/button";
 import { Card } from "@vellum/design-library/components/card";
 import { Notice } from "@vellum/design-library/components/notice";
 import { toast } from "@vellum/design-library/components/toast";
 import { Typography } from "@vellum/design-library/components/typography";
 import {
   useActiveAssistantIsPlatformHosted,
+  useActiveAssistantLifecycleIsLoading,
   usePlatformGate,
 } from "@/hooks/use-platform-gate";
 import { routes } from "@/utils/routes";
@@ -37,6 +39,13 @@ export function UpgradeCancelPage() {
   // must wait for positive hosted resolution; otherwise a self-hosted
   // deep-link user sees the stray toast before `<Navigate />` flips below.
   const isPlatformHosted = useActiveAssistantIsPlatformHosted();
+  // Distinguish the genuine *resolving* window from terminal-non-hosted
+  // states. The resolving window lets the existing "Returning you to
+  // billing settings…" card render (effect short-circuits, but the auto-
+  // redirect will fire once lifecycle resolves to hosted). Terminal-non-
+  // hosted needs a manual escape hatch since the auto-redirect never
+  // fires (Trap 6 cached-state variant applied to side-effect-tier).
+  const isLifecycleLoading = useActiveAssistantLifecycleIsLoading();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -63,6 +72,31 @@ export function UpgradeCancelPage() {
         <Notice tone="info">
           Log in to the Vellum platform to manage billing and usage.
         </Notice>
+      </div>
+    );
+  }
+
+  // Terminal non-hosted: the auto-redirect effect never runs because
+  // `isPlatformHosted` stays false, and the body's "Returning…" message
+  // would lie. Render a manual escape hatch instead. The lifecycle-
+  // loading window still falls through to the body so the auto-redirect
+  // fires once resolution lands.
+  if (!isPlatformHosted && !isLifecycleLoading) {
+    return (
+      <div className="max-w-4xl space-y-6">
+        <Notice tone="warning">
+          Billing isn&apos;t available for the current assistant state.
+        </Notice>
+        <div className="flex justify-end">
+          <Button
+            variant="primary"
+            onClick={() =>
+              navigate(routes.settings.billing, { replace: true })
+            }
+          >
+            Return to billing
+          </Button>
+        </div>
       </div>
     );
   }

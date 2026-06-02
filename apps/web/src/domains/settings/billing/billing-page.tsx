@@ -9,6 +9,7 @@ import { Notice } from "@vellum/design-library/components/notice";
 import { toast } from "@vellum/design-library/components/toast";
 import {
   useActiveAssistantIsPlatformHosted,
+  useActiveAssistantLifecycleIsLoading,
   usePlatformGate,
 } from "@/hooks/use-platform-gate";
 import { BillingOnboardingModal } from "@/domains/settings/billing/pro-onboarding/billing-onboarding-modal";
@@ -78,6 +79,14 @@ export function BillingPage() {
   // deep-linking here can't fire billing requests during the race window
   // before `<Navigate />` takes over below.
   const isPlatformHosted = useActiveAssistantIsPlatformHosted();
+  // Distinguish the genuine *resolving* window (`kind: "loading"`) from
+  // already-resolved-but-not-hosted states (`retired`, `error`,
+  // `awaiting_version_selection`). `!isPlatformHosted` is true for both —
+  // conflating them turns the lifecycle-loading spinner into a permanent
+  // spinner when the lifecycle has already terminated in a non-hosted
+  // non-self-hosted state (Trap 6 cached-state variant: rule applies to
+  // body-level guards too, not just `disabled`/`isResolving` predicates).
+  const isLifecycleLoading = useActiveAssistantLifecycleIsLoading();
 
   const [searchParams, setSearchParams] = useSearchParams();
   const [planModalOpen, setPlanModalOpen] = useState(false);
@@ -130,17 +139,34 @@ export function BillingPage() {
   // the loading window, so without this guard a logged-in user deep-linking
   // here while the assistant is still resolving would mount every
   // subcomponent and fire their org-scoped billing queries before we know
-  // whether the assistant is platform-hosted. Wait for positive resolution:
-  // either `isPlatformHosted` flips true (body mounts, queries fire safely)
-  // or `platformGate` flips to `"gated"` (the `<Navigate />` above takes
-  // over and this branch never runs).
-  if (!isPlatformHosted) {
+  // whether the assistant is platform-hosted. Show a spinner *only* during
+  // the genuine resolving window; once lifecycle resolves we either render
+  // the body (hosted) or fall through to the terminal-non-hosted branch
+  // below.
+  if (isLifecycleLoading) {
     return (
       <div className="max-w-5xl space-y-4">
         <div className="flex items-center gap-2 py-6 text-body-medium-lighter text-[var(--content-secondary)]">
           <Loader2 className="h-4 w-4 animate-spin" />
           Loading billing…
         </div>
+      </div>
+    );
+  }
+
+  // Already-resolved non-hosted states (`retired`, `error`,
+  // `awaiting_version_selection`, transitional `initializing` /
+  // `cleaning_up`): no platform-hosted assistant to manage billing for,
+  // but not self-hosted either so the `"gated"` branch above didn't
+  // match. Render a terminal Notice instead of a spinner that would wait
+  // for a hosting transition that will never happen — and keep the
+  // subcomponent queries silent.
+  if (!isPlatformHosted) {
+    return (
+      <div className="max-w-5xl space-y-4">
+        <Notice tone="warning">
+          Billing isn&apos;t available for the current assistant state.
+        </Notice>
       </div>
     );
   }

@@ -15,6 +15,7 @@ import {
 } from "@/generated/api/@tanstack/react-query.gen";
 import {
   useActiveAssistantIsPlatformHosted,
+  useActiveAssistantLifecycleIsLoading,
   usePlatformGate,
 } from "@/hooks/use-platform-gate";
 import { routes } from "@/utils/routes";
@@ -44,6 +45,16 @@ export function UpgradeSuccessPage() {
   // positive hosted resolution (matches the notifications-page pattern from
   // PR-2.5 / Trap 6).
   const isPlatformHosted = useActiveAssistantIsPlatformHosted();
+  // Distinguish the genuine *resolving* window from terminal-non-hosted
+  // states. We let the resolving window fall through to PendingState (the
+  // existing "Finalizing your upgrade…" UX) since polling is still
+  // disabled there. Terminal-non-hosted gets its own Notice branch below
+  // so the user isn't stuck staring at PendingState forever.
+  const isLifecycleLoading = useActiveAssistantLifecycleIsLoading();
+  // Polling is allowed only after lifecycle resolves *positively* to
+  // hosted. Used to gate both the query's `enabled` and the timeout that
+  // disables `refetchInterval` — see effect below.
+  const isPollingEnabled = platformGate === "full" && isPlatformHosted;
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [pollExpired, setPollExpired] = useState(false);
@@ -65,7 +76,7 @@ export function UpgradeSuccessPage() {
     // before we know the assistant is hosted. Wait for positive
     // resolution; either the query fires (hosted) or the body's
     // `<Navigate />` takes over (gated).
-    enabled: platformGate === "full" && isPlatformHosted,
+    enabled: isPollingEnabled,
     // Stop polling once we observe Pro OR the timeout fires.
     refetchInterval: (query) => {
       const planId = query.state.data?.plan_id;
@@ -75,11 +86,19 @@ export function UpgradeSuccessPage() {
     refetchIntervalInBackground: false,
   });
 
-  // Hard timeout: even if Stripe + the webhook never converge, stop hammering.
+  // Hard timeout: even if Stripe + the webhook never converge, stop
+  // hammering. Tied to `isPollingEnabled` so the 10-second clock starts
+  // *after* polling actually becomes possible — otherwise a cold Stripe
+  // redirect that spends >10s resolving lifecycle would set `pollExpired`
+  // before a single request fired, and the very first response would
+  // immediately disable `refetchInterval` (ProcessingFallbackState with
+  // no actual polling). Cleanup clears the timer if polling gets
+  // disabled again (gated/disabled mid-flight).
   useEffect(() => {
+    if (!isPollingEnabled) return;
     const t = setTimeout(() => setPollExpired(true), POLL_TIMEOUT_MS);
     return () => clearTimeout(t);
-  }, []);
+  }, [isPollingEnabled]);
 
   const reachedPro = data?.plan_id === "pro";
 
@@ -106,6 +125,32 @@ export function UpgradeSuccessPage() {
         <Notice tone="info">
           Log in to the Vellum platform to manage billing and usage.
         </Notice>
+      </div>
+    );
+  }
+
+  // Terminal non-hosted (resolved to `retired`, `error`,
+  // `awaiting_version_selection`, or transitional states): polling never
+  // becomes enabled, so PendingState would render "Finalizing your
+  // upgrade…" forever. Short-circuit to a Notice with a manual escape
+  // hatch. The lifecycle-loading window still falls through to the body
+  // (PendingState is the right UX there).
+  if (!isPollingEnabled && !isLifecycleLoading) {
+    return (
+      <div className="max-w-4xl space-y-6">
+        <Notice tone="warning">
+          We can&apos;t confirm your upgrade for the current assistant.
+          Return to billing to retry.
+        </Notice>
+        <div className="flex justify-end">
+          <Button
+            variant="primary"
+            data-testid="upgrade-success-go-to-billing"
+            onClick={goToBilling}
+          >
+            Go to billing
+          </Button>
+        </div>
       </div>
     );
   }
