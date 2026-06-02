@@ -5,7 +5,9 @@ import {
   type DropdownOption,
 } from "@vellum/design-library/components/dropdown";
 
-import { toLocalDateString } from "@/components/charts/format-date-label";
+import { toTimezoneDateString } from "@/components/charts/format-date-label";
+import { getEffectiveTimezone } from "@/utils/effective-timezone";
+import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 
 export interface DateRange {
   readonly from: string;
@@ -25,14 +27,24 @@ const PRESET_OPTIONS: ReadonlyArray<DropdownOption<PresetDays>> = [
   { value: "90", label: "Last 90 days" },
 ];
 
-function computeRange(days: number): DateRange {
-  const today = new Date();
-  const from = new Date(today);
-  from.setDate(today.getDate() - (days - 1));
-  return {
-    from: toLocalDateString(from),
-    to: toLocalDateString(today),
-  };
+/**
+ * Compute a "last N days" range whose calendar bounds are expressed in the
+ * given IANA timezone, so they stay aligned with the `tz` sent to the backend.
+ *
+ * "Today" is the calendar date in `tz`; the lower bound is that date minus
+ * `days - 1`. Day arithmetic runs on a UTC date anchored at noon to avoid DST
+ * edge slips when subtracting whole days.
+ */
+export function computeRangeInTimezone(
+  days: number,
+  tz: string = getEffectiveTimezone(),
+): DateRange {
+  const to = toTimezoneDateString(new Date(), tz);
+  const [y, m, d] = to.split("-").map(Number);
+  const anchor = new Date(Date.UTC(y, m - 1, d, 12));
+  anchor.setUTCDate(anchor.getUTCDate() - (days - 1));
+  const from = toTimezoneDateString(anchor, "UTC");
+  return { from, to };
 }
 
 function daysBetween(from: string, to: string): number {
@@ -43,6 +55,8 @@ function daysBetween(from: string, to: string): number {
 }
 
 export function DateRangeSelect({ value, onChange }: DateRangeSelectProps) {
+  const tz = useEffectiveTimezone();
+
   const selectedPreset = useMemo<PresetDays>(() => {
     const days = daysBetween(value.from, value.to);
     if (days === 7) return "7";
@@ -51,7 +65,7 @@ export function DateRangeSelect({ value, onChange }: DateRangeSelectProps) {
   }, [value.from, value.to]);
 
   const handleChange = (preset: PresetDays) => {
-    onChange(computeRange(Number(preset)));
+    onChange(computeRangeInTimezone(Number(preset), tz));
   };
 
   return (
