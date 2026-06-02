@@ -1232,30 +1232,9 @@ export class AgentLoop {
           break;
         }
 
-        // The model's "stop" moment. When the response carries no tool calls
-        // the turn is about to yield to the user, so — before persisting it —
-        // the loop decides whether the assistant turn is a usable response or
-        // an empty/refusal turn that should be re-queried with a nudge. While
-        // tool calls are present the loop keeps iterating and there is no stop
-        // decision to make.
-        //
-        // `priorAssistantHadVisibleText` lets the decision distinguish an
-        // organic end-of-turn (the model said its piece earlier in this run(),
-        // e.g. before a side-effect tool like `remember`) from a genuinely
-        // empty completion. It spans the whole run() — in a multi-step chain
-        // (say-something → call-tool → … → end) the visible text lives on an
-        // earlier assistant turn while the final turn is a pure tool_use, so
-        // checking only the most recent turn would falsely nudge and re-send
-        // text the user already saw. It is run-scoped rather than derived from
-        // `history` so it survives inline compaction rewriting the message
-        // array, and it excludes text from prior conversation turns (earlier
-        // run() invocations passed in via `messages`), which have no bearing on
-        // whether the current chain has delivered text yet.
-        //
-        // The decision (nudge vs. accept vs. error) is delegated to the
-        // `emptyResponse` plugin pipeline; the loop carries out the side effect
-        // (appending the nudge `user` turn or surfacing the error). See
-        // `plugins/defaults/empty-response/register.ts` for the default logic.
+        // The model's "stop" moment: a response with no tool calls is about to
+        // yield to the user, so the loop decides whether to accept the turn or
+        // re-query it with a nudge (decision logic in the `emptyResponse` plugin).
         const hasVisibleText = response.content.some(
           (block) => block.type === "text" && block.text.trim().length > 0,
         );
@@ -1267,7 +1246,6 @@ export class AgentLoop {
         if (toolUseBlocks.length === 0) {
           const emptyResponseArgs: EmptyResponseArgs = {
             responseContent: response.content,
-            toolUseBlocksLength: toolUseBlocks.length,
             toolUseTurns,
             emptyResponseRetries,
             maxEmptyResponseRetries: MAX_EMPTY_RESPONSE_RETRIES,
