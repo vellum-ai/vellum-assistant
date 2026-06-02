@@ -1,5 +1,3 @@
-import type { ReactNode } from "react";
-
 import { PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
 import type { CallSiteOverrideDraft } from "@/domains/settings/ai/call-site-overrides-modal";
 
@@ -105,44 +103,6 @@ export interface EmailByoProvider {
   displayName: string;
   setupSkill: string;
   docsUrl: string;
-}
-
-// ---------------------------------------------------------------------------
-// Shared UI prop types
-// ---------------------------------------------------------------------------
-
-export interface ModeToggleProps {
-  mode: ServiceMode;
-  onChange: (mode: ServiceMode) => void;
-}
-
-export interface ServiceCardProps {
-  id?: string;
-  title: string;
-  subtitle: string;
-  mode: ServiceMode;
-  onModeChange: (mode: ServiceMode) => void;
-  children: ReactNode;
-}
-
-export interface ByoServiceCardProps {
-  title: string;
-  subtitle: string;
-  children: ReactNode;
-}
-
-export interface SaveButtonProps {
-  onClick: () => void;
-  disabled?: boolean;
-}
-
-export interface ResetButtonProps {
-  onClick: () => void;
-  filled?: boolean;
-}
-
-export interface CredentialsGuideProps {
-  guide: ProviderCredentialsGuide;
 }
 
 // ---------------------------------------------------------------------------

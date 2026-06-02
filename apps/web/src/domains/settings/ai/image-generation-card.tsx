@@ -1,8 +1,6 @@
 import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { useQueryClient } from "@tanstack/react-query";
-
 import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Input } from "@vellum/design-library/components/input";
 import { toast } from "@vellum/design-library/components/toast";
@@ -23,17 +21,16 @@ import {
 } from "@/domains/settings/ai/ai-types";
 import { reconcileFromDaemonConfig } from "@/domains/settings/ai/ai-utils";
 import { ServiceCard, SaveButton, ResetButton } from "@/domains/settings/ai/ai-shared-ui";
-import { useDaemonConfig, daemonConfigQueryKey } from "@/domains/settings/ai/use-daemon-config";
+import { useDaemonConfig } from "@/domains/settings/ai/use-daemon-config";
 
 export function ImageGenerationCard() {
   const {
-    assistantId,
     config: daemonConfig,
+    invalidateConfig,
     provisionProviderKey,
     patchDaemonConfig,
     setImageGenModelOnDaemon,
   } = useDaemonConfig();
-  const queryClient = useQueryClient();
 
   const [saving, setSaving] = useState(false);
   const [imageGenMode, setImageGenMode] = useState<ServiceMode>(
@@ -67,7 +64,7 @@ export function ImageGenerationCard() {
       });
       await setImageGenModelOnDaemon(imageGenModel);
       remoteSaved = true;
-      void queryClient.invalidateQueries({ queryKey: daemonConfigQueryKey(assistantId) });
+      invalidateConfig();
     } catch {
       // Errors already surfaced via toast + captureError inside the callees.
     }
@@ -90,13 +87,12 @@ export function ImageGenerationCard() {
       setSaving(false);
     }
   }, [
-    assistantId,
     imageGenApiKey,
     imageGenMode,
     imageGenModel,
     patchDaemonConfig,
     provisionProviderKey,
-    queryClient,
+    invalidateConfig,
     setImageGenModelOnDaemon,
   ]);
 

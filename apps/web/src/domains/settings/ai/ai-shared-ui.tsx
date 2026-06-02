@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 import {
   AlertCircle,
   Check,
@@ -12,14 +14,43 @@ import { SegmentControl } from "@vellum/design-library/components/segment-contro
 import { DetailCard } from "@/components/detail-card";
 
 import type {
-  ByoServiceCardProps,
-  CredentialsGuideProps,
-  ModeToggleProps,
-  ResetButtonProps,
-  SaveButtonProps,
-  ServiceCardProps,
+  ProviderCredentialsGuide,
   ServiceMode,
 } from "@/domains/settings/ai/ai-types";
+
+interface ModeToggleProps {
+  mode: ServiceMode;
+  onChange: (mode: ServiceMode) => void;
+}
+
+interface ServiceCardProps {
+  id?: string;
+  title: string;
+  subtitle: string;
+  mode: ServiceMode;
+  onModeChange: (mode: ServiceMode) => void;
+  children: ReactNode;
+}
+
+interface SaveButtonProps {
+  onClick: () => void;
+  disabled?: boolean;
+}
+
+interface ResetButtonProps {
+  onClick: () => void;
+  filled?: boolean;
+}
+
+interface ByoServiceCardProps {
+  title: string;
+  subtitle: string;
+  children: ReactNode;
+}
+
+interface CredentialsGuideProps {
+  guide: ProviderCredentialsGuide;
+}
 
 export function ModeToggle({ mode, onChange }: ModeToggleProps) {
   return (

@@ -1,8 +1,6 @@
 import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { useQueryClient } from "@tanstack/react-query";
-
 import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Input } from "@vellum/design-library/components/input";
 import { toast } from "@vellum/design-library/components/toast";
@@ -25,16 +23,16 @@ import type { ServiceMode } from "@/domains/settings/ai/ai-types";
 import { LS_WEB_SEARCH_MODE, LS_WEB_SEARCH_PROVIDER } from "@/domains/settings/ai/ai-types";
 import { getWebSearchProviderKeyStorage, reconcileFromDaemonConfig } from "@/domains/settings/ai/ai-utils";
 import { ServiceCard, SaveButton, ResetButton } from "@/domains/settings/ai/ai-shared-ui";
-import { useDaemonConfig, daemonConfigQueryKey } from "@/domains/settings/ai/use-daemon-config";
+import { useDaemonConfig } from "@/domains/settings/ai/use-daemon-config";
 
 export function WebSearchCard() {
   const {
     assistantId,
     config: daemonConfig,
+    invalidateConfig,
     provisionProviderKey,
     patchDaemonConfig,
   } = useDaemonConfig();
-  const queryClient = useQueryClient();
 
   const [saving, setSaving] = useState(false);
   const [webSearchMode, setWebSearchMode] = useState<ServiceMode>(
@@ -155,7 +153,7 @@ export function WebSearchCard() {
         },
       });
       remoteSaved = true;
-      void queryClient.invalidateQueries({ queryKey: daemonConfigQueryKey(assistantId) });
+      invalidateConfig();
     } catch {
       // Errors already surfaced via toast + captureError inside the callees.
     }
@@ -185,11 +183,10 @@ export function WebSearchCard() {
       setSaving(false);
     }
   }, [
-    assistantId,
+    invalidateConfig,
     needsApiKey,
     patchDaemonConfig,
     provisionProviderKey,
-    queryClient,
     webSearchApiKey,
     webSearchMode,
     webSearchProvider,

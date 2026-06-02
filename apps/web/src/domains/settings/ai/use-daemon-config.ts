@@ -19,31 +19,15 @@ import {
   assistantsListOptions,
 } from "@/generated/api/@tanstack/react-query.gen";
 import {
-  configGetQueryKey,
-} from "@/generated/daemon/@tanstack/react-query.gen";
-import {
   configGet,
   secretsPost,
   modelImagegenPut,
 } from "@/generated/daemon/sdk.gen";
-import type { ConfigGetData } from "@/generated/daemon/types.gen";
-import type { Options } from "@/generated/daemon/sdk.gen";
 import { client } from "@/generated/api/client.gen";
 import { captureError } from "@/lib/sentry/capture-error";
+import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
 import { assertProvisionSuccess } from "@/domains/settings/ai/ai-utils";
 import type { DaemonConfig } from "@/domains/settings/ai/ai-types";
-
-/**
- * Build the generated query key for the daemon config. Exported so that
- * invalidation call sites can target the same cache entry.
- */
-export function daemonConfigQueryKey(
-  assistantId: string | null | undefined,
-): ReturnType<typeof configGetQueryKey> {
-  return configGetQueryKey({
-    path: { assistant_id: assistantId ?? "" },
-  } as Options<ConfigGetData>);
-}
 
 /**
  * Hook providing the daemon config query and common mutation helpers.
@@ -58,7 +42,7 @@ export function useDaemonConfig() {
   const assistantHandle = assistantList?.results?.[0]?.handle;
 
   const configQuery = useQuery({
-    queryKey: daemonConfigQueryKey(assistantId),
+    queryKey: assistantDaemonConfigQueryKey(assistantId),
     queryFn: async () => {
       const { data } = await configGet({
         path: { assistant_id: assistantId! },
@@ -77,7 +61,7 @@ export function useDaemonConfig() {
 
   const invalidateConfig = useCallback(() => {
     void queryClient.invalidateQueries({
-      queryKey: daemonConfigQueryKey(assistantId),
+      queryKey: assistantDaemonConfigQueryKey(assistantId),
     });
   }, [assistantId, queryClient]);
 

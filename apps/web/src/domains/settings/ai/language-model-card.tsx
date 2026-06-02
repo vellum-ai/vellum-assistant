@@ -1,19 +1,16 @@
 import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { useQueryClient } from "@tanstack/react-query";
-
 import { Button } from "@vellum/design-library/components/button";
 import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Typography } from "@vellum/design-library/components/typography";
 import { toast } from "@vellum/design-library/components/toast";
-import { client } from "@/generated/api/client.gen";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 import type { ProfileEntry } from "@/domains/settings/ai/ai-types";
 import { reconcileFromDaemonConfig } from "@/domains/settings/ai/ai-utils";
 import { ByoServiceCard, SaveButton } from "@/domains/settings/ai/ai-shared-ui";
-import { useDaemonConfig, daemonConfigQueryKey } from "@/domains/settings/ai/use-daemon-config";
+import { useDaemonConfig } from "@/domains/settings/ai/use-daemon-config";
 import { CallSiteOverridesModal } from "@/domains/settings/ai/call-site-overrides-modal";
 import { ManageProfilesModal } from "@/domains/settings/ai/manage-profiles-modal";
 import { ManageProvidersModal } from "@/domains/settings/ai/manage-providers-modal";
@@ -28,8 +25,9 @@ export function LanguageModelCard() {
   const {
     assistantId,
     config: daemonConfig,
+    invalidateConfig,
+    patchDaemonConfig,
   } = useDaemonConfig();
-  const queryClient = useQueryClient();
 
   // Profile state
   const [activeProfile, setActiveProfile] = useState<string | null>(null);
@@ -96,22 +94,16 @@ export function LanguageModelCard() {
     }
     setManagedProfileSaving(true);
     try {
-      await client.patch({
-        url: `/v1/assistants/{assistant_id}/config`,
-        path: { assistant_id: assistantId },
-        body: { llm: { activeProfile: activeProfile } },
-        headers: { "Content-Type": "application/json" },
-        throwOnError: true,
-      });
+      await patchDaemonConfig({ llm: { activeProfile } });
       setSavedActiveProfile(activeProfile);
-      void queryClient.invalidateQueries({ queryKey: daemonConfigQueryKey(assistantId) });
+      invalidateConfig();
       toast.success("Profile saved.");
     } catch {
       toast.error("Failed to switch profile. Please try again.");
     } finally {
       setManagedProfileSaving(false);
     }
-  }, [activeProfile, assistantId, queryClient]);
+  }, [activeProfile, assistantId, invalidateConfig, patchDaemonConfig]);
 
   const handleProfilesChanged = useCallback(
     (updates: {
@@ -132,7 +124,7 @@ export function LanguageModelCard() {
           }
           return next;
         });
-        void queryClient.invalidateQueries({ queryKey: daemonConfigQueryKey(assistantId) });
+        invalidateConfig();
       }
       if (updates.profileOrder !== undefined) {
         setProfileOrder(updates.profileOrder);
@@ -142,10 +134,10 @@ export function LanguageModelCard() {
         setSavedActiveProfile(updates.activeProfile);
       }
       if (updates.callSites !== undefined) {
-        void queryClient.invalidateQueries({ queryKey: daemonConfigQueryKey(assistantId) });
+        invalidateConfig();
       }
     },
-    [assistantId, queryClient],
+    [invalidateConfig],
   );
 
   return (
@@ -247,9 +239,7 @@ export function LanguageModelCard() {
           orderedProfiles={orderedProfiles}
           persistedOverrides={daemonConfig?.llm?.callSites ?? {}}
           daemonConfigLoaded={!!daemonConfig}
-          onSaved={() => {
-            void queryClient.invalidateQueries({ queryKey: daemonConfigQueryKey(assistantId) });
-          }}
+          onSaved={invalidateConfig}
         />
       )}
 

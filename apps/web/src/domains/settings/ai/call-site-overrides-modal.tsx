@@ -15,7 +15,7 @@ import { captureError } from "@/lib/sentry/capture-error";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { getDefaultModelForProvider, getModelsForProvider } from "@/assistant/llm-model-catalog";
 
-import { INFERENCE_PROVIDER_DISPLAY_NAMES, INFERENCE_PROVIDERS } from "@/domains/settings/ai/ai-page";
+import { INFERENCE_PROVIDER_DISPLAY_NAMES, INFERENCE_PROVIDERS } from "@/domains/settings/ai/ai-types";
 import {
   profilePickerLabel,
   visibleProfilesForPicker,
