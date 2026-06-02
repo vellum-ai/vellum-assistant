@@ -10372,20 +10372,19 @@ paths:
           description:
             Scope to a single conversation by an external key (non-vellum channels) or the web idempotency key.
             Materializes a row on first use. Ignored when conversationId is also provided.
-        - name: lastSeenSeqs
+        - name: lastSeenSeq
           in: query
           required: false
           schema:
             type: string
           description:
-            Optional reconnect cursor map, JSON-encoded as an object of conversation id -> highest per-conversation
-            event seq the client has already applied. On reconnect the daemon replays buffered events with seq greater
-            than the cursor for each listed conversation before going live, each conversation in its own seq order. This
-            resumes the single unfiltered (assistant-wide) stream, whose multiplexed conversations each own an
-            independent seq space and so cannot be resumed by one cursor. A scoped subscription replays only its own
-            conversation's entry. A conversation whose cursor predates its ring buffer is skipped (the client detects
-            the gap from the next event's seq and refetches via the messages API); other conversations still replay.
-            Seqs must be non-negative integers.
+            "Optional reconnect cursor: the highest global event seq the client has already applied for this assistant.
+            On reconnect the daemon replays buffered events with seq greater than the cursor (re-applying the
+            subscriber's targeting/scope filter) before going live, in global seq order. All conversations share one
+            global seq space, so a single cursor resumes the unfiltered (assistant-wide) stream regardless of how many
+            conversations are multiplexed on it. A scoped subscription replays only its own conversation's events. When
+            the cursor predates the ring buffer's oldest entry, replay is skipped (the client detects the gap from the
+            next event's clientSeq and refetches via the messages API). Must be a non-negative integer."
   /v1/events/emit:
     post:
       operationId: events_emit_post

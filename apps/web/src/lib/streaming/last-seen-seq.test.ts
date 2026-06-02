@@ -1,5 +1,6 @@
 /**
- * Unit tests for the per-conversation seq cursor (last-seen-seq).
+ * Unit tests for the per-conversation clientSeq watermark
+ * (last-seen-seq) used by gap detection.
  */
 
 import { describe, expect, test, beforeEach } from "bun:test";
@@ -7,8 +8,8 @@ import { describe, expect, test, beforeEach } from "bun:test";
 import {
   __resetLastSeenSeqForTesting,
   clearLastSeenSeq,
+  getGapDetectionCursors,
   getLastSeenSeq,
-  hydrateLastSeenSeqFromStorage,
   MAX_TRACKED_CONVERSATIONS,
   replaceLastSeenSeq,
   setLastSeenSeq,
@@ -21,11 +22,11 @@ beforeEach(() => {
 describe("getLastSeenSeq", () => {
   test("returns null for unknown conversation", () => {
     /**
-     * A conversation with no recorded seq should return null.
+     * A conversation with no recorded watermark should return null.
      */
 
-    // GIVEN no seq has been recorded for a conversation
-    // WHEN we read the seq
+    // GIVEN no watermark has been recorded for a conversation
+    // WHEN we read the watermark
     const result = getLastSeenSeq("conv-1");
 
     // THEN it should return null
@@ -34,12 +35,12 @@ describe("getLastSeenSeq", () => {
 });
 
 describe("setLastSeenSeq", () => {
-  test("stores and retrieves a seq value", () => {
+  test("stores and retrieves a value", () => {
     /**
-     * After storing a seq, getLastSeenSeq should return it.
+     * After storing a watermark, getLastSeenSeq should return it.
      */
 
-    // GIVEN a conversation with no recorded seq
+    // GIVEN a conversation with no recorded watermark
     // WHEN we store seq=5
     setLastSeenSeq("conv-1", 5);
 
@@ -94,133 +95,34 @@ describe("setLastSeenSeq", () => {
 
   test("isolates conversations", () => {
     /**
-     * Seq values should be independent per conversation.
+     * Watermarks should be independent per conversation.
      */
 
-    // GIVEN two conversations with different seq values
+    // GIVEN two conversations with different watermark values
     setLastSeenSeq("conv-1", 5);
     setLastSeenSeq("conv-2", 10);
 
-    // WHEN we read each conversation's seq
+    // WHEN we read each conversation's watermark
     // THEN each should return its own value
     expect(getLastSeenSeq("conv-1")).toBe(5);
     expect(getLastSeenSeq("conv-2")).toBe(10);
   });
-
-  test("writes through to localStorage", () => {
-    /**
-     * setLastSeenSeq should persist to localStorage for cross-session survival.
-     */
-
-    // GIVEN a seq is stored
-    setLastSeenSeq("conv-1", 42);
-
-    // WHEN we read from localStorage directly
-    const raw = localStorage.getItem("vellum.lastSeenSeq.conv-1");
-
-    // THEN it should have the stored value
-    expect(raw).toBe("42");
-  });
-});
-
-describe("hydrateLastSeenSeqFromStorage", () => {
-  test("restores values from localStorage", () => {
-    /**
-     * After a page reload, hydrate should restore seq cursors from localStorage.
-     */
-
-    // GIVEN localStorage has a seq value
-    localStorage.setItem("vellum.lastSeenSeq.conv-1", "7");
-
-    // WHEN we hydrate
-    hydrateLastSeenSeqFromStorage();
-
-    // THEN getLastSeenSeq should return the stored value
-    expect(getLastSeenSeq("conv-1")).toBe(7);
-  });
-
-  test("skips non-numeric localStorage values", () => {
-    /**
-     * Corrupt localStorage entries should be ignored.
-     */
-
-    // GIVEN localStorage has a non-numeric value
-    localStorage.setItem("vellum.lastSeenSeq.conv-1", "not-a-number");
-
-    // WHEN we hydrate
-    hydrateLastSeenSeqFromStorage();
-
-    // THEN getLastSeenSeq should return null
-    expect(getLastSeenSeq("conv-1")).toBeNull();
-  });
-
-  test("skips negative localStorage values", () => {
-    /**
-     * Negative seq values should be ignored as invalid.
-     */
-
-    // GIVEN localStorage has a negative value
-    localStorage.setItem("vellum.lastSeenSeq.conv-1", "-1");
-
-    // WHEN we hydrate
-    hydrateLastSeenSeqFromStorage();
-
-    // THEN getLastSeenSeq should return null
-    expect(getLastSeenSeq("conv-1")).toBeNull();
-  });
-
-  test("does not overwrite in-memory values with smaller localStorage values", () => {
-    /**
-     * Hydrate should respect monotonicity if in-memory is already ahead.
-     */
-
-    // GIVEN in-memory has seq=20
-    setLastSeenSeq("conv-1", 20);
-
-    // AND localStorage has a smaller value
-    localStorage.setItem("vellum.lastSeenSeq.conv-1", "10");
-
-    // WHEN we hydrate
-    hydrateLastSeenSeqFromStorage();
-
-    // THEN the in-memory value should be preserved
-    expect(getLastSeenSeq("conv-1")).toBe(20);
-  });
-
-  test("is idempotent", () => {
-    /**
-     * Calling hydrate multiple times should be safe.
-     */
-
-    // GIVEN localStorage has a value
-    localStorage.setItem("vellum.lastSeenSeq.conv-1", "5");
-
-    // WHEN we hydrate twice
-    hydrateLastSeenSeqFromStorage();
-    hydrateLastSeenSeqFromStorage();
-
-    // THEN the value should be correct
-    expect(getLastSeenSeq("conv-1")).toBe(5);
-  });
 });
 
 describe("clearLastSeenSeq", () => {
-  test("removes in-memory and localStorage entries", () => {
+  test("removes the watermark", () => {
     /**
-     * Clearing a conversation should remove from both stores.
+     * Clearing a conversation should remove its watermark.
      */
 
-    // GIVEN a conversation with a stored seq
+    // GIVEN a conversation with a stored watermark
     setLastSeenSeq("conv-1", 10);
 
     // WHEN we clear it
     clearLastSeenSeq("conv-1");
 
-    // THEN the in-memory value should be null
+    // THEN getLastSeenSeq should return null
     expect(getLastSeenSeq("conv-1")).toBeNull();
-
-    // AND localStorage should not have the key
-    expect(localStorage.getItem("vellum.lastSeenSeq.conv-1")).toBeNull();
   });
 
   test("does not affect other conversations", () => {
@@ -228,7 +130,7 @@ describe("clearLastSeenSeq", () => {
      * Clearing one conversation should not touch others.
      */
 
-    // GIVEN two conversations with stored seqs
+    // GIVEN two conversations with stored watermarks
     setLastSeenSeq("conv-1", 10);
     setLastSeenSeq("conv-2", 20);
 
@@ -243,33 +145,18 @@ describe("clearLastSeenSeq", () => {
 describe("replaceLastSeenSeq", () => {
   test("replaces a higher value with a lower value", () => {
     /**
-     * After a server restart, seq counters reset. replaceLastSeenSeq
-     * must accept the lower value unconditionally.
+     * On a new SSE subscription clientSeq resets to 1, so
+     * replaceLastSeenSeq must accept a lower value unconditionally.
      */
 
-    // GIVEN a conversation with a high stored seq
+    // GIVEN a conversation with a high stored watermark
     setLastSeenSeq("conv-1", 500);
 
-    // WHEN we replace with a low seq (server restarted)
+    // WHEN we replace with a low value (new subscription)
     replaceLastSeenSeq("conv-1", 1);
 
     // THEN the stored value should be the new low value
     expect(getLastSeenSeq("conv-1")).toBe(1);
-  });
-
-  test("writes through to localStorage", () => {
-    /**
-     * replaceLastSeenSeq should persist the replacement to localStorage.
-     */
-
-    // GIVEN a conversation with a high stored seq
-    setLastSeenSeq("conv-1", 500);
-
-    // WHEN we replace with a lower value
-    replaceLastSeenSeq("conv-1", 3);
-
-    // THEN localStorage should have the new value
-    expect(localStorage.getItem("vellum.lastSeenSeq.conv-1")).toBe("3");
   });
 
   test("subsequent monotonic writes work from the new baseline", () => {
@@ -278,11 +165,11 @@ describe("replaceLastSeenSeq", () => {
      * new baseline.
      */
 
-    // GIVEN a conversation replaced to seq=1 (server restart)
+    // GIVEN a conversation replaced to seq=1 (new subscription)
     setLastSeenSeq("conv-1", 500);
     replaceLastSeenSeq("conv-1", 1);
 
-    // WHEN we set seq=2 (next event in new generation)
+    // WHEN we set seq=2 (next event in the new subscription)
     setLastSeenSeq("conv-1", 2);
 
     // THEN the stored value should advance to 2
@@ -290,11 +177,29 @@ describe("replaceLastSeenSeq", () => {
   });
 });
 
+describe("getGapDetectionCursors", () => {
+  test("returns a snapshot of all watermarks", () => {
+    /**
+     * The debug snapshot should mirror every tracked conversation.
+     */
+
+    // GIVEN two conversations with watermarks
+    setLastSeenSeq("conv-1", 5);
+    setLastSeenSeq("conv-2", 10);
+
+    // WHEN we read the snapshot
+    const snapshot = getGapDetectionCursors();
+
+    // THEN it should contain both conversations
+    expect(snapshot).toEqual({ "conv-1": 5, "conv-2": 10 });
+  });
+});
+
 describe("LRU eviction", () => {
   test("evicts the oldest entry when the cap is exceeded via setLastSeenSeq", () => {
     /**
      * Filling the map beyond MAX_TRACKED_CONVERSATIONS should evict the
-     * least-recently-written entry from both memory and localStorage.
+     * least-recently-written entry.
      */
 
     // GIVEN MAX_TRACKED_CONVERSATIONS conversations have been stored
@@ -307,7 +212,6 @@ describe("LRU eviction", () => {
 
     // THEN the oldest (conv-0) should be evicted
     expect(getLastSeenSeq("conv-0")).toBeNull();
-    expect(localStorage.getItem("vellum.lastSeenSeq.conv-0")).toBeNull();
 
     // AND the new entry should be present
     expect(getLastSeenSeq("conv-overflow")).toBe(999);
@@ -331,7 +235,6 @@ describe("LRU eviction", () => {
 
     // THEN the oldest (conv-0) should be evicted
     expect(getLastSeenSeq("conv-0")).toBeNull();
-    expect(localStorage.getItem("vellum.lastSeenSeq.conv-0")).toBeNull();
 
     // AND the new entry should be present
     expect(getLastSeenSeq("conv-overflow")).toBe(1);
@@ -383,63 +286,5 @@ describe("LRU eviction", () => {
     expect(getLastSeenSeq("conv-0")).toBe(1000);
     expect(getLastSeenSeq("conv-1")).toBeNull();
     expect(getLastSeenSeq("conv-overflow")).toBe(999);
-  });
-});
-
-describe("hydrateLastSeenSeqFromStorage GC", () => {
-  test("prunes localStorage entries exceeding the cap during hydration", () => {
-    /**
-     * If localStorage accumulated more keys than the cap (e.g., from a
-     * previous version without GC), hydrate should prune the excess
-     * entries with the lowest seq values.
-     */
-
-    // GIVEN localStorage has more entries than MAX_TRACKED_CONVERSATIONS
-    const total = MAX_TRACKED_CONVERSATIONS + 10;
-    for (let i = 0; i < total; i++) {
-      localStorage.setItem(`vellum.lastSeenSeq.conv-${i}`, String(i + 1));
-    }
-
-    // WHEN we hydrate
-    hydrateLastSeenSeqFromStorage();
-
-    // THEN the 10 conversations with the lowest seqs should be pruned
-    // from localStorage (conv-0 through conv-9 have seq 1..10)
-    for (let i = 0; i < 10; i++) {
-      expect(localStorage.getItem(`vellum.lastSeenSeq.conv-${i}`)).toBeNull();
-    }
-
-    // AND the remaining conversations should be in memory
-    for (let i = 10; i < total; i++) {
-      expect(getLastSeenSeq(`conv-${i}`)).toBe(i + 1);
-    }
-  });
-
-  test("preserves LRU order so post-hydration eviction drops lowest-seq entry", () => {
-    /**
-     * After hydration with pruning, the Map insertion order must be
-     * ascending by seq so that writeThrough evicts the lowest-seq
-     * (least recent) entry, not the highest.
-     */
-
-    // GIVEN localStorage has more entries than the cap
-    const total = MAX_TRACKED_CONVERSATIONS + 5;
-    for (let i = 0; i < total; i++) {
-      localStorage.setItem(`vellum.lastSeenSeq.conv-${i}`, String(i + 1));
-    }
-
-    // WHEN we hydrate (prunes conv-0..conv-4) and then add a new entry
-    hydrateLastSeenSeqFromStorage();
-    setLastSeenSeq("conv-new", 9999);
-
-    // THEN the entry with the lowest retained seq (conv-5, seq=6) should
-    // be evicted — not the highest (conv-{total-1})
-    expect(getLastSeenSeq("conv-5")).toBeNull();
-
-    // AND the highest-seq retained entry should still be present
-    expect(getLastSeenSeq(`conv-${total - 1}`)).toBe(total);
-
-    // AND the new entry should be present
-    expect(getLastSeenSeq("conv-new")).toBe(9999);
   });
 });

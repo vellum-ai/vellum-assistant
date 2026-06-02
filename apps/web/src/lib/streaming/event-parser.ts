@@ -56,6 +56,7 @@ export function parseAssistantEvent(
         ? data.conversationId
         : undefined,
     seq: typeof data.seq === "number" ? data.seq : undefined,
+    clientSeq: typeof data.clientSeq === "number" ? data.clientSeq : undefined,
     emittedAt: typeof data.emittedAt === "string" ? data.emittedAt : "",
     message: event,
   } as AssistantEventEnvelope;

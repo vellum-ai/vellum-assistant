@@ -12,7 +12,10 @@ import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import { parseAssistantEvent } from "@/lib/streaming/event-parser";
 
 import { isSeqGapDetectionEnabled } from "@/lib/feature-flags/seq-gap-detection-flag";
-import { getSeqCursors } from "@/lib/streaming/last-seen-seq";
+import {
+  getReconnectCursor,
+  recordReconnectSeq,
+} from "@/lib/streaming/reconnect-cursor";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 import {
   markClientEstablished,
@@ -105,30 +108,29 @@ const STREAM_MAX_RECONNECT_DELAY_MS = 30_000;
 // must comfortably exceed that interval to avoid false positives on a
 // healthy connection that is idle between user turns.
 const STREAM_IDLE_TIMEOUT_MS = 45_000;
-// Query param carrying the resumable-stream reconnect cursor map: a
-// JSON-encoded `{ conversationId: seq }` object of the highest event
-// seq the client has already applied per conversation. The daemon
-// replays each conversation's missed events (seq > cursor) on this one
-// unfiltered stream. Must match the `lastSeenSeqs` param parsed by
+// Query param carrying the resumable-stream reconnect cursor: the
+// highest global event seq the client has already applied. The daemon
+// replays every buffered event with seq > cursor on this one unfiltered
+// stream. Must match the `lastSeenSeq` param parsed by
 // assistant/src/runtime/routes/events-routes.ts.
-const SEQ_CURSORS_WIRE_FIELD = "lastSeenSeqs";
+const LAST_SEEN_SEQ_WIRE_FIELD = "lastSeenSeq";
 
 /**
  * Build the query params for the events SSE connection.
  *
- * Always scopes by conversation when a conversation id is requested. On
- * reconnect, when seq gap detection is enabled, also attaches the
- * resumable-stream cursor map ({@link SEQ_CURSORS_WIRE_FIELD}) so the
- * daemon can replay each conversation's missed events on this single
- * unfiltered stream rather than forcing a refetch. A fresh connect has
- * nothing buffered to resume, so the cursor map is omitted there.
+ * On reconnect, when seq gap detection is enabled, attaches the
+ * resumable-stream cursor ({@link LAST_SEEN_SEQ_WIRE_FIELD}) — the
+ * highest global seq received so far — so the daemon can replay missed
+ * events from its global ring rather than forcing a refetch. A fresh
+ * connect has nothing buffered to resume, so the cursor is omitted
+ * there.
  */
 function buildEventsQuery(isReconnect: boolean): Record<string, string> {
   const query: Record<string, string> = {};
   if (isReconnect && isSeqGapDetectionEnabled()) {
-    const cursors = getSeqCursors();
-    if (Object.keys(cursors).length > 0) {
-      query[SEQ_CURSORS_WIRE_FIELD] = JSON.stringify(cursors);
+    const cursor = getReconnectCursor();
+    if (cursor !== null) {
+      query[LAST_SEEN_SEQ_WIRE_FIELD] = String(cursor);
     }
   }
   return query;
@@ -309,6 +311,14 @@ export function subscribeEvents(
           }
 
           const envelope = parseAssistantEvent(data);
+
+          // Advance the global reconnect cursor for every event
+          // received on this unfiltered stream, regardless of which
+          // conversation it belongs to, so a reconnect resumes from the
+          // correct position in the daemon's global ring.
+          if (envelope.seq != null) {
+            recordReconnectSeq(envelope.seq);
+          }
 
           pushSseEvent(sseDebugClientId, envelope.message);
           try {

@@ -22,15 +22,18 @@ import {
   getSseEvents,
 } from "@/lib/streaming/stream-debug";
 import { requestSseReconnect } from "@/lib/streaming/sse-reconnect-control";
-import { getSeqCursors } from "@/lib/streaming/last-seen-seq";
+import { getGapDetectionCursors } from "@/lib/streaming/last-seen-seq";
+import { getReconnectCursor } from "@/lib/streaming/reconnect-cursor";
 
 export interface ChatDebugEventsApi {
   /** Snapshot of currently-live SSE clients. */
   getClients: () => SseDebugClient[];
   /** Last 1 000 parsed SSE events (most-recent last). */
   getEvents: () => SseDebugEventEntry[];
-  /** Per-conversation seq cursors tracked by gap detection. */
-  getSeqCursors: () => Record<string, number>;
+  /** Per-conversation clientSeq watermarks tracked by gap detection. */
+  getGapDetectionCursors: () => Record<string, number>;
+  /** The single global reconnect cursor sent on resume, or null. */
+  getReconnectCursor: () => number | null;
   /**
    * Force the live SSE connection to disconnect and reconnect, optionally
    * staying down for `timeoutMs` (default 0) so the reconnection and
@@ -48,6 +51,7 @@ export interface ChatDebugEventsApi {
 export const eventsDebugApi: ChatDebugEventsApi = {
   getClients: getSseClients,
   getEvents: getSseEvents,
-  getSeqCursors,
+  getGapDetectionCursors,
+  getReconnectCursor,
   reconnectClient: (timeoutMs) => requestSseReconnect(timeoutMs),
 };

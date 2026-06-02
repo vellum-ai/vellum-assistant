@@ -39,9 +39,9 @@ import {
   AssistantEventHub,
   assistantEventHub,
 } from "../assistant-event-hub.js";
+import type { ReplaySubscriber } from "../assistant-stream-state.js";
+import { getReplayWindow } from "../assistant-stream-state.js";
 import { ACTOR_PRINCIPALS, GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
-import type { ReplaySubscriber } from "../conversation-stream-state.js";
-import { getReplayWindow } from "../conversation-stream-state.js";
 import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
 import {
   BadRequestError,
@@ -54,20 +54,6 @@ const log = getLogger("events-routes");
 
 /** Keep-alive comment sent to idle clients every 7 s by default. */
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 7_000;
-
-/**
- * Reconnect cursor map sent by resumable-stream clients: conversation id ->
- * highest event seq the client has already applied for that conversation.
- * Each conversation owns an independent per-conversation seq space, so a
- * single cursor cannot resume the unfiltered (assistant-wide) stream that
- * multiplexes many conversations -- the map carries one cursor per
- * conversation instead. Clients bound the map to their most-recently-active
- * conversations before sending.
- */
-const ReconnectCursorsSchema = z.record(
-  z.string(),
-  z.number().int().nonnegative(),
-);
 
 /**
  * Resolution of the event-loop delay histogram, per
@@ -280,7 +266,7 @@ export function handleSubscribeAssistantEvents(
 
   const rawConversationId = queryParams?.conversationId;
   const rawConversationKey = queryParams?.conversationKey;
-  const rawLastSeenSeqs = queryParams?.lastSeenSeqs;
+  const rawLastSeenSeq = queryParams?.lastSeenSeq;
   if ("conversationId" in (queryParams ?? {}) && !rawConversationId?.trim()) {
     throw new BadRequestError("conversationId must not be empty");
   }
@@ -288,32 +274,27 @@ export function handleSubscribeAssistantEvents(
     throw new BadRequestError("conversationKey must not be empty");
   }
 
-  // Parse the optional reconnect cursor map (resumable stream). Each entry
-  // maps a conversation id to the highest event seq the client has already
-  // applied for that conversation; on reconnect the daemon replays buffered
-  // events with seq > cursor for each listed conversation. A seq of 0 is
-  // valid -- it means "replay this conversation's full ring" (the client
-  // has the conversation open but has not yet applied any event). Omitting
-  // the param entirely means "no replay attempt, just connect live".
-  let reconnectCursors: Map<string, number> | null = null;
-  if (rawLastSeenSeqs != null) {
-    const trimmed = rawLastSeenSeqs.trim();
+  // Parse the optional reconnect cursor (resumable stream): the highest
+  // global event seq the client has already applied for this assistant.
+  // On reconnect the daemon replays buffered events with seq > cursor
+  // (re-applying the subscriber's targeting/scope filter) before going
+  // live. All conversations share one global seq space, so a single
+  // number resumes the unfiltered (assistant-wide) stream regardless of
+  // how many conversations are multiplexed on it. A seq of 0 is valid --
+  // it means "replay the whole ring" (the client has not yet applied any
+  // event). Omitting the param means "no replay attempt, just connect
+  // live".
+  let reconnectCursor: number | null = null;
+  if (rawLastSeenSeq != null) {
+    const trimmed = rawLastSeenSeq.trim();
     if (trimmed === "") {
-      throw new BadRequestError("lastSeenSeqs must not be empty");
+      throw new BadRequestError("lastSeenSeq must not be empty");
     }
-    let parsedJson: unknown;
-    try {
-      parsedJson = JSON.parse(trimmed);
-    } catch {
-      throw new BadRequestError("lastSeenSeqs must be a valid JSON object");
+    const parsed = Number(trimmed);
+    if (!Number.isInteger(parsed) || parsed < 0) {
+      throw new BadRequestError("lastSeenSeq must be a non-negative integer");
     }
-    const result = ReconnectCursorsSchema.safeParse(parsedJson);
-    if (!result.success) {
-      throw new BadRequestError(
-        "lastSeenSeqs must map conversation ids to non-negative integer seqs",
-      );
-    }
-    reconnectCursors = new Map(Object.entries(result.data));
+    reconnectCursor = parsed;
   }
 
   // ── Client identity from headers ──────────────────────────────────────
@@ -411,14 +392,13 @@ export function handleSubscribeAssistantEvents(
     }
   }
 
-  // Tracks, per conversation, the highest seq enqueued during the
-  // synchronous replay drain. Live events that race in with seq <= a
-  // conversation's watermark are dropped to avoid double-delivery --
-  // broadcastMessage stamps and rings BEFORE calling publish, so any
-  // in-flight event mid-replay is already in the replay window we just
-  // drained. The watermark is per-conversation because the unfiltered
-  // stream multiplexes independent per-conversation seq spaces.
-  const highWaterReplaySeqByConversation = new Map<string, number>();
+  // Tracks the highest global seq enqueued during the synchronous replay
+  // drain. Live events that race in with seq <= this watermark are dropped
+  // to avoid double-delivery -- broadcastMessage stamps and rings BEFORE
+  // calling publish, so any in-flight event mid-replay is already in the
+  // replay window we just drained. A single watermark suffices because all
+  // conversations share one global, monotonic seq space.
+  let highWaterReplaySeq: number | null = null;
 
   // Per-conversation subscriber-filtered sequence counters. Incremented
   // for each conversation-scoped event this specific subscriber receives
@@ -436,14 +416,13 @@ export function handleSubscribeAssistantEvents(
   const callback: AssistantEventCallback = (event) => {
     const controller = controllerRef;
     if (!controller) return;
-    const eventConversationId = event.conversationId;
-    if (event.seq != null && eventConversationId != null) {
-      const watermark =
-        highWaterReplaySeqByConversation.get(eventConversationId);
-      if (watermark != null && event.seq <= watermark) {
-        // Already delivered via replay; skip the duplicate.
-        return;
-      }
+    if (
+      event.seq != null &&
+      highWaterReplaySeq != null &&
+      event.seq <= highWaterReplaySeq
+    ) {
+      // Already delivered via replay; skip the duplicate.
+      return;
     }
     try {
       if (controller.desiredSize != null && controller.desiredSize <= 0) {
@@ -507,24 +486,20 @@ export function handleSubscribeAssistantEvents(
         }
 
         // Reconnect replay (resumable stream): when the caller passed a
-        // per-conversation cursor map, deliver any buffered events the
-        // client missed before the first heartbeat. Each conversation's
-        // events are replayed in its own seq order.
+        // cursor, deliver any buffered events the client missed before the
+        // first heartbeat, in global seq order.
         //
-        // The web client opens a single unfiltered (assistant-wide) SSE
-        // connection that multiplexes every conversation, and each
-        // conversation owns an independent seq space -- so one cursor
-        // cannot resume it. The cursor map lets every conversation replay
-        // its own gap on that one connection. A scoped subscription only
-        // delivers its own conversation live, so it replays just that
-        // entry from the map.
+        // All conversations share one global seq space, so a single cursor
+        // resumes the unfiltered (assistant-wide) stream that multiplexes
+        // every conversation. A scoped subscription only delivers its own
+        // conversation live, so it replays just that conversation's gap
+        // (the conversationId filter below).
         //
-        // If a conversation's cursor is older than its ring's oldest
-        // entry, `getReplayWindow` returns `null` and that conversation
-        // is skipped (no wire signal); the client detects the gap from
-        // the next live event's seq and refetches via the messages API.
-        // Other conversations still replay.
-        if (reconnectCursors && reconnectCursors.size > 0) {
+        // If the cursor is older than the ring's oldest entry,
+        // `getReplayWindow` returns `null` and replay is skipped (no wire
+        // signal); the client detects the gap from the next live event's
+        // clientSeq and refetches via the messages API.
+        if (reconnectCursor != null) {
           const replaySubscriber: ReplaySubscriber =
             clientId && interfaceId
               ? {
@@ -537,31 +512,12 @@ export function handleSubscribeAssistantEvents(
                 }
               : { type: "process" };
 
-          // A scoped subscription only delivers its own conversation
-          // live, so replaying any other conversation's gap would push
-          // events the client will never see again live. Restrict the
-          // replay set accordingly.
-          const cursorsToReplay: Array<[string, number]> = [];
-          if (filter.conversationId) {
-            const cursor = reconnectCursors.get(filter.conversationId);
-            if (cursor != null) {
-              cursorsToReplay.push([filter.conversationId, cursor]);
-            }
-          } else {
-            for (const entry of reconnectCursors) {
-              cursorsToReplay.push(entry);
-            }
-          }
-
-          for (const [conversationId, cursor] of cursorsToReplay) {
-            const window = getReplayWindow(
-              conversationId,
-              cursor,
-              replaySubscriber,
-            );
-            if (window === null) {
-              continue;
-            }
+          const window = getReplayWindow(
+            reconnectCursor,
+            replaySubscriber,
+            filter.conversationId ?? undefined,
+          );
+          if (window !== null) {
             for (const replayed of window) {
               const frame =
                 replayed.conversationId != null && replayed.seq != null
@@ -572,17 +528,12 @@ export function handleSubscribeAssistantEvents(
                   : replayed;
               controller.enqueue(encoder.encode(formatSseFrame(frame)));
               instrumentation.eventsDelivered += 1;
-              if (replayed.seq != null && replayed.conversationId != null) {
-                const prev =
-                  highWaterReplaySeqByConversation.get(
-                    replayed.conversationId,
-                  ) ?? -1;
-                if (replayed.seq > prev) {
-                  highWaterReplaySeqByConversation.set(
-                    replayed.conversationId,
-                    replayed.seq,
-                  );
-                }
+              if (
+                replayed.seq != null &&
+                (highWaterReplaySeq == null ||
+                  replayed.seq > highWaterReplaySeq)
+              ) {
+                highWaterReplaySeq = replayed.seq;
               }
             }
           }
@@ -684,9 +635,9 @@ export const ROUTES: RouteDefinition[] = [
           "Scope to a single conversation by an external key (non-vellum channels) or the web idempotency key. Materializes a row on first use. Ignored when conversationId is also provided.",
       },
       {
-        name: "lastSeenSeqs",
+        name: "lastSeenSeq",
         description:
-          "Optional reconnect cursor map, JSON-encoded as an object of conversation id -> highest per-conversation event seq the client has already applied. On reconnect the daemon replays buffered events with seq greater than the cursor for each listed conversation before going live, each conversation in its own seq order. This resumes the single unfiltered (assistant-wide) stream, whose multiplexed conversations each own an independent seq space and so cannot be resumed by one cursor. A scoped subscription replays only its own conversation's entry. A conversation whose cursor predates its ring buffer is skipped (the client detects the gap from the next event's seq and refetches via the messages API); other conversations still replay. Seqs must be non-negative integers.",
+          "Optional reconnect cursor: the highest global event seq the client has already applied for this assistant. On reconnect the daemon replays buffered events with seq greater than the cursor (re-applying the subscriber's targeting/scope filter) before going live, in global seq order. All conversations share one global seq space, so a single cursor resumes the unfiltered (assistant-wide) stream regardless of how many conversations are multiplexed on it. A scoped subscription replays only its own conversation's events. When the cursor predates the ring buffer's oldest entry, replay is skipped (the client detects the gap from the next event's clientSeq and refetches via the messages API). Must be a non-negative integer.",
       },
     ],
     responseHeaders: {

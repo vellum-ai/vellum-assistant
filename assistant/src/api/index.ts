@@ -460,18 +460,25 @@ export type AssistantEvent = z.infer<typeof AssistantEventSchema>;
 export const AssistantEventEnvelopeSchema = z.object({
   id: z.string(),
   conversationId: z.string().optional(),
+  /**
+   * Global per-assistant event sequence number. A single monotonic
+   * counter the daemon assigns to every event across all conversations.
+   * Stable across SSE subscriptions, so clients use it as the
+   * reconnect cursor: on resume the client sends the highest `seq` it
+   * applied and the daemon replays the global ring from `seq > cursor`.
+   * Not gap-free from any single subscriber's view (it counts events
+   * targeted away from that subscriber), so it must not be used for
+   * gap detection — use `clientSeq` for that.
+   */
   seq: z.number().int().optional(),
   /**
    * Subscriber-filtered sequence number. Monotonic per conversation per
    * SSE subscriber, counting only events the subscriber is eligible to
    * receive (i.e. after capability/client/interface targeting is applied).
-   * Gap-free by construction — clients should prefer `clientSeq` over
-   * `seq` for gap detection to avoid false positives caused by targeted
-   * events (host_bash, host_cu, etc.) that increment the global `seq`
-   * but are filtered out for non-matching subscribers.
-   *
-   * Absent on older daemons that predate this field; clients fall back
-   * to `seq` when `clientSeq` is not present.
+   * Gap-free by construction, so clients use `clientSeq` for gap
+   * detection: a jump of more than one signals genuinely missed events.
+   * This avoids the false positives the global `seq` would produce from
+   * targeted events (host_bash, host_cu, etc.) the subscriber filters out.
    */
   clientSeq: z.number().int().optional(),
   emittedAt: z.string(),

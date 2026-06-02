@@ -45,9 +45,9 @@ mock.module("@sentry/react", () => ({
 
 import { getLifecycleDiagnosticsEvents } from "@/lib/diagnostics";
 import {
-  __resetLastSeenSeqForTesting,
-  setLastSeenSeq,
-} from "@/lib/streaming/last-seen-seq";
+  __resetReconnectCursorForTesting,
+  recordReconnectSeq,
+} from "@/lib/streaming/reconnect-cursor";
 import {
   subscribeEvents,
   type StreamReconnectCause,
@@ -783,7 +783,7 @@ describe("subscribeEvents idle watchdog", () => {
   });
 });
 
-describe("subscribeEvents resumable-stream cursor map", () => {
+describe("subscribeEvents resumable-stream reconnect cursor", () => {
   let originalFetch: typeof fetch;
   let originalDocument: unknown;
 
@@ -811,7 +811,7 @@ describe("subscribeEvents resumable-stream cursor map", () => {
     (globalThis as { document?: unknown }).document = {
       cookie: "csrftoken=test",
     };
-    __resetLastSeenSeqForTesting();
+    __resetReconnectCursorForTesting();
     localStorage.removeItem(SEQ_GAP_DETECTION_STORAGE_KEY);
   });
 
@@ -822,22 +822,21 @@ describe("subscribeEvents resumable-stream cursor map", () => {
     } else {
       (globalThis as { document?: unknown }).document = originalDocument;
     }
-    __resetLastSeenSeqForTesting();
+    __resetReconnectCursorForTesting();
     localStorage.removeItem(SEQ_GAP_DETECTION_STORAGE_KEY);
   });
 
-  test("attaches the per-conversation cursor map on reconnect when seq gap detection is enabled", async () => {
+  test("attaches the single global cursor on reconnect when seq gap detection is enabled", async () => {
     /**
-     * On reconnect, the unfiltered stream sends the bounded
-     * `{ conversationId: seq }` map so the daemon can replay each
-     * conversation's missed events instead of forcing a refetch.
+     * On reconnect, the unfiltered stream sends the single highest
+     * global `seq` it has applied so the daemon can replay the global
+     * ring from `seq > cursor` instead of forcing a refetch.
      */
 
     // GIVEN seq gap detection is enabled and the client has applied
-    // events for two conversations.
+    // events up to global seq=42.
     localStorage.setItem(SEQ_GAP_DETECTION_STORAGE_KEY, "true");
-    setLastSeenSeq("conv-a", 5);
-    setLastSeenSeq("conv-b", 3);
+    recordReconnectSeq(42);
     const requestedUrls: string[] = [];
     globalThis.fetch = mockClosingFetch(requestedUrls);
 
@@ -851,35 +850,34 @@ describe("subscribeEvents resumable-stream cursor map", () => {
     try {
       await new Promise((r) => setTimeout(r, 120));
 
-      // THEN the initial connect carries no cursor map (nothing buffered
-      // to resume yet)...
+      // THEN the initial connect carries no cursor (it is sent only on
+      // reconnect)...
       expect(requestedUrls.length).toBeGreaterThanOrEqual(2);
       expect(
-        new URL(requestedUrls[0]!).searchParams.get("lastSeenSeqs"),
+        new URL(requestedUrls[0]!).searchParams.get("lastSeenSeq"),
       ).toBeNull();
 
-      // AND the reconnect carries the full per-conversation cursor map.
+      // AND the reconnect carries the single global cursor.
       const reconnectParam = new URL(requestedUrls[1]!).searchParams.get(
-        "lastSeenSeqs",
+        "lastSeenSeq",
       );
-      expect(reconnectParam).not.toBeNull();
-      expect(JSON.parse(reconnectParam!)).toEqual({ "conv-a": 5, "conv-b": 3 });
+      expect(reconnectParam).toBe("42");
     } finally {
       stream.cancel();
     }
   });
 
-  test("omits the cursor map on reconnect when seq gap detection is disabled", async () => {
+  test("omits the cursor on reconnect when seq gap detection is disabled", async () => {
     /**
-     * The cursor map is a kill-switchable feature: with the flag off it
+     * The cursor is a kill-switchable feature: with the flag off it
      * must never appear, preserving today's live-only reconnect.
      */
 
-    // GIVEN the flag is explicitly disabled but cursors have been
+    // GIVEN the flag is explicitly disabled but a cursor has been
     // recorded. Gap detection is enabled by default, so the kill-switch
     // is an explicit opt-out.
     localStorage.setItem(SEQ_GAP_DETECTION_STORAGE_KEY, "false");
-    setLastSeenSeq("conv-a", 5);
+    recordReconnectSeq(42);
     const requestedUrls: string[] = [];
     globalThis.fetch = mockClosingFetch(requestedUrls);
 
@@ -892,20 +890,20 @@ describe("subscribeEvents resumable-stream cursor map", () => {
     try {
       await new Promise((r) => setTimeout(r, 120));
 
-      // THEN no attempt carries the cursor map.
+      // THEN no attempt carries the cursor.
       expect(requestedUrls.length).toBeGreaterThanOrEqual(2);
       for (const url of requestedUrls) {
-        expect(new URL(url).searchParams.get("lastSeenSeqs")).toBeNull();
+        expect(new URL(url).searchParams.get("lastSeenSeq")).toBeNull();
       }
     } finally {
       stream.cancel();
     }
   });
 
-  test("omits the cursor map on reconnect when enabled but no cursors recorded", async () => {
+  test("omits the cursor on reconnect when enabled but no cursor recorded", async () => {
     /**
-     * An empty cursor map carries no replay information, so the param is
-     * elided rather than sending `{}`.
+     * A null cursor carries no replay information, so the param is
+     * elided rather than sending an empty value.
      */
 
     // GIVEN the flag is enabled but no events have been applied yet.
@@ -922,10 +920,10 @@ describe("subscribeEvents resumable-stream cursor map", () => {
     try {
       await new Promise((r) => setTimeout(r, 120));
 
-      // THEN no attempt carries the cursor map.
+      // THEN no attempt carries the cursor.
       expect(requestedUrls.length).toBeGreaterThanOrEqual(2);
       for (const url of requestedUrls) {
-        expect(new URL(url).searchParams.get("lastSeenSeqs")).toBeNull();
+        expect(new URL(url).searchParams.get("lastSeenSeq")).toBeNull();
       }
     } finally {
       stream.cancel();
