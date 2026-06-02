@@ -25,18 +25,19 @@ jobs:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
 
-      - name: Upload skill assets to GCS
+      - name: Upload skill icons to GCS
         env:
           BUCKET: ${{ vars.GCS_SKILL_ASSETS_BUCKET }}
         run: |
           set -euo pipefail
-          for skill_dir in skills/*/; do
-            skill_id=$(basename "$skill_dir")
-            assets_dir="${skill_dir}assets"
-            if [ -d "$assets_dir" ]; then
-              gcloud storage rsync "$assets_dir" "gs://${BUCKET}/${skill_id}/assets/" \
-                --recursive \
-                --cache-control="public, max-age=86400"
-            fi
+          uploaded=0
+          for icon in skills/*/assets/icon.*; do
+            [ -f "$icon" ] || continue
+            skill_id=$(echo "$icon" | cut -d/ -f2)
+            filename=$(basename "$icon")
+            gcloud storage cp \
+              --cache-control="public, max-age=86400" \
+              "$icon" "gs://${BUCKET}/${skill_id}/assets/${filename}"
+            uploaded=$((uploaded + 1))
           done
-          echo "Uploaded skill assets to gs://${BUCKET}/"
+          echo "Uploaded ${uploaded} skill icon(s) to gs://${BUCKET}/"
