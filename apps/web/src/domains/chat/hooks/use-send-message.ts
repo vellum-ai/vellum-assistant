@@ -438,8 +438,9 @@ export function useSendMessage({
           }
           startReconciliationLoop(epoch);
         })
-        .catch(() => {
+        .catch((err) => {
           if (!isCurrentSendScope(effectiveConversationId)) return;
+          captureError(err, { context: "send_message_stream" });
           setError({ message: "Connection lost. Please try again." });
         })
         .finally(() => {
@@ -582,7 +583,8 @@ export function useSendMessage({
           if (postResult.requestId) {
             useChatSessionStore.getState().requestIdToMessageId.set(postResult.requestId, userMessage.id);
           }
-        } catch {
+        } catch (err) {
+          captureError(err, { context: "send_message_queue" });
           revertQueuedMessage(userMessage.id);
           setError({ message: "Failed to queue message. Please try again." });
         }

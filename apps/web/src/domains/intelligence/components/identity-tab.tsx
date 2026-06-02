@@ -20,6 +20,7 @@ import { installSkill } from "@/domains/intelligence/skills/install";
 import type { SkillInfo } from "@/domains/intelligence/skills/types";
 import { getAssistant } from "@/assistant/api";
 import { fetchAssistantIdentity } from "@/assistant/identity";
+import { captureError } from "@/lib/sentry/capture-error";
 
 export interface IdentityCardProps {
   assistantName: string;
@@ -208,6 +209,9 @@ export function IdentityTab({ assistantId, onOpenThread }: IdentityTabProps) {
         setAssistantCreatedAt(null);
       }
       setLoadedAssistantId(assistantId);
+    }).catch((err) => {
+      if (cancelled) return;
+      captureError(err, { context: "identity_tab_load" });
     });
 
     return () => {

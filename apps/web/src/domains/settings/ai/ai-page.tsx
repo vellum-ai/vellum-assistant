@@ -1139,7 +1139,8 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
       });
       invalidateEmailQueries();
       toast.success("Email address removed.");
-    } catch {
+    } catch (err) {
+      captureError(err, { context: "email_address_delete" });
       toast.error("Failed to remove email address.");
     }
   }, [address?.id, assistantId, deleteAddress, invalidateEmailQueries]);
@@ -1159,7 +1160,8 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
       setSubdomainDraft(releasedSubdomain);
       invalidateEmailQueries();
       toast.success("Domain released.");
-    } catch {
+    } catch (err) {
+      captureError(err, { context: "email_domain_release" });
       toast.error("Failed to release domain.");
     }
   }, [
