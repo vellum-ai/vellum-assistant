@@ -547,10 +547,19 @@ export const ROUTES: RouteDefinition[] = [
     description: "Install a skill by slug, URL, or spec.",
     tags: ["skills"],
     requestBody: z.object({
-      slug: z.string().describe("Skill slug"),
-      url: z.string().describe("Skill URL"),
-      spec: z.string().describe("Skill spec"),
-      version: z.string(),
+      slug: z
+        .string()
+        .optional()
+        .describe("Skill slug. One of slug, url, or spec is required."),
+      url: z
+        .string()
+        .optional()
+        .describe("Skill URL. One of slug, url, or spec is required."),
+      spec: z
+        .string()
+        .optional()
+        .describe("Skill spec. One of slug, url, or spec is required."),
+      version: z.string().optional().describe("Specific version to install"),
       origin: z
         .enum(["clawhub", "skillssh"])
         .optional()

@@ -20816,15 +20816,16 @@ paths:
               type: object
               properties:
                 slug:
+                  description: Skill slug. One of slug, url, or spec is required.
                   type: string
-                  description: Skill slug
                 url:
+                  description: Skill URL. One of slug, url, or spec is required.
                   type: string
-                  description: Skill URL
                 spec:
+                  description: Skill spec. One of slug, url, or spec is required.
                   type: string
-                  description: Skill spec
                 version:
+                  description: Specific version to install
                   type: string
                 origin:
                   description: Which registry to install from. When omitted, the install flow auto-detects based on slug format.
@@ -20840,11 +20841,6 @@ paths:
                     When true, restrict to bundled and Vellum catalog skills only — do not fall through to community
                     registries.
                   type: boolean
-              required:
-                - slug
-                - url
-                - spec
-                - version
               additionalProperties: false
   /v1/skills/search:
     get:
