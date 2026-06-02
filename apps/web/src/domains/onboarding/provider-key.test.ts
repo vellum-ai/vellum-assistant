@@ -42,4 +42,27 @@ describe("pending provider key", () => {
     setPendingProviderKey({ provider: "ollama", key: "" });
     expect(consumePendingProviderKey()).toEqual({ provider: "ollama", key: "" });
   });
+
+  test("round-trips openai-compatible baseUrl + models", () => {
+    setPendingProviderKey({
+      provider: "openai-compatible",
+      key: "",
+      baseUrl: "http://localhost:1234/v1",
+      models: ["model-a", "model-b"],
+    });
+    expect(peekPendingProviderKey()).toEqual({
+      provider: "openai-compatible",
+      key: "",
+      baseUrl: "http://localhost:1234/v1",
+      models: ["model-a", "model-b"],
+    });
+  });
+
+  test("providers without custom fields round-trip without baseUrl/models", () => {
+    setPendingProviderKey({ provider: "anthropic", key: "sk-ant-test" });
+    const peeked = peekPendingProviderKey();
+    expect(peeked).toEqual({ provider: "anthropic", key: "sk-ant-test" });
+    expect(peeked?.baseUrl).toBeUndefined();
+    expect(peeked?.models).toBeUndefined();
+  });
 });
