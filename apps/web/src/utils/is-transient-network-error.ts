@@ -42,10 +42,14 @@ export function isTransientNetworkError(error: unknown): boolean {
     return true;
   }
 
-  // Firefox (with or without trailing dot).
+  // Firefox (with or without trailing dot, with optional hostname suffix).
   if (
     msg === "NetworkError when attempting to fetch resource" ||
-    msg === "NetworkError when attempting to fetch resource."
+    msg === "NetworkError when attempting to fetch resource." ||
+    (msg.startsWith("NetworkError when attempting to fetch resource (") &&
+      msg.endsWith(")")) ||
+    (msg.startsWith("NetworkError when attempting to fetch resource. (") &&
+      msg.endsWith(")"))
   ) {
     return true;
   }

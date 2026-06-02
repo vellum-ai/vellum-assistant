@@ -48,6 +48,23 @@ describe("isTransientNetworkError", () => {
     ).toBe(true);
   });
 
+  test("matches Firefox variants with hostname suffix", () => {
+    expect(
+      isTransientNetworkError(
+        new TypeError(
+          "NetworkError when attempting to fetch resource (example.com)",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      isTransientNetworkError(
+        new TypeError(
+          "NetworkError when attempting to fetch resource. (www.vellum.ai)",
+        ),
+      ),
+    ).toBe(true);
+  });
+
   test("rejects non-TypeError errors", () => {
     expect(isTransientNetworkError(new Error("Failed to fetch"))).toBe(false);
   });
