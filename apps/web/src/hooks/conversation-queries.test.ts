@@ -2,9 +2,9 @@ import { describe, expect, it } from "bun:test";
 
 import { QueryClient } from "@tanstack/react-query";
 
+import { conversationGroupsQueryKey } from "@/hooks/conversation-queries";
 import {
   appendGroup,
-  conversationGroupsQueryKey,
   deleteGroupAndResetConversations,
   markConversationSeenLocal,
   patchGroup,
@@ -13,7 +13,7 @@ import {
   removeGroup,
   replaceOptimisticGroup,
   resolveDraftKey,
-} from "@/hooks/conversation-queries";
+} from "@/hooks/conversation-cache-mutations";
 import { conversationsQueryKey } from "@/lib/sync/query-tags";
 import { patchConversation } from "@/utils/conversation-cache";
 import type {

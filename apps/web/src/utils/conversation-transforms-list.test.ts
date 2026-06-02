@@ -4,7 +4,7 @@ import { client as daemonClient } from "@/generated/daemon/client.gen";
 import {
   listBackgroundConversations,
   listConversations,
-} from "@/hooks/conversation-queries";
+} from "@/hooks/conversation-list-fetchers";
 import {
   toConversation,
   type RawConversationSummary,

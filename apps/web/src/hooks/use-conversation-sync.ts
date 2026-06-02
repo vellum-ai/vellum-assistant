@@ -23,10 +23,8 @@ import { captureError } from "@/lib/sentry/capture-error";
 import { type MutableRefObject, useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import {
-  conversationGroupsQueryKey,
-  refreshConversationRow,
-} from "@/hooks/conversation-queries";
+import { conversationGroupsQueryKey } from "@/hooks/conversation-queries";
+import { refreshConversationRow } from "@/hooks/conversation-cache-mutations";
 import { patchConversation } from "@/utils/conversation-cache";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import {
