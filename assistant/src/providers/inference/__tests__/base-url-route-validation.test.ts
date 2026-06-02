@@ -6,7 +6,7 @@
  * with mocked DB, config, and DNS resolution.
  */
 import { Database } from "bun:sqlite";
-import { describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
@@ -49,6 +49,14 @@ mock.module("../../../config/loader.js", () => ({
 // Mock DNS resolution: all hostnames resolve to a public IP by default.
 // Tests that need private-IP resolution override this per-test.
 let mockResolvedAddresses: string[] = ["93.184.216.34"];
+
+// Toggleable hosting mode: self-hosted (false) by default. Self-hosted daemons
+// allow loopback/private base_url for openai-compatible; platform-hosted do not.
+let mockIsPlatform = false;
+
+mock.module("../../../config/env-registry.js", () => ({
+  getIsPlatform: () => mockIsPlatform,
+}));
 
 // Import the real url-safety module for use inside the mock.
 const {
@@ -197,6 +205,12 @@ describe("base_url provider-type gate (create)", () => {
 // ---------------------------------------------------------------------------
 
 describe("base_url SSRF protection (create)", () => {
+  // Platform-hosted enforces the strict SSRF policy: private/local targets are
+  // always rejected. (Self-hosted relaxation is covered by its own block.)
+  beforeEach(() => {
+    mockIsPlatform = true;
+  });
+
   test("rejects private IP (192.168.x.x)", async () => {
     await expect(
       handleCreate({
@@ -311,6 +325,69 @@ describe("base_url SSRF protection (create)", () => {
     expect((result as { baseUrl: string }).baseUrl).toBe(
       "https://api.example.com/v1",
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Self-hosted vs platform: loopback/private base_url for openai-compatible
+// ---------------------------------------------------------------------------
+
+describe("base_url SSRF on self-hosted vs platform", () => {
+  beforeEach(() => {
+    // Self-hosted is the default; public DNS keeps non-literal hosts safe.
+    mockIsPlatform = false;
+    mockResolvedAddresses = ["93.184.216.34"];
+  });
+
+  const localUrls = [
+    "http://localhost:1234/v1",
+    "http://127.0.0.1:1234/v1",
+    "http://192.168.1.10:1234/v1",
+  ];
+
+  for (const [i, url] of localUrls.entries()) {
+    test(`self-hosted: accepts loopback/private base_url ${url}`, async () => {
+      mockIsPlatform = false;
+      const result = await handleCreate({
+        body: {
+          name: `self-hosted-local-${i}`,
+          provider: "openai-compatible",
+          auth: { type: "api_key", credential: "cred-local" },
+          base_url: url,
+          models: [{ id: "local-model" }],
+        },
+      });
+      expect((result as { baseUrl: string }).baseUrl).toBe(url);
+    });
+
+    test(`platform-hosted: rejects loopback/private base_url ${url}`, async () => {
+      mockIsPlatform = true;
+      await expect(
+        handleCreate({
+          body: {
+            name: `platform-local-${i}`,
+            provider: "openai-compatible",
+            auth: { type: "api_key", credential: "cred-local" },
+            base_url: url,
+            models: [{ id: "local-model" }],
+          },
+        }),
+      ).rejects.toThrow(/private or local network/);
+    });
+  }
+
+  test("self-hosted: provider gate still rejects base_url on non-openai-compatible", async () => {
+    mockIsPlatform = false;
+    await expect(
+      handleCreate({
+        body: {
+          name: "self-hosted-gate-anthropic",
+          provider: "anthropic",
+          auth: { type: "api_key", credential: "cred-gate" },
+          base_url: "http://localhost:1234/v1",
+        },
+      }),
+    ).rejects.toThrow(/base_url is only valid for openai-compatible/);
   });
 });
 

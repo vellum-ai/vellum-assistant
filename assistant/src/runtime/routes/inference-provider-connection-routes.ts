@@ -11,6 +11,7 @@
 import { z } from "zod";
 
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
+import { getIsPlatform } from "../../config/env-registry.js";
 import { getConfigReadOnly } from "../../config/loader.js";
 import { getDb } from "../../memory/db-connection.js";
 import {
@@ -75,8 +76,11 @@ function rejectDisabledOpenAICompatibleProvider(provider: string): void {
  * with a `base_url` pointing to their own server, which would redirect all
  * LLM calls (and the API key) to the attacker.
  *
- * Even for `openai-compatible`, the `base_url` must not point to private
- * networks or cloud metadata endpoints (SSRF protection).
+ * For `openai-compatible`, the `base_url` may point to loopback/private
+ * networks only on self-hosted daemons (`getIsPlatform()` is false) — this is
+ * required for local endpoints such as LM Studio, Ollama, and vLLM.
+ * Platform-hosted daemons keep the strict SSRF policy to prevent pivoting to
+ * internal or cloud-metadata services.
  */
 async function parseCustomProviderFields(
   body: Record<string, unknown>,
@@ -120,9 +124,12 @@ async function parseCustomProviderFields(
         );
       }
 
-      // SSRF protection: reject private IPs, localhost, cloud metadata endpoints.
+      // SSRF protection: reject private IPs, localhost, cloud metadata
+      // endpoints. Self-hosted daemons allow private/loopback targets so local
+      // endpoints (LM Studio, Ollama, vLLM) can be reached.
       const hostname = parsed.hostname;
-      if (isPrivateOrLocalHost(hostname)) {
+      const allowPrivate = !getIsPlatform();
+      if (!allowPrivate && isPrivateOrLocalHost(hostname)) {
         throw new BadRequestError(
           `Invalid base_url: must not point to a private or local network address.`,
         );
@@ -132,7 +139,7 @@ async function parseCustomProviderFields(
       const resolved = await resolveRequestAddress(
         hostname,
         resolveHostAddresses,
-        /* allowPrivateNetwork */ false,
+        allowPrivate,
       );
       if (resolved.blockedAddress) {
         throw new BadRequestError(
