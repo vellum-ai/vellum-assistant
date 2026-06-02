@@ -44,7 +44,16 @@ const slimSkillBase = {
   emoji: z.string().optional(),
   kind: z.enum(["bundled", "installed", "catalog"]),
   status: z.enum(["enabled", "disabled", "available"]),
-  category: z.string(),
+  category: z.enum([
+    "communication",
+    "productivity",
+    "development",
+    "media",
+    "automation",
+    "webSocial",
+    "knowledge",
+    "integration",
+  ]),
 };
 
 const slimSkillSchema = z.discriminatedUnion("origin", [

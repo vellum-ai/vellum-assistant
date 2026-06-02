@@ -16868,6 +16868,15 @@ paths:
                                 - available
                             category:
                               type: string
+                              enum:
+                                - communication
+                                - productivity
+                                - development
+                                - media
+                                - automation
+                                - webSocial
+                                - knowledge
+                                - integration
                             origin:
                               type: string
                               const: vellum
@@ -16904,6 +16913,15 @@ paths:
                                 - available
                             category:
                               type: string
+                              enum:
+                                - communication
+                                - productivity
+                                - development
+                                - media
+                                - automation
+                                - webSocial
+                                - knowledge
+                                - integration
                             origin:
                               type: string
                               const: clawhub
@@ -16960,6 +16978,15 @@ paths:
                                 - available
                             category:
                               type: string
+                              enum:
+                                - communication
+                                - productivity
+                                - development
+                                - media
+                                - automation
+                                - webSocial
+                                - knowledge
+                                - integration
                             origin:
                               type: string
                               const: skillssh
@@ -17031,6 +17058,15 @@ paths:
                                 - available
                             category:
                               type: string
+                              enum:
+                                - communication
+                                - productivity
+                                - development
+                                - media
+                                - automation
+                                - webSocial
+                                - knowledge
+                                - integration
                             origin:
                               type: string
                               const: custom
@@ -17186,6 +17222,15 @@ paths:
                               - available
                           category:
                             type: string
+                            enum:
+                              - communication
+                              - productivity
+                              - development
+                              - media
+                              - automation
+                              - webSocial
+                              - knowledge
+                              - integration
                           origin:
                             type: string
                             const: vellum
@@ -17222,6 +17267,15 @@ paths:
                               - available
                           category:
                             type: string
+                            enum:
+                              - communication
+                              - productivity
+                              - development
+                              - media
+                              - automation
+                              - webSocial
+                              - knowledge
+                              - integration
                           origin:
                             type: string
                             const: clawhub
@@ -17332,6 +17386,15 @@ paths:
                               - available
                           category:
                             type: string
+                            enum:
+                              - communication
+                              - productivity
+                              - development
+                              - media
+                              - automation
+                              - webSocial
+                              - knowledge
+                              - integration
                           origin:
                             type: string
                             const: skillssh
@@ -17403,6 +17466,15 @@ paths:
                               - available
                           category:
                             type: string
+                            enum:
+                              - communication
+                              - productivity
+                              - development
+                              - media
+                              - automation
+                              - webSocial
+                              - knowledge
+                              - integration
                           origin:
                             type: string
                             const: custom
@@ -17566,6 +17638,17 @@ paths:
                               - enabled
                               - disabled
                               - available
+                          category:
+                            type: string
+                            enum:
+                              - communication
+                              - productivity
+                              - development
+                              - media
+                              - automation
+                              - webSocial
+                              - knowledge
+                              - integration
                           origin:
                             type: string
                             const: vellum
@@ -17575,6 +17658,7 @@ paths:
                           - description
                           - kind
                           - status
+                          - category
                           - origin
                         additionalProperties: false
                       - type: object
@@ -17599,6 +17683,17 @@ paths:
                               - enabled
                               - disabled
                               - available
+                          category:
+                            type: string
+                            enum:
+                              - communication
+                              - productivity
+                              - development
+                              - media
+                              - automation
+                              - webSocial
+                              - knowledge
+                              - integration
                           origin:
                             type: string
                             const: clawhub
@@ -17622,6 +17717,7 @@ paths:
                           - description
                           - kind
                           - status
+                          - category
                           - origin
                           - slug
                           - author
@@ -17652,6 +17748,17 @@ paths:
                               - enabled
                               - disabled
                               - available
+                          category:
+                            type: string
+                            enum:
+                              - communication
+                              - productivity
+                              - development
+                              - media
+                              - automation
+                              - webSocial
+                              - knowledge
+                              - integration
                           origin:
                             type: string
                             const: skillssh
@@ -17693,6 +17800,7 @@ paths:
                           - description
                           - kind
                           - status
+                          - category
                           - origin
                           - slug
                           - sourceRepo
@@ -17720,6 +17828,17 @@ paths:
                               - enabled
                               - disabled
                               - available
+                          category:
+                            type: string
+                            enum:
+                              - communication
+                              - productivity
+                              - development
+                              - media
+                              - automation
+                              - webSocial
+                              - knowledge
+                              - integration
                           origin:
                             type: string
                             const: custom
@@ -17729,6 +17848,7 @@ paths:
                           - description
                           - kind
                           - status
+                          - category
                           - origin
                         additionalProperties: false
                     description: Skill metadata
@@ -18032,6 +18152,15 @@ paths:
                                 - available
                             category:
                               type: string
+                              enum:
+                                - communication
+                                - productivity
+                                - development
+                                - media
+                                - automation
+                                - webSocial
+                                - knowledge
+                                - integration
                             origin:
                               type: string
                               const: vellum
@@ -18068,6 +18197,15 @@ paths:
                                 - available
                             category:
                               type: string
+                              enum:
+                                - communication
+                                - productivity
+                                - development
+                                - media
+                                - automation
+                                - webSocial
+                                - knowledge
+                                - integration
                             origin:
                               type: string
                               const: clawhub
@@ -18124,6 +18262,15 @@ paths:
                                 - available
                             category:
                               type: string
+                              enum:
+                                - communication
+                                - productivity
+                                - development
+                                - media
+                                - automation
+                                - webSocial
+                                - knowledge
+                                - integration
                             origin:
                               type: string
                               const: skillssh
@@ -18195,6 +18342,15 @@ paths:
                                 - available
                             category:
                               type: string
+                              enum:
+                                - communication
+                                - productivity
+                                - development
+                                - media
+                                - automation
+                                - webSocial
+                                - knowledge
+                                - integration
                             origin:
                               type: string
                               const: custom
