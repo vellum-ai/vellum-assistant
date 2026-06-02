@@ -107,6 +107,41 @@ block_wait_for_device() {
   done
 }
 
+block_device_has_mounts() {
+  device_real=""
+
+  if findmnt --source "${BLOCK_DEVICE}" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if command -v readlink >/dev/null 2>&1; then
+    device_real="$(readlink -f "${BLOCK_DEVICE}" 2>/dev/null || true)"
+    if [ -n "${device_real}" ] && findmnt --source "${device_real}" >/dev/null 2>&1; then
+      return 0
+    fi
+  fi
+
+  mounted_sources="$(findmnt -rn -o SOURCE 2>/dev/null || true)"
+  while IFS= read -r mounted_source; do
+    case "${mounted_source}" in
+      "${BLOCK_DEVICE}"|"${BLOCK_DEVICE}"\[*)
+        return 0
+        ;;
+    esac
+    if [ -n "${device_real}" ]; then
+      case "${mounted_source}" in
+        "${device_real}"|"${device_real}"\[*)
+          return 0
+          ;;
+      esac
+    fi
+  done <<EOF
+${mounted_sources}
+EOF
+
+  return 1
+}
+
 block_ensure_dir() {
   mkdir -p "$1"
 }

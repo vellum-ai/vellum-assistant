@@ -13,6 +13,29 @@ block_print_resize_evidence() {
   df -h "${path}"
 }
 
+block_fsck_ext4_before_resize() {
+  if block_device_has_mounts; then
+    block_log "${BLOCK_DEVICE} is mounted; skipping e2fsck before online resize"
+    return 0
+  fi
+
+  set +e
+  e2fsck -f -p "${BLOCK_DEVICE}"
+  fsck_status="$?"
+  set -e
+
+  case "${fsck_status}" in
+    0)
+      ;;
+    1|2|3)
+      block_log "e2fsck repaired ${BLOCK_DEVICE} before resize"
+      ;;
+    *)
+      block_die "e2fsck failed for ${BLOCK_DEVICE} with exit code ${fsck_status}"
+      ;;
+  esac
+}
+
 block_validate_mode_env
 block_init_defaults
 
@@ -41,5 +64,6 @@ case "${fs_type}" in
     ;;
 esac
 
+block_fsck_ext4_before_resize
 resize2fs "${BLOCK_DEVICE}"
 block_print_resize_evidence "${evidence_path}"
