@@ -176,6 +176,7 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
           variant="ghost"
           size="compact"
           iconOnly={<X />}
+          expandOnMobile={false}
           aria-label="Close search"
           onClick={onClose}
           tintColor="var(--content-tertiary)"
