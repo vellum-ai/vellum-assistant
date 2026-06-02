@@ -149,6 +149,7 @@ function makeDeps(): EventHandlerDeps {
       userMessageInterface: "macos",
       assistantMessageInterface: "macos",
     } as EventHandlerDeps["turnInterfaceContext"],
+    applyCompaction: async () => {},
   } as EventHandlerDeps;
 }
 

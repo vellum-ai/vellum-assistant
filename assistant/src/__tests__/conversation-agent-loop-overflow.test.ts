@@ -505,7 +505,11 @@ async function simulateInlineCompaction(
     );
   }
   if (compactResult.compacted) {
-    await compaction.applyResult(compactResult, rawHistory);
+    await onEvent({
+      type: "compaction_applied",
+      result: compactResult,
+      basis: rawHistory,
+    });
   }
   if (compactResult.exhausted ?? false) {
     return null;
