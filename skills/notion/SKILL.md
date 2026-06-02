@@ -3,6 +3,7 @@ name: notion
 description: Read and write Notion pages and databases using the Notion API
 compatibility: "Designed for Vellum personal assistants"
 metadata:
+  icon: assets/icon.svg
   emoji: "📝"
   vellum:
     display-name: "Notion"

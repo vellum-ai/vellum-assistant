@@ -3,6 +3,7 @@ name: start-the-day
 description: Get a personalized daily briefing with weather, news, and actionable insights
 compatibility: "Designed for Vellum personal assistants"
 metadata:
+  icon: assets/icon.svg
   emoji: "🌅"
   vellum:
     display-name: "Start the Day"

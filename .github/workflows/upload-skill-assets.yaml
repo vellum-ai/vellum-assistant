@@ -1,0 +1,42 @@
+name: Upload Skill Assets to GCS
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "skills/*/assets/**"
+  workflow_dispatch:
+
+jobs:
+  upload:
+    name: Upload skill assets
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Upload skill assets to GCS
+        env:
+          BUCKET: ${{ vars.GCS_SKILL_ASSETS_BUCKET }}
+        run: |
+          set -euo pipefail
+          for skill_dir in skills/*/; do
+            skill_id=$(basename "$skill_dir")
+            assets_dir="${skill_dir}assets"
+            if [ -d "$assets_dir" ]; then
+              gcloud storage rsync "$assets_dir" "gs://${BUCKET}/${skill_id}/assets/" \
+                --recursive \
+                --cache-control="public, max-age=86400"
+            fi
+          done
+          echo "Uploaded skill assets to gs://${BUCKET}/"

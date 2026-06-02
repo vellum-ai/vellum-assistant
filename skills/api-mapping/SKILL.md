@@ -3,6 +3,7 @@ name: api-mapping
 description: Record and analyze API surfaces of web services
 compatibility: "Designed for Vellum personal assistants"
 metadata:
+  icon: assets/icon.svg
   emoji: "🗺️"
   vellum:
     display-name: "API Mapping"

@@ -3,6 +3,7 @@ name: outlook-calendar
 description: View, create, and manage Outlook Calendar events and check availability
 compatibility: "Designed for Vellum personal assistants"
 metadata:
+  icon: assets/icon.svg
   emoji: "📅"
   vellum:
     display-name: "Outlook Calendar"

@@ -3,6 +3,7 @@ name: gmail
 description: Manage Gmail email — drafting, sending, organizing, filters, vacation replies, and inbox analysis
 compatibility: "Designed for Vellum personal assistants"
 metadata:
+  icon: assets/icon.svg
   emoji: "📨"
   vellum:
     display-name: "Gmail"
