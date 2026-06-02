@@ -4281,6 +4281,23 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  profiles:
+                    type: array
+                    items:
+                      type: string
+                  activeProfile:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                required:
+                  - profiles
+                  - activeProfile
+                additionalProperties: false
   /v1/config/llm/profiles/{name}:
     put:
       operationId: config_llm_profiles_by_name_put
@@ -14562,6 +14579,16 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  nowText:
+                    type: string
+                required:
+                  - nowText
+                additionalProperties: false
   /v1/memory/v2/reembed-skills:
     post:
       operationId: memory_v2_reembedskills_post
@@ -14593,6 +14620,16 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  template:
+                    type: string
+                required:
+                  - template
+                additionalProperties: false
   /v1/memory/v2/simulate-router:
     post:
       operationId: memory_v2_simulaterouter_post
@@ -14607,6 +14644,89 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  selectedSlugs:
+                    type: array
+                    items:
+                      type: string
+                  sourceBySlug:
+                    type: object
+                    propertyNames:
+                      type: string
+                    additionalProperties:
+                      type: string
+                  scores:
+                    type: object
+                    propertyNames:
+                      type: string
+                    additionalProperties:
+                      type: number
+                  failureReason:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  effectiveConfig:
+                    type: object
+                    properties:
+                      tier1_size:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      tier2_size:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      batch_size:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      max_page_ids:
+                        type: number
+                    required:
+                      - tier1_size
+                      - tier2_size
+                      - batch_size
+                      - max_page_ids
+                    additionalProperties: false
+                  overrides:
+                    type: object
+                    properties:
+                      tier1_size:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      tier2_size:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      batch_size:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                    additionalProperties: false
+                  totalCandidatePages:
+                    type: number
+                  profileOverride:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  routerPromptOverridden:
+                    type: boolean
+                required:
+                  - selectedSlugs
+                  - sourceBySlug
+                  - scores
+                  - failureReason
+                  - effectiveConfig
+                  - overrides
+                  - totalCandidatePages
+                  - profileOverride
+                  - routerPromptOverridden
+                additionalProperties: false
       requestBody:
         required: true
         content:

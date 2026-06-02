@@ -39,12 +39,16 @@ async function handleGetCallSites() {
   };
 }
 
-export interface LlmProfilesListResult {
+const llmProfilesListResponseSchema = z.object({
   /** Sorted list of profile names defined in `llm.profiles`. */
-  profiles: string[];
+  profiles: z.array(z.string()),
   /** The workspace-wide active profile name, if one is set. */
-  activeProfile: string | null;
-}
+  activeProfile: z.string().nullable(),
+});
+
+export type LlmProfilesListResult = z.infer<
+  typeof llmProfilesListResponseSchema
+>;
 
 async function handleListProfiles(): Promise<LlmProfilesListResult> {
   const { llm } = loadConfig();
@@ -85,5 +89,6 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Returns the sorted list of profile names defined in `llm.profiles` plus the workspace-wide active profile. Used to populate per-call profile dropdowns (e.g. memory router playground) without requiring the caller to type profile names.",
     tags: ["config"],
+    responseBody: llmProfilesListResponseSchema,
   },
 ];
