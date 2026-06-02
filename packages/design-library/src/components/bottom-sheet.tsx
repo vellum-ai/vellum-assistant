@@ -65,7 +65,6 @@ function Content({
   className,
   children,
   ref,
-  onOpenAutoFocus,
   ...props
 }: BottomSheetContentProps) {
   const container = usePortalContainer();
@@ -80,7 +79,6 @@ function Content({
       <Dialog.Content
         ref={ref}
         data-slot="bottom-sheet-content"
-        onOpenAutoFocus={onOpenAutoFocus ?? ((e) => e.preventDefault())}
         className={cn(
           "fixed inset-x-0 bottom-0 z-50 flex w-full flex-col rounded-t-[24px] border-t bg-[var(--surface-lift)] border-[var(--border-base)] shadow-xl focus:outline-none",
           "max-h-[50dvh]",
