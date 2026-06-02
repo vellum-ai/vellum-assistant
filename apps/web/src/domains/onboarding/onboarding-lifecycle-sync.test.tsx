@@ -249,6 +249,9 @@ mock.module("@tanstack/react-query", () => ({
       return () => {
         cancelled = true;
       };
+      // `options` is a fresh object every render; keying on `enabled` mirrors a
+      // real query, which only refetches when its enabled-state flips.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [enabled]);
     return isRecipeQuery ? state : { data: { id: "asst-1" } };
   },
