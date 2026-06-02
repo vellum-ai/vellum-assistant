@@ -189,6 +189,7 @@ function makeWorkerState(
       overrideProfile,
     },
     status: "running",
+    resolvedRole: "coder",
     conversationId: `conv-${subagentId}`,
     isFork: false,
     createdAt: Date.now(),

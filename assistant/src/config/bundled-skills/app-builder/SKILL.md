@@ -67,9 +67,13 @@ A widget library is auto-injected alongside the design system. Use `.v-*` classe
 
 ## Workflow
 
-### Step 0 — Pin to a high-quality model
+A non-trivial build runs as **three tiers**: a **planner** on the quality profile writes the build plan, a wave of **`coder` workers** on the balanced profile each implement a disjoint slice of files in parallel, then the **parent** compiles ONCE and surfaces the result. A quality-tier repair subagent fixes compile errors. This keeps judgment work (planning, repair) on the strong model and mechanical work (writing a component against a fixed spec) on the cheaper model.
 
-App building is design-heavy judgment work. A stronger model produces meaningfully better apps: more creative visual directions, cleaner component boundaries, fewer generic patterns.
+This SKILL.md is the map. The **exact** spawn sequence — every `subagent_spawn` shape, the bounded-wave dispatch, the compile-once rule, the repair loop, and the single-tier fallback — lives in `{baseDir}/references/ORCHESTRATION.md`. The shape of the plan artifact lives in `{baseDir}/references/BUILD_PLAN.md`. Read both with `host_file_read` before you dispatch. Do NOT paraphrase them from memory.
+
+### Step 0 — Put the planner on the quality profile
+
+App building is design-heavy judgment work. Partitioning a component tree into clean, disjoint, independently-buildable slices and choosing a distinctive visual direction needs a strong model. The **planner tier runs on `quality-optimized`**; workers run on `balanced` (routed per-spawn via `override_profile` — see ORCHESTRATION.md).
 
 Check the active inference session:
 
@@ -77,7 +81,7 @@ Check the active inference session:
 assistant inference session list
 ```
 
-**If a session is already active at quality-optimized** → skip this step.
+**If a session is already active at quality-optimized** → skip the rest of this step; you're already on the planner tier.
 
 **If the active profile is `balanced`, `cost-optimized`, or any non-quality profile** → ask the user before switching. Do NOT open a session without explicit confirmation. Use the `ui_show` tool to present an inline `confirmation` surface and wait for the action. Do not call the shell command `assistant ui confirm`; that CLI-mediated confirmation can block the build flow before the app work starts.
 
@@ -111,9 +115,11 @@ assistant config get llm.profiles
 assistant inference session open <highest-quality-profile> --ttl 1h
 ```
 
-**If user declines** → proceed with the current profile. Skip the session close in Step 7.
+**If user declines** → proceed with the current profile. The planner is then whatever profile is active. Skip the session close in Step 7.
 
 **If `assistant inference session` is unavailable on this binary** → proceed without it.
+
+**Profile availability gates the tiering.** If the workspace has neither a `balanced` nor a `quality-optimized` profile, the tiered worker dispatch degrades to a single-tier sequential build — the parent writes every file itself in partition-table order. The exact degrade rules are in ORCHESTRATION.md's "Fallback" section.
 
 ### Step 1 — Gather requirements (default: just build)
 
@@ -155,9 +161,23 @@ Example for a project tracker:
 
 Apps without persistence (calculators, single-page tools, landing pages, slide decks) skip this step. Pass an empty `schema_json` or omit it.
 
-### Step 3 — Build the app
+### Step 3 — Plan, then build in parallel
 
-⚠️ **`app_create` is ONE-SHOT per build task.** Call it exactly once. Once it returns an `app_id`, that's your app for the rest of this task — all further changes go through `file_write` / `file_edit` + `app_refresh` (Step 4 and Step 6). Do NOT call `app_create` again:
+This is the tiered core. The order is fixed: **plan → scaffold → dispatch workers → compile once → repair → surface**. The exact spawn shapes live in ORCHESTRATION.md; read it now.
+
+**3a. Plan (planner @ quality).** Following `{baseDir}/references/BUILD_PLAN.md`, write the build plan to `/workspace/data/apps/<slug>/PLAN.md` with `file_write`, ONCE, fully — its five sections (data schema, visual direction, component tree, file-partition table, invariants). The §2 Visual direction is the single source of truth every worker reads to stay consistent. The §4 file-partition table is the orchestration core: **one row per worker, every source file in exactly one row** (disjoint). Shared files (`styles.css`, `types.ts`, `main.tsx`, `index.html`) get exactly one owner. Source the visual direction from the `frontend-design` skill and `{baseDir}/references/DESIGN_SYSTEM.md`.
+
+**3b. Scaffold (parent).** `skill_load("app-builder")` then `app_create` ONCE with the 4-file self-contained scaffold (`src/index.html`, `src/main.tsx`, a placeholder `src/components/App.tsx`, an empty `src/styles.css`). Pass `auto_open: false`. The placeholders make the initial compile clean. See the `app_create` parameter rules below.
+
+**3c. Dispatch (`coder` workers @ balanced).** Spawn one `coder` subagent per partition row with `subagent_spawn({ label, role: "coder", override_profile: "balanced", objective })`, **in bounded waves of ≤3–4 at a time**. Each worker's objective carries its partition slice plus the verbatim §2 Visual direction and the §3 component-tree context for its files. Workers use `file_write` / `file_edit` ONLY — never `app_refresh` / `app_create` / `app_open`. Read ORCHESTRATION.md (a)–(c) for the verbatim spawn shape and the wave/collect (`subagent_read`) protocol.
+
+⚠️ **Compile-once rule: only the parent calls `app_refresh`, exactly once, after every worker across every wave has finished. Workers NEVER compile** (no `app_refresh`, `app_create`, or `app_open`). A worker that compiles corrupts the shared build cache and races the others.
+
+**3d. Compile, repair, surface.** Steps 4–6 below own these: the parent compiles ONCE (Step 4), spawns a quality-tier repair subagent on failure (per ORCHESTRATION.md (e), bounded to ≤2 attempts), then surfaces the preview card (Step 5).
+
+The remainder of this Step 3 — the `app_create` one-shot rule, project structure, technical constraints, and persistence — applies to the scaffold (3b) and to every worker's `file_write`.
+
+⚠️ **`app_create` is ONE-SHOT per build task.** Call it exactly once, at scaffold time (3b). Once it returns an `app_id`, that's your app for the rest of this task — all further changes go through `file_write` / `file_edit` (workers, or the parent on iteration) + `app_refresh` (Step 4 and Step 6). Do NOT call `app_create` again:
 
 - To rename → edit `/workspace/data/apps/<slug>.json` directly (Step 6)
 - To "try fresh" or "start over" → call `app_delete(first_app_id)` FIRST, then `app_create`
@@ -220,38 +240,37 @@ Import CSS directly in TSX: `import "./styles.css"`.
 - Custom route handlers — persistent app records, server-side logic, file access. Call via `window.vellum.fetch("/v1/x/...")`. Full guide in `{baseDir}/references/CUSTOM_ROUTES.md` (read with `host_file_read`). **Never use raw `fetch()` for `/v1/x/` routes** — it fails in the sandboxed origin.
 - Legacy `window.vellum.data.*` — deprecated, only for editing pre-existing legacy apps. Prefer custom routes for everything new.
 
-#### File workflow: scaffold then expand
+#### File workflow: scaffold, then parallel workers
 
 Default pattern for ALL non-trivial apps (anything beyond a single small page):
 
-1. **`skill_load("app-builder")`** then **`app_create`** with `source_files` containing a 4-file self-contained scaffold:
+1. **`skill_load("app-builder")`** then **`app_create`** with `source_files` containing a 4-file self-contained scaffold (parent, step 3b):
    - `src/index.html` — entry shell
    - `src/main.tsx` — entry point that renders `<App />`
-   - `src/components/App.tsx` — **placeholder** `<div>Loading...</div>` (overwritten in Step 2)
-   - `src/styles.css` — **empty** (overwritten in Step 2)
+   - `src/components/App.tsx` — **placeholder** `<div>Loading...</div>` (overwritten by a worker)
+   - `src/styles.css` — **empty** (overwritten by its owning worker)
 
-2. **`file_write`** each remaining file in its own tool call, one per turn:
-   - `src/components/App.tsx` — the real component (overwrites placeholder)
-   - `src/components/Header.tsx`, `RecordList.tsx`, etc.
-   - `src/styles.css` — the real styles (overwrites empty)
-   - `src/types.ts` if shared
+2. **Dispatch `coder` workers** (step 3c, ORCHESTRATION.md). Each worker `file_write`s the files in its own partition-table row — the real `App.tsx`, `Header.tsx`, the real `styles.css`, `types.ts`, etc. — overwriting the placeholders. Workers run in bounded waves and write ONLY their own files.
 
-3. **`skill_load("app-builder")`** then **`app_refresh`** ONCE at the end to compile.
+3. **`skill_load("app-builder")`** then **`app_refresh`** ONCE, from the parent, after every worker has finished (Step 4).
 
-**Why the 4-file scaffold:** A 2-file scaffold (just `index.html` + `main.tsx`) leaves broken imports because `main.tsx` references `./components/App` and `./styles.css`. The initial compile then returns `Could not resolve "./components/App"` errors. Those errors don't fail app creation (you still get an `app_id`), but they can trigger a panic-retry of `app_create`. Placeholders make the scaffold compile clean.
+**Why the 4-file scaffold:** A 2-file scaffold (just `index.html` + `main.tsx`) leaves broken imports because `main.tsx` references `./components/App` and `./styles.css`. The initial compile then returns `Could not resolve "./components/App"` errors. Those errors don't fail app creation (you still get an `app_id`), but they can trigger a panic-retry of `app_create`. Placeholders make the scaffold compile clean and give workers a stable shell to overwrite.
 
-**Why scaffold-then-expand at all:** A single `app_create` call carrying 5+ inline TSX files blows the response token budget mid-emit (each character of source counts as output). Splitting across tool calls spreads cost across LLM turns, each with a fresh budget. The inline-everything pattern is only safe for trivial single-file apps (under ~150 lines total).
+**Why scaffold then dispatch:** A single `app_create` call carrying 5+ inline TSX files blows the response token budget mid-emit (each character of source counts as output). Spreading the files across parallel workers spreads cost across independent subagents, each with a fresh budget — and they write concurrently. The inline-everything pattern is only safe for trivial single-file apps (under ~150 lines total), which skip the worker dispatch.
 
-⚠️ **Correct app path is `/workspace/data/apps/<slug>/src/`.** Never write to `/workspace/apps/` — that path does not exist. Confirm the path starts with `/workspace/data/apps/` before every `file_write` and `file_edit`.
+⚠️ **Correct app path is `/workspace/data/apps/<slug>/src/`.** Never write to `/workspace/apps/` — that path does not exist. Confirm the path starts with `/workspace/data/apps/` before every `file_write` and `file_edit` (in the scaffold, in every worker, on iteration).
 
-⚠️ **`compile_errors` in the `app_create` response is NOT a retry signal.** The response also contains an `app_id` — the app was created. Proceed to Step 4. Calling `app_create` again creates a duplicate app (see the one-shot rule above).
+⚠️ **`compile_errors` in the `app_create` response is NOT a retry signal.** The response also contains an `app_id` — the app was created. The placeholder scaffold may report unresolved imports; that's expected before workers fill it in. Proceed to dispatch. Calling `app_create` again creates a duplicate app (see the one-shot rule above).
 
 #### Concrete example
 
-Scaffold a project tracker, expand it, compile it:
+Plan a project tracker, scaffold it, dispatch workers, compile it ONCE:
 
 ```
-// Tool call 1 — reload the skill, then app_create with the 4-file scaffold
+// 3a — planner @ quality writes the plan (BUILD_PLAN.md shape)
+file_write("/workspace/data/apps/project-tracker/PLAN.md", "<five-section build plan>")
+
+// 3b — parent scaffolds ONCE: reload, then app_create with the 4-file scaffold
 skill_load("app-builder")
 app_create({
   name: "Project Tracker",
@@ -276,85 +295,55 @@ render(<App />, document.getElementById("app")!);`,
   }
 })
 
-// Tool calls 2..N — file_write each remaining file, one per turn
-file_write("/workspace/data/apps/<slug>/src/components/App.tsx", "...")  // overwrites the placeholder
-file_write("/workspace/data/apps/<slug>/src/components/Header.tsx", "...")
-file_write("/workspace/data/apps/<slug>/src/styles.css", "...")          // overwrites the empty file
+// 3c — dispatch coder workers @ balanced in bounded waves (see ORCHESTRATION.md)
+subagent_spawn({ label: "W1 — shell & data", role: "coder", override_profile: "balanced", objective: "<App.tsx + styles.css + types.ts row + §2 verbatim; file_write only, do NOT app_refresh>" })
+subagent_spawn({ label: "W2 — header & form", role: "coder", override_profile: "balanced", objective: "..." })
+subagent_spawn({ label: "W3 — board & columns", role: "coder", override_profile: "balanced", objective: "..." })
+// collect each via subagent_read on completion, then next wave
 
-// Tool call N+1 — reload, then app_refresh ONCE to compile
+// 3d / Step 4 — parent compiles ONCE after all workers finish
 skill_load("app-builder")
 app_refresh("<app_id>")
 ```
 
 ⚠️ **`skill_load("app-builder")` is mandatory before EVERY `app_*` tool call**, including the very first `app_create`. The skill can auto-unload between activation and use. The reload is idempotent — call it every time.
 
-⚠️ **Do NOT cram all components into the initial `app_create` source_files map.** That pattern blows the response budget for any non-trivial app. Scaffold with the 4-file minimum, expand with `file_write`.
+⚠️ **Do NOT cram all components into the initial `app_create` source_files map.** That pattern blows the response budget for any non-trivial app. Scaffold with the 4-file minimum; workers write the rest.
 
-⚠️ **Do NOT pass file paths as top-level `app_create` parameters.** Only these top-level keys are valid: `name`, `description`, `schema_json`, `source_files`, `preview`, `auto_open`, `change_summary`. All file content goes INSIDE the `source_files` object. If you find yourself writing a path like `"src/components/Header.tsx": "..."` as a top-level key, stop — that file belongs in a separate `file_write` call after `app_create`.
-
-❌ **Wrong — file path as a top-level key:**
-
-```
-app_create({
-  name: "Project Tracker",
-  source_files: {
-    "src/index.html": "...",
-    "src/main.tsx": "...",
-    "src/components/App.tsx": "...",
-    "src/styles.css": ""
-  },
-  "src/components/Header.tsx": "..."   // INVALID — must be one of the 7 keys above
-})
-```
-
-This fails with: `Invalid input for tool "app_create": Unknown parameter "src/components/Header.tsx". Supported: "name", "description", "schema_json", "auto_open", "preview", "source_files", "change_summary".`
-
-✅ **Right — extra files go in separate `file_write` calls after `app_create`:**
-
-```
-app_create({
-  name: "Project Tracker",
-  source_files: {
-    "src/index.html": "...",
-    "src/main.tsx": "...",
-    "src/components/App.tsx": "...",
-    "src/styles.css": ""
-  }
-})
-
-file_write("/workspace/data/apps/<slug>/src/components/Header.tsx", "...")
-```
+⚠️ **Do NOT pass file paths as top-level `app_create` parameters.** Only these top-level keys are valid: `name`, `description`, `schema_json`, `source_files`, `preview`, `auto_open`, `change_summary`. All scaffold file content goes INSIDE the `source_files` object — exactly the 4 scaffold files. A path like `"src/components/Header.tsx": "..."` as a top-level key is INVALID; that file is a worker's `file_write`, not a scaffold key. It fails with: `Invalid input for tool "app_create": Unknown parameter "src/components/Header.tsx". Supported: "name", "description", "schema_json", "auto_open", "preview", "source_files", "change_summary".`
 
 #### `app_create` parameters
 
 - `name` (string, required) — Short descriptive name
 - `description` (string, optional) — One-sentence summary
 - `schema_json` (string, optional) — JSON schema as string
-- `source_files` (object, optional) — Map of relative paths to contents. For the scaffold step, include exactly 4 files: `src/index.html`, `src/main.tsx`, a placeholder `src/components/App.tsx`, and an empty `src/styles.css`. The placeholders make the initial compile clean — `file_write` calls in Step 2 of the workflow overwrite them with the real content
+- `source_files` (object, optional) — Map of relative paths to contents. For the scaffold step (3b), include exactly 4 files: `src/index.html`, `src/main.tsx`, a placeholder `src/components/App.tsx`, and an empty `src/styles.css`. The placeholders make the initial compile clean — the `coder` workers (3c) overwrite them with the real content
 - `preview` (object, optional but always include) — `title` (required), `subtitle`, `description`, `icon` (image URL preferred, emoji fallback), `metrics` (up to 3)
 - `auto_open` (boolean, optional, defaults `true`) — **Always pass `auto_open: false`.** When true, a preview card fires immediately after `app_create`. Combined with the explicit `app_open(open_mode: "preview")` call in Step 5, that produces TWO preview cards in chat — one showing the scaffold placeholder, one showing the final content. Set this to `false` and let Step 5 own the surfacing moment.
 - `change_summary` (string, optional) — Conventional commit message
 
 Do NOT pass `html` or `pages` to `app_create` — those single-file shortcuts are retired.
 
-### Step 4 — Compile
+### Step 4 — Compile ONCE (parent), then repair @ quality on failure
 
-After all `file_write` calls are complete, reload the skill and compile:
+After every worker across every wave has finished and you've collected each with `subagent_read`, the **parent** reloads the skill and compiles — exactly once:
 
 ```
 skill_load("app-builder")
 app_refresh(app_id)
 ```
 
-⚠️ **The `skill_load` call is mandatory, not conditional.** The scaffold-then-expand pattern puts 4-6 generic `file_write` turns between `app_create` and `app_refresh`. On some platforms, the skill auto-unloads during that window because none of its own tools fired. Without the reload, `app_refresh` returns:
+⚠️ **Compile-once: only the parent calls `app_refresh`, exactly once, after all workers finish. Workers NEVER compile.** Calling it per-worker or per-file races the build and corrupts the shared cache.
+
+⚠️ **The `skill_load` call is mandatory, not conditional.** The worker dispatch puts many generic subagent turns between `app_create` and `app_refresh`. On some platforms, the skill auto-unloads during that window because none of its own tools fired. Without the reload, `app_refresh` returns:
 
 > Tool "app_refresh" is not currently active. Load the "app-builder" skill that provides this tool first.
 
 The reload is cheap and idempotent — call it every time.
 
-⚠️ **Call `app_refresh` ONCE, after ALL file changes.** Calling it per-file is wrong — batching is required. The build is cached on success.
+**On compile failure → repair subagent @ quality.** Spawn a single repair `coder` subagent on the **quality-optimized** profile via `subagent_spawn` + `override_profile` (fixing cross-file type and import errors is judgment work). Its objective carries the `app_refresh` errors verbatim, the PLAN.md path, and the failing files. The repair agent uses `file_edit` only and does NOT compile. After it reports done, the parent reloads and `app_refresh`es again. **Bound to ≤2 repair attempts**, then surface the remaining errors to the user. The verbatim repair spawn is in ORCHESTRATION.md (e).
 
-If compilation fails, the response includes error details. Fix the errors with `file_edit`, then `skill_load("app-builder")` again, then `app_refresh`.
+In the single-tier fallback (no worker profiles available), the parent fixes errors inline with `file_edit` and recompiles, same ≤2 bound — no repair subagent.
 
 ### Step 5 — Show the inline preview card
 
@@ -421,11 +410,12 @@ assistant inference session close
 
 ## SKILL COMPLETE WHEN
 
-- [ ] App built and `app_create` returned successfully
-- [ ] All source files written via `file_write` (one tool call per file)
-- [ ] `app_refresh` ran ONCE without compile errors
-- [ ] `app_open(app_id, open_mode: "preview")` rendered the inline preview card with Open button
-- [ ] User has been told what was built (brief feature list, 3-6 bullets)
+- [ ] **PLAN.md written** to `/workspace/data/apps/<slug>/PLAN.md` (planner @ quality, five sections, disjoint partition table)
+- [ ] **Scaffold created** — `app_create` called ONCE with the 4-file scaffold and `auto_open: false`
+- [ ] **All workers completed** — every partition row dispatched as a `coder` subagent @ balanced (`override_profile`) and collected via `subagent_read`; each wrote only its own files
+- [ ] **`app_refresh` ran ONCE** from the parent, after all workers finished, with no remaining compile errors (repair subagent @ quality used if needed, ≤2 attempts)
+- [ ] **`app_open(app_id, open_mode: "preview")` rendered the preview** — inline card with an Open button is in chat
+- [ ] **User told what was built** (brief feature list, 3-6 bullets)
 - [ ] Iterations reflected in the live app (`app_refresh` called once after all edits, fresh preview card if substantial)
 - [ ] Inference session closed if one was opened in Step 0
 
@@ -491,6 +481,8 @@ Slides are a different domain from apps — skip app-specific patterns (contextu
 
 Read these with the **`host_file_read`** tool when relevant — NOT `file_read` (they live outside the `/workspace` sandbox). `{baseDir}` resolves to this skill's directory at load time:
 
+- `{baseDir}/references/ORCHESTRATION.md` — exact planner/worker spawn sequence (waves, compile-once, repair, fallback)
+- `{baseDir}/references/BUILD_PLAN.md` — PLAN.md artifact shape: five sections + partition-table invariants
 - `{baseDir}/references/RESPONSIVE.md` — mobile-first vs desktop, universal baseline, safe areas
 - `{baseDir}/references/DESIGN_SYSTEM.md` — full design token table, utility classes, theme detection JS
 - `{baseDir}/references/WIDGETS.md` — widget classes, chart utilities, formatting helpers
