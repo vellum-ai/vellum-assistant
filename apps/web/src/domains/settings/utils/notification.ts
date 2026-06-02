@@ -3,7 +3,28 @@
  * header popover and the full Settings → Notifications panel.
  */
 
+import type { QueryClient } from "@tanstack/react-query";
+
+import {
+  organizationsNotificationsListQueryKey,
+  organizationsNotificationsSummaryRetrieveQueryKey,
+} from "@/generated/api/@tanstack/react-query.gen";
+
 export { formatRelativeDate } from "@/utils/format-date";
+
+/**
+ * Invalidate both notification list and summary caches. Centralizes the
+ * two-key invalidation so new notification-related caches only need to be
+ * added here — mirrors `invalidateConversationQueries()` from the chat domain.
+ */
+export function invalidateNotificationQueries(queryClient: QueryClient): void {
+  void queryClient.invalidateQueries({
+    queryKey: organizationsNotificationsListQueryKey(),
+  });
+  void queryClient.invalidateQueries({
+    queryKey: organizationsNotificationsSummaryRetrieveQueryKey(),
+  });
+}
 
 export interface SnoozableNotification {
   snoozed_until?: string | null;

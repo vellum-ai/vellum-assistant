@@ -13,7 +13,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 
 import {
   type CommandPaletteItemData,
@@ -335,7 +335,9 @@ export function useCommandPaletteSections({
     assistantId,
   });
 
-  closeRef.current = commandPalette.close;
+  useLayoutEffect(() => {
+    closeRef.current = commandPalette.close;
+  });
 
   // Filter local sections by the current query.
   const filteredLocalSections = useMemo((): CommandPaletteSection[] => {
@@ -369,7 +371,9 @@ export function useCommandPaletteSections({
   ]);
 
   // Keep the ref in sync so keyboard nav and onSelect always use the latest sections.
-  mergedSectionsRef.current = mergedSections;
+  useLayoutEffect(() => {
+    mergedSectionsRef.current = mergedSections;
+  });
 
   const handleItemSelect = useCallback(
     (item: CommandPaletteItemData) => {

@@ -83,11 +83,11 @@ function resolveSupportsVision(
 }
 
 /**
- * Stable query key for the active-profile-model lookup. Exported so callers
- * that mutate the underlying LLM config (e.g. `ComposerSettingsMenu` when the
- * user switches profile, or `manage-profiles-modal` when a profile's
- * provider/model is edited) can invalidate this cache and refresh dependent
- * UI without waiting for the staleTime to elapse.
+ * Stable query key for the active-profile-model lookup. Callers that mutate
+ * the underlying LLM config (e.g. `ComposerSettingsMenu` when the user
+ * switches profile, or `manage-profiles-modal` when a profile's
+ * provider/model is edited) use this to invalidate the cache and refresh
+ * dependent UI without waiting for the staleTime to elapse.
  */
 export function activeProfileModelQueryKey(
   assistantId: string | null,

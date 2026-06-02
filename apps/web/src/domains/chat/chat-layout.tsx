@@ -549,6 +549,20 @@ export function ChatLayout() {
 
   const isLibraryActive = location.pathname.startsWith("/assistant/library");
 
+  // Only highlight a conversation row in the sidebar when the user is
+  // actually viewing it. On non-conversation routes (Identity, Library,
+  // Home, etc.) no conversation row should appear active. The store value
+  // is intentionally left intact — many other consumers (SSE streams,
+  // attention tracking, message reconciliation) rely on it persisting
+  // across route changes.
+  const isOnConversationRoute =
+    location.pathname === routes.assistant ||
+    location.pathname === `${routes.assistant}/` ||
+    location.pathname.startsWith("/assistant/conversations/");
+  const sidebarActiveConversationId = isOnConversationRoute
+    ? (activeConversationId ?? undefined)
+    : undefined;
+
   // Sidebar pinned-app open. The viewer panel only renders under ChatPage
   // (mounted at `/assistant` index + `/assistant/conversations/:id`), so a
   // pinned-app click from home / library / identity / inspector etc. would
@@ -597,7 +611,7 @@ export function ChatLayout() {
         onWidthChange={args.onWidthChange}
         conversations={conversations}
         conversationGroups={conversationGroups}
-        activeConversationId={activeConversationId ?? undefined}
+        activeConversationId={sidebarActiveConversationId}
         processingConversationIds={processingConversationIds}
         attentionConversationIds={attentionConversationIds}
         onSelectConversation={handleSelectConversation}
@@ -637,7 +651,7 @@ export function ChatLayout() {
       assistantVersion,
       conversations,
       conversationGroups,
-      activeConversationId,
+      sidebarActiveConversationId,
       processingConversationIds,
       attentionConversationIds,
       handleSelectConversation,

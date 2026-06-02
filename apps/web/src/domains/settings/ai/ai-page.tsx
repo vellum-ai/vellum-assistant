@@ -62,7 +62,10 @@ import {
   WEB_SEARCH_PROVIDER_KEY_STORAGE,
 } from "@/assistant/generated/web-search-provider-catalog.gen";
 import { routes } from "@/utils/routes";
-import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
+import {
+  assistantDaemonConfigQueryKey,
+  invalidateAssistantConfigQueries,
+} from "@/lib/sync/query-tags";
 import { synthesizeTTS } from "@/lib/tts-synthesize";
 import { getLocalSetting, removeLocalSetting, setLocalSetting } from "@/utils/local-settings";
 import { CallSiteOverridesModal, type CallSiteOverrideDraft } from "@/domains/settings/ai/call-site-overrides-modal";
@@ -1835,7 +1838,7 @@ export function AiPage() {
         throwOnError: true,
       });
       setSavedActiveProfile(activeProfile);
-      void queryClient.invalidateQueries({ queryKey: assistantDaemonConfigQueryKey(assistantId) });
+      invalidateAssistantConfigQueries(queryClient, assistantId);
       toast.success("Profile saved.");
     } catch {
       toast.error("Failed to switch profile. Please try again.");
@@ -1864,7 +1867,7 @@ export function AiPage() {
           }
           return next;
         });
-        void queryClient.invalidateQueries({ queryKey: assistantDaemonConfigQueryKey(assistantId) });
+        invalidateAssistantConfigQueries(queryClient, assistantId);
       }
       if (updates.profileOrder !== undefined) {
         setProfileOrder(updates.profileOrder);
@@ -1876,7 +1879,7 @@ export function AiPage() {
       if (updates.callSites !== undefined) {
         // Invalidate so callSiteOverrides stays fresh if a subsequent delete
         // fails after a successful call-site reassignment PATCH.
-        void queryClient.invalidateQueries({ queryKey: assistantDaemonConfigQueryKey(assistantId) });
+        invalidateAssistantConfigQueries(queryClient, assistantId);
       }
     },
     [assistantId, queryClient],
@@ -1904,7 +1907,7 @@ export function AiPage() {
         },
       });
       remoteSaved = true;
-      void queryClient.invalidateQueries({ queryKey: assistantDaemonConfigQueryKey(assistantId) });
+      invalidateAssistantConfigQueries(queryClient, assistantId);
     } catch {
       // Errors already surfaced via toast + captureError inside the callees.
     }
@@ -1964,7 +1967,7 @@ export function AiPage() {
       });
       await setImageGenModelOnDaemon(imageGenModel);
       remoteSaved = true;
-      void queryClient.invalidateQueries({ queryKey: assistantDaemonConfigQueryKey(assistantId) });
+      invalidateAssistantConfigQueries(queryClient, assistantId);
     } catch {
       // Errors already surfaced via toast + captureError inside the callees.
     }
@@ -2248,7 +2251,7 @@ export function AiPage() {
           persistedOverrides={daemonConfig?.llm?.callSites ?? {}}
           daemonConfigLoaded={!!daemonConfig}
           onSaved={() => {
-            void queryClient.invalidateQueries({ queryKey: assistantDaemonConfigQueryKey(assistantId) });
+            invalidateAssistantConfigQueries(queryClient, assistantId);
           }}
         />
       )}

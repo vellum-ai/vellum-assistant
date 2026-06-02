@@ -1,5 +1,5 @@
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import type { DiskPressureStatus } from "@vellumai/assistant-api";
 
@@ -67,8 +67,10 @@ export function useDiskPressureMonitor({
   const generationRef = useRef(0);
   const pollRequestIdRef = useRef(0);
 
-  activeAssistantIdRef.current = assistantId;
-  enabledRef.current = enabled;
+  useLayoutEffect(() => {
+    activeAssistantIdRef.current = assistantId;
+    enabledRef.current = enabled;
+  });
 
   useEffect(() => {
     generationRef.current += 1;

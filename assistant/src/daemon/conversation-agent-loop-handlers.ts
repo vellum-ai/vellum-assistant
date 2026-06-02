@@ -17,6 +17,7 @@ import type {
 import { getConfig } from "../config/loader.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
 import { getCalibrationProviderKey } from "../context/token-estimator.js";
+import type { ContextWindowResult } from "../context/window-manager.js";
 import { projectAssistantMessage } from "../memory/conversation-attention-store.js";
 import {
   deleteMessageById,
@@ -50,7 +51,11 @@ import type {
   PersistResult,
   TurnContext,
 } from "../plugins/types.js";
-import type { ContentBlock, ImageContent } from "../providers/types.js";
+import type {
+  ContentBlock,
+  ImageContent,
+  Message,
+} from "../providers/types.js";
 import { isContextOverflowError } from "../providers/types.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { redactSecrets } from "../security/secret-scanner.js";
@@ -290,6 +295,17 @@ export interface EventHandlerDeps {
   readonly rlog: pino.Logger;
   readonly turnChannelContext: TurnChannelContext;
   readonly turnInterfaceContext: TurnInterfaceContext;
+  /**
+   * Commit a successful inline compaction to durable state. Invoked from the
+   * `compaction_applied` dispatch case with the loop's compaction result and
+   * the stripped pre-compaction `basis`. Supplied by the orchestrator because
+   * the body writes Conversation DB-record fields, projects Slack provenance,
+   * and emits transport the loop is intentionally blind to.
+   */
+  readonly applyCompaction: (
+    result: ContextWindowResult,
+    basis: Message[],
+  ) => Promise<void>;
 }
 
 // ── Factory ──────────────────────────────────────────────────────────
@@ -1957,6 +1973,17 @@ export async function dispatchAgentEvent(
         // banner.
         deps.onEvent(event);
         break;
+      case "compaction_applied":
+        // Commit the loop's successful inline compaction to durable state,
+        // then flip the per-turn re-injection guards the orchestrator reads
+        // when re-applying injections. The commit runs before the loop's
+        // `reinject` hook (the loop awaits this dispatch), so the guards are
+        // set in time. A failed commit re-throws below to abort the turn
+        // rather than re-injecting against half-applied state.
+        await deps.applyCompaction(event.result, event.basis);
+        state.reducerCompacted = true;
+        state.shouldInjectWorkspace = true;
+        break;
       case "error":
         handleError(state, deps, event);
         break;
@@ -2009,10 +2036,13 @@ export async function dispatchAgentEvent(
     // - message_complete: persists assistant message to DB, sets state flags
     // - error: sets recovery flags (contextTooLargeDetected, orderingErrorDetected)
     // - usage: records token accounting
+    // - compaction_applied: durable compaction commit; aborting the turn is
+    //   safer than re-injecting against a half-applied compaction
     if (
       event.type === "message_complete" ||
       event.type === "error" ||
-      event.type === "usage"
+      event.type === "usage" ||
+      event.type === "compaction_applied"
     ) {
       throw err;
     }

@@ -7,7 +7,7 @@
  * reappears.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import { PRECHAT_TASKS } from "@/types/prechat-tasks";
@@ -49,14 +49,16 @@ export function useOnboardingChoice({
 
   // Reset the greeting latch when the conversation changes so an assistant
   // message in one thread can't satisfy the latch for a different thread.
-  if (greetingConversationIdRef.current !== activeConversationId) {
-    greetingConversationIdRef.current = activeConversationId;
-    greetingSeenRef.current = false;
-  }
-
-  if (!greetingSeenRef.current && phase === "pending") {
-    greetingSeenRef.current = messages.some((m) => m.role === "assistant");
-  }
+  // Sync refs in the commit phase per React 19's useRef caveats.
+  useLayoutEffect(() => {
+    if (greetingConversationIdRef.current !== activeConversationId) {
+      greetingConversationIdRef.current = activeConversationId;
+      greetingSeenRef.current = false;
+    }
+    if (!greetingSeenRef.current && phase === "pending") {
+      greetingSeenRef.current = messages.some((m) => m.role === "assistant");
+    }
+  });
 
   // Track the conversation id when the card became visible so we can
   // dismiss on conversation switch without racing the didOnboarding flag.

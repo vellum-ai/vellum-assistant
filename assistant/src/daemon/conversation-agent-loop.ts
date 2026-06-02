@@ -2081,6 +2081,7 @@ export async function runAgentLoopImpl(
       rlog,
       turnChannelContext: capturedTurnChannelContext,
       turnInterfaceContext: capturedTurnInterfaceContext,
+      applyCompaction: applySuccessfulCompaction,
     };
     const eventHandler = (event: AgentEvent): Promise<void> =>
       dispatchAgentEvent(state, deps, event);
@@ -2133,11 +2134,6 @@ export async function runAgentLoopImpl(
             actorTrustClass: ctx.trustContext?.trustClass,
           },
         };
-      },
-      applyResult: async (result, rawHistory) => {
-        await applySuccessfulCompaction(result, rawHistory);
-        state.reducerCompacted = true;
-        state.shouldInjectWorkspace = true;
       },
       reinject: async () => {
         // stripInjectionsForCompaction() unconditionally removed the existing

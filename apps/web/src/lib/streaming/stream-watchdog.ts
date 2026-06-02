@@ -4,7 +4,7 @@
  * Detects silently stalled connections — notably on iOS WKWebView
  * (Capacitor), where the fetch promise can hold a streaming connection
  * open at the network layer with no bytes flowing and no error surfaced
- * to JavaScript. The daemon emits a heartbeat comment every ~30 s; this
+ * to JavaScript. The daemon emits a heartbeat comment every ~7 s; this
  * watchdog aborts the active fetch when no SSE traffic (events OR
  * heartbeat comments) arrives within a configurable window.
  *

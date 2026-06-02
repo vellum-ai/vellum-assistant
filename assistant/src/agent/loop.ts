@@ -291,6 +291,24 @@ export type AgentEvent =
        */
       type: "context_compacting";
     }
+  | {
+      /**
+       * Emitted after the loop's inline mid-loop compaction successfully
+       * compacts the running history, immediately before re-injection. The
+       * daemon's event dispatcher commits the durable compaction result
+       * (DB-record fields, graph-memory side effects, SSE) and flips the
+       * per-turn re-injection guards on the handler state. Treated as a
+       * critical event: a failed commit re-throws so the turn aborts rather
+       * than re-injecting against half-applied state.
+       *
+       * `basis` is the stripped pre-compaction history the summary was built
+       * from; the dispatcher uses it to project Slack provenance onto the
+       * compacted result.
+       */
+      type: "compaction_applied";
+      result: ContextWindowResult;
+      basis: Message[];
+    }
   /**
    * Circuit-breaker transitions emitted when auto-compaction is paused
    * (`compaction_circuit_open`, after three consecutive summary-LLM
@@ -437,10 +455,11 @@ export interface ResolvedSystemPrompt {
  * trips and inline compaction runs. The loop owns the trigger, the
  * `compaction` pipeline call, the result interpretation (circuit-breaker
  * bookkeeping + the exhaustion decision), and the inline continue; these hooks
- * bridge the durable / injection state the loop is intentionally blind to.
- * Durable persistence ({@link applyResult}) and re-injection
- * ({@link reinject}) remain orchestrator-supplied for now and are expected to
- * move into the loop in a future change.
+ * bridge the injection state the loop is intentionally blind to. Durable
+ * persistence of a successful compaction is signalled out-of-band via the
+ * `compaction_applied` {@link AgentEvent}; re-injection ({@link reinject})
+ * remains orchestrator-supplied for now and is expected to move into the loop
+ * in a future change.
  */
 export interface MidLoopCompaction {
   /** Strip runtime injections, commit stripped messages, and resolve pipeline options. */
@@ -448,11 +467,6 @@ export interface MidLoopCompaction {
     rawHistory: Message[];
     options: CompactionArgs["options"];
   };
-  /** Commit a successful compaction result to durable state. */
-  applyResult: (
-    result: ContextWindowResult,
-    rawHistory: Message[],
-  ) => Promise<void>;
   /** Re-apply runtime injections and return the history to continue from. */
   reinject: () => Promise<Message[]>;
 }
@@ -753,7 +767,11 @@ export class AgentLoop {
       );
     }
     if (compactResult.compacted) {
-      await compaction.applyResult(compactResult, rawHistory);
+      await onEvent({
+        type: "compaction_applied",
+        result: compactResult,
+        basis: rawHistory,
+      });
     }
     if (compactResult.exhausted ?? false) {
       return null;
