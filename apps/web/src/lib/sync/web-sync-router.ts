@@ -22,6 +22,7 @@ export interface ActiveConversationMessagesRefreshResult {
 export interface WebSyncRouterOptions {
   invalidateAvatar: () => void;
   refreshAssistantIdentity: (force?: boolean) => Promise<void>;
+  invalidateAssistantIdentityIntro: () => void;
   invalidateAssistantConfig: () => void;
   invalidateAssistantSounds: () => void;
   invalidateAssistantSchedules: () => void;
@@ -56,6 +57,15 @@ export function createWebSyncRouter(
     registry.register(SYNC_TAGS.assistantAvatar, options.invalidateAvatar),
     registry.register(SYNC_TAGS.assistantIdentity, () =>
       options.refreshAssistantIdentity(true),
+    ),
+    registry.register(
+      SYNC_TAGS.assistantIdentity,
+      options.invalidateAssistantIdentityIntro,
+      { runOnReconnect: false },
+    ),
+    registry.register(
+      SYNC_TAGS.assistantIdentityIntro,
+      options.invalidateAssistantIdentityIntro,
     ),
     registry.register(
       SYNC_TAGS.assistantConfig,

@@ -52,7 +52,7 @@ to hide irrelevant sections.
 routes.tsx
   <App />            ← shared shell (nav, layout, providers)
     <Outlet />
-      <ChatPage />           ← mounts chat, streaming, messages
+      <ChatPage />           ← lifecycle guards → mounts ActiveChatView
       <LibraryPage />        ← library listing
       <SettingsTabPage />    ← mounts settings-specific state
 ```
@@ -80,13 +80,13 @@ useEffect(() => {
 }, [setTopBarCenter]);
 ```
 
-**Data slots** (`headerSupplements`) — `ChatPage` contributes
+**Data slots** (`headerSupplements`) — `ActiveChatView` contributes
 structured data (`ChatHeaderSupplements`) that `ChatLayout` renders
 directly. This keeps conversation-action callbacks in `ChatLayout`
 (which owns `useConversationActions`) instead of duplicating them in
-`ChatPage`. The supplements carry only the few ChatPage-specific values
-the header menu needs (fork, analyze, inspect callbacks, slack label,
-`hasPersistedMessage`).
+`ActiveChatView`. The supplements carry only the few chat-specific
+values the header menu needs (fork, analyze, inspect callbacks, slack
+label, `hasPersistedMessage`).
 
 A Zustand store rather than outlet context because `ActiveAssistantGate`
 sits between `ChatLayout` and gated routes — outlet context value

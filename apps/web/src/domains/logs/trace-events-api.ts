@@ -8,7 +8,7 @@ import { traceeventsGet } from "@/generated/daemon/sdk.gen";
 import type { TraceeventsGetResponse } from "@/generated/daemon/types.gen";
 
 export type TraceEventsListResponse = TraceeventsGetResponse;
-export type TraceEventRow = TraceeventsGetResponse["events"][number];
+export type TraceEventRow = TraceEventsListResponse["events"][number];
 export type TraceEventKind = TraceEventRow["kind"];
 export type TraceEventStatus = NonNullable<TraceEventRow["status"]>;
 

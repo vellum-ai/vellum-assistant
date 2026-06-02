@@ -91,7 +91,10 @@ import { useChatDebugApi } from "@/domains/chat/utils/debug-api";
 import { ConnectingToAssistant } from "@/domains/chat/components/connecting-to-assistant";
 import { useGhostTextSuggestion } from "@/domains/chat/hooks/use-ghost-text-suggestion";
 import { createWebSyncRouter } from "@/lib/sync/web-sync-router";
-import { assistantIdentityQueryKey } from "@/hooks/use-assistant-identity-init";
+import {
+  assistantIdentityIntroQueryKey,
+  assistantIdentityQueryKey,
+} from "@/lib/sync/query-tags";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat";
@@ -575,6 +578,17 @@ export function ActiveChatView() {
     [queryClient],
   );
 
+  const invalidateAssistantIdentityIntro = useCallback(
+    () => {
+      const targetId = assistantIdRef.current;
+      if (!targetId) return;
+      void queryClient.invalidateQueries({
+        queryKey: assistantIdentityIntroQueryKey(targetId),
+      });
+    },
+    [queryClient],
+  );
+
   useEffect(() => {
     if (!assistantId) return;
     void refreshAssistantIdentity();
@@ -589,6 +603,7 @@ export function ActiveChatView() {
     const syncRouter = createWebSyncRouter({
       invalidateAvatar,
       refreshAssistantIdentity,
+      invalidateAssistantIdentityIntro,
       invalidateAssistantConfig: () => {},
       invalidateAssistantSounds: () => {},
       invalidateAssistantSchedules: () => {},
@@ -605,6 +620,7 @@ export function ActiveChatView() {
   }, [
     invalidateAvatar,
     refreshAssistantIdentity,
+    invalidateAssistantIdentityIntro,
     scheduleConversationListRefetch,
     reconcileActiveConversation,
   ]);

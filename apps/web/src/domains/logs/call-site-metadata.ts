@@ -7,6 +7,8 @@
 import { configLlmCallsitesGet } from "@/generated/daemon/sdk.gen";
 import type { ConfigLlmCallsitesGetResponse } from "@/generated/daemon/types.gen";
 
+type CallSiteCatalogResponse = ConfigLlmCallsitesGetResponse;
+
 export interface UsageCallSiteMetadata {
   id: string;
   displayName: string;
@@ -17,7 +19,7 @@ export interface UsageCallSiteMetadata {
 export type UsageCallSiteMetadataMap = Record<string, UsageCallSiteMetadata>;
 
 export function buildCallSiteMetadataMap(
-  catalog: ConfigLlmCallsitesGetResponse | null | undefined,
+  catalog: CallSiteCatalogResponse | null | undefined,
 ): UsageCallSiteMetadataMap {
   if (!catalog) {
     return {};
@@ -42,7 +44,7 @@ export function buildCallSiteMetadataMap(
 
 export async function fetchUsageCallSiteCatalog(
   assistantId: string,
-): Promise<ConfigLlmCallsitesGetResponse> {
+): Promise<CallSiteCatalogResponse> {
   const { data, response } = await configLlmCallsitesGet({
     path: { assistant_id: assistantId },
     throwOnError: false,

@@ -24,7 +24,6 @@ import {
   isAvailableSkill,
   isRemovableSkill,
   type SkillFileEntry,
-  type SkillFilesResponse,
   type SkillInfo,
 } from "@/domains/intelligence/skills/types";
 
@@ -56,7 +55,7 @@ export function SkillDetail({
     ...skillsByIdFilesGetOptions({
       path: { assistant_id: assistantId, id: skill.id },
     }),
-    select: (data) => data as SkillFilesResponse | null,
+    select: (data) => data ?? null,
   });
 
   const fileEntries = useMemo<SkillFileEntry[]>(
