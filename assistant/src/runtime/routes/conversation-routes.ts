@@ -993,6 +993,8 @@ export async function handleSendMessage(
     sourceChannel?: string;
     interface?: string;
     conversationType?: string;
+    incognito?: boolean;
+    factorInMemories?: boolean;
     automated?: boolean;
     bypassSecretCheck?: boolean;
     hostHomeDir?: string;
@@ -1196,6 +1198,8 @@ export async function handleSendMessage(
           : `default:${sourceChannel}:${sourceInterface}`;
     mapping = getOrCreateConversation(resolvedConversationKey, {
       conversationType: "standard",
+      incognito: body.incognito ?? false,
+      factorInMemories: body.factorInMemories ?? true,
     });
   }
 

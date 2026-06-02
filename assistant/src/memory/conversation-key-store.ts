@@ -135,7 +135,11 @@ export function resolveConversationId(idOrKey: string): string | null {
  */
 export function getOrCreateConversation(
   conversationKey: string,
-  opts?: { conversationType?: "standard" },
+  opts?: {
+    conversationType?: "standard";
+    incognito?: boolean;
+    factorInMemories?: boolean;
+  },
 ): {
   conversationId: string;
   conversationType: string;
@@ -222,6 +226,8 @@ export function getOrCreateConversation(
         contextCompactedAt: null,
         conversationType,
         memoryScopeId,
+        incognito: opts?.incognito ? 1 : 0,
+        factorInMemories: opts?.factorInMemories === false ? 0 : 1,
       })
       .run();
 
