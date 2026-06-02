@@ -7,12 +7,30 @@ type ClientCall = {
   body?: Record<string, unknown>;
 };
 
+type QueuedResponse = {
+  ok: boolean;
+  status: number;
+  /** Daemon error envelope surfaced by the generated client on `result.error`. */
+  error?: unknown;
+};
+
 const calls: ClientCall[] = [];
 // Per-URL queue of responses; each create call shifts the next. Missing/empty
 // queue defaults to 200 OK.
-const responseQueues: Record<string, { ok: boolean; status: number }[]> = {};
+const responseQueues: Record<string, QueuedResponse[]> = {};
 
-function nextResponse(url: string): { ok: boolean; status: number } {
+// The daemon's flag-disabled rejection message
+// (assistant inference-provider-connection-routes.ts) wrapped in the standard
+// error envelope (`{ error: { code, message } }`).
+const FLAG_DISABLED_BODY = {
+  error: {
+    code: "BAD_REQUEST",
+    message:
+      "OpenAI-compatible endpoints are disabled. Enable the openai-compatible-endpoints feature flag to configure this provider.",
+  },
+};
+
+function nextResponse(url: string): QueuedResponse {
   const queued = responseQueues[url]?.shift();
   return queued ?? { ok: true, status: 200 };
 }
@@ -20,7 +38,8 @@ function nextResponse(url: string): { ok: boolean; status: number } {
 const patchMock = mock(
   async (args: { url: string; body?: Record<string, unknown> }) => {
     calls.push({ method: "patch", url: args.url, body: args.body });
-    return { response: nextResponse(args.url) };
+    const { ok, status, error } = nextResponse(args.url);
+    return { response: { ok, status }, error };
   },
 );
 
@@ -36,7 +55,8 @@ const postMock = mock(
       path: args.path,
       body: args.body,
     });
-    return { response: nextResponse(args.url) };
+    const { ok, status, error } = nextResponse(args.url);
+    return { response: { ok, status }, error };
   },
 );
 
@@ -168,11 +188,11 @@ describe("applyPendingProviderKey", () => {
     expect(body.models).toBeUndefined();
   });
 
-  test("openai-compatible retries the connection POST on a 400 then succeeds", async () => {
-    // First create attempt fails with 400 (flag cache not yet propagated),
-    // second succeeds.
+  test("openai-compatible retries the connection POST on the flag-disabled 400 then succeeds", async () => {
+    // First create attempt fails with the flag-disabled 400 (flag cache not
+    // yet propagated), second succeeds.
     responseQueues[CONNECTIONS_URL] = [
-      { ok: false, status: 400 },
+      { ok: false, status: 400, error: FLAG_DISABLED_BODY },
       { ok: true, status: 200 },
     ];
 
@@ -189,5 +209,39 @@ describe("applyPendingProviderKey", () => {
       (c) => c.method === "post" && c.url === CONNECTIONS_URL,
     );
     expect(connectionCalls.length).toBe(2);
+  });
+
+  test("openai-compatible does NOT retry a genuine validation 400 — throws on first attempt", async () => {
+    // A real validation rejection (e.g. base_url_required) must surface
+    // immediately rather than being retried as a flag-propagation delay.
+    responseQueues[CONNECTIONS_URL] = [
+      {
+        ok: false,
+        status: 400,
+        error: {
+          error: { code: "BAD_REQUEST", message: "base_url is required." },
+        },
+      },
+      // Sentinel: a second attempt (if it wrongly retried) would succeed —
+      // so a passing assertion of a single attempt proves no retry happened.
+      { ok: true, status: 200 },
+    ];
+
+    setPendingProviderKey({
+      provider: "openai-compatible",
+      key: "",
+      baseUrl: "http://localhost:1234/v1",
+      models: ["model-a"],
+    });
+
+    await expect(applyPendingProviderKey("asst-1")).rejects.toMatchObject({
+      message: "Failed to create provider connection",
+      status: 400,
+    });
+
+    const connectionCalls = calls.filter(
+      (c) => c.method === "post" && c.url === CONNECTIONS_URL,
+    );
+    expect(connectionCalls.length).toBe(1);
   });
 });

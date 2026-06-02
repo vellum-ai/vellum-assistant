@@ -15,6 +15,7 @@ import {
   peekPendingProviderKey,
   setPendingProviderKey,
 } from "@/domains/onboarding/provider-key";
+import { parseModelIds } from "@/utils/parse-model-ids";
 import { routes } from "@/utils/routes";
 
 function isValidHttpUrl(value: string): boolean {
@@ -47,10 +48,7 @@ export function ApiKeyScreen() {
   const entry = onboardingProvider(provider) ?? DEFAULT_ONBOARDING_PROVIDER;
   const requiresKey = entry.requiresKey;
   const isCustom = entry.requiresBaseUrl ?? false;
-  const models = modelsRaw
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+  const models = parseModelIds(modelsRaw);
 
   const trimmedBaseUrl = baseUrl.trim();
   const keyOk = !requiresKey || apiKey.trim().length > 0;

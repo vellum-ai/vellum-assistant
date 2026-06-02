@@ -1,5 +1,6 @@
 import { client } from "@/generated/api/client.gen";
 import type { OnboardingProviderId } from "@/domains/onboarding/provider-catalog";
+import { extractErrorMessage } from "@/utils/api-errors";
 
 // Model-provider API key collected during onboarding. Held in sessionStorage
 // (consume-once) between the API-key step and the post-hatch application, then
@@ -105,6 +106,25 @@ async function writeApiKeySecret(
   }
 }
 
+/**
+ * True when a non-ok create result is the daemon's "feature flag still
+ * disabled" rejection (HTTP 400 carrying the openai-compatible-endpoints
+ * disabled message). The daemon shapes errors as `{ error: { code, message } }`
+ * (assistant http-errors.ts), surfaced by the generated client on
+ * `result.error`. Matched on a stable substring of
+ * `rejectDisabledOpenAICompatibleProvider`'s message
+ * (inference-provider-connection-routes.ts) so it's robust to minor wording
+ * changes while excluding genuine validation 400s (base_url_required,
+ * models_required, SSRF/metadata rejection, malformed base_url).
+ */
+function isFlagDisabledError(result: {
+  response?: { status?: number };
+  error?: unknown;
+}): boolean {
+  if (result.response?.status !== 400) return false;
+  return extractErrorMessage(result.error).toLowerCase().includes("feature flag");
+}
+
 async function createProviderConnection(
   assistantId: string,
   provider: OnboardingProviderId,
@@ -126,9 +146,11 @@ async function createProviderConnection(
   };
   // The daemon refreshes its feature-flag cache asynchronously, so right after
   // enableAssistantFeatureFlag() returns it may still read
-  // openai-compatible-endpoints as disabled and reject the create with HTTP 400.
-  // Retry briefly to absorb that gateway->daemon propagation delay. Other
-  // providers (and genuine validation 400s) surface immediately.
+  // openai-compatible-endpoints as disabled and reject the create with the
+  // flag-disabled 400. Retry briefly to absorb that gateway->daemon
+  // propagation delay, but ONLY for that specific 400 — genuine validation
+  // 400s (base_url_required, models_required, SSRF rejection, malformed
+  // base_url) and all non-openai-compatible providers surface immediately.
   const maxAttempts = provider === "openai-compatible" ? 5 : 1;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const result = await client.post({
@@ -138,13 +160,12 @@ async function createProviderConnection(
       headers: { "Content-Type": "application/json" },
     });
     if (result.response?.ok) return;
-    const status = result.response?.status;
-    if (provider === "openai-compatible" && status === 400 && attempt < maxAttempts) {
+    if (isFlagDisabledError(result) && attempt < maxAttempts) {
       await new Promise((r) => setTimeout(r, 250));
       continue;
     }
     throw Object.assign(new Error("Failed to create provider connection"), {
-      status,
+      status: result.response?.status,
     });
   }
 }
