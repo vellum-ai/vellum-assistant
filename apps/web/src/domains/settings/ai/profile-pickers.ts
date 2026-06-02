@@ -86,3 +86,29 @@ export function profilePickerLabel(p: ProfilePickerEntry): string {
   const base = p.label ?? p.name;
   return p.status === "disabled" ? `${base} (Disabled)` : base;
 }
+
+/**
+ * Merges `profileOrder` with any extras in `profiles` that aren't in
+ * the order array yet. Profiles listed in `profileOrder` appear first
+ * (in that order), followed by any remaining entries sorted by insertion
+ * order. Each entry spreads the raw `ProfileEntry` fields and attaches
+ * the profile `name` key.
+ *
+ * Pure function — no React dependency. Shared by `useDaemonConfig`,
+ * `ManageProfilesModalInner`, and `CallSiteOverridesModalInner`.
+ */
+export function buildOrderedProfiles<
+  T extends { status?: string; label?: string | null },
+>(
+  profiles: Readonly<Record<string, T>>,
+  profileOrder: ReadonlyArray<string>,
+): (T & { name: string })[] {
+  const ordered = profileOrder
+    .filter((name) => name in profiles)
+    .map((name) => ({ name, ...profiles[name]! }));
+  const inOrder = new Set(profileOrder);
+  const extras = Object.entries(profiles)
+    .filter(([name]) => !inOrder.has(name))
+    .map(([name, entry]) => ({ name, ...entry }));
+  return [...ordered, ...extras];
+}

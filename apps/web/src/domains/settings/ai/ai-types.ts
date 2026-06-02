@@ -1,5 +1,4 @@
 import { PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
-import type { CallSiteOverrideDraft } from "@/domains/settings/ai/call-site-overrides-modal";
 
 // ---------------------------------------------------------------------------
 // Service mode
@@ -59,7 +58,23 @@ export interface DaemonConfigReconciliation {
   imageGenMode?: ServiceMode;
 }
 
-export type { CallSiteOverrideDraft };
+/**
+ * Shape of a single call-site override draft (profile binding or custom
+ * provider/model). Used both as persisted config and as ephemeral edit
+ * state in the call-site overrides modal.
+ */
+export interface CallSiteOverrideDraft {
+  profile?: string | null;
+  provider?: string | null;
+  model?: string | null;
+}
+
+/**
+ * A profile entry with its key name attached. Convenience alias for
+ * components that iterate over the ordered profile list — avoids
+ * duplicating `ProfileEntry & { name: string }` everywhere.
+ */
+export type ProfileWithName = ProfileEntry & { name: string };
 
 export interface InferenceTokenBudgetState {
   maxOutputTokens: number;

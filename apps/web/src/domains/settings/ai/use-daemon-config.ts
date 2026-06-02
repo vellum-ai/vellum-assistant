@@ -33,8 +33,7 @@ import {
 import { captureError } from "@/lib/sentry/capture-error";
 import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
 import { assertProvisionSuccess } from "@/domains/settings/ai/ai-utils";
-import type { DaemonConfig, ProfileEntry } from "@/domains/settings/ai/ai-types";
-import type { CallSiteOverrideDraft } from "@/domains/settings/ai/call-site-overrides-modal";
+import type { CallSiteOverrideDraft, DaemonConfig, ProfileEntry } from "@/domains/settings/ai/ai-types";
 
 /**
  * Hook providing the daemon config query and common mutation helpers.

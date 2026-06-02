@@ -14,8 +14,7 @@ import {
   PROVIDER_DISPLAY_NAMES as INFERENCE_PROVIDER_DISPLAY_NAMES,
 } from "@/assistant/llm-model-catalog";
 
-import type { ProfileEntry } from "@/domains/settings/ai/ai-types";
-import { type Profile } from "@/domains/settings/ai/manage-profiles-modal";
+import type { ProfileEntry, ProfileWithName } from "@/domains/settings/ai/ai-types";
 import {
   ProfileAdvancedParams,
   THINKING_LEVEL_INHERIT,
@@ -50,7 +49,7 @@ export interface ProfileEditorModalProps {
   isOpen: boolean;
   mode: "create" | "edit" | "view";
   profileName?: string;
-  initialValues?: Profile;
+  initialValues?: ProfileWithName;
   existingNames: string[];
   /**
    * Provider connections, supplied by the parent (`ManageProfilesModal`).
@@ -133,7 +132,7 @@ export function ProfileEditorModal({
 interface ProfileEditorModalInnerProps {
   mode: "create" | "edit" | "view";
   profileName?: string;
-  initialValues?: Profile;
+  initialValues?: ProfileWithName;
   existingNames: string[];
   // See `ProfileEditorModalProps.connections` for nil-vs-empty semantics.
   connections: ProviderConnection[] | undefined;

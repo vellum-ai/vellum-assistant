@@ -14,6 +14,7 @@ import { ManageProfilesModal } from "@/domains/settings/ai/manage-profiles-modal
 import { ManageProvidersModal } from "@/domains/settings/ai/manage-providers-modal";
 import {
   AUTO_PROFILE_NAME,
+  buildOrderedProfiles,
   gateAutoProfile,
   profilePickerLabel,
   visibleProfilesForPicker,
@@ -56,16 +57,10 @@ export function LanguageModelCard() {
   const [manageProvidersOpen, setManageProvidersOpen] = useState(false);
 
   // Derived state — computed from query cache slices
-  const orderedProfiles = useMemo(() => {
-    const ordered = profileOrder
-      .filter((name) => name in profiles)
-      .map((name) => ({ name, ...profiles[name]! }));
-    const inOrder = new Set(profileOrder);
-    const extras = Object.entries(profiles)
-      .filter(([name]) => !inOrder.has(name))
-      .map(([name, entry]) => ({ name, ...entry }));
-    return [...ordered, ...extras];
-  }, [profiles, profileOrder]);
+  const orderedProfiles = useMemo(
+    () => buildOrderedProfiles(profiles, profileOrder),
+    [profiles, profileOrder],
+  );
 
   const queryComplexityRoutingEnabled =
     useAssistantFeatureFlagStore.use.queryComplexityRouting();
