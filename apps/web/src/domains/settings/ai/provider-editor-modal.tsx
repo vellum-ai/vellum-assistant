@@ -33,6 +33,26 @@ import { toKebabCase } from "@/domains/settings/ai/slugify";
 import { providerSupportsPlatformAuth } from "@/assistant/llm-model-catalog";
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function connectionSaveErrorMessage(
+  status: number | undefined,
+  connectionName: string,
+): string {
+  switch (status) {
+    case 409:
+      return `A connection named "${connectionName}" already exists.`;
+    case 404:
+      return "Connection not found. It may have been deleted.";
+    case 400:
+      return "Invalid configuration. Check the provider and auth settings.";
+    default:
+      return "Failed to save connection. Please try again.";
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
@@ -511,12 +531,15 @@ export function ProviderEditorContent({
               : null,
           }),
         };
-        const { data: created } = await inferenceProviderconnectionsPost({
+        const { data: created, response: createRes } = await inferenceProviderconnectionsPost({
           path: { assistant_id: assistantId },
           body: input,
-          throwOnError: true,
         });
-        saved = created;
+        if (!createRes?.ok) {
+          setError(connectionSaveErrorMessage(createRes?.status, name.trim()));
+          return;
+        }
+        saved = created!;
       } else {
         const input: UpdateConnectionInput = {
           auth,
@@ -531,28 +554,19 @@ export function ProviderEditorContent({
               : null,
           }),
         };
-        const { data: updated } = await inferenceProviderconnectionsByNamePatch({
+        const { data: updated, response: updateRes } = await inferenceProviderconnectionsByNamePatch({
           path: { assistant_id: assistantId, name: connection!.name },
           body: input,
-          throwOnError: true,
         });
-        saved = updated;
+        if (!updateRes?.ok) {
+          setError(connectionSaveErrorMessage(updateRes?.status, name.trim()));
+          return;
+        }
+        saved = updated!;
       }
       onSave(saved);
-    } catch (err) {
-      const httpStatus =
-        err && typeof err === "object" && "status" in err
-          ? (err as { status: number }).status
-          : undefined;
-      if (httpStatus === 409) {
-        setError(`A connection named "${name.trim()}" already exists.`);
-      } else if (httpStatus === 404) {
-        setError("Connection not found. It may have been deleted.");
-      } else if (httpStatus === 400) {
-        setError("Invalid configuration. Check the provider and auth settings.");
-      } else {
-        setError("Failed to save connection. Please try again.");
-      }
+    } catch {
+      setError("Failed to save connection. Please try again.");
     } finally {
       setSaving(false);
     }

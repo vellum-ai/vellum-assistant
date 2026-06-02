@@ -229,31 +229,29 @@ function ManageProvidersModalInner({
       return next;
     });
     try {
-      await inferenceProviderconnectionsByNameDelete({
+      const { response } = await inferenceProviderconnectionsByNameDelete({
         path: { assistant_id: assistantId, name },
-        throwOnError: true,
       });
-      onConnectionDeleted(name);
-    } catch (err) {
-      const status =
-        err && typeof err === "object" && "status" in err
-          ? (err as { status: number }).status
-          : undefined;
-      if (status === 409) {
+      if (response?.ok || response?.status === 404) {
+        // 404 means already gone — still remove from local list.
+        onConnectionDeleted(name);
+      } else if (response?.status === 409) {
         setDeleteErrors((prev) => ({
           ...prev,
           [name]:
             "Connection is in use by one or more profiles. Remove those references first.",
         }));
-      } else if (status === 404) {
-        // Already gone — remove from local list silently.
-        onConnectionDeleted(name);
       } else {
         setDeleteErrors((prev) => ({
           ...prev,
           [name]: "Failed to delete connection. Please try again.",
         }));
       }
+    } catch {
+      setDeleteErrors((prev) => ({
+        ...prev,
+        [name]: "Failed to delete connection. Please try again.",
+      }));
     } finally {
       setDeleting((prev) => {
         const next = { ...prev };
