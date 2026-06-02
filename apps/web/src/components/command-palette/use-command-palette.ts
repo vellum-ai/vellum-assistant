@@ -156,13 +156,16 @@ export function useCommandPalette({
     [triggerSearch],
   );
 
-  // Cleanup on unmount.
+  // Cleanup on unmount — cancel in-flight searches and reset the store so
+  // isOpen doesn't persist when navigating away from a route that mounts
+  // the palette.
   useEffect(() => {
     return () => {
       abortControllerRef.current?.abort();
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
       }
+      useCommandPaletteStore.getState().close();
     };
   }, []);
 
