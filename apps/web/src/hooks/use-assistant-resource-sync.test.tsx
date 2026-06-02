@@ -4,7 +4,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
-import { appsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
+import {
+  appsGetQueryKey,
+  homeFeedGetQueryKey,
+  homeStateGetQueryKey,
+} from "@/generated/daemon/@tanstack/react-query.gen";
 import type { AssistantEvent } from "@/types/event-types";
 import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
 import {
@@ -14,8 +18,6 @@ import {
   assistantSchedulesQueryKey,
   assistantSoundsConfigQueryKey,
   avatarQueryKey,
-  HOME_FEED_QUERY_KEY_PREFIX,
-  HOME_STATE_QUERY_KEY_PREFIX,
 } from "@/lib/sync/query-tags";
 import { SYNC_TAGS } from "@/lib/sync/types";
 import type { SyncChangedEvent } from "@/lib/sync/types";
@@ -200,8 +202,15 @@ describe("useAssistantResourceSync", () => {
 
   test("invalidates home-feed query on home_feed_updated", async () => {
     const queryClient = freshQueryClient();
-    const spy = mock(() => Promise.resolve());
-    queryClient.invalidateQueries = spy as never;
+    let predicate:
+      | ((query: { queryKey: readonly unknown[] }) => boolean)
+      | undefined;
+    queryClient.invalidateQueries = ((arg: unknown) => {
+      predicate = (arg as {
+        predicate?: (query: { queryKey: readonly unknown[] }) => boolean;
+      }).predicate;
+      return Promise.resolve();
+    }) as never;
     renderHook(() => useAssistantResourceSync("asst-1", true), {
       wrapper: createWrapper(queryClient),
     });
@@ -211,17 +220,29 @@ describe("useAssistantResourceSync", () => {
       newItemCount: 1,
     } as unknown) as AssistantEvent);
     await waitFor(() => {
-      expect(spy).toHaveBeenCalledWith({
-        queryKey: [HOME_FEED_QUERY_KEY_PREFIX],
-      });
+      expect(predicate).toBeDefined();
     });
+    expect(
+      predicate!({
+        queryKey: homeFeedGetQueryKey({
+          path: { assistant_id: "asst-1" },
+          query: { timeAwaySeconds: 0 },
+        }),
+      })
+    ).toBe(true);
+    expect(predicate!({ queryKey: avatarQueryKey("asst-1") })).toBe(false);
   });
 
   test("invalidates both home-feed and home-state on relationship_state_updated", async () => {
     const queryClient = freshQueryClient();
-    const calls: unknown[][] = [];
+    const predicates: Array<
+      (query: { queryKey: readonly unknown[] }) => boolean
+    > = [];
     queryClient.invalidateQueries = ((arg: unknown) => {
-      calls.push([arg]);
+      const pred = (arg as {
+        predicate?: (query: { queryKey: readonly unknown[] }) => boolean;
+      }).predicate;
+      if (pred) predicates.push(pred);
       return Promise.resolve();
     }) as never;
     renderHook(() => useAssistantResourceSync("asst-1", true), {
@@ -232,16 +253,20 @@ describe("useAssistantResourceSync", () => {
       updatedAt: "2026-05-21T00:00:00Z",
     } as unknown) as AssistantEvent);
     await waitFor(() => {
-      const queryKeys = calls.map(
-        ([arg]) => (arg as { queryKey: readonly unknown[] }).queryKey
-      );
-      expect(queryKeys).toEqual(
-        expect.arrayContaining([
-          [HOME_FEED_QUERY_KEY_PREFIX],
-          [HOME_STATE_QUERY_KEY_PREFIX],
-        ]) as never
-      );
+      expect(predicates.length).toBe(2);
     });
+    const feedKey = homeFeedGetQueryKey({
+      path: { assistant_id: "asst-1" },
+      query: { timeAwaySeconds: 0 },
+    });
+    const stateKey = homeStateGetQueryKey({
+      path: { assistant_id: "asst-1" },
+    });
+    expect(predicates.some((p) => p({ queryKey: feedKey }))).toBe(true);
+    expect(predicates.some((p) => p({ queryKey: stateKey }))).toBe(true);
+    expect(
+      predicates.every((p) => !p({ queryKey: avatarQueryKey("asst-1") }))
+    ).toBe(true);
   });
 
   test("invalidates identity query on identity_changed event", async () => {
