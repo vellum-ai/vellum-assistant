@@ -23,6 +23,7 @@ export interface LatestTurnRowProps {
   assistantDisplayName?: string | null;
   expandedToolCallIds: Set<string>;
   expandedCardIds: Map<string, boolean>;
+  expandedThinkingKeys: Map<string, boolean>;
   onSurfaceAction: (
     surfaceId: string,
     actionId: string,
@@ -72,6 +73,7 @@ export const LatestTurnRow = memo(function LatestTurnRow({
   assistantDisplayName,
   expandedToolCallIds,
   expandedCardIds,
+  expandedThinkingKeys,
   onSurfaceAction,
   onSecretSubmit,
   onConfirmationDecision,
@@ -108,6 +110,7 @@ export const LatestTurnRow = memo(function LatestTurnRow({
         assistantDisplayName={assistantDisplayName}
         expandedToolCallIds={expandedToolCallIds}
         expandedCardIds={expandedCardIds}
+        expandedThinkingKeys={expandedThinkingKeys}
         onSurfaceAction={onSurfaceAction}
         onSecretSubmit={onSecretSubmit}
         onConfirmationDecision={onConfirmationDecision}
@@ -138,6 +141,7 @@ export const LatestTurnRow = memo(function LatestTurnRow({
             assistantDisplayName={assistantDisplayName}
             expandedToolCallIds={expandedToolCallIds}
             expandedCardIds={expandedCardIds}
+            expandedThinkingKeys={expandedThinkingKeys}
             onSurfaceAction={onSurfaceAction}
             onSecretSubmit={onSecretSubmit}
             onConfirmationDecision={onConfirmationDecision}

@@ -145,11 +145,6 @@ function isWebTool(tc: ChatMessageToolCall): boolean {
   return WEB_TOOL_NAMES.has(tc.toolName);
 }
 
-/** True when at least one tool call in `toolCalls` is a web tool. */
-export function hasWebTool(toolCalls: ChatMessageToolCall[]): boolean {
-  return toolCalls.some(isWebTool);
-}
-
 /**
  * Recognise a subagent-spawn invocation in either canonical form:
  *

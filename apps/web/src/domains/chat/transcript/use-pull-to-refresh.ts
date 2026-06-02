@@ -22,7 +22,7 @@
 // so we compute pull extent as (currentY − startY). Positive extent
 // means the finger has traveled downward — i.e., the user is pulling.
 
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 
 import { haptic } from "@/utils/haptics";
 
@@ -163,7 +163,7 @@ export function usePullToRefresh({
   const dragRef = useRef<DragState | null>(null);
   const isRefreshingRef = useRef(false);
   const onRefreshRef = useRef(onRefresh);
-  useEffect(() => {
+  useLayoutEffect(() => {
     isRefreshingRef.current = isRefreshing;
     onRefreshRef.current = onRefresh;
   }, [isRefreshing, onRefresh]);

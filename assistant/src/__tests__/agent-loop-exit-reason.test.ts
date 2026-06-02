@@ -380,15 +380,12 @@ describe("AgentLoop exit-reason instrumentation", () => {
     });
 
     let prepared = false;
-    let appliedResult = false;
     let reinjected = false;
+    const events: AgentEvent[] = [];
     const compaction: MidLoopCompaction = {
       prepare: (history) => {
         prepared = true;
         return { rawHistory: history, options: undefined };
-      },
-      applyResult: async () => {
-        appliedResult = true;
       },
       reinject: async () => {
         reinjected = true;
@@ -397,22 +394,31 @@ describe("AgentLoop exit-reason instrumentation", () => {
     };
 
     // WHEN the in-loop budget gate trips at the checkpoint
-    const result = await loop.run([userMessage], () => {}, {
-      resolveContextWindow: () => ({
-        maxInputTokens: 10,
-        overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
-      }),
-      compaction,
-      turnContext: fakeCompactionTurnContext({
-        compacted: true,
-        exhausted: false,
-      }),
-    });
+    const result = await loop.run(
+      [userMessage],
+      (event) => {
+        events.push(event);
+      },
+      {
+        resolveContextWindow: () => ({
+          maxInputTokens: 10,
+          overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
+        }),
+        compaction,
+        turnContext: fakeCompactionTurnContext({
+          compacted: true,
+          exhausted: false,
+        }),
+      },
+    );
 
     // THEN the loop runs the compaction ceremony in place and continues to a
-    // clean exit instead of yielding for budget.
+    // clean exit instead of yielding for budget. The durable commit is
+    // signalled via a `compaction_applied` event rather than an injected hook.
     expect(prepared).toBe(true);
-    expect(appliedResult).toBe(true);
+    expect(events.some((event) => event.type === "compaction_applied")).toBe(
+      true,
+    );
     expect(reinjected).toBe(true);
     expect(result.exitReason).not.toBe("budget");
   });
@@ -430,7 +436,6 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
     const compaction: MidLoopCompaction = {
       prepare: (history) => ({ rawHistory: history, options: undefined }),
-      applyResult: async () => {},
       reinject: async () => {
         throw new Error("reinject must not run after a timeout");
       },
@@ -468,7 +473,6 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
     const compaction: MidLoopCompaction = {
       prepare: (history) => ({ rawHistory: history, options: undefined }),
-      applyResult: async () => {},
       reinject: async () => {
         throw new Error("reinject must not run when exhausted");
       },

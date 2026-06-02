@@ -76,6 +76,11 @@ export interface DisplayMessage {
   queueStatus?: "queued" | "processing";
   /** 1-based position in the queue, updated by `message_queued` SSE events. */
   queuePosition?: number;
+  /** Reasoning content produced by thinking-capable models. Each entry
+   *  corresponds to a `thinking:N` entry in `contentOrder`. Populated from
+   *  the server's `thinkingSegments` field on history loads, and
+   *  accumulated live from `assistant_thinking_delta` SSE events. */
+  thinkingSegments?: string[];
   /** True for daemon-injected subagent lifecycle notifications that should
    *  not render as user bubbles. Matches macOS `isSubagentNotification`. */
   isSubagentNotification?: boolean;

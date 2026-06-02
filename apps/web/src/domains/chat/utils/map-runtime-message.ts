@@ -30,6 +30,7 @@ export interface PreparedRuntimeMessage {
   toolCalls: ReturnType<typeof mapRuntimeToolCalls> | undefined;
   slackMessage: SlackRuntimeMessage | undefined;
   timestamp: number | undefined;
+  thinkingSegments: string[] | undefined;
 }
 
 /**
@@ -107,6 +108,11 @@ export function prepareServerMessage(m: RuntimeMessage): PreparedRuntimeMessage 
 
   const timestamp = parseRuntimeTimestamp(m.timestamp);
 
+  const thinkingSegments =
+    m.thinkingSegments && m.thinkingSegments.length > 0
+      ? m.thinkingSegments
+      : undefined;
+
   return {
     parsedAttachments,
     structuredAttachments,
@@ -115,6 +121,7 @@ export function prepareServerMessage(m: RuntimeMessage): PreparedRuntimeMessage 
     toolCalls,
     slackMessage: m.slackMessage,
     timestamp,
+    thinkingSegments,
   };
 }
 
@@ -136,6 +143,7 @@ export function mapRuntimeToDisplayMessage(m: RuntimeMessage): DisplayMessage {
   if (m.surfaces) msg.surfaces = m.surfaces;
   if (prepared.normalizedSegments) msg.textSegments = prepared.normalizedSegments;
   if (prepared.normalizedContentOrder) msg.contentOrder = prepared.normalizedContentOrder;
+  if (prepared.thinkingSegments) msg.thinkingSegments = prepared.thinkingSegments;
   if (m.metadata) msg.metadata = m.metadata;
   if (m.subagentNotification) msg.isSubagentNotification = true;
   if (prepared.slackMessage) msg.slackMessage = prepared.slackMessage;

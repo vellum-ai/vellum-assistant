@@ -15,6 +15,7 @@ import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-mes
 import { MessageHoverActions } from "@/domains/chat/components/message-hover-actions/message-hover-actions";
 import { SubagentInlineProgressCard } from "@/domains/chat/components/subagent-inline-progress-card/subagent-inline-progress-card";
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router";
+import { ThinkingBlock } from "@/domains/chat/components/thinking-block";
 import { ToolCallProgressCard } from "@/domains/chat/components/tool-call-progress-card/tool-call-progress-card";
 import {
   getLeadingThinkingText,
@@ -70,6 +71,12 @@ export interface TranscriptMessageBodyProps {
    * not lost when items transition from latest-turn to history.
    */
   expandedCardIds: Map<string, boolean>;
+  /**
+   * Persistent map of expanded thinking-block ids (keyed by message id +
+   * content-order position). Survives transcript remounts so reasoning
+   * expansion state isn't lost when a row moves from latest-turn to history.
+   */
+  expandedThinkingKeys: Map<string, boolean>;
   onSurfaceAction: (
     surfaceId: string,
     actionId: string,
@@ -321,6 +328,7 @@ export function TranscriptMessageBody({
   assistantDisplayName,
   expandedToolCallIds,
   expandedCardIds,
+  expandedThinkingKeys,
   onSurfaceAction,
   onForkConversation,
   onInspectMessage,
@@ -348,6 +356,18 @@ export function TranscriptMessageBody({
   // copy action and as the render fallback when `contentOrder` carries no text
   // groups (e.g. a tool_use lands before the first assistant_text_delta).
   const messageText = segmentsToPlainText(message.textSegments);
+
+  // Join the reasoning segments referenced by a run of `thinking`
+  // content-order ids into a single markdown string (mirrors macOS, which
+  // joins adjacent reasoning indices with newlines).
+  const resolveThinkingContent = (ids: string[]): string =>
+    ids
+      .map((id) => {
+        const idx = parseInt(id, 10);
+        return !isNaN(idx) ? message.thinkingSegments?.[idx] : undefined;
+      })
+      .filter((s): s is string => Boolean(s))
+      .join("\n");
 
   // `textBubbleClass` applies only to the assistant text path: it carries the
   // text bubble per segment inside `segmentClass`'s assistant branch. User
@@ -619,6 +639,7 @@ export function TranscriptMessageBody({
     type ContentGroup =
       | { type: "text"; id: string }
       | { type: "toolCalls"; ids: string[] }
+      | { type: "thinking"; ids: string[] }
       | { type: "surface"; id: string };
 
     const groups: ContentGroup[] = [];
@@ -629,6 +650,15 @@ export function TranscriptMessageBody({
           lastGroup.ids.push(entry.id);
         } else {
           groups.push({ type: "toolCalls", ids: [entry.id] });
+        }
+      } else if (entry.type === "thinking") {
+        // Merge consecutive thinking entries into one block (mirrors macOS
+        // `groupContentBlocks`, which joins adjacent reasoning indices).
+        const lastGroup = groups[groups.length - 1];
+        if (lastGroup?.type === "thinking") {
+          lastGroup.ids.push(entry.id);
+        } else {
+          groups.push({ type: "thinking", ids: [entry.id] });
         }
       } else if (entry.type === "text") {
         groups.push({ type: "text", id: entry.id });
@@ -699,6 +729,21 @@ export function TranscriptMessageBody({
                   )}
                   {renderInlineSubagentCards(toolCalls)}
                 </Fragment>
+              );
+            }
+            if (group.type === "thinking") {
+              const thinkingContent = resolveThinkingContent(group.ids);
+              if (!thinkingContent) {
+                return null;
+              }
+              return (
+                <ThinkingBlock
+                  key={`thinking-${gi}`}
+                  content={thinkingContent}
+                  isStreaming={isStreaming && gi === groups.length - 1}
+                  expansionKey={`${message.id}-th${group.ids[0] ?? "0"}`}
+                  expandedThinkingKeys={expandedThinkingKeys}
+                />
               );
             }
             if (group.type === "text") {
@@ -811,10 +856,48 @@ export function TranscriptMessageBody({
   // calls first, then text content. Each element is tagged "text" or
   // "surface" so the user branch can keep text in the bubble and render
   // surfaces outside it.
-  const contentEntries: Array<{ type: "text" | "surface"; node: ReactNode }> = [];
+  const contentEntries: Array<{
+    type: "text" | "surface" | "thinking";
+    node: ReactNode;
+  }> = [];
   if (message.contentOrder && message.contentOrder.length > 0) {
     const textSegmentsArr = message.textSegments ?? [];
+    // Buffer consecutive `thinking` ids so a run of reasoning renders as a
+    // single block (matching the interleaved path and macOS grouping). The
+    // buffer is flushed before any non-thinking entry and once more after the
+    // loop. A trailing block reads as still-streaming only while the row is
+    // actually live; a completed turn that ends in reasoning (history reload,
+    // message_complete, cancellation) renders as a finished "Thought process".
+    let pendingThinkingIds: string[] = [];
+    const flushThinking = (isStreaming: boolean) => {
+      if (pendingThinkingIds.length === 0) {
+        return;
+      }
+      const ids = pendingThinkingIds;
+      pendingThinkingIds = [];
+      const thinkingContent = resolveThinkingContent(ids);
+      if (!thinkingContent) {
+        return;
+      }
+      contentEntries.push({
+        type: "thinking",
+        node: (
+          <ThinkingBlock
+            key={`thinking-${ids[0]}`}
+            content={thinkingContent}
+            isStreaming={isStreaming}
+            expansionKey={`${message.id}-th${ids[0]}`}
+            expandedThinkingKeys={expandedThinkingKeys}
+          />
+        ),
+      });
+    };
     for (const entry of message.contentOrder) {
+      if (entry.type === "thinking") {
+        pendingThinkingIds.push(entry.id);
+        continue;
+      }
+      flushThinking(false);
       if (entry.type === "text") {
         const segIndex = parseInt(entry.id, 10);
         const seg = !isNaN(segIndex)
@@ -848,6 +931,8 @@ export function TranscriptMessageBody({
         }
       }
     }
+    // Trailing reasoning reads as still-streaming only while the row is live.
+    flushThinking(isStreaming);
     if (contentEntries.length === 0 && messageText) {
       contentEntries.push({
         type: "text",

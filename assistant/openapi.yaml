@@ -1868,6 +1868,140 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bodyShapes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        viewBox:
+                          type: object
+                          properties:
+                            width:
+                              type: number
+                            height:
+                              type: number
+                          required:
+                            - width
+                            - height
+                          additionalProperties: false
+                        faceCenter:
+                          type: object
+                          properties:
+                            x:
+                              type: number
+                            y:
+                              type: number
+                          required:
+                            - x
+                            - y
+                          additionalProperties: false
+                        svgPath:
+                          type: string
+                      required:
+                        - id
+                        - viewBox
+                        - faceCenter
+                        - svgPath
+                      additionalProperties: false
+                  eyeStyles:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        sourceViewBox:
+                          type: object
+                          properties:
+                            width:
+                              type: number
+                            height:
+                              type: number
+                          required:
+                            - width
+                            - height
+                          additionalProperties: false
+                        eyeCenter:
+                          type: object
+                          properties:
+                            x:
+                              type: number
+                            y:
+                              type: number
+                          required:
+                            - x
+                            - y
+                          additionalProperties: false
+                        paths:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              svgPath:
+                                type: string
+                              color:
+                                type: string
+                            required:
+                              - svgPath
+                              - color
+                            additionalProperties: false
+                      required:
+                        - id
+                        - sourceViewBox
+                        - eyeCenter
+                        - paths
+                      additionalProperties: false
+                  colors:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        hex:
+                          type: string
+                      required:
+                        - id
+                        - hex
+                      additionalProperties: false
+                  faceCenterOverrides:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        bodyShape:
+                          type: string
+                        eyeStyle:
+                          type: string
+                        faceCenter:
+                          type: object
+                          properties:
+                            x:
+                              type: number
+                            y:
+                              type: number
+                          required:
+                            - x
+                            - y
+                          additionalProperties: false
+                      required:
+                        - bodyShape
+                        - eyeStyle
+                        - faceCenter
+                      additionalProperties: false
+                required:
+                  - bodyShapes
+                  - eyeStyles
+                  - colors
+                  - faceCenterOverrides
+                additionalProperties: false
   /v1/avatar/character/ascii:
     get:
       operationId: avatar_character_ascii_get

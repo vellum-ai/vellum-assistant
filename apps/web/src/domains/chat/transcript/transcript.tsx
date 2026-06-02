@@ -175,6 +175,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
       rest.expandedToolCallIds ?? ownedExpandedToolCallIds;
 
     const [expandedCardIds] = useState(() => new Map<string, boolean>());
+    const [expandedThinkingKeys] = useState(() => new Map<string, boolean>());
 
     const partition = useMemo(() => partitionLatestTurn(items), [items]);
 
@@ -226,6 +227,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
     const rowProps = {
       expandedToolCallIds: effectiveExpandedToolCallIds,
       expandedCardIds,
+      expandedThinkingKeys,
       onSurfaceAction: rest.onSurfaceAction,
       onSecretSubmit: rest.onSecretSubmit,
       onConfirmationDecision: rest.onConfirmationDecision,

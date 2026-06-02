@@ -582,22 +582,31 @@ Reference: [React — Thinking in React: break the UI into a component hierarchy
 ### Stabilize external callbacks with refs
 
 When a hook receives callbacks that may not be memoized upstream, store
-them in refs to keep the consuming `useCallback` identity stable:
+them in refs to keep the consuming `useCallback` identity stable. **Sync
+the ref in `useLayoutEffect`**, not during render — React 19's
+concurrent features can abort renders, leaving refs pointing at values
+from uncommitted renders if written in the render phase:
 
 ```ts
 const callbackRef = useRef(onSomeEvent);
-callbackRef.current = onSomeEvent;
+useLayoutEffect(() => {
+  callbackRef.current = onSomeEvent;
+}, [onSomeEvent]);
 
 const stableHandler = useCallback(() => {
   callbackRef.current(/* args */);
 }, []);
 ```
 
-This is the standard workaround until
+Use `useLayoutEffect` (not `useEffect`) so the ref is updated before
+paint and before any `useEffect` that reads it. This is the standard
+workaround until
 [`useEffectEvent`](https://react.dev/learn/separating-events-from-effects#declaring-an-effect-event)
 ships as stable.
 
-Reference: [React — useCallback: preventing an Effect from firing too often](https://react.dev/reference/react/useCallback#preventing-an-effect-from-firing-too-often)
+References:
+- [React — useRef caveats: "Do not write or read ref.current during rendering"](https://react.dev/reference/react/useRef#caveats)
+- [React — useCallback: preventing an Effect from firing too often](https://react.dev/reference/react/useCallback#preventing-an-effect-from-firing-too-often)
 
 ---
 

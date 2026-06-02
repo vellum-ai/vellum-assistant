@@ -70,6 +70,59 @@ describe("parseAssistantEvent", () => {
   });
 
   // ---------------------------------------------------------------------
+  // assistant_thinking_delta (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses assistant_thinking_delta with messageId and conversationId", () => {
+    // GIVEN a streaming reasoning chunk stamped with its anchor ids
+    // WHEN it is parsed
+    const event = parseEvent({
+      type: "assistant_thinking_delta",
+      thinking: "let me think",
+      messageId: "msg-1",
+      conversationId: "conv-1",
+    });
+    // THEN it is recognized (not coerced to `unknown`) with fields preserved
+    expect(event).toEqual({
+      type: "assistant_thinking_delta",
+      thinking: "let me think",
+      messageId: "msg-1",
+      conversationId: "conv-1",
+    });
+  });
+
+  test("parses assistant_thinking_delta with only the required thinking field", () => {
+    // GIVEN a delta from an older daemon that doesn't stamp anchor ids
+    // WHEN it is parsed
+    const event = parseEvent({
+      type: "assistant_thinking_delta",
+      thinking: "",
+    });
+    // THEN it still parses as the canonical event
+    expect(event).toEqual({
+      type: "assistant_thinking_delta",
+      thinking: "",
+    });
+  });
+
+  test("returns unknown assistant_thinking_delta event when thinking field is missing", () => {
+    // GIVEN a malformed delta lacking the required reasoning text
+    const data = {
+      type: "assistant_thinking_delta",
+      conversationId: "conv-1",
+    };
+    // WHEN it is parsed
+    const event = parseEvent(data);
+    // THEN it falls back to the unknown envelope rather than throwing
+    expect(event).toEqual({
+      type: "unknown",
+      rawType: "assistant_thinking_delta",
+      data,
+      conversationId: "conv-1",
+    });
+  });
+
+  // ---------------------------------------------------------------------
   // message_complete (schema-validated)
   // ---------------------------------------------------------------------
 

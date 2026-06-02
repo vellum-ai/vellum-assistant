@@ -99,6 +99,9 @@ export interface RuntimeMessage {
   attachments?: RuntimeAttachment[];
   /** Server-provided timestamp as epoch milliseconds or an ISO string. */
   timestamp?: number | string;
+  /** Reasoning segments from thinking-capable models. Each entry maps to
+   *  a `thinking:N` entry in `contentOrder`. */
+  thinkingSegments?: string[];
   /** Subagent notification attached to this history message by the daemon. */
   subagentNotification?: RuntimeSubagentNotification;
 }

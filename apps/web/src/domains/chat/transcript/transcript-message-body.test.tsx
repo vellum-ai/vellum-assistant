@@ -67,6 +67,7 @@ function renderMessage(
   props: {
     assistantDisplayName?: string | null;
     onInspectMessage?: (messageId: string) => void;
+    isStreaming?: boolean;
   } = {},
 ): string {
   return renderToStaticMarkup(
@@ -75,8 +76,10 @@ function renderMessage(
       assistantDisplayName={props.assistantDisplayName}
       expandedToolCallIds={new Set()}
       expandedCardIds={new Map()}
+      expandedThinkingKeys={new Map()}
       onSurfaceAction={noop}
       onInspectMessage={props.onInspectMessage}
+      isStreaming={props.isStreaming}
     />,
   );
 }
@@ -186,6 +189,7 @@ describe("TranscriptMessageBody", () => {
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -233,6 +237,7 @@ describe("TranscriptMessageBody", () => {
           }}
           expandedToolCallIds={new Set()}
           expandedCardIds={new Map()}
+          expandedThinkingKeys={new Map()}
           onSurfaceAction={noop}
         />,
       );
@@ -265,6 +270,7 @@ describe("TranscriptMessageBody", () => {
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
         onInspectMessage={(messageId) => inspectedIds.push(messageId)}
       />,
@@ -285,6 +291,7 @@ describe("TranscriptMessageBody", () => {
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
         onInspectMessage={(messageId) => inspectedIds.push(messageId)}
       />,
@@ -312,6 +319,7 @@ describe("TranscriptMessageBody", () => {
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -340,6 +348,7 @@ describe("TranscriptMessageBody", () => {
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -367,6 +376,7 @@ describe("TranscriptMessageBody", () => {
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
         isStreaming
       />,
@@ -406,6 +416,7 @@ describe("TranscriptMessageBody", () => {
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
         isStreaming
       />,
@@ -440,6 +451,7 @@ describe("TranscriptMessageBody", () => {
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
         isStreaming
       />,
@@ -472,6 +484,7 @@ describe("TranscriptMessageBody", () => {
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -510,6 +523,7 @@ describe("TranscriptMessageBody", () => {
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -540,6 +554,7 @@ describe("TranscriptMessageBody", () => {
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -583,6 +598,7 @@ describe("TranscriptMessageBody", () => {
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -616,6 +632,7 @@ describe("TranscriptMessageBody", () => {
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -642,6 +659,7 @@ describe("TranscriptMessageBody", () => {
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -675,6 +693,7 @@ describe("TranscriptMessageBody", () => {
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -725,6 +744,7 @@ describe("TranscriptMessageBody", () => {
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -778,6 +798,7 @@ describe("TranscriptMessageBody", () => {
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -811,6 +832,7 @@ describe("TranscriptMessageBody", () => {
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -835,11 +857,96 @@ describe("TranscriptMessageBody", () => {
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
     expect(
       getByTestId("tool-progress-card").getAttribute("data-auto-expand"),
     ).toBe("false");
+  });
+
+  test("renders a 'Thought process' block for completed reasoning followed by text", () => {
+    // GIVEN a persisted assistant message whose reasoning precedes its answer
+    // WHEN it is rendered (legacy path — no interleaved tool calls)
+    const html = renderMessage({
+      id: "m-think",
+      role: "assistant",
+      textSegments: [{ type: "text", content: "the answer" }],
+      thinkingSegments: ["chain of thought"],
+      contentOrder: [
+        { type: "thinking", id: "0" },
+        { type: "text", id: "0" },
+      ],
+      timestamp: 1_000,
+    });
+
+    // THEN the reasoning renders as a completed, collapsed thinking block
+    expect(html).toContain("Thought process");
+    expect(html).not.toContain("Thinking…");
+  });
+
+  test("labels trailing reasoning as 'Thinking…' while the row is live", () => {
+    // GIVEN an assistant row mid-reasoning: a thinking block is the last
+    // content entry with no text or tool output after it yet
+    // WHEN it is rendered as the in-flight turn (isStreaming)
+    const html = renderMessage(
+      {
+        id: "m-think-live",
+        role: "assistant",
+        textSegments: [],
+        thinkingSegments: ["reasoning in progress"],
+        contentOrder: [{ type: "thinking", id: "0" }],
+        timestamp: 1_000,
+      },
+      { isStreaming: true },
+    );
+
+    // THEN the block reads as still-streaming
+    expect(html).toContain("Thinking…");
+    expect(html).not.toContain("Thought process");
+  });
+
+  test("labels trailing reasoning of a completed turn as 'Thought process'", () => {
+    // GIVEN a persisted/completed assistant turn that ends in reasoning with
+    // nothing after it (e.g. a reasoning-only or truncated turn restored from
+    // history, or after message_complete / cancellation)
+    // WHEN it is rendered as a settled row (not streaming)
+    const html = renderMessage({
+      id: "m-think-done",
+      role: "assistant",
+      textSegments: [],
+      thinkingSegments: ["reasoning that finished"],
+      contentOrder: [{ type: "thinking", id: "0" }],
+      timestamp: 1_000,
+    });
+
+    // THEN the trailing block reads as finished, not perpetually streaming
+    expect(html).toContain("Thought process");
+    expect(html).not.toContain("Thinking…");
+  });
+
+  test("renders a thinking block interleaved with tool calls", () => {
+    // GIVEN an assistant message that reasons, calls a tool, then answers
+    // WHEN it is rendered (interleaved path — contentOrder carries a tool)
+    const html = renderMessage({
+      id: "m-think-interleaved",
+      role: "assistant",
+      textSegments: [{ type: "text", content: "done" }],
+      thinkingSegments: ["why I called the tool"],
+      contentOrder: [
+        { type: "thinking", id: "0" },
+        { type: "toolCall", id: "0" },
+        { type: "text", id: "0" },
+      ],
+      toolCalls: [
+        { id: "tc-1", toolName: "bash", input: {}, status: "completed" },
+      ],
+      timestamp: 1_000,
+    });
+
+    // THEN both the thinking block and the tool-call card render
+    expect(html).toContain("Thought process");
+    expect(html).toContain('data-testid="tool-progress-card"');
   });
 });

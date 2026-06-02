@@ -96,6 +96,7 @@ function createCollectorDeps(providerName = "anthropic"): {
       userMessageInterface: "macos",
       assistantMessageInterface: "macos",
     } as EventHandlerDeps["turnInterfaceContext"],
+    applyCompaction: async () => {},
   } as EventHandlerDeps;
   return { deps, events };
 }
@@ -258,9 +259,7 @@ describe("native server_tool_complete metadata", () => {
     );
     expect(toolResults).toHaveLength(2);
 
-    const byId = new Map(
-      toolResults.map((r) => [r.toolUseId, r] as const),
-    );
+    const byId = new Map(toolResults.map((r) => [r.toolUseId, r] as const));
     expect(byId.get("tu_a")?.activityMetadata?.webSearch?.query).toBe("alpha");
     expect(byId.get("tu_b")?.activityMetadata?.webSearch?.query).toBe("beta");
 

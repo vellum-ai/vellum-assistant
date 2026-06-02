@@ -22,6 +22,7 @@ import {
 } from "@/domains/chat/utils/stream-handlers/navigation-handlers";
 import {
   handleAssistantTextDelta,
+  handleAssistantThinkingDelta,
   handleAssistantTurnStart,
   handleAssistantActivityState,
   handleMessageComplete,
@@ -194,16 +195,20 @@ export function useStreamEventHandler(
       // Snapshot store state once per event for the context object.
       const store = useChatSessionStore.getState();
 
-      // Suppress per-chunk text_delta noise — only log the first delta of a
-      // new assistant message.
-      if (
-        event.type !== "assistant_text_delta" ||
-        !tailIsAssistant(store.messages)
-      ) {
+      // Suppress per-chunk delta noise for the high-frequency streaming events
+      // (text and thinking) — only log the first delta of a new assistant
+      // message. Reasoning-heavy turns emit hundreds of thinking deltas, which
+      // would otherwise evict useful lifecycle/turn context from the ring.
+      const isStreamingDelta =
+        event.type === "assistant_text_delta" ||
+        event.type === "assistant_thinking_delta";
+      if (!isStreamingDelta || !tailIsAssistant(store.messages)) {
         recordDiagnostic(
           event.type === "assistant_text_delta"
             ? "sse_assistant_text_delta_start"
-            : "sse_event",
+            : event.type === "assistant_thinking_delta"
+              ? "sse_assistant_thinking_delta_start"
+              : "sse_event",
           {
             epoch,
             activeConversationId:
@@ -257,6 +262,9 @@ export function useStreamEventHandler(
           break;
         case "assistant_text_delta":
           handleAssistantTextDelta(event, ctx);
+          break;
+        case "assistant_thinking_delta":
+          handleAssistantThinkingDelta(event, ctx);
           break;
         case "assistant_activity_state":
           handleAssistantActivityState(event, ctx);

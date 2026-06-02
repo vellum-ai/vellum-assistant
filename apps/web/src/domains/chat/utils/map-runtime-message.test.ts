@@ -175,6 +175,34 @@ describe("mapRuntimeToDisplayMessage", () => {
     });
   });
 
+  test("carries server thinkingSegments and contentOrder onto the display message", () => {
+    // GIVEN a persisted assistant message whose reasoning is reconstructed
+    // from history as `thinkingSegments` + a `thinking` content-order entry
+    const m = makeMessage({
+      id: "msg-think",
+      role: "assistant",
+      textSegments: [{ type: "text", content: "the answer" }],
+      thinkingSegments: ["let me reason", "and conclude"],
+      contentOrder: [
+        { type: "thinking", id: "0" },
+        { type: "thinking", id: "1" },
+        { type: "text", id: "0" },
+      ],
+    });
+
+    // WHEN it is mapped into a display message
+    const display = mapRuntimeToDisplayMessage(m);
+
+    // THEN the reasoning and its ordering survive so the transcript can
+    // render the thinking blocks in place
+    expect(display.thinkingSegments).toEqual(["let me reason", "and conclude"]);
+    expect(display.contentOrder).toEqual([
+      { type: "thinking", id: "0" },
+      { type: "thinking", id: "1" },
+      { type: "text", id: "0" },
+    ]);
+  });
+
   test("preserves Slack message metadata alongside mapped message fields", () => {
     const m = makeMessage({
       id: "msg-slack",

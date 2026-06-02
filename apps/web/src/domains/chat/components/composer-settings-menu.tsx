@@ -1,6 +1,6 @@
 
 import { Check, Sparkles, SlidersHorizontal } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { BottomSheet } from "@vellum/design-library";
@@ -29,6 +29,7 @@ import {
   presetFromThreshold,
   type ThresholdPreset,
 } from "@/utils/threshold-presets";
+import { activeProfileModelQueryKey } from "@/domains/chat/hooks/use-active-profile-model";
 
 interface Props {
   assistantId: string;
@@ -61,7 +62,7 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
   const profilesReadyRef = useRef(false);
 
   const conversationIdRef = useRef(conversationId);
-  useEffect(() => {
+  useLayoutEffect(() => {
     conversationIdRef.current = conversationId;
   }, [conversationId]);
 
@@ -255,14 +256,10 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
         // for staleTime to elapse. Predicate match covers both the global
         // (conversationId=null) and per-conversation cache entries.
         void queryClient.invalidateQueries({
-          predicate: (query) => {
-            const key = query.queryKey;
-            return (
-              Array.isArray(key) &&
-              key[0] === "active-profile-model" &&
-              key[1] === assistantId
-            );
-          },
+          predicate: (query) =>
+            activeProfileModelQueryKey(assistantId, null).every(
+              (seg, i) => seg === null || query.queryKey[i] === seg,
+            ),
         });
       } catch {
         if (conversationIdRef.current === capturedConversationId) {
