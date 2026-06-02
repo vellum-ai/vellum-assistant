@@ -11,6 +11,7 @@ import {
   runRetire,
   upsertLockfileAssistant,
   type CliInvocation,
+  type LockfileWriteResult,
   type TokenResult,
 } from "@vellumai/local-mode";
 
@@ -44,10 +45,6 @@ interface RetireResult {
   ok: boolean;
   error?: string;
 }
-
-type LockfileWriteResult =
-  | { ok: true; lockfile: Record<string, unknown> }
-  | { ok: false; error: string };
 
 /**
  * How to invoke the CLI for local lifecycle ops, or `null` when no CLI is
