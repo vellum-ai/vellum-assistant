@@ -15,7 +15,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router";
+import { useParams, useSearchParams } from "react-router";
 
 import { useAuthStore } from "@/stores/auth-store";
 
@@ -101,7 +101,6 @@ import {
 export function ActiveChatView() {
   const authUser = useAuthStore.use.user();
   const showLlmInspector = canUseLlmInspector(authUser);
-  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { conversationId: urlConversationId } = useParams<{ conversationId?: string }>();
   const assistantId = useAssistantSelectionStore.use.activeAssistantId();
@@ -274,7 +273,6 @@ export function ActiveChatView() {
     activeConversationId,
     urlConversationId: urlConversationId ?? null,
     searchParams,
-    navigate,
     activeConversation,
     conversationGroupsUI,
     refreshEpoch,
@@ -328,7 +326,6 @@ export function ActiveChatView() {
     startReconciliationLoop,
     cancelReconciliation,
     refreshConversations,
-    navigate,
   });
 
   // Auto-send: URL ?prompt=, pre-chat reachability probe, onboarding message.
@@ -396,7 +393,6 @@ export function ActiveChatView() {
       activeConversationId: activeConversationId ?? undefined,
       startNewConversation: () => startNewConversation(),
       switchConversation,
-      navigate,
     });
 
   // -------------------------------------------------------------------------

@@ -26,7 +26,7 @@ import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { requestComposerFocus } from "@/domains/chat/composer-focus";
 import { haptic } from "@/utils/haptics";
 import { routes } from "@/utils/routes";
-import type { NavigateFunction } from "react-router";
+import { useNavigate } from "react-router";
 
 import type { AssistantStateKind } from "@/domains/chat/types";
 import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
@@ -67,8 +67,6 @@ interface UseConversationLoaderParams {
   /** Conversation id from the URL path param (e.g. `/assistant/conversations/:conversationId`). */
   urlConversationId: string | null;
   searchParams: SearchParamsLike;
-  /** React Router navigate function for path-based routing. */
-  navigate: NavigateFunction;
 
   // The resolved row for the currently-open conversation, drawn from either
   // list cache (or fetched on demand). Used to decide whether the active
@@ -114,7 +112,6 @@ export function useConversationLoader({
   activeConversationId,
   urlConversationId,
   searchParams,
-  navigate,
   activeConversation,
   conversationGroupsUI,
   refreshEpoch,
@@ -122,6 +119,8 @@ export function useConversationLoader({
   onboardingDraftConversationIdRef,
   resetChatAttachments,
 }: UseConversationLoaderParams) {
+  const navigate = useNavigate();
+
   // -------------------------------------------------------------------------
   // Internal refs
   // -------------------------------------------------------------------------
@@ -449,10 +448,10 @@ export function useConversationLoader({
     (key: string) => {
       useSubagentStore.getState().reset();
       useViewerStore.getState().setMainView("chat");
-      if (key === activeConversationId) return;
+      if (key === useConversationStore.getState().activeConversationId) return;
       void navigate(routes.conversation(key));
     },
-    [activeConversationId, navigate],
+    [navigate],
   );
 
   // -------------------------------------------------------------------------

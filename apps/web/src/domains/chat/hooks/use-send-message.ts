@@ -19,7 +19,7 @@ import {
   useRef,
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import type { NavigateFunction } from "react-router";
+import { useNavigate } from "react-router";
 import { routes } from "@/utils/routes";
 
 import {
@@ -122,8 +122,6 @@ interface UseSendMessageParams {
   cancelReconciliation: () => void;
   refreshConversations: () => Promise<void>;
 
-  // Routing adapter
-  navigate: NavigateFunction;
 }
 
 // ---------------------------------------------------------------------------
@@ -141,8 +139,8 @@ export function useSendMessage({
   startReconciliationLoop,
   cancelReconciliation,
   refreshConversations,
-  navigate,
 }: UseSendMessageParams) {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const setMessages = useChatSessionStore.use.setMessages();
   const setError = useChatSessionStore.use.setError();

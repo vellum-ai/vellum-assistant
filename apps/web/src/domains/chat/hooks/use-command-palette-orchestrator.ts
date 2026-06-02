@@ -5,7 +5,7 @@
  */
 
 import { useCallback, useEffect, useRef } from "react";
-import type { NavigateFunction } from "react-router";
+import { useNavigate } from "react-router";
 
 import type { Conversation } from "@/types/conversation-types";
 import { routes } from "@/utils/routes";
@@ -22,7 +22,6 @@ export interface UseCommandPaletteOrchestratorOptions {
   activeConversationId: string | undefined;
   startNewConversation: () => void;
   switchConversation: (key: string) => void;
-  navigate: NavigateFunction;
 }
 
 export type UseCommandPaletteOrchestratorReturn = UseCommandPaletteSectionsReturn;
@@ -34,8 +33,8 @@ export function useCommandPaletteOrchestrator({
   activeConversationId,
   startNewConversation,
   switchConversation,
-  navigate,
 }: UseCommandPaletteOrchestratorOptions): UseCommandPaletteOrchestratorReturn {
+  const navigate = useNavigate();
   const navigateToSettings = useCallback(() => {
     void navigate(routes.settings.root);
   }, [navigate]);
