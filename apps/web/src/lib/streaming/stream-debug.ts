@@ -19,8 +19,6 @@ export interface SseDebugClient {
   id: string;
   /** The AbortController signal for this client attempt. */
   abortSignal: AbortSignal;
-  /** Conversation id the stream was opened against. */
-  conversationId: string | undefined;
   /** When the client was first registered (before the fetch started). */
   initiatedAt: number;
   /** When the first SSE data frame arrived (null until then). */
@@ -64,17 +62,13 @@ const events: SseDebugEventEntry[] = [];
 
 /**
  * Register a new stream client attempt. Called immediately when
- * {@link subscribeChatEvents} starts a new connection.
+ * {@link subscribeEvents} starts a new connection.
  */
-export function registerSseClient(
-  abortSignal: AbortSignal,
-  conversationId: string | undefined,
-): string {
+export function registerSseClient(abortSignal: AbortSignal): string {
   const id = `sse-${++nextClientId}`;
   const client: SseDebugClient = {
     id,
     abortSignal,
-    conversationId,
     initiatedAt: Date.now(),
     establishedAt: null,
     lastTrafficAt: null,
@@ -99,7 +93,7 @@ export function registerSseClient(
 
 /**
  * Mark a client as having received its first data frame. Called from the
- * `onSseEvent` callback inside {@link subscribeChatEvents}.
+ * `onSseEvent` callback inside {@link subscribeEvents}.
  */
 export function markClientEstablished(clientId: string): void {
   const client = clients.get(clientId);
@@ -110,7 +104,7 @@ export function markClientEstablished(clientId: string): void {
 
 /**
  * Record that an SSE frame arrived on a client. Called from the
- * `onSseEvent` callback inside {@link subscribeChatEvents} for every
+ * `onSseEvent` callback inside {@link subscribeEvents} for every
  * parsed chunk, including heartbeat comment frames. `isData`
  * distinguishes data frames (yielded through the iterator) from
  * heartbeat comments (`data === undefined`), so a reader can tell
@@ -134,7 +128,7 @@ export function recordSseTraffic(clientId: string, isData: boolean): void {
 
 /**
  * Push a parsed event into the ring buffer. Called from the `onEvent`
- * callback inside {@link subscribeChatEvents}.
+ * callback inside {@link subscribeEvents}.
  */
 export function pushSseEvent(clientId: string, event: AssistantEvent): void {
   events.push({

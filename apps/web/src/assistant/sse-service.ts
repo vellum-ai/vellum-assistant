@@ -33,8 +33,8 @@ import {
   setSseReconnectHandler,
 } from "@/lib/streaming/sse-reconnect-control";
 import {
-  subscribeChatEvents,
-  type ChatEventStream,
+  subscribeEvents,
+  type EventStream,
 } from "@/lib/streaming/stream-transport";
 
 const RESUME_DEDUP_WINDOW_MS = 1000;
@@ -53,7 +53,7 @@ export interface SseService {
 
 export const sseService: SseService = {
   attach(assistantId) {
-    let current: ChatEventStream | null = null;
+    let current: EventStream | null = null;
     let cancelled = false;
     // Independent dedup windows per handler. A shared timestamp was
     // wrong: `app.resume`'s no-op (current already non-null) would
@@ -72,9 +72,8 @@ export const sseService: SseService = {
       if (cancelled || current) return;
       const causeAtOpen = nextOpenCause;
       nextOpenCause = "resume";
-      const stream = subscribeChatEvents(
+      const stream = subscribeEvents(
         assistantId,
-        null,
         (envelope) => {
           publish("sse.event", envelope);
         },

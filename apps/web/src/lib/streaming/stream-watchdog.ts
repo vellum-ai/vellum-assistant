@@ -20,7 +20,7 @@
 import * as Sentry from "@sentry/react";
 
 import { recordLifecycleDiagnostic, resolvePlatformTag } from "@/lib/diagnostics";
-import type { ChatStreamReconnectCause } from "@/lib/streaming/stream-transport";
+import type { StreamReconnectCause } from "@/lib/streaming/stream-transport";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -30,7 +30,6 @@ export interface StreamWatchdogConfig {
   /** Milliseconds of silence before the watchdog fires. */
   idleTimeoutMs: number;
   assistantId: string;
-  conversationId: string | undefined;
   /**
    * Snapshot whether the caller-owned turn state machine is currently
    * sending. Forwarded to Sentry as the `wasTurnSending` tag so
@@ -67,7 +66,7 @@ export interface StreamWatchdog {
    * Returns `null` if the watchdog has not fired since the last
    * consume (or ever).
    */
-  consumeLastAbortCause(): ChatStreamReconnectCause | null;
+  consumeLastAbortCause(): StreamReconnectCause | null;
 }
 
 /**
@@ -81,14 +80,13 @@ export interface StreamWatchdog {
 export function createStreamWatchdog(
   config: StreamWatchdogConfig,
 ): StreamWatchdog {
-  const { idleTimeoutMs, assistantId, conversationId, getActiveTurnSending } =
-    config;
+  const { idleTimeoutMs, assistantId, getActiveTurnSending } = config;
 
   let timer: ReturnType<typeof setTimeout> | null = null;
   let lastSseAtMs: number | null = null;
   let keepalivesReceivedSinceConnect = 0;
   let dataFramesReceivedSinceConnect = 0;
-  let lastAbortCause: ChatStreamReconnectCause | null = null;
+  let lastAbortCause: StreamReconnectCause | null = null;
 
   const clear = () => {
     if (timer) {
@@ -122,7 +120,6 @@ export function createStreamWatchdog(
 
       recordLifecycleDiagnostic("sse_watchdog_fired", {
         assistantId,
-        conversationId: conversationId ?? null,
         attempt,
         idleTimeoutMs,
         wasTurnSending,
@@ -169,7 +166,6 @@ export function createStreamWatchdog(
         },
         extra: {
           assistantId,
-          conversationId: conversationId ?? null,
           attempt,
           idleTimeoutMs,
           wasTurnSending,
@@ -198,7 +194,7 @@ export function createStreamWatchdog(
     lastSseAtMs = Date.now();
   };
 
-  const consumeLastAbortCause = (): ChatStreamReconnectCause | null => {
+  const consumeLastAbortCause = (): StreamReconnectCause | null => {
     const cause = lastAbortCause;
     lastAbortCause = null;
     return cause;
