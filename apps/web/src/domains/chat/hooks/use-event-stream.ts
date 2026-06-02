@@ -95,29 +95,30 @@ export function useEventStream({
 }: UseEventStreamParams): void {
   // ---- Ref-stabilize unstable callback params ----
   //
-  // These refs serve multiple consumers (useMemo factories, non-bus
-  // effects, bus handlers) so they remain even though useBusSubscription
-  // auto-stabilizes its own handler ref.
+  // Updated in `useLayoutEffect` (commit phase) so refs only ever
+  // hold values from committed renders — matching the pattern used
+  // by `useBusSubscription` and `activeConversationIdLatestRef`.
+  // Under concurrent React a render can be aborted; a render-phase
+  // mutation would leave the ref pointing at an uncommitted value.
+  // See https://react.dev/reference/react/useRef#caveats
   const handleStreamEventRef = useRef(handleStreamEvent);
-  handleStreamEventRef.current = handleStreamEvent;
-
   const reconcileActiveConversationRef = useRef(reconcileActiveConversation);
-  reconcileActiveConversationRef.current = reconcileActiveConversation;
-
   const startReconciliationLoopRef = useRef(startReconciliationLoop);
-  startReconciliationLoopRef.current = startReconciliationLoop;
-
   const reachabilityProbeRef = useRef(reachabilityProbe);
-  reachabilityProbeRef.current = reachabilityProbe;
-
   const cancelReconciliationRef = useRef(cancelReconciliation);
-  cancelReconciliationRef.current = cancelReconciliation;
-
   const reachabilityResetRef = useRef(reachabilityReset);
-  reachabilityResetRef.current = reachabilityReset;
-
   const dispatchReconnectRef = useRef(dispatchReconnect);
-  dispatchReconnectRef.current = dispatchReconnect;
+  const cancelScheduledRefetchRef = useRef(cancelScheduledRefetch);
+  useLayoutEffect(() => {
+    handleStreamEventRef.current = handleStreamEvent;
+    reconcileActiveConversationRef.current = reconcileActiveConversation;
+    startReconciliationLoopRef.current = startReconciliationLoop;
+    reachabilityProbeRef.current = reachabilityProbe;
+    cancelReconciliationRef.current = cancelReconciliation;
+    reachabilityResetRef.current = reachabilityReset;
+    dispatchReconnectRef.current = dispatchReconnect;
+    cancelScheduledRefetchRef.current = cancelScheduledRefetch;
+  });
 
   const reachabilityPhaseRef = useRef(reachabilityPhase);
   const backgroundReachabilityProbeRef = useRef(false);
@@ -360,7 +361,7 @@ export function useEventStream({
   useEffect(() => {
     return () => {
       cancelReconciliationRef.current();
-      cancelScheduledRefetch();
+      cancelScheduledRefetchRef.current();
     };
-  }, [cancelScheduledRefetch]);
+  }, []);
 }

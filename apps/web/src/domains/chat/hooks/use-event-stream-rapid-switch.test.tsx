@@ -126,15 +126,13 @@ describe("useEventStream — rapid conversation switch stress", () => {
   });
 
   test("delta published immediately after a commit but before any further event-loop tick is rejected if it's for the previous conversation", () => {
-    // Simulates the precise window the hotfix is meant to close:
-    // React has committed the new active key (latest-ref is updated
-    // during render and the commit ran) but the effect cleanup
-    // hasn't unsubscribed the OLD handler yet (concurrent React
-    // might pause between commit and effect flush). A delta for the
-    // previous conversation arrives in this window. The filter
-    // compares against the LATEST ref (updated during the new
-    // render), not the captured value from the old subscriber's
-    // closure, so the delta is rejected.
+    // The bus subscription is stable (never torn down / re-registered
+    // between conversations). After React commits a new active key,
+    // `activeConversationIdLatestRef` is updated in `useLayoutEffect`
+    // (commit phase). A delta for the previous conversation that
+    // arrives after commit is rejected because the SSE consumer's
+    // filter reads the LATEST ref, which already points to the new
+    // key.
     const observeKey = { current: "" };
     const { rerender, captured } = renderEventStreamWithCapture(
       "conv-A",
@@ -145,9 +143,9 @@ describe("useEventStream — rapid conversation switch stress", () => {
     act(() => {
       rerender({ key: "conv-B" });
     });
-    // rerender + act flushed: render body ran (ref is "conv-B"),
-    // effects ran (old subscription torn down, new subscription
-    // installed). Now a late "conv-A" delta arrives.
+    // rerender + act flushed: commit ran (`activeConversationIdLatestRef`
+    // is now "conv-B"). The bus subscription is unchanged — only the
+    // ref-based filter updated. Now a late "conv-A" delta arrives.
     publishDelta("conv-A");
     // The filter must reject it.
     expect(captured).toHaveLength(1);

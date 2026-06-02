@@ -86,9 +86,9 @@ describe("useEventStream — conversation-switch filtering", () => {
     expect(handler).toHaveBeenCalledTimes(1);
 
     // Conversation switch: re-render with the new active key. The
-    // effect cleanup + re-subscribe has not necessarily run yet on
-    // the bus side, but the latest-key ref must already gate further
-    // deliveries for the previous conversation.
+    // bus subscription is stable (never torn down / re-registered),
+    // but the `activeConversationIdLatestRef` is updated during the
+    // commit phase and gates further deliveries for the old key.
     rerender({ key: "conv-B" });
     publishDelta("conv-A");
     expect(handler).toHaveBeenCalledTimes(1);

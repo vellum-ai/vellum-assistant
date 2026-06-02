@@ -1,8 +1,8 @@
-import { useEffect, useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 import * as Sentry from "@sentry/react";
 import { useNavigate } from "react-router";
 
-import { subscribe } from "@/lib/event-bus";
+import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { ensureMainWindowVisible } from "@/runtime/main-window";
 import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
 import { routes } from "@/utils/routes";
@@ -29,41 +29,28 @@ import { routes } from "@/utils/routes";
 
 export function useGlobalDeepLinkConsumer(): void {
   const navigate = useNavigate();
-  // Mirror dynamic deps in a ref so the effect mounts once. Without
-  // this, a navigate-fn identity change would tear down + resubscribe
-  // the bus listeners and open a race window where a link could
-  // arrive between unsubscribe and resubscribe.
   const navigateRef = useRef(navigate);
-  navigateRef.current = navigate;
+  useLayoutEffect(() => {
+    navigateRef.current = navigate;
+  });
 
-  useEffect(() => {
-    const unsubSend = subscribe("deeplink.send", ({ message }) => {
-      void ensureMainWindowVisible();
-      usePendingDeepLinkStore.getState().setPendingComposerMessage(message);
-      navigateRef.current(routes.assistant);
+  useBusSubscription("deeplink.send", ({ message }) => {
+    void ensureMainWindowVisible();
+    usePendingDeepLinkStore.getState().setPendingComposerMessage(message);
+    navigateRef.current(routes.assistant);
+  });
+
+  useBusSubscription("deeplink.openThread", ({ threadId }) => {
+    void ensureMainWindowVisible();
+    navigateRef.current(routes.conversation(threadId));
+  });
+
+  useBusSubscription("deeplink.unknown", ({ url }) => {
+    Sentry.addBreadcrumb({
+      category: "deeplink",
+      level: "info",
+      message: "deeplink.unknown",
+      data: { url },
     });
-
-    const unsubOpenThread = subscribe(
-      "deeplink.openThread",
-      ({ threadId }) => {
-        void ensureMainWindowVisible();
-        navigateRef.current(routes.conversation(threadId));
-      },
-    );
-
-    const unsubUnknown = subscribe("deeplink.unknown", ({ url }) => {
-      Sentry.addBreadcrumb({
-        category: "deeplink",
-        level: "info",
-        message: "deeplink.unknown",
-        data: { url },
-      });
-    });
-
-    return () => {
-      unsubSend();
-      unsubOpenThread();
-      unsubUnknown();
-    };
-  }, []);
+  });
 }

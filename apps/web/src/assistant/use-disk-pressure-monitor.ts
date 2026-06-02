@@ -13,7 +13,6 @@ import {
   getDiskPressureMonitorMode,
   type DiskPressureMonitorMode,
 } from "@/assistant/disk-pressure";
-import { subscribe } from "@/lib/event-bus";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 
 export interface UseDiskPressureMonitorOptions {
@@ -170,18 +169,18 @@ export function useDiskPressureMonitor({
       void refresh();
     }, cadenceMs);
 
-    // The bus's `"app.resume"` channel fans in browser visibility,
-    // Capacitor foreground, and `window.online`, so a single
-    // subscription drives the focus-style refetch.
-    const unsubResume = subscribe("app.resume", () => {
-      void refresh();
-    });
-
     return () => {
       window.clearInterval(intervalId);
-      unsubResume();
     };
   }, [assistantId, cadenceMs, enabled, refresh, refreshKey]);
+
+  // The bus's `"app.resume"` channel fans in browser visibility,
+  // Capacitor foreground, and `window.online`, so a single
+  // subscription drives the focus-style refetch. `refresh` guards
+  // on `enabled` and `assistantId` internally.
+  useBusSubscription("app.resume", () => {
+    void refresh();
+  });
 
   const applyStatusEvent = useCallback(
     (payload: DiskPressureStatusEventPayload) => {
