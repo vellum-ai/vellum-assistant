@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { ArrowLeft, Coins, Loader2, Target } from "lucide-react";
 
@@ -24,8 +24,10 @@ import { BillingUsageChart, type ChartMetric } from "@/domains/settings/componen
 import {
   type BillingUsageSourceFilter,
   getDefaultDateRange,
+  reconcileDefaultRange,
   useBillingUsageData,
 } from "@/domains/settings/components/billing-usage/use-billing-usage-data";
+import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 
 const METRIC_ITEMS: SegmentControlItem<ChartMetric>[] = [
   { value: "spend", label: "Spend ($)" },
@@ -55,7 +57,27 @@ function formatEventCount(count: number | undefined): string {
 }
 
 export function BillingUsagePanel() {
-  const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange);
+  const tz = useEffectiveTimezone();
+  const [dateRange, setDateRange] = useState<DateRange>(() =>
+    getDefaultDateRange(tz),
+  );
+  // Tracks the default that matches the active tz, so a tz change can re-derive
+  // the default range without clobbering a range the user customized.
+  const prevDefaultRef = useRef<DateRange>(dateRange);
+
+  useEffect(() => {
+    const nextDefault = getDefaultDateRange(tz);
+    setDateRange((current) => {
+      const reconciled = reconcileDefaultRange(
+        current,
+        prevDefaultRef.current,
+        nextDefault,
+      );
+      prevDefaultRef.current = nextDefault;
+      return reconciled;
+    });
+  }, [tz]);
+
   const [drilldown, setDrilldown] = useState<{
     usageSource: BillingUsageSourceFilter;
     llmDimension?: LlmUsageDimension;

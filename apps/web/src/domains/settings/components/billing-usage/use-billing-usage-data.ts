@@ -28,6 +28,25 @@ export function getDefaultDateRange(tz: string = getEffectiveTimezone()): DateRa
   return computeRangeInTimezone(30, tz);
 }
 
+/**
+ * Reconcile the active date range against a timezone-driven default change.
+ *
+ * When the effective timezone shifts, the default "last 30 days" bounds move by
+ * a calendar day. We adopt the new default ONLY if the user was still sitting on
+ * the previous default (i.e. hadn't customized the range); an explicit user
+ * selection is left untouched. Returns the same `current` reference when nothing
+ * should change so callers can rely on referential bail-outs.
+ */
+export function reconcileDefaultRange(
+  current: DateRange,
+  prevDefault: DateRange,
+  nextDefault: DateRange,
+): DateRange {
+  const wasOnDefault =
+    current.from === prevDefault.from && current.to === prevDefault.to;
+  return wasOnDefault ? nextDefault : current;
+}
+
 export type UsageChartState = {
   dateRange: DateRange;
   setDateRange: (range: DateRange) => void;

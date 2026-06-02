@@ -4,6 +4,7 @@ import {
   buildBillingUsageSeriesQuery,
   buildBillingUsageTotalsQuery,
   getDefaultDateRange,
+  reconcileDefaultRange,
   type UsageChartState,
 } from "./use-billing-usage-data";
 
@@ -61,6 +62,33 @@ describe("getDefaultDateRange", () => {
       expect(r.to).toMatch(DATE_RE);
       expect(daysApart(r.from, r.to)).toBe(30);
     }
+  });
+});
+
+describe("reconcileDefaultRange", () => {
+  const prevDefault = { from: "2026-01-01", to: "2026-01-30" };
+  const nextDefault = { from: "2026-01-02", to: "2026-01-31" };
+
+  test("adopts the new default when still on the previous default", () => {
+    const result = reconcileDefaultRange(
+      { ...prevDefault },
+      prevDefault,
+      nextDefault,
+    );
+    expect(result).toBe(nextDefault);
+  });
+
+  test("preserves a customized range across a tz-driven default change", () => {
+    const custom = { from: "2025-12-01", to: "2025-12-15" };
+    const result = reconcileDefaultRange(custom, prevDefault, nextDefault);
+    expect(result).toBe(custom);
+  });
+
+  test("returns the current reference when the default is unchanged", () => {
+    const current = { from: "2026-01-01", to: "2026-01-30" };
+    const result = reconcileDefaultRange(current, prevDefault, prevDefault);
+    expect(result).toBe(prevDefault);
+    expect(result).toEqual(current);
   });
 });
 
