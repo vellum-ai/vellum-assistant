@@ -16548,7 +16548,115 @@ paths:
                 properties:
                   schedules:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                        enabled:
+                          type: boolean
+                        syntax:
+                          type: string
+                          enum:
+                            - cron
+                            - rrule
+                        expression:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        cronExpression:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        timezone:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        message:
+                          type: string
+                        script:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        nextRunAt:
+                          type: number
+                        lastRunAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        lastStatus:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        retryCount:
+                          type: number
+                        maxRetries:
+                          type: number
+                        retryBackoffMs:
+                          type: number
+                        timeoutMs:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        description:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        mode:
+                          type: string
+                          enum:
+                            - notify
+                            - execute
+                            - script
+                            - wake
+                        status:
+                          type: string
+                          enum:
+                            - active
+                            - firing
+                            - fired
+                            - cancelled
+                        routingIntent:
+                          type: string
+                          enum:
+                            - single_channel
+                            - multi_channel
+                            - all_channels
+                        reuseConversation:
+                          type: boolean
+                        wakeConversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        isOneShot:
+                          type: boolean
+                      required:
+                        - id
+                        - name
+                        - enabled
+                        - syntax
+                        - expression
+                        - cronExpression
+                        - timezone
+                        - message
+                        - script
+                        - nextRunAt
+                        - lastRunAt
+                        - lastStatus
+                        - retryCount
+                        - maxRetries
+                        - retryBackoffMs
+                        - timeoutMs
+                        - description
+                        - mode
+                        - status
+                        - routingIntent
+                        - reuseConversation
+                        - wakeConversationId
+                        - isOneShot
+                      additionalProperties: false
                     description: Schedule objects
                 required:
                   - schedules
@@ -16576,7 +16684,115 @@ paths:
                 properties:
                   schedules:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                        enabled:
+                          type: boolean
+                        syntax:
+                          type: string
+                          enum:
+                            - cron
+                            - rrule
+                        expression:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        cronExpression:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        timezone:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        message:
+                          type: string
+                        script:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        nextRunAt:
+                          type: number
+                        lastRunAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        lastStatus:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        retryCount:
+                          type: number
+                        maxRetries:
+                          type: number
+                        retryBackoffMs:
+                          type: number
+                        timeoutMs:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        description:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        mode:
+                          type: string
+                          enum:
+                            - notify
+                            - execute
+                            - script
+                            - wake
+                        status:
+                          type: string
+                          enum:
+                            - active
+                            - firing
+                            - fired
+                            - cancelled
+                        routingIntent:
+                          type: string
+                          enum:
+                            - single_channel
+                            - multi_channel
+                            - all_channels
+                        reuseConversation:
+                          type: boolean
+                        wakeConversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        isOneShot:
+                          type: boolean
+                      required:
+                        - id
+                        - name
+                        - enabled
+                        - syntax
+                        - expression
+                        - cronExpression
+                        - timezone
+                        - message
+                        - script
+                        - nextRunAt
+                        - lastRunAt
+                        - lastStatus
+                        - retryCount
+                        - maxRetries
+                        - retryBackoffMs
+                        - timeoutMs
+                        - description
+                        - mode
+                        - status
+                        - routingIntent
+                        - reuseConversation
+                        - wakeConversationId
+                        - isOneShot
+                      additionalProperties: false
                     description: Updated schedule list
                 required:
                   - schedules
@@ -16630,7 +16846,115 @@ paths:
                 properties:
                   schedules:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                        enabled:
+                          type: boolean
+                        syntax:
+                          type: string
+                          enum:
+                            - cron
+                            - rrule
+                        expression:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        cronExpression:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        timezone:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        message:
+                          type: string
+                        script:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        nextRunAt:
+                          type: number
+                        lastRunAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        lastStatus:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        retryCount:
+                          type: number
+                        maxRetries:
+                          type: number
+                        retryBackoffMs:
+                          type: number
+                        timeoutMs:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        description:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        mode:
+                          type: string
+                          enum:
+                            - notify
+                            - execute
+                            - script
+                            - wake
+                        status:
+                          type: string
+                          enum:
+                            - active
+                            - firing
+                            - fired
+                            - cancelled
+                        routingIntent:
+                          type: string
+                          enum:
+                            - single_channel
+                            - multi_channel
+                            - all_channels
+                        reuseConversation:
+                          type: boolean
+                        wakeConversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        isOneShot:
+                          type: boolean
+                      required:
+                        - id
+                        - name
+                        - enabled
+                        - syntax
+                        - expression
+                        - cronExpression
+                        - timezone
+                        - message
+                        - script
+                        - nextRunAt
+                        - lastRunAt
+                        - lastStatus
+                        - retryCount
+                        - maxRetries
+                        - retryBackoffMs
+                        - timeoutMs
+                        - description
+                        - mode
+                        - status
+                        - routingIntent
+                        - reuseConversation
+                        - wakeConversationId
+                        - isOneShot
+                      additionalProperties: false
                     description: Updated schedule list
                 required:
                   - schedules
@@ -16657,7 +16981,115 @@ paths:
                 properties:
                   schedules:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                        enabled:
+                          type: boolean
+                        syntax:
+                          type: string
+                          enum:
+                            - cron
+                            - rrule
+                        expression:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        cronExpression:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        timezone:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        message:
+                          type: string
+                        script:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        nextRunAt:
+                          type: number
+                        lastRunAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        lastStatus:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        retryCount:
+                          type: number
+                        maxRetries:
+                          type: number
+                        retryBackoffMs:
+                          type: number
+                        timeoutMs:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        description:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        mode:
+                          type: string
+                          enum:
+                            - notify
+                            - execute
+                            - script
+                            - wake
+                        status:
+                          type: string
+                          enum:
+                            - active
+                            - firing
+                            - fired
+                            - cancelled
+                        routingIntent:
+                          type: string
+                          enum:
+                            - single_channel
+                            - multi_channel
+                            - all_channels
+                        reuseConversation:
+                          type: boolean
+                        wakeConversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        isOneShot:
+                          type: boolean
+                      required:
+                        - id
+                        - name
+                        - enabled
+                        - syntax
+                        - expression
+                        - cronExpression
+                        - timezone
+                        - message
+                        - script
+                        - nextRunAt
+                        - lastRunAt
+                        - lastStatus
+                        - retryCount
+                        - maxRetries
+                        - retryBackoffMs
+                        - timeoutMs
+                        - description
+                        - mode
+                        - status
+                        - routingIntent
+                        - reuseConversation
+                        - wakeConversationId
+                        - isOneShot
+                      additionalProperties: false
                     description: Updated schedule list
                 required:
                   - schedules
@@ -16709,19 +17141,6 @@ paths:
                     - type: number
                     - type: "null"
                   description: Script-mode execution timeout in ms; null = use default
-              required:
-                - name
-                - expression
-                - timezone
-                - message
-                - script
-                - mode
-                - routingIntent
-                - quiet
-                - reuseConversation
-                - maxRetries
-                - retryBackoffMs
-                - timeoutMs
               additionalProperties: false
   /v1/schedules/{id}/cancel:
     post:
@@ -16740,7 +17159,115 @@ paths:
                 properties:
                   schedules:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                        enabled:
+                          type: boolean
+                        syntax:
+                          type: string
+                          enum:
+                            - cron
+                            - rrule
+                        expression:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        cronExpression:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        timezone:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        message:
+                          type: string
+                        script:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        nextRunAt:
+                          type: number
+                        lastRunAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        lastStatus:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        retryCount:
+                          type: number
+                        maxRetries:
+                          type: number
+                        retryBackoffMs:
+                          type: number
+                        timeoutMs:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        description:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        mode:
+                          type: string
+                          enum:
+                            - notify
+                            - execute
+                            - script
+                            - wake
+                        status:
+                          type: string
+                          enum:
+                            - active
+                            - firing
+                            - fired
+                            - cancelled
+                        routingIntent:
+                          type: string
+                          enum:
+                            - single_channel
+                            - multi_channel
+                            - all_channels
+                        reuseConversation:
+                          type: boolean
+                        wakeConversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        isOneShot:
+                          type: boolean
+                      required:
+                        - id
+                        - name
+                        - enabled
+                        - syntax
+                        - expression
+                        - cronExpression
+                        - timezone
+                        - message
+                        - script
+                        - nextRunAt
+                        - lastRunAt
+                        - lastStatus
+                        - retryCount
+                        - maxRetries
+                        - retryBackoffMs
+                        - timeoutMs
+                        - description
+                        - mode
+                        - status
+                        - routingIntent
+                        - reuseConversation
+                        - wakeConversationId
+                        - isOneShot
+                      additionalProperties: false
                     description: Updated schedule list
                 required:
                   - schedules
@@ -16768,7 +17295,115 @@ paths:
                 properties:
                   schedules:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                        enabled:
+                          type: boolean
+                        syntax:
+                          type: string
+                          enum:
+                            - cron
+                            - rrule
+                        expression:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        cronExpression:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        timezone:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        message:
+                          type: string
+                        script:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        nextRunAt:
+                          type: number
+                        lastRunAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        lastStatus:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        retryCount:
+                          type: number
+                        maxRetries:
+                          type: number
+                        retryBackoffMs:
+                          type: number
+                        timeoutMs:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        description:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        mode:
+                          type: string
+                          enum:
+                            - notify
+                            - execute
+                            - script
+                            - wake
+                        status:
+                          type: string
+                          enum:
+                            - active
+                            - firing
+                            - fired
+                            - cancelled
+                        routingIntent:
+                          type: string
+                          enum:
+                            - single_channel
+                            - multi_channel
+                            - all_channels
+                        reuseConversation:
+                          type: boolean
+                        wakeConversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        isOneShot:
+                          type: boolean
+                      required:
+                        - id
+                        - name
+                        - enabled
+                        - syntax
+                        - expression
+                        - cronExpression
+                        - timezone
+                        - message
+                        - script
+                        - nextRunAt
+                        - lastRunAt
+                        - lastStatus
+                        - retryCount
+                        - maxRetries
+                        - retryBackoffMs
+                        - timeoutMs
+                        - description
+                        - mode
+                        - status
+                        - routingIntent
+                        - reuseConversation
+                        - wakeConversationId
+                        - isOneShot
+                      additionalProperties: false
                     description: Updated schedule list
                 required:
                   - schedules
@@ -16796,7 +17431,51 @@ paths:
                 properties:
                   runs:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        jobId:
+                          type: string
+                        status:
+                          type: string
+                        startedAt:
+                          type: number
+                        finishedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        durationMs:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        output:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        error:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        conversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        createdAt:
+                          type: number
+                      required:
+                        - id
+                        - jobId
+                        - status
+                        - startedAt
+                        - finishedAt
+                        - durationMs
+                        - output
+                        - error
+                        - conversationId
+                        - createdAt
+                      additionalProperties: false
                     description: Schedule run objects
                 required:
                   - runs
@@ -16830,7 +17509,115 @@ paths:
                 properties:
                   schedules:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                        enabled:
+                          type: boolean
+                        syntax:
+                          type: string
+                          enum:
+                            - cron
+                            - rrule
+                        expression:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        cronExpression:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        timezone:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        message:
+                          type: string
+                        script:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        nextRunAt:
+                          type: number
+                        lastRunAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        lastStatus:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        retryCount:
+                          type: number
+                        maxRetries:
+                          type: number
+                        retryBackoffMs:
+                          type: number
+                        timeoutMs:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        description:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        mode:
+                          type: string
+                          enum:
+                            - notify
+                            - execute
+                            - script
+                            - wake
+                        status:
+                          type: string
+                          enum:
+                            - active
+                            - firing
+                            - fired
+                            - cancelled
+                        routingIntent:
+                          type: string
+                          enum:
+                            - single_channel
+                            - multi_channel
+                            - all_channels
+                        reuseConversation:
+                          type: boolean
+                        wakeConversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        isOneShot:
+                          type: boolean
+                      required:
+                        - id
+                        - name
+                        - enabled
+                        - syntax
+                        - expression
+                        - cronExpression
+                        - timezone
+                        - message
+                        - script
+                        - nextRunAt
+                        - lastRunAt
+                        - lastStatus
+                        - retryCount
+                        - maxRetries
+                        - retryBackoffMs
+                        - timeoutMs
+                        - description
+                        - mode
+                        - status
+                        - routingIntent
+                        - reuseConversation
+                        - wakeConversationId
+                        - isOneShot
+                      additionalProperties: false
                     description: Updated schedule list
                 required:
                   - schedules
