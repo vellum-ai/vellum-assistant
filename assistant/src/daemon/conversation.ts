@@ -1064,7 +1064,8 @@ export class Conversation {
       {
         force: true,
         overrideProfile,
-        actorTrustClass: this.trustContext?.trustClass,
+        actorTrustClass: (this.currentTurnTrustContext ?? this.trustContext)
+          ?.trustClass,
       },
     );
     // Track circuit-breaker state for user-initiated `/compact` and other
