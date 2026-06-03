@@ -217,6 +217,43 @@ describe("orchestrate — fixture sequence (carry-forward)", () => {
     expect(t2.currentSelections.map((s) => s.slug)).not.toContain("page-a");
     expect(t2.finalInjection).toContain("page-a");
   });
+
+  test("carry-forward survives a turn whose selections fill the cap", async () => {
+    const tree = makeTree();
+    // Cap of 1: under a naive record-then-cap order this turn's own selection
+    // would evict the carried page before injection. Snapshotting the carry
+    // BEFORE recording this turn keeps the earlier page in the injection.
+    const workingSet = new WorkingSet(1);
+    const needle = fakeNeedle([]);
+    const stub = (selectIds: number[]): Provider => ({
+      name: "stub",
+      sendMessage: async (_messages, options) =>
+        options?.tools?.[0]?.name === "open_leaves"
+          ? toolUseResponse("open_leaves", { ids: [1] })
+          : toolUseResponse("select_pages", { ids: selectIds, pinned_ids: [] }),
+    });
+
+    providerStub = stub([1]); // turn 1 → page-a
+    await orchestrate(makeTurn(1, "page a"), {
+      tree,
+      core: new Set(),
+      needle,
+      workingSet,
+      pageSummary: summaryOf,
+    });
+
+    providerStub = stub([2]); // turn 2 → page-b, never re-selects page-a
+    const t2 = await orchestrate(makeTurn(2, "page b"), {
+      tree,
+      core: new Set(),
+      needle,
+      workingSet,
+      pageSummary: summaryOf,
+    });
+
+    expect(t2.currentSelections.map((s) => s.slug)).toEqual(["page-b"]);
+    expect(t2.finalInjection).toContain("page-a"); // carried despite the cap
+  });
 });
 
 // ---------------------------------------------------------------------------

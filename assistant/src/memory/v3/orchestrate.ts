@@ -13,11 +13,16 @@
  *      then dedup by slug (a page assigned to multiple opened leaves comes back
  *      once per leaf) ORing the pinned flag so a page pinned anywhere stays
  *      pinned.
- *   4. Record each deduped selection into the carry-forward working set and
- *      evict (core slugs, stale non-pinned entries, then the cap).
- *   5. Final injection = unique union of this turn's selected slugs and the
- *      working-set union, so pages selected on earlier turns carry forward even
- *      when this turn does not re-select them.
+ *   4. Age the carry-forward working set to this turn (evict core slugs, stale
+ *      non-pinned entries, then the cap) and snapshot it — the pages carried in
+ *      from EARLIER turns.
+ *   5. Final injection = unique union of this turn's selected slugs and that
+ *      carried-forward set, so pages selected on earlier turns carry forward
+ *      even when this turn does not re-select them.
+ *   6. Record this turn's selections into the working set for LATER turns. This
+ *      runs AFTER the snapshot so the cap is spent on genuinely carried pages,
+ *      not on this turn's selections (which are injected directly) — otherwise a
+ *      turn selecting more pages than the cap would evict the entire carry.
  */
 
 import type { NeedleIndex } from "./needle.js";
@@ -48,7 +53,8 @@ export interface OrchestrateResult {
   openedLeaves: LeafPath[];
   /** This turn's L2 selections, deduped by slug (pinned flags ORed). */
   currentSelections: SelectedPage[];
-  /** Snapshot of the working-set union after record + evict. */
+  /** The carried-forward set: selections from EARLIER turns, aged to this turn
+   *  (snapshotted before this turn's selections are recorded). */
   workingSetUnion: Set<Slug>;
   /** Slugs to inject: this turn's selections ∪ the carried-forward working set. */
   finalInjection: Slug[];
@@ -95,20 +101,26 @@ export async function orchestrate(
   }
   const currentSelections = [...bySlug.values()];
 
-  // Step 4: record this turn's selections into the carry-forward working set.
-  for (const sel of currentSelections) {
-    deps.workingSet.recordSelection(sel.slug, turn.turnNumber, sel.pinned);
-  }
-
-  // Step 5: evict. Core slugs are owned by core, not the working set.
+  // Step 4: age the carry-forward set to this turn (drop core slugs, stale
+  // non-pinned entries, then the cap) and snapshot it. This is the set carried
+  // in from EARLIER turns; recording this turn happens afterward (step 6) so the
+  // cap is spent on genuinely carried pages, not on this turn's selections
+  // (which are injected directly anyway).
   deps.workingSet.evict(turn.turnNumber, coreSlugs(deps.tree, deps.core));
-
-  // Step 6: final injection = this turn's selections ∪ carried-forward set.
   const workingSetUnion = deps.workingSet.union();
+
+  // Step 5: final injection = this turn's selections ∪ the carried-forward set,
+  // so pages selected on earlier turns carry forward even when this turn does
+  // not re-select them.
   const finalInjection = unique<Slug>([
     ...currentSelections.map((s) => s.slug),
     ...workingSetUnion,
   ]);
+
+  // Step 6: record this turn's selections so they carry forward to LATER turns.
+  for (const sel of currentSelections) {
+    deps.workingSet.recordSelection(sel.slug, turn.turnNumber, sel.pinned);
+  }
 
   return { openedLeaves, currentSelections, workingSetUnion, finalInjection };
 }
