@@ -519,7 +519,9 @@ export class AcpSessionManager {
    * conflicting against the first turn's already-written row.
    */
   private historyRowId(acpSessionId: string, turnIndex: number): string {
-    return turnIndex === 0 ? acpSessionId : `${acpSessionId}:${turnIndex}`;
+    // First turn (turnIndex 0, or unset on manually-built entries) keeps the
+    // bare session id; only reused turns get a `:<n>` suffix.
+    return turnIndex ? `${acpSessionId}:${turnIndex}` : acpSessionId;
   }
 
   /**
