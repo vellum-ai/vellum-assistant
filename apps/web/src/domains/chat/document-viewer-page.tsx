@@ -143,13 +143,12 @@ export function DocumentViewerPage() {
 
   const handleExport = useCallback(async () => {
     if (!doc || !assistantId) return;
-    const { response: pdfResponse } = await documentsByIdPdfGet({
+    const { data: blob, response: pdfResponse } = await documentsByIdPdfGet({
       path: { assistant_id: assistantId, id: doc.surfaceId },
       throwOnError: false,
-      parseAs: "stream",
+      parseAs: "blob",
     });
-    if (!pdfResponse || !pdfResponse.ok) return;
-    const blob = await pdfResponse.blob();
+    if (!pdfResponse?.ok || !blob) return;
     const url = URL.createObjectURL(blob);
     const a = Object.assign(document.createElement("a"), {
       href: url,

@@ -70,7 +70,8 @@ export type RouteRequestBody =
 export type RouteResponseContentType =
   | "application/json"
   | "application/octet-stream"
-  | "application/gzip";
+  | "application/gzip"
+  | "application/pdf";
 
 /**
  * A route's success response body. Either:
