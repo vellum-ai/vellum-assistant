@@ -194,12 +194,15 @@ function hatchMiddleware(baseDir: string): Connect.NextHandleFunction {
     req.on("data", (chunk: Buffer) => chunks.push(chunk));
     req.on("end", () => {
       let species = "vellum";
+      let remote: string | undefined;
       if (chunks.length > 0) {
         try {
           const body = JSON.parse(Buffer.concat(chunks).toString()) as {
             species?: string;
+            remote?: string;
           };
           if (body.species) species = body.species;
+          if (body.remote) remote = body.remote;
         } catch {
           res.statusCode = 400;
           res.setHeader("Content-Type", "application/json");
@@ -223,7 +226,7 @@ function hatchMiddleware(baseDir: string): Connect.NextHandleFunction {
         return;
       }
 
-      runHatch(invocation, species).then((result) => {
+      runHatch(invocation, species, remote ? { remote } : undefined).then((result) => {
         res.statusCode = result.ok ? 200 : result.status;
         res.setHeader("Content-Type", "application/json");
         res.end(

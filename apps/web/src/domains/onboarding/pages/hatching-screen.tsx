@@ -239,7 +239,8 @@ export function HatchingScreen() {
       if (useLocalHatch) {
         try {
           if (!localHatchPromise) {
-            localHatchPromise = hatchLocalAssistant();
+            const remote = hostingParam === "docker" ? "docker" : undefined;
+            localHatchPromise = hatchLocalAssistant(undefined, remote);
           }
           const result = await localHatchPromise;
           localHatchPromise = null;

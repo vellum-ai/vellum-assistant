@@ -57,6 +57,21 @@ describe("hatchLocalAssistant", () => {
     expect(JSON.parse(init.body as string)).toEqual({ species: "vellum" });
   });
 
+  test("web/dev host forwards the remote parameter when provided", async () => {
+    const fetchMock = mock(async () => ({
+      json: async () => ({ ok: true, assistantId: "docker-1" }),
+    }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await hatchLocalAssistant(undefined, "docker");
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
+    expect(JSON.parse(init.body as string)).toEqual({ species: "vellum", remote: "docker" });
+  });
+
   test("Electron host routes to the main-process bridge and never touches fetch", async () => {
     runningInElectron = true;
     const hatch = mock(async () => ({ ok: true, assistantId: "electron-1" }));
@@ -70,7 +85,24 @@ describe("hatchLocalAssistant", () => {
     const result = await hatchLocalAssistant("vellum");
 
     expect(result).toEqual({ ok: true, assistantId: "electron-1" });
-    expect(hatch).toHaveBeenCalledWith("vellum");
+    expect(hatch).toHaveBeenCalledWith("vellum", undefined);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("Electron host forwards remote to the bridge", async () => {
+    runningInElectron = true;
+    const hatch = mock(async () => ({ ok: true, assistantId: "electron-docker-1" }));
+    const fetchMock = mock(async () => {
+      throw new Error("fetch must not run on the Electron branch");
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    (window as unknown as { vellum: { localMode: { hatch: typeof hatch } } }).vellum =
+      { localMode: { hatch } };
+
+    const result = await hatchLocalAssistant("vellum", "docker");
+
+    expect(result).toEqual({ ok: true, assistantId: "electron-docker-1" });
+    expect(hatch).toHaveBeenCalledWith("vellum", "docker");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
