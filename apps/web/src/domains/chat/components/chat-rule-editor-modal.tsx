@@ -167,7 +167,7 @@ export function ChatRuleEditorModal({
   onSaveAsNew,
   onDismiss,
 }: ChatRuleEditorModalProps) {
-  const { existingRule, suggestion } = context;
+  const { existingRule, suggestion, suggestionPending } = context;
   const isEditMode = !!existingRule;
 
   const optionsFromToolCall = context.allowlistOptions.length > 0;
@@ -457,6 +457,20 @@ export function ChatRuleEditorModal({
                     </>
                   )}
                 </>
+              ) : suggestionPending && !suggestion && !optionsFromToolCall ? (
+                // Suggestion still loading and no tool-call ladder: show a
+                // loading row instead of the bare wildcard, so the option list
+                // doesn't flash "Any {tool} call" then re-render once the
+                // suggested pattern arrives.
+                <div className="flex items-center gap-2 rounded-md bg-[var(--surface-base)] px-3 py-2">
+                  <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-[var(--content-tertiary)] border-t-transparent" />
+                  <Typography
+                    variant="body-medium-default"
+                    className="text-[var(--content-tertiary)]"
+                  >
+                    Finding a suggested rule…
+                  </Typography>
+                </div>
               ) : pipelineCollapsed || generalizedOptions.length === 1 ? (
                 <div className="rounded-md bg-[var(--surface-base)] px-3 py-2">
                   <Typography
