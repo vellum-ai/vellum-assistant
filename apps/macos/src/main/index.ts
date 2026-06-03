@@ -234,6 +234,8 @@ app
   .whenReady()
   .then(async () => {
     if (!isDev) {
+      // TODO(LUM-2214): a deep-link or second-instance activation during
+      // this await can create a window before the protocol handler exists.
       await ensureWebInstalled();
       registerAppProtocol();
     }
