@@ -1,27 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@vellum/design-library/components/button";
 import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Input } from "@vellum/design-library/components/input";
 import { Modal } from "@vellum/design-library/components/modal";
 import { Typography } from "@vellum/design-library/components/typography";
-import { ChevronRight, Loader2 } from "lucide-react";
 
 import {
   inferenceProviderconnectionsByNamePatch,
   inferenceProviderconnectionsPost,
-  secretsGet,
   secretsPost,
 } from "@/generated/daemon/sdk.gen";
-import {
-  ApiError,
-  assertHasResponse,
-  extractErrorMessage,
-} from "@/utils/api-errors";
-import { shouldRetryDaemonError } from "@/utils/daemon-errors";
-import { captureError } from "@/lib/sentry/capture-error";
-import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { useStoredCredentialPresence } from "@/domains/settings/ai/use-stored-credential-presence";
 
 import { ChatgptOAuthSection } from "@/domains/settings/ai/chatgpt-oauth-section";
@@ -32,67 +22,19 @@ import {
   PROVIDER_DISPLAY_NAMES,
   type ProviderConnection,
   type UpdateConnectionInput,
-  parseCredentialEntries,
 } from "@/domains/settings/ai/provider-connections-client";
+import {
+  type AuthType,
+  AUTH_TYPE_DISPLAY_NAMES,
+  CONNECTION_PROVIDERS,
+  connectionSaveErrorMessage,
+  parseCredentialRef,
+} from "@/domains/settings/ai/provider-editor-constants";
+import { ProviderEditorApiKeySection } from "@/domains/settings/ai/provider-editor-api-key-section";
 import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
 import { useLabelKeySync } from "@/domains/settings/ai/use-label-key-sync";
+import { useProviderCredentialsList } from "@/domains/settings/ai/use-provider-credentials-list";
 import { providerSupportsPlatformAuth } from "@/assistant/llm-model-catalog";
-
-// ---------------------------------------------------------------------------
-// Query keys
-// ---------------------------------------------------------------------------
-
-const PROVIDER_CREDENTIALS_LIST_QK = "provider-credentials-list" as const;
-
-function parseCredentialRef(credRef: string): { service: string; field: string } | null {
-  const parts = credRef.split("/");
-  if (parts.length < 3 || parts[0] !== "credential") return null;
-  return { service: parts[1], field: parts.slice(2).join("/") };
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function connectionSaveErrorMessage(
-  status: number | undefined,
-  connectionName: string,
-): string {
-  switch (status) {
-    case 409:
-      return `A connection named "${connectionName}" already exists.`;
-    case 404:
-      return "Connection not found. It may have been deleted.";
-    case 400:
-      return "Invalid configuration. Check the provider and auth settings.";
-    default:
-      return "Failed to save connection. Please try again.";
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const CONNECTION_PROVIDERS: ConnectionProvider[] = [
-  "anthropic",
-  "openai",
-  "gemini",
-  "ollama",
-  "fireworks",
-  "openrouter",
-  "minimax",
-  "openai-compatible",
-];
-
-type AuthType = "api_key" | "platform" | "none" | "oauth_subscription";
-
-const AUTH_TYPE_DISPLAY_NAMES: Record<AuthType, string> = {
-  api_key: "API Key",
-  platform: "Platform (managed proxy)",
-  none: "None (local / no auth)",
-  oauth_subscription: "ChatGPT Subscription",
-};
 
 // NOTE: The set of providers that support `platform` auth is sourced from
 // the catalog via `providerSupportsPlatformAuth()` — it's derived from the
@@ -110,11 +52,11 @@ const AUTH_TYPE_DISPLAY_NAMES: Record<AuthType, string> = {
 // inside a single modal frame rather than stacking a second modal.
 
 export interface ProviderEditorContentProps {
-  /// "managed-edit" is used for connections seeded + write-protected by the
-  /// daemon (anthropic-managed / openai-managed / gemini-managed). Only the
-  /// auth-related fields (Auth Type, API Key, Credential Reference) are
-  /// disabled in this mode; Display Name + Status remain editable to match
-  /// the PATCH fields the daemon allows on managed rows.
+  // "managed-edit" is used for connections seeded + write-protected by the
+  // daemon (anthropic-managed / openai-managed / gemini-managed). Only the
+  // auth-related fields (Auth Type, API Key, Credential Reference) are
+  // disabled in this mode; Display Name + Status remain editable to match
+  // the PATCH fields the daemon allows on managed rows.
   mode: "create" | "edit" | "managed-edit";
   connection?: ProviderConnection;
   assistantId: string;
@@ -135,20 +77,18 @@ export function ProviderEditorContent({
   onSave,
   onCancel,
 }: ProviderEditorContentProps) {
-  /// Local mode state. Initialised from the `mode` prop, but the user can
-  /// flip "managed-edit" → "create" via the Save as New button — they clone
-  /// a managed connection's provider + label into a new (non-managed)
-  /// connection of their own. Mirrors `effectiveMode` in
-  /// `profile-editor-modal.tsx` where the same Save As New pattern lives.
+  // Local mode state. Initialised from the `mode` prop, but the user can
+  // flip "managed-edit" → "create" via the Save as New button — they clone
+  // a managed connection's provider + label into a new (non-managed)
+  // connection of their own.
   const [effectiveMode, setEffectiveMode] = useState<
     "create" | "edit" | "managed-edit"
   >(mode);
 
-  /// True when the editor is opened for a Vellum-managed connection. Locks
-  /// the auth-related inputs (Auth Type, API Key, Credential Reference) but
-  /// leaves Display Name + Status editable, mirroring what the daemon
-  /// permits on PATCH for managed rows. Keyed off `effectiveMode` so the
-  /// Save As New transition out of managed-edit also unlocks auth.
+  // True when the editor is opened for a Vellum-managed connection. Locks
+  // the auth-related inputs (Auth Type, API Key, Credential Reference) but
+  // leaves Display Name + Status editable. Keyed off `effectiveMode` so
+  // the Save As New transition out of managed-edit also unlocks auth.
   const isAuthLocked = effectiveMode === "managed-edit";
 
   const [label, setLabel] = useState(connection?.label ?? "");
@@ -189,14 +129,9 @@ export function ProviderEditorContent({
   const { handleLabelChange, handleKeyChange: handleNameChange, resetDirty } =
     useLabelKeySync(effectiveMode, setLabel, setName);
 
-  // New state for inline API key editing
   const [apiKeyValue, setApiKeyValue] = useState("");
-  const [isAdvancedExpanded, setIsAdvancedExpanded] = useState(false);
-  const [isCreatingNewCredential, setIsCreatingNewCredential] = useState(false);
-  const [newCredentialName, setNewCredentialName] = useState("");
   const [isSavingKey, setIsSavingKey] = useState(false);
   const queryClient = useQueryClient();
-  const isOrgReady = useIsOrgReady();
 
   // --- Credential presence (shared hook) ---
   const parsedCredRef = useMemo(() => parseCredentialRef(credential), [credential]);
@@ -214,45 +149,17 @@ export function ProviderEditorContent({
     errorContext: "settings-provider-editor-credential-presence",
   });
 
-  // --- Available credentials list query (TanStack Query) ---
+  // --- Available credentials list ---
   const needsCredentialsList =
     authType === "api_key" || effectiveMode === "create";
 
-  const credentialsListKey = useMemo(
-    () => [PROVIDER_CREDENTIALS_LIST_QK, assistantId],
-    [assistantId],
-  );
-
-  const credentialsListQuery = useQuery({
+  const {
+    credentials: availableCredentials,
     queryKey: credentialsListKey,
-    queryFn: async () => {
-      const { data, error, response } = await secretsGet({
-        path: { assistant_id: assistantId },
-        throwOnError: false,
-      });
-      assertHasResponse(response, error, "Failed to load credentials");
-      if (!response.ok) {
-        throw new ApiError(
-          response.status,
-          extractErrorMessage(error, response, `Failed to load credentials (HTTP ${response.status})`),
-        );
-      }
-      return parseCredentialEntries(data!.secrets ?? data!.accounts ?? []);
-    },
-    enabled: !!assistantId && needsCredentialsList && isOrgReady,
-    retry: shouldRetryDaemonError,
-    staleTime: 30_000,
+  } = useProviderCredentialsList({
+    assistantId,
+    enabled: needsCredentialsList,
   });
-
-  useEffect(() => {
-    if (!credentialsListQuery.error) return;
-    captureError(credentialsListQuery.error, {
-      context: "settings-provider-editor-credentials-list",
-      bestEffort: true,
-    });
-  }, [credentialsListQuery.error]);
-
-  const availableCredentials = credentialsListQuery.data ?? [];
 
   // Reset form when connection prop changes (e.g. switching between edit
   // targets). `effectiveMode` doesn't need a sync line here — it's
@@ -287,23 +194,18 @@ export function ProviderEditorContent({
 
     // Reset credential UI state. TQ queries auto-refetch when their keys
     // change (credential ref updates above trigger new query keys).
+    // Sub-component state (isAdvancedExpanded, isCreatingNewCredential,
+    // newCredentialName) resets automatically on unmount/remount.
     setApiKeyValue("");
-    setIsCreatingNewCredential(false);
-    setNewCredentialName("");
     setIsSavingKey(false);
-    setIsAdvancedExpanded(false);
   }, [connection, resetDirty]);
 
-  /// Save as New: clone the currently-displayed connection into a fresh
-  /// "create" mode session. The user keeps the provider + label as a
-  /// starting point (so they don't have to re-enter the easy bits) but
-  /// gets a blank Key field to pick a unique name, fresh credential
-  /// inputs, and an unlocked Auth Type (default to api_key, the most
-  /// common path for cloning off a managed connection — the whole point
-  /// is the user wants to use their own credentials).
-  ///
-  /// Mirrors `setEffectiveMode("create")` in profile-editor-modal's Save
-  /// As New footer button.
+  // Save as New: clone the currently-displayed connection into a fresh
+  // "create" mode session. The user keeps the provider + label as a
+  // starting point (so they don't have to re-enter the easy bits) but
+  // gets a blank Key field to pick a unique name, fresh credential
+  // inputs, and an unlocked Auth Type (default to api_key, the most
+  // common path for cloning off a managed connection).
   function handleSaveAsNew() {
     setEffectiveMode("create");
     // Clear the Key so the user picks a new unique name. Reset the dirty
@@ -352,30 +254,22 @@ export function ProviderEditorContent({
         if (trimmedKey) {
           setIsSavingKey(true);
           try {
-            const parts = effectiveCredential.split("/");
-            if (parts.length >= 3 && parts[0] === "credential") {
-              const service = parts[1];
-              const field = parts.slice(2).join("/");
-              await secretsPost({
-                path: { assistant_id: assistantId },
-                body: {
-                  type: "credential",
-                  name: `${service}:${field}`,
-                  value: trimmedKey,
-                },
-                throwOnError: true,
-              });
-            } else {
-              await secretsPost({
-                path: { assistant_id: assistantId },
-                body: {
-                  type: "api_key",
-                  name: provider,
-                  value: trimmedKey,
-                },
-                throwOnError: true,
-              });
-            }
+            const parsed = parseCredentialRef(effectiveCredential);
+            await secretsPost({
+              path: { assistant_id: assistantId },
+              body: parsed
+                ? {
+                    type: "credential",
+                    name: `${parsed.service}:${parsed.field}`,
+                    value: trimmedKey,
+                  }
+                : {
+                    type: "api_key",
+                    name: provider,
+                    value: trimmedKey,
+                  },
+              throwOnError: true,
+            });
             // Optimistically mark credential as present and invalidate
             // the credentials list so TQ caches stay in sync.
             queryClient.setQueryData(credentialPresenceKey, true);
@@ -490,21 +384,17 @@ export function ProviderEditorContent({
   );
 
   // Show the Advanced credential-reference disclosure only when there's
-  // at least one stored credential for the provider OR the user is
-  // mid-create of a named credential OR we're editing an existing
-  // `api_key` connection (so the user can always see their current
-  // reference, even if `availableCredentials` came back empty due to
-  // an out-of-band deletion or daemon hiccup). In the create-mode
-  // empty state the API Key field above
-  // is the only path needed — saving a key auto-creates
-  // `credential/<provider>/api_key` under the hood, so the disclosure
-  // has nothing meaningful to offer. Mirrors macOS
-  // `ProvidersSheet.swift`'s `shouldShowAdvancedSection`.
+  // at least one stored credential for the provider OR we're editing an
+  // existing `api_key` connection (so the user can always see their
+  // current reference, even if `availableCredentials` came back empty
+  // due to an out-of-band deletion or daemon hiccup). In the
+  // create-mode empty state the API Key field above is the only path
+  // needed — saving a key auto-creates `credential/<provider>/api_key`
+  // under the hood, so the disclosure has nothing meaningful to offer.
   const isEditingApiKeyConnection =
     effectiveMode !== "create" && connection?.auth.type === "api_key";
   const shouldShowAdvancedSection =
     providerCredentials.length > 0 ||
-    isCreatingNewCredential ||
     isEditingApiKeyConnection;
   const apiKeyPlaceholder = secretPlaceholder(
     "Enter your API key",
@@ -701,157 +591,19 @@ export function ProviderEditorContent({
 
         {/* API Key + Advanced disclosure — only shown for api_key auth */}
         {authType === "api_key" && (
-          <>
-            {/* Primary: saved-state API Key field */}
-            <div className="space-y-1">
-              <label className="block text-body-small-default text-[var(--content-tertiary)]">
-                API Key
-              </label>
-              {isLoadingCredential ? (
-                <div className="flex items-center gap-2 h-8">
-                  <Loader2 className="h-4 w-4 animate-spin text-[var(--content-tertiary)]" />
-                  <Typography
-                    variant="body-small-default"
-                    className="text-[var(--content-tertiary)]"
-                  >
-                    Loading…
-                  </Typography>
-                </div>
-              ) : (
-                <Input
-                  type="password"
-                  value={apiKeyValue}
-                  onChange={(e) => {
-                    setApiKeyValue(e.target.value);
-                    setError(null);
-                  }}
-                  placeholder={apiKeyPlaceholder}
-                  disabled={isAuthLocked}
-                  fullWidth
-                />
-              )}
-            </div>
-
-            {/* Advanced credential-reference disclosure. Hidden when
-                the provider has zero stored credentials so the simple
-                API Key field above is the only path — saving a key
-                auto-creates `credential/<provider>/api_key` under the
-                hood, matching the macOS pattern. Once at least one
-                credential exists (or the user is mid-create of a named
-                credential) the disclosure re-appears with the reference
-                dropdown + New Credential affordance. */}
-            {shouldShowAdvancedSection && (
-              <div>
-                <button
-                  type="button"
-                  aria-expanded={isAdvancedExpanded}
-                  onClick={() => setIsAdvancedExpanded((v) => !v)}
-                  className="flex items-center gap-1 text-body-small-default text-[var(--content-secondary)] w-full text-left"
-                >
-                  <ChevronRight
-                    className={`h-4 w-4 transition-transform ${isAdvancedExpanded ? "rotate-90" : ""}`}
-                  />
-                  <span>Advanced</span>
-                  <span className="text-[var(--content-tertiary)] ml-1">
-                    · Credential reference
-                  </span>
-                </button>
-
-              {isAdvancedExpanded && (
-                <div className="mt-2 space-y-3">
-                  {/* Build dropdown options from available credentials. If
-                      the connection's current `credential` reference isn't
-                      in the list (e.g. credential deleted out-of-band, or
-                      daemon returned an empty list while editing), prepend
-                      a synthetic option for it so the user still sees
-                      their actual reference rather than a blank dropdown. */}
-                  {(() => {
-                    const baseOptions = providerCredentials.map((c) => {
-                      const ref = `credential/${c.service}/${c.field}`;
-                      return { label: ref, value: ref };
-                    });
-                    const hasCurrent = baseOptions.some(
-                      (o) => o.value === credential,
-                    );
-                    const dropdownOptions =
-                      credential && !hasCurrent
-                        ? [{ label: credential, value: credential }, ...baseOptions]
-                        : baseOptions;
-                    if (dropdownOptions.length === 0) return null;
-                    return (
-                      <div className="space-y-1">
-                        <label className="block text-body-small-default text-[var(--content-tertiary)]">
-                          Credential Reference
-                        </label>
-                        <Dropdown
-                          aria-label="Credential reference"
-                          value={credential}
-                          onChange={(v) => {
-                            setCredential(v);
-                          }}
-                          disabled={isAuthLocked}
-                          options={dropdownOptions}
-                        />
-                      </div>
-                    );
-                  })()}
-
-                  {isCreatingNewCredential && (
-                    <div className="space-y-1">
-                      <label className="block text-body-small-default text-[var(--content-tertiary)]">
-                        New Credential Name
-                      </label>
-                      <div className="flex gap-2">
-                        <Input
-                          value={newCredentialName}
-                          onChange={(e) => setNewCredentialName(e.target.value)}
-                          placeholder="e.g. team-key"
-                          disabled={isAuthLocked}
-                          fullWidth
-                        />
-                        <Button
-                          variant="primary"
-                          size="compact"
-                          disabled={isAuthLocked || !newCredentialName.trim()}
-                          onClick={() => {
-                            const trimmed = newCredentialName.trim();
-                            if (!trimmed) return;
-                            const ref = `credential/${provider}/${trimmed}`;
-                            setCredential(ref);
-                            setIsCreatingNewCredential(false);
-                            setNewCredentialName("");
-                          }}
-                        >
-                          Use
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="flex justify-end">
-                    <Button
-                      variant="ghost"
-                      size="compact"
-                      disabled={isAuthLocked}
-                      onClick={() => {
-                        if (isCreatingNewCredential) {
-                          setIsCreatingNewCredential(false);
-                          setNewCredentialName("");
-                        } else {
-                          setIsCreatingNewCredential(true);
-                        }
-                      }}
-                    >
-                      {isCreatingNewCredential
-                        ? "Cancel"
-                        : "+ New Credential"}
-                    </Button>
-                  </div>
-                </div>
-              )}
-              </div>
-            )}
-          </>
+          <ProviderEditorApiKeySection
+            apiKeyValue={apiKeyValue}
+            onApiKeyChange={setApiKeyValue}
+            credential={credential}
+            onCredentialChange={setCredential}
+            isAuthLocked={isAuthLocked}
+            isLoadingCredential={isLoadingCredential}
+            apiKeyPlaceholder={apiKeyPlaceholder}
+            provider={provider}
+            providerCredentials={providerCredentials}
+            showAdvancedSection={shouldShowAdvancedSection}
+            onError={setError}
+          />
         )}
 
         {/* ChatGPT Subscription OAuth — shown when auth type is oauth_subscription */}
