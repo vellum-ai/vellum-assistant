@@ -418,9 +418,13 @@ export async function sweepFailedEvents(
 
     if (replyCallbackUrl) {
       if (externalChatId) {
-        const slackProcessingDeliveryContext = slackProcessingReplayContext
-          ? { ...slackProcessingReplayContext, stage: "callback_delivery" }
-          : undefined;
+        const slackProcessingDeliveryContext: ReplayFailureContext | undefined =
+          slackProcessingReplayContext
+            ? {
+                ...slackProcessingReplayContext,
+                stage: "callback_delivery",
+              }
+            : undefined;
         try {
           if (slackDmTextDelivery) {
             await slackDmTextDelivery.waitForPendingDeliveries();

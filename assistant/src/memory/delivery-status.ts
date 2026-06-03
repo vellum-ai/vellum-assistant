@@ -167,7 +167,12 @@ function buildDeadLetterErrorMessage(
 ): string {
   const stage = resolveReplayFailureStage(err, context);
   const labels = [stage, context?.retryClass, context?.replayMode].filter(
-    (value): value is string => typeof value === "string" && value.length > 0,
+    (
+      value,
+    ): value is Exclude<
+      ReplayFailureContext["stage"] | RetryClass | ReplayMode,
+      undefined
+    > => typeof value === "string" && value.length > 0,
   );
   if (labels.length === 0) return errorMsg;
 
