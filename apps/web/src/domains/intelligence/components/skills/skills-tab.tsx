@@ -223,6 +223,12 @@ export function SkillsTab({ assistantId, initialSkillId }: SkillsTabProps) {
         filter={filter}
         onFilterChange={setFilter}
         isSearching={isSearching}
+        categories={categories}
+        category={category}
+        onCategoryChange={setCategory}
+        counts={counts}
+        totalCount={totalCount}
+        showCounts={!isSearching}
       />
 
       <div className="flex min-h-0 flex-1 gap-6">
