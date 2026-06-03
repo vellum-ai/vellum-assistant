@@ -2,7 +2,7 @@ import { BrowserWindow, app, shell } from "electron";
 import path from "node:path";
 import { z } from "zod";
 
-import { RENDERER_BASE_PROD, getDevRendererBase } from "./app-config";
+import { getRendererRootUrl } from "./app-config";
 import { isAllowedOrigin, resolveAllowedOrigin } from "./app-origin";
 import { type VellumCommand } from "./commands";
 import { handle } from "./ipc";
@@ -125,20 +125,15 @@ const installSameOriginNavigationGuard = (win: BrowserWindow): void => {
 };
 
 const createWindow = (): BrowserWindow => {
-  // Resolve the dev URL once per window construction so the loader
-  // and the navigation guard see a consistent string even if
-  // `VELLUM_DEV_URL` is mutated mid-process.
-  //
   // The prod load target is the renderer base itself (no `/index.html`
   // suffix). The `app://` protocol handler in `index.ts` falls back
   // to `index.html` for paths without a file extension, so this
   // serves the SPA — but with the browser URL staying at `/assistant`,
   // which is where React Router's app-root route matches. Appending
   // `/index.html` would land us at the NotFound route under
-  // `/assistant/*`.
-  const isDev = !app.isPackaged;
-  const devBase = isDev ? getDevRendererBase() : null;
-  const loadTarget = devBase ?? RENDERER_BASE_PROD;
+  // `/assistant/*`. In dev the URL carries a trailing slash to match
+  // Vite's `base`; see `getRendererRootUrl`.
+  const loadTarget = getRendererRootUrl(app.isPackaged);
 
   const win = new BrowserWindow({
     ...restoreBounds("main", { width: 1280, height: 800 }),
