@@ -92,7 +92,7 @@ export function DebugPage() {
         className="flex min-h-0 flex-1 flex-col pt-6"
       >
         {activeTab === "general" && (
-          <div className="mx-auto max-w-[940px]">
+          <div className="max-w-[940px]">
             <DebugControlsPanel />
           </div>
         )}
