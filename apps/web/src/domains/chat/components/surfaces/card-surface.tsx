@@ -3,6 +3,7 @@ import { Circle, CircleCheck, CircleX, Clock, Loader2 } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import type { Surface } from "@/domains/chat/types/types";
+import { isTaskProgressSurface } from "@/domains/chat/transcript/message-content";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
@@ -204,8 +205,9 @@ export function CardSurface({ surface, onAction }: CardSurfaceProps) {
   const data = surface.data as unknown as CardSurfaceData;
   const isWeather = data.template === "weather_forecast" && data.templateData;
   const isTaskProgress = data.template === "task_progress" && data.templateData;
-  const hasSteps = isTaskProgress && Array.isArray(data.templateData?.steps) &&
-    (data.templateData!.steps as unknown[]).length > 0;
+  // Shared predicate so this render-detection and the activity-summary
+  // hoist-detection in transcript-message-body cannot drift.
+  const hasSteps = isTaskProgressSurface(surface);
 
   if (hasSteps) {
     return (
