@@ -52,11 +52,11 @@ import { providerSupportsPlatformAuth } from "@/assistant/llm-model-catalog";
 // inside a single modal frame rather than stacking a second modal.
 
 export interface ProviderEditorContentProps {
-  /// "managed-edit" is used for connections seeded + write-protected by the
-  /// daemon (anthropic-managed / openai-managed / gemini-managed). Only the
-  /// auth-related fields (Auth Type, API Key, Credential Reference) are
-  /// disabled in this mode; Display Name + Status remain editable to match
-  /// the PATCH fields the daemon allows on managed rows.
+  // "managed-edit" is used for connections seeded + write-protected by the
+  // daemon (anthropic-managed / openai-managed / gemini-managed). Only the
+  // auth-related fields (Auth Type, API Key, Credential Reference) are
+  // disabled in this mode; Display Name + Status remain editable to match
+  // the PATCH fields the daemon allows on managed rows.
   mode: "create" | "edit" | "managed-edit";
   connection?: ProviderConnection;
   assistantId: string;
@@ -77,20 +77,18 @@ export function ProviderEditorContent({
   onSave,
   onCancel,
 }: ProviderEditorContentProps) {
-  /// Local mode state. Initialised from the `mode` prop, but the user can
-  /// flip "managed-edit" → "create" via the Save as New button — they clone
-  /// a managed connection's provider + label into a new (non-managed)
-  /// connection of their own. Mirrors `effectiveMode` in
-  /// `profile-editor-modal.tsx` where the same Save As New pattern lives.
+  // Local mode state. Initialised from the `mode` prop, but the user can
+  // flip "managed-edit" → "create" via the Save as New button — they clone
+  // a managed connection's provider + label into a new (non-managed)
+  // connection of their own.
   const [effectiveMode, setEffectiveMode] = useState<
     "create" | "edit" | "managed-edit"
   >(mode);
 
-  /// True when the editor is opened for a Vellum-managed connection. Locks
-  /// the auth-related inputs (Auth Type, API Key, Credential Reference) but
-  /// leaves Display Name + Status editable, mirroring what the daemon
-  /// permits on PATCH for managed rows. Keyed off `effectiveMode` so the
-  /// Save As New transition out of managed-edit also unlocks auth.
+  // True when the editor is opened for a Vellum-managed connection. Locks
+  // the auth-related inputs (Auth Type, API Key, Credential Reference) but
+  // leaves Display Name + Status editable. Keyed off `effectiveMode` so
+  // the Save As New transition out of managed-edit also unlocks auth.
   const isAuthLocked = effectiveMode === "managed-edit";
 
   const [label, setLabel] = useState(connection?.label ?? "");
@@ -202,16 +200,12 @@ export function ProviderEditorContent({
     setIsSavingKey(false);
   }, [connection, resetDirty]);
 
-  /// Save as New: clone the currently-displayed connection into a fresh
-  /// "create" mode session. The user keeps the provider + label as a
-  /// starting point (so they don't have to re-enter the easy bits) but
-  /// gets a blank Key field to pick a unique name, fresh credential
-  /// inputs, and an unlocked Auth Type (default to api_key, the most
-  /// common path for cloning off a managed connection — the whole point
-  /// is the user wants to use their own credentials).
-  ///
-  /// Mirrors `setEffectiveMode("create")` in profile-editor-modal's Save
-  /// As New footer button.
+  // Save as New: clone the currently-displayed connection into a fresh
+  // "create" mode session. The user keeps the provider + label as a
+  // starting point (so they don't have to re-enter the easy bits) but
+  // gets a blank Key field to pick a unique name, fresh credential
+  // inputs, and an unlocked Auth Type (default to api_key, the most
+  // common path for cloning off a managed connection).
   function handleSaveAsNew() {
     setEffectiveMode("create");
     // Clear the Key so the user picks a new unique name. Reset the dirty
@@ -260,30 +254,22 @@ export function ProviderEditorContent({
         if (trimmedKey) {
           setIsSavingKey(true);
           try {
-            const parts = effectiveCredential.split("/");
-            if (parts.length >= 3 && parts[0] === "credential") {
-              const service = parts[1];
-              const field = parts.slice(2).join("/");
-              await secretsPost({
-                path: { assistant_id: assistantId },
-                body: {
-                  type: "credential",
-                  name: `${service}:${field}`,
-                  value: trimmedKey,
-                },
-                throwOnError: true,
-              });
-            } else {
-              await secretsPost({
-                path: { assistant_id: assistantId },
-                body: {
-                  type: "api_key",
-                  name: provider,
-                  value: trimmedKey,
-                },
-                throwOnError: true,
-              });
-            }
+            const parsed = parseCredentialRef(effectiveCredential);
+            await secretsPost({
+              path: { assistant_id: assistantId },
+              body: parsed
+                ? {
+                    type: "credential",
+                    name: `${parsed.service}:${parsed.field}`,
+                    value: trimmedKey,
+                  }
+                : {
+                    type: "api_key",
+                    name: provider,
+                    value: trimmedKey,
+                  },
+              throwOnError: true,
+            });
             // Optimistically mark credential as present and invalidate
             // the credentials list so TQ caches stay in sync.
             queryClient.setQueryData(credentialPresenceKey, true);
@@ -398,16 +384,13 @@ export function ProviderEditorContent({
   );
 
   // Show the Advanced credential-reference disclosure only when there's
-  // at least one stored credential for the provider OR the user is
-  // mid-create of a named credential OR we're editing an existing
-  // `api_key` connection (so the user can always see their current
-  // reference, even if `availableCredentials` came back empty due to
-  // an out-of-band deletion or daemon hiccup). In the create-mode
-  // empty state the API Key field above
-  // is the only path needed — saving a key auto-creates
-  // `credential/<provider>/api_key` under the hood, so the disclosure
-  // has nothing meaningful to offer. Mirrors macOS
-  // `ProvidersSheet.swift`'s `shouldShowAdvancedSection`.
+  // at least one stored credential for the provider OR we're editing an
+  // existing `api_key` connection (so the user can always see their
+  // current reference, even if `availableCredentials` came back empty
+  // due to an out-of-band deletion or daemon hiccup). In the
+  // create-mode empty state the API Key field above is the only path
+  // needed — saving a key auto-creates `credential/<provider>/api_key`
+  // under the hood, so the disclosure has nothing meaningful to offer.
   const isEditingApiKeyConnection =
     effectiveMode !== "create" && connection?.auth.type === "api_key";
   const shouldShowAdvancedSection =

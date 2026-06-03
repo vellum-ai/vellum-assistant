@@ -1,12 +1,6 @@
 import type { ConnectionProvider } from "@/domains/settings/ai/provider-connections-client";
 
 // ---------------------------------------------------------------------------
-// Query keys
-// ---------------------------------------------------------------------------
-
-export const PROVIDER_CREDENTIALS_LIST_QK = "provider-credentials-list" as const;
-
-// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 

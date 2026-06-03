@@ -6,8 +6,7 @@ import { Input } from "@vellum/design-library/components/input";
 import { Typography } from "@vellum/design-library/components/typography";
 import { ChevronRight, Loader2 } from "lucide-react";
 
-import type { CredentialEntry } from "@/domains/settings/ai/provider-connections-client";
-import type { ConnectionProvider } from "@/domains/settings/ai/provider-connections-client";
+import type { ConnectionProvider, CredentialEntry } from "@/domains/settings/ai/provider-connections-client";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -88,12 +87,8 @@ export function ProviderEditorApiKeySection({
         )}
       </div>
 
-      {/* Advanced credential-reference disclosure. Hidden when the provider
-          has zero stored credentials so the simple API Key field above is
-          the only path — saving a key auto-creates
-          `credential/<provider>/api_key` under the hood. Once at least one
-          credential exists (or the user is mid-create of a named credential)
-          the disclosure re-appears. */}
+      {/* Advanced credential-reference disclosure. Visibility is
+          controlled by the parent via `showAdvancedSection`. */}
       {showAdvancedSection && (
         <div>
           <button

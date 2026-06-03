@@ -9,7 +9,8 @@ import { captureError } from "@/lib/sentry/capture-error";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 
 import { parseCredentialEntries } from "@/domains/settings/ai/provider-connections-client";
-import { PROVIDER_CREDENTIALS_LIST_QK } from "@/domains/settings/ai/provider-editor-constants";
+
+const PROVIDER_CREDENTIALS_LIST_QK = "provider-credentials-list" as const;
 
 // ---------------------------------------------------------------------------
 // Hook
