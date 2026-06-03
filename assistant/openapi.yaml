@@ -16689,6 +16689,63 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  providers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        provider_key:
+                          type: string
+                        display_name:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        description:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        dashboard_url:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        client_id_placeholder:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        requires_client_secret:
+                          type: boolean
+                        logo_url:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        supports_managed_mode:
+                          type: boolean
+                        managed_service_is_paid:
+                          type: boolean
+                        feature_flag:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                      required:
+                        - provider_key
+                        - display_name
+                        - description
+                        - dashboard_url
+                        - client_id_placeholder
+                        - requires_client_secret
+                        - logo_url
+                        - supports_managed_mode
+                        - managed_service_is_paid
+                        - feature_flag
+                      additionalProperties: false
+                required:
+                  - providers
+                additionalProperties: false
       parameters:
         - name: supports_managed_mode
           in: query
