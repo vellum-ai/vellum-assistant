@@ -88,7 +88,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T02:57:53.000Z"
+      "updatedAt": "2026-06-03T03:01:09.000Z"
     },
     {
       "id": "conversation-launcher",
@@ -276,7 +276,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T02:57:53.000Z"
+      "updatedAt": "2026-06-03T03:01:09.000Z"
     },
     {
       "id": "headless-claude-code",
@@ -495,7 +495,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T02:57:53.000Z"
+      "updatedAt": "2026-06-03T03:01:09.000Z"
     },
     {
       "id": "notion",
@@ -527,7 +527,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T02:57:53.000Z"
+      "updatedAt": "2026-06-03T03:01:09.000Z"
     },
     {
       "id": "oura-setup",
@@ -1019,7 +1019,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T02:57:53.000Z"
+      "updatedAt": "2026-06-03T03:01:09.000Z"
     },
     {
       "id": "vellum-terminal-sessions",
