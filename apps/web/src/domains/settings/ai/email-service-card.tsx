@@ -101,7 +101,7 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
       });
       return data;
     },
-    enabled: !!byoAssistantId && mode === "your-own",
+    enabled: !!byoAssistantId && (mode === "your-own" || platformGate === "gated"),
     staleTime: 60_000,
     retry: false,
   });
