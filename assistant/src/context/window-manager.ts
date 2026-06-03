@@ -109,7 +109,6 @@ export interface ContextWindowCompactOptions {
    * here lets callers keep their existing call sites unchanged.
    */
   minKeepRecentUserTurns?: number;
-  conversationOriginChannel?: string;
   targetInputTokensOverride?: number;
   /**
    * Trust class of the actor whose turn triggered compaction. Forwarded to

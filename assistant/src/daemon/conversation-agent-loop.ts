@@ -1093,8 +1093,6 @@ export async function runAgentLoopImpl(
     }
     const compactionOptions = {
       precomputedEstimate: compactCheck.estimatedTokens,
-      conversationOriginChannel:
-        getConversationOriginChannel(ctx.conversationId) ?? undefined,
       overrideProfile: resolveCurrentOverrideProfile() ?? null,
       actorTrustClass: ctx.trustContext?.trustClass,
     };
@@ -2106,8 +2104,6 @@ export async function runAgentLoopImpl(
           options: {
             targetInputTokensOverride:
               resolveCurrentContextBudget().preflightBudget,
-            conversationOriginChannel:
-              getConversationOriginChannel(ctx.conversationId) ?? undefined,
             overrideProfile: resolveCurrentOverrideProfile() ?? null,
             actorTrustClass: ctx.trustContext?.trustClass,
           },

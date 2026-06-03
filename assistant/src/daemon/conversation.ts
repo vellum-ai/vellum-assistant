@@ -52,7 +52,6 @@ import { registerToolTraceListener } from "../events/tool-trace-listener.js";
 import { resolveCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import {
   getConversation,
-  getConversationOriginChannel,
   getConversationOverrideProfileFromRow,
   setConversationHistoryStrippedAt,
 } from "../memory/conversation-crud.js";
@@ -1066,8 +1065,6 @@ export class Conversation {
       this.abortController?.signal ?? undefined,
       {
         force: true,
-        conversationOriginChannel:
-          getConversationOriginChannel(this.conversationId) ?? undefined,
         overrideProfile,
         targetInputTokensOverride: options?.targetInputTokensOverride,
         actorTrustClass: this.trustContext?.trustClass,
