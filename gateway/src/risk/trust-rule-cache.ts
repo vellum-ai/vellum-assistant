@@ -81,13 +81,24 @@ class TrustRuleCache {
   }
 
   /**
-   * Look up a tool override rule by exact (tool, pattern) match.
-   * Used for non-bash classifiers (file, web, skill, schedule).
+   * Look up a tool override rule for a non-bash classifier (file, web, skill,
+   * schedule).
+   *
+   * Matches the literal pattern first, then its `<tool>:`-prefixed form. The
+   * rule editor's allowlist options for these tools carry a tool-name prefix
+   * (e.g. `skill_load:my-skill`, `file_read:/path`, produced by the skill/file
+   * classifiers' allowlist builders), and the web client — shared by iOS —
+   * persists that pattern verbatim, while the classifier resolves the bare
+   * selector (skill id, file path, URL). Without the prefix-aware fallback,
+   * every such rule created from those clients would silently fail to match.
+   * This mirrors the `action:`-prefix handling in {@link findBaseRisk}; the
+   * macOS client and the seeded defaults persist bare patterns, which still
+   * match on the first lookup.
    */
   findToolOverride(tool: string, pattern: string): TrustRule | null {
     const toolMap = this.rules.get(tool);
     if (!toolMap) return null;
-    return toolMap.get(pattern) ?? null;
+    return toolMap.get(pattern) ?? toolMap.get(`${tool}:${pattern}`) ?? null;
   }
 
   /**

@@ -443,6 +443,126 @@ describe("SkillLoadRiskClassifier override key format", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Tool-name-prefixed patterns (web/iOS rule editor save path)
+// ---------------------------------------------------------------------------
+//
+// The skill/file classifiers' allowlist builders produce option patterns that
+// carry a `<tool>:` prefix (e.g. `skill_load:my-skill`, `file_write:/path`),
+// and the web client — shared by iOS — persists the selected option's pattern
+// verbatim. The classifier resolves the bare selector at match time, so
+// findToolOverride must tolerate both the bare and `<tool>:`-prefixed dialects
+// or these rules silently fail to apply.
+
+describe("tool-name-prefixed patterns match (web/iOS save path)", () => {
+  test("file rule saved with file_write: prefix still applies", async () => {
+    store.create({
+      tool: "file_write",
+      pattern: "file_write:/prefixed-only/path",
+      risk: "high",
+      description: "User-blocked file path (prefixed)",
+    });
+
+    initTrustRuleCache(store);
+
+    const classifier = new FileRiskClassifier();
+    const result = await classifier.classify(
+      {
+        toolName: "file_write",
+        filePath: "/prefixed-only/path",
+        workingDir: "/tmp",
+      },
+      dummyFileContext,
+    );
+
+    expect(result.riskLevel).toBe("high");
+    expect(result.reason).toBe("User-blocked file path (prefixed)");
+    expect(result.matchType).toBe("user_rule");
+  });
+
+  test("skill rule saved with skill_load: prefix still applies", async () => {
+    store.create({
+      tool: "skill_load",
+      pattern: "skill_load:prefixed-only-skill",
+      risk: "high",
+      description: "User-blocked skill (prefixed)",
+    });
+
+    initTrustRuleCache(store);
+
+    const classifier = new SkillLoadRiskClassifier();
+    const result = await classifier.classify({
+      toolName: "skill_load",
+      skillSelector: "prefixed-only-skill",
+    });
+
+    expect(result.riskLevel).toBe("high");
+    expect(result.reason).toBe("User-blocked skill (prefixed)");
+    expect(result.matchType).toBe("user_rule");
+  });
+
+  test("dynamic skill rule saved with skill_load_dynamic: prefix still applies", async () => {
+    store.create({
+      tool: "skill_load_dynamic",
+      pattern: "skill_load_dynamic:prefixed-only-dynamic-skill",
+      risk: "high",
+      description: "User-blocked dynamic skill (prefixed)",
+    });
+
+    initTrustRuleCache(store);
+
+    const classifier = new SkillLoadRiskClassifier();
+    const result = await classifier.classify({
+      toolName: "skill_load",
+      skillSelector: "prefixed-only-dynamic-skill",
+      resolvedMetadata: {
+        skillId: "prefixed-only-dynamic-skill",
+        selector: "prefixed-only-dynamic-skill",
+        versionHash: "abc123",
+        hasInlineExpansions: true,
+        isDynamic: true,
+      },
+    });
+
+    expect(result.riskLevel).toBe("high");
+    expect(result.reason).toBe("User-blocked dynamic skill (prefixed)");
+    expect(result.matchType).toBe("user_rule");
+  });
+
+  test("bare pattern still wins over prefixed form when both could match", async () => {
+    // The literal lookup takes precedence over the `<tool>:`-prefixed fallback,
+    // so a bare-stored rule (macOS/seeded contract) is never shadowed.
+    store.create({
+      tool: "file_write",
+      pattern: "/precedence-unique/path",
+      risk: "low",
+      description: "Bare rule (literal precedence)",
+    });
+    store.create({
+      tool: "file_write",
+      pattern: "file_write:/precedence-unique/path",
+      risk: "high",
+      description: "Prefixed rule (fallback)",
+    });
+
+    initTrustRuleCache(store);
+
+    const classifier = new FileRiskClassifier();
+    const result = await classifier.classify(
+      {
+        toolName: "file_write",
+        filePath: "/precedence-unique/path",
+        workingDir: "/tmp",
+      },
+      dummyFileContext,
+    );
+
+    expect(result.riskLevel).toBe("low");
+    expect(result.reason).toBe("Bare rule (literal precedence)");
+    expect(result.matchType).toBe("user_rule");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Graceful fallback when cache is not initialized
 // ---------------------------------------------------------------------------
 

@@ -245,4 +245,33 @@ describe("risk rule cache integration", () => {
     expect(result.risk).toBe("high");
     expect(result.matchType).toBe("user_rule");
   });
+
+  test("generalized action: rule with a path positional applies", () => {
+    // Regression guard for the suspected save/match divergence on path-like
+    // positionals. `generateScopeOptions` drops positionals from the RIGHT and
+    // keeps order, so for `cat /etc/passwd notes.txt` the saveable ladder
+    // includes `action:cat /etc/passwd` (a leading-prefix action key that
+    // retains the path). The matcher builds the positional pattern
+    // `cat /etc/passwd notes.txt` and `findBaseRisk` walks leading prefixes, so
+    // `action:cat /etc/passwd` must resolve. Paths are NOT stripped on either
+    // side (that exclusion lives only in the dead `deriveShellActionKeys`
+    // path), so this matches.
+    store.create({
+      tool: "bash",
+      pattern: "action:cat /etc/passwd",
+      risk: "high",
+      description: "Generalized cat rule with a path token",
+    });
+
+    initTrustRuleCache(store);
+
+    const result = classifySegment(
+      segment("cat /etc/passwd notes.txt"),
+      [],
+      DEFAULT_COMMAND_REGISTRY,
+    );
+
+    expect(result.risk).toBe("high");
+    expect(result.matchType).toBe("user_rule");
+  });
 });
