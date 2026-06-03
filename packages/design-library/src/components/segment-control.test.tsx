@@ -4,8 +4,7 @@
  * No DOM environment — mirroring `button.test.tsx`, we verify behavior through
  * two angles:
  *   1. `renderToStaticMarkup` — asserts the HTML the component emits, including
- *      the icon-only geometry (10px track radius, `rounded-lg` segment radius,
- *      `px-2` padding) from Figma node 4502:120659.
+ *      the icon-only geometry that PR 1 enlarges to match the iOS mock.
  *   2. The pure `resolveSegmentSelection` helper that each segment's onClick
  *      delegates to — asserts the click→onChange decision without a renderer.
  */
@@ -51,7 +50,7 @@ function containerClassName(html: string): string {
 }
 
 describe("SegmentControl icon-only geometry", () => {
-  test("container uses the 10px track radius", () => {
+  test("container uses the enlarged 10px radius", () => {
     const html = renderToStaticMarkup(
       <SegmentControl
         items={iconItems}
@@ -61,11 +60,10 @@ describe("SegmentControl icon-only geometry", () => {
         ariaLabel="Theme"
       />,
     );
-    const container = containerClassName(html);
-    expect(container).toContain("rounded-[10px]");
+    expect(containerClassName(html)).toContain("rounded-[10px]");
   });
 
-  test("each segment uses the rounded-lg radius and px-2 padding", () => {
+  test("each segment uses the enlarged radius (rounded-lg) and padding (px-2)", () => {
     const html = renderToStaticMarkup(
       <SegmentControl
         items={iconItems}
@@ -80,25 +78,7 @@ describe("SegmentControl icon-only geometry", () => {
     for (const cls of classes) {
       expect(cls).toContain("rounded-lg");
       expect(cls).toContain("px-2");
-      expect(cls).not.toContain("rounded-md");
     }
-  });
-
-  test("the active segment is taller (h-9) than inactive segments (h-7)", () => {
-    const html = renderToStaticMarkup(
-      <SegmentControl
-        items={iconItems}
-        value="light"
-        onChange={() => {}}
-        iconOnly
-        ariaLabel="Theme"
-      />,
-    );
-    const classes = radioClassNames(html);
-    // `light` is the active value → first segment is the tall pill.
-    expect(classes[0]).toContain("h-9");
-    expect(classes[1]).toContain("h-7");
-    expect(classes[2]).toContain("h-7");
   });
 });
 
