@@ -15,7 +15,7 @@
  * @see https://docs.sentry.io/platforms/javascript/enriching-events/breadcrumbs/
  */
 
-import * as Sentry from "@sentry/react";
+import * as Sentry from "@sentry/browser";
 
 import { recordLifecycleDiagnostic } from "@/lib/diagnostics";
 import type { StreamReconnectCause } from "@/lib/streaming/stream-transport";

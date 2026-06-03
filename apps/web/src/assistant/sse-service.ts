@@ -24,7 +24,7 @@
  * the real implementation in `sse-service.test.ts`).
  */
 
-import * as Sentry from "@sentry/react";
+import * as Sentry from "@sentry/browser";
 
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import { publish, subscribe } from "@/lib/event-bus";

@@ -241,7 +241,9 @@ export function useEventStream({
       activeConversationIdRef: activeConversationIdLatestRef,
       handleStreamEvent: (event, epoch) =>
         handleStreamEventRef.current(event, epoch),
-      reconcileActive: () => reconcileActiveConversationRef.current(),
+      reconcileActive: () => {
+        void reconcileActiveConversationRef.current();
+      },
     });
   }, [
     assistantStateKind,
@@ -288,7 +290,6 @@ export function useEventStream({
   });
 
   useBusSubscription("sse.opened", (payload) => {
-    consumer?.notifyReconnect();
     reconcileHandler?.handleSseOpened(payload);
   });
 

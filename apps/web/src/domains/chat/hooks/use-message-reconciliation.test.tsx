@@ -850,13 +850,18 @@ describe("reconcileActiveConversation", () => {
     expect(onPollReconciledSpy).not.toHaveBeenCalled();
   });
 
-  test("rejects on fetch error so callers can distinguish failure from no-change", async () => {
+  test("returns no-change on fetch error", async () => {
     mockFetchError = new Error("Network error");
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
       activeConversationId: "conv-1",
     });
-    await expect(reconcileActiveConversation()).rejects.toThrow("Network error");
+    const result = await reconcileActiveConversation();
+    expect(result).toEqual({
+      changed: false,
+      messagesAdded: 0,
+      assistantProgress: false,
+    });
     expect(onPollReconciledSpy).not.toHaveBeenCalled();
   });
 
@@ -913,7 +918,8 @@ describe("reconcileActiveConversation — fetch failure", () => {
       activeConversationId: "conv-1",
       turnState,
     });
-    await expect(reconcileActiveConversation()).rejects.toThrow("network timeout");
+    const result = await reconcileActiveConversation();
+    expect(result.changed).toBe(false);
     expect(onPollReconciledSpy).not.toHaveBeenCalled();
   });
 });

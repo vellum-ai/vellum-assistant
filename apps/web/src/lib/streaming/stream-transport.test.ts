@@ -13,7 +13,7 @@ interface SentryBreadcrumbCall {
 }
 const sentryBreadcrumbs: SentryBreadcrumbCall[] = [];
 
-mock.module("@sentry/react", () => ({
+mock.module("@sentry/browser", () => ({
   addBreadcrumb: (crumb: SentryBreadcrumbCall) => {
     sentryBreadcrumbs.push(crumb);
   },

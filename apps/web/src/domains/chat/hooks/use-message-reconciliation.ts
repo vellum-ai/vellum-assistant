@@ -1,6 +1,6 @@
 import { useCallback, useLayoutEffect, useRef } from "react";
 
-import * as Sentry from "@sentry/react";
+import * as Sentry from "@sentry/browser";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useStreamStore } from "@/domains/chat/stream-store";
@@ -449,17 +449,15 @@ export function useMessageReconciliation({
           snapshotTurnId,
           ctx.conversationId,
         );
-      } catch (err) {
-        // Re-throw so callers that observe the promise (e.g. gap-detection
-        // cursor advancement) can distinguish "fetch succeeded, nothing new"
-        // from "fetch failed." Callers that fire-and-forget already have
-        // their own .catch() handlers.
+      } catch {
+        // Non-fatal: a fetch failure doesn't prove the turn completed.
+        // The .finally() nonce bump reopens SSE to deliver terminal events.
         recordDiagnostic("reconciliation_active_fetch_error", {
           assistantId: ctx.assistantId,
           conversationId: ctx.conversationId,
           epoch: snapshotEpoch,
         });
-        throw err;
+        return empty;
       }
     },
     [

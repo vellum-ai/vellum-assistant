@@ -245,12 +245,11 @@ describe("reconcile-on-reopen — transport recovery (watchdog / error)", () => 
     expect(captureMessageMock).not.toHaveBeenCalled();
   });
 
-  test("standalone reconcile rejection: logs to Sentry, still starts the polling loop, does not propagate", async () => {
+  test("standalone reconcile rejection: logs to Sentry, does not run the loop, does not propagate", async () => {
     // No sync router, so the code falls back to `reconcileActive()`.
-    // That fallback rejects; the handler must log + start the polling
-    // loop (primary catch-up mechanism) without surfacing an unhandled
-    // promise rejection. The watchdog rescue metric is NOT recorded
-    // because we have no reconcile result to measure.
+    // That fallback rejects; the handler must log + bail without
+    // touching `startReconciliationLoop` or surfacing an unhandled
+    // promise rejection.
     const reconcileActive = mock(async () => {
       throw new Error("daemon unreachable");
     });
@@ -261,12 +260,12 @@ describe("reconcile-on-reopen — transport recovery (watchdog / error)", () => 
     await new Promise((r) => setTimeout(r, 0));
 
     expect(reconcileActive).toHaveBeenCalledTimes(1);
-    expect(startReconciliationLoop).toHaveBeenCalledWith(1);
+    expect(startReconciliationLoop).not.toHaveBeenCalled();
     expect(captureExceptionMock).toHaveBeenCalledTimes(1);
     expect(captureMessageMock).not.toHaveBeenCalled();
   });
 
-  test("sync-router dispatchReconnect rejection: logs to Sentry, does not fall back to reconcileActive, still starts the polling loop", async () => {
+  test("sync-router dispatchReconnect rejection: logs to Sentry, does not fall back to reconcileActive, does not run the loop", async () => {
     const dispatchReconnect = mock(async () => {
       throw new Error("sync router transport failed");
     });
@@ -287,9 +286,7 @@ describe("reconcile-on-reopen — transport recovery (watchdog / error)", () => 
     // reached. Important: the failure mode is "transport recovery
     // failed", not "let's try the other path."
     expect(reconcileActive).not.toHaveBeenCalled();
-    // The polling loop still starts — it's the primary catch-up
-    // mechanism and must not be blocked by a transient fetch failure.
-    expect(startReconciliationLoop).toHaveBeenCalledWith(1);
+    expect(startReconciliationLoop).not.toHaveBeenCalled();
     expect(captureExceptionMock).toHaveBeenCalledTimes(1);
   });
 });

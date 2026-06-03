@@ -151,13 +151,6 @@ async function runTransportRecoveryReconcile(
       tags: { cause, platform: resolvePlatformTag() },
       extra: { assistantId, conversationId, epoch },
     });
-    // Still start the polling loop — it's the primary catch-up mechanism
-    // and shouldn't be blocked by a transient fetch failure. The loop
-    // will independently retry via fetchConversationMessages.
-    const currentEpoch = useStreamStore.getState().streamEpoch;
-    if (epoch === currentEpoch) {
-      deps.startReconciliationLoop(epoch);
-    }
     return;
   }
 

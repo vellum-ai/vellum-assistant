@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef } from "react";
-import * as Sentry from "@sentry/react";
+import * as Sentry from "@sentry/browser";
 import { useNavigate } from "react-router";
 
 import { useBusSubscription } from "@/hooks/use-bus-subscription";

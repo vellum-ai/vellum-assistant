@@ -7,7 +7,7 @@ import {
 } from "@/stores/pending-deep-link-store";
 
 const sentryBreadcrumbMock = mock((_args: unknown) => undefined);
-mock.module("@sentry/react", () => ({
+mock.module("@sentry/browser", () => ({
   addBreadcrumb: sentryBreadcrumbMock,
   captureException: () => {},
 }));
