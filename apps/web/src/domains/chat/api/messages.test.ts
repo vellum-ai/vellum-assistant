@@ -9,7 +9,6 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { client } from "@/generated/api/client.gen";
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { getChatHistory, normalizeContentOrder, normalizeTextSegments, postChatMessage } from "@/domains/chat/api/messages";
 import { messageText } from "@/domains/chat/utils/message-test-helpers";
@@ -21,7 +20,7 @@ import { messageText } from "@/domains/chat/utils/message-test-helpers";
 let capturedBody: Record<string, unknown> | null = null;
 let nextPostResult: { data: unknown; error: unknown; response: Response };
 const originalPost = daemonClient.post;
-const originalGet = client.get;
+const originalGet = daemonClient.get;
 
 beforeEach(() => {
   capturedBody = null;
@@ -40,7 +39,7 @@ beforeEach(() => {
 
 afterEach(() => {
   daemonClient.post = originalPost;
-  client.get = originalGet;
+  daemonClient.get = originalGet;
 });
 
 // ---------------------------------------------------------------------------
@@ -233,7 +232,7 @@ describe("getChatHistory", () => {
       },
     };
 
-    client.get = mock(async () => ({
+    daemonClient.get = mock(async () => ({
       data: {
         messages: [
           {
@@ -250,7 +249,7 @@ describe("getChatHistory", () => {
       },
       error: null,
       response: new Response(null, { status: 200 }),
-    })) as typeof client.get;
+    })) as typeof daemonClient.get;
 
     const result = await getChatHistory("assistant-1", "conv-key");
 
