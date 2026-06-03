@@ -31,6 +31,16 @@ export interface RoutePathParam {
   description?: string;
 }
 
+/**
+ * A single request-body media type for a route. `schema` may be a Zod schema
+ * or a plain JSON Schema fragment (e.g. `{ type: "string", format: "binary" }`
+ * for a raw binary upload) — the OpenAPI generator accepts either.
+ */
+export interface RouteRequestBodyVariant {
+  contentType: string;
+  schema: z.ZodType | Record<string, unknown>;
+}
+
 export interface RouteHandlerArgs {
   pathParams?: Record<string, string>;
   queryParams?: Record<string, string>;
@@ -103,6 +113,16 @@ export interface RouteDefinition {
   pathParams?: RoutePathParam[];
   queryParams?: RouteQueryParam[];
   requestBody?: z.ZodType;
+  /**
+   * Multi-content-type request body variants. Use this instead of
+   * `requestBody` when a route accepts a non-JSON body (e.g. a raw
+   * `application/octet-stream` upload) so the generated OpenAPI spec — and
+   * therefore the generated client SDK — describes a real body type rather
+   * than `never`. The HTTP adapter already reads `rawBody` for non-JSON
+   * content types, so this field is a declarative codegen signal only and
+   * does not change runtime request handling.
+   */
+  requestBodies?: RouteRequestBodyVariant[];
   responseBody?: z.ZodType;
   /**
    * HTTP status code for the success response. Defaults to "200".

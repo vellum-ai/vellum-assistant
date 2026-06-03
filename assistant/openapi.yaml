@@ -1230,6 +1230,13 @@ paths:
                   - scanResult
                   - signatureResult
                 additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
   /v1/apps/open-bundle:
     post:
       operationId: apps_openbundle_post
