@@ -185,7 +185,9 @@ export function useProvisionProviderKey() {
         });
         assertProvisionSuccess(data);
       } catch (error) {
-        if (!(error instanceof Error && error.message === "No assistant found")) {
+        if (error instanceof Error && error.message === "No assistant found") {
+          toast.error("Assistant not ready. Please try again.");
+        } else {
           toast.error(`Failed to save ${providerName} API key. Please try again.`);
         }
         captureError(error, { context: "provision_provider_key" });
