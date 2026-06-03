@@ -2078,7 +2078,20 @@ export async function runAgentLoopImpl(
       turnInterfaceContext: capturedTurnInterfaceContext,
       applyCompaction: applySuccessfulCompaction,
       commitCompactionBasis: (basis) => {
+        // Commit the loop-stripped history as the durable message base before
+        // the compaction pipeline runs. This must land even when the pipeline
+        // runs but does not compact (e.g. `force` bypasses the gates but the
+        // run still finds no eligible / insufficient messages): in that case no
+        // `compaction_applied` event fires to overwrite `ctx.messages`, yet the
+        // loop still re-injects, and re-injection reads `ctx.messages` as its
+        // base. Without this commit that base would be the still-injected
+        // history and re-injection would stack onto it. When the pipeline does
+        // compact, `applyCompactionResult` overwrites `ctx.messages` with the
+        // compacted result, so this write is transient there.
         ctx.messages = basis;
+        // `historyStrippedAt` is a Conversation DB-record field read back at
+        // load time to strip embedded injection prefixes from pre-strip
+        // messages, so persisting it stays daemon-side rather than in the loop.
         markHistoryStrippedBestEffort(ctx.conversationId, Date.now(), rlog);
       },
     };
