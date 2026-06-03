@@ -128,6 +128,17 @@ async function activateSlackThreadIfNeeded(
   return tracked ? null : target;
 }
 
+function throwIfSlackThreadActivationPending(
+  target: SlackActiveThreadTarget | null,
+): void {
+  if (!target) {
+    return;
+  }
+  throw new Error(
+    `Slack active thread activation failed after reply delivery (${target.channelId}:${target.threadTs})`,
+  );
+}
+
 export async function deliverRenderedReplyViaCallback(
   params: DeliverRenderedReplyParams,
 ): Promise<void> {
@@ -180,6 +191,7 @@ export async function deliverRenderedReplyViaCallback(
       pendingSlackThreadActivation = await activateSlackThreadIfNeeded(
         pendingSlackThreadActivation,
       );
+      throwIfSlackThreadActivationPending(pendingSlackThreadActivation);
     }
     return;
   }
@@ -212,6 +224,7 @@ export async function deliverRenderedReplyViaCallback(
         pendingSlackThreadActivation,
       );
     }
+    throwIfSlackThreadActivationPending(pendingSlackThreadActivation);
     return;
   }
 
@@ -256,6 +269,8 @@ export async function deliverRenderedReplyViaCallback(
       await sleep(interSegmentDelayMs);
     }
   }
+
+  throwIfSlackThreadActivationPending(pendingSlackThreadActivation);
 }
 
 export type DeliverReplyOptions = {
