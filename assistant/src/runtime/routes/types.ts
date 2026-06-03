@@ -65,11 +65,12 @@ export type RouteRequestBody =
  * `application/json` is the implicit default when `responseBody` is a bare
  * Zod schema, so it is only spelled out here for the explicit
  * `{ contentType, schema }` form (e.g. a binary `application/octet-stream`
- * download).
+ * download or an `application/gzip` archive).
  */
 export type RouteResponseContentType =
   | "application/json"
-  | "application/octet-stream";
+  | "application/octet-stream"
+  | "application/gzip";
 
 /**
  * A route's success response body. Either:
