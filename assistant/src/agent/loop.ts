@@ -765,9 +765,20 @@ export class AgentLoop {
         (args) => defaultCompactionTerminal(args, turnContext),
         // The mid-loop budget gate is reached only when this turn decides to
         // compact in place, so force the pipeline past its auto-threshold
-        // check. `force` is the loop's own decision, layered on top of the
-        // orchestrator-resolved options.
-        { messages: rawHistory, signal, options: { force: true, ...options } },
+        // check. `force` is the loop's own decision; `actorTrustClass` comes
+        // from the turn context (the actor whose turn triggered compaction) so
+        // the compactor's image manifest excludes guardian-only attachments
+        // for untrusted actors. Both layer on top of the orchestrator-resolved
+        // options.
+        {
+          messages: rawHistory,
+          signal,
+          options: {
+            force: true,
+            actorTrustClass: turnContext.trust.trustClass,
+            ...options,
+          },
+        },
         turnContext,
         DEFAULT_TIMEOUTS.compaction,
       );

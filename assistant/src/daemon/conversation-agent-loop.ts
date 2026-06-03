@@ -302,6 +302,19 @@ function buildPluginTurnContext(
   };
 }
 
+/**
+ * Trust class of the actor whose turn is in progress, for the compactor's
+ * image manifest filter. Prefers the turn-start snapshot
+ * ({@link AgentLoopConversationContext.currentTurnTrustContext}) over the live
+ * trust context so compaction running in a later tool iteration can't pick up
+ * a concurrent request's actor.
+ */
+function resolveTurnActorTrustClass(
+  ctx: AgentLoopConversationContext,
+): TrustContext["trustClass"] | undefined {
+  return (ctx.currentTurnTrustContext ?? ctx.trustContext)?.trustClass;
+}
+
 // ── Context Interface ────────────────────────────────────────────────
 
 /**
@@ -1040,7 +1053,7 @@ export async function runAgentLoopImpl(
     const compactionOptions = {
       precomputedEstimate: compactCheck.estimatedTokens,
       overrideProfile: resolveCurrentOverrideProfile() ?? null,
-      actorTrustClass: ctx.trustContext?.trustClass,
+      actorTrustClass: resolveTurnActorTrustClass(ctx),
     };
     let compacted: Awaited<
       ReturnType<typeof ctx.contextWindowManager.maybeCompact>
@@ -1799,7 +1812,7 @@ export async function runAgentLoopImpl(
                 options: {
                   ...(opts ?? {}),
                   overrideProfile: resolveCurrentOverrideProfile() ?? null,
-                  actorTrustClass: ctx.trustContext?.trustClass,
+                  actorTrustClass: resolveTurnActorTrustClass(ctx),
                 },
               },
               buildPluginTurnContext(ctx, reqId),
@@ -2046,11 +2059,11 @@ export async function runAgentLoopImpl(
       prepare: () => {
         // The loop strips runtime injections and commits the stripped basis to
         // durable state via the `compaction_completed` event; this hook only
-        // resolves the pipeline options.
+        // resolves the pipeline options. The loop sets `actorTrustClass` itself
+        // from the turn context.
         return {
           options: {
             overrideProfile: resolveCurrentOverrideProfile() ?? null,
-            actorTrustClass: ctx.trustContext?.trustClass,
           },
         };
       },
@@ -2440,7 +2453,7 @@ export async function runAgentLoopImpl(
             ctx.contextWindowManager.maybeCompact(msgs, signal!, {
               ...(opts ?? {}),
               overrideProfile: resolveCurrentOverrideProfile() ?? null,
-              actorTrustClass: ctx.trustContext?.trustClass,
+              actorTrustClass: resolveTurnActorTrustClass(ctx),
             }),
           abortController.signal,
         );
