@@ -17,6 +17,7 @@ import type {
 } from "@agentclientprotocol/sdk";
 import * as acp from "@agentclientprotocol/sdk";
 
+import { buildAgentSpawnEnv } from "../tools/terminal/safe-env.js";
 import { getLogger } from "../util/logger.js";
 import type { AcpAgentConfig } from "./types.js";
 
@@ -53,7 +54,7 @@ export class AcpAgentProcess {
     this.proc = spawn(this.config.command, this.config.args, {
       cwd,
       stdio: ["pipe", "pipe", "pipe"],
-      env: { ...process.env, ...this.config.env },
+      env: buildAgentSpawnEnv(this.config.env),
     });
 
     const stream = acp.ndJsonStream(
