@@ -313,6 +313,7 @@ describe("AcpSessionManager", () => {
         command: "codex-acp",
         idleTimer: null,
         historyPersisted: false,
+        turnIndex: 0,
       };
       sessions.set("test-session", entry);
 
@@ -383,6 +384,7 @@ describe("AcpSessionManager", () => {
         currentPrompt: null as any,
         parentConversationId: "conv-2",
         cwd: "/tmp",
+        turnIndex: 0,
       };
       sessions.set("test-session-2", entry);
 

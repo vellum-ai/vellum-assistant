@@ -64,6 +64,16 @@ interface SessionEntry {
    * outcome with a `cancelled` status.
    */
   historyPersisted: boolean;
+  /**
+   * Zero-based index of the current prompt turn. The session and its ACP
+   * protocol id are reused across turns when an idle session is steered, but
+   * each turn must get its own `acp_session_history` row — otherwise the
+   * `id`-keyed insert silently no-ops (`onConflictDoNothing`) on the second
+   * turn and drops its event log / stop reason. `historyRowId()` derives a
+   * per-turn primary key from this; turn 0 keeps the bare `acpSessionId` so
+   * the first turn's row id (and all existing behavior) is unchanged.
+   */
+  turnIndex: number;
 }
 
 export class AcpSessionManager {
@@ -197,6 +207,7 @@ export class AcpSessionManager {
       command: agentConfig.command,
       idleTimer: null,
       historyPersisted: false,
+      turnIndex: 0,
     };
 
     this.sessions.set(acpSessionId, entry);
@@ -291,6 +302,9 @@ export class AcpSessionManager {
     entry.clientHandler.resetTurn();
     this.eventBuffers.set(acpSessionId, []);
     entry.historyPersisted = false;
+    // Advance the turn so this reused turn persists to its own history row
+    // instead of no-op-conflicting against the prior turn's row.
+    entry.turnIndex += 1;
     entry.state.status = "running";
     entry.state.completedAt = undefined;
     entry.state.stopReason = undefined;
@@ -340,6 +354,24 @@ export class AcpSessionManager {
     if (!entry) {
       throw new Error(`ACP session "${acpSessionId}" not found`);
     }
+
+    // An `idle` session has no in-flight prompt, so there is no catch handler
+    // to persist + tear it down. Cancelling it must therefore drive the
+    // close/teardown path directly — otherwise the adapter process, idle
+    // timer, and session-map entry leak until the daemon restarts. Its
+    // completed task already wrote a terminal history row, so `close()` skips
+    // re-persisting (and won't clobber the durable `completed` row).
+    if (entry.state.status === "idle") {
+      await entry.process.cancel(entry.state.acpSessionId).catch((err) => {
+        log.warn(
+          { acpSessionId, err },
+          "Failed to send ACP cancel before tearing down idle session",
+        );
+      });
+      this.close(acpSessionId);
+      return;
+    }
+
     await entry.process.cancel(entry.state.acpSessionId);
     entry.state.status = "cancelled";
     entry.state.completedAt = Date.now();
@@ -479,6 +511,18 @@ export class AcpSessionManager {
   }
 
   /**
+   * Derives the `acp_session_history` primary key for a given turn. Turn 0
+   * (the spawn prompt) keeps the bare `acpSessionId` so first-turn rows — and
+   * the in-memory→DB id merge in the sessions list — are unchanged. Reused
+   * turns (via `steer()` on an idle session) get a `<acpSessionId>:<turn>`
+   * suffix so each turn persists to its own row instead of silently
+   * conflicting against the first turn's already-written row.
+   */
+  private historyRowId(acpSessionId: string, turnIndex: number): string {
+    return turnIndex === 0 ? acpSessionId : `${acpSessionId}:${turnIndex}`;
+  }
+
+  /**
    * Persists the session's final state + buffered event log to
    * `acp_session_history`, then frees the buffer entry. Best-effort: a DB
    * failure is logged but does not propagate, since the session has already
@@ -493,7 +537,7 @@ export class AcpSessionManager {
       getDb()
         .insert(acpSessionHistory)
         .values({
-          id: acpSessionId,
+          id: this.historyRowId(acpSessionId, entry.turnIndex),
           agentId: entry.state.agentId,
           acpSessionId: entry.state.acpSessionId,
           parentConversationId: entry.parentConversationId,

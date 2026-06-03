@@ -43,6 +43,22 @@ function readStatus(id: string): string | null {
   return row?.status ?? null;
 }
 
+/** All history rows whose id is `<base>` or `<base>:<turn>`, ordered by id. */
+function readTurnRows(
+  base: string,
+): { id: string; status: string; stopReason: string | null }[] {
+  return getSqlite()
+    .query(
+      "SELECT id, status, stop_reason AS stopReason FROM acp_session_history " +
+        "WHERE id = ? OR id LIKE ? ORDER BY id",
+    )
+    .all(base, `${base}:%`) as {
+    id: string;
+    status: string;
+    stopReason: string | null;
+  }[];
+}
+
 interface FakeProcess {
   prompt: (sessionId: string, text: string) => Promise<{ stopReason: string }>;
   kill: () => void;
@@ -120,6 +136,7 @@ function buildIdleSession(opts: {
     command: "codex-acp",
     idleTimer: null,
     historyPersisted: false,
+    turnIndex: 0,
   };
   sessions.set(opts.id, entry);
 
@@ -250,6 +267,64 @@ describe("AcpSessionManager — idle keep-alive lifecycle", () => {
     expect(fakeProcess.killed).toBe(true);
     expect(() => manager.getStatus(id)).toThrow();
     // Row still 'completed' (not overwritten to 'cancelled').
+    expect(readStatus(id)).toBe("completed");
+  });
+
+  test("a reused (steered) idle session's second turn is persisted to its own history row", async () => {
+    const id = "idle-6";
+    const { manager, resolvePrompt } = buildIdleSession({
+      id,
+      parentConversationId: "conv-idle-6",
+    });
+
+    // Turn 0 completes → persisted under the bare id.
+    resolvePrompt({ stopReason: "end_turn" });
+    await flush();
+    expect((manager.getStatus(id) as { status: string }).status).toBe("idle");
+
+    // Reuse the idle session for a second turn, then complete it.
+    await manager.steer(id, "now do more");
+    resolvePrompt({ stopReason: "max_tokens" });
+    await flush();
+
+    // Both turns are durably recorded as distinct rows — the second turn was
+    // NOT silently dropped by onConflictDoNothing against the first turn's id.
+    const rows = readTurnRows(id);
+    expect(rows.map((r) => r.id)).toEqual([id, `${id}:1`]);
+    expect(rows.map((r) => r.status)).toEqual(["completed", "completed"]);
+    // Each row carries its own turn's stop reason.
+    expect(rows[0]!.stopReason).toBe("end_turn");
+    expect(rows[1]!.stopReason).toBe("max_tokens");
+  });
+
+  test("cancel() of an idle session tears it down (process killed, slot + timer freed)", async () => {
+    const id = "idle-7";
+    const { manager, fakeProcess, resolvePrompt } = buildIdleSession({
+      id,
+      // Small timeout so a leaked timer would be observable; teardown must
+      // clear it.
+      idleTimeoutMs: 10,
+      parentConversationId: "conv-idle-7",
+    });
+
+    resolvePrompt({ stopReason: "end_turn" });
+    await flush();
+    expect((manager.getStatus(id) as { status: string }).status).toBe("idle");
+
+    // The idle session has no in-flight prompt — cancel must drive teardown
+    // directly rather than wait on a catch handler that will never fire.
+    await manager.cancel(id);
+
+    // Process killed, session removed from the map.
+    expect(fakeProcess.killed).toBe(true);
+    expect(() => manager.getStatus(id)).toThrow();
+
+    // The idle timer was cleared: even after the timeout elapses, the reaper
+    // does not run against a dangling entry (no throw, state unchanged).
+    await new Promise((r) => setTimeout(r, 40));
+    expect(() => manager.getStatus(id)).toThrow();
+
+    // Completed history row was not clobbered to 'cancelled'.
     expect(readStatus(id)).toBe("completed");
   });
 });
