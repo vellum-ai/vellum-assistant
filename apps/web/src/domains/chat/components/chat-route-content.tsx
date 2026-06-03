@@ -461,6 +461,7 @@ export function ChatRouteContent({
     messages,
     activeConversationId,
     onboardingConversationId,
+    assistantId,
     sendMessage,
   });
 
