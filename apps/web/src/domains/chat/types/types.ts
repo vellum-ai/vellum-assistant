@@ -2,7 +2,10 @@
  * Shared types for the chat/surface system.
  */
 
-import type { ConversationMessage } from "@vellumai/assistant-api";
+import type {
+  ConversationContentBlock,
+  ConversationMessage,
+} from "@vellumai/assistant-api";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayAttachment } from "@/types/attachment-types";
 import type { SlackMessageLink } from "@/utils/slack-message-link";
@@ -67,6 +70,19 @@ export interface DisplayMessage {
    */
   role: ConversationMessage["role"];
   surfaces?: Surface[];
+  /**
+   * Unified ordered content blocks — the single render source for a row's
+   * body. Each block carries its display-ready payload inline (text, thinking,
+   * the enriched `ChatMessageToolCall`, or the display `Surface`), so the
+   * transcript renders by walking one list instead of cross-referencing the
+   * positional `contentOrder`/`textSegments`/`thinkingSegments` arrays.
+   *
+   * Populated from the wire `contentBlocks` on history loads. When absent
+   * (live SSE rows that haven't been migrated to build blocks directly), the
+   * renderer falls back to deriving blocks from the positional arrays via
+   * `resolveContentBlocks`.
+   */
+  contentBlocks?: DisplayContentBlock[];
   /** Ordered text bodies, matching the wire `textSegments: string[]`. Each
    *  entry is referenced positionally by a `text:N` entry in `contentOrder`. */
   textSegments?: string[];
@@ -120,6 +136,26 @@ export interface Surface {
    *  latest surface-producing tool call in the message. */
   toolCallId?: string;
 }
+
+/**
+ * A single ordered content block on a display row — the display-side analogue
+ * of the wire `ConversationContentBlock`.
+ *
+ * The `text` and `thinking` members are reused verbatim from the wire union
+ * (their shapes are identical), so they stay in lockstep automatically. Only
+ * `tool_use` and `surface` are redefined, because the renderer consumes
+ * client-enriched payloads the wire deliberately omits: `tool_use` holds the
+ * live `ChatMessageToolCall` (id, status, pending confirmation) rather than the
+ * cleaned wire tool call, and `surface` holds the display `Surface` (inline /
+ * panel placement, orphaned / completed state).
+ *
+ * Attachments are intentionally excluded — they render from the row's
+ * hydrated `attachments` array, not from the ordered content walk.
+ */
+export type DisplayContentBlock =
+  | Extract<ConversationContentBlock, { type: "text" | "thinking" }>
+  | { type: "tool_use"; toolCall: ChatMessageToolCall }
+  | { type: "surface"; surface: Surface };
 
 /**
  * Surface types that are inherently interactive — they always require user

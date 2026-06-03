@@ -1,9 +1,11 @@
 import type { ConversationMessageSurface } from "@vellumai/assistant-api";
 import { runtimeAttachmentsToDisplay } from "@/domains/chat/utils/attachment-mapping";
+import { mapWireContentBlocks } from "@/domains/chat/utils/display-content-blocks";
 import { parseAttachmentSummariesFromContent } from "@/domains/chat/utils/parse-attachment-summaries";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 import type {
   DisplayAttachment,
+  DisplayContentBlock,
   DisplayMessage,
   SlackRuntimeMessage,
   Surface,
@@ -63,6 +65,13 @@ export interface PreparedRuntimeMessage {
   slackMessage: SlackRuntimeMessage | undefined;
   timestamp: number | undefined;
   thinkingSegments: string[] | undefined;
+  /**
+   * The wire `contentBlocks` projection mapped onto display blocks — the
+   * renderer's preferred body source. `undefined` when the daemon didn't emit
+   * it (older daemon), in which case the renderer derives blocks from the
+   * positional arrays instead.
+   */
+  contentBlocks: DisplayContentBlock[] | undefined;
 }
 
 /**
@@ -142,6 +151,19 @@ export function prepareServerMessage(m: RuntimeMessage): PreparedRuntimeMessage 
       ? m.thinkingSegments
       : undefined;
 
+  // Map the wire `contentBlocks` onto display blocks, enriching `tool_use` and
+  // `surface` from the row's mapped `toolCalls`/`surfaces`. The Nth `tool_use`
+  // block resolves to `toolCalls[N]` (the daemon builds both in the same walk),
+  // so the cleaned/paired display tool call drives the rendered card.
+  const contentBlocks =
+    m.contentBlocks && m.contentBlocks.length > 0
+      ? mapWireContentBlocks(
+          m.contentBlocks,
+          toolCalls,
+          m.surfaces ? mapServerSurfaces(m.surfaces) : undefined,
+        )
+      : undefined;
+
   return {
     parsedAttachments,
     structuredAttachments,
@@ -151,6 +173,7 @@ export function prepareServerMessage(m: RuntimeMessage): PreparedRuntimeMessage 
     slackMessage: m.slackMessage,
     timestamp,
     thinkingSegments,
+    contentBlocks,
   };
 }
 
@@ -172,6 +195,7 @@ export function mapRuntimeToDisplayMessage(m: RuntimeMessage): DisplayMessage {
   if (m.surfaces) msg.surfaces = mapServerSurfaces(m.surfaces);
   if (prepared.normalizedSegments) msg.textSegments = prepared.normalizedSegments;
   if (prepared.normalizedContentOrder) msg.contentOrder = prepared.normalizedContentOrder;
+  if (prepared.contentBlocks) msg.contentBlocks = prepared.contentBlocks;
   if (prepared.thinkingSegments) msg.thinkingSegments = prepared.thinkingSegments;
   if (m.subagentNotification) msg.isSubagentNotification = true;
   if (prepared.slackMessage) msg.slackMessage = prepared.slackMessage;
