@@ -239,7 +239,10 @@ function deriveFilterCandidates(
   }
   // If we had phase-tagged sketchy entries but no domain info, produce
   // per-TLD filters for all known sketchy TLDs as a catchall.
-  if (genericSketchyCount > 0 && candidates.every((c) => c.labelName !== "auto/sketchy-tld")) {
+  if (
+    genericSketchyCount > 0 &&
+    candidates.every((c) => c.labelName !== "auto/sketchy-tld")
+  ) {
     for (const tld of SKETCHY_TLDS_LIST) {
       candidates.push({
         category: `sketchy TLD (${tld})`,
@@ -287,7 +290,14 @@ function extractDomain(email: string): string | undefined {
   return email.slice(atIndex + 1).toLowerCase();
 }
 
-const SKETCHY_TLDS_LIST = [".shop", ".biz", ".xyz", ".info", ".club", ".online"];
+const SKETCHY_TLDS_LIST = [
+  ".shop",
+  ".biz",
+  ".xyz",
+  ".info",
+  ".club",
+  ".online",
+];
 const SKETCHY_TLDS = new Set(SKETCHY_TLDS_LIST);
 
 function isSketchyTld(domain: string): boolean {
@@ -381,7 +391,8 @@ function findLatestCleanupRun(): string | null {
   for (const runId of runs) {
     const summary = summarizeRun(runId);
     if (!summary) continue;
-    if (summary.status !== "completed" || summary.total_committed <= 0) continue;
+    if (summary.status !== "completed" || summary.total_committed <= 0)
+      continue;
 
     // A cleanup run must contain at least one staged archive op.
     // Filter-creation runs only contain filter_create ops, so they're skipped.
