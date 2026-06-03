@@ -404,6 +404,121 @@ describe("ProviderCreateForm submit sequence", () => {
     expect(getButton("Create")).toBeDefined();
   });
 
+  test("seeds Name + Key from the initial provider type", () => {
+    render(
+      <ModalWrapper>
+        <ProviderCreateForm
+          assistantId={ASSISTANT_ID}
+          existingNames={[]}
+          defaultProviderType="anthropic"
+          onCreated={() => {}}
+          onCancel={() => {}}
+        />
+      </ModalWrapper>,
+    );
+
+    expect(getInputByPlaceholder("e.g. My Anthropic Key").value).toBe(
+      "Anthropic",
+    );
+    expect(getInputByPlaceholder("e.g. anthropic-personal").value).toBe(
+      "anthropic",
+    );
+  });
+
+  test("dedupes the seeded Key against existingNames", () => {
+    render(
+      <ModalWrapper>
+        <ProviderCreateForm
+          assistantId={ASSISTANT_ID}
+          existingNames={["anthropic"]}
+          defaultProviderType="anthropic"
+          onCreated={() => {}}
+          onCancel={() => {}}
+        />
+      </ModalWrapper>,
+    );
+
+    expect(getInputByPlaceholder("e.g. My Anthropic Key").value).toBe(
+      "Anthropic",
+    );
+    expect(getInputByPlaceholder("e.g. anthropic-personal").value).toBe(
+      "anthropic-2",
+    );
+  });
+
+  test("changing the provider type re-seeds Name + Key", () => {
+    render(
+      <ModalWrapper>
+        <ProviderCreateForm
+          assistantId={ASSISTANT_ID}
+          existingNames={[]}
+          defaultProviderType="anthropic"
+          onCreated={() => {}}
+          onCancel={() => {}}
+        />
+      </ModalWrapper>,
+    );
+
+    selectDropdownOption("Provider", "OpenAI");
+
+    expect(getInputByPlaceholder("e.g. My Anthropic Key").value).toBe("OpenAI");
+    expect(getInputByPlaceholder("e.g. anthropic-personal").value).toBe(
+      "openai",
+    );
+  });
+
+  test("a manual Name edit is NOT overwritten by a later provider-type change", () => {
+    render(
+      <ModalWrapper>
+        <ProviderCreateForm
+          assistantId={ASSISTANT_ID}
+          existingNames={[]}
+          defaultProviderType="anthropic"
+          onCreated={() => {}}
+          onCancel={() => {}}
+        />
+      </ModalWrapper>,
+    );
+
+    // User overrides the Name; the Key auto-follows the label edit.
+    fireEvent.change(getInputByPlaceholder("e.g. My Anthropic Key"), {
+      target: { value: "My Custom Name" },
+    });
+
+    selectDropdownOption("Provider", "OpenAI");
+
+    expect(getInputByPlaceholder("e.g. My Anthropic Key").value).toBe(
+      "My Custom Name",
+    );
+    expect(getInputByPlaceholder("e.g. anthropic-personal").value).toBe(
+      "my-custom-name",
+    );
+  });
+
+  test("a manual Key edit is NOT overwritten by a later provider-type change", () => {
+    render(
+      <ModalWrapper>
+        <ProviderCreateForm
+          assistantId={ASSISTANT_ID}
+          existingNames={[]}
+          defaultProviderType="anthropic"
+          onCreated={() => {}}
+          onCancel={() => {}}
+        />
+      </ModalWrapper>,
+    );
+
+    fireEvent.change(getInputByPlaceholder("e.g. anthropic-personal"), {
+      target: { value: "my-custom-key" },
+    });
+
+    selectDropdownOption("Provider", "OpenAI");
+
+    expect(getInputByPlaceholder("e.g. anthropic-personal").value).toBe(
+      "my-custom-key",
+    );
+  });
+
   test("clicking Cancel invokes onCancel", () => {
     let cancelled = false;
     render(

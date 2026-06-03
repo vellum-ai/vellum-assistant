@@ -132,7 +132,7 @@ export function ProviderEditorContent({
     return options;
   }, [openAICompatibleEndpointsEnabled, provider]);
 
-  const { handleLabelChange, handleKeyChange: handleNameChange, resetDirty } =
+  const { handleLabelChange, resetDirty } =
     useLabelKeySync(effectiveMode, setLabel, setName);
 
   const [apiKeyValue, setApiKeyValue] = useState("");
@@ -156,8 +156,9 @@ export function ProviderEditorContent({
   });
 
   // --- Available credentials list ---
-  const needsCredentialsList =
-    authType === "api_key" || effectiveMode === "create";
+  // Create mode is fully owned by ProviderCreateForm (early return below), so
+  // the only reachable path here is edit / managed-edit — gate purely on auth.
+  const needsCredentialsList = authType === "api_key";
 
   const {
     credentials: availableCredentials,
@@ -217,15 +218,11 @@ export function ProviderEditorContent({
     setCreateAuthTypeSeed(provider === "ollama" ? "none" : "api_key");
   }
 
-  const nameError = (() => {
-    if (!name.trim()) return null;
-    if (effectiveMode === "create" && existingNames.includes(name.trim())) {
-      return `A connection named "${name.trim()}" already exists.`;
-    }
-    return null;
-  })();
-
-  const canSave = name.trim().length > 0 && !nameError;
+  // Only edit / managed-edit reach this component's own Save (create is owned
+  // by ProviderCreateForm via the early return below), and the Key field is
+  // fixed/disabled there, so a non-empty name is the only save gate. Duplicate
+  // -name validation lives in ProviderCreateForm.
+  const canSave = name.trim().length > 0;
 
   async function handleSave() {
     if (!canSave) return;
@@ -399,30 +396,17 @@ export function ProviderEditorContent({
           />
         </div>
 
-        {/* Key — only editable on create, auto-derived from label */}
+        {/* Key — fixed once a connection exists; edit / managed-edit only. */}
         <div className="space-y-1">
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
             Key
           </label>
           <Input
             value={name}
-            onChange={(e) => {
-              handleNameChange(e.target.value);
-              setError(null);
-            }}
             placeholder="e.g. anthropic-personal"
             disabled
             fullWidth
           />
-          {nameError && (
-            <Typography
-              variant="body-small-default"
-              as="p"
-              className="text-(--system-negative-strong)"
-            >
-              {nameError}
-            </Typography>
-          )}
         </div>
 
         {/* Provider — read-only in edit / managed-edit (provider is fixed

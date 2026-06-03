@@ -29,6 +29,7 @@ import {
   connectionSaveErrorMessage,
   parseCredentialRef,
 } from "@/domains/settings/ai/provider-editor-constants";
+import { deriveProviderDefaults } from "@/domains/settings/ai/profile-prefill";
 import { ProviderEditorApiKeySection } from "@/domains/settings/ai/provider-editor-api-key-section";
 import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
 import { useLabelKeySync } from "@/domains/settings/ai/use-label-key-sync";
@@ -82,8 +83,15 @@ export function ProviderCreateForm({
 }: ProviderCreateFormProps) {
   const initialProvider: ConnectionProvider = defaultProviderType ?? "anthropic";
 
-  const [label, setLabel] = useState("");
-  const [name, setName] = useState("");
+  // Seed Display Name (label) + Key (name) from the initial provider type so
+  // the form opens pre-filled (e.g. Anthropic → "Anthropic" / "anthropic"),
+  // deduped against existing connection names. The user can override both, and
+  // a provider-type change re-seeds only while they haven't edited the fields
+  // (see the dirty guard in the Provider dropdown's onChange below).
+  const initialDefaults = deriveProviderDefaults(initialProvider, existingNames);
+
+  const [label, setLabel] = useState(initialDefaults.name);
+  const [name, setName] = useState(initialDefaults.key);
   const [provider, setProvider] = useState<ConnectionProvider>(initialProvider);
   const [authType, setAuthType] = useState<AuthType>(
     () =>
@@ -109,7 +117,7 @@ export function ProviderCreateForm({
     return options;
   }, [openAICompatibleEndpointsEnabled, provider]);
 
-  const { handleLabelChange, handleKeyChange: handleNameChange } =
+  const { handleLabelChange, handleKeyChange: handleNameChange, getDirty } =
     useLabelKeySync("create", setLabel, setName);
 
   const [apiKeyValue, setApiKeyValue] = useState("");
@@ -317,6 +325,18 @@ export function ProviderCreateForm({
           onChange={(v) => {
             const newProvider = v as ConnectionProvider;
             setProvider(newProvider);
+            // Re-seed Name + Key from the newly selected provider type, but
+            // only while the user hasn't manually edited either field (dirty
+            // tracking lives in useLabelKeySync). Seeding writes state
+            // directly so it doesn't itself flip the dirty flag.
+            if (!getDirty()) {
+              const { name: seedName, key: seedKey } = deriveProviderDefaults(
+                newProvider,
+                existingNames,
+              );
+              setLabel(seedName);
+              setName(seedKey);
+            }
             if (newProvider === "ollama") {
               setAuthType("none");
               setCredential("");

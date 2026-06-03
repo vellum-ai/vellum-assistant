@@ -332,6 +332,53 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     });
   });
 
+  test("inline-create then immediate save persists the new provider_connection (no race)", async () => {
+    // Regression: before the optimistic local-connection merge, saving in the
+    // window between inline create and the parent connections refetch left
+    // `connectionNotFound` true, so the save handler dropped the binding to "".
+    createdConnection = makeConnection("anthropic-personal");
+
+    const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+    const onSave = (name: string, entry: unknown) => {
+      saveCalls.push({ name, entry: entry as Record<string, unknown> });
+      return Promise.resolve();
+    };
+
+    // Start with zero connections so the only Provider option is "+ Create
+    // new provider" and the parent prop never refetches in this test (the
+    // binding must be valid purely from the optimistic local merge).
+    renderCreate([], onSave);
+
+    selectProvider("+ Create new provider");
+    fireEvent.change(getInputByPlaceholder("e.g. anthropic-personal"), {
+      target: { value: "anthropic-personal" },
+    });
+    fireEvent.click(getButton("Create"));
+
+    await waitFor(() => {
+      expect(document.body.textContent).toContain(
+        "New provider connection will show up in the Providers section.",
+      );
+    });
+
+    // Pick a model + key, then save immediately (no connections refetch).
+    selectModel("Claude Opus 4.8");
+    fireEvent.change(getInputByPlaceholder("e.g. fast-cheap"), {
+      target: { value: "my-profile" },
+    });
+
+    await waitFor(() => {
+      expect(getSaveBtn().disabled).toBe(false);
+    });
+    fireEvent.click(getSaveBtn());
+
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
+    });
+    expect(saveCalls[0].entry.provider).toBe("anthropic");
+    expect(saveCalls[0].entry.provider_connection).toBe("anthropic-personal");
+  });
+
   test("Save shows 'Saving…' and disables while the create is in flight", async () => {
     // Hold the save promise open so we can observe the in-flight state.
     let resolveSave: () => void = () => {};
