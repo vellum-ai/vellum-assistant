@@ -43,6 +43,7 @@ import { captureError } from "@/lib/sentry/capture-error";
 import { useEnvironmentStore } from "@/stores/environment-store";
 import { routes } from "@/utils/routes";
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
+import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { extractErrorMessage } from "@/utils/api-errors";
 
@@ -65,6 +66,8 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
   const [searchParams, setSearchParams] = useSearchParams();
   const emailRootDomain = useEnvironmentStore.use.emailRootDomain();
   const platformGate = usePlatformGate();
+  const activeAssistantId = useAssistantSelectionStore.use.activeAssistantId();
+  const byoAssistantId = assistantId ?? activeAssistantId;
   const [mode, setMode] = useState<ServiceMode>(
     () => platformGate === "gated" ? "your-own" : getLocalSetting(LS_EMAIL_MODE, "managed") as ServiceMode,
   );
@@ -86,17 +89,19 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
   const [removeAddressConfirmOpen, setRemoveAddressConfirmOpen] = useState(false);
 
   // -- BYO credential check (your-own mode) ----------------------------------
+  // Use byoAssistantId (lifecycle-backed fallback) so the check works in
+  // local/self-hosted mode where the platform assistant list may be empty.
   const byoCredentialQuery = useQuery({
-    queryKey: ["byoEmailCredential", assistantId, byoProviderId],
+    queryKey: ["byoEmailCredential", byoAssistantId, byoProviderId],
     queryFn: async () => {
       const { data } = await credentialsInspectPost({
-        path: { assistant_id: assistantId! },
+        path: { assistant_id: byoAssistantId! },
         body: { service: byoProviderId, field: "api_key" },
         throwOnError: true,
       });
       return data;
     },
-    enabled: !!assistantId && mode === "your-own",
+    enabled: !!byoAssistantId && mode === "your-own",
     staleTime: 60_000,
     retry: false,
   });
