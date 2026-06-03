@@ -92,7 +92,9 @@ Use `acp_list_agents` to see what's set up and what's missing. It returns each a
 
 ## Working directory
 
-Default to the conversation's current working directory when spawning an agent. For risky changes or parallel work where you don't want the agent touching the same checkout the user is editing, create a git worktree first via the shell tool and pass that worktree path as `cwd` to `acp_spawn`. That keeps the agent isolated from the user's in-progress work.
+When you omit `cwd`, the agent defaults to a **stable per-project workspace** under the persistent workspace volume, keyed by the conversation. This directory survives across turns, agent respawns, and idle-sleep/wake, so repos the agent clones and files it edits are still there on the next `acp_spawn` for the same conversation. Prefer this default for ongoing work — don't pass an ephemeral temp dir, which would be lost on respawn.
+
+For risky changes or parallel work where you don't want the agent touching the same checkout, create a git worktree first via the shell tool (inside the persistent workspace) and pass that worktree path as `cwd` to `acp_spawn`. That keeps the agent isolated from other in-progress work while still persisting.
 
 ## Tips
 

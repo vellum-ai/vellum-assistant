@@ -14,6 +14,7 @@ import {
 } from "../../acp/prepare-agent-env.js";
 import { resolveAcpAgent } from "../../acp/resolve-agent.js";
 import type { AcpSessionState } from "../../acp/types.js";
+import { resolveAcpWorkspaceDir } from "../../acp/workspace-path.js";
 import { getDb } from "../../memory/db-connection.js";
 import { rawChanges } from "../../memory/raw-query.js";
 import { acpSessionHistory } from "../../memory/schema.js";
@@ -94,11 +95,17 @@ async function spawnSession({ body }: RouteHandlerArgs) {
   const agent = body?.agent as string | undefined;
   const task = body?.task as string | undefined;
   const conversationId = body?.conversationId as string | undefined;
-  const cwd = (body?.cwd as string | undefined) ?? process.cwd();
 
   if (!agent || !task || !conversationId) {
     throw new BadRequestError("agent, task, and conversationId are required");
   }
+
+  // Default to a STABLE per-project directory under the persistent workspace
+  // volume (keyed by conversation id) so the agent's clones and edits survive
+  // across turns, respawns, and idle-sleep — not an ephemeral `process.cwd()`.
+  // An explicit `cwd` (e.g. a git worktree for isolated work) still wins.
+  const cwd =
+    (body?.cwd as string | undefined) ?? resolveAcpWorkspaceDir(conversationId);
 
   const resolved = resolveAcpAgent(agent);
   if (!resolved.ok) {
