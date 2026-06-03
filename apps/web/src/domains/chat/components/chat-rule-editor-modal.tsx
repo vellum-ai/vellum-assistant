@@ -196,9 +196,23 @@ export function ChatRuleEditorModal({
 
   const showSaveAsNew = isEditMode && !!onSaveAsNew && narrowerOptions.length > 0;
 
-  const [selectedPatternIndex, setSelectedPatternIndex] = useState(
-    () => generalizationOffset,
-  );
+  // In edit mode the default selection is the first narrower option (what
+  // "Save As New" persists), so the button can't upsert the existing pattern
+  // if clicked before the LLM suggestion arrives. The suggestion effect below
+  // early-returns on mount (suggestionPattern is undefined), so this default
+  // must be set here at init rather than relying on the effect. Create mode
+  // keeps the exact-match index (`generalizationOffset`).
+  const [selectedPatternIndex, setSelectedPatternIndex] = useState(() => {
+    if (existingRule && narrowerOptions.length > 0) {
+      const idx = effectiveOptions.findIndex(
+        (o) => o.pattern === narrowerOptions[0].pattern,
+      );
+      if (idx >= 0) {
+        return idx;
+      }
+    }
+    return generalizationOffset;
+  });
 
   const [selectedRiskLevel, setSelectedRiskLevel] = useState(
     context.riskLevel || "medium",
