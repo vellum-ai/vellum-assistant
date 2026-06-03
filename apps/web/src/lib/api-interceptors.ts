@@ -163,9 +163,31 @@ export async function rewriteForSelfHostedIngress(
  *   routes like maintenance-mode, system-events, etc. fall through
  *   to Django).
  */
+/**
+ * File-extension pattern: paths ending in `.ext` (e.g. `/artifacts/img.png`)
+ * must NOT have a trailing slash appended — they use the non-trailing-slash
+ * wildcard variant in `api_router.py` intentionally.
+ */
+const FILE_EXTENSION_RE = /\.[a-zA-Z0-9]+$/;
+
 function createInterceptor({ skipSegmentAllowlist = false } = {}) {
   return async (request: Request): Promise<Request> => {
-    const newRequest = new Request(request);
+    let newRequest = new Request(request);
+
+    // Django requires trailing slashes on /v1/ API routes (see
+    // django/AGENTS.md "Trailing slashes" convention). The daemon's
+    // OpenAPI spec omits them (standard OpenAPI), so the generated SDK
+    // produces bare paths. Normalize here — mirrors the macOS client's
+    // GatewayHTTPClient.constructURL which always appends "/".
+    const url = new URL(newRequest.url);
+    if (
+      url.pathname.startsWith("/v1/") &&
+      !url.pathname.endsWith("/") &&
+      !FILE_EXTENSION_RE.test(url.pathname)
+    ) {
+      url.pathname += "/";
+      newRequest = new Request(url.toString(), newRequest);
+    }
 
     // Per-tab client identity — sent on *every* request (GET included)
     // so SSE-via-fetch readers and short-lived mutations carry the same

@@ -99,6 +99,74 @@ describe("api-interceptors / requestInterceptor", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Trailing-slash normalization
+// ---------------------------------------------------------------------------
+//
+// Django requires trailing slashes on /v1/ API routes (AGENTS.md convention).
+// The daemon's OpenAPI spec omits them (standard OpenAPI), so the generated
+// SDK produces bare paths like `/v1/assistants/{id}/attachments`. The
+// interceptor normalizes these before they reach Django — mirroring the
+// macOS client's GatewayHTTPClient.constructURL which always appends "/".
+//
+// File-extension paths (e.g. /artifacts/img.png) must NOT be normalized;
+// they use the non-trailing-slash wildcard variant in api_router.py.
+
+describe("api-interceptors / trailing-slash normalization", () => {
+  beforeAll(() => {
+    useOrganizationStore.setState({ currentOrganizationId: TEST_ORG_ID });
+    setCsrfCookie("test-csrf-token");
+  });
+
+  afterAll(() => {
+    clearCsrfCookie();
+  });
+
+  test("appends trailing slash to /v1/ paths that lack one", async () => {
+    const input = new Request("https://example.test/v1/assistants/abc/attachments", {
+      method: "POST",
+    });
+    const output = await requestInterceptor(input);
+    expect(new URL(output.url).pathname).toBe("/v1/assistants/abc/attachments/");
+  });
+
+  test("preserves existing trailing slash", async () => {
+    const input = new Request("https://example.test/v1/assistants/abc/attachments/");
+    const output = await requestInterceptor(input);
+    expect(new URL(output.url).pathname).toBe("/v1/assistants/abc/attachments/");
+  });
+
+  test("does not append trailing slash to file-extension paths", async () => {
+    const input = new Request("https://example.test/v1/assistants/abc/artifacts/img.png");
+    const output = await requestInterceptor(input);
+    expect(new URL(output.url).pathname).toBe("/v1/assistants/abc/artifacts/img.png");
+  });
+
+  test("does not modify paths outside /v1/", async () => {
+    const input = new Request("https://example.test/accounts/login");
+    const output = await requestInterceptor(input);
+    expect(new URL(output.url).pathname).toBe("/accounts/login");
+  });
+
+  test("preserves query parameters after normalization", async () => {
+    const input = new Request(
+      "https://example.test/v1/assistants/abc/conversations?limit=50",
+    );
+    const output = await requestInterceptor(input);
+    const outUrl = new URL(output.url);
+    expect(outUrl.pathname).toBe("/v1/assistants/abc/conversations/");
+    expect(outUrl.search).toBe("?limit=50");
+  });
+
+  test("normalizes on daemon interceptor too", async () => {
+    const input = new Request("https://example.test/v1/assistants/abc/skills", {
+      method: "GET",
+    });
+    const output = await daemonRequestInterceptor(input);
+    expect(new URL(output.url).pathname).toBe("/v1/assistants/abc/skills/");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Self-hosted rewriting — platform client (requestInterceptor)
 // ---------------------------------------------------------------------------
 //
@@ -168,8 +236,10 @@ describe("api-interceptors / self-hosted rewriting", () => {
     const output = await requestInterceptor(input);
     const outUrl = new URL(output.url);
     expect(outUrl.origin).toBe("http://localhost:3000");
+    // Trailing-slash normalization runs before self-hosted rewriting,
+    // so the bare path gets a trailing slash appended.
     expect(outUrl.pathname).toBe(
-      "/__gateway/20100/v1/assistants/self/conversations",
+      "/__gateway/20100/v1/assistants/self/conversations/",
     );
   });
 
