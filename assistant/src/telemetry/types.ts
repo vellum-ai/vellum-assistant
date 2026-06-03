@@ -185,9 +185,37 @@ export interface OnboardingTelemetryEvent extends TelemetryEventBase {
   ab_variant?: string;
 }
 
+/**
+ * Auth-fallback event — aggregated count of requests served via the legacy
+ * loopback auth fallback. One event per (guard, path, failure_kind) per flush
+ * window. Lets the platform see which deployments still rely on the loopback
+ * exemption instead of sending a bearer token.
+ */
+export interface AuthFallbackTelemetryEvent extends TelemetryEventBase {
+  type: "auth_fallback";
+  /** Which auth guard fell back: `"edge"` | `"edge-scoped"` | `"edge-guardian"`. */
+  guard: string;
+  /** Request pathname that fell back. */
+  path: string;
+  /**
+   * Why the bearer-token check did not succeed before the fallback:
+   * `"missing_authorization"` | `"malformed_authorization"` |
+   * `"token_validation_failed"` | `"insufficient_scope"` |
+   * `"non_actor_principal"` | `"guardian_mismatch"`.
+   */
+  failure_kind: string;
+  /** Number of requests that fell back for this key during the window. */
+  count: number;
+  /** Window start (epoch ms) the count was accumulated over. */
+  window_start: number;
+  /** Window end (epoch ms) the count was accumulated over. */
+  window_end: number;
+}
+
 /** Discriminated union of all telemetry event types. */
 export type TelemetryEvent =
   | LlmUsageTelemetryEvent
   | TurnTelemetryEvent
   | LifecycleTelemetryEvent
-  | OnboardingTelemetryEvent;
+  | OnboardingTelemetryEvent
+  | AuthFallbackTelemetryEvent;

@@ -18,6 +18,7 @@ import {
   addCoreColumns,
   createApprovalPromptTsTrackerTable,
   createAssistantInboxTables,
+  createAuthFallbackEventsTable,
   createCallSessionsTables,
   createCanonicalGuardianTables,
   createChannelGuardianTables,
@@ -474,6 +475,7 @@ export function initializeDb(): void {
     migrateAddMemoryV3Selections,
     migrateScheduleScriptTimeout,
     migrateMessagesRoleCreatedAtIndex,
+    createAuthFallbackEventsTable,
   ];
 
   // Run each migration step, catching and logging individual failures so one
