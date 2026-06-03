@@ -202,6 +202,15 @@ framework-level integration points that need raw Sentry scope
 manipulation: `RouteErrorBoundary`, `RouterProvider.onError`, and
 `LazyBoundary`.
 
+**No bare `catch` blocks that discard errors.** Every `catch` must
+either report the error (toast + `captureError`) or re-throw it. A
+`catch { return; }` that silently swallows failures is a bug — the user
+gets no feedback and Sentry gets no telemetry. When a multi-step async
+function has per-step error handling, the outer catch may be silent only
+if every inner step already reports its own errors before re-throwing.
+
+Reference: [TanStack Query — Handling Mutation Errors](https://tanstack.com/query/latest/docs/framework/react/guides/mutations#mutation-side-effects)
+
 ---
 
 ## Code organization

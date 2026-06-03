@@ -842,6 +842,9 @@ export function handleListMessages({
       id: m.id ?? "",
       ...(mergedMessageIds.length > 0 ? { mergedMessageIds } : {}),
       role: m.role,
+      // Flat plain-text body the legacy Swift client reads directly; see the
+      // `content` field on ConversationMessageSchema for why this must stay.
+      content: m.text,
       timestamp: new Date(displayTimestamp).toISOString(),
       attachments: msgAttachments,
       ...(m.toolCalls.length > 0 ? { toolCalls: m.toolCalls } : {}),

@@ -30,7 +30,7 @@ import type { ServiceMode } from "@/domains/settings/ai/ai-types";
 import { LS_WEB_SEARCH_MODE, LS_WEB_SEARCH_PROVIDER } from "@/domains/settings/ai/ai-types";
 import { getWebSearchProviderKeyStorage, reconcileFromDaemonConfig } from "@/domains/settings/ai/ai-utils";
 import { ServiceCard, SaveButton, ResetButton } from "@/domains/settings/ai/ai-shared-ui";
-import { useDaemonConfig } from "@/domains/settings/ai/use-daemon-config";
+import { useDaemonConfigQuery, useDaemonConfigMutation, useProvisionProviderKey } from "@/domains/settings/ai/use-daemon-config";
 
 // ---------------------------------------------------------------------------
 // Query key for the stored-credential presence check
@@ -49,10 +49,9 @@ export function WebSearchCard() {
   const {
     assistantId,
     config: daemonConfig,
-    invalidateConfig,
-    provisionProviderKey,
-    patchDaemonConfig,
-  } = useDaemonConfig();
+  } = useDaemonConfigQuery();
+  const configMutation = useDaemonConfigMutation();
+  const provisionProviderKey = useProvisionProviderKey();
   const queryClient = useQueryClient();
 
   // --- Form state (local, unsaved) ---
@@ -165,28 +164,27 @@ export function WebSearchCard() {
     const storageKey = getWebSearchProviderKeyStorage(providerToSave);
     const hasUserKey =
       webSearchMode === "your-own" && requiresProviderCredential && trimmed.length > 0;
-    let remoteSaved = false;
     try {
       if (hasUserKey) {
         await provisionProviderKey(providerToSave, trimmed);
       }
-      await patchDaemonConfig({
+      await configMutation.mutateAsync({
         services: {
           "web-search": { mode: webSearchMode, provider: providerToSave },
         },
+      }).catch((error) => {
+        toast.error("Failed to update assistant configuration. Please try again.");
+        captureError(error, { context: "patch_daemon_config" });
+        throw error;
       });
-      remoteSaved = true;
-      invalidateConfig();
       // Optimistically mark these values as "saved" so configChanged stays
       // false while the async config refetch is in flight.
       setSavedOverride({ mode: webSearchMode, provider: providerToSave });
     } catch {
-      // Errors already surfaced via toast + captureError inside the callees.
-    }
-    if (!remoteSaved) {
       setSaving(false);
       return;
     }
+    setSaving(false);
     try {
       setLocalSetting(LS_WEB_SEARCH_MODE, webSearchMode);
       setLocalSetting(LS_WEB_SEARCH_PROVIDER, providerToSave);
@@ -208,14 +206,11 @@ export function WebSearchCard() {
     } catch (err) {
       captureError(err, { context: "settings-ai-web-search-persist-local" });
       toast.error("Saved, but local preferences could not be written.");
-    } finally {
-      setSaving(false);
     }
   }, [
     assistantId,
-    invalidateConfig,
     requiresProviderCredential,
-    patchDaemonConfig,
+    configMutation,
     provisionProviderKey,
     queryClient,
     credentialQueryKey,
