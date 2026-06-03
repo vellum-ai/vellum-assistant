@@ -233,6 +233,10 @@ const installSettingsIpc = (): void => {
 app
   .whenReady()
   .then(async () => {
+    if (!isDev) {
+      await ensureWebInstalled();
+      registerAppProtocol();
+    }
     installPermissionHandler();
     installSettingsIpc();
     installLocalMode();
@@ -245,11 +249,6 @@ app
       ensureMainWindow: ensureMainWindowVisible,
       openAbout: openAboutWindow,
     });
-
-    if (!isDev) {
-      await ensureWebInstalled();
-      registerAppProtocol();
-    }
     installMainWindow();
 
     // Dock-icon click / Cmd-Tab re-activation: bring the main window
