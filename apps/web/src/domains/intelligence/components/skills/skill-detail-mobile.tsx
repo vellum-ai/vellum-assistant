@@ -10,6 +10,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { Button, Card, Menu, SegmentControl } from "@vellum/design-library";
 import { SkillOriginBadge } from "./skill-origin-badge";
@@ -35,6 +36,14 @@ interface SkillDetailMobileProps {
 
 /**
  * Single-column phone layout for viewing a skill's details.
+ *
+ * Renders as a full-screen overlay that takes over the whole viewport — its own
+ * back · title · trash action bar replaces the app's mobile chrome (hamburger /
+ * home / search) and the Intelligence tab row, matching the iOS mock. The
+ * overlay is portaled into `RootLayout`'s `#viewport-overlays` container so a
+ * transformed layout ancestor can't scope its `position: fixed` (the same
+ * pattern the chat-side mobile detail overlays use). When the portal target
+ * isn't resolved yet (first paint / tests) it falls back to rendering inline.
  *
  * Mirrors the desktop `SkillDetail` data/behavior (via the shared
  * `useSkillDetailFiles` hook) but lays out top-to-bottom: a circular action bar,
@@ -74,13 +83,33 @@ export function SkillDetailMobile({
     setViewMode("preview");
   }, [activePath]);
 
+  // Resolve the full-screen portal target after commit (SSR-safe; the
+  // element is mounted by RootLayout). Falls back to inline rendering when
+  // absent (e.g. tests, first paint).
+  const [overlayTarget, setOverlayTarget] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    setOverlayTarget(document.getElementById("viewport-overlays"));
+  }, []);
+
   const activeIsMarkdown = activeFile
     ? isMarkdown(activeFile.name, undefined)
     : false;
   const effectiveViewMode = activeIsMarkdown ? viewMode : "raw";
 
-  return (
-    <div className="flex h-full min-h-0 flex-col gap-3 bg-[var(--surface-overlay)]">
+  const overlay = (
+    <div
+      className="fixed inset-0 z-40 flex flex-col gap-3 overflow-hidden bg-[var(--surface-overlay)]"
+      style={{
+        paddingTop:
+          "calc(8px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px)))",
+        paddingBottom:
+          "calc(8px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)))",
+        paddingLeft:
+          "calc(12px + var(--safe-area-inset-left, env(safe-area-inset-left, 0px)))",
+        paddingRight:
+          "calc(12px + var(--safe-area-inset-right, env(safe-area-inset-right, 0px)))",
+      }}
+    >
       {/* Action bar */}
       <div className="flex items-center justify-between">
         <Button
@@ -191,6 +220,8 @@ export function SkillDetailMobile({
       </Card.Root>
     </div>
   );
+
+  return overlayTarget ? createPortal(overlay, overlayTarget) : overlay;
 }
 
 function RightAction({
