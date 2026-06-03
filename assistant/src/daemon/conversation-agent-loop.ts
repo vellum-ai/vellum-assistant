@@ -74,10 +74,7 @@ import {
 } from "../memory/conversation-crud.js";
 import { getResolvedConversationDirPath } from "../memory/conversation-directories.js";
 import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
-import {
-  isReplaceableTitle,
-  queueRegenerateConversationTitle,
-} from "../memory/conversation-title-service.js";
+import { isReplaceableTitle } from "../memory/conversation-title-service.js";
 import { isBackgroundConversationType } from "../memory/conversation-types.js";
 import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import {
@@ -3161,19 +3158,6 @@ export async function runAgentLoopImpl(
         });
         publishLoopMessagesChanged();
       }
-    }
-
-    // Second title pass: after 3 completed turns, re-generate the title
-    // using the last 3 messages for better context. Only fires when the
-    // current title was auto-generated (isAutoTitle = 1) and the user
-    // has not opted out via `conversations.skipAutoRetitling`.
-    if (ctx.turnCount === 2 && !getConfig().conversations.skipAutoRetitling) {
-      // turnCount is 0-indexed, incremented in finally; 2 = about to become 3rd turn
-      queueRegenerateConversationTitle({
-        conversationId: ctx.conversationId,
-        provider: ctx.provider,
-        signal: abortController.signal,
-      });
     }
   } catch (err) {
     const errorCtx = {
