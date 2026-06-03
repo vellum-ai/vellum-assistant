@@ -104,7 +104,13 @@ export function AppViewerContainer({
 
       <div className="relative min-h-0 flex-1">
         {isFullscreen && (
-          <div className="absolute right-3 top-3 z-10">
+          <div
+            className="absolute z-10"
+            style={{
+              top: "max(0.75rem, var(--safe-area-inset-top, env(safe-area-inset-top, 0px)))",
+              right: "max(0.75rem, var(--safe-area-inset-right, env(safe-area-inset-right, 0px)))",
+            }}
+          >
             <Button
               variant="outlined"
               iconOnly={<X />}
