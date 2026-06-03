@@ -166,24 +166,26 @@ function PreferencesMenuContent({
 
   return (
     <>
-      <ThemeToggle className="px-2 pt-0" />
+      <ThemeToggle className="px-2 py-0" />
 
       {showBillingRows ? (
-        <CreditsCard
-          balance={
-            effectiveBalance !== null
-              ? formatWholeCredits(effectiveBalance)
-              : null
-          }
-          onAddCredits={() => {
-            onClose();
-            navigate(routes.settings.billing);
-          }}
-          onEarnCredits={() => {
-            onClose();
-            onEarnCredits();
-          }}
-        />
+        <div className="my-2">
+          <CreditsCard
+            balance={
+              effectiveBalance !== null
+                ? formatWholeCredits(effectiveBalance)
+                : null
+            }
+            onAddCredits={() => {
+              onClose();
+              navigate(routes.settings.billing);
+            }}
+            onEarnCredits={() => {
+              onClose();
+              onEarnCredits();
+            }}
+          />
+        </div>
       ) : null}
 
       <PanelItem
