@@ -10,7 +10,8 @@
  * Mounted with `@testing-library/react` (happy-dom — see `apps/web/test-setup.ts`).
  */
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
 import { createElement, useEffect } from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -105,13 +106,14 @@ function renderProvider(existingNames: string[]) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-  return render(
+  const result = render(
     createElement(
       QueryClientProvider,
       { client: queryClient },
       createElement(ProfileQuickAddProvider, null, createElement(Opener, { existingNames })),
     ),
   );
+  return { ...result, queryClient };
 }
 
 beforeEach(() => {
@@ -211,6 +213,24 @@ describe("ProfileQuickAddProvider", () => {
     expect(toastSuccess).not.toHaveBeenCalled();
     expect(onCreated).not.toHaveBeenCalled();
     expect(screen.getByTestId("modal-save-btn")).toBeTruthy();
+  });
+
+  test("invalidates the daemon config cache after a successful create so Settings stays in sync", async () => {
+    const { queryClient } = renderProvider(["smart"]);
+    const invalidateSpy = spyOn(queryClient, "invalidateQueries");
+    await waitFor(() => screen.getByTestId("modal-save-btn"));
+    fireEvent.click(screen.getByTestId("modal-save-btn"));
+
+    await waitFor(() => {
+      expect(clientPatch).toHaveBeenCalledTimes(1);
+    });
+    // The shared daemon-config query is invalidated so a previously-loaded
+    // Settings/AI tab refetches and shows the newly created profile.
+    await waitFor(() => {
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: assistantDaemonConfigQueryKey("assistant-1"),
+      });
+    });
   });
 
   test("a failed config reload ABORTS the save — no PATCH, no success toast, modal stays open", async () => {

@@ -96,7 +96,11 @@ export function ProviderCreateForm({
   const [authType, setAuthType] = useState<AuthType>(
     () =>
       defaultAuthType ??
-      (initialProvider === "ollama" ? "none" : "platform"),
+      (initialProvider === "ollama"
+        ? "none"
+        : providerSupportsPlatformAuth(initialProvider)
+          ? "platform"
+          : "api_key"),
   );
   const [credential, setCredential] = useState(() =>
     initialProvider === "ollama" ? "" : `credential/${initialProvider}/api_key`,

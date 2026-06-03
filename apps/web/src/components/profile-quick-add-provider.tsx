@@ -35,11 +35,12 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { toast } from "@vellum/design-library/components/toast";
 import { client } from "@/generated/api/client.gen";
 import { inferenceProviderconnectionsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
+import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
 import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal";
 import { filterFlaggedConnections } from "@/domains/settings/ai/provider-connections-client";
 import type { ProfileEntry } from "@/domains/settings/ai/ai-types";
@@ -76,6 +77,7 @@ export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
   const chatgptSubscriptionAuth =
     useAssistantFeatureFlagStore.use.chatgptSubscriptionAuth();
 
+  const queryClient = useQueryClient();
   const [isOpen, setIsOpen] = useState(false);
   const [existingNames, setExistingNames] = useState<string[]>([]);
   // Held in a ref so the modal's onSave closure always sees the latest caller
@@ -171,11 +173,19 @@ export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
         headers: { "Content-Type": "application/json" },
         throwOnError: true,
       });
+      // This raw PATCH bypasses `useDaemonConfigMutation`, which is what would
+      // normally invalidate the shared daemon-config cache. Without this, a
+      // Settings/AI tab that previously loaded `useDaemonConfigQuery` keeps
+      // serving its cached config (30s fresh) and the just-created profile is
+      // missing there until a refetch. Invalidate so Settings stays in sync.
+      await queryClient.invalidateQueries({
+        queryKey: assistantDaemonConfigQueryKey(assistantId),
+      });
       onCreatedRef.current?.(name);
       setIsOpen(false);
       toast.success(`Profile "${name}" created`);
     },
-    [assistantId],
+    [assistantId, queryClient],
   );
 
   const value = useMemo<ProfileQuickAddContextValue>(

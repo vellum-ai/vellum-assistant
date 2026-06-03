@@ -343,6 +343,25 @@ describe("ProviderCreateForm submit sequence", () => {
     expect(getInputByPlaceholder("Enter your API key")).toBeDefined();
   });
 
+  test("a provider without platform auth (e.g. openrouter) seeds api_key, not platform", () => {
+    // openrouter has no managed proxy, so defaulting to `platform` would let the
+    // user create an unusable connection. The initial auth seed must fall back
+    // to api_key — the API Key field's presence confirms it.
+    render(
+      <ModalWrapper>
+        <ProviderCreateForm
+          assistantId={ASSISTANT_ID}
+          existingNames={[]}
+          defaultProviderType="openrouter"
+          onCreated={() => {}}
+          onCancel={() => {}}
+        />
+      </ModalWrapper>,
+    );
+
+    expect(getInputByPlaceholder("Enter your API key")).toBeDefined();
+  });
+
   test("fires a 'Provider connected' success toast on a successful create", async () => {
     render(
       <ModalWrapper>
