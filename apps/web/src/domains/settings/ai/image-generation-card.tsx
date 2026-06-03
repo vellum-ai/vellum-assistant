@@ -9,7 +9,6 @@ import { toast } from "@vellum/design-library/components/toast";
 import { captureError } from "@/lib/sentry/capture-error";
 import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
 import {
-  removeLocalSetting,
   setLocalSetting,
   getLocalSetting,
 } from "@/utils/local-settings";
@@ -18,7 +17,6 @@ import type { ServiceMode } from "@/domains/settings/ai/ai-types";
 import {
   AVAILABLE_IMAGE_GEN_MODELS,
   IMAGE_GEN_MODEL_DISPLAY_NAMES,
-  LS_IMAGE_GEN_CREDENTIAL,
   LS_IMAGE_GEN_MODE,
   LS_IMAGE_GEN_MODEL,
 } from "@/domains/settings/ai/ai-types";
@@ -90,7 +88,6 @@ export function ImageGenerationCard() {
       setLocalSetting(LS_IMAGE_GEN_MODE, imageGenMode);
       setLocalSetting(LS_IMAGE_GEN_MODEL, imageGenModel);
       if (hasUserKey) {
-        setLocalSetting(LS_IMAGE_GEN_CREDENTIAL, trimmed);
         setImageGenApiKey("");
       }
       toast.success("Image generation settings saved.");
@@ -109,7 +106,6 @@ export function ImageGenerationCard() {
   ]);
 
   const handleReset = useCallback(() => {
-    removeLocalSetting(LS_IMAGE_GEN_CREDENTIAL);
     setImageGenApiKey("");
     setImageGenModel("gemini-3.1-flash-image-preview");
     setLocalSetting(LS_IMAGE_GEN_MODEL, "gemini-3.1-flash-image-preview");
