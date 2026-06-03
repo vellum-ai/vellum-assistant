@@ -27,7 +27,7 @@ echo "generate-icon: using $VELLUM_ENVIRONMENT icon from $ICON_SOURCE_DIR"
 OUTPUT_DIR="$APP_DIR/build"
 mkdir -p "$OUTPUT_DIR"
 
-MASTER_PNG=$(mktemp /tmp/appicon-master-XXXXXX.png)
+MASTER_PNG=$(mktemp /tmp/appicon-master-XXXXXX).png
 ICONSET_DIR=$(mktemp -d)/AppIcon.iconset
 mkdir -p "$ICONSET_DIR"
 
