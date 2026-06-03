@@ -2737,6 +2737,72 @@ describe("background channel processing approval prompts", () => {
     deliverPromptSpy.mockRestore();
   });
 
+  test("slack approval prompts activate the visible thread after prompt delivery", async () => {
+    createGuardianBinding({
+      channel: "slack",
+      guardianExternalUserId: "slack-user-default",
+      guardianDeliveryChatId: "C123THREAD",
+      guardianPrincipalId: "slack-user-default",
+    });
+
+    const deliverPromptSpy = spyOn(
+      gatewayClient,
+      "deliverApprovalPrompt",
+    ).mockResolvedValue({ ok: true, ts: "1700000000.000500" });
+    const trackThreadSpy = spyOn(
+      gatewayClient,
+      "trackSlackActiveThread",
+    ).mockResolvedValue(true);
+
+    const processMessage = mock(
+      async (
+        conversationId: string,
+        _content: string,
+        _options?: Record<string, unknown>,
+      ) => {
+        registerPendingInteraction(
+          "req-bg-slack-1",
+          conversationId,
+          "host_bash",
+          {
+            input: { command: "ls -la" },
+            riskLevel: "medium",
+          },
+        );
+
+        await new Promise((resolve) => setTimeout(resolve, 350));
+        return { messageId: "msg-bg-slack-1" };
+      },
+    );
+
+    const req = makeInboundRequest({
+      content: "run ls",
+      sourceChannel: "slack",
+      interface: "slack",
+      conversationExternalId: "C123THREAD",
+      actorExternalId: "slack-user-default",
+      replyCallbackUrl:
+        "https://gateway.test/deliver/slack?channel=C123THREAD&threadTs=1700000000.000001",
+      externalMessageId: "slack-msg-bg-1",
+    });
+
+    setTestProcessMessage(processMessage);
+    const res = await handleChannelInbound(req);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.accepted).toBe(true);
+
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    expect(deliverPromptSpy).toHaveBeenCalled();
+    expect(trackThreadSpy).toHaveBeenCalledWith(
+      "C123THREAD",
+      "1700000000.000001",
+    );
+
+    deliverPromptSpy.mockRestore();
+    trackThreadSpy.mockRestore();
+  });
+
   test("trusted-contact channel turns with resolvable guardian route are interactive", async () => {
     // Set up a guardian binding for a DIFFERENT user so the sender is a
     // trusted contact (not the guardian). The guardian route is resolvable
