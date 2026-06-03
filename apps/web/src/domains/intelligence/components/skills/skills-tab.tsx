@@ -317,11 +317,10 @@ function useDerivedCounts(
 function TipBanner({ onDismiss }: { onDismiss: () => void }) {
   return (
     <div
-      className="flex items-center gap-2 rounded-lg border px-4 py-2.5 text-body-medium-lighter"
+      className="flex items-center gap-2 rounded-lg px-4 py-2.5 text-body-small-default"
       style={{
-        borderColor: "color-mix(in oklab, var(--primary-base) 25%, transparent)",
-        backgroundColor: "color-mix(in oklab, var(--primary-base) 8%, transparent)",
-        color: "var(--content-default)",
+        backgroundColor: "var(--surface-base)",
+        color: "var(--content-secondary)",
       }}
     >
       <Sparkles
@@ -329,8 +328,7 @@ function TipBanner({ onDismiss }: { onDismiss: () => void }) {
         style={{ color: "var(--primary-base)" }}
       />
       <p className="flex-1">
-        <span className="text-body-medium-default">Tip:</span> You can create a new custom
-        skill by describing what you want in chat.
+        You can create a new custom skill by describing what you want in chat.
       </p>
       <Button
         type="button"
@@ -340,6 +338,7 @@ function TipBanner({ onDismiss }: { onDismiss: () => void }) {
         onClick={onDismiss}
         aria-label="Dismiss tip"
         tintColor="var(--content-tertiary)"
+        expandOnMobile={false}
       />
     </div>
   );
