@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { DEFAULT_PRECHAT_INITIAL_MESSAGE } from "@/domains/onboarding/prechat";
 import {
   ACTIVATION_FLOW_COHORT,
   ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE,
@@ -44,6 +45,7 @@ describe("buildPreChatContext — activation rail", () => {
         recipe: {
           cohort: "content-automation",
           bootstrapTemplate: "BOOTSTRAP-CONTENT-AUTOMATION.md",
+          initialMessage: "Campaign hello",
           skills: ["geo-writing"],
         } as BuildPreChatContextInput["recipe"],
       }),
@@ -52,6 +54,7 @@ describe("buildPreChatContext — activation rail", () => {
     expect(context.cohort).toBe(ACTIVATION_FLOW_COHORT);
     expect(context.bootstrapTemplate).toBe(ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE);
     expect(context.skills).toEqual(["geo-writing"]);
+    expect(context.initialMessage).toBe(DEFAULT_PRECHAT_INITIAL_MESSAGE);
   });
 });
 

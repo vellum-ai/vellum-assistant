@@ -134,7 +134,7 @@ export function buildPreChatContext(
 
   context.initialMessage = resolveInitialMessage(
     context,
-    recipe,
+    input.activationFlowEnabled ? null : recipe,
     input.selfIntroGreetingEnabled,
   );
   return context;

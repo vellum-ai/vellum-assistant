@@ -131,7 +131,8 @@ describe("maybeReseedBootstrap — activation rail template", () => {
     const content = readFileSync(join(TEST_DIR, "BOOTSTRAP.md"), "utf-8");
 
     expect(content).toContain("BOOTSTRAP — Activation Rail");
-    expect(content).toContain("single most useful outcome");
+    expect(content).toContain("two or three concrete outcomes");
+    expect(content).toContain("People don't read");
     expect(content).toContain("Speed wins");
   });
 });
