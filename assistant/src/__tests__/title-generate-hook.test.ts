@@ -1,21 +1,28 @@
 /**
- * Tests for the default `title-generate` plugin's `user-prompt-submit` hook.
+ * Tests for the default `title-generate` plugin's hooks.
  *
- * Title generation fires once per submitted prompt as a fire-and-forget side
- * effect. The hook is a pure trigger — it schedules the work on a later
- * macrotask (so the main agent-loop LLM request is issued first) and lets the
- * title service resolve the provider, persist the title, and broadcast the
- * resulting `conversation_title_updated` / `sync_changed` events. The hook
- * passes only the conversation id and the submitted prompt text.
+ * The plugin contributes two pure-trigger hooks that delegate the title work
+ * to the service:
  *
- * Mocks `memory/conversation-title-service.js` so the tests don't touch the
- * real provider stack, and resets the plugin registry between cases.
+ * - `user-prompt-submit` — first-pass generation from the submitted prompt,
+ *   scheduled on a later macrotask so the main agent-loop LLM request is
+ *   issued first.
+ * - `stop` — second-pass regeneration once the conversation reaches its third
+ *   user turn (turn count derived from the user prompts in history).
+ *
+ * Both let the title service resolve the provider, persist the title, and
+ * broadcast the resulting `conversation_title_updated` / `sync_changed`
+ * events.
+ *
+ * Mocks `memory/conversation-title-service.js` and `config/loader.js` so the
+ * tests don't touch the real provider stack or config, and resets the plugin
+ * registry between cases.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // Stub the title-generation service before importing anything that binds
-// to it, so both the default plugin and the hook capture the stubbed binding.
+// to it, so both the default plugin and the hooks capture the stubbed binding.
 const queueGenerateConversationTitleMock = mock(
   (_params: {
     conversationId: string;
@@ -23,15 +30,28 @@ const queueGenerateConversationTitleMock = mock(
     userMessage?: string;
   }): void => undefined,
 );
+const queueRegenerateConversationTitleMock = mock(
+  (_params: { conversationId: string; provider?: unknown }): void => undefined,
+);
 mock.module("../memory/conversation-title-service.js", () => ({
   queueGenerateConversationTitle: queueGenerateConversationTitleMock,
+  queueRegenerateConversationTitle: queueRegenerateConversationTitleMock,
+}));
+
+// The `stop` hook reads `conversations.skipAutoRetitling`; stub the loader so
+// the opt-out is controllable per test.
+let skipAutoRetitling = false;
+mock.module("../config/loader.js", () => ({
+  getConfig: () => ({ conversations: { skipAutoRetitling } }),
 }));
 
 import { HOOKS } from "../plugin-api/constants.js";
 import type {
   PluginLogger,
+  StopContext,
   UserPromptSubmitContext,
 } from "../plugin-api/types.js";
+import stop from "../plugins/defaults/title-generate/hooks/stop.js";
 import userPromptSubmit from "../plugins/defaults/title-generate/hooks/user-prompt-submit.js";
 import { defaultTitleGeneratePlugin } from "../plugins/defaults/title-generate/register.js";
 import { runHook } from "../plugins/pipeline.js";
@@ -67,6 +87,44 @@ function makeCtx(
 /** Flush pending `setTimeout(0)` callbacks so the fire-and-forget trigger runs. */
 function flushMacrotasks(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+function userTurn(text: string): Message {
+  return { role: "user", content: [{ type: "text", text }] };
+}
+
+function assistantTurn(text: string): Message {
+  return { role: "assistant", content: [{ type: "text", text }] };
+}
+
+/** A user-role message carrying only tool results, not a fresh prompt. */
+function toolResultTurn(): Message {
+  return {
+    role: "user",
+    content: [{ type: "tool_result", tool_use_id: "tool-1", content: "ok" }],
+  };
+}
+
+/** History with `count` genuine user turns interleaved with assistant replies. */
+function historyWithUserTurns(count: number): Message[] {
+  const messages: Message[] = [];
+  for (let i = 1; i <= count; i++) {
+    messages.push(userTurn(`message ${i}`));
+    messages.push(assistantTurn(`reply ${i}`));
+  }
+  return messages;
+}
+
+function makeStopCtx(overrides: Partial<StopContext> = {}): StopContext {
+  return {
+    conversationId: "conv-1",
+    messages: historyWithUserTurns(3),
+    responseContent: [{ type: "text", text: "reply 3" }],
+    stopReason: "end_turn",
+    decision: "stop",
+    logger: noopLogger,
+    ...overrides,
+  };
 }
 
 describe("title-generate user-prompt-submit hook", () => {
@@ -124,5 +182,116 @@ describe("title-generate user-prompt-submit hook", () => {
     expect(
       queueGenerateConversationTitleMock.mock.calls[0]?.[0]?.userMessage,
     ).toBe("draft a plan");
+  });
+});
+
+describe("title-generate stop hook", () => {
+  beforeEach(() => {
+    resetPluginRegistryForTests();
+    queueRegenerateConversationTitleMock.mockReset();
+    queueRegenerateConversationTitleMock.mockImplementation(() => undefined);
+    skipAutoRetitling = false;
+  });
+
+  test("regenerates the title on the third user turn", async () => {
+    // GIVEN a turn ending with three genuine user prompts in history
+    const ctx = makeStopCtx({ messages: historyWithUserTurns(3) });
+
+    // WHEN the stop hook runs
+    await stop(ctx);
+
+    // THEN the second-pass regeneration is triggered with just the
+    // conversation id — provider resolution and emit are owned by the service.
+    expect(queueRegenerateConversationTitleMock).toHaveBeenCalledTimes(1);
+    const call = queueRegenerateConversationTitleMock.mock.calls[0]?.[0];
+    expect(call?.conversationId).toBe("conv-1");
+    expect(call).not.toHaveProperty("provider");
+    expect(call).not.toHaveProperty("signal");
+  });
+
+  test("does not regenerate before the third user turn", async () => {
+    // GIVEN a turn ending with only two genuine user prompts
+    const ctx = makeStopCtx({ messages: historyWithUserTurns(2) });
+
+    // WHEN the stop hook runs
+    await stop(ctx);
+
+    // THEN no regeneration fires — the conversation lacks enough context yet
+    expect(queueRegenerateConversationTitleMock).toHaveBeenCalledTimes(0);
+  });
+
+  test("does not regenerate after the third user turn", async () => {
+    // GIVEN a turn ending with four genuine user prompts
+    const ctx = makeStopCtx({ messages: historyWithUserTurns(4) });
+
+    // WHEN the stop hook runs
+    await stop(ctx);
+
+    // THEN no regeneration fires — the single second pass already passed
+    expect(queueRegenerateConversationTitleMock).toHaveBeenCalledTimes(0);
+  });
+
+  test("ignores tool-result user messages when counting turns", async () => {
+    // GIVEN three genuine user prompts plus a tool-result user message
+    const messages: Message[] = [
+      userTurn("message 1"),
+      assistantTurn("reply 1"),
+      userTurn("message 2"),
+      assistantTurn("calling a tool"),
+      toolResultTurn(),
+      assistantTurn("reply 2"),
+      userTurn("message 3"),
+    ];
+    const ctx = makeStopCtx({ messages });
+
+    // WHEN the stop hook runs
+    await stop(ctx);
+
+    // THEN the tool-result message is not counted as a turn, so the third
+    // genuine prompt still triggers the regeneration
+    expect(queueRegenerateConversationTitleMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("defers when an earlier hook chose to continue the run", async () => {
+    // GIVEN a third-user-turn stop that an earlier hook flipped to "continue"
+    const ctx = makeStopCtx({
+      messages: historyWithUserTurns(3),
+      decision: "continue",
+    });
+
+    // WHEN the stop hook runs
+    await stop(ctx);
+
+    // THEN it defers to the eventual terminal stop rather than re-titling now
+    expect(queueRegenerateConversationTitleMock).toHaveBeenCalledTimes(0);
+  });
+
+  test("respects the skipAutoRetitling opt-out", async () => {
+    // GIVEN the user opted out of second-pass retitling
+    skipAutoRetitling = true;
+    const ctx = makeStopCtx({ messages: historyWithUserTurns(3) });
+
+    // WHEN the stop hook runs on the third user turn
+    await stop(ctx);
+
+    // THEN no regeneration fires
+    expect(queueRegenerateConversationTitleMock).toHaveBeenCalledTimes(0);
+  });
+
+  test("fires through runHook once the default plugin is registered", async () => {
+    // GIVEN the default title-generate plugin registered in the registry
+    registerPlugin(defaultTitleGeneratePlugin);
+
+    // WHEN a third-user-turn stop is dispatched through the hook chain
+    await runHook(
+      HOOKS.STOP,
+      makeStopCtx({ messages: historyWithUserTurns(3) }),
+    );
+
+    // THEN the second-pass regeneration is triggered
+    expect(queueRegenerateConversationTitleMock).toHaveBeenCalledTimes(1);
+    expect(
+      queueRegenerateConversationTitleMock.mock.calls[0]?.[0]?.conversationId,
+    ).toBe("conv-1");
   });
 });
