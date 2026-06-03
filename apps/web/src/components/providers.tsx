@@ -16,6 +16,7 @@ import { useState, type ReactNode } from "react";
 
 import { useAuthStore } from "@/stores/auth-store";
 import { useOrganizationStore } from "@/stores/organization-store";
+import { ProfileQuickAddProvider } from "@/components/profile-quick-add-provider";
 
 function createQueryClient(): QueryClient {
   return new QueryClient({
@@ -64,7 +65,7 @@ function ScopeKeyedQueryClientProvider({
 
   return (
     <RequestScopedQueryClientProvider key={scopeKey}>
-      {children}
+      <ProfileQuickAddProvider>{children}</ProfileQuickAddProvider>
     </RequestScopedQueryClientProvider>
   );
 }
