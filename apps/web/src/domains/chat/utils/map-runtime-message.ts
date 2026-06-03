@@ -1,11 +1,12 @@
-import type { ConversationMessageSurface } from "@vellumai/assistant-api";
+import type {
+  ConversationContentBlock,
+  ConversationMessageSurface,
+} from "@vellumai/assistant-api";
 import { runtimeAttachmentsToDisplay } from "@/domains/chat/utils/attachment-mapping";
-import { mapWireContentBlocks } from "@/domains/chat/utils/display-content-blocks";
 import { parseAttachmentSummariesFromContent } from "@/domains/chat/utils/parse-attachment-summaries";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 import type {
   DisplayAttachment,
-  DisplayContentBlock,
   DisplayMessage,
   SlackRuntimeMessage,
   Surface,
@@ -66,12 +67,13 @@ export interface PreparedRuntimeMessage {
   timestamp: number | undefined;
   thinkingSegments: string[] | undefined;
   /**
-   * The wire `contentBlocks` projection mapped onto display blocks — the
-   * renderer's preferred body source. `undefined` when the daemon didn't emit
-   * it (older daemon), in which case the renderer derives blocks from the
-   * positional arrays instead.
+   * The wire `contentBlocks` projection, carried through verbatim — the
+   * renderer's preferred body source, enriched against the row's live
+   * `toolCalls`/`surfaces` at render time by `resolveContentBlocks`.
+   * `undefined` when the daemon didn't emit it (older daemon), in which case
+   * the renderer derives blocks from the positional arrays instead.
    */
-  contentBlocks: DisplayContentBlock[] | undefined;
+  contentBlocks: ConversationContentBlock[] | undefined;
 }
 
 /**
@@ -151,18 +153,12 @@ export function prepareServerMessage(m: RuntimeMessage): PreparedRuntimeMessage 
       ? m.thinkingSegments
       : undefined;
 
-  // Map the wire `contentBlocks` onto display blocks, enriching `tool_use` and
-  // `surface` from the row's mapped `toolCalls`/`surfaces`. The Nth `tool_use`
-  // block resolves to `toolCalls[N]` (the daemon builds both in the same walk),
-  // so the cleaned/paired display tool call drives the rendered card.
+  // Carry the wire `contentBlocks` projection through verbatim. It's enriched
+  // against the row's live `toolCalls`/`surfaces` at render time (see
+  // `resolveContentBlocks`) rather than snapshotted here, so later patches to
+  // those arrays stay reflected without invalidating a cached projection.
   const contentBlocks =
-    m.contentBlocks && m.contentBlocks.length > 0
-      ? mapWireContentBlocks(
-          m.contentBlocks,
-          toolCalls,
-          m.surfaces ? mapServerSurfaces(m.surfaces) : undefined,
-        )
-      : undefined;
+    m.contentBlocks && m.contentBlocks.length > 0 ? m.contentBlocks : undefined;
 
   return {
     parsedAttachments,

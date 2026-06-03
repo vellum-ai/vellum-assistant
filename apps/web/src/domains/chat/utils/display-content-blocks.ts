@@ -2,9 +2,10 @@
  * Resolve a display row's body to a single ordered `DisplayContentBlock[]` —
  * the one list the transcript renderer walks.
  *
- * History rows carry `contentBlocks` mapped from the wire (see
- * `mapWireContentBlocks`). Live SSE rows don't build blocks yet, so
- * `resolveContentBlocks` derives an equivalent list from the positional
+ * History rows carry the wire `contentBlocks` projection, enriched on read by
+ * `mapWireContentBlocks` against the row's current `toolCalls`/`surfaces`. Live
+ * SSE rows don't carry the projection, so `resolveContentBlocks` derives an
+ * equivalent list from the positional
  * `contentOrder`/`textSegments`/`thinkingSegments` arrays the stream updaters
  * still maintain. The two producers yield identical block lists for the same
  * underlying content, so the renderer never branches on the source.
@@ -160,14 +161,25 @@ export function deriveContentBlocks(
 }
 
 /**
- * The single render source for a display row's body. Prefers the
- * `contentBlocks` built from the wire (history) and falls back to deriving
- * blocks from the positional arrays (live SSE rows).
+ * The single render source for a display row's body. History rows carry the
+ * wire `contentBlocks` projection, which is enriched here — at render time —
+ * against the row's *current* `toolCalls`/`surfaces`. Enriching on read rather
+ * than snapshotting at load keeps the rendered blocks live: a tool-status
+ * update or a surface refresh/completion/dismissal that patches those arrays is
+ * reflected on the next render, with no producer needing to invalidate a cached
+ * projection. Live SSE rows have no wire projection and fall back to deriving
+ * blocks from the positional arrays.
  */
 export function resolveContentBlocks(
   message: DisplayMessage,
 ): DisplayContentBlock[] {
-  return message.contentBlocks ?? deriveContentBlocks(message);
+  return message.contentBlocks
+    ? mapWireContentBlocks(
+        message.contentBlocks,
+        message.toolCalls,
+        message.surfaces,
+      )
+    : deriveContentBlocks(message);
 }
 
 /**

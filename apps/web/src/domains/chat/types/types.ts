@@ -71,18 +71,19 @@ export interface DisplayMessage {
   role: ConversationMessage["role"];
   surfaces?: Surface[];
   /**
-   * Unified ordered content blocks — the single render source for a row's
-   * body. Each block carries its display-ready payload inline (text, thinking,
-   * the enriched `ChatMessageToolCall`, or the display `Surface`), so the
-   * transcript renders by walking one list instead of cross-referencing the
+   * The wire `contentBlocks` projection carried through from history loads —
+   * the ordered list the renderer walks instead of cross-referencing the
    * positional `contentOrder`/`textSegments`/`thinkingSegments` arrays.
    *
-   * Populated from the wire `contentBlocks` on history loads. When absent
-   * (live SSE rows that haven't been migrated to build blocks directly), the
-   * renderer falls back to deriving blocks from the positional arrays via
+   * Stored in its raw wire form rather than pre-enriched: `resolveContentBlocks`
+   * enriches `tool_use`/`surface` blocks against the row's *current*
+   * `toolCalls`/`surfaces` at render time, so live patches to those arrays
+   * (tool status, surface refresh/completion/dismissal) are reflected without
+   * any producer having to invalidate a snapshot. Absent on live SSE rows,
+   * which the renderer derives from the positional arrays via
    * `resolveContentBlocks`.
    */
-  contentBlocks?: DisplayContentBlock[];
+  contentBlocks?: ConversationContentBlock[];
   /** Ordered text bodies, matching the wire `textSegments: string[]`. Each
    *  entry is referenced positionally by a `text:N` entry in `contentOrder`. */
   textSegments?: string[];

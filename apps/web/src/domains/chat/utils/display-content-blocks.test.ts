@@ -172,15 +172,67 @@ describe("mapWireContentBlocks", () => {
 });
 
 describe("resolveContentBlocks", () => {
-  it("prefers contentBlocks when present", () => {
+  it("enriches the wire projection against the row's live arrays when present", () => {
     const message = makeMessage({
-      contentBlocks: [{ type: "text", text: "from blocks" }],
+      contentBlocks: [
+        { type: "text", text: "from blocks" },
+        { type: "tool_use", toolCall: { name: "do_thing", input: {} } },
+        {
+          type: "surface",
+          surface: { surfaceId: "sf-1", surfaceType: "card", data: {} },
+        },
+      ],
+      toolCalls: [toolCall("tc-1")],
+      surfaces: [surface("sf-1")],
       textSegments: ["from legacy"],
       contentOrder: [{ type: "text", id: "0" }],
     });
 
     expect(resolveContentBlocks(message)).toEqual([
       { type: "text", text: "from blocks" },
+      { type: "tool_use", toolCall: toolCall("tc-1") },
+      { type: "surface", surface: surface("sf-1") },
+    ]);
+  });
+
+  it("reflects live patches to surfaces/toolCalls without re-projecting the wire blocks", () => {
+    const wire: ConversationContentBlock[] = [
+      { type: "tool_use", toolCall: { name: "do_thing", input: {} } },
+      {
+        type: "surface",
+        surface: { surfaceId: "sf-1", surfaceType: "card", data: {} },
+      },
+    ];
+    // GIVEN a history row whose surface has since been completed and whose tool
+    // call has since errored — patched in place on the row's display arrays.
+    const message = makeMessage({
+      contentBlocks: wire,
+      toolCalls: [{ ...toolCall("tc-1"), status: "error" }],
+      surfaces: [{ ...surface("sf-1"), completed: true }],
+    });
+
+    // WHEN the renderer resolves the row's blocks
+    // THEN the enriched blocks carry the patched state, not a stale snapshot.
+    expect(resolveContentBlocks(message)).toEqual([
+      { type: "tool_use", toolCall: { ...toolCall("tc-1"), status: "error" } },
+      { type: "surface", surface: { ...surface("sf-1"), completed: true } },
+    ]);
+  });
+
+  it("drops a wire surface block once the surface is removed from the row", () => {
+    const message = makeMessage({
+      contentBlocks: [
+        { type: "text", text: "body" },
+        {
+          type: "surface",
+          surface: { surfaceId: "sf-1", surfaceType: "card", data: {} },
+        },
+      ],
+      surfaces: [],
+    });
+
+    expect(resolveContentBlocks(message)).toEqual([
+      { type: "text", text: "body" },
     ]);
   });
 
