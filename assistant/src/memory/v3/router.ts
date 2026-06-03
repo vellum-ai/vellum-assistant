@@ -15,12 +15,17 @@
  * cache turn after turn. The trailing recent-context / current-message block
  * changes every turn, so it carries no breakpoint.
  *
- * Recall-safe fallbacks. The router exists to widen recall, so every failure
- * mode degrades toward opening MORE leaves, never fewer:
- *   - omitted `ids` (model didn't pass the field) → open ALL leaves,
- *   - missing/failed tool_use, provider unavailable, or any throw → ALL leaves.
- * The one path that returns nothing is an explicit empty array (`ids: []`),
- * which is the model deliberately abstaining.
+ * Failure handling. A *model-call* failure is not the same as the model
+ * choosing to open everything, so the two no longer share an outcome:
+ *   - explicit `ids` → open exactly those leaves,
+ *   - explicit empty array (`ids: []`) → open nothing (deliberate abstention),
+ *   - omitted `ids` → open nothing: the router must name the leaves it wants,
+ *     never the whole tree (~137 leaves would fan out a full L2 pass per turn),
+ *   - infrastructure failure (provider unavailable, a throw that survived the
+ *     provider's own retries, no usable `tool_use`, or a schema mismatch) →
+ *     open nothing after a short re-prompt retry, degrading to the deterministic
+ *     recall lanes (always-on core, the BM25 needle, the carry-forward working
+ *     set) that the orchestrator unions in regardless.
  */
 
 import { z } from "zod";
@@ -31,6 +36,7 @@ import {
 } from "../../providers/provider-send-message.js";
 import type { Message, ToolDefinition } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
+import { retryForResult } from "./llm-retry.js";
 import { cachedTextBlock } from "./provider-blocks.js";
 import type { LeafPath, LeafTree, TurnContext } from "./types.js";
 
@@ -40,8 +46,8 @@ const log = getLogger("memory-v3-router");
 const OPEN_LEAVES_TOOL_NAME = "open_leaves";
 
 const OpenLeavesSchema = z.object({
-  // Optional: an omitted `ids` field is the recall-safe "open everything"
-  // signal, distinct from an explicit empty array (deliberate abstention).
+  // Optional so the field can be absent on the wire, but an omitted `ids` opens
+  // nothing — the router must name the leaves it wants, never the whole tree.
   ids: z.array(z.number().int()).optional(),
 });
 
@@ -50,8 +56,8 @@ const OPEN_LEAVES_TOOL: ToolDefinition = {
   description:
     "Open the leaves whose contents could plausibly bear on the next reply. " +
     "Lean toward inclusion — a missed relevant leaf is a worse error than an " +
-    "unused one. Omit `ids` entirely to open every leaf; return `[]` only " +
-    "when nothing in the tree could possibly help.",
+    "unused one. Pass the chosen IDs explicitly; return `[]` only when nothing " +
+    "in the tree could possibly help.",
   input_schema: {
     type: "object",
     properties: {
@@ -72,7 +78,7 @@ Each leaf has a numbered ID, a path, and a description of what it holds. Decide 
 - Recent context — the immediately preceding exchange, which resolves references like "this", "that", or "the same thing" to concrete topics.
 - Situation — the current date and a live scratchpad of what is salient right now. A date or state cue can make a leaf relevant even when the message never names it (e.g. a person whose anniversary is today, an active thread).
 
-Include on doubt: open every leaf that could plausibly hold something useful. Missing a relevant leaf is a worse error than opening an unused one. Call \`open_leaves\` with the chosen IDs. Omit \`ids\` to open every leaf; return \`[]\` only when nothing in the tree could possibly help.`;
+Include on doubt: open every leaf that could plausibly hold something useful. Missing a relevant leaf is a worse error than opening an unused one. Call \`open_leaves\` with the chosen IDs explicitly; return \`[]\` only when nothing in the tree could possibly help.`;
 
 /** Leaves sorted deterministically by path so the numbered block is stable. */
 function sortedLeaves(tree: LeafTree): LeafPath[] {
@@ -105,10 +111,10 @@ export function renderLeafBlock(tree: LeafTree): string {
 }
 
 /**
- * Run the L1 router for one turn. Returns the leaf paths to open.
- *
- * Recall-safe: any failure to obtain an explicit selection returns ALL leaves.
- * Only an explicit empty `ids` array returns no leaves.
+ * Run the L1 router for one turn. Returns the leaf paths to open — only ever the
+ * leaves the model names explicitly. An omitted `ids`, an explicit `[]`, or an
+ * infrastructure failure (after a short re-prompt retry) all open nothing,
+ * degrading to the deterministic recall lanes the orchestrator unions in.
  */
 export async function routeL1(
   turn: TurnContext,
@@ -119,8 +125,10 @@ export async function routeL1(
 
   const provider = await getConfiguredProvider("memoryV3RouteL1");
   if (!provider) {
-    log.warn("memoryV3RouteL1 provider unavailable; opening all leaves");
-    return paths;
+    log.warn(
+      "L1 router provider unavailable; degrading to deterministic lanes",
+    );
+    return [];
   }
 
   const userMsg: Message = {
@@ -139,9 +147,12 @@ export async function routeL1(
     ],
   };
 
-  let response;
-  try {
-    response = await provider.sendMessage([userMsg], {
+  // One forced-tool call, retried a few times so a transient malformed response
+  // (no usable tool_use, or tool input that fails the schema) re-prompts before
+  // we give up. `null` from an attempt means "unusable, retry"; the provider
+  // layer already backs off transient throws, so this loop adds no delay.
+  const parsed = await retryForResult(async () => {
+    const response = await provider.sendMessage([userMsg], {
       tools: [OPEN_LEAVES_TOOL],
       systemPrompt: SYSTEM_PROMPT,
       config: {
@@ -149,37 +160,28 @@ export async function routeL1(
         tool_choice: { type: "tool" as const, name: OPEN_LEAVES_TOOL_NAME },
       },
     });
-  } catch (err) {
-    log.warn({ err }, "L1 router call threw; opening all leaves");
-    return paths;
-  }
+    const toolBlock = extractToolUse(response);
+    if (!toolBlock || toolBlock.name !== OPEN_LEAVES_TOOL_NAME) return null;
+    const result = OpenLeavesSchema.safeParse(toolBlock.input);
+    return result.success ? result.data : null;
+  });
 
-  const toolBlock = extractToolUse(response);
-  if (!toolBlock || toolBlock.name !== OPEN_LEAVES_TOOL_NAME) {
+  if (parsed === null) {
     log.warn(
-      { stopReason: response.stopReason },
-      "L1 router returned no open_leaves tool_use; opening all leaves",
+      "L1 router could not obtain a selection after retries; degrading to deterministic lanes",
     );
-    return paths;
+    return [];
   }
 
-  const parsed = OpenLeavesSchema.safeParse(toolBlock.input);
-  if (!parsed.success) {
-    log.warn(
-      { error: parsed.error.message },
-      "L1 router tool input did not match schema; opening all leaves",
-    );
-    return paths;
-  }
-
-  // Omitted `ids` is the recall-safe "open everything" signal.
-  if (parsed.data.ids === undefined) return paths;
+  // An omitted `ids` field means the model named no leaves — open nothing rather
+  // than the whole tree. Only explicitly listed IDs open leaves.
+  if (parsed.ids === undefined) return [];
 
   // Map 1-based IDs back to leaf paths, dropping out-of-range IDs without
   // throwing. De-duplicate while preserving model-returned order.
   const seen = new Set<number>();
   const selected: LeafPath[] = [];
-  for (const id of parsed.data.ids) {
+  for (const id of parsed.ids) {
     if (id < 1 || id > paths.length || seen.has(id)) continue;
     seen.add(id);
     selected.push(paths[id - 1]);
