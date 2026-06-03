@@ -37,16 +37,21 @@ export function parseContentOrderEntry(entry: string): ContentOrderEntry | null 
 }
 
 /**
- * Drop entries that can't be parsed into a `"<type>:<ref>"` pair, returning
- * `undefined` when nothing remains. Used to sanitize the wire array before it
- * is carried onto a display row.
+ * Sanitize a raw wire `contentOrder` into the display array, dropping anything
+ * that isn't a parseable `"<type>:<ref>"` string and returning `undefined` when
+ * nothing remains. The input is typed `unknown[]` because the history endpoint
+ * only narrows rows by `id`/`role` — `contentOrder` reaches here unvalidated,
+ * so legacy/malformed entries (numbers, `null`, objects) must be tolerated.
  */
 export function normalizeContentOrder(
-  raw: string[] | undefined,
+  raw: readonly unknown[] | undefined,
 ): string[] | undefined {
   if (!raw || raw.length === 0) {
     return undefined;
   }
-  const result = raw.filter((entry) => parseContentOrderEntry(entry) !== null);
+  const result = raw.filter(
+    (entry): entry is string =>
+      typeof entry === "string" && parseContentOrderEntry(entry) !== null,
+  );
   return result.length > 0 ? result : undefined;
 }

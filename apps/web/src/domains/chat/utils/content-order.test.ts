@@ -105,4 +105,28 @@ describe("normalizeContentOrder", () => {
     // THEN only the parseable entries remain
     expect(result).toEqual(["text:0", "tool:1"]);
   });
+
+  test("tolerates non-string entries from unvalidated wire data", () => {
+    /**
+     * The history endpoint narrows rows only by `id`/`role`, so `contentOrder`
+     * reaches the sanitizer unvalidated. Legacy or malformed entries (numbers,
+     * `null`, objects) must be dropped rather than thrown on.
+     */
+
+    // GIVEN a wire array containing non-string entries alongside valid ones
+    const input = [
+      "text:0",
+      null,
+      42,
+      { type: "tool", id: "0" },
+      undefined,
+      "tool:1",
+    ];
+
+    // WHEN it is normalized
+    const result = normalizeContentOrder(input);
+
+    // THEN the non-string entries are dropped and parsing never throws
+    expect(result).toEqual(["text:0", "tool:1"]);
+  });
 });
