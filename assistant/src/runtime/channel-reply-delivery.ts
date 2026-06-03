@@ -124,8 +124,23 @@ async function activateSlackThreadIfNeeded(
     return null;
   }
 
-  const tracked = await trackSlackActiveThread(target.channelId, target.threadTs);
-  return tracked ? null : target;
+  try {
+    const tracked = await trackSlackActiveThread(
+      target.channelId,
+      target.threadTs,
+    );
+    return tracked ? null : target;
+  } catch (err) {
+    log.warn(
+      {
+        err,
+        channelId: target.channelId,
+        threadTs: target.threadTs,
+      },
+      "Slack active thread activation threw after reply delivery; deferring activation to retry path",
+    );
+    return target;
+  }
 }
 
 function throwIfSlackThreadActivationPending(

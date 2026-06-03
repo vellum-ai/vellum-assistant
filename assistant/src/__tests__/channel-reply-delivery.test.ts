@@ -64,6 +64,7 @@ const renderedHistoryContentQueue: RenderedHistoryStub[] = [];
 let deliveryFailAtIndex = -1;
 let failOnRecordedMessageTs: string | null = null;
 let slackThreadActivationShouldSucceed = true;
+let slackThreadActivationError: Error | null = null;
 
 mock.module("../runtime/gateway-client.js", () => ({
   deliverChannelReply: async (
@@ -98,6 +99,9 @@ mock.module("../runtime/gateway-client.js", () => ({
     ttlMs?: number,
   ) => {
     slackThreadActivationCalls.push({ channelId, threadTs, ttlMs });
+    if (slackThreadActivationError) {
+      throw slackThreadActivationError;
+    }
     return slackThreadActivationShouldSucceed;
   },
 }));
@@ -177,6 +181,7 @@ describe("channel-reply-delivery", () => {
     deliveryFailAtIndex = -1;
     failOnRecordedMessageTs = null;
     slackThreadActivationShouldSucceed = true;
+    slackThreadActivationError = null;
     conversationMessages.length = 0;
     attachmentsByMessageId.clear();
     updateMessageMetadataCalls.length = 0;
@@ -717,6 +722,43 @@ describe("channel-reply-delivery", () => {
     expect(deliveryCalls).toHaveLength(1);
     expect(deliveredCounts).toEqual([1]);
     expect(slackThreadActivationCalls).toEqual([
+      {
+        channelId: "C123THREAD",
+        threadTs: "1700000000.000001",
+        ttlMs: undefined,
+      },
+    ]);
+  });
+
+  it("records delivered segment progress before a thrown Slack activation IPC failure is retried", async () => {
+    slackThreadActivationError = new Error(
+      "Simulated Slack activation IPC failure",
+    );
+    const deliveredCounts: number[] = [];
+
+    await expect(
+      deliverRenderedReplyViaCallback({
+        callbackUrl:
+          "http://gateway/deliver/slack?channel=C123THREAD&threadTs=1700000000.000001",
+        chatId: "C123THREAD",
+        textSegments: ["Part 1.", "Part 2."],
+        interSegmentDelayMs: 0,
+        onSegmentDelivered: (count) => deliveredCounts.push(count),
+      }),
+    ).rejects.toThrow(
+      "Slack active thread activation failed after reply delivery",
+    );
+
+    expect(deliveryCalls).toHaveLength(2);
+    expect(deliveryCalls[0].payload.text).toBe("Part 1.");
+    expect(deliveryCalls[1].payload.text).toBe("Part 2.");
+    expect(deliveredCounts).toEqual([1, 2]);
+    expect(slackThreadActivationCalls).toEqual([
+      {
+        channelId: "C123THREAD",
+        threadTs: "1700000000.000001",
+        ttlMs: undefined,
+      },
       {
         channelId: "C123THREAD",
         threadTs: "1700000000.000001",
