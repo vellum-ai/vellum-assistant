@@ -9,6 +9,7 @@ import { NativeSplash } from "@/components/native-splash";
 import { LoginBackground } from "@/domains/account/login-background";
 import { PROVIDER_ID, buildProviderCallbackUrl } from "@/domains/account/login-flow";
 import { ensureGatewayToken } from "@/lib/auth/gateway-session";
+import { captureError, normalizeToError } from "@/lib/sentry/capture-error";
 import {
   type LockfileAssistant,
   isLocalMode,
@@ -260,6 +261,9 @@ function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
   const [refreshKey, setRefreshKey] = useState(0);
   const [connectingId, setConnectingId] = useState<string | null>(null);
   const [connectError, setConnectError] = useState<string | null>(null);
+  const [connectErrorDetail, setConnectErrorDetail] = useState<string | null>(
+    null,
+  );
   const [platformError, setPlatformError] = useState<string | null>(null);
   const [platformLoading, setPlatformLoading] = useState(false);
   const isPlatformLocal = useIsPlatformLocal();
@@ -280,6 +284,7 @@ function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
   const connectToLocal = useCallback(
     async (assistant: LockfileAssistant) => {
       setConnectError(null);
+      setConnectErrorDetail(null);
       setConnectingId(assistant.assistantId);
       try {
         const guardianToken = await fetchGuardianTokenHost(assistant.assistantId);
@@ -288,10 +293,18 @@ function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
         await ensureGatewayToken(tokenUrl, guardianToken);
         await useAuthStore.getState().initSession();
         navigate(returnTo || "/assistant");
-      } catch {
+      } catch (err) {
+        captureError(err, {
+          context: "local-login.connect",
+          extra: {
+            assistantId: assistant.assistantId,
+            gatewayPort: assistant.resources?.gatewayPort,
+          },
+        });
         setConnectError(
           "Couldn't connect to your assistant. Make sure it's running.",
         );
+        setConnectErrorDetail(normalizeToError(err).message);
         setConnectingId(null);
       }
     },
@@ -441,6 +454,11 @@ function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
               <p className="text-body-small-default text-center text-[var(--system-negative-strong)]">
                 {connectError}
               </p>
+              {connectErrorDetail && (
+                <p className="text-body-small-default text-center text-[var(--content-secondary)] break-words">
+                  {connectErrorDetail}
+                </p>
+              )}
               <div className="flex justify-center">
                 <Button
                   type="button"
@@ -511,6 +529,11 @@ function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
           {connectError && (
             <p className="text-body-small-default text-center text-[var(--system-negative-strong)]">
               {connectError}
+            </p>
+          )}
+          {connectErrorDetail && (
+            <p className="text-body-small-default text-center text-[var(--content-secondary)] break-words">
+              {connectErrorDetail}
             </p>
           )}
           <div className="flex flex-col gap-2">
