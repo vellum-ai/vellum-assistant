@@ -31,6 +31,22 @@ import type { ProviderConnection } from "@/domains/settings/ai/provider-connecti
 // ---------------------------------------------------------------------------
 
 let createdConnection: ProviderConnection;
+let toastSuccessCalls: string[] = [];
+
+// Spy on the design-library toast so we can assert the shared ProfileEditorModal
+// does NOT fire a profile-create success toast itself — that toast belongs to
+// the surrounding surface (Settings via ManageProfilesModal, composer via its
+// own quick-add), preventing a double-fire.
+mock.module("@vellum/design-library/components/toast", () => ({
+  toast: {
+    success: (message: string) => {
+      toastSuccessCalls.push(message);
+    },
+    error: () => {},
+  },
+  Toaster: () => null,
+  ToastContent: () => null,
+}));
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
   ...sdkGen,
@@ -177,7 +193,11 @@ function selectModel(label: string): void {
   throw new Error(`expected a Model dropdown offering "${label}"`);
 }
 
-function renderCreate(connections: ProviderConnection[]) {
+function renderCreate(
+  connections: ProviderConnection[],
+  onSave: (name: string, entry: unknown) => Promise<void> = () =>
+    Promise.resolve(),
+) {
   return render(
     <Wrapper>
       <ProfileEditorModal
@@ -186,15 +206,25 @@ function renderCreate(connections: ProviderConnection[]) {
         existingNames={[]}
         connections={connections}
         assistantId={ASSISTANT_ID}
-        onSave={() => Promise.resolve()}
+        onSave={onSave}
         onCancel={() => {}}
       />
     </Wrapper>,
   );
 }
 
+/** Drive a provider-first create up to a Save-enabled state. */
+function fillCreateForm(): void {
+  selectProvider("Anthropic");
+  selectModel("Claude Opus 4.8");
+  fireEvent.change(getInputByPlaceholder("e.g. fast-cheap"), {
+    target: { value: "my-profile" },
+  });
+}
+
 beforeEach(() => {
   createdConnection = makeConnection("anthropic-personal");
+  toastSuccessCalls = [];
 });
 
 afterEach(() => {
@@ -300,5 +330,77 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     await waitFor(() => {
       expect(getSaveBtn().disabled).toBe(false);
     });
+  });
+
+  test("Save shows 'Saving…' and disables while the create is in flight", async () => {
+    // Hold the save promise open so we can observe the in-flight state.
+    let resolveSave: () => void = () => {};
+    const onSave = () =>
+      new Promise<void>((resolve) => {
+        resolveSave = resolve;
+      });
+
+    renderCreate([makeConnection("anthropic-personal")], onSave);
+    fillCreateForm();
+
+    await waitFor(() => {
+      expect(getSaveBtn().disabled).toBe(false);
+    });
+    fireEvent.click(getSaveBtn());
+
+    // While pending: button is disabled and shows progress text.
+    await waitFor(() => {
+      expect(getSaveBtn().textContent?.trim()).toBe("Saving…");
+    });
+    expect(getSaveBtn().disabled).toBe(true);
+
+    resolveSave();
+    await waitFor(() => {
+      expect(getSaveBtn().textContent?.trim()).toBe("Save");
+    });
+  });
+
+  test("a save failure renders inline and keeps the modal open", async () => {
+    const onSave = () => Promise.reject(new Error("invalid API key"));
+
+    renderCreate([makeConnection("anthropic-personal")], onSave);
+    fillCreateForm();
+
+    await waitFor(() => {
+      expect(getSaveBtn().disabled).toBe(false);
+    });
+    fireEvent.click(getSaveBtn());
+
+    // The inline error surfaces...
+    await waitFor(() => {
+      expect(document.body.textContent).toContain(
+        "Failed to save profile. Please try again.",
+      );
+    });
+    // ...and the modal stays open (the Save button is still rendered).
+    expect(getSaveBtn()).toBeDefined();
+  });
+
+  test("the modal itself does NOT fire a profile-create success toast", async () => {
+    // The success toast belongs to the surrounding surface (Settings/composer),
+    // not the shared modal — this guards against a double-fire regression.
+    let resolved = false;
+    const onSave = () => {
+      resolved = true;
+      return Promise.resolve();
+    };
+
+    renderCreate([makeConnection("anthropic-personal")], onSave);
+    fillCreateForm();
+
+    await waitFor(() => {
+      expect(getSaveBtn().disabled).toBe(false);
+    });
+    fireEvent.click(getSaveBtn());
+
+    await waitFor(() => {
+      expect(resolved).toBe(true);
+    });
+    expect(toastSuccessCalls).toEqual([]);
   });
 });
