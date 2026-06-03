@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
 
 import { resolveLocalOnboardingRoute } from "@/utils/local-onboarding-route";
 import { useAuthStore } from "@/stores/auth-store";
@@ -12,6 +12,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  jest.useRealTimers();
   useAuthStore.setState(initialAuthState, true);
 });
 
@@ -53,5 +54,19 @@ describe("resolveLocalOnboardingRoute", () => {
       platformSessionResolved: true,
     });
     expect(await resolveLocalOnboardingRoute()).toBe(routes.onboarding.welcome);
+  });
+
+  test("falls back to welcome when the probe never settles within the timeout", async () => {
+    jest.useFakeTimers();
+    useAuthStore.setState({
+      hasPlatformSession: false,
+      platformSessionResolved: false,
+    });
+
+    const pending = resolveLocalOnboardingRoute();
+    // A hung probe must not block navigation forever; once the timeout
+    // elapses the still-unconfirmed session resolves to the safe default.
+    jest.advanceTimersByTime(5_000);
+    expect(await pending).toBe(routes.onboarding.welcome);
   });
 });
