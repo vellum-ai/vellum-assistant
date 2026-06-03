@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { Button, Card, Menu, SegmentControl } from "@vellum/design-library";
+import { SkillIcon } from "./skill-icon";
 import { SkillOriginBadge } from "./skill-origin-badge";
 import { SkillFileContent } from "./skill-file-content";
 import { isMarkdown } from "@/components/file-markdown";
@@ -98,7 +99,7 @@ export function SkillDetailMobile({
 
   const overlay = (
     <div
-      className="fixed inset-0 z-40 flex flex-col gap-3 overflow-hidden bg-[var(--surface-overlay)]"
+      className="fixed inset-0 z-40 flex flex-col gap-4 overflow-hidden bg-[var(--surface-overlay)]"
       style={{
         paddingTop:
           "calc(8px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px)))",
@@ -139,12 +140,18 @@ export function SkillDetailMobile({
       {/* Header block */}
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-2">
-          <h2
-            className="min-w-0 truncate text-title-medium"
-            style={{ color: "var(--content-emphasised)" }}
-          >
-            {skill.name}
-          </h2>
+          <div className="flex min-w-0 items-center gap-2">
+            <SkillIcon
+              skill={skill}
+              className="h-6 w-6 shrink-0 text-[22px] leading-none"
+            />
+            <h2
+              className="min-w-0 truncate text-title-medium"
+              style={{ color: "var(--content-emphasised)" }}
+            >
+              {skill.name}
+            </h2>
+          </div>
           <SkillOriginBadge origin={skill.origin} />
         </div>
         <p
