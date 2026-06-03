@@ -244,7 +244,19 @@ export function mergeDuplicateMessages(
     merged.thinkingSegments = current.thinkingSegments ?? incoming.thinkingSegments;
   }
 
+  dropStaleContentBlocks(merged);
   return merged;
+}
+
+/**
+ * The wire `contentBlocks` projection describes a single row's body. A merge
+ * concatenates the positional arrays of both rows, so a projection carried
+ * over by the spread covers only one side and would render a truncated turn.
+ * Drop it so `resolveContentBlocks` derives the full block list from the merged
+ * positional arrays instead.
+ */
+function dropStaleContentBlocks(merged: DisplayMessage): void {
+  delete merged.contentBlocks;
 }
 
 function pickMoreCompleteArray<T>(
@@ -366,6 +378,7 @@ export function mergeLatestHistoryMessage(
     merged.timestamp = current.timestamp ?? incoming.timestamp;
   }
 
+  dropStaleContentBlocks(merged);
   return merged;
 }
 
@@ -541,6 +554,7 @@ function foldAdjacentAssistant(
   // anchor) via the spread — matches the backend's
   // `mergeConsecutiveAssistantMessages` which keeps the anchor's
   // metadata, createdAt, and id.
+  dropStaleContentBlocks(merged);
   return merged;
 }
 

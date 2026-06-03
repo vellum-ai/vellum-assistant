@@ -503,3 +503,34 @@ describe("mergeThinkingSegments", () => {
     ]);
   });
 });
+
+describe("mergeAdjacentAssistantMessages · contentBlocks", () => {
+  test("drops a survivor's stale contentBlocks so the renderer re-derives from the merged body", () => {
+    /**
+     * A fold concatenates the survivor's and donor's positional arrays but
+     * recomputes nothing about the survivor's wire `contentBlocks`. Left in
+     * place, those blocks would describe only the survivor's half of the
+     * merged turn and the renderer (which prefers `contentBlocks`) would drop
+     * the donor's content. The fold must clear `contentBlocks` so
+     * `resolveContentBlocks` rebuilds from the merged positional arrays.
+     */
+    const survivor = makeAssistant({
+      id: "anchor-old",
+      ...textBody("first half "),
+      timestamp: 1000,
+      contentBlocks: [{ type: "text", text: "first half " }],
+    });
+    const donor = makeAssistant({
+      id: "anchor-new",
+      ...textBody("second half"),
+      timestamp: 1010,
+      contentBlocks: [{ type: "text", text: "second half" }],
+    });
+
+    const result = mergeAdjacentAssistantMessages([survivor, donor]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]!.contentBlocks).toBeUndefined();
+    expect(messageText(result[0]!)).toBe("first half second half");
+  });
+});
