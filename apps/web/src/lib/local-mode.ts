@@ -13,11 +13,13 @@ import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import { useLockfileStore } from "@/stores/lockfile-store";
 import {
   fetchGuardianTokenHost,
+  GuardianTokenError,
   loadLockfileHost,
   parseLockfile,
   replacePlatformAssistantsHost,
   retireLocalAssistantHost,
   saveLockfileAssistantHost,
+  wakeLocalAssistantHost,
 } from "@/runtime/local-mode-host";
 import type {
   Lockfile,
@@ -280,4 +282,42 @@ export async function primeLocalGatewayConnection(): Promise<void> {
     url: `${window.location.origin}${localGateway}`,
     token: getGatewayToken(),
   });
+}
+
+/**
+ * Classify a connect failure as repairable by `wake`. A `403` means the host
+ * refused the loopback boundary — a security decision wake can't change — so
+ * it surfaces as-is. Every other failure (a missing/expired/malformed guardian
+ * token, or an unreachable or stopped gateway) is something `wake` can fix by
+ * re-seeding the token and restarting the daemon + gateway.
+ */
+function isRepairableConnectError(error: unknown): boolean {
+  if (error instanceof GuardianTokenError) return error.status !== 403;
+  return true;
+}
+
+/**
+ * Prime the local gateway connection, transparently repairing the assistant in
+ * place when the first attempt fails for a repairable reason.
+ *
+ * This mirrors the native client's bootstrap, which re-pairs a stopped,
+ * expired, or mis-seeded local assistant before the failure ever reaches the
+ * user: on a repairable failure it runs `wake` (re-seeds the guardian token
+ * and restarts the daemon + gateway, leaving the assistant's data and identity
+ * untouched), then primes the connection once more. A non-repairable failure,
+ * a wake that itself fails, or a still-failing retry propagate the original
+ * error so the existing connect-error UI surfaces it unchanged.
+ */
+export async function primeLocalGatewayConnectionWithRepair(): Promise<void> {
+  try {
+    await primeLocalGatewayConnection();
+    return;
+  } catch (error) {
+    if (!isRepairableConnectError(error)) throw error;
+    const assistantId = getSelectedAssistant()?.assistantId;
+    if (!assistantId) throw error;
+    const repair = await wakeLocalAssistantHost(assistantId);
+    if (!repair.ok) throw error;
+    await primeLocalGatewayConnection();
+  }
 }

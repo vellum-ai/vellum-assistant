@@ -164,6 +164,13 @@ export interface VellumBridge {
      */
     retire(assistantId: string): Promise<{ ok: boolean; error?: string }>;
     /**
+     * Wake (start/restart) a local assistant's daemon and gateway via the
+     * Vellum CLI's `wake`, re-seeding its guardian token. The non-destructive
+     * repair primitive used to recover a stopped or mis-seeded assistant in
+     * place. Mirrors `retire`'s never-reject contract.
+     */
+    wake(assistantId: string): Promise<{ ok: boolean; error?: string }>;
+    /**
      * Acquire a fresh guardian access token for a local assistant, reading
      * the token file from disk and refreshing it via the CLI when expired.
      * Authorizes the gateway token exchange.
@@ -290,6 +297,11 @@ const bridge: VellumBridge = {
         "vellum:localMode:replacePlatformAssistants",
         platformAssistants,
       ) as Promise<LockfileWriteResult>,
+    wake: (assistantId: string) =>
+      ipcRenderer.invoke("vellum:localMode:wake", assistantId) as Promise<{
+        ok: boolean;
+        error?: string;
+      }>,
     retire: (assistantId: string) =>
       ipcRenderer.invoke("vellum:localMode:retire", assistantId) as Promise<{
         ok: boolean;

@@ -11,6 +11,7 @@ import {
   resolveLockfilePaths,
   runHatch,
   runRetire,
+  runWake,
   upsertLockfileAssistant,
   type CliInvocation,
   type LockfileWriteResult,
@@ -50,6 +51,11 @@ interface HatchResult {
 }
 
 interface RetireResult {
+  ok: boolean;
+  error?: string;
+}
+
+interface WakeResult {
   ok: boolean;
   error?: string;
 }
@@ -112,6 +118,22 @@ async function retire(assistantId: string): Promise<RetireResult> {
     return { ok: false, error: (err as Error).message };
   }
   const result = await runRetire(invocation, assistantId);
+  return result.ok ? { ok: true } : { ok: false, error: result.error };
+}
+
+/**
+ * Wake (start/restart) a local assistant's daemon and gateway, re-seeding its
+ * guardian token. The non-destructive repair primitive. Mirrors `hatch`'s
+ * never-reject contract.
+ */
+async function wake(assistantId: string): Promise<WakeResult> {
+  let invocation: CliInvocation;
+  try {
+    invocation = await resolveCliInvocation();
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+  const result = await runWake(invocation, assistantId);
   return result.ok ? { ok: true } : { ok: false, error: result.error };
 }
 
@@ -185,6 +207,11 @@ export const installLocalMode = (): void => {
   handle("vellum:localMode:retire", assistantIdArgs, ([assistantId]) => {
     if (!assistantId) return { ok: false, error: "Missing assistantId" };
     return retire(assistantId);
+  });
+
+  handle("vellum:localMode:wake", assistantIdArgs, ([assistantId]) => {
+    if (!assistantId) return { ok: false, error: "Missing assistantId" };
+    return wake(assistantId);
   });
 
   handle(

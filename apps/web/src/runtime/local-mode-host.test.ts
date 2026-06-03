@@ -13,6 +13,7 @@ const {
   saveLockfileAssistantHost,
   replacePlatformAssistantsHost,
   retireLocalAssistantHost,
+  wakeLocalAssistantHost,
   fetchGuardianTokenHost,
 } = await import("./local-mode-host");
 
@@ -205,6 +206,41 @@ describe("retireLocalAssistantHost", () => {
     expect(await retireLocalAssistantHost("a-1")).toEqual({ ok: true });
     expect(retire).toHaveBeenCalledWith("a-1");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("wakeLocalAssistantHost", () => {
+  test("web/dev host POSTs the assistant id to the wake middleware", async () => {
+    const fetchMock = mock(async () => ({ json: async () => ({ ok: true }) }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    expect(await wakeLocalAssistantHost("a-1")).toEqual({ ok: true });
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("/assistant/__local/wake");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({ assistantId: "a-1" });
+  });
+
+  test("Electron host wakes through the bridge and never touches fetch", async () => {
+    const wake = mock(async () => ({ ok: true }));
+    const fetchMock = mock(async () => {
+      throw new Error("fetch must not run on the Electron branch");
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    setElectronBridge({ wake });
+
+    expect(await wakeLocalAssistantHost("a-1")).toEqual({ ok: true });
+    expect(wake).toHaveBeenCalledWith("a-1");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("older Electron shell without the wake channel reports an unsupported failure", async () => {
+    // The macOS app and web bundle don't release together: a newer renderer
+    // can run against a preload that predates the wake IPC channel.
+    setElectronBridge({});
+
+    const result = await wakeLocalAssistantHost("a-1");
+    expect(result.ok).toBe(false);
   });
 });
 

@@ -34,6 +34,7 @@ import {
   clearSelectedAssistant,
   setSelectedAssistantId,
   primeLocalGatewayConnection,
+  primeLocalGatewayConnectionWithRepair,
   syncPlatformAssistantsToLockfile,
 } from "@/lib/local-mode";
 import { listAssistants } from "@/assistant/api";
@@ -303,13 +304,15 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
    * Unlike {@link AuthActions.initSession}, which is the best-effort boot
    * probe and swallows failures, this rethrows so the caller can surface the
    * reason — including the typed `GuardianTokenError` from the host seam — and
-   * offer recovery instead of dead-ending. Both paths share
-   * `primeLocalGatewayConnection`, so the guardian-token and gateway exchange
-   * happen exactly once per connect.
+   * offer recovery instead of dead-ending. It primes through
+   * `primeLocalGatewayConnectionWithRepair`, which self-heals a stopped or
+   * mis-seeded assistant via `wake` before surfacing any error — matching the
+   * native client's re-pair-on-connect bootstrap. The boot probe deliberately
+   * stays on the plain primitive so app launch never spawns daemon processes.
    */
   connectLocalAssistant: async (assistantId: string) => {
     setSelectedAssistantId(assistantId);
-    await primeLocalGatewayConnection();
+    await primeLocalGatewayConnectionWithRepair();
     set({ isLoggedIn: true, isLoading: false, user: GATEWAY_LOCAL_USER });
     if (!isLocalMode() || getPlatformAssistants().length > 0) {
       probePlatformSession(set);

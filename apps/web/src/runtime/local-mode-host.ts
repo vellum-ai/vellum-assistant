@@ -62,6 +62,11 @@ export interface LocalRetireResult {
   error?: string;
 }
 
+export interface LocalWakeResult {
+  ok: boolean;
+  error?: string;
+}
+
 /**
  * Thrown by {@link fetchGuardianTokenHost} when a host returns a structured
  * guardian-token failure. Carries the host's `status` so callers can branch on
@@ -186,6 +191,37 @@ export async function retireLocalAssistantHost(
     body: JSON.stringify({ assistantId }),
   });
   return res.json() as Promise<LocalRetireResult>;
+}
+
+/**
+ * Wake (start/restart) a local assistant's daemon and gateway, re-seeding its
+ * guardian token. Both hosts drive the Vellum CLI's `wake` in a trusted
+ * process and return the same `{ ok, error }` contract.
+ *
+ * This is the non-destructive repair primitive: it revives a stopped or
+ * mis-seeded assistant in place without touching its data or identity, the
+ * counterpart to {@link retireLocalAssistantHost}'s destructive removal.
+ * Older Electron hosts that predate this IPC channel resolve `wake` as
+ * `undefined`; callers treat that as a no-op repair and fall through to the
+ * underlying connect error.
+ */
+export async function wakeLocalAssistantHost(
+  assistantId: string,
+): Promise<LocalWakeResult> {
+  if (isElectron()) {
+    const wake = window.vellum!.localMode.wake;
+    if (!wake) {
+      return { ok: false, error: "Wake is not supported by this app version" };
+    }
+    return wake(assistantId);
+  }
+
+  const res = await fetch("/assistant/__local/wake", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ assistantId }),
+  });
+  return res.json() as Promise<LocalWakeResult>;
 }
 
 /**
