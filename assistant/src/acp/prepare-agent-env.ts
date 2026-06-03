@@ -89,6 +89,17 @@ function ensureAcpTokenPolicy(field: string, usageDescription: string): void {
  * `CODEX_API_KEY` (the codex CLI accepts either). The config.json override
  * may set either var; an override under one satisfies the requirement and
  * the vault is not consulted. The vault field is `acp/openai_api_key`.
+ *
+ * codex-acp adds a THIRD, lowest-precedence route: the daemon's ambient
+ * `process.env.OPENAI_API_KEY` / `process.env.CODEX_API_KEY`. The full
+ * precedence is: agent.env override → vault `acp/openai_api_key` → ambient
+ * `process.env`. The ambient fallback exists for backward compatibility
+ * with existing local users who `export OPENAI_API_KEY`/`CODEX_API_KEY` at
+ * the daemon level: the sibling PR (F1) strips the daemon's ambient env
+ * from the spawned agent subprocess, so an ambient key only reaches the
+ * codex adapter if this helper reads it and re-injects it into the returned
+ * `env` (which survives F1's strip). Whichever source wins, BOTH
+ * `OPENAI_API_KEY` and `CODEX_API_KEY` are injected.
  */
 export async function prepareAgentEnv(
   agentConfig: AcpAgentConfig,
@@ -144,10 +155,27 @@ export async function prepareAgentEnv(
       });
     }
     if (!env.OPENAI_API_KEY && !env.CODEX_API_KEY) {
+      // Lowest-precedence fallback: the daemon's ambient process.env. Sibling
+      // PR F1 strips the daemon's ambient env from the spawned subprocess, so
+      // re-inject it here to preserve existing local users who exported the
+      // key at the daemon level. Inject BOTH var names from whichever ambient
+      // var is set so the codex CLI sees a consistent credential.
+      const ambientKey =
+        process.env.OPENAI_API_KEY ?? process.env.CODEX_API_KEY;
+      if (ambientKey) {
+        env.OPENAI_API_KEY = ambientKey;
+        env.CODEX_API_KEY = ambientKey;
+      }
+    }
+    if (!env.OPENAI_API_KEY && !env.CODEX_API_KEY) {
       throw new FailedDependencyError(
-        "codex-acp requires an OpenAI/Codex API key (OPENAI_API_KEY or CODEX_API_KEY). " +
-          "Run: assistant credentials set --service acp --field openai_api_key <key> " +
-          "(or set it under acp.agents.<id>.env in config.json).",
+        "codex-acp requires an OpenAI/Codex API key (OPENAI_API_KEY or CODEX_API_KEY) " +
+          "for hosted/agent-driven spawns. Resolution order: acp.agents.<id>.env in " +
+          "config.json → vault (assistant credentials set --service acp --field " +
+          "openai_api_key <key>) → ambient OPENAI_API_KEY/CODEX_API_KEY in the daemon " +
+          "environment. None were set. The interactive `codex login` (ChatGPT OAuth) " +
+          "flow is a local-only path and is not available on platform-hosted pods, so " +
+          "an API key is required here.",
       );
     }
   }

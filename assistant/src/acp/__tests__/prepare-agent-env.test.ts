@@ -10,7 +10,7 @@
  * mock the broker and metadata store rather than the raw secure-keys backend.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Stubs — wired BEFORE importing the helper via dynamic import.
@@ -103,9 +103,37 @@ mock.module("../../tools/credentials/broker.js", () => ({
 
 const { prepareAgentEnv } = await import("../prepare-agent-env.js");
 
+/**
+ * Restore (or delete) a process.env var to a previously captured value.
+ * Used by the codex ambient-fallback tests so they don't leak into one
+ * another or into the real daemon environment the suite runs under.
+ */
+function restoreEnv(name: string, prev: string | undefined): void {
+  if (prev === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = prev;
+  }
+}
+
+// Snapshot + clear any ambient codex/openai creds the test daemon may have
+// exported, so the vault/agent.env/throw paths exercise the intended source
+// rather than silently picking up an ambient key. Restored in afterEach.
+let savedOpenAiKey: string | undefined;
+let savedCodexKey: string | undefined;
+
 beforeEach(() => {
   metadataStore.clear();
   vaultStore.clear();
+  savedOpenAiKey = process.env.OPENAI_API_KEY;
+  savedCodexKey = process.env.CODEX_API_KEY;
+  delete process.env.OPENAI_API_KEY;
+  delete process.env.CODEX_API_KEY;
+});
+
+afterEach(() => {
+  restoreEnv("OPENAI_API_KEY", savedOpenAiKey);
+  restoreEnv("CODEX_API_KEY", savedCodexKey);
 });
 
 // ---------------------------------------------------------------------------
@@ -308,7 +336,59 @@ describe("prepareAgentEnv — codex-acp gating", () => {
     expect(prepared.env?.CODEX_API_KEY).toBeUndefined();
   });
 
-  test("throws FailedDependencyError when no key is provided from either route", async () => {
+  test("falls back to ambient process.env.OPENAI_API_KEY (no agent.env, no vault) — injects both vars", async () => {
+    // beforeEach cleared ambient creds; afterEach restores them.
+    process.env.OPENAI_API_KEY = "ambient-openai-XYZ";
+
+    const prepared = await prepareAgentEnv({
+      command: "codex-acp",
+      args: [],
+    });
+
+    expect(prepared.env?.OPENAI_API_KEY).toBe("ambient-openai-XYZ");
+    expect(prepared.env?.CODEX_API_KEY).toBe("ambient-openai-XYZ");
+  });
+
+  test("falls back to ambient process.env.CODEX_API_KEY when only CODEX_API_KEY is set", async () => {
+    process.env.CODEX_API_KEY = "ambient-codex-XYZ";
+
+    const prepared = await prepareAgentEnv({
+      command: "codex-acp",
+      args: [],
+    });
+
+    expect(prepared.env?.OPENAI_API_KEY).toBe("ambient-codex-XYZ");
+    expect(prepared.env?.CODEX_API_KEY).toBe("ambient-codex-XYZ");
+  });
+
+  test("vault wins over ambient process.env (precedence pin)", async () => {
+    process.env.OPENAI_API_KEY = "ambient-loser";
+    seedVaultOpenAiKey("vault-winner");
+
+    const prepared = await prepareAgentEnv({
+      command: "codex-acp",
+      args: [],
+    });
+
+    expect(prepared.env?.OPENAI_API_KEY).toBe("vault-winner");
+    expect(prepared.env?.CODEX_API_KEY).toBe("vault-winner");
+  });
+
+  test("agent.env override wins over ambient process.env (precedence pin)", async () => {
+    process.env.OPENAI_API_KEY = "ambient-loser";
+
+    const prepared = await prepareAgentEnv({
+      command: "codex-acp",
+      args: [],
+      env: { OPENAI_API_KEY: "config-winner" },
+    });
+
+    expect(prepared.env?.OPENAI_API_KEY).toBe("config-winner");
+    expect(prepared.env?.CODEX_API_KEY).toBeUndefined();
+  });
+
+  test("throws FailedDependencyError when no key is provided from any route", async () => {
+    // beforeEach already cleared ambient OPENAI_API_KEY/CODEX_API_KEY.
     await expect(
       prepareAgentEnv({ command: "codex-acp", args: [] }),
     ).rejects.toThrow("codex-acp requires an OpenAI/Codex API key");
