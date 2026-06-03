@@ -186,10 +186,54 @@ pass additional indexed tags via `tags` and unindexed metadata via `extra`.
 Toast/UI display stays at the call site — `captureError` never shows
 user-facing UI.
 
+For **best-effort background fetches** (imperative daemon calls that fire
+optimistically and have natural retry surfaces like SSE reconnect or
+navigation), pass `bestEffort: true`. This additionally filters expected
+daemon transient errors (503 startup, 502 bad-gateway, 401 auth-race,
+400 org-header-not-ready) while still reporting unexpected errors (500,
+data-integrity, programming errors) to Sentry:
+
+```ts
+captureError(err, { context: "useActiveConversation.refreshRow", bestEffort: true });
+```
+
 **Do not use bare `Sentry.captureException`.** The only exceptions are
 framework-level integration points that need raw Sentry scope
 manipulation: `RouteErrorBoundary`, `RouterProvider.onError`, and
 `LazyBoundary`.
+
+### Sentry telemetry: when to use what
+
+| Tool | Creates Sentry issue? | Use when |
+|------|-----------------------|----------|
+| `captureError(err, opts)` | Yes | Catching a real error that indicates a bug or degraded UX. |
+| `Sentry.captureMessage(msg)` | Yes | A non-error event where **every occurrence is individually actionable** (e.g., silent SSE event loss that left a user's turn stuck). |
+| `Sentry.addBreadcrumb(...)` | No — attaches to the next error event | Recording context that's useful for debugging nearby errors but isn't actionable on its own (e.g., watchdog fired, reconnect attempted). |
+| `recordDiagnostic` / `recordLifecycleDiagnostic` | No | Local diagnostics ring shipped via support bundles. |
+
+**Default to breadcrumb.** A `captureMessage` call that fires on normal
+operation (e.g., every iOS background/foreground cycle, every legacy URL
+redirect) creates a Sentry issue that never closes — it's noise that
+obscures real errors. If the event isn't individually actionable, use a
+breadcrumb so it attaches as context to real errors instead.
+
+Reserve `captureMessage` for events where you'd page someone or open a
+ticket if the count spiked — e.g., SSE terminal-event loss
+(`sse_poll_reconciled_rescue`), where every occurrence means a user saw a
+stuck turn.
+
+References:
+- [Sentry — Breadcrumbs](https://docs.sentry.io/platforms/javascript/enriching-events/breadcrumbs/)
+- [Sentry — `captureMessage`](https://docs.sentry.io/platforms/javascript/usage/#capturing-messages)
+
+**No bare `catch` blocks that discard errors.** Every `catch` must
+either report the error (toast + `captureError`) or re-throw it. A
+`catch { return; }` that silently swallows failures is a bug — the user
+gets no feedback and Sentry gets no telemetry. When a multi-step async
+function has per-step error handling, the outer catch may be silent only
+if every inner step already reports its own errors before re-throwing.
+
+Reference: [TanStack Query — Handling Mutation Errors](https://tanstack.com/query/latest/docs/framework/react/guides/mutations#mutation-side-effects)
 
 ---
 

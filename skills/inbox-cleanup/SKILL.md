@@ -6,6 +6,7 @@ metadata:
   icon: assets/icon.svg
   emoji: "📭"
   vellum:
+    category: "email"
     display-name: "Inbox Cleanup"
     activation-hints:
       - "When the user asks to clean up, organize, or triage their email inbox"

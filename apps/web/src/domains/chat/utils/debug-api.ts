@@ -21,7 +21,7 @@
  * sub-objects off the same root without colliding.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import type { MutableRefObject } from "react";
 
 import * as assistantApi from "@vellumai/assistant-api";
@@ -46,17 +46,10 @@ import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation";
 import { setImpersonatedAssistantVersion } from "@/lib/backwards-compat/impersonate-version-flag";
 import {
-  isProgressBadgeEnabled,
-  setProgressBadgeEnabled,
-  type ProgressBadgeVariant,
-} from "@/lib/feature-flags/progress-badge-flag";
-import {
   setSeqGapDetectionEnabled,
 } from "@/lib/feature-flags/seq-gap-detection-flag";
-import {
-  classifyScrollPosition,
-  type TranscriptHandle,
-} from "@/domains/chat/transcript/use-transcript-scroll";
+import { classifyScrollPosition } from "@/domains/chat/transcript/transcript-scroll-utils";
+import type { TranscriptHandle } from "@/domains/chat/transcript/transcript";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import {
   type TerminalReason,
@@ -157,36 +150,6 @@ export interface PendingInteractionsSnapshot {
   inlineConfirmationToolCallId: string | null;
 }
 
-/**
- * Avatar progress-badge state block — answers "why don't I see the
- * progress badge?".
- *
- * The badge renders in {@link ChatAvatar} iff `flagEnabled && isProcessing`
- * (see `chat-avatar.tsx`). This mirrors those two gates so a developer can
- * tell at a glance which one is blocking it. Distinct from the transcript
- * "thinking…" dots described by the rest of {@link ChatDebugThinkingIndicator}:
- * the dots and the badge are mutually exclusive (the `useProgressBadge`
- * flag swaps one for the other).
- */
-export interface ChatDebugProgressBadge {
-  /** Whether the badge would render this frame — `flagEnabled && isProcessing`. */
-  visible: boolean;
-  /** The `useProgressBadge` debug flag ({@link isProgressBadgeEnabled}). When
-   *  `false`, the badge is gated off entirely and the legacy transcript
-   *  "thinking…" dots stay in charge. */
-  flagEnabled: boolean;
-  /** The `isProcessing` prop `ChatAvatar` receives — the OR of the local
-   *  optimistic processing set and the cached `conversation.isProcessing`
-   *  snapshot (`uiContext.activeConversationIsProcessing`). The badge's
-   *  only other gate. */
-  isProcessing: boolean;
-  /** Names of the gates currently blocking the badge. Empty when
-   *  `visible` is true. */
-  failingConditions: string[];
-  /** Human-readable summary of why the badge is or isn't showing. */
-  explanation: string;
-}
-
 /** Result of {@link ChatDebugApi.thinkingIndicator}. */
 export interface ChatDebugThinkingIndicator {
   /** Live evaluation of {@link shouldShowThinkingIndicator}. */
@@ -202,8 +165,6 @@ export interface ChatDebugThinkingIndicator {
   failingConditions: string[];
   /** Lifecycle / terminal-state signal — answers "is the assistant done?". */
   done: ChatDebugThinkingDoneSignal;
-  /** Avatar progress-badge state — answers "why don't I see the badge?". */
-  progressBadge: ChatDebugProgressBadge;
 }
 
 /**
@@ -312,9 +273,6 @@ export interface ChatDebugApi {
    *   1. Is the assistant done? See `.done` (terminal/phase/lastTerminalReason).
    *   2. Why are the `...` showing — or not showing? See `.visible` and
    *      `.failingConditions` for the AND-clauses that blocked visibility.
-   *   3. Why is the avatar progress badge showing — or not showing? See
-   *      `.progressBadge` (`.visible`, `.flagEnabled`, `.isProcessing`,
-   *      `.failingConditions`, `.explanation`).
    *
    * Synchronous, side-effect-free; reads the same turn-store + UI-context
    * snapshot the React render path reads, so the result matches what the
@@ -579,36 +537,6 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       explanation = `active: phase=${phase}`;
     }
 
-    // Avatar progress-badge gates. The badge renders in `ChatAvatar` iff
-    // `isProcessing && isProgressBadgeEnabled()`; mirror both so a missing
-    // badge points straight at the blocking gate.
-    const badgeFlagEnabled = isProgressBadgeEnabled();
-    const badgeIsProcessing =
-      uiContext.activeConversationIsProcessing === true;
-    const badgeVisible = badgeFlagEnabled && badgeIsProcessing;
-    const badgeFailingConditions: string[] = [];
-    if (!badgeFlagEnabled) {
-      badgeFailingConditions.push("flagDisabled");
-    }
-    if (!badgeIsProcessing) {
-      badgeFailingConditions.push("notProcessing");
-    }
-
-    let badgeExplanation: string;
-    if (badgeVisible) {
-      badgeExplanation =
-        "visible: useProgressBadge flag is on and the conversation is processing";
-    } else if (!badgeFlagEnabled && !badgeIsProcessing) {
-      badgeExplanation =
-        "hidden: useProgressBadge flag is off AND the conversation is not processing";
-    } else if (!badgeFlagEnabled) {
-      badgeExplanation =
-        "hidden: useProgressBadge flag is off — enable via _vellumDebug.flags.toggleProgressBadge(true)";
-    } else {
-      badgeExplanation =
-        "hidden: conversation is not processing (uiContext.activeConversationIsProcessing !== true)";
-    }
-
     return {
       visible,
       turnState,
@@ -620,13 +548,6 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
         phase,
         lastTerminalReason,
         explanation,
-      },
-      progressBadge: {
-        visible: badgeVisible,
-        flagEnabled: badgeFlagEnabled,
-        isProcessing: badgeIsProcessing,
-        failingConditions: badgeFailingConditions,
-        explanation: badgeExplanation,
       },
     };
   }
@@ -756,7 +677,6 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       "  .thinkingIndicator()       live evaluation of the `...` predicate + done signal",
       "                              .visible / .failingConditions tell you why dots are or aren't showing",
       "                              .done.terminal / .done.lastTerminalReason tell you if the turn is finished",
-      "                              .progressBadge.visible / .progressBadge.explanation tell you why the avatar badge is or isn't showing",
       "  .forceReconcile()          [experimental] imperatively run /v1/history reconcile",
       "  .serverMessages()          [experimental] fetch /v1/history and return server message list",
       "                              (diff against getClientMessages() manually in the console)",
@@ -809,24 +729,6 @@ export interface VellumDebugFlagsApi {
    *  Returns the value in effect after the call. */
   impersonateVersion(value?: string | null): string | null;
 
-  /** Opt into the new avatar progress-badge UX. When off (default), the
-   *  chat shows the long-standing transcript "thinking…" dots; when on,
-   *  the dots are hidden and a small badge renders on the assistant
-   *  avatar instead. The badge has two variants: pulsing dots or a
-   *  glistening gradient sweep. Persists to localStorage and reloads.
-   *
-   *  - `toggleProgressBadge(true)`         — enable dots variant + reload.
-   *  - `toggleProgressBadge("gradient")`   — enable gradient variant + reload.
-   *  - `toggleProgressBadge(false)`        — disable + reload.
-   *  - `toggleProgressBadge(null)`         — clear + reload (same as false).
-   *  - `toggleProgressBadge()`             — log + return current value
-   *    (no reload, no mutation).
-   *
-   *  Returns the variant in effect after the call (`null` when off). */
-  toggleProgressBadge(
-    value?: boolean | ProgressBadgeVariant | null,
-  ): ProgressBadgeVariant | null;
-
   /** Opt into client-side seq gap detection. When enabled, the bus
    *  subscriber tracks per-conversation seq cursors and triggers
    *  reconcile on gaps or server restarts. Persists to localStorage
@@ -867,7 +769,7 @@ declare global {
  *     can pull canonical SSE schemas (`RelationshipStateUpdatedEventSchema`, …)
  *     out of the shipped bundle from the console.
  *   - `flags` — dev-toggleable feature flags
- *     (`impersonateVersion`, `toggleProgressBadge`).
+ *     (`impersonateVersion`, `toggleSeqGapDetection`).
  *     Stable singleton; pure module exports backed by localStorage.
  *
  * Consolidating these into one installer guarantees they're set at the
@@ -931,7 +833,7 @@ export function installVellumDebugApi(
  */
 export function useChatDebugApi(refs: ChatDebugRefs): void {
   const latestRefs = useRef(refs);
-  latestRefs.current = refs;
+  useLayoutEffect(() => { latestRefs.current = refs; });
 
   useEffect(() => {
     const stableRefs: ChatDebugRefs = {
@@ -952,7 +854,6 @@ export function useChatDebugApi(refs: ChatDebugRefs): void {
     const api = createChatDebugApi(stableRefs);
     const flagsApi: VellumDebugFlagsApi = {
       impersonateVersion: setImpersonatedAssistantVersion,
-      toggleProgressBadge: setProgressBadgeEnabled,
       toggleSeqGapDetection: setSeqGapDetectionEnabled,
     };
     const uninstall = installVellumDebugApi(api, flagsApi);

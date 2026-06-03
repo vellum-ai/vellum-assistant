@@ -19,6 +19,7 @@
 import type { CompactionCircuitClosedEvent } from "../api/events/compaction-circuit-closed.js";
 import type { CompactionCircuitOpenEvent } from "../api/events/compaction-circuit-open.js";
 import type { ContextWindowConfig } from "../config/schemas/inference.js";
+import type { LLMCallSite } from "../config/schemas/llm.js";
 import type {
   ContextWindowManager,
   ContextWindowResult,
@@ -586,14 +587,11 @@ export type TitleGenerateResult = TitleResult;
  * mislead it into resending text the user already saw.
  */
 export interface EmptyResponseArgs {
-  /** Content blocks produced by the assistant on this turn. */
-  readonly responseContent: ReadonlyArray<ContentBlock>;
   /**
-   * Number of `tool_use` blocks in `responseContent`. Mirrors the loop's own
-   * count so middleware doesn't have to recompute it. When > 0 the turn is
-   * not empty — the model issued tool calls.
+   * Content blocks produced by the assistant on this turn. The decision only
+   * runs at the stop boundary, so these never contain `tool_use` blocks.
    */
-  readonly toolUseBlocksLength: number;
+  readonly responseContent: ReadonlyArray<ContentBlock>;
   /** 0-based index of the tool-use turn being evaluated. */
   readonly toolUseTurns: number;
   /** How many empty-response nudges the loop has already issued this run. */
@@ -928,6 +926,20 @@ export interface TurnContext {
    * a context without `injectionInputs` produces an empty injection chain.
    */
   injectionInputs?: TurnInjectionInputs;
+  /**
+   * The {@link LLMCallSite} this turn's pipeline work belongs to —
+   * `"mainAgent"` for the user-facing conversational reply, or the specific
+   * background/utility site (`"compactionAgent"`, `"subagentSpawn"`,
+   * `"memoryConsolidation"`, `"conversationTitle"`, …) when the agent loop is
+   * driving non-main work that happens to share the same `conversationId`.
+   *
+   * Lets `llmCall` middleware and {@link Injector}s scope their behaviour to
+   * the main reply and stay out of background turns, which `onEvent` presence
+   * alone cannot distinguish (compaction and subagent loops also stream).
+   * Omitted by call sites that don't tag a site (synthesized test contexts);
+   * consumers should treat absence conservatively.
+   */
+  callSite?: LLMCallSite;
 }
 
 // ─── Injectors ───────────────────────────────────────────────────────────────

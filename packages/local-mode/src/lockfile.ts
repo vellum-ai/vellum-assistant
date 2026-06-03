@@ -1,10 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { parseLockfile, type Lockfile } from "./lockfile-contract";
 import { stripSensitiveFields } from "./util";
 
 export type LockfileResult =
-  | { ok: true; data: Record<string, unknown> }
+  | { ok: true; data: Lockfile }
   | { ok: false; status: number; error?: string };
 
 export function getLockfileData(lockfilePaths: string[]): LockfileResult {
@@ -24,17 +25,18 @@ export function getLockfileData(lockfilePaths: string[]): LockfileResult {
     return { ok: true, data: { assistants: [], activeAssistant: null } };
   }
 
+  let data: Record<string, unknown>;
   try {
-    const data = JSON.parse(raw) as Record<string, unknown>;
-    stripSensitiveFields(data);
-    return { ok: true, data };
+    data = JSON.parse(raw) as Record<string, unknown>;
   } catch {
     return { ok: false, status: 500 };
   }
+  stripSensitiveFields(data);
+  return { ok: true, data: parseLockfile(data) };
 }
 
 export type WriteResult =
-  | { ok: true; lockfile: Record<string, unknown> }
+  | { ok: true; lockfile: Lockfile }
   | { ok: false; status: number; error: string };
 
 export function upsertLockfileAssistant(
@@ -83,7 +85,7 @@ export function upsertLockfileAssistant(
 
   const stripped = JSON.parse(JSON.stringify(lockfile)) as Record<string, unknown>;
   stripSensitiveFields(stripped);
-  return { ok: true, lockfile: stripped };
+  return { ok: true, lockfile: parseLockfile(stripped) };
 }
 
 export function replacePlatformAssistants(
@@ -127,5 +129,5 @@ export function replacePlatformAssistants(
 
   const stripped = JSON.parse(JSON.stringify(lockfile)) as Record<string, unknown>;
   stripSensitiveFields(stripped);
-  return { ok: true, lockfile: stripped };
+  return { ok: true, lockfile: parseLockfile(stripped) };
 }

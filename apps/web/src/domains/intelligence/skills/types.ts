@@ -23,6 +23,7 @@ export interface SkillInfo {
   id: string;
   name: string;
   description: string;
+  icon?: string;
   emoji?: string;
   kind: SkillKind;
   status: SkillStatus;

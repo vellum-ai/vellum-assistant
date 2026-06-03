@@ -9,6 +9,14 @@ type MockSessionUser = {
 let sessionUser: MockSessionUser | null = null;
 let getSessionCallCount = 0;
 let getSessionFailFirstCall = false;
+// When set to an array, each `getSession` call blocks until its release fn
+// (pushed here in call order) is invoked, so a test can hold one or more
+// probes in flight and settle them in a chosen order.
+let getSessionGates: Array<() => void> | null = null;
+
+let mockIsGatewayAuth = false;
+let mockIsLocalMode = false;
+let mockPlatformAssistants: unknown[] = [];
 const syncOnboardingUserMock = mock((_userId: string | null) => {});
 const clearOnboardingFlagsMock = mock(() => {});
 const clearOrganizationMock = mock(() => {});
@@ -24,6 +32,11 @@ const retrieveBiometricTokenMock = mock(async () => mockBiometricToken);
 mock.module("@/lib/auth/allauth-client", () => ({
   getSession: async () => {
     getSessionCallCount++;
+    if (getSessionGates) {
+      await new Promise<void>((resolve) => {
+        getSessionGates!.push(resolve);
+      });
+    }
     if (getSessionFailFirstCall && getSessionCallCount === 1) {
       return { ok: false, status: 401, error: { detail: "Unauthorized" } };
     }
@@ -33,6 +46,23 @@ mock.module("@/lib/auth/allauth-client", () => ({
     return { ok: true, data: { user: sessionUser } };
   },
   logout: logoutMock,
+}));
+
+mock.module("@/lib/auth/gateway-session", () => ({
+  isGatewayAuthEnabled: () => mockIsGatewayAuth,
+  isGatewayAuthMode: () => mockIsGatewayAuth,
+  ensureGatewayToken: async () => {},
+  clearGatewayToken: () => {},
+  getLocalTokenUrl: () => "http://localhost/token",
+}));
+
+mock.module("@/lib/local-mode", () => ({
+  isLocalMode: () => mockIsLocalMode,
+  getPlatformAssistants: () => mockPlatformAssistants,
+  getLocalAssistants: () => [],
+  clearSelectedAssistant: () => {},
+  primeLocalGatewayConnection: async () => {},
+  syncPlatformAssistantsToLockfile: async () => {},
 }));
 
 mock.module("@/runtime/native-auth", () => ({
@@ -91,6 +121,8 @@ function resetAuthStore(): void {
     isLoggedIn: false,
     isLoading: true,
     user: null,
+    hasPlatformSession: false,
+    platformSessionResolved: false,
   });
 }
 
@@ -98,6 +130,10 @@ beforeEach(() => {
   sessionUser = null;
   getSessionCallCount = 0;
   getSessionFailFirstCall = false;
+  getSessionGates = null;
+  mockIsGatewayAuth = false;
+  mockIsLocalMode = false;
+  mockPlatformAssistants = [];
   mockIsNativePlatform = false;
   mockIsBiometricEnabled = false;
   mockBiometricToken = null;
@@ -178,6 +214,72 @@ describe("session cleanup on logout", () => {
     expect(lifecycleResetForLogoutMock).toHaveBeenCalledTimes(1);
     expect(isLoggedInAtResetTime).toBe(true);
     expect(useAuthStore.getState().isLoggedIn).toBe(false);
+  });
+});
+
+describe("platform session probe resolution", () => {
+  // A returning local-gateway user re-runs the platform probe on app resume.
+  // The gate must re-enter the "unknown" state for the probe window instead of
+  // leaving a stale `true` from the previous probe — otherwise a cached
+  // platform assistant stops standing in for the session and the onboarding
+  // funnel can be raced past before the probe settles.
+  test("a re-run gateway probe resets platformSessionResolved until it settles", async () => {
+    mockIsGatewayAuth = true;
+    mockIsLocalMode = false;
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    useAuthStore.setState({
+      platformSessionResolved: true,
+      hasPlatformSession: false,
+    });
+
+    const gates: Array<() => void> = [];
+    getSessionGates = gates;
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
+
+    // Probe launched but not settled: state is unknown again, not a stale true.
+    expect(useAuthStore.getState().platformSessionResolved).toBe(false);
+
+    gates[0]();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(useAuthStore.getState().platformSessionResolved).toBe(true);
+    expect(useAuthStore.getState().hasPlatformSession).toBe(true);
+  });
+
+  // Two probes can overlap — an app-resume refresh firing while the initial
+  // probe is still in flight. If a slower earlier probe settles after a newer
+  // one starts, it must not flip platformSessionResolved back to true while the
+  // newer probe is pending; otherwise isPlatformFunnelAvailable would treat the
+  // not-yet-known session as confirmed-absent and drop the funnel.
+  test("a stale probe completing after a newer one does not settle resolution", async () => {
+    mockIsGatewayAuth = true;
+    mockIsLocalMode = false;
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    useAuthStore.setState({
+      platformSessionResolved: true,
+      hasPlatformSession: false,
+    });
+
+    const gates: Array<() => void> = [];
+    getSessionGates = gates;
+
+    // Launch two overlapping probes; both reset resolution to unknown.
+    await useAuthStore.getState().refreshSession();
+    await useAuthStore.getState().refreshSession();
+    expect(gates.length).toBe(2);
+    expect(useAuthStore.getState().platformSessionResolved).toBe(false);
+
+    // Settle the older probe first: it is stale, so it must not resolve.
+    gates[0]();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(useAuthStore.getState().platformSessionResolved).toBe(false);
+
+    // The newest probe settling is what flips resolution to true.
+    gates[1]();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(useAuthStore.getState().platformSessionResolved).toBe(true);
+    expect(useAuthStore.getState().hasPlatformSession).toBe(true);
   });
 });
 

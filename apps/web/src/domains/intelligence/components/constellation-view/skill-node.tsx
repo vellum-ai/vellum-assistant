@@ -3,6 +3,7 @@ import { motion } from "motion/react";
 
 import { SKILL_NODE_SIZE } from "@/domains/intelligence/components/constellation-layout";
 import type { OrbitItem } from "@/domains/intelligence/components/constellation-layout";
+import { SkillIcon } from "@/domains/intelligence/components/skills/skill-icon";
 
 import { NODE_SPRING } from "@/domains/intelligence/components/constellation-view/constants";
 import { useNodeClickHandlers } from "@/domains/intelligence/components/constellation-view/use-node-click-handlers";
@@ -74,10 +75,7 @@ export function SkillNode({
         }}
       />
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        {/* typography: constellation skill node glyph + label, fitted to geometric shape, intentionally off-scale */}
-        <span className="text-[16px] leading-none" aria-hidden>
-          {item.emoji ?? fallbackEmoji}
-        </span>
+        <SkillIcon skill={item} className="h-4 w-4 text-[16px] leading-none" fallback={fallbackEmoji} />
         <span
           className="mt-0.5 max-w-[42px] truncate text-[9px] font-medium leading-tight text-[var(--content-default)]"
           title={item.label}

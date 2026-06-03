@@ -1,7 +1,9 @@
-import { BrowserWindow, app, ipcMain, shell } from "electron";
+import { BrowserWindow, app, shell } from "electron";
 import path from "node:path";
+import { z } from "zod";
 
 import { RENDERER_BASE_PROD, getDevRendererBase } from "./app-config";
+import { handle } from "./ipc";
 
 /**
  * Branded About window — replaces Electron's default `aboutPanel`
@@ -138,11 +140,15 @@ export const installAbout = (): void => {
     website: WEBSITE,
   });
 
-  ipcMain.handle("vellum:app:versionInfo", () => getVersionInfo());
+  handle("vellum:app:versionInfo", z.tuple([]), () => getVersionInfo());
 
   // The renderer is sandboxed — `shell.openExternal` only works from
   // main. The About page's website-link click handler routes through
   // this IPC so the URL opens in the user's default browser instead
-  // of navigating the About window away from its route.
-  ipcMain.handle("vellum:app:openWebsite", () => shell.openExternal(WEBSITE));
+  // of navigating the About window away from its route. The target is
+  // a fixed constant, never a renderer-supplied URL, so there's no
+  // open-redirect surface here.
+  handle("vellum:app:openWebsite", z.tuple([]), () =>
+    shell.openExternal(WEBSITE),
+  );
 };

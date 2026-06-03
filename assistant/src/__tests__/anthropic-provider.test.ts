@@ -102,12 +102,12 @@ mock.module("@anthropic-ai/sdk", () => ({
 }));
 
 // Import after mocking
+import { AnthropicProvider } from "../providers/anthropic/client.js";
 import {
-  AnthropicProvider,
   isPlaceholderSentinelText,
   PLACEHOLDER_BLOCKS_OMITTED,
   PLACEHOLDER_EMPTY_TURN,
-} from "../providers/anthropic/client.js";
+} from "../providers/placeholder-sentinels.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -1,9 +1,13 @@
 import { v4 as uuid } from "uuid";
 
+import type {
+  ConversationMessageSurface,
+  ConversationMessageToolCall,
+} from "../../api/responses/conversation-message.js";
 import { getConfig } from "../../config/loader.js";
 import type { LLMCallSite, Speed } from "../../config/schemas/llm.js";
 import type { SecretPromptResult } from "../../permissions/secret-prompter.js";
-import { isPlaceholderSentinelText } from "../../providers/anthropic/client.js";
+import { isPlaceholderSentinelText } from "../../providers/placeholder-sentinels.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import type { AuthContext } from "../../runtime/auth/types.js";
 import { unwrapExternalContentForDisplay } from "../../security/untrusted-content.js";
@@ -30,74 +34,18 @@ const pendingStandaloneSecrets = new Map<
   }
 >();
 
-export interface HistoryToolCall {
-  name: string;
-  input: Record<string, unknown>;
-  result?: string;
-  isError?: boolean;
-  /** Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot). @deprecated Use imageDataList. */
-  imageData?: string;
-  /** Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot, image generation). */
-  imageDataList?: string[];
-  /** Unix ms when the tool started executing. */
-  startedAt?: number;
-  /** Unix ms when the tool completed. */
-  completedAt?: number;
-  /** Confirmation decision for this tool call: "approved" | "denied" | "timed_out". */
-  confirmationDecision?: string;
-  /** Friendly label for the confirmation (e.g. "Edit File", "Run Command"). */
-  confirmationLabel?: string;
-  /** Risk level classification at invocation time ("low" | "medium" | "high" | "unknown"). */
-  riskLevel?: string;
-  /** Human-readable reason for the risk classification. */
-  riskReason?: string;
-  /** ID of the trust rule that matched this invocation (if any). */
-  matchedTrustRuleId?: string;
-  /**
-   * @deprecated Use `approvalMode` and `approvalReason` instead.
-   * Kept for backward compatibility during the migration window.
-   */
-  autoApproved?: boolean;
-  /** How the approval decision was reached: prompted, auto, blocked, or unknown (legacy). */
-  approvalMode?: string;
-  /** Why the approval decision was reached (stable enum for client display). */
-  approvalReason?: string;
-  /** Snapshot of the auto-approve threshold at execution time. */
-  riskThreshold?: string;
-  /**
-   * Display-only regex ladder for the rule editor (narrowest → broadest).
-   * Persisted on tool_use blocks by `annotatePersistedAssistantMessage` so
-   * historical chips render the same ladder as live tool_result events.
-   */
-  riskScopeOptions?: Array<{ pattern: string; label: string }>;
-  /** Minimatch save patterns for the rule editor (narrowest → broadest). */
-  riskAllowlistOptions?: Array<{
-    label: string;
-    description: string;
-    pattern: string;
-  }>;
-  /** Directory scope ladder for the rule editor. */
-  riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
-}
+/**
+ * A single tool call rendered into a history row. Alias of the canonical
+ * wire-contract type so `renderHistoryContent` (the producer) cannot drift
+ * from what the messages endpoint serializes.
+ */
+export type HistoryToolCall = ConversationMessageToolCall;
 
-export interface HistorySurface {
-  surfaceId: string;
-  surfaceType: string;
-  title?: string;
-  data: Record<string, unknown>;
-  actions?: Array<{
-    id: string;
-    label: string;
-    style?: string;
-    data?: Record<string, unknown>;
-  }>;
-  display?: string;
-  persistent?: boolean;
-  completed?: boolean;
-  completionSummary?: string;
-  /** Id of the tool call that produced this surface (the `ui_show` proxy tool). Lets the client gate app previews on the tool result's arrival rather than whole-turn streaming state. */
-  toolCallId?: string;
-}
+/**
+ * A UI surface (widget) embedded in a history row. Alias of the canonical
+ * wire-contract type so the producer matches the serialized shape.
+ */
+export type HistorySurface = ConversationMessageSurface;
 
 /**
  * Positional reference to a file attachment captured while walking the

@@ -653,6 +653,15 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                             features={plan.included_features}
                             variant="checklist"
                           />
+                          {isProCard && (
+                            <Typography
+                              as="p"
+                              variant="body-small-default"
+                              className="text-[var(--content-tertiary)]"
+                            >
+                              *Credits not included
+                            </Typography>
+                          )}
                         </div>
                         <div className="mt-4 flex flex-1 flex-col justify-end gap-4">
                           {!isCurrent && isProCard && (

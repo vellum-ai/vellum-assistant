@@ -6,6 +6,7 @@ metadata:
   icon: assets/icon.svg
   emoji: "▲"
   vellum:
+    category: "development"
     display-name: "Vercel Token Setup"
     includes: ["vellum-browser-use"]
 ---

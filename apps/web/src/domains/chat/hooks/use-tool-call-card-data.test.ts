@@ -21,7 +21,7 @@ import {
   buildWebSearchErrorStep,
   computeToolCallCardData,
   WEB_SEARCH_BACKEND_FAILURE_MESSAGE,
-} from "@/domains/chat/hooks/use-tool-call-card-data";
+} from "@/domains/chat/hooks/tool-call-card-utils";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type {
   ToolActivityMetadata,

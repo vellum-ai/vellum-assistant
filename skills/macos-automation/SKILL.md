@@ -6,6 +6,7 @@ metadata:
   icon: assets/icon.svg
   emoji: "🍎"
   vellum:
+    category: "system"
     display-name: "macOS Automation"
     activation-hints:
       - "Interacting with native macOS apps (Messages, Contacts, Calendar, Mail, Reminders, Music, Finder, etc.) via osascript"

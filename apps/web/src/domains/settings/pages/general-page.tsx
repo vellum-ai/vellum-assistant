@@ -1,6 +1,7 @@
 import { Heart, Monitor, Moon, Sun } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
+import { Notice } from "@vellum/design-library/components/notice";
 import { SegmentControl } from "@vellum/design-library/components/segment-control";
 import { AssistantPicker } from "@/domains/settings/components/assistant-picker";
 import { AssistantSleepPolicy } from "@/domains/settings/components/assistant-sleep-policy";
@@ -20,11 +21,18 @@ import {
   useAssistantWithHealthz,
 } from "@/domains/settings/components/assistant-status-panel";
 
+import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { client } from "@/generated/api/client.gen";
+import { captureError } from "@/lib/sentry/capture-error";
 import { useAuthStore } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
-import { isLocalMode } from "@/lib/local-mode";
+import {
+  isLocalMode,
+  isLocalAssistant,
+  getSelectedAssistant,
+} from "@/lib/local-mode";
 import {
   applyThemePreference,
   readStoredThemePreference,
@@ -104,14 +112,86 @@ function ThemeCard() {
   );
 }
 
-function TimezoneCard() {
+export function TimezoneCard() {
+  const assistantId = useAssistantSelectionStore.use.activeAssistantId();
   const [timezone, setTimezone] = useState<string>(() =>
     getDeviceSetting("timezone", ""),
   );
 
+  // Hold the live assistant id so a PATCH that fires (or drains) after the
+  // user switches assistants always targets the *current* one. Assigned in an
+  // effect (never during render) to avoid mutating a ref while rendering.
+  const assistantIdRef = useRef(assistantId);
+  useEffect(() => {
+    assistantIdRef.current = assistantId;
+  }, [assistantId]);
+
+  // Serialize the `ui.userTimezone` override PATCH (last-writer-wins): at most
+  // one in flight. A change while one is in flight only records the latest
+  // desired value; the in-flight PATCH drains to it on settle, so overlapping
+  // rapid changes can never land out of order and leave a stale override.
+  const inFlightRef = useRef(false);
+  const pendingValueRef = useRef<string | null>(null);
+
+  // Stable indirection so the `.finally` drain can call the latest
+  // `syncOverride` without referencing `const syncOverride` inside its own
+  // initializer (which would be a temporal-dead-zone access).
+  const syncOverrideRef = useRef<(value: string) => void>(() => {});
+
+  const syncOverride = (value: string) => {
+    if (inFlightRef.current) {
+      pendingValueRef.current = value;
+      return;
+    }
+    // Re-read the current active assistant at fire time so a queued write after
+    // an assistant switch targets whatever assistant is selected now, not the
+    // one active when the change was first requested.
+    const currentAssistantId = assistantIdRef.current;
+    if (!currentAssistantId) {
+      // No assistant to target: drop this write and clear queued state so the
+      // serializer can't deadlock.
+      pendingValueRef.current = null;
+      return;
+    }
+    inFlightRef.current = true;
+    pendingValueRef.current = null;
+    // `value` is the chosen IANA zone, or "" when auto is selected (the schema
+    // documents "" clears the setting). Silent on error.
+    client
+      .patch<Record<string, unknown>, unknown, true>({
+        url: `/v1/assistants/{assistant_id}/config`,
+        path: { assistant_id: currentAssistantId },
+        body: { ui: { userTimezone: value } },
+        throwOnError: true,
+      })
+      .catch((error) => {
+        captureError(error, { context: "settings-timezone-override" });
+      })
+      .finally(() => {
+        inFlightRef.current = false;
+        const pending = pendingValueRef.current;
+        pendingValueRef.current = null;
+        if (pending !== null) syncOverrideRef.current(pending);
+      });
+  };
+
+  // Keep the drain indirection pointed at the latest `syncOverride`. Assigned
+  // in an effect (never during render) for the same "no refs during render"
+  // reason as `assistantIdRef`.
+  useEffect(() => {
+    syncOverrideRef.current = syncOverride;
+  });
+
   const handleChange = (value: string) => {
+    // Local source of truth for the reactive `useEffectiveTimezone` hook.
     setTimezone(value);
     setDeviceSetting("timezone", value);
+
+    // Explicit user action: write the manual override to the authoritative
+    // `ui.userTimezone` cascade tier. Fire-and-forget; never block the local
+    // setting on the network write, and never throw out of handleChange.
+    // `syncOverride` self-guards on a missing assistant id.
+    syncOverride(value);
   };
 
   return (
@@ -139,8 +219,12 @@ export function GeneralPage() {
   const settingsSleepPolicy = useAssistantFeatureFlagStore.use.settingsSleepPolicy();
   const isLoggedIn = useAuthStore.use.isLoggedIn();
   const platformGate = usePlatformGate();
+  const infraGate = usePlatformGate({ platformHostedOnly: true });
 
   const platformAssistant = assistant?.is_local && !isLocalMode() ? null : assistant;
+  const selected = getSelectedAssistant();
+  const canRetireLocally =
+    isLocalMode() && !!assistant && !!selected && isLocalAssistant(selected);
 
   useEffect(() => {
     if (!assistant || window.location.hash !== "#storage-resources") {
@@ -170,7 +254,7 @@ export function GeneralPage() {
 
       {isLoggedIn && platformGate === "full" && <ProfileCard assistant={platformAssistant} />}
 
-      {assistant && (
+      {infraGate === "full" && assistant && (
         <ResizeCard
           assistant={assistant}
           healthz={healthz}
@@ -180,10 +264,21 @@ export function GeneralPage() {
           refetchUntilResized={refetchUntilResized}
         />
       )}
+      {infraGate === "disabled" && (
+        <DetailCard
+          id="storage-resources"
+          title="Compute & Resources"
+          subtitle="Monitor resource usage and manage your assistant's compute profile."
+        >
+          <Notice tone="info">
+            Log in to the Vellum platform to manage compute resources.
+          </Notice>
+        </DetailCard>
+      )}
 
       <ThemeCard />
 
-      {platformAssistant && (
+      {infraGate === "full" && platformAssistant && (
         <DetailCard title="Software Updates">
           <AssistantUpgrades
             assistantId={platformAssistant.id}
@@ -205,15 +300,32 @@ export function GeneralPage() {
           />
         </DetailCard>
       )}
+      {infraGate === "disabled" && (
+        <DetailCard title="Software Updates">
+          <Notice tone="info">
+            Log in to the Vellum platform to manage software updates.
+          </Notice>
+        </DetailCard>
+      )}
 
       <IOSAppCard />
 
-      {platformAssistant && settingsSleepPolicy && (
+      {infraGate === "full" && platformAssistant && settingsSleepPolicy && (
         <DetailCard
           title="Sleep Policy"
           subtitle="Control how long this assistant stays awake when idle."
         >
           <AssistantSleepPolicy assistantId={platformAssistant.id} />
+        </DetailCard>
+      )}
+      {infraGate === "disabled" && settingsSleepPolicy && (
+        <DetailCard
+          title="Sleep Policy"
+          subtitle="Control how long this assistant stays awake when idle."
+        >
+          <Notice tone="info">
+            Log in to the Vellum platform to manage sleep policy.
+          </Notice>
         </DetailCard>
       )}
 
@@ -223,13 +335,24 @@ export function GeneralPage() {
 
       {multiPlatformAssistant && <AssistantPicker />}
 
-      {platformAssistant && (
+      {(platformGate === "full" || canRetireLocally) && platformAssistant && (
         <DetailCard
           variant="danger"
           title="Retire Assistant"
           subtitle="Permanently retire this assistant and delete all associated data."
         >
           <RetireAssistant assistantId={platformAssistant.id} />
+        </DetailCard>
+      )}
+      {platformGate === "disabled" && !canRetireLocally && (
+        <DetailCard
+          variant="danger"
+          title="Retire Assistant"
+          subtitle="Permanently retire this assistant and delete all associated data."
+        >
+          <Notice tone="info">
+            Log in to the Vellum platform to retire this assistant.
+          </Notice>
         </DetailCard>
       )}
 

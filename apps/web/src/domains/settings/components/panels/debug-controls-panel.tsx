@@ -3,11 +3,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { Button } from "@vellum/design-library/components/button";
+import { Notice } from "@vellum/design-library/components/notice";
 import { toast } from "@vellum/design-library/components/toast";
 import { AssistantBackups } from "@/domains/settings/components/assistant-backups";
 import { RestartAssistant } from "@/domains/settings/components/restart-assistant";
 import { RecoveryModeControls } from "@/domains/settings/components/recovery-mode-controls";
 import { type Assistant, getAssistant } from "@/assistant/api";
+import {
+  useActiveAssistantIsPlatformHosted,
+  usePlatformGate,
+} from "@/hooks/use-platform-gate";
 import { useAuthStore } from "@/stores/auth-store";
 import { captureError } from "@/lib/sentry/capture-error";
 import { clearOnboardingFlags } from "@/utils/onboarding-cleanup";
@@ -21,6 +26,8 @@ function isInternalUser(email: string | null, isAdmin: boolean): boolean {
 export function DebugControlsPanel() {
   const navigate = useNavigate();
   const user = useAuthStore.use.user();
+  const backupsGate = usePlatformGate({ platformHostedOnly: true });
+  const isPlatformHosted = useActiveAssistantIsPlatformHosted();
   const showInternalControls = isInternalUser(user?.email ?? null, user?.isStaff ?? false);
 
   const [assistant, setAssistant] = useState<Assistant | null>(null);
@@ -84,12 +91,19 @@ export function DebugControlsPanel() {
         </div>
       ) : assistant ? (
         <div className="space-y-4">
-          <div className="rounded-lg border border-[var(--border-base)] px-4 py-3 dark:border-[var(--border-base)]">
-            <h3 className="mb-3 text-body-medium-default text-[var(--content-default)]">
-              Backups
-            </h3>
-            <AssistantBackups assistantId={assistant.id} />
-          </div>
+          {backupsGate === "disabled" && (
+            <Notice tone="info">
+              Log in to the Vellum platform to manage backups.
+            </Notice>
+          )}
+          {backupsGate === "full" && isPlatformHosted && (
+            <div className="rounded-lg border border-[var(--border-base)] px-4 py-3 dark:border-[var(--border-base)]">
+              <h3 className="mb-3 text-body-medium-default text-[var(--content-default)]">
+                Backups
+              </h3>
+              <AssistantBackups assistantId={assistant.id} />
+            </div>
+          )}
 
           <div className="flex items-center justify-between rounded-lg border border-[var(--border-base)] px-4 py-3 dark:border-[var(--border-base)]">
             <div className="min-w-0">

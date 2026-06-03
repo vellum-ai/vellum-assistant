@@ -140,7 +140,7 @@ export async function generateAndPersistConversationTitle(
     tools: [],
     callSite: "conversationTitle",
     signal,
-    timeoutMs: 10_000,
+    timeoutMs: 15_000,
   });
   const title = normalizeTitle(result.text);
   if (title) {
@@ -275,7 +275,7 @@ export async function regenerateConversationTitle(
     tools: [],
     callSite: "conversationTitle",
     signal,
-    timeoutMs: 10_000,
+    timeoutMs: 15_000,
   });
   const title = normalizeTitle(result.text);
   if (title) {

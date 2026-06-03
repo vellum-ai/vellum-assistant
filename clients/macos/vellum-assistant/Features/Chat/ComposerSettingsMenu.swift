@@ -153,40 +153,45 @@ struct ComposerSettingsMenu: View {
 
                 if let config, !config.profiles.isEmpty {
                     let autoRoutingEnabled = assistantFeatureFlagStore.isEnabled("query-complexity-routing")
-                    let hasOverride = config.current != nil
-                    let isAutoActive = autoRoutingEnabled && !hasOverride
                     let effectiveProfile = config.current ?? config.activeProfile
+                    let isAutoActive = autoRoutingEnabled && effectiveProfile == InferenceProfile.autoProfileName
+                    let visibleProfiles = ChatProfilePicker.visibleProfilesForPicker(
+                        config.profiles,
+                        selectedNames: [effectiveProfile]
+                    )
 
-                    sectionHeader("Model Profile")
+                    if autoRoutingEnabled || !visibleProfiles.isEmpty {
+                        sectionHeader("Model Profile")
 
-                    if autoRoutingEnabled {
-                        VMenuItem(
-                            icon: VIcon.wand.rawValue,
-                            label: "Auto",
-                            isActive: isAutoActive,
-                            size: .regular
-                        ) {
-                            config.onSelect(nil)
-                        } trailing: {
-                            if isAutoActive {
-                                VIconView(.check, size: 12)
-                                    .foregroundStyle(VColor.primaryBase)
+                        if autoRoutingEnabled {
+                            VMenuItem(
+                                icon: VIcon.wand.rawValue,
+                                label: "Auto",
+                                isActive: isAutoActive,
+                                size: .regular
+                            ) {
+                                config.onSelect(InferenceProfile.autoProfileName)
+                            } trailing: {
+                                if isAutoActive {
+                                    VIconView(.check, size: 12)
+                                        .foregroundStyle(VColor.primaryBase)
+                                }
                             }
                         }
-                    }
 
-                    ForEach(config.profiles) { profile in
-                        VMenuItem(
-                            icon: VIcon.sparkles.rawValue,
-                            label: profile.displayName,
-                            isActive: !isAutoActive && effectiveProfile == profile.name,
-                            size: .regular
-                        ) {
-                            config.onSelect(profile.name)
-                        } trailing: {
-                            if !isAutoActive && effectiveProfile == profile.name {
-                                VIconView(.check, size: 12)
-                                    .foregroundStyle(VColor.primaryBase)
+                        ForEach(visibleProfiles) { profile in
+                            VMenuItem(
+                                icon: VIcon.sparkles.rawValue,
+                                label: profile.displayName,
+                                isActive: !isAutoActive && effectiveProfile == profile.name,
+                                size: .regular
+                            ) {
+                                config.onSelect(profile.name)
+                            } trailing: {
+                                if !isAutoActive && effectiveProfile == profile.name {
+                                    VIconView(.check, size: 12)
+                                        .foregroundStyle(VColor.primaryBase)
+                                }
                             }
                         }
                     }

@@ -46,6 +46,9 @@ export function SettingsLayout() {
         if (item.id === "billing" && platformGate === "gated") {
           return false;
         }
+        if (item.id === "devices" && platformGate === "gated") {
+          return false;
+        }
         if (item.id === "sounds" && !sounds) {
           return false;
         }

@@ -30,6 +30,21 @@ const options: BrowserOptions = {
   environment: import.meta.env.VITE_SENTRY_ENVIRONMENT ?? "local",
   release: import.meta.env.VITE_APP_VERSION,
   tracesSampleRate: 0,
+  // The SDK patches `window.fetch` and, in the default `'always'` mode,
+  // mutates `TypeError.message` in-place to append the hostname (e.g.
+  // "Failed to fetch" → "Failed to fetch (www.vellum.ai)"). This breaks
+  // any code that pattern-matches on the original browser message — in
+  // particular `isTransientNetworkError()`, which gates Sentry reporting
+  // and user-facing error toasts.
+  //
+  // `'report-only'` stores the hostname in a hidden non-enumerable
+  // property and uses it only when building the Sentry event, so
+  // application code sees the original browser message while Sentry
+  // events still show the enriched hostname for debugging context.
+  //
+  // Reference: https://github.com/getsentry/sentry-javascript/pull/18466
+  // Reference: https://docs.sentry.io/platforms/javascript/configuration/options/#enhancefetcherrormessages
+  enhanceFetchErrorMessages: "report-only",
   // Attach a synthetic JS stack to `Sentry.captureMessage` calls so events
   // emitted without a thrown exception still resolve to a source location
   // after sourcemap upload.

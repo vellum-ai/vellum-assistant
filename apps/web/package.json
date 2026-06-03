@@ -1,6 +1,6 @@
 {
   "name": "@vellumai/web",
-  "version": "0.8.6",
+  "version": "0.8.7",
   "type": "module",
   "description": "Pre-built web SPA for the Vellum Assistant",
   "license": "MIT",
@@ -8,7 +8,7 @@
     "dist"
   ],
   "scripts": {
-    "predev": "bun run postinstall && bun run openapi-ts",
+    "predev": "bun run postinstall && bun run openapi-ts && node scripts/copy-skill-assets.mjs",
     "dev": "bun --bun vite",
     "prebuild": "node scripts/copy-skill-assets.mjs",
     "build": "bun --bun vite build",
@@ -108,6 +108,7 @@
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.0.1",
     "eslint": "10.2.0",
+    "eslint-plugin-react-hooks": "7.1.1",
     "happy-dom": "18.0.1",
     "js-yaml": "4.1.1",
     "storybook": "10.4.0",

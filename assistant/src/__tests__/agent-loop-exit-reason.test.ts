@@ -383,9 +383,9 @@ describe("AgentLoop exit-reason instrumentation", () => {
     let reinjected = false;
     const events: AgentEvent[] = [];
     const compaction: MidLoopCompaction = {
-      prepare: (history) => {
+      prepare: () => {
         prepared = true;
-        return { rawHistory: history, options: undefined };
+        return { options: undefined };
       },
       reinject: async () => {
         reinjected = true;
@@ -435,7 +435,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
     });
 
     const compaction: MidLoopCompaction = {
-      prepare: (history) => ({ rawHistory: history, options: undefined }),
+      prepare: () => ({ options: undefined }),
       reinject: async () => {
         throw new Error("reinject must not run after a timeout");
       },
@@ -472,7 +472,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
     });
 
     const compaction: MidLoopCompaction = {
-      prepare: (history) => ({ rawHistory: history, options: undefined }),
+      prepare: () => ({ options: undefined }),
       reinject: async () => {
         throw new Error("reinject must not run when exhausted");
       },

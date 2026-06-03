@@ -26,6 +26,7 @@
  */
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { compareParsed, parseSemver } from "@/utils/semver";
+import { whenStoreState } from "@/utils/when-store-state";
 
 /**
  * Returns `true` when the active assistant's version is at or above
@@ -96,20 +97,9 @@ export const VERSION_RESOLUTION_TIMEOUT_MS = 5_000;
 export function whenAssistantVersionKnown(
   timeoutMs: number = VERSION_RESOLUTION_TIMEOUT_MS,
 ): Promise<void> {
-  if (useAssistantIdentityStore.getState().version) {
-    return Promise.resolve();
-  }
-  return new Promise((resolve) => {
-    const finish = () => {
-      clearTimeout(timer);
-      unsubscribe();
-      resolve();
-    };
-    const timer = setTimeout(finish, timeoutMs);
-    const unsubscribe = useAssistantIdentityStore.subscribe((state) => {
-      if (state.version) {
-        finish();
-      }
-    });
-  });
+  return whenStoreState(
+    useAssistantIdentityStore,
+    (state) => Boolean(state.version),
+    { timeoutMs },
+  );
 }

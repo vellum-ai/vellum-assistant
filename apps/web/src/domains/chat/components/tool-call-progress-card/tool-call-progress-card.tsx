@@ -21,11 +21,11 @@ import {
 } from "@/domains/chat/components/tool-progress-card/tool-progress-card-shell";
 import { useViewerStore } from "@/stores/viewer-store";
 import {
-  useToolCallCardData,
   WEB_TOOL_NAMES,
   type ToolCallCardData,
   type ToolCallCardStep,
-} from "@/domains/chat/hooks/use-tool-call-card-data";
+} from "@/domains/chat/hooks/tool-call-card-utils";
+import { useToolCallCardData } from "@/domains/chat/hooks/use-tool-call-card-data";
 import type { ConfirmationDecision } from "@/types/event-types";
 import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";

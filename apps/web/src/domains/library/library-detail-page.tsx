@@ -7,6 +7,7 @@ import { toast } from "@vellum/design-library";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { appsByIdOpenPost } from "@/generated/daemon/sdk.gen";
 import { AppViewerContainer } from "@/components/app-viewer-container";
+import { useEditApp } from "@/hooks/use-edit-app";
 import { primeAppHtmlCache } from "@/utils/app-html-cache";
 import { shareApp } from "@/utils/share-app";
 import { routes } from "@/utils/routes";
@@ -62,6 +63,11 @@ export function LibraryDetailPage() {
     void navigate(routes.library.root);
   }, [navigate]);
 
+  const editApp = useEditApp();
+  const handleEdit = useCallback(() => {
+    if (app) editApp(app);
+  }, [app, editApp]);
+
   const handleShare = useCallback(async () => {
     if (!app || isSharing) return;
     setIsSharing(true);
@@ -111,6 +117,7 @@ export function LibraryDetailPage() {
       html={app.html}
       assistantId={assistantId}
       onClose={handleClose}
+      onEdit={handleEdit}
       onShare={handleShare}
       isSharing={isSharing}
     />

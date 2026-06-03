@@ -5,6 +5,7 @@ compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "💓"
   vellum:
+    category: "system"
     display-name: "Heartbeat"
     activation-hints:
       - "Set up a heartbeat, periodic checklist, background health check, or recurring background task"
