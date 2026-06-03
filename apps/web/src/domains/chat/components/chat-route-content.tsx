@@ -424,6 +424,20 @@ export function ChatRouteContent({
     handleOpenRuleEditorForToolCall(toolCallToRuleContext(tc));
   }, [activeToolDetail, messages, handleOpenRuleEditorForToolCall]);
 
+  // The mobile tool-detail overlay lives in a separate portal subtree
+  // (`MobileChatOverlays`) and can't reach the rule-editor state owned here, so
+  // it signals through the viewer store. Open the editor whenever the request
+  // seq advances past the last one we handled.
+  const ruleEditorRequestSeq = useViewerStore.use.ruleEditorRequestSeq();
+  const handledRuleEditorSeqRef = useRef(ruleEditorRequestSeq);
+  useEffect(() => {
+    if (ruleEditorRequestSeq === handledRuleEditorSeqRef.current) {
+      return;
+    }
+    handledRuleEditorSeqRef.current = ruleEditorRequestSeq;
+    handleToolDetailRiskBadgeClick();
+  }, [ruleEditorRequestSeq, handleToolDetailRiskBadgeClick]);
+
   // -------------------------------------------------------------------------
   // Feature flags
   // -------------------------------------------------------------------------

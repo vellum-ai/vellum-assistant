@@ -152,6 +152,13 @@ export interface ViewerState {
   viewBeforeSubagentDetail: Exclude<MainView, "document" | "subagent-detail" | "tool-detail">;
   activeToolDetail: ToolDetailPayload | null;
   viewBeforeToolDetail: Exclude<MainView, "document" | "subagent-detail" | "tool-detail">;
+  /**
+   * Monotonic counter bumped when a viewer (e.g. the mobile tool-detail
+   * overlay, which lives in a separate portal subtree) asks to open the trust
+   * rule editor for `activeToolDetail`. `ChatRouteContent` owns the rule-editor
+   * state, so it watches this seq and performs the open against `messages`.
+   */
+  ruleEditorRequestSeq: number;
 }
 
 export interface ViewerActions {
@@ -177,6 +184,7 @@ export interface ViewerActions {
   // --- Tool detail ---
   openToolDetail: (payload: ToolDetailPayload) => void;
   closeToolDetail: () => void;
+  requestRuleEditorForActiveTool: () => void;
 
   // --- Document viewer ---
   openDocument: () => void;
@@ -213,6 +221,7 @@ const INITIAL_STATE: ViewerState = {
   viewBeforeSubagentDetail: "chat",
   activeToolDetail: null,
   viewBeforeToolDetail: "chat",
+  ruleEditorRequestSeq: 0,
 };
 
 // ---------------------------------------------------------------------------
@@ -352,6 +361,11 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
       mainView: get().viewBeforeToolDetail,
       activeToolDetail: null,
     });
+  },
+
+  requestRuleEditorForActiveTool: () => {
+    if (!get().activeToolDetail) return;
+    set((s) => ({ ruleEditorRequestSeq: s.ruleEditorRequestSeq + 1 }));
   },
 
   // --- Document viewer ---
