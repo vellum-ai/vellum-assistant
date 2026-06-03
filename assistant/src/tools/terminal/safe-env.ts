@@ -167,3 +167,36 @@ export function buildSanitizedEnv(): Record<string, string> {
   if (!env.LC_ALL) env.LC_ALL = utf8Locale;
   return env;
 }
+
+/**
+ * Platform/daemon secrets that the `buildSanitizedEnv()` allowlist keeps (the
+ * bash/skill sandbox runs trusted, daemon-authored code) but that a spawned
+ * ACP agent must NOT inherit. The agent runs in the user's own pod and is
+ * treated as untrusted code, so it gets only allowlisted vars + its own
+ * injected credentials. `ACTOR_TOKEN_SIGNING_KEY` is already absent from the
+ * allowlist; `CES_SERVICE_TOKEN` is listed there for the sandbox, so it is
+ * stripped here explicitly.
+ */
+const ACP_STRIPPED_ENV_VARS = [
+  "CES_SERVICE_TOKEN",
+  "ACTOR_TOKEN_SIGNING_KEY",
+] as const;
+
+/**
+ * Build the environment for a spawned ACP agent.
+ *
+ * Reuses the shared safe-env allowlist as the base (so the list lives in one
+ * place), strips the daemon/platform secrets the agent must never hold, then
+ * layers the agent's own injected credentials (`injectedEnv`, from
+ * `prepare-agent-env.ts`) LAST so they always land. `PATH` is preserved by the
+ * allowlist so the ACP adapter binaries resolve.
+ */
+export function buildAgentSpawnEnv(
+  injectedEnv?: Record<string, string>,
+): Record<string, string> {
+  const env = buildSanitizedEnv();
+  for (const key of ACP_STRIPPED_ENV_VARS) {
+    delete env[key];
+  }
+  return { ...env, ...injectedEnv };
+}
