@@ -42,6 +42,22 @@ describe("computeV3Health", () => {
     expect(report.unassigned).toEqual(["page-b", "page-c"]);
   });
 
+  test("excludes synthetic capability slugs from unassigned / novel clusters", () => {
+    const t = tree({ "domain-a/topic-x": ["page-a"] });
+    const report = computeV3Health({
+      tree: t,
+      allSlugs: ["page-a", "page-b", "cli-commands/example", "skills/example"],
+    });
+    // Capability slugs are handled by the always-on capabilities leaf (injected
+    // into the live lane tree, absent here), not the persisted tree — so they must
+    // not be reported as unassigned or grouped into novel clusters. page-b is the
+    // one real unassigned concept page.
+    expect(report.unassigned).toEqual(["page-b"]);
+    expect(report.novelClusters).toEqual([
+      { prefix: "page-b", slugs: ["page-b"], count: 1 },
+    ]);
+  });
+
   test("flags dangling page refs pointing at missing leaves", () => {
     const t = tree({ "domain-a/topic-x": ["page-a"] });
     const report = computeV3Health({
