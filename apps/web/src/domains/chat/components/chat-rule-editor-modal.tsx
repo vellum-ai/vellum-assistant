@@ -471,7 +471,7 @@ export function ChatRuleEditorModal({
                 <div className="rounded-md bg-[var(--surface-base)] px-3 py-2">
                   <Typography
                     variant="body-small-default"
-                    className="whitespace-pre-wrap break-words font-mono [overflow-wrap:anywhere] text-[var(--content-default)]"
+                    className="block whitespace-pre-wrap break-words font-mono [overflow-wrap:anywhere] text-[var(--content-default)]"
                   >
                     {generalizedOptions[0]?.label ?? ""}
                   </Typography>
