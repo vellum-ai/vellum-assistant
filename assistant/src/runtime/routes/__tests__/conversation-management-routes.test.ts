@@ -37,6 +37,16 @@ mock.module("../../sync/sync-publisher.js", () => ({
   },
 }));
 
+// Capture live-conversation evictions so we can assert that changing the
+// memory-factoring setting drops the in-memory instance (forcing a reload
+// with the updated gate on the next turn).
+const evictedConversations: string[] = [];
+mock.module("../../../daemon/conversation-store.js", () => ({
+  destroyActiveConversation: (conversationId: string) => {
+    evictedConversations.push(conversationId);
+  },
+}));
+
 import { getConversation } from "../../../memory/conversation-crud.js";
 import { getDb } from "../../../memory/db-connection.js";
 import { initializeDb } from "../../../memory/db-init.js";
@@ -342,6 +352,27 @@ describe("PUT /v1/conversations/:id/incognito", () => {
   beforeEach(() => {
     clearConversations();
     syncInvalidations.length = 0;
+    evictedConversations.length = 0;
+  });
+
+  test("evicts the live conversation when the setting changes, not on a no-op", async () => {
+    const convId = crypto.randomUUID();
+    seedConversation(convId, { incognito: true }); // factor_in_memories = 1
+
+    // 1 -> 0 changes the value, so the live instance must be dropped.
+    await incognitoHandler({
+      pathParams: { id: convId },
+      body: { factorInMemories: false },
+    });
+    expect(evictedConversations).toEqual([convId]);
+
+    // 0 -> 0 is a no-op; do not evict again.
+    evictedConversations.length = 0;
+    await incognitoHandler({
+      pathParams: { id: convId },
+      body: { factorInMemories: false },
+    });
+    expect(evictedConversations).toEqual([]);
   });
 
   test("updates factor_in_memories on an incognito conversation", async () => {

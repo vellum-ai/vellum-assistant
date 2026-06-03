@@ -233,7 +233,19 @@ async function handleSetIncognitoFactorInMemories({
     );
   }
 
+  const previousFactorInMemories = conversation.factorInMemories === 1;
   setConversationFactorInMemories(pathParams.id!, factorInMemories);
+
+  // The live in-memory conversation reuses its messages array across turns
+  // without reloading, so it can still hold memory blocks injected on earlier
+  // turns (PKB/NOW/static v2/graph <memory>). The loadFromDb gate only applies
+  // on the next load, so drop the active instance when the setting actually
+  // changes — the next turn rebuilds from the DB with the updated gate. Without
+  // this, turning factoring off wouldn't take effect until eviction/restart.
+  // No-op when the conversation isn't currently live.
+  if (previousFactorInMemories !== factorInMemories) {
+    destroyActiveConversation(pathParams.id!);
+  }
 
   // Notify other clients so a second tab / native client refetches this
   // conversation's metadata instead of showing a stale memory mode. The
