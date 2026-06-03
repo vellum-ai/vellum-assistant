@@ -194,7 +194,7 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
       isOptimistic: true,
       timestamp: 1010,
       textSegments: ["Stockholm plan: start with Gamla Stan"],
-      contentOrder: [{ type: "text", id: "0" }],
+      contentOrder: ["text:0"],
     });
     const completedAssistant = makeLocal({
       id: "a1",
@@ -203,7 +203,7 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
       textSegments: [
         "Stockholm plan: start with Gamla Stan, then spend the afternoon on Djurgarden.",
       ],
-      contentOrder: [{ type: "text", id: "0" }],
+      contentOrder: ["text:0"],
     });
 
     const result = reconcileDisplayMessagesWithLatestHistory(
@@ -279,8 +279,8 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
         "Good, that's exactly what we're here for.",
       ],
       contentOrder: [
-        { type: "text", id: "0" },
-        { type: "toolCall", id: "toolu_load_skill" },
+        "text:0",
+        "toolCall:toolu_load_skill",
       ],
     });
     const latestAssistant = makeLocal({
@@ -331,7 +331,7 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
           status: "running",
         },
       ],
-      contentOrder: [{ type: "toolCall", id: "toolu_load_skill" }],
+      contentOrder: ["toolCall:toolu_load_skill"],
     });
     const latestAssistant = makeLocal({
       id: "assistant-anchor",
@@ -366,7 +366,7 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
       result: "source copied",
     });
     expect(result[0]!.contentOrder).toEqual([
-      { type: "toolCall", id: "toolu_load_skill" },
+      "toolCall:toolu_load_skill",
     ]);
   });
 
@@ -631,8 +631,8 @@ describe("reconcileMessages", () => {
         timestamp: 1010,
         toolCalls: liveToolCalls,
         contentOrder: [
-          { type: "toolCall", id: "toolu_check_workspace" },
-          { type: "text", id: "0" },
+          "toolCall:toolu_check_workspace",
+          "text:0",
         ],
         textSegments: ["Everything is set up."],
       }),
@@ -799,7 +799,7 @@ describe("reconcileMessages", () => {
     expect(result[1]!.textSegments).toEqual([
       "Hello world",
     ]);
-    expect(result[1]!.contentOrder).toEqual([{ type: "text", id: "0" }]);
+    expect(result[1]!.contentOrder).toEqual(["text:0"]);
   });
 
   test("preserves local contentOrder and textSegments when local has toolCalls", () => {
@@ -809,9 +809,9 @@ describe("reconcileMessages", () => {
     // toolCalls, reconciliation must keep the local contentOrder/textSegments
     // so the interleaved rendering path uses matching ids.
     const localContentOrder = [
-      { type: "text", id: "0" },
-      { type: "toolCall", id: "tool-use-abc" },
-      { type: "text", id: "1" },
+      "text:0",
+      "toolCall:tool-use-abc",
+      "text:1",
     ];
     const localTextSegments = [
       "Let me check...",
@@ -855,7 +855,7 @@ describe("reconcileMessages", () => {
   test("uses server contentOrder when local has no toolCalls", () => {
     // When the local message has no toolCalls (e.g. a text-only message
     // loaded from history), take contentOrder from the server.
-    const serverOrder = [{ type: "text", id: "0" }];
+    const serverOrder = ["text:0"];
     const local: DisplayMessage[] = [
       makeLocal({ id: "m1", role: "user", ...textBody("Hello") }),
     ];
@@ -912,8 +912,8 @@ describe("reconcileMessages — mid-stream sync-tag bubble-split regression", ()
       role: "assistant",
       toolCalls: runningToolCalls,
       contentOrder: [
-        { type: "text", id: "0" },
-        { type: "tool", id: "toolu_01ABC" },
+        "text:0",
+        "tool:toolu_01ABC",
       ],
       textSegments: ["Working on it..."],
       timestamp: 2000,

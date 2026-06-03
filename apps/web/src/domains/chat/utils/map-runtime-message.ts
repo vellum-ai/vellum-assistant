@@ -8,7 +8,8 @@ import type {
   SlackRuntimeMessage,
   Surface,
 } from "@/domains/chat/types/types";
-import { mapRuntimeToolCalls, normalizeContentOrder, type RuntimeMessage } from "@/domains/chat/api/messages";
+import { mapRuntimeToolCalls, type RuntimeMessage } from "@/domains/chat/api/messages";
+import { normalizeContentOrder } from "@/domains/chat/utils/content-order";
 
 /**
  * Narrow the wire surface `display` (an open string) to the display union.
@@ -58,7 +59,7 @@ export interface PreparedRuntimeMessage {
   parsedAttachments: DisplayAttachment[] | undefined;
   structuredAttachments: DisplayAttachment[] | undefined;
   normalizedSegments: string[] | undefined;
-  normalizedContentOrder: Array<{ type: string; id: string }> | undefined;
+  normalizedContentOrder: string[] | undefined;
   toolCalls: ReturnType<typeof mapRuntimeToolCalls> | undefined;
   slackMessage: SlackRuntimeMessage | undefined;
   timestamp: number | undefined;

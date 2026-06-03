@@ -79,7 +79,7 @@ interface MessageListEntry {
   id: string;
   role: "user" | "assistant";
   textSegments?: string[];
-  contentOrder?: Array<{ type: string; id: string }>;
+  contentOrder?: string[];
   timestamp: number;
 }
 

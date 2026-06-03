@@ -86,10 +86,7 @@ function assistantMessageWithSpawn(
     id,
     role: "assistant",
     ...textBody("spawning"),
-    contentOrder: spawnedIds.map((_, i) => ({
-      type: "toolCall",
-      id: `tc-${i}`,
-    })),
+    contentOrder: spawnedIds.map((_, i) => `toolCall:tc-${i}`),
     toolCalls: spawnedIds.map((subagentId, i) => ({
       id: `tc-${i}`,
       toolName: "subagent_spawn",
@@ -114,10 +111,7 @@ function assistantMessageWithRunningSpawns(
     id,
     role: "assistant",
     ...textBody("spawning"),
-    contentOrder: Array.from({ length: count }, (_, i) => ({
-      type: "toolCall",
-      id: `tc-${i}`,
-    })),
+    contentOrder: Array.from({ length: count }, (_, i) => `toolCall:tc-${i}`),
     toolCalls: Array.from({ length: count }, (_, i) => ({
       id: `tc-${i}`,
       toolName: "subagent_spawn",
@@ -142,10 +136,7 @@ function assistantMessageWithMixedSpawns(
     id,
     role: "assistant",
     ...textBody("spawning"),
-    contentOrder: entries.map((_, i) => ({
-      type: "toolCall",
-      id: `tc-${i}`,
-    })),
+    contentOrder: entries.map((_, i) => `toolCall:tc-${i}`),
     toolCalls: entries.map((entry, i) => {
       const base = {
         id: `tc-${i}`,
@@ -330,7 +321,7 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
       id: "daemon-uuid-123",
       role: "assistant",
       ...textBody("spawning"),
-      contentOrder: [{ type: "toolCall", id: "tc-0" }],
+      contentOrder: ["toolCall:tc-0"],
       toolCalls: [
         {
           id: "tc-0",
@@ -406,7 +397,7 @@ describe("Transcript — toolUseId anchor (PR 3)", () => {
       id: "a1",
       role: "assistant",
       ...textBody("spawning"),
-      contentOrder: [{ type: "toolCall", id: "tool-use-abc" }],
+      contentOrder: ["toolCall:tool-use-abc"],
       toolCalls: [
         {
           id: "tool-use-abc",
@@ -474,9 +465,9 @@ describe("Transcript — cross-group claimed-set (fix-r1-c)", () => {
       id: "a1",
       role: "assistant",
       contentOrder: [
-        { type: "toolCall", id: "tc-0" },
-        { type: "text", id: "0" },
-        { type: "toolCall", id: "tc-1" },
+        "toolCall:tc-0",
+        "text:0",
+        "toolCall:tc-1",
       ],
       textSegments: ["between spawns"],
       toolCalls: [
@@ -533,7 +524,7 @@ describe("Transcript — live → reconcile card lifecycle (PR 6)", () => {
       id,
       role: "assistant",
       ...textBody("spawning"),
-      contentOrder: [{ type: "toolCall", id: toolUseId }],
+      contentOrder: [`toolCall:${toolUseId}`],
       toolCalls: [
         {
           id: toolUseId,

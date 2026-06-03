@@ -151,7 +151,7 @@ describe("appendTextDelta", () => {
     const call1Final = makeAssistantMsg({
       id: "row-A",
       textSegments: ["Hello"],
-      contentOrder: [{ type: "text", id: "0" }],
+      contentOrder: ["text:0"],
     });
 
     // WHEN the next LLM call's first delta arrives with a new messageId
@@ -198,7 +198,7 @@ describe("appendTextDelta", () => {
     const anchor = makeAssistantMsg({
       id: "row-A",
       textSegments: ["Hello"],
-      contentOrder: [{ type: "text", id: "0" }],
+      contentOrder: ["text:0"],
       mergedMessageIds: ["row-B"],
     });
 
@@ -666,7 +666,7 @@ describe("attachSurface", () => {
     const target = makeAssistantMsg({
       id: "anchor-1",
       surfaces: [surface],
-      contentOrder: [{ type: "surface", id: "surf-1" }],
+      contentOrder: ["surface:surf-1"],
     });
     const result = attachSurface([userMsg, target], surface, "anchor-1");
 
@@ -691,7 +691,7 @@ describe("applyToolResult — activityMetadata", () => {
   function msgWithRunningCall(): DisplayMessage {
     return makeAssistantMsg({
       toolCalls: [baseToolCall],
-      contentOrder: [{ type: "toolCall", id: "tc-1" }],
+      contentOrder: ["toolCall:tc-1"],
     });
   }
 
@@ -725,7 +725,7 @@ describe("applyToolResult — activityMetadata", () => {
   it("preserves prior activityMetadata when re-applied without it", () => {
     const msg = makeAssistantMsg({
       toolCalls: [{ ...baseToolCall, status: "running", activityMetadata: metadata }],
-      contentOrder: [{ type: "toolCall", id: "tc-1" }],
+      contentOrder: ["toolCall:tc-1"],
     });
     const result = applyToolResult([msg], {
       toolUseId: "tc-1",
@@ -747,7 +747,7 @@ describe("finalizeOnIdle", () => {
       toolCalls: [
         { id: "tc-1", toolName: "web_search", input: {}, status: "running" },
       ],
-      contentOrder: [{ type: "toolCall", id: "tc-1" }],
+      contentOrder: ["toolCall:tc-1"],
     });
     const msg2 = makeAssistantMsg({
       id: "a2",
@@ -755,7 +755,7 @@ describe("finalizeOnIdle", () => {
       toolCalls: [
         { id: "tc-2", toolName: "web_fetch", input: {}, status: "running" },
       ],
-      contentOrder: [{ type: "toolCall", id: "tc-2" }],
+      contentOrder: ["toolCall:tc-2"],
     });
     const result = finalizeOnIdle([userMsg, msg1, msg2]);
 
@@ -833,7 +833,7 @@ describe("applyToolResult — cross-message matching", () => {
       toolCalls: [
         { id: "tc-early", toolName: "web_search", input: {}, status: "running" },
       ],
-      contentOrder: [{ type: "toolCall", id: "tc-early" }],
+      contentOrder: ["toolCall:tc-early"],
     });
     const msg2 = makeAssistantMsg({
       id: "a2",
@@ -841,7 +841,7 @@ describe("applyToolResult — cross-message matching", () => {
       toolCalls: [
         { id: "tc-later", toolName: "bash", input: {}, status: "running" },
       ],
-      contentOrder: [{ type: "toolCall", id: "tc-later" }],
+      contentOrder: ["toolCall:tc-later"],
     });
     const result = applyToolResult([userMsg, msg1, msg2], {
       toolUseId: "tc-early",
@@ -1024,7 +1024,7 @@ describe("appendThinkingDelta", () => {
     const bubble = result[1]!;
     expect(bubble.role).toBe("assistant");
     expect(bubble.thinkingSegments).toEqual(["reason"]);
-    expect(bubble.contentOrder).toEqual([{ type: "thinking", id: "0" }]);
+    expect(bubble.contentOrder).toEqual(["thinking:0"]);
   });
 
   it("coalesces consecutive thinking deltas into one trailing segment", () => {
@@ -1036,7 +1036,7 @@ describe("appendThinkingDelta", () => {
     // THEN the trailing segment extends rather than opening a new block
     const row = result[1]!;
     expect(row.thinkingSegments).toEqual(["Hello"]);
-    expect(row.contentOrder).toEqual([{ type: "thinking", id: "0" }]);
+    expect(row.contentOrder).toEqual(["thinking:0"]);
   });
 
   it("opens a fresh thinking block when reasoning resumes after text", () => {
@@ -1052,9 +1052,9 @@ describe("appendThinkingDelta", () => {
     const row = result[1]!;
     expect(row.thinkingSegments).toEqual(["first", "second"]);
     expect(row.contentOrder).toEqual([
-      { type: "thinking", id: "0" },
-      { type: "text", id: "0" },
-      { type: "thinking", id: "1" },
+      "thinking:0",
+      "text:0",
+      "thinking:1",
     ]);
   });
 

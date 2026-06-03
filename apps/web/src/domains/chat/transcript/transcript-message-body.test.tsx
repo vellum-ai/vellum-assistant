@@ -307,7 +307,7 @@ describe("TranscriptMessageBody", () => {
         message={{
           id: "m1",
           role: "assistant",
-          contentOrder: [{ type: "tool", id: "tc-1" }],
+          contentOrder: ["tool:tc-1"],
           toolCalls: [
             {
               id: "tc-1",
@@ -336,7 +336,7 @@ describe("TranscriptMessageBody", () => {
           id: "m1",
           role: "assistant",
           ...textBody(""),
-          contentOrder: [{ type: "tool", id: "tc-1" }],
+          contentOrder: ["tool:tc-1"],
           toolCalls: [
             {
               id: "tc-1",
@@ -364,7 +364,7 @@ describe("TranscriptMessageBody", () => {
         message={{
           id: "m1",
           role: "assistant",
-          contentOrder: [{ type: "tool", id: "tc-1" }],
+          contentOrder: ["tool:tc-1"],
           toolCalls: [
             {
               id: "tc-1",
@@ -394,9 +394,9 @@ describe("TranscriptMessageBody", () => {
           id: "m1",
           role: "assistant",
           contentOrder: [
-            { type: "tool", id: "tc-1" },
-            { type: "text", id: "0" },
-            { type: "tool", id: "tc-2" },
+            "tool:tc-1",
+            "text:0",
+            "tool:tc-2",
           ],
           textSegments: ["Next I will check logs."],
           toolCalls: [
@@ -436,8 +436,8 @@ describe("TranscriptMessageBody", () => {
           id: "m1",
           role: "assistant",
           contentOrder: [
-            { type: "tool", id: "tc-1" },
-            { type: "text", id: "0" },
+            "tool:tc-1",
+            "text:0",
           ],
           textSegments: ["Here is what I found."],
           toolCalls: [
@@ -469,8 +469,8 @@ describe("TranscriptMessageBody", () => {
           id: "m1",
           role: "assistant",
           contentOrder: [
-            { type: "tool", id: "tc-1" },
-            { type: "text", id: "0" },
+            "tool:tc-1",
+            "text:0",
           ],
           textSegments: ["Done."],
           toolCalls: [
@@ -501,9 +501,9 @@ describe("TranscriptMessageBody", () => {
           id: "m1",
           role: "assistant",
           contentOrder: [
-            { type: "tool", id: "tc-1" },
-            { type: "text", id: "0" },
-            { type: "tool", id: "tc-2" },
+            "tool:tc-1",
+            "text:0",
+            "tool:tc-2",
           ],
           textSegments: ["Next I will check logs."],
           toolCalls: [
@@ -651,8 +651,8 @@ describe("TranscriptMessageBody", () => {
           id: "u3",
           role: "user",
           contentOrder: [
-            { type: "text", id: "0" },
-            { type: "surface", id: "s-1" },
+            "text:0",
+            "surface:s-1",
           ],
           textSegments: ["do this"],
           surfaces: [{ surfaceId: "s-1" } as never],
@@ -685,8 +685,8 @@ describe("TranscriptMessageBody", () => {
           id: "u-order-1",
           role: "user",
           contentOrder: [
-            { type: "surface", id: "s-1" },
-            { type: "text", id: "0" },
+            "surface:s-1",
+            "text:0",
           ],
           textSegments: ["after surface"],
           surfaces: [{ surfaceId: "s-1" } as never],
@@ -725,9 +725,9 @@ describe("TranscriptMessageBody", () => {
           id: "u-order-2",
           role: "user",
           contentOrder: [
-            { type: "text", id: "0" },
-            { type: "tool", id: "tc-1" },
-            { type: "text", id: "1" },
+            "text:0",
+            "tool:tc-1",
+            "text:1",
           ],
           textSegments: [
             "before tool",
@@ -786,7 +786,7 @@ describe("TranscriptMessageBody", () => {
           id: "u4",
           role: "user",
           ...textBody(""),
-          contentOrder: [{ type: "tool", id: "tc-1" }],
+          contentOrder: ["tool:tc-1"],
           toolCalls: [
             {
               id: "tc-1",
@@ -875,8 +875,8 @@ describe("TranscriptMessageBody", () => {
       textSegments: ["the answer"],
       thinkingSegments: ["chain of thought"],
       contentOrder: [
-        { type: "thinking", id: "0" },
-        { type: "text", id: "0" },
+        "thinking:0",
+        "text:0",
       ],
       timestamp: 1_000,
     });
@@ -896,7 +896,7 @@ describe("TranscriptMessageBody", () => {
         role: "assistant",
         textSegments: [],
         thinkingSegments: ["reasoning in progress"],
-        contentOrder: [{ type: "thinking", id: "0" }],
+        contentOrder: ["thinking:0"],
         timestamp: 1_000,
       },
       { isStreaming: true },
@@ -917,7 +917,7 @@ describe("TranscriptMessageBody", () => {
       role: "assistant",
       textSegments: [],
       thinkingSegments: ["reasoning that finished"],
-      contentOrder: [{ type: "thinking", id: "0" }],
+      contentOrder: ["thinking:0"],
       timestamp: 1_000,
     });
 
@@ -935,9 +935,9 @@ describe("TranscriptMessageBody", () => {
       textSegments: ["done"],
       thinkingSegments: ["why I called the tool"],
       contentOrder: [
-        { type: "thinking", id: "0" },
-        { type: "toolCall", id: "0" },
-        { type: "text", id: "0" },
+        "thinking:0",
+        "toolCall:0",
+        "text:0",
       ],
       toolCalls: [
         { id: "tc-1", toolName: "bash", input: {}, status: "completed" },

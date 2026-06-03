@@ -70,7 +70,11 @@ export interface DisplayMessage {
   /** Ordered text bodies, matching the wire `textSegments: string[]`. Each
    *  entry is referenced positionally by a `text:N` entry in `contentOrder`. */
   textSegments?: string[];
-  contentOrder?: Array<{ type: string; id: string }>;
+  /** Canonical render ordering, matching the wire `contentOrder: string[]`.
+   *  Each entry is a `"<type>:<ref>"` string (e.g. `"text:0"`, `"thinking:1"`,
+   *  `"tool:0"`, `"surface:0"`); see `utils/content-order.ts` for the encoding
+   *  and the entity-id vs positional-index resolution rules. */
+  contentOrder?: string[];
   slackMessage?: SlackRuntimeMessage;
   toolCalls?: ChatMessageToolCall[];
   /** Attachments rendered inside the message bubble. For user messages these

@@ -521,9 +521,9 @@ describe("useRefreshLatestMessages", () => {
             },
           ],
           contentOrder: [
-            { type: "text", id: "t1" },
-            { type: "surface", id: "s-confirm" },
-            { type: "surface", id: "s-keep" },
+            "text:t1",
+            "surface:s-confirm",
+            "surface:s-keep",
           ],
         }),
       ],
@@ -545,8 +545,8 @@ describe("useRefreshLatestMessages", () => {
     const merged = host.messages[0]!;
     expect(merged.surfaces?.map((s) => s.surfaceId)).toEqual(["s-keep"]);
     expect(merged.contentOrder).toEqual([
-      { type: "text", id: "t1" },
-      { type: "surface", id: "s-keep" },
+      "text:t1",
+      "surface:s-keep",
     ]);
     // Surface refresh loop must skip dismissed IDs too — otherwise we'd
     // fetch content for a surface we just filtered out.

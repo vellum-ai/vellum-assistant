@@ -183,45 +183,6 @@ export function mapRuntimeToolCalls(
   }));
 }
 
-/**
- * Normalize a contentOrder entry from the server's string format
- * (e.g. "text:0", "tool:1", "surface:2") into the client's object format
- * ({ type, id }). Already-object entries are passed through unchanged.
- */
-function normalizeContentOrderEntry(
-  entry: unknown,
-): { type: string; id: string } | null {
-  if (entry && typeof entry === "object" && !Array.isArray(entry)) {
-    const obj = entry as Record<string, unknown>;
-    if (typeof obj.type === "string" && typeof obj.id === "string") {
-      return { type: obj.type, id: obj.id };
-    }
-  }
-  if (typeof entry === "string") {
-    const colonIdx = entry.indexOf(":");
-    if (colonIdx > 0) {
-      return { type: entry.slice(0, colonIdx), id: entry.slice(colonIdx + 1) };
-    }
-  }
-  return null;
-}
-
-/**
- * Normalize a contentOrder array from the server, converting string-format
- * entries into the object format the client rendering code expects.
- */
-export function normalizeContentOrder(
-  raw: unknown[] | undefined,
-): Array<{ type: string; id: string }> | undefined {
-  if (!raw || raw.length === 0) return undefined;
-  const result: Array<{ type: string; id: string }> = [];
-  for (const entry of raw) {
-    const normalized = normalizeContentOrderEntry(entry);
-    if (normalized) result.push(normalized);
-  }
-  return result.length > 0 ? result : undefined;
-}
-
 export type ChatHistoryResult =
   | { ok: true; messages: DisplayMessage[] }
   | { ok: false; status: number; error: string };

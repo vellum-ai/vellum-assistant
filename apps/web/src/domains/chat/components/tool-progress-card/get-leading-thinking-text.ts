@@ -1,4 +1,5 @@
 import type { DisplayMessage } from "@/domains/chat/types/types";
+import { parseContentOrderEntry } from "@/domains/chat/utils/content-order";
 
 /**
  * Maximum number of characters from the preceding assistant text delta to
@@ -62,7 +63,11 @@ export function getLeadingThinkingText(
     | { type: "surface"; id: string };
 
   const groups: ContentGroup[] = [];
-  for (const entry of contentOrder) {
+  for (const rawEntry of contentOrder) {
+    const entry = parseContentOrderEntry(rawEntry);
+    if (!entry) {
+      continue;
+    }
     if (entry.type === "toolCall" || entry.type === "tool") {
       const lastGroup = groups[groups.length - 1];
       if (lastGroup?.type === "toolCalls") {
@@ -108,7 +113,10 @@ export function getLeadingThinkingText(
 export function getLegacyLeadingThinkingText(
   message: DisplayMessage,
 ): string | null {
-  const firstOrderEntry = message.contentOrder?.[0];
+  const firstRawEntry = message.contentOrder?.[0];
+  const firstOrderEntry = firstRawEntry
+    ? parseContentOrderEntry(firstRawEntry)
+    : null;
   if (firstOrderEntry?.type !== "text") {
     return null;
   }

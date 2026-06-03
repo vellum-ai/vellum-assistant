@@ -1,6 +1,10 @@
 import type { DisplayMessage, Surface } from "@/domains/chat/types/types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
+import {
+  encodeContentOrderEntry,
+  parseContentOrderEntry,
+} from "@/domains/chat/utils/content-order";
 
 export function messagesEqual(a: DisplayMessage[], b: DisplayMessage[]): boolean {
   if (a.length !== b.length) return false;
@@ -353,8 +357,7 @@ function concatOptionalArrays<T>(
  * message is being folded onto an older sibling.
  *
  * History payloads from the server reference array members by *position*
- * — `{ type: "text", id: "0" }`, `{ type: "attachment", id: "2" }`,
- * `{ type: "tool", id: "1" }`, `{ type: "surface", id: "0" }`. The
+ * — `"text:0"`, `"attachment:2"`, `"tool:1"`, `"surface:0"`. The
  * transcript renderer (`resolveSurface`, `resolveToolCall`, text-segment
  * lookup in `transcript-message-body.tsx`) first tries id-keyed lookup
  * and falls back to `parseInt(id, 10) → array[idx]` when the id matches
@@ -371,7 +374,7 @@ function concatOptionalArrays<T>(
  * real ids ("toolu_abc", "surf-uuid", "seg-3").
  */
 function remapAdjacentContentOrder(
-  entries: Array<{ type: string; id: string }> | undefined,
+  entries: string[] | undefined,
   offsets: {
     text: number;
     attachment: number;
@@ -379,7 +382,7 @@ function remapAdjacentContentOrder(
     surface: number;
     thinking: number;
   },
-): Array<{ type: string; id: string }> | undefined {
+): string[] | undefined {
   if (!entries || entries.length === 0) return entries;
   if (
     offsets.text === 0 &&
@@ -390,16 +393,18 @@ function remapAdjacentContentOrder(
   ) {
     return entries;
   }
-  return entries.map((entry) => {
+  return entries.map((rawEntry) => {
+    const entry = parseContentOrderEntry(rawEntry);
+    if (!entry) return rawEntry;
     const offset = pickContentOrderOffset(entry.type, offsets);
-    if (offset === 0) return entry;
+    if (offset === 0) return rawEntry;
     // Real ids (UUIDs, tool-use ids, surfaceIds, segment ids) resolve via
     // the renderer's id-keyed lookup — leave them alone. Only positional
     // numeric ids ("0", "1", "12") hit the parseInt fallback that needs
     // shifting after the survivor's array members claim 0..N-1.
-    if (!/^\d+$/.test(entry.id)) return entry;
+    if (!/^\d+$/.test(entry.id)) return rawEntry;
     const idx = parseInt(entry.id, 10);
-    return { ...entry, id: String(idx + offset) };
+    return encodeContentOrderEntry(entry.type, String(idx + offset));
   });
 }
 

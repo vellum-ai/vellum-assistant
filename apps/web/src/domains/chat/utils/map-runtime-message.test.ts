@@ -145,9 +145,9 @@ describe("mapRuntimeToDisplayMessage", () => {
     // render the thinking blocks in place
     expect(display.thinkingSegments).toEqual(["let me reason", "and conclude"]);
     expect(display.contentOrder).toEqual([
-      { type: "thinking", id: "0" },
-      { type: "thinking", id: "1" },
-      { type: "text", id: "0" },
+      "thinking:0",
+      "thinking:1",
+      "text:0",
     ]);
   });
 

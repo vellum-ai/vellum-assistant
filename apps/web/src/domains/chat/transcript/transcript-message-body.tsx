@@ -22,6 +22,7 @@ import {
   getLegacyLeadingThinkingText,
 } from "@/domains/chat/components/tool-progress-card/get-leading-thinking-text";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import { parseContentOrderEntry } from "@/domains/chat/utils/content-order";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 import {
@@ -346,9 +347,10 @@ export function TranscriptMessageBody({
   onStopSubagent,
   isStreaming = false,
 }: TranscriptMessageBodyProps) {
-  const hasInterleavedToolCalls = message.contentOrder?.some(
-    (e) => e.type === "toolCall" || e.type === "tool",
-  );
+  const hasInterleavedToolCalls = message.contentOrder?.some((e) => {
+    const type = parseContentOrderEntry(e)?.type;
+    return type === "toolCall" || type === "tool";
+  });
   const isSlackMessage = Boolean(message.slackMessage);
   const isUser = message.role === "user";
   const hasAttachments = Boolean(message.attachments?.length);
@@ -643,7 +645,11 @@ export function TranscriptMessageBody({
       | { type: "surface"; id: string };
 
     const groups: ContentGroup[] = [];
-    for (const entry of message.contentOrder) {
+    for (const rawEntry of message.contentOrder) {
+      const entry = parseContentOrderEntry(rawEntry);
+      if (!entry) {
+        continue;
+      }
       if (entry.type === "toolCall" || entry.type === "tool") {
         const lastGroup = groups[groups.length - 1];
         if (lastGroup?.type === "toolCalls") {
@@ -889,7 +895,11 @@ export function TranscriptMessageBody({
         ),
       });
     };
-    for (const entry of message.contentOrder) {
+    for (const rawEntry of message.contentOrder) {
+      const entry = parseContentOrderEntry(rawEntry);
+      if (!entry) {
+        continue;
+      }
       if (entry.type === "thinking") {
         pendingThinkingIds.push(entry.id);
         continue;
@@ -1022,9 +1032,10 @@ export function TranscriptMessageBody({
         {(() => {
           if (!message.surfaces || message.surfaces.length === 0) return null;
           const renderedSurfaceIds = new Set(
-            message.contentOrder
-              ?.filter((e) => e.type === "surface")
-              .map((e) => e.id) ?? [],
+            (message.contentOrder ?? []).flatMap((e) => {
+              const parsed = parseContentOrderEntry(e);
+              return parsed?.type === "surface" ? [parsed.id] : [];
+            }),
           );
           const unrendered = message.surfaces.filter(
             (s) => !renderedSurfaceIds.has(s.surfaceId),

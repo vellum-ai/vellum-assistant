@@ -5,7 +5,7 @@ import type { DisplayMessage } from "@/domains/chat/types/types";
 
 import { textBody } from "@/domains/chat/utils/message-test-helpers";
 function makeMessage(
-  contentOrder: Array<{ type: string; id: string }>,
+  contentOrder: string[],
   textSegments: string[] = [],
 ): DisplayMessage {
   return {
@@ -28,8 +28,8 @@ describe("getLeadingThinkingText", () => {
     // GIVEN a message whose contentOrder is [text, toolCall]
     const message = makeMessage(
       [
-        { type: "text", id: "0" },
-        { type: "toolCall", id: "tc-1" },
+        "text:0",
+        "toolCall:tc-1",
       ],
       ["  Looking up the docs.  "],
     );
@@ -52,10 +52,10 @@ describe("getLeadingThinkingText", () => {
     // group is preceded by a surface group, not by text
     const message = makeMessage(
       [
-        { type: "text", id: "0" },
-        { type: "toolCall", id: "tc-1" },
-        { type: "surface", id: "s-1" },
-        { type: "toolCall", id: "tc-2" },
+        "text:0",
+        "toolCall:tc-1",
+        "surface:s-1",
+        "toolCall:tc-2",
       ],
       ["Earlier preamble."],
     );
@@ -73,7 +73,7 @@ describe("getLeadingThinkingText", () => {
      * text, there is nothing to surface as "thinking".
      */
     // GIVEN a message that opens with a tool call
-    const message = makeMessage([{ type: "toolCall", id: "tc-1" }]);
+    const message = makeMessage(["toolCall:tc-1"]);
 
     // WHEN we ask for the thinking text at index 0
     const result = getLeadingThinkingText(message, 0);
@@ -91,8 +91,8 @@ describe("getLeadingThinkingText", () => {
     // GIVEN a text segment containing only whitespace
     const message = makeMessage(
       [
-        { type: "text", id: "0" },
-        { type: "toolCall", id: "tc-1" },
+        "text:0",
+        "toolCall:tc-1",
       ],
       ["   \n  "],
     );
@@ -113,8 +113,8 @@ describe("getLeadingThinkingText", () => {
     const longText = "a".repeat(200);
     const message = makeMessage(
       [
-        { type: "text", id: "0" },
-        { type: "toolCall", id: "tc-1" },
+        "text:0",
+        "toolCall:tc-1",
       ],
       [longText],
     );
@@ -136,9 +136,9 @@ describe("getLeadingThinkingText", () => {
     // GIVEN [text, toolCall, toolCall] which collapses to [text, toolCalls]
     const message = makeMessage(
       [
-        { type: "text", id: "0" },
-        { type: "toolCall", id: "tc-1" },
-        { type: "toolCall", id: "tc-2" },
+        "text:0",
+        "toolCall:tc-1",
+        "toolCall:tc-2",
       ],
       ["Thinking step."],
     );

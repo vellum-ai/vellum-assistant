@@ -10,6 +10,7 @@
 // can filter them out safely.
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
+import { parseContentOrderEntry } from "@/domains/chat/utils/content-order";
 import { isStringArray } from "@/domains/chat/utils/storage-validators";
 import { createRecordStorageAccessor } from "@/utils/typed-storage";
 
@@ -66,9 +67,10 @@ export function filterDismissedSurfaces(
     return {
       ...msg,
       surfaces: filteredSurfaces,
-      contentOrder: msg.contentOrder?.filter(
-        (e) => !(e.type === "surface" && dismissed.has(e.id)),
-      ),
+      contentOrder: msg.contentOrder?.filter((e) => {
+        const parsed = parseContentOrderEntry(e);
+        return !(parsed?.type === "surface" && dismissed.has(parsed.id));
+      }),
     };
   });
   return changed ? next : messages;

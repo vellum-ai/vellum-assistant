@@ -7,6 +7,7 @@
 
 import { isSurfaceInteractive } from "@/domains/chat/types/types";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import { parseContentOrderEntry } from "@/domains/chat/utils/content-order";
 
 import { attachConfirmationToToolCall, ERROR_MESSAGES } from "@/domains/chat/utils/chat";
 import type { PendingConfirmationState, PendingSecretState } from "@/domains/chat/types";
@@ -99,9 +100,10 @@ export function dismissInteractiveSurfaces(
     return {
       ...msg,
       surfaces: remaining,
-      contentOrder: msg.contentOrder?.filter(
-        (e) => !(e.type === "surface" && interactiveIds.has(e.id)),
-      ),
+      contentOrder: msg.contentOrder?.filter((e) => {
+        const parsed = parseContentOrderEntry(e);
+        return !(parsed?.type === "surface" && interactiveIds.has(parsed.id));
+      }),
     };
   });
   return { updatedMessages, dismissedIds: interactiveIds };

@@ -129,14 +129,14 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
         "A1 ",
       ],
       contentOrder: [
-        { type: "text", id: "0" },
-        { type: "text", id: "1" },
+        "text:0",
+        "text:1",
       ],
     });
     const donor = makeAssistant({
       id: "a-2",
       textSegments: ["B0"],
-      contentOrder: [{ type: "text", id: "0" }],
+      contentOrder: ["text:0"],
     });
     const result = mergeAdjacentAssistantMessages([survivor, donor]);
     expect(result[0]!.textSegments).toEqual([
@@ -145,9 +145,9 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
       "B0",
     ]);
     expect(result[0]!.contentOrder).toEqual([
-      { type: "text", id: "0" },
-      { type: "text", id: "1" },
-      { type: "text", id: "2" },
+      "text:0",
+      "text:1",
+      "text:2",
     ]);
   });
 
@@ -158,14 +158,14 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
         { id: "att-A0", filename: "a0.txt", mimeType: "text/plain", sizeBytes: 1, previewUrl: null },
         { id: "att-A1", filename: "a1.txt", mimeType: "text/plain", sizeBytes: 1, previewUrl: null },
       ],
-      contentOrder: [{ type: "attachment", id: "0" }],
+      contentOrder: ["attachment:0"],
     });
     const donor = makeAssistant({
       id: "a-2",
       attachments: [
         { id: "att-B0", filename: "b0.txt", mimeType: "text/plain", sizeBytes: 1, previewUrl: null },
       ],
-      contentOrder: [{ type: "attachment", id: "0" }],
+      contentOrder: ["attachment:0"],
     });
     const result = mergeAdjacentAssistantMessages([survivor, donor]);
     expect(result[0]!.attachments).toHaveLength(3);
@@ -175,8 +175,8 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
       "att-B0",
     ]);
     expect(result[0]!.contentOrder).toEqual([
-      { type: "attachment", id: "0" },
-      { type: "attachment", id: "2" },
+      "attachment:0",
+      "attachment:2",
     ]);
   });
 
@@ -192,7 +192,7 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
       toolCalls: [
         { id: "toolu_S0", toolName: "bash", input: {}, status: "completed" },
       ],
-      contentOrder: [{ type: "tool", id: "0" }],
+      contentOrder: ["tool:0"],
     });
     const donor = makeAssistant({
       id: "a-2",
@@ -201,8 +201,8 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
         { id: "toolu_D1", toolName: "test", input: {}, status: "completed" },
       ],
       contentOrder: [
-        { type: "tool", id: "0" },
-        { type: "tool", id: "1" },
+        "tool:0",
+        "tool:1",
       ],
     });
     const result = mergeAdjacentAssistantMessages([survivor, donor]);
@@ -215,9 +215,9 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
     // index fallback resolves to the appended donor tool calls, not the
     // survivor's pre-existing toolCalls[0].
     expect(result[0]!.contentOrder).toEqual([
-      { type: "tool", id: "0" },
-      { type: "tool", id: "1" },
-      { type: "tool", id: "2" },
+      "tool:0",
+      "tool:1",
+      "tool:2",
     ]);
   });
 
@@ -232,7 +232,7 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
           messageId: "a-1",
         },
       ],
-      contentOrder: [{ type: "surface", id: "0" }],
+      contentOrder: ["surface:0"],
     });
     const donor = makeAssistant({
       id: "a-2",
@@ -244,7 +244,7 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
           messageId: "a-2",
         },
       ],
-      contentOrder: [{ type: "surface", id: "0" }],
+      contentOrder: ["surface:0"],
     });
     const result = mergeAdjacentAssistantMessages([survivor, donor]);
     expect(result[0]!.surfaces?.map((s) => s.surfaceId)).toEqual([
@@ -252,8 +252,8 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
       "surf-D0",
     ]);
     expect(result[0]!.contentOrder).toEqual([
-      { type: "surface", id: "0" },
-      { type: "surface", id: "1" },
+      "surface:0",
+      "surface:1",
     ]);
   });
 
@@ -276,8 +276,8 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
         },
       ],
       contentOrder: [
-        { type: "toolCall", id: "toolu_real_X" },
-        { type: "surface", id: "surf-real-X" },
+        "toolCall:toolu_real_X",
+        "surface:surf-real-X",
       ],
     });
     const donor = makeAssistant({
@@ -294,16 +294,16 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
         },
       ],
       contentOrder: [
-        { type: "toolCall", id: "toolu_real_Y" },
-        { type: "surface", id: "surf-real-Y" },
+        "toolCall:toolu_real_Y",
+        "surface:surf-real-Y",
       ],
     });
     const result = mergeAdjacentAssistantMessages([survivor, donor]);
     expect(result[0]!.contentOrder).toEqual([
-      { type: "toolCall", id: "toolu_real_X" },
-      { type: "surface", id: "surf-real-X" },
-      { type: "toolCall", id: "toolu_real_Y" },
-      { type: "surface", id: "surf-real-Y" },
+      "toolCall:toolu_real_X",
+      "surface:surf-real-X",
+      "toolCall:toolu_real_Y",
+      "surface:surf-real-Y",
     ]);
   });
 
@@ -315,8 +315,8 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
         { id: "toolu_S", toolName: "bash", input: {}, status: "completed" },
       ],
       contentOrder: [
-        { type: "text", id: "0" },
-        { type: "tool", id: "0" },
+        "text:0",
+        "tool:0",
       ],
     });
     const donor = makeAssistant({
@@ -329,20 +329,20 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
         { id: "toolu_D", toolName: "edit", input: {}, status: "completed" },
       ],
       contentOrder: [
-        { type: "text", id: "0" },
-        { type: "tool", id: "0" },
-        { type: "text", id: "1" },
+        "text:0",
+        "tool:0",
+        "text:1",
       ],
     });
     const result = mergeAdjacentAssistantMessages([survivor, donor]);
     // text shifts by 1 (survivor.textSegments.length), tool shifts by 1
     // (survivor.toolCalls.length) — independently.
     expect(result[0]!.contentOrder).toEqual([
-      { type: "text", id: "0" },
-      { type: "tool", id: "0" },
-      { type: "text", id: "1" },
-      { type: "tool", id: "1" },
-      { type: "text", id: "2" },
+      "text:0",
+      "tool:0",
+      "text:1",
+      "tool:1",
+      "text:2",
     ]);
   });
 });
@@ -392,7 +392,7 @@ describe("mergeAdjacentAssistantMessages · cross-page bug repro", () => {
       timestamp: 1000,
       mergedMessageIds: Array.from({ length: 14 }, (_, i) => `row-A-${i}`),
       textSegments: ["[A] "],
-      contentOrder: [{ type: "text", id: "0" }],
+      contentOrder: ["text:0"],
       toolCalls: [
         { id: "tool-A-1", toolName: "bash", input: {}, status: "completed" },
       ],
@@ -402,7 +402,7 @@ describe("mergeAdjacentAssistantMessages · cross-page bug repro", () => {
       timestamp: 1010,
       mergedMessageIds: Array.from({ length: 24 }, (_, i) => `row-B-${i}`),
       textSegments: ["[B] "],
-      contentOrder: [{ type: "text", id: "0" }],
+      contentOrder: ["text:0"],
       toolCalls: [
         { id: "tool-B-1", toolName: "edit", input: {}, status: "completed" },
       ],
@@ -412,7 +412,7 @@ describe("mergeAdjacentAssistantMessages · cross-page bug repro", () => {
       timestamp: 1020,
       mergedMessageIds: Array.from({ length: 34 }, (_, i) => `row-C-${i}`),
       textSegments: ["[C]"],
-      contentOrder: [{ type: "text", id: "0" }],
+      contentOrder: ["text:0"],
       toolCalls: [
         { id: "tool-C-1", toolName: "test", input: {}, status: "completed" },
       ],

@@ -78,7 +78,7 @@ describe("handleAssistantThinkingDelta", () => {
     expect(next[0]).toMatchObject({
       role: "assistant",
       thinkingSegments: ["reasoning"],
-      contentOrder: [{ type: "thinking", id: "0" }],
+      contentOrder: ["thinking:0"],
     });
   });
 });

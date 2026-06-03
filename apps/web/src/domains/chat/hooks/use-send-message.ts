@@ -35,6 +35,7 @@ import { useStreamStore } from "@/domains/chat/stream-store";
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import { recordDiagnostic } from "@/lib/diagnostics";
 import { saveDismissedSurfaceIds } from "@/domains/chat/utils/dismissed-surfaces-storage";
+import { encodeContentOrderEntry } from "@/domains/chat/utils/content-order";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 import { endTurn } from "@/domains/chat/turn-coordinator";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
@@ -516,7 +517,7 @@ export function useSendMessage({
         isOptimistic: true,
         role: "user",
         textSegments: [content],
-        contentOrder: [{ type: "text", id: "0" }],
+        contentOrder: [encodeContentOrderEntry("text", "0")],
         timestamp: Date.now(),
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(willQueue ? { queueStatus: "queued" as const, queuePosition: 0 } : {}),

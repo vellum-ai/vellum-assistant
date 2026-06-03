@@ -79,7 +79,7 @@ describe("buildTranscriptItems", () => {
       ...textBody("See surface"),
       id: "s-assistant",
       surfaces: [surface],
-      contentOrder: [{ type: "text", id: "0" }, { type: "surface", id: "surf-1" }],
+      contentOrder: ["text:0", "surface:surf-1"],
     });
 
     const items = buildTranscriptItems({
@@ -523,9 +523,9 @@ describe("buildTranscriptItems", () => {
         "Pushed. Catalog regenerated.",
       ],
       contentOrder: [
-        { type: "toolCall", id: "tc-1" },
-        { type: "text", id: "0" },
-        { type: "surface", id: "wake-123" },
+        "toolCall:tc-1",
+        "text:0",
+        "surface:wake-123",
       ],
       surfaces: [wakeSurface],
     });

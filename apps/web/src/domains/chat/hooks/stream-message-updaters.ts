@@ -12,6 +12,10 @@
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import type { Surface } from "@/domains/chat/types/types";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
+import {
+  encodeContentOrderEntry,
+  parseContentOrderEntry,
+} from "@/domains/chat/utils/content-order";
 import { toDisplayAttachments } from "@/utils/display-attachments";
 import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
@@ -134,7 +138,7 @@ export function createStreamingBubble(
       ...(messageId ? {} : { isOptimistic: true }),
       role: "assistant",
       textSegments: [text],
-      contentOrder: [{ type: "text", id: "0" }],
+      contentOrder: [encodeContentOrderEntry("text", "0")],
       timestamp: Date.now(),
     },
   ];
@@ -154,14 +158,14 @@ function appendTextIntoRow(
   const row = withMergedAlias(prev[idx]!, messageId);
   const segments = [...(row.textSegments ?? [])];
   const order = [...(row.contentOrder ?? [])];
-  const lastOrderEntry = order[order.length - 1];
+  const lastOrderEntry = parseContentOrderEntry(order[order.length - 1] ?? "");
 
   if (lastOrderEntry?.type === "text" && segments.length > 0) {
     segments[segments.length - 1] = segments[segments.length - 1]! + text;
   } else {
     const newIndex = segments.length;
     segments.push(text);
-    order.push({ type: "text", id: String(newIndex) });
+    order.push(encodeContentOrderEntry("text", String(newIndex)));
   }
 
   const next = [...prev];
@@ -236,7 +240,7 @@ export function createStreamingThinkingBubble(
       ...(messageId ? {} : { isOptimistic: true }),
       role: "assistant",
       thinkingSegments: [thinking],
-      contentOrder: [{ type: "thinking", id: "0" }],
+      contentOrder: [encodeContentOrderEntry("thinking", "0")],
       timestamp: Date.now(),
     },
   ];
@@ -258,14 +262,14 @@ function appendThinkingIntoRow(
   const row = withMergedAlias(prev[idx]!, messageId);
   const segments = [...(row.thinkingSegments ?? [])];
   const order = [...(row.contentOrder ?? [])];
-  const lastOrderEntry = order[order.length - 1];
+  const lastOrderEntry = parseContentOrderEntry(order[order.length - 1] ?? "");
 
   if (lastOrderEntry?.type === "thinking" && segments.length > 0) {
     segments[segments.length - 1] = segments[segments.length - 1]! + thinking;
   } else {
     const newIndex = segments.length;
     segments.push(thinking);
-    order.push({ type: "thinking", id: String(newIndex) });
+    order.push(encodeContentOrderEntry("thinking", String(newIndex)));
   }
 
   const next = [...prev];
@@ -468,7 +472,7 @@ export function applyUserMessageEcho(
       ...(serverId === undefined ? { isOptimistic: true } : {}),
       role: "user",
       textSegments: [event.text],
-      contentOrder: [{ type: "text", id: "0" }],
+      contentOrder: [encodeContentOrderEntry("text", "0")],
       timestamp: Date.now(),
     },
   ];
@@ -540,15 +544,16 @@ export function attachSurface(
       ...(messageId ? {} : { isOptimistic: true }),
       role: "assistant" as const,
       surfaces: [surface],
-      contentOrder: [{ type: "surface", id: surface.surfaceId }],
+      contentOrder: [encodeContentOrderEntry("surface", surface.surfaceId)],
       timestamp: Date.now(),
     });
   } else {
     const target = withMergedAlias(prev[targetIdx]!, messageId);
     if (
-      target.contentOrder?.some(
-        (e) => e.type === "surface" && e.id === surface.surfaceId,
-      ) ||
+      target.contentOrder?.some((e) => {
+        const parsed = parseContentOrderEntry(e);
+        return parsed?.type === "surface" && parsed.id === surface.surfaceId;
+      }) ||
       target.surfaces?.some((s) => s.surfaceId === surface.surfaceId)
     ) {
       return prev;
@@ -558,7 +563,7 @@ export function attachSurface(
       surfaces: [...(target.surfaces ?? []), surface],
       contentOrder: [
         ...(target.contentOrder ?? []),
-        { type: "surface", id: surface.surfaceId },
+        encodeContentOrderEntry("surface", surface.surfaceId),
       ],
     };
   }
@@ -618,9 +623,10 @@ export function dismissSurface(
     updated[i] = {
       ...prev[i]!,
       surfaces: prev[i]!.surfaces?.filter((s) => s.surfaceId !== surfaceId),
-      contentOrder: prev[i]!.contentOrder?.filter(
-        (e) => !(e.type === "surface" && e.id === surfaceId),
-      ),
+      contentOrder: prev[i]!.contentOrder?.filter((e) => {
+        const parsed = parseContentOrderEntry(e);
+        return !(parsed?.type === "surface" && parsed.id === surfaceId);
+      }),
     };
     return updated;
   }
@@ -700,7 +706,7 @@ export function upsertToolCall(
       ...(messageId ? {} : { isOptimistic: true }),
       role: "assistant" as const,
       toolCalls: [toolCall],
-      contentOrder: [{ type: "toolCall", id: toolCall.id }],
+      contentOrder: [encodeContentOrderEntry("toolCall", toolCall.id)],
       timestamp: Date.now(),
     },
   ];
@@ -737,7 +743,7 @@ function upsertToolCallIntoRow(
     toolCalls: [...(row.toolCalls ?? []), toolCall],
     contentOrder: [
       ...(row.contentOrder ?? []),
-      { type: "toolCall", id: toolCall.id },
+      encodeContentOrderEntry("toolCall", toolCall.id),
     ],
   };
   return updated;

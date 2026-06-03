@@ -26,7 +26,7 @@ export function textBody(
   return content
     ? {
         textSegments: [content],
-        contentOrder: [{ type: "text", id: "0" }],
+        contentOrder: ["text:0"],
       }
     : { textSegments: [], contentOrder: [] };
 }

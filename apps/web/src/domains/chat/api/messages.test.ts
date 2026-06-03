@@ -10,7 +10,7 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { client as daemonClient } from "@/generated/daemon/client.gen";
-import { getChatHistory, normalizeContentOrder, postChatMessage } from "@/domains/chat/api/messages";
+import { getChatHistory, postChatMessage } from "@/domains/chat/api/messages";
 import { messageText } from "@/domains/chat/utils/message-test-helpers";
 
 // ---------------------------------------------------------------------------
@@ -94,67 +94,6 @@ describe("postChatMessage — onboarding wire format", () => {
 
     expect(capturedBody).not.toBeNull();
     expect((capturedBody as Record<string, unknown>).onboarding).toBeUndefined();
-  });
-});
-
-describe("normalizeContentOrder", () => {
-  test("converts string-format entries to objects", () => {
-    const result = normalizeContentOrder(["text:0", "tool:1", "surface:2"]);
-    expect(result).toEqual([
-      { type: "text", id: "0" },
-      { type: "tool", id: "1" },
-      { type: "surface", id: "2" },
-    ]);
-  });
-
-  test("passes through already-object entries unchanged", () => {
-    const input = [
-      { type: "text", id: "0" },
-      { type: "toolCall", id: "abc-123" },
-    ];
-    const result = normalizeContentOrder(input);
-    expect(result).toEqual(input);
-  });
-
-  test("handles mixed string and object entries", () => {
-    const result = normalizeContentOrder([
-      "text:0",
-      { type: "toolCall", id: "tc-1" },
-      "tool:1",
-    ]);
-    expect(result).toEqual([
-      { type: "text", id: "0" },
-      { type: "toolCall", id: "tc-1" },
-      { type: "tool", id: "1" },
-    ]);
-  });
-
-  test("handles thinking entries", () => {
-    const result = normalizeContentOrder(["thinking:0", "text:0"]);
-    expect(result).toEqual([
-      { type: "thinking", id: "0" },
-      { type: "text", id: "0" },
-    ]);
-  });
-
-  test("returns undefined for empty or missing input", () => {
-    expect(normalizeContentOrder(undefined)).toBeUndefined();
-    expect(normalizeContentOrder([])).toBeUndefined();
-  });
-
-  test("skips malformed entries", () => {
-    const result = normalizeContentOrder([
-      "text:0",
-      "nocolon",
-      42 as unknown as string,
-      null as unknown as string,
-      { type: 123, id: "bad" } as unknown as { type: string; id: string },
-      "tool:1",
-    ]);
-    expect(result).toEqual([
-      { type: "text", id: "0" },
-      { type: "tool", id: "1" },
-    ]);
   });
 });
 
