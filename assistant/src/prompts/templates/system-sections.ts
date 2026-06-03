@@ -231,6 +231,13 @@ export const BUNDLED_SYSTEM_SECTIONS: readonly BundledSection[] = [
     enabled: "!excludeCustomPrefix",
   },
   {
+    id: "01-communication",
+    body: `## Communication
+
+After an optional one-line acknowledgement, keep your reasoning and tool calls adjacent — think, call a tool, think, call a tool — with no user-facing prose between them. Don't narrate progress mid-task ("I'm checking X now", "Let me look at Y next"); that filler fragments one continuous stream of work. Let reasoning and tool calls run uninterrupted until the task is done, then close with a single concise summary of what you did. Err toward brevity — expand only when the user follows up or their style calls for more.
+`,
+  },
+  {
     id: "01-parallel-tool-calls",
     body: `<use_parallel_tool_calls>
 Batch independent tool calls into the same response. An extra LLM round trip costs orders of magnitude more than a few wasted tool calls — err on the side of parallelizing when calls are independent. Reading multiple files, \`glob\`/\`grep\`, \`ls\`, \`git status\`/\`diff\`/\`log\`, type-checks, and tests should be batched.

@@ -673,6 +673,19 @@ describe("buildSystemPrompt", () => {
       expect(result).toContain("Batch independent tool calls");
     });
 
+    test("bundled communication section renders and sorts before the parallel-tool-calls block", () => {
+      // `01-communication` sorts ahead of `01-parallel-tool-calls`, so the
+      // communication guidance leads the operational sections.
+      const result = buildSystemPrompt();
+      expect(result).toContain("## Communication");
+      expect(result).toContain("keep your reasoning and tool calls adjacent");
+      const communicationIdx = result.indexOf("## Communication");
+      const parallelIdx = result.indexOf("<use_parallel_tool_calls>");
+      expect(communicationIdx).toBeGreaterThan(-1);
+      expect(parallelIdx).toBeGreaterThan(-1);
+      expect(communicationIdx).toBeLessThan(parallelIdx);
+    });
+
     test("workspace prefix with frontmatter renders body at the very top", () => {
       mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
       writeFileSync(
