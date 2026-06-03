@@ -468,7 +468,7 @@ describe("platform-gated acp.enabled default", () => {
     }
   });
 
-  test("both flags set, no config file → acp.enabled is effective in-memory but NOT persisted as true, so a later flag-off load disables acp", () => {
+  test("both flags set, no config file → acp.enabled is effective in-memory but the key is OMITTED from disk", () => {
     process.env.IS_PLATFORM = "true";
     process.env.VELLUM_ACP_ENABLED = "true";
 
@@ -477,21 +477,52 @@ describe("platform-gated acp.enabled default", () => {
     const config = loadConfig();
     expect(config.acp.enabled).toBe(true);
 
-    // ...but the persisted config.json must NOT bake `acp.enabled: true` in as
-    // durable user intent. The rest of the `acp` block still persists at its
-    // schema default so config.json remains discoverable/editable.
+    // ...but the persisted config.json must NOT contain `acp.enabled` at all —
+    // not `true` (durable user intent that survives rollback) and not `false`
+    // (durable user intent that survives a RESTART, shadowing the gate). The
+    // key is omitted entirely so the env-gated default re-applies on every
+    // load. The rest of the `acp` block still persists at its schema default so
+    // config.json remains discoverable/editable.
     expect(existsSync(CONFIG_PATH)).toBe(true);
     const written = readConfig() as { acp?: Record<string, unknown> };
     expect(written.acp).toBeDefined();
-    expect(written.acp!["enabled"]).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(written.acp!, "enabled")).toBe(
+      false,
+    );
 
     // Roll back the release: flip VELLUM_ACP_ENABLED off and reload against the
-    // now-existing config.json. Because disk never recorded `enabled: true`,
-    // ACP rolls back cleanly to disabled — the gate survived the rollback.
+    // now-existing config.json. Because disk never recorded `enabled`, ACP
+    // rolls back cleanly to disabled — the gate survived the rollback.
     process.env.VELLUM_ACP_ENABLED = "false";
     invalidateConfigCache();
     const rolledBack = loadConfig();
     expect(rolledBack.acp.enabled).toBe(false);
+  });
+
+  test("both flags set, restart with config file present and flag still on → env-gated default re-applies (acp.enabled true survives restart)", () => {
+    process.env.IS_PLATFORM = "true";
+    process.env.VELLUM_ACP_ENABLED = "true";
+
+    // First launch: writes config.json with `acp.enabled` omitted.
+    const first = loadConfig();
+    expect(first.acp.enabled).toBe(true);
+    expect(existsSync(CONFIG_PATH)).toBe(true);
+
+    // Restart: config.json now exists (no acp.enabled key) and the rollout flag
+    // is still on. The fill-only pass sees no on-disk `acp.enabled`, so the
+    // env-gated default re-applies → ACP stays enabled across the restart.
+    // (Regression guard for the bug where writing `acp.enabled: false` on first
+    // launch left ACP disabled after the first restart.)
+    invalidateConfigCache();
+    const restarted = loadConfig();
+    expect(restarted.acp.enabled).toBe(true);
+
+    // Same restart but with the flag now off → disabled, because nothing on disk
+    // forces it on.
+    process.env.VELLUM_ACP_ENABLED = "false";
+    invalidateConfigCache();
+    const flagOff = loadConfig();
+    expect(flagOff.acp.enabled).toBe(false);
   });
 });
 

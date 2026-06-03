@@ -782,24 +782,32 @@ export function loadConfig(): AssistantConfig {
         if (!existsSync(dir)) {
           mkdirSync(dir, { recursive: true });
         }
-        // Strip dataDir (runtime-derived) from the persisted config
-        const { dataDir: _, ...persistable } = config;
+        // Strip dataDir (runtime-derived) from the persisted config. The
+        // persisted shape diverges from `AssistantConfig` (the env-gated
+        // `acp.enabled` key is omitted below), so type it as a loose record for
+        // serialization.
+        const { dataDir: _, ...rest } = config;
+        const persistable: Record<string, unknown> = rest;
         // Keep the env-gated `acp.enabled` default off-disk so the per-release
-        // rollout gate survives a rollback. The default is effective in-memory
-        // (above), but persisting `acp.enabled: true` would bake it into
-        // config.json as durable user intent — the fill-only pass would then
-        // treat it as an explicit choice forever, keeping ACP on even after
-        // VELLUM_ACP_ENABLED is flipped back off. Only the env-gated default is
-        // stripped: a genuine `acp.enabled` from disk is never touched (this is
-        // the first-launch path where no config.json existed), and the rest of
-        // the `acp` block (maxConcurrentSessions, agents) still persists at its
-        // schema default. Clone the subtree so we never mutate the in-memory
-        // effective `config.acp`.
+        // rollout gate survives both rollback AND restart. The default is
+        // effective in-memory (above), but persisting any `acp.enabled` value
+        // bakes it into config.json as durable user intent — the fill-only
+        // `fillContextDefaultsForMissingKeys` pass would then treat it as an
+        // explicit choice forever and refuse to re-apply the env-gated default.
+        // Writing `acp.enabled: false` is just as wrong as writing `true`: on
+        // the next process start with VELLUM_ACP_ENABLED still on, the on-disk
+        // `false` shadows the gate and ACP stays off after the first restart.
+        // So we must OMIT the key entirely (delete it), not materialize the
+        // schema default. On a subsequent load the absent key lets the env gate
+        // re-apply (→ true when on, disabled when off), while a genuine
+        // user-set `acp.enabled` on disk still wins (fill-only never overrides
+        // a present key). The rest of the `acp` block (maxConcurrentSessions,
+        // agents) still persists at its schema default. Clone the subtree so we
+        // never mutate the in-memory effective `config.acp`.
         if (contextDefaults.acp !== undefined && persistable.acp !== undefined) {
-          persistable.acp = {
-            ...persistable.acp,
-            enabled: cloneDefaultConfig().acp.enabled,
-          };
+          const { enabled: _enabled, ...acpWithoutEnabled } =
+            persistable.acp as Record<string, unknown>;
+          persistable.acp = acpWithoutEnabled;
         }
         writeFileSync(configPath, JSON.stringify(persistable, null, 2) + "\n");
         log.info("Wrote default config to %s", configPath);
