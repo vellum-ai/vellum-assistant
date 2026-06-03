@@ -55,7 +55,7 @@ export function IntelligenceLayout() {
       setTopBarCenter(
         <Typography
           variant="body-medium-default"
-          className="text-[var(--content-secondary)]"
+          className="truncate text-[var(--content-secondary)]"
         >
           About {assistantName || "Assistant"}
         </Typography>,
