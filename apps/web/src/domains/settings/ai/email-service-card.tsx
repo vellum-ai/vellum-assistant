@@ -1,4 +1,5 @@
 import {
+  CircleCheck,
   Crown,
   ExternalLink,
   Info,
@@ -37,10 +38,12 @@ import {
   assistantsListQueryKey,
   organizationsBillingSubscriptionRetrieveOptions,
 } from "@/generated/api/@tanstack/react-query.gen";
+import { credentialsInspectPost } from "@/generated/daemon/sdk.gen";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useEnvironmentStore } from "@/stores/environment-store";
 import { routes } from "@/utils/routes";
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
+import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { extractErrorMessage } from "@/utils/api-errors";
 
@@ -63,6 +66,8 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
   const [searchParams, setSearchParams] = useSearchParams();
   const emailRootDomain = useEnvironmentStore.use.emailRootDomain();
   const platformGate = usePlatformGate();
+  const activeAssistantId = useAssistantSelectionStore.use.activeAssistantId();
+  const byoAssistantId = assistantId ?? activeAssistantId;
   const [mode, setMode] = useState<ServiceMode>(
     () => platformGate === "gated" ? "your-own" : getLocalSetting(LS_EMAIL_MODE, "managed") as ServiceMode,
   );
@@ -82,6 +87,25 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
   const [registerConfirmOpen, setRegisterConfirmOpen] = useState(false);
   const [releaseConfirmOpen, setReleaseConfirmOpen] = useState(false);
   const [removeAddressConfirmOpen, setRemoveAddressConfirmOpen] = useState(false);
+
+  // -- BYO credential check (your-own mode) ----------------------------------
+  // Use byoAssistantId (lifecycle-backed fallback) so the check works in
+  // local/self-hosted mode where the platform assistant list may be empty.
+  const byoCredentialQuery = useQuery({
+    queryKey: ["byoEmailCredential", byoAssistantId, byoProviderId],
+    queryFn: async () => {
+      const { data } = await credentialsInspectPost({
+        path: { assistant_id: byoAssistantId! },
+        body: { service: byoProviderId, field: "api_key" },
+        throwOnError: true,
+      });
+      return data;
+    },
+    enabled: !!byoAssistantId && (mode === "your-own" || platformGate === "gated"),
+    staleTime: 60_000,
+    retry: false,
+  });
+  const byoConfigured = byoCredentialQuery.data?.hasSecret === true;
 
   useEffect(() => {
     if (subdomainPrefilled || !assistantHandle || subdomainDraft) return;
@@ -317,6 +341,32 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
     [byoProviderId],
   );
 
+  const byoSetupInstructions = (
+    <div className="flex items-start gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-sunken)] p-3 text-body-small-default text-[var(--content-tertiary)]">
+      <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--system-positive-strong)]" />
+      <div className="flex flex-col gap-1">
+        <span>
+          Configure {selectedByoProvider.displayName} via the assistant
+          CLI: ask the assistant to run the{" "}
+          <code className="rounded bg-[var(--surface-active)] px-1 py-0.5 text-[12px]">
+            {selectedByoProvider.setupSkill}
+          </code>{" "}
+          skill. It walks you through storing the API key, detecting the
+          domain, and (optionally) wiring up an inbound webhook.
+        </span>
+        <a
+          href={selectedByoProvider.docsUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 text-[var(--system-positive-strong)] underline hover:opacity-80"
+        >
+          Open {selectedByoProvider.displayName}
+          <ExternalLink className="h-3 w-3" />
+        </a>
+      </div>
+    </div>
+  );
+
   const yourOwnContent = (
     <div className="space-y-4">
       <div className="space-y-1">
@@ -335,29 +385,30 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
         />
       </div>
 
-      <div className="flex items-start gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-sunken)] p-3 text-body-small-default text-[var(--content-tertiary)]">
-        <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--system-positive-strong)]" />
-        <div className="flex flex-col gap-1">
-          <span>
-            Configure {selectedByoProvider.displayName} via the assistant
-            CLI: ask the assistant to run the{" "}
-            <code className="rounded bg-[var(--surface-active)] px-1 py-0.5 text-[12px]">
-              {selectedByoProvider.setupSkill}
-            </code>{" "}
-            skill. It walks you through storing the API key, detecting the
-            domain, and (optionally) wiring up an inbound webhook.
-          </span>
+      {byoConfigured ? (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 rounded-lg border border-[var(--system-positive-subtle)] bg-[var(--surface-sunken)] p-3 text-body-small-default text-[var(--content-default)]">
+            <CircleCheck className="h-4 w-4 shrink-0 text-[var(--system-positive-strong)]" />
+            <span>
+              {selectedByoProvider.displayName} API key configured.
+              To reconfigure, run the{" "}
+              <code className="rounded bg-[var(--surface-active)] px-1 py-0.5 text-[12px]">
+                {selectedByoProvider.setupSkill}
+              </code>{" "}
+              skill.
+            </span>
+          </div>
           <a
             href={selectedByoProvider.docsUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-[var(--system-positive-strong)] underline hover:opacity-80"
+            className="inline-flex items-center gap-1 text-body-small-default text-[var(--system-positive-strong)] underline hover:opacity-80"
           >
             Open {selectedByoProvider.displayName}
             <ExternalLink className="h-3 w-3" />
           </a>
         </div>
-      </div>
+      ) : byoSetupInstructions}
 
       <div className="flex items-center gap-2">
         <SaveButton onClick={handleSaveMode} disabled={savingMode} />
