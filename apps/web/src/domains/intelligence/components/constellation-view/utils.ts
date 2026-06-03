@@ -1,5 +1,5 @@
 import {
-  CATEGORY_CONFIGS,
+  getCategoryConfig,
   type OrbitItem,
   type TreeNode,
 } from "@/domains/intelligence/components/constellation-layout";
@@ -52,7 +52,7 @@ export function popoverItemForNode(node: TreeNode): OrbitItem | undefined {
     case "skill":
       return node.kind.item;
     case "category": {
-      const cfg = CATEGORY_CONFIGS[node.kind.category];
+      const cfg = getCategoryConfig(node.kind.category);
       return {
         id: node.id,
         label: cfg.displayName,

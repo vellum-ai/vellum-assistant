@@ -19528,15 +19528,6 @@ paths:
                                 - available
                             category:
                               type: string
-                              enum:
-                                - communication
-                                - productivity
-                                - development
-                                - media
-                                - automation
-                                - webSocial
-                                - knowledge
-                                - integration
                             origin:
                               type: string
                               const: vellum
@@ -19575,15 +19566,6 @@ paths:
                                 - available
                             category:
                               type: string
-                              enum:
-                                - communication
-                                - productivity
-                                - development
-                                - media
-                                - automation
-                                - webSocial
-                                - knowledge
-                                - integration
                             origin:
                               type: string
                               const: clawhub
@@ -19642,15 +19624,6 @@ paths:
                                 - available
                             category:
                               type: string
-                              enum:
-                                - communication
-                                - productivity
-                                - development
-                                - media
-                                - automation
-                                - webSocial
-                                - knowledge
-                                - integration
                             origin:
                               type: string
                               const: skillssh
@@ -19724,15 +19697,6 @@ paths:
                                 - available
                             category:
                               type: string
-                              enum:
-                                - communication
-                                - productivity
-                                - development
-                                - media
-                                - automation
-                                - webSocial
-                                - knowledge
-                                - integration
                             origin:
                               type: string
                               const: custom
@@ -19890,15 +19854,6 @@ paths:
                               - available
                           category:
                             type: string
-                            enum:
-                              - communication
-                              - productivity
-                              - development
-                              - media
-                              - automation
-                              - webSocial
-                              - knowledge
-                              - integration
                           origin:
                             type: string
                             const: vellum
@@ -19937,15 +19892,6 @@ paths:
                               - available
                           category:
                             type: string
-                            enum:
-                              - communication
-                              - productivity
-                              - development
-                              - media
-                              - automation
-                              - webSocial
-                              - knowledge
-                              - integration
                           origin:
                             type: string
                             const: clawhub
@@ -20058,15 +20004,6 @@ paths:
                               - available
                           category:
                             type: string
-                            enum:
-                              - communication
-                              - productivity
-                              - development
-                              - media
-                              - automation
-                              - webSocial
-                              - knowledge
-                              - integration
                           origin:
                             type: string
                             const: skillssh
@@ -20140,15 +20077,6 @@ paths:
                               - available
                           category:
                             type: string
-                            enum:
-                              - communication
-                              - productivity
-                              - development
-                              - media
-                              - automation
-                              - webSocial
-                              - knowledge
-                              - integration
                           origin:
                             type: string
                             const: custom
@@ -20316,15 +20244,6 @@ paths:
                               - available
                           category:
                             type: string
-                            enum:
-                              - communication
-                              - productivity
-                              - development
-                              - media
-                              - automation
-                              - webSocial
-                              - knowledge
-                              - integration
                           origin:
                             type: string
                             const: vellum
@@ -20363,15 +20282,6 @@ paths:
                               - available
                           category:
                             type: string
-                            enum:
-                              - communication
-                              - productivity
-                              - development
-                              - media
-                              - automation
-                              - webSocial
-                              - knowledge
-                              - integration
                           origin:
                             type: string
                             const: clawhub
@@ -20430,15 +20340,6 @@ paths:
                               - available
                           category:
                             type: string
-                            enum:
-                              - communication
-                              - productivity
-                              - development
-                              - media
-                              - automation
-                              - webSocial
-                              - knowledge
-                              - integration
                           origin:
                             type: string
                             const: skillssh
@@ -20512,15 +20413,6 @@ paths:
                               - available
                           category:
                             type: string
-                            enum:
-                              - communication
-                              - productivity
-                              - development
-                              - media
-                              - automation
-                              - webSocial
-                              - knowledge
-                              - integration
                           origin:
                             type: string
                             const: custom
@@ -20685,6 +20577,43 @@ paths:
           required: true
           schema:
             type: string
+  /v1/skills/categories:
+    get:
+      operationId: skills_categories_get
+      summary: List skill categories
+      description: Return all skill category definitions with labels, icons, and descriptions.
+      tags:
+        - skills
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  categories:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        slug:
+                          type: string
+                        label:
+                          type: string
+                        description:
+                          type: string
+                        icon:
+                          type: string
+                      required:
+                        - slug
+                        - label
+                        - description
+                        - icon
+                      additionalProperties: false
+                required:
+                  - categories
+                additionalProperties: false
   /v1/skills/check-updates:
     post:
       operationId: skills_checkupdates_post
@@ -20832,15 +20761,6 @@ paths:
                                 - available
                             category:
                               type: string
-                              enum:
-                                - communication
-                                - productivity
-                                - development
-                                - media
-                                - automation
-                                - webSocial
-                                - knowledge
-                                - integration
                             origin:
                               type: string
                               const: vellum
@@ -20879,15 +20799,6 @@ paths:
                                 - available
                             category:
                               type: string
-                              enum:
-                                - communication
-                                - productivity
-                                - development
-                                - media
-                                - automation
-                                - webSocial
-                                - knowledge
-                                - integration
                             origin:
                               type: string
                               const: clawhub
@@ -20946,15 +20857,6 @@ paths:
                                 - available
                             category:
                               type: string
-                              enum:
-                                - communication
-                                - productivity
-                                - development
-                                - media
-                                - automation
-                                - webSocial
-                                - knowledge
-                                - integration
                             origin:
                               type: string
                               const: skillssh
@@ -21028,15 +20930,6 @@ paths:
                                 - available
                             category:
                               type: string
-                              enum:
-                                - communication
-                                - productivity
-                                - development
-                                - media
-                                - automation
-                                - webSocial
-                                - knowledge
-                                - integration
                             origin:
                               type: string
                               const: custom
