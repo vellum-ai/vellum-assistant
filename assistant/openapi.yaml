@@ -1592,29 +1592,22 @@ paths:
       requestBody:
         required: true
         content:
-          application/json:
+          multipart/form-data:
             schema:
               type: object
               properties:
+                file:
+                  type: string
+                  format: binary
+                  description: The file to upload
                 filename:
                   type: string
                 mimeType:
                   type: string
-                data:
-                  type: string
-                  description: Base64-encoded file data
-                filePath:
-                  type: string
-                  description: On-disk file path (file-backed upload)
-                trustedSource:
-                  type: boolean
-                  description:
-                    Set by the gateway when the file came from a guardian-bound channel actor. Honored only when the request is
-                    authenticated as a gateway service token; ignored otherwise.
               required:
+                - file
                 - filename
                 - mimeType
-              additionalProperties: false
   /v1/attachments/{id}:
     get:
       operationId: attachments_by_id_get
