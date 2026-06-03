@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@vellum/design-library/components/button";
 import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Input } from "@vellum/design-library/components/input";
@@ -14,13 +15,20 @@ import {
   secretsPost,
   secretsReadPost,
 } from "@/generated/daemon/sdk.gen";
+import {
+  ApiError,
+  assertHasResponse,
+  extractErrorMessage,
+} from "@/utils/api-errors";
+import { shouldRetryDaemonError } from "@/utils/daemon-errors";
+import { captureError } from "@/lib/sentry/capture-error";
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 
 import { ChatgptOAuthSection } from "@/domains/settings/ai/chatgpt-oauth-section";
 import {
   type Auth,
   type ConnectionProvider,
   type CreateConnectionInput,
-  type CredentialEntry,
   PROVIDER_DISPLAY_NAMES,
   type ProviderConnection,
   type UpdateConnectionInput,
@@ -29,6 +37,19 @@ import {
 import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
 import { useLabelKeySync } from "@/domains/settings/ai/use-label-key-sync";
 import { providerSupportsPlatformAuth } from "@/assistant/llm-model-catalog";
+
+// ---------------------------------------------------------------------------
+// Query keys
+// ---------------------------------------------------------------------------
+
+const PROVIDER_CREDENTIAL_PRESENCE_QK = "provider-credential-presence" as const;
+const PROVIDER_CREDENTIALS_LIST_QK = "provider-credentials-list" as const;
+
+function parseCredentialRef(credRef: string): { service: string; field: string } | null {
+  const parts = credRef.split("/");
+  if (parts.length < 3 || parts[0] !== "credential") return null;
+  return { service: parts[1], field: parts.slice(2).join("/") };
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -172,50 +193,93 @@ export function ProviderEditorContent({
   // New state for inline API key editing
   const [apiKeyValue, setApiKeyValue] = useState("");
   const [isAdvancedExpanded, setIsAdvancedExpanded] = useState(false);
-  const [hasStoredCredential, setHasStoredCredential] = useState(false);
-  const [isLoadingCredential, setIsLoadingCredential] = useState(false);
-  const [availableCredentials, setAvailableCredentials] = useState<
-    CredentialEntry[]
-  >([]);
   const [isCreatingNewCredential, setIsCreatingNewCredential] = useState(false);
   const [newCredentialName, setNewCredentialName] = useState("");
   const [isSavingKey, setIsSavingKey] = useState(false);
+  const queryClient = useQueryClient();
+  const isOrgReady = useIsOrgReady();
 
-  const loadCredentialPresence = useCallback(
-    async (credRef: string) => {
-      const parts = credRef.split("/");
-      if (parts.length < 3 || parts[0] !== "credential") {
-        setHasStoredCredential(false);
-        return;
+  // --- Credential presence query (TanStack Query) ---
+  const parsedCredRef = useMemo(() => parseCredentialRef(credential), [credential]);
+  const needsCredentialCheck = authType === "api_key" && parsedCredRef !== null;
+
+  const credentialPresenceKey = useMemo(
+    () => [PROVIDER_CREDENTIAL_PRESENCE_QK, assistantId, parsedCredRef?.service ?? "", parsedCredRef?.field ?? ""],
+    [assistantId, parsedCredRef],
+  );
+
+  const credentialPresenceQuery = useQuery({
+    queryKey: credentialPresenceKey,
+    queryFn: async () => {
+      const { data, error, response } = await secretsReadPost({
+        path: { assistant_id: assistantId },
+        body: { type: "credential", name: `${parsedCredRef!.service}:${parsedCredRef!.field}` },
+        throwOnError: false,
+      });
+      assertHasResponse(response, error, "Failed to check stored credential");
+      if (!response.ok) {
+        throw new ApiError(
+          response.status,
+          extractErrorMessage(error, response, `Failed to check stored credential (HTTP ${response.status})`),
+        );
       }
-      const service = parts[1];
-      const field = parts.slice(2).join("/");
-      setIsLoadingCredential(true);
-      try {
-        const { data: result } = await secretsReadPost({
-          path: { assistant_id: assistantId },
-          body: { type: "credential", name: `${service}:${field}` },
-          throwOnError: true,
-        });
-        setHasStoredCredential(result.found);
-      } catch {
-        setHasStoredCredential(false);
-      } finally {
-        setIsLoadingCredential(false);
-      }
+      return data!.found;
     },
+    enabled: !!assistantId && needsCredentialCheck && isOrgReady,
+    retry: shouldRetryDaemonError,
+    staleTime: 30_000,
+  });
+
+  useEffect(() => {
+    if (!credentialPresenceQuery.error) return;
+    captureError(credentialPresenceQuery.error, {
+      context: "settings-provider-editor-credential-presence",
+      bestEffort: true,
+    });
+  }, [credentialPresenceQuery.error]);
+
+  const hasStoredCredential = credentialPresenceQuery.data ?? false;
+  const isLoadingCredential = credentialPresenceQuery.isLoading && needsCredentialCheck;
+
+  // --- Available credentials list query (TanStack Query) ---
+  const needsCredentialsList =
+    authType === "api_key" || effectiveMode === "create";
+
+  const credentialsListKey = useMemo(
+    () => [PROVIDER_CREDENTIALS_LIST_QK, assistantId],
     [assistantId],
   );
 
-  const loadAvailableCredentials = useCallback(async () => {
-    const { data } = await secretsGet({
-      path: { assistant_id: assistantId },
-      throwOnError: true,
+  const credentialsListQuery = useQuery({
+    queryKey: credentialsListKey,
+    queryFn: async () => {
+      const { data, error, response } = await secretsGet({
+        path: { assistant_id: assistantId },
+        throwOnError: false,
+      });
+      assertHasResponse(response, error, "Failed to load credentials");
+      if (!response.ok) {
+        throw new ApiError(
+          response.status,
+          extractErrorMessage(error, response, `Failed to load credentials (HTTP ${response.status})`),
+        );
+      }
+      return parseCredentialEntries(data!.secrets ?? data!.accounts ?? []);
+    },
+    enabled: !!assistantId && needsCredentialsList && isOrgReady,
+    retry: shouldRetryDaemonError,
+    staleTime: 30_000,
+  });
+
+  useEffect(() => {
+    if (!credentialsListQuery.error) return;
+    captureError(credentialsListQuery.error, {
+      context: "settings-provider-editor-credentials-list",
+      bestEffort: true,
     });
-    setAvailableCredentials(
-      parseCredentialEntries(data.secrets ?? data.accounts ?? []),
-    );
-  }, [assistantId]);
+  }, [credentialsListQuery.error]);
+
+  const availableCredentials = credentialsListQuery.data ?? [];
 
   // Reset form when connection prop changes (e.g. switching between edit
   // targets). `effectiveMode` doesn't need a sync line here — it's
@@ -248,25 +312,14 @@ export function ProviderEditorContent({
       connection?.models ? connection.models.map((m) => m.id).join(", ") : "",
     );
 
-    // Reset credential UI state
+    // Reset credential UI state. TQ queries auto-refetch when their keys
+    // change (credential ref updates above trigger new query keys).
     setApiKeyValue("");
-    setHasStoredCredential(false);
-    setIsLoadingCredential(false);
-    setAvailableCredentials([]);
     setIsCreatingNewCredential(false);
     setNewCredentialName("");
     setIsSavingKey(false);
     setIsAdvancedExpanded(false);
-
-    // Load credential data for edit mode with api_key auth
-    if (connection?.auth.type === "api_key") {
-      void loadCredentialPresence(connection.auth.credential);
-      void loadAvailableCredentials();
-    } else if (!connection) {
-      // Create mode: pre-load available credentials for the Advanced section
-      void loadAvailableCredentials();
-    }
-  }, [connection, loadCredentialPresence, loadAvailableCredentials, resetDirty]);
+  }, [connection, resetDirty]);
 
   /// Save as New: clone the currently-displayed connection into a fresh
   /// "create" mode session. The user keeps the provider + label as a
@@ -293,13 +346,12 @@ export function ProviderEditorContent({
       setCredential(`credential/${provider}/api_key`);
     }
     setApiKeyValue("");
-    setHasStoredCredential(false);
     setBaseUrl("");
     setConnectionModels("");
     setError(null);
-    // Pre-load the credentials list so the Advanced section's dropdown
-    // is populated when the user expands it.
-    void loadAvailableCredentials();
+    // TQ credential queries auto-refetch: credential ref change above
+    // triggers a new presence query key, and the credentials list query
+    // stays enabled (effectiveMode is now "create").
   }
 
   const nameError = (() => {
@@ -351,7 +403,10 @@ export function ProviderEditorContent({
                 throwOnError: true,
               });
             }
-            setHasStoredCredential(true);
+            // Optimistically mark credential as present and invalidate
+            // the credentials list so TQ caches stay in sync.
+            queryClient.setQueryData(credentialPresenceKey, true);
+            void queryClient.invalidateQueries({ queryKey: credentialsListKey });
           } catch {
             setError("Failed to save API key. Please try again.");
             return;
@@ -577,7 +632,8 @@ export function ProviderEditorContent({
                   });
                   setCredential(`credential/${newProvider}/api_key`);
                 }
-                setHasStoredCredential(false);
+                // Credential ref changes above trigger a new TQ query key,
+                // so the presence check auto-refetches for the new provider.
               }
             }}
             disabled={effectiveMode !== "create"}
@@ -759,7 +815,6 @@ export function ProviderEditorContent({
                           value={credential}
                           onChange={(v) => {
                             setCredential(v);
-                            void loadCredentialPresence(v);
                           }}
                           disabled={isAuthLocked}
                           options={dropdownOptions}
@@ -792,7 +847,6 @@ export function ProviderEditorContent({
                             setCredential(ref);
                             setIsCreatingNewCredential(false);
                             setNewCredentialName("");
-                            void loadCredentialPresence(ref);
                           }}
                         >
                           Use
