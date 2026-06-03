@@ -22622,6 +22622,61 @@ paths:
                 - currentThreshold
                 - intent
               additionalProperties: false
+  /v1/tts/providers:
+    get:
+      operationId: tts_providers_get
+      summary: List TTS providers
+      description: Return the catalog of available TTS providers with client-facing metadata.
+      tags:
+        - tts
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  providers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        displayName:
+                          type: string
+                        subtitle:
+                          type: string
+                        supportsVoiceSelection:
+                          type: boolean
+                        apiKeyPlaceholder:
+                          type: string
+                        credentialsGuide:
+                          type: object
+                          properties:
+                            description:
+                              type: string
+                            url:
+                              type: string
+                            linkLabel:
+                              type: string
+                          required:
+                            - description
+                            - url
+                            - linkLabel
+                          additionalProperties: false
+                      required:
+                        - id
+                        - displayName
+                        - subtitle
+                        - supportsVoiceSelection
+                        - apiKeyPlaceholder
+                        - credentialsGuide
+                      additionalProperties: false
+                required:
+                  - providers
+                additionalProperties: false
   /v1/tts/synthesize:
     post:
       operationId: tts_synthesize_post

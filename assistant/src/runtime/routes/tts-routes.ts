@@ -15,6 +15,7 @@ import { sanitizeForTts } from "../../calls/tts-text-sanitizer.js";
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { getConfig } from "../../config/loader.js";
 import { getMessageContent } from "../../daemon/handlers/conversation-history.js";
+import { listCatalogProvidersForDisplay } from "../../tts/provider-catalog.js";
 import {
   synthesizeText,
   TtsSynthesisError,
@@ -136,6 +137,10 @@ const ttsResponseHeaders = () => ({
 // Handlers
 // ---------------------------------------------------------------------------
 
+function handleListTtsProviders() {
+  return { providers: listCatalogProvidersForDisplay() };
+}
+
 async function handleMessageTts({ pathParams, queryParams }: RouteHandlerArgs) {
   const config = getConfig();
 
@@ -226,6 +231,36 @@ async function handleSynthesizeCliTts({ body }: RouteHandlerArgs) {
 // ---------------------------------------------------------------------------
 
 export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "tts_providers",
+    endpoint: "tts/providers",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "List TTS providers",
+    description:
+      "Return the catalog of available TTS providers with client-facing metadata.",
+    tags: ["tts"],
+    responseBody: z.object({
+      providers: z.array(
+        z.object({
+          id: z.string(),
+          displayName: z.string(),
+          subtitle: z.string(),
+          supportsVoiceSelection: z.boolean(),
+          apiKeyPlaceholder: z.string(),
+          credentialsGuide: z.object({
+            description: z.string(),
+            url: z.string(),
+            linkLabel: z.string(),
+          }),
+        }),
+      ),
+    }),
+    handler: handleListTtsProviders,
+  },
   {
     operationId: "messages_tts",
     endpoint: "messages/:messageId/tts",

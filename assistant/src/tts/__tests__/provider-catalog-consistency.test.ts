@@ -30,8 +30,10 @@ import {
 interface ClientCatalogProvider {
   id: string;
   displayName: string;
+  subtitle?: string;
+  supportsVoiceSelection?: boolean;
   credentialMode?: string;
-  credentialsGuide?: { url: string };
+  credentialsGuide?: { description: string; url: string; linkLabel: string };
 }
 
 interface ClientCatalog {
@@ -141,6 +143,88 @@ describe("TTS provider catalog / client artifact consistency", () => {
         ...violations.map((v) => `  - ${v}`),
       ].join("\n");
       expect(violations, message).toEqual([]);
+    }
+  });
+
+  // -- Display field parity --------------------------------------------------
+
+  test("subtitle matches between assistant catalog and client artifact", () => {
+    const violations: string[] = [];
+    for (const clientEntry of clientCatalog.providers) {
+      try {
+        const assistantEntry = getCatalogProvider(clientEntry.id as any);
+        if (clientEntry.subtitle !== assistantEntry.subtitle) {
+          violations.push(
+            `"${clientEntry.id}": client="${clientEntry.subtitle}" vs assistant="${assistantEntry.subtitle}"`,
+          );
+        }
+      } catch {
+        // Unknown ID — covered by provider ID parity tests above.
+      }
+    }
+    if (violations.length > 0) {
+      expect(violations, "Subtitle mismatch:\n" + violations.join("\n")).toEqual(
+        [],
+      );
+    }
+  });
+
+  test("supportsVoiceSelection matches between assistant catalog and client artifact", () => {
+    const violations: string[] = [];
+    for (const clientEntry of clientCatalog.providers) {
+      try {
+        const assistantEntry = getCatalogProvider(clientEntry.id as any);
+        if (
+          clientEntry.supportsVoiceSelection !==
+          assistantEntry.supportsVoiceSelection
+        ) {
+          violations.push(
+            `"${clientEntry.id}": client=${clientEntry.supportsVoiceSelection} vs assistant=${assistantEntry.supportsVoiceSelection}`,
+          );
+        }
+      } catch {
+        // Unknown ID — covered by provider ID parity tests above.
+      }
+    }
+    if (violations.length > 0) {
+      expect(
+        violations,
+        "supportsVoiceSelection mismatch:\n" + violations.join("\n"),
+      ).toEqual([]);
+    }
+  });
+
+  test("credentialsGuide matches between assistant catalog and client artifact", () => {
+    const violations: string[] = [];
+    for (const clientEntry of clientCatalog.providers) {
+      try {
+        const assistantEntry = getCatalogProvider(clientEntry.id as any);
+        const cg = clientEntry.credentialsGuide;
+        const ag = assistantEntry.credentialsGuide;
+        if (cg && ag) {
+          if (cg.url !== ag.url) {
+            violations.push(`"${clientEntry.id}": credentialsGuide.url mismatch`);
+          }
+          if (cg.description !== ag.description) {
+            violations.push(
+              `"${clientEntry.id}": credentialsGuide.description mismatch`,
+            );
+          }
+          if (cg.linkLabel !== ag.linkLabel) {
+            violations.push(
+              `"${clientEntry.id}": credentialsGuide.linkLabel mismatch`,
+            );
+          }
+        }
+      } catch {
+        // Unknown ID — covered by provider ID parity tests above.
+      }
+    }
+    if (violations.length > 0) {
+      expect(
+        violations,
+        "credentialsGuide mismatch:\n" + violations.join("\n"),
+      ).toEqual([]);
     }
   });
 
