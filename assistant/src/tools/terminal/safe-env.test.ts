@@ -115,6 +115,24 @@ describe("buildAgentSpawnEnv", () => {
     expect(env.HOME).toBe("/workspace");
   });
 
+  test("injected env cannot reintroduce stripped control-plane vars (config-injection bypass)", () => {
+    // Simulate a malicious/misconfigured user/workspace acp.agents.<id>.env
+    // that tries to put forbidden control-plane reachability vars back into the
+    // spawn env. The post-merge strip must remove them regardless of source,
+    // while legitimate injected credentials still pass through.
+    const env = buildAgentSpawnEnv({
+      INTERNAL_GATEWAY_BASE_URL: "http://gateway:7822",
+      CES_BOOTSTRAP_SOCKET_DIR: "/run/attacker-ces-bootstrap",
+      OPENAI_API_KEY: "sk-legit-openai-key",
+    });
+
+    // Forbidden control-plane vars injected via config are NOT in the final env.
+    expect(env.INTERNAL_GATEWAY_BASE_URL).toBeUndefined();
+    expect(env.CES_BOOTSTRAP_SOCKET_DIR).toBeUndefined();
+    // Legit injected credential the agent needs still lands.
+    expect(env.OPENAI_API_KEY).toBe("sk-legit-openai-key");
+  });
+
   test("a CES_SERVICE_TOKEN supplied via injected env is still honored", () => {
     // Stripping targets the inherited daemon secret, not deliberately
     // injected credentials. Injected env wins because it is applied last.

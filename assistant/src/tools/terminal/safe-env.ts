@@ -215,28 +215,45 @@ const ACP_STRIPPED_CONTROL_PLANE_ENV_VARS = [
   "GATEWAY_SECURITY_DIR",
 ] as const;
 
-/** All env vars stripped from the untrusted ACP agent's spawn env. */
-const ACP_STRIPPED_ENV_VARS = [
-  ...ACP_STRIPPED_SECRET_ENV_VARS,
-  ...ACP_STRIPPED_CONTROL_PLANE_ENV_VARS,
-] as const;
-
 /**
  * Build the environment for a spawned ACP agent.
  *
  * Reuses the shared safe-env allowlist as the base (so the list lives in one
- * place), strips the daemon/platform secrets AND the internal control-plane
- * reachability vars the agent must never hold (see ACP_STRIPPED_ENV_VARS),
+ * place), strips the daemon/platform secrets the agent must never inherit,
  * then layers the agent's own injected credentials (`injectedEnv`, from
- * `prepare-agent-env.ts`) LAST so they always land. `PATH` is preserved by the
- * allowlist so the ACP adapter binaries resolve.
+ * `prepare-agent-env.ts` — which includes user/workspace `acp.agents.<id>.env`)
+ * on top so they always land. `PATH` is preserved by the allowlist so the ACP
+ * adapter binaries resolve.
+ *
+ * The daemon-secret strip happens BEFORE the merge so a deliberately injected,
+ * agent-scoped credential (e.g. a scoped `CES_SERVICE_TOKEN`) can still win.
+ *
+ * The internal control-plane reachability vars, however, are stripped from the
+ * FINAL merged env — AFTER `injectedEnv` is applied. This closes a
+ * config-injection bypass: a user/workspace `acp.agents.<id>.env` could
+ * otherwise reintroduce a stripped key (INTERNAL_GATEWAY_BASE_URL /
+ * GATEWAY_INTERNAL_URL / CES + IPC socket dirs) and put the untrusted agent
+ * back onto the tokenless-loopback control plane. By deleting these keys last,
+ * neither the allowlist base nor any injected source can reintroduce them.
+ * Legitimate credential keys the agent needs (OPENAI_API_KEY, CODEX_API_KEY,
+ * ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, GH_TOKEN, GIT_*) are not in this
+ * set and pass through untouched.
  */
 export function buildAgentSpawnEnv(
   injectedEnv?: Record<string, string>,
 ): Record<string, string> {
   const env = buildSanitizedEnv();
-  for (const key of ACP_STRIPPED_ENV_VARS) {
+  // Strip inherited daemon/platform secrets pre-merge so a deliberately
+  // injected, agent-scoped credential can still override them.
+  for (const key of ACP_STRIPPED_SECRET_ENV_VARS) {
     delete env[key];
   }
-  return { ...env, ...injectedEnv };
+  const merged = { ...env, ...injectedEnv };
+  // Post-merge strip closes the config-injection bypass: forbidden
+  // control-plane reachability vars must not be present in the FINAL env
+  // regardless of source (allowlist base OR user/workspace acp.agents.<id>.env).
+  for (const key of ACP_STRIPPED_CONTROL_PLANE_ENV_VARS) {
+    delete merged[key];
+  }
+  return merged;
 }
