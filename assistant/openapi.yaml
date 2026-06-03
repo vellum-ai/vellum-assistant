@@ -16982,6 +16982,24 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  provider:
+                    type: object
+                    propertyNames:
+                      type: string
+                    additionalProperties: {}
+                  oauth_callback_url:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                required:
+                  - provider
+                  - oauth_callback_url
+                additionalProperties: false
       parameters:
         - name: providerKey
           in: path
