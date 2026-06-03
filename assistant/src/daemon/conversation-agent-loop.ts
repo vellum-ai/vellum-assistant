@@ -1556,7 +1556,13 @@ export async function runAgentLoopImpl(
         ? memoryResult.pkbContent
         : null;
     const pkbContext = shouldInjectNowAndPkb ? currentPkbContent : null;
-    const pkbActive = currentPkbContent !== null;
+    // `pkbActive` drives the pkb-reminder injector, which tells the model to
+    // call `remember` and promises a retrospective sweep. In incognito chats
+    // `remember` is rejected and retrospectives are skipped, so that reminder
+    // would be contradictory/spurious — suppress it for any incognito
+    // conversation while still allowing read-only PKB context above.
+    const isIncognitoConversation = !!factorInMemoriesConversation?.incognito;
+    const pkbActive = currentPkbContent !== null && !isIncognitoConversation;
 
     // V2 static memory block (essentials/threads/recent/buffer).
     // `currentMemoryV2Static` is the trust-gated content reused by every
