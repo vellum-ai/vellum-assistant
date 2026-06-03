@@ -177,17 +177,57 @@ export function buildSanitizedEnv(): Record<string, string> {
  * allowlist; `CES_SERVICE_TOKEN` is listed there for the sandbox, so it is
  * stripped here explicitly.
  */
-const ACP_STRIPPED_ENV_VARS = [
+const ACP_STRIPPED_SECRET_ENV_VARS = [
   "CES_SERVICE_TOKEN",
   "ACTOR_TOKEN_SIGNING_KEY",
+] as const;
+
+/**
+ * Internal control-plane reachability vars that the trusted bash/skill sandbox
+ * is allowed to see (and that `buildSanitizedEnv()` therefore allowlists /
+ * injects) but that an UNTRUSTED ACP agent must NOT receive.
+ *
+ * The gateway's auth middleware still accepts tokenless loopback requests
+ * (`allowLegacyLoopbackFallback` in gateway/src/http/middleware/auth.ts), so
+ * any spawned process that knows the internal gateway URL can curl `/v1/...`
+ * control-plane routes WITHOUT a bearer token. The same applies to the CES
+ * credential daemon and the in-pod IPC sockets. The ACP adapter gets its own
+ * scoped credentials via `injectedEnv` (config.env) and never needs these
+ * internal addresses, so we strip them to keep the untrusted agent off the
+ * tokenless-loopback control plane.
+ *
+ * NOTE: the public, auth-gated platform endpoints (VELLUM_PLATFORM_URL etc.)
+ * are intentionally NOT in this set — they require real credentials and are not
+ * the tokenless-loopback control plane.
+ */
+const ACP_STRIPPED_CONTROL_PLANE_ENV_VARS = [
+  // Internal gateway base URLs — the tokenless-loopback control plane itself.
+  "INTERNAL_GATEWAY_BASE_URL",
+  "GATEWAY_INTERNAL_URL",
+  // CES (Credential Execution Service) daemon reachability.
+  "CES_CREDENTIAL_URL",
+  "CES_BOOTSTRAP_SOCKET_DIR",
+  // In-pod IPC sockets that reach assistant/gateway control-plane services.
+  "ASSISTANT_IPC_SOCKET_DIR",
+  "ASSISTANT_SKILL_IPC_SOCKET_DIR",
+  "GATEWAY_IPC_SOCKET_DIR",
+  // Gateway security/allowlist directory (governs gateway trust decisions).
+  "GATEWAY_SECURITY_DIR",
+] as const;
+
+/** All env vars stripped from the untrusted ACP agent's spawn env. */
+const ACP_STRIPPED_ENV_VARS = [
+  ...ACP_STRIPPED_SECRET_ENV_VARS,
+  ...ACP_STRIPPED_CONTROL_PLANE_ENV_VARS,
 ] as const;
 
 /**
  * Build the environment for a spawned ACP agent.
  *
  * Reuses the shared safe-env allowlist as the base (so the list lives in one
- * place), strips the daemon/platform secrets the agent must never hold, then
- * layers the agent's own injected credentials (`injectedEnv`, from
+ * place), strips the daemon/platform secrets AND the internal control-plane
+ * reachability vars the agent must never hold (see ACP_STRIPPED_ENV_VARS),
+ * then layers the agent's own injected credentials (`injectedEnv`, from
  * `prepare-agent-env.ts`) LAST so they always land. `PATH` is preserved by the
  * allowlist so the ACP adapter binaries resolve.
  */
