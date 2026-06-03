@@ -46,6 +46,16 @@ export interface IndexMessageInput {
   provenanceTrustClass?: TrustClass;
   /** When true, the message was auto-sent by the client (e.g. wake-up greeting) and should not trigger memory extraction. */
   automated?: boolean;
+  /**
+   * When true, the message belongs to an incognito conversation and must never
+   * produce memories. Callers resolve this from the conversation row and pass
+   * it in; the gate lives here so every indexing path (live messages, the
+   * agent loop, backfill, import) is covered by a single check. The flag is
+   * threaded in rather than looked up here on purpose: a `conversation-crud`
+   * lookup inside this hot path is subject to Bun's `mock.module` global leak,
+   * which makes indexing behavior depend on unrelated test mocks.
+   */
+  incognito?: boolean;
 }
 
 export interface IndexMessageResult {
@@ -58,6 +68,14 @@ export async function indexMessageNow(
   config: MemoryConfig,
 ): Promise<IndexMessageResult> {
   if (!config.enabled) return { indexedSegments: 0, enqueuedJobs: 0 };
+
+  // Incognito conversations must never produce memories. Gating here — at the
+  // single entry to indexing — cuts off every downstream memory-producing path
+  // in one place: segment storage/embedding, graph_extract, memory_v2_sweep,
+  // auto-analysis, conversation-summary, and the retrospective enqueue.
+  if (input.incognito) {
+    return { indexedSegments: 0, enqueuedJobs: 0 };
+  }
 
   // Provenance-based trust gating: only guardian and legacy (undefined) actors
   // are trusted for extraction.

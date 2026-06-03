@@ -1504,6 +1504,10 @@ export async function handleMessageComplete(
       }
     }
     try {
+      // Incognito conversations must never produce memories — gate the
+      // assistant-turn indexing path the same way addMessage gates user turns.
+      const incognito =
+        getConversation(deps.ctx.conversationId)?.incognito === 1;
       await indexMessageNow(
         {
           messageId: assistantMessageId,
@@ -1514,6 +1518,7 @@ export async function handleMessageComplete(
           scopeId: "default",
           provenanceTrustClass,
           automated,
+          incognito,
         },
         getConfig().memory,
       );

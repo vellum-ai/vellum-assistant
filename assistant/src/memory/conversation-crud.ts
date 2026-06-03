@@ -1250,6 +1250,11 @@ export async function addMessage(
         ? parsed.data.provenanceTrustClass
         : undefined;
       const automated = parsed?.success ? parsed.data.automated : undefined;
+      // Incognito conversations must never produce memories — resolve the flag
+      // locally (getConversation lives in this module) and let indexMessageNow
+      // short-circuit the whole indexing/extraction pipeline.
+      const incognito =
+        getConversation(message.conversationId)?.incognito === 1;
       await indexMessageNow(
         {
           messageId: message.id,
@@ -1260,6 +1265,7 @@ export async function addMessage(
           scopeId: "default",
           provenanceTrustClass,
           automated,
+          incognito,
         },
         config.memory,
       );

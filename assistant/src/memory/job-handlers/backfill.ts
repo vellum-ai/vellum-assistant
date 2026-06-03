@@ -7,7 +7,7 @@ import {
   resetMessageCursorCheckpoint,
   writeMessageCursorCheckpoint,
 } from "../checkpoints.js";
-import { messageMetadataSchema } from "../conversation-crud.js";
+import { getConversation, messageMetadataSchema } from "../conversation-crud.js";
 import { getDb } from "../db-connection.js";
 import { indexMessageNow } from "../indexer.js";
 import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
@@ -69,6 +69,19 @@ export async function backfillJob(
     .all();
 
   if (batch.length > 0) {
+    // Incognito conversations must never produce memories. Re-indexing their
+    // messages here would recreate what addMessage deliberately skipped, so
+    // gate the backfill path too. Cache the per-conversation flag — a batch
+    // often holds many messages from the same conversation.
+    const incognitoByConversation = new Map<string, boolean>();
+    const isIncognito = (conversationId: string): boolean => {
+      let cached = incognitoByConversation.get(conversationId);
+      if (cached === undefined) {
+        cached = getConversation(conversationId)?.incognito === 1;
+        incognitoByConversation.set(conversationId, cached);
+      }
+      return cached;
+    };
     for (const message of batch) {
       const { provenanceTrustClass, automated } = parseMessageMetadata(
         message.metadata ?? null,
@@ -83,6 +96,7 @@ export async function backfillJob(
           scopeId: "default",
           provenanceTrustClass,
           automated,
+          incognito: isIncognito(message.conversationId),
         },
         config.memory,
       );

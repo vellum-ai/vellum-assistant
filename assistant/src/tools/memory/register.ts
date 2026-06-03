@@ -84,6 +84,23 @@ export const recallTool = {
       };
     }
 
+    // When an incognito conversation has opted out of factoring in memories,
+    // existing memories must not be read — mirror the automatic-injection gate
+    // in ConversationGraphMemory.prepareMemory so manual `recall` can't bypass
+    // the user's "Factor in memories" off setting. Lazy import for the same
+    // module-graph reason as the `remember` gate above.
+    const { getConversation } = await import(
+      "../../memory/conversation-crud.js"
+    );
+    const conversation = getConversation(context.conversationId);
+    if (conversation?.incognito && !conversation.factorInMemories) {
+      return {
+        content:
+          "recall is not available in this incognito conversation because factoring in memories is turned off",
+        isError: true,
+      };
+    }
+
     const config = getConfig();
     const result = await runAgenticRecall(input as unknown as RecallInput, {
       workingDir: context.workingDir,

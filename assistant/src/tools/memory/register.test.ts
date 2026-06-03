@@ -239,6 +239,43 @@ describe("recallTool.execute", () => {
       signal: controller.signal,
     });
   });
+
+  test("blocks recall in an incognito conversation that opted out of memories", async () => {
+    const { createConversation } = await import(
+      "../../memory/conversation-crud.js"
+    );
+    const { id } = createConversation({
+      incognito: true,
+      factorInMemories: false,
+    });
+
+    const result = await recallTool.execute(
+      { query: "read my memories anyway" },
+      makeContext({ conversationId: id }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("incognito");
+    expect(recallCalls).toHaveLength(0);
+  });
+
+  test("allows recall in an incognito conversation that factors in memories", async () => {
+    const { createConversation } = await import(
+      "../../memory/conversation-crud.js"
+    );
+    const { id } = createConversation({
+      incognito: true,
+      factorInMemories: true,
+    });
+
+    const result = await recallTool.execute(
+      { query: "factoring is on" },
+      makeContext({ conversationId: id }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(recallCalls).toHaveLength(1);
+  });
 });
 
 describe("rememberTool.execute — finish_turn", () => {
