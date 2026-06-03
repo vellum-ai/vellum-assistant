@@ -52,7 +52,6 @@ export function CreditsCard({
 
       <Button
         variant="ghost"
-        size="compact"
         fullWidth
         tintColor="var(--content-secondary)"
         onClick={onEarnCredits}
