@@ -367,6 +367,90 @@ describe("api-interceptors / daemon client self-hosted rewriting", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Trailing-slash normalization — daemon client on the platform path
+// ---------------------------------------------------------------------------
+//
+// The generated daemon SDK produces URLs without trailing slashes
+// (matching the daemon's own route registry), but Django URL patterns
+// require them. When a daemon client request falls through to the
+// platform path (no self-hosted ingress), the interceptor must append
+// a trailing slash so Django matches the explicit route handler instead
+// of falling through to the wildcard proxy.
+//
+// The platform client must NOT apply this normalization — its URLs
+// already carry trailing slashes, and the segment allowlist + APPEND_SLASH
+// handle edge cases.
+
+const DAEMON_ATTACHMENTS_PATH = `/v1/assistants/${SELF_HOSTED_ID}/attachments`;
+
+describe("api-interceptors / daemon trailing-slash normalization", () => {
+  beforeAll(() => {
+    useOrganizationStore.setState({ currentOrganizationId: TEST_ORG_ID });
+    setCsrfCookie("test-csrf-token");
+  });
+
+  afterAll(() => {
+    clearCsrfCookie();
+  });
+
+  afterEach(() => {
+    setSelfHostedConnection(null);
+  });
+
+  test("appends trailing slash to daemon URLs on the platform path", async () => {
+    const input = new Request(
+      `https://platform.test${DAEMON_ATTACHMENTS_PATH}`,
+      { method: "POST" },
+    );
+    const output = await daemonRequestInterceptor(input);
+    const outUrl = new URL(output.url);
+    expect(outUrl.pathname).toBe(`${DAEMON_ATTACHMENTS_PATH}/`);
+    expect(outUrl.origin).toBe("https://platform.test");
+  });
+
+  test("does not double-append when URL already has trailing slash", async () => {
+    const input = new Request(
+      `https://platform.test${DAEMON_SKILLS_PATH}`,
+      { method: "POST" },
+    );
+    const output = await daemonRequestInterceptor(input);
+    expect(new URL(output.url).pathname).toBe(DAEMON_SKILLS_PATH);
+  });
+
+  test("preserves query params through trailing-slash normalization", async () => {
+    const input = new Request(
+      `https://platform.test${DAEMON_ATTACHMENTS_PATH}?limit=10`,
+      { method: "GET" },
+    );
+    const output = await daemonRequestInterceptor(input);
+    const outUrl = new URL(output.url);
+    expect(outUrl.pathname).toBe(`${DAEMON_ATTACHMENTS_PATH}/`);
+    expect(outUrl.search).toBe("?limit=10");
+  });
+
+  test("platform client does NOT add trailing slash", async () => {
+    const input = new Request(
+      `https://platform.test${DAEMON_ATTACHMENTS_PATH}`,
+      { method: "POST" },
+    );
+    const output = await requestInterceptor(input);
+    expect(new URL(output.url).pathname).toBe(DAEMON_ATTACHMENTS_PATH);
+  });
+
+  test("does not normalize when request is rewritten to self-hosted gateway", async () => {
+    setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+    const input = new Request(
+      `https://platform.test${DAEMON_ATTACHMENTS_PATH}`,
+      { method: "POST" },
+    );
+    const output = await daemonRequestInterceptor(input);
+    const outUrl = new URL(output.url);
+    expect(outUrl.origin).toBe(INGRESS);
+    expect(outUrl.pathname).toBe(DAEMON_ATTACHMENTS_PATH);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Platform features gate
 // ---------------------------------------------------------------------------
 //

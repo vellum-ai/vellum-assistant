@@ -165,7 +165,7 @@ export async function rewriteForSelfHostedIngress(
  */
 function createInterceptor({ skipSegmentAllowlist = false } = {}) {
   return async (request: Request): Promise<Request> => {
-    const newRequest = new Request(request);
+    let newRequest = new Request(request);
 
     // Per-tab client identity — sent on *every* request (GET included)
     // so SSE-via-fetch readers and short-lived mutations carry the same
@@ -188,6 +188,21 @@ function createInterceptor({ skipSegmentAllowlist = false } = {}) {
     }
 
     // Platform path — Django session auth.
+    //
+    // Daemon SDK URLs omit trailing slashes (matching the daemon's own
+    // route registry), but Django URL patterns require them. Append a
+    // trailing slash so Django matches the explicit route instead of
+    // falling through to the generic wildcard proxy (which cannot
+    // handle multipart file uploads — it JSON-serializes the body,
+    // causing a TypeError on InMemoryUploadedFile).
+    if (skipSegmentAllowlist) {
+      const url = new URL(newRequest.url);
+      if (!url.pathname.endsWith("/")) {
+        url.pathname += "/";
+        newRequest = new Request(url.toString(), newRequest);
+      }
+    }
+
     const organizationId = getActiveOrganizationIdForRequests();
     if (organizationId) {
       newRequest.headers.set("Vellum-Organization-Id", organizationId);
