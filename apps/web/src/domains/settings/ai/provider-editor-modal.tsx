@@ -9,16 +9,15 @@ import { Typography } from "@vellum/design-library/components/typography";
 
 import {
   inferenceProviderconnectionsByNamePatch,
-  inferenceProviderconnectionsPost,
   secretsPost,
 } from "@/generated/daemon/sdk.gen";
 import { useStoredCredentialPresence } from "@/domains/settings/ai/use-stored-credential-presence";
 
 import { ChatgptOAuthSection } from "@/domains/settings/ai/chatgpt-oauth-section";
+import { ProviderCreateForm } from "@/domains/settings/ai/provider-create-form";
 import {
   type Auth,
   type ConnectionProvider,
-  type CreateConnectionInput,
   PROVIDER_DISPLAY_NAMES,
   type ProviderConnection,
   type UpdateConnectionInput,
@@ -84,6 +83,13 @@ export function ProviderEditorContent({
   const [effectiveMode, setEffectiveMode] = useState<
     "create" | "edit" | "managed-edit"
   >(mode);
+
+  // Auth type to seed the create form with when entering create mode via the
+  // Save as New clone flow. `undefined` for a genuine "create" open so the
+  // form keeps its own default (platform for managed-capable providers).
+  const [createAuthTypeSeed, setCreateAuthTypeSeed] = useState<
+    AuthType | undefined
+  >(undefined);
 
   // True when the editor is opened for a Vellum-managed connection. Locks
   // the auth-related inputs (Auth Type, API Key, Credential Reference) but
@@ -208,25 +214,7 @@ export function ProviderEditorContent({
   // common path for cloning off a managed connection).
   function handleSaveAsNew() {
     setEffectiveMode("create");
-    // Clear the Key so the user picks a new unique name. Reset the dirty
-    // flag so subsequent Label edits auto-derive the Key, matching the
-    // create-mode default UX.
-    setName("");
-    resetDirty();
-    if (provider === "ollama") {
-      setAuthType("none");
-      setCredential("");
-    } else {
-      setAuthType("api_key");
-      setCredential(`credential/${provider}/api_key`);
-    }
-    setApiKeyValue("");
-    setBaseUrl("");
-    setConnectionModels("");
-    setError(null);
-    // TQ credential queries auto-refetch: credential ref change above
-    // triggers a new presence query key, and the credentials list query
-    // stays enabled (effectiveMode is now "create").
+    setCreateAuthTypeSeed(provider === "ollama" ? "none" : "api_key");
   }
 
   const nameError = (() => {
@@ -280,23 +268,17 @@ export function ProviderEditorContent({
           } finally {
             setIsSavingKey(false);
           }
-        } else if (
-          !hasStoredCredential &&
-          effectiveMode === "create"
-        ) {
-          setError("Enter an API key or select an existing credential.");
-          return;
         }
 
         auth = { type: "api_key", credential: effectiveCredential };
       } else if (authType === "oauth_subscription") {
-        if (effectiveMode !== "create" && connection?.auth.type === "oauth_subscription") {
+        if (connection?.auth.type === "oauth_subscription") {
           // Editing an existing oauth_subscription connection — preserve
           // the stored auth so users can update display name / status.
           auth = connection.auth;
         } else {
-          // Create mode: OAuth subscription connections are created by
-          // the OAuth flow (handleChatgptUrlSubmit), not through Save.
+          // OAuth subscription connections are created by the OAuth flow
+          // (handleChatgptUrlSubmit), not through Save.
           setError("Use the \"Sign in with ChatGPT\" button to connect your subscription.");
           return;
         }
@@ -308,69 +290,35 @@ export function ProviderEditorContent({
 
       const labelValue = label.trim() || null;
 
-      let saved: ProviderConnection;
-      if (effectiveMode === "create") {
-        // Create path — used by genuine create-mode opens AND by the
-        // Save as New transition out of managed-edit. POSTs to
-        // `createConnection` either way, so the daemon assigns a fresh
-        // row that the user owns (not a managed clone).
-        const input: CreateConnectionInput = {
-          name: name.trim(),
-          provider,
-          auth,
-          ...(labelValue !== null && { label: labelValue }),
-          ...(isOpenAICompatible && {
-            base_url: baseUrl.trim() || null,
-            models: connectionModels.trim()
-              ? connectionModels
-                  .split(",")
-                  .map((id) => ({ id: id.trim() }))
-                  .filter((m) => m.id)
-              : null,
-          }),
-        };
-        const { data: created, response: createRes } = await inferenceProviderconnectionsPost({
-          path: { assistant_id: assistantId },
-          body: input,
-        });
-        if (!createRes?.ok) {
-          setError(connectionSaveErrorMessage(createRes?.status, name.trim()));
-          return;
-        }
-        if (!created) {
-          setError("Server returned an empty response. Please try again.");
-          return;
-        }
-        saved = created;
-      } else {
-        const input: UpdateConnectionInput = {
-          auth,
-          label: labelValue,
-          ...(isOpenAICompatible && {
-            base_url: baseUrl.trim() || null,
-            models: connectionModels.trim()
-              ? connectionModels
-                  .split(",")
-                  .map((id) => ({ id: id.trim() }))
-                  .filter((m) => m.id)
-              : null,
-          }),
-        };
-        const { data: updated, response: updateRes } = await inferenceProviderconnectionsByNamePatch({
-          path: { assistant_id: assistantId, name: connection?.name ?? name.trim() },
-          body: input,
-        });
-        if (!updateRes?.ok) {
-          setError(connectionSaveErrorMessage(updateRes?.status, name.trim()));
-          return;
-        }
-        if (!updated) {
-          setError("Server returned an empty response. Please try again.");
-          return;
-        }
-        saved = updated;
+      // Edit / managed-edit only — create mode is handled by
+      // ProviderCreateForm (see the early return above), which owns the
+      // POST path. This component never reaches handleSave in create mode.
+      const input: UpdateConnectionInput = {
+        auth,
+        label: labelValue,
+        ...(isOpenAICompatible && {
+          base_url: baseUrl.trim() || null,
+          models: connectionModels.trim()
+            ? connectionModels
+                .split(",")
+                .map((id) => ({ id: id.trim() }))
+                .filter((m) => m.id)
+            : null,
+        }),
+      };
+      const { data: updated, response: updateRes } = await inferenceProviderconnectionsByNamePatch({
+        path: { assistant_id: assistantId, name: connection?.name ?? name.trim() },
+        body: input,
+      });
+      if (!updateRes?.ok) {
+        setError(connectionSaveErrorMessage(updateRes?.status, name.trim()));
+        return;
       }
-      onSave(saved);
+      if (!updated) {
+        setError("Server returned an empty response. Please try again.");
+        return;
+      }
+      onSave(updated);
     } catch {
       setError("Failed to save connection. Please try again.");
     } finally {
@@ -401,20 +349,38 @@ export function ProviderEditorContent({
     hasStoredCredential,
   );
 
+  // Create mode (genuine opens AND the Save as New transition out of
+  // managed-edit) is fully owned by the shared ProviderCreateForm. It
+  // carries the create-path submit sequence (secretsPost →
+  // inferenceProviderconnectionsPost) and renders identical modal chrome.
+  // The `provider` carried over from a Save as New clone seeds the form via
+  // `defaultProviderType`. Keyed on it so a fresh provider remounts the form
+  // with the cloned starting point. Edit / managed-edit fall through below.
+  if (effectiveMode === "create") {
+    return (
+      <ProviderCreateForm
+        key={provider}
+        variant="modal"
+        assistantId={assistantId}
+        existingNames={existingNames}
+        openAICompatibleEndpointsEnabled={openAICompatibleEndpointsEnabled}
+        chatgptSubscriptionEnabled={chatgptSubscriptionEnabled}
+        defaultProviderType={provider}
+        defaultAuthType={createAuthTypeSeed}
+        onCreated={onSave}
+        onCancel={onCancel}
+      />
+    );
+  }
+
   return (
     <Modal.Content size="md">
       <Modal.Header>
-        <Modal.Title>
-          {effectiveMode === "create"
-            ? "New Provider Connection"
-            : "Edit Connection"}
-        </Modal.Title>
+        <Modal.Title>Edit Connection</Modal.Title>
         <Modal.Description>
-          {effectiveMode === "create"
-            ? "Define a provider and auth configuration for inference routing."
-            : isAuthLocked
-              ? `Managed by Vellum — auth is locked, but you can rename "${connection?.name}".`
-              : `Editing "${connection?.name}".`}
+          {isAuthLocked
+            ? `Managed by Vellum — auth is locked, but you can rename "${connection?.name}".`
+            : `Editing "${connection?.name}".`}
         </Modal.Description>
       </Modal.Header>
 
@@ -445,7 +411,7 @@ export function ProviderEditorContent({
               setError(null);
             }}
             placeholder="e.g. anthropic-personal"
-            disabled={effectiveMode !== "create"}
+            disabled
             fullWidth
           />
           {nameError && (
@@ -459,7 +425,8 @@ export function ProviderEditorContent({
           )}
         </div>
 
-        {/* Provider — only selectable on create */}
+        {/* Provider — read-only in edit / managed-edit (provider is fixed
+            once a connection exists; create mode lives in ProviderCreateForm). */}
         <div className="space-y-1">
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
             Provider
@@ -467,39 +434,8 @@ export function ProviderEditorContent({
           <Dropdown
             aria-label="Provider"
             value={provider}
-            onChange={(v) => {
-              const newProvider = v as ConnectionProvider;
-              setProvider(newProvider);
-              if (effectiveMode === "create") {
-                if (newProvider === "ollama") {
-                  setAuthType("none");
-                  setCredential("");
-                } else {
-                  setAuthType((prev) => {
-                    if (prev === "none") {
-                      return "api_key";
-                    }
-                    if (
-                      prev === "oauth_subscription" &&
-                      newProvider !== "openai"
-                    ) {
-                      return "api_key";
-                    }
-                    if (
-                      prev === "platform" &&
-                      !providerSupportsPlatformAuth(newProvider)
-                    ) {
-                      return "api_key";
-                    }
-                    return prev;
-                  });
-                  setCredential(`credential/${newProvider}/api_key`);
-                }
-                // Credential ref changes above trigger a new TQ query key,
-                // so the presence check auto-refetches for the new provider.
-              }
-            }}
-            disabled={effectiveMode !== "create"}
+            onChange={(v) => setProvider(v as ConnectionProvider)}
+            disabled
             options={connectionProviderOptions.map((p) => ({
               value: p,
               label: PROVIDER_DISPLAY_NAMES[p],
@@ -565,15 +501,6 @@ export function ProviderEditorContent({
                 types = ["api_key", "platform"];
               } else {
                 types = ["api_key"];
-              }
-              // Add oauth_subscription when ChatGPT flag is enabled for
-              // OpenAI in create mode.
-              if (
-                chatgptSubscriptionEnabled &&
-                provider === "openai" &&
-                effectiveMode === "create"
-              ) {
-                types.push("oauth_subscription");
               }
               // Preserve the current auth type in edit mode so existing
               // connections display their saved value even if the type is
@@ -650,11 +577,7 @@ export function ProviderEditorContent({
           disabled={!canSave || saving || isSavingKey}
           onClick={() => void handleSave()}
         >
-          {saving
-            ? "Saving…"
-            : effectiveMode === "create"
-              ? "Create"
-              : "Save"}
+          {saving ? "Saving…" : "Save"}
         </Button>
       </Modal.Footer>
     </Modal.Content>
