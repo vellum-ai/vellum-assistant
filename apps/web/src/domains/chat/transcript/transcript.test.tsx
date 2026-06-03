@@ -10,8 +10,16 @@
  * LatestTurnRow follows at the end of the DOM (visual bottom).
  */
 
-import { afterEach, describe, expect, mock, test } from "bun:test";
-import { act, useEffect } from "react";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
+import { act, createRef, useEffect } from "react";
 import { cleanup, render } from "@testing-library/react";
 
 // `ChatMarkdownMessage` pulls in `react-markdown` + `remark-gfm`. They render
@@ -54,7 +62,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 
-import { Transcript } from "@/domains/chat/transcript/transcript";
+import {
+  Transcript,
+  type TranscriptHandle,
+} from "@/domains/chat/transcript/transcript";
 
 import { textBody } from "@/domains/chat/utils/message-test-helpers";
 function userMessage(id: string, content: string): TranscriptItem {
@@ -521,5 +532,102 @@ describe("Transcript no-anchor → anchor transition preserves avatar DOM identi
     });
     expect(avatarMountCount).toBe(1);
     expect(avatarUnmountCount).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// `scrollToActivity` handle method — scrolls a matching `[data-activity-anchor]`
+// element into view and flashes a transient highlight.
+// ---------------------------------------------------------------------------
+describe("Transcript scrollToActivity handle", () => {
+  // jsdom/happy-dom don't implement scrollIntoView — stub it for the suite.
+  const scrollIntoView = mock(() => {});
+  const originalScrollIntoView = Element.prototype.scrollIntoView;
+
+  beforeAll(() => {
+    Element.prototype.scrollIntoView = scrollIntoView;
+  });
+  afterAll(() => {
+    Element.prototype.scrollIntoView = originalScrollIntoView;
+  });
+  afterEach(() => {
+    cleanup();
+    scrollIntoView.mockClear();
+  });
+
+  function renderWithHandle() {
+    const ref = createRef<TranscriptHandle>();
+    render(
+      <Transcript
+        ref={ref}
+        items={[assistantMessage("a1", "reply")]}
+        conversationId="conv-1"
+        onSecretSubmit={noop}
+        onConfirmationDecision={noop}
+        onSurfaceAction={noop}
+        onRetryError={noop}
+      />,
+    );
+    return ref.current!;
+  }
+
+  test("scrolls the matching anchor into view and flashes the highlight", () => {
+    const handle = renderWithHandle();
+
+    const anchor = document.createElement("div");
+    anchor.setAttribute("data-activity-anchor", "step-1");
+    handle.getScrollElement()!.appendChild(anchor);
+
+    act(() => {
+      handle.scrollToActivity("step-1");
+    });
+
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(anchor.getAttribute("data-activity-highlight")).toBe("true");
+  });
+
+  test("is a safe no-op for an unknown anchor id", () => {
+    const handle = renderWithHandle();
+
+    expect(() => {
+      act(() => {
+        handle.scrollToActivity("does-not-exist");
+      });
+    }).not.toThrow();
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  test("uses behavior 'auto' when prefers-reduced-motion: reduce matches", () => {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = ((query: string) =>
+      ({
+        matches: query.includes("prefers-reduced-motion: reduce"),
+        media: query,
+        onchange: null,
+        addListener: () => {},
+        removeListener: () => {},
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        dispatchEvent: () => false,
+      }) as unknown as MediaQueryList) as typeof window.matchMedia;
+
+    try {
+      const handle = renderWithHandle();
+
+      const anchor = document.createElement("div");
+      anchor.setAttribute("data-activity-anchor", "step-1");
+      handle.getScrollElement()!.appendChild(anchor);
+
+      act(() => {
+        handle.scrollToActivity("step-1");
+      });
+
+      expect(scrollIntoView).toHaveBeenCalledTimes(1);
+      expect(scrollIntoView).toHaveBeenLastCalledWith(
+        expect.objectContaining({ behavior: "auto" }),
+      );
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
   });
 });

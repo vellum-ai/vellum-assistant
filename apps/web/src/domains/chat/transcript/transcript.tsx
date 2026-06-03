@@ -133,6 +133,9 @@ export interface TranscriptProps {
 
 export interface TranscriptHandle {
   scrollToLatest(opts?: { behavior?: "auto" | "smooth" }): void;
+  /** Scroll the element carrying a matching `data-activity-anchor` into
+   *  view and flash a transient highlight. Safe no-op for missing anchors. */
+  scrollToActivity(anchorId: string): void;
   getScrollElement(): HTMLDivElement | null;
   /** Inner wrapper that surrounds all rendered children. Sized to the
    *  scroll content; observable via `ResizeObserver` to detect when
@@ -178,6 +181,28 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
 
     const partition = useMemo(() => partitionLatestTurn(items), [items]);
 
+    const scrollToActivity = useCallback((anchorId: string) => {
+      const root = scrollRef.current;
+      if (!root) return;
+      const el = root.querySelector<HTMLElement>(
+        `[data-activity-anchor="${CSS.escape(anchorId)}"]`,
+      );
+      if (!el) return;
+      const prefersReduced =
+        typeof window !== "undefined" &&
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      el.scrollIntoView({
+        behavior: prefersReduced ? "auto" : "smooth",
+        block: "start",
+      });
+      el.setAttribute("data-activity-highlight", "true");
+      window.setTimeout(
+        () => el.removeAttribute("data-activity-highlight"),
+        1600,
+      );
+    }, []);
+
     useImperativeHandle(
       ref,
       (): TranscriptHandle => ({
@@ -189,6 +214,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
             behavior: opts?.behavior ?? "auto",
           });
         },
+        scrollToActivity,
         getScrollElement() {
           return scrollRef.current;
         },
@@ -220,7 +246,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
           };
         },
       }),
-      [rest.scrollCoordinatorState],
+      [rest.scrollCoordinatorState, scrollToActivity],
     );
 
     const rowProps = {
