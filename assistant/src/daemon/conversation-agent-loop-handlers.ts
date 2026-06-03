@@ -112,16 +112,12 @@ const log = getLogger("agent-loop-handlers");
  * disk-full, read-only FS) must not abort the turn, so failures log a warning
  * and continue.
  */
-export function markHistoryStrippedBestEffort(
-  conversationId: string,
-  strippedAt: number,
-  logger: pino.Logger,
-): void {
+export function markHistoryStrippedBestEffort(conversationId: string): void {
   try {
-    setConversationHistoryStrippedAt(conversationId, strippedAt);
+    setConversationHistoryStrippedAt(conversationId, Date.now());
   } catch (err) {
-    logger.warn(
-      { err },
+    log.warn(
+      { err, conversationId },
       "Failed to persist history-stripped marker after compaction strip (non-fatal)",
     );
   }
@@ -2020,11 +2016,7 @@ export async function dispatchAgentEvent(
         // injections (before the pipeline). Best-effort: a transient marker
         // write must not abort the turn, so unlike `compaction_completed` this
         // is not on the re-throw allowlist below.
-        markHistoryStrippedBestEffort(
-          deps.ctx.conversationId,
-          Date.now(),
-          deps.rlog,
-        );
+        markHistoryStrippedBestEffort(deps.ctx.conversationId);
         break;
       case "error":
         handleError(state, deps, event);

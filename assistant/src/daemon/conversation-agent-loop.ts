@@ -2359,7 +2359,7 @@ export async function runAgentLoopImpl(
 
       if (updatedHistory.length > preRunHistoryLength) {
         ctx.messages = stripInjectionsForCompaction(updatedHistory);
-        markHistoryStrippedBestEffort(ctx.conversationId, Date.now(), rlog);
+        markHistoryStrippedBestEffort(ctx.conversationId);
         convergenceStripped = true;
         preRepairMessages = updatedHistory;
         preRunHistoryLength = updatedHistory.length;
@@ -2590,7 +2590,7 @@ export async function runAgentLoopImpl(
           // pre-rerun messages.
           if (updatedHistory.length > preRunHistoryLength) {
             ctx.messages = stripInjectionsForCompaction(updatedHistory);
-            markHistoryStrippedBestEffort(ctx.conversationId, Date.now(), rlog);
+            markHistoryStrippedBestEffort(ctx.conversationId);
             convergenceStripped = true;
             preRepairMessages = updatedHistory;
             preRunHistoryLength = updatedHistory.length;
@@ -3492,7 +3492,7 @@ export async function applyCompactionResult(
     result.summaryText,
     ctx.contextCompactedMessageCount,
   );
-  markHistoryStrippedBestEffort(ctx.conversationId, compactedAt, log);
+  markHistoryStrippedBestEffort(ctx.conversationId);
   if (options.slackContextCompactionWatermarkTs) {
     updateConversationSlackContextWatermark(
       ctx.conversationId,
