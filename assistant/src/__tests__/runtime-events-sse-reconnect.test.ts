@@ -35,9 +35,9 @@ import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import {
-  _resetConversationStreamsForTesting,
+  _resetStreamStateForTesting,
   stampAndBuffer,
-} from "../runtime/conversation-stream-state.js";
+} from "../runtime/assistant-stream-state.js";
 
 initializeDb();
 
@@ -56,11 +56,11 @@ describe("SSE reconnect replay (B7.2)", () => {
     const db = getDb();
     db.run("DELETE FROM conversation_keys");
     db.run("DELETE FROM conversations");
-    _resetConversationStreamsForTesting();
+    _resetStreamStateForTesting();
   });
 
   afterEach(() => {
-    _resetConversationStreamsForTesting();
+    _resetStreamStateForTesting();
   });
 
   test("replays buffered events with seq > lastSeenSeq before the first heartbeat", async () => {
@@ -105,6 +105,50 @@ describe("SSE reconnect replay (B7.2)", () => {
     ac.abort();
   });
 
+  test("unfiltered connection replays events across conversations from one global cursor", async () => {
+    // The web app rides a single unfiltered (assistant-wide) SSE
+    // connection that multiplexes every conversation. Because `seq` is
+    // one global counter, a single `lastSeenSeq` resumes the whole
+    // stream -- replay must return the missed events from BOTH
+    // conversations, interleaved in global seq order.
+    const { conversationId: convA } = getOrCreateConversation("multi-conv-a");
+    const { conversationId: convB } = getOrCreateConversation("multi-conv-b");
+
+    stampAndBuffer(buildAssistantEvent({ type: "pong" }, convA)); // seq 1
+    stampAndBuffer(buildAssistantEvent({ type: "pong" }, convB)); // seq 2
+    stampAndBuffer(buildAssistantEvent({ type: "pong" }, convA)); // seq 3
+    stampAndBuffer(buildAssistantEvent({ type: "pong" }, convB)); // seq 4
+
+    const ac = new AbortController();
+    const { handleSubscribeAssistantEvents } =
+      await import("../runtime/routes/events-routes.js");
+    // No conversation scope -> unfiltered connection.
+    const stream = handleSubscribeAssistantEvents({
+      queryParams: { lastSeenSeq: "1" },
+      abortSignal: ac.signal,
+    });
+
+    const reader = stream.getReader();
+
+    // seqs 2, 3, 4 replay in global order regardless of conversation.
+    const f2 = await readFrame(reader);
+    expect(f2).toContain('"seq":2');
+    expect(f2).toContain(convB);
+
+    const f3 = await readFrame(reader);
+    expect(f3).toContain('"seq":3');
+    expect(f3).toContain(convA);
+
+    const f4 = await readFrame(reader);
+    expect(f4).toContain('"seq":4');
+    expect(f4).toContain(convB);
+
+    const heartbeat = await readFrame(reader);
+    expect(heartbeat).toBe(": heartbeat\n\n");
+
+    ac.abort();
+  });
+
   test("connects live without replay when lastSeenSeq is older than the ring's oldest entry", async () => {
     // When the client's cursor is older than the ring can serve, the
     // route deliberately does NOT signal anything special over the
@@ -122,10 +166,10 @@ describe("SSE reconnect replay (B7.2)", () => {
       stampAndBuffer(buildAssistantEvent({ type: "pong" }, conversationId));
     }
     const { _peekStreamForTesting } =
-      await import("../runtime/conversation-stream-state.js");
-    const peek = _peekStreamForTesting(conversationId);
-    expect(peek?.oldestSeq).toBe(3);
-    expect(peek?.newestSeq).toBe(202);
+      await import("../runtime/assistant-stream-state.js");
+    const peek = _peekStreamForTesting();
+    expect(peek.oldestSeq).toBe(3);
+    expect(peek.newestSeq).toBe(202);
 
     const ac = new AbortController();
     const { handleSubscribeAssistantEvents } =

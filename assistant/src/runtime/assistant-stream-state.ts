@@ -1,11 +1,19 @@
 /**
- * Conversation Stream State -- per-conversation SSE sequence counter and
- * ring buffer for `Last-Event-ID` replay (B7 Unit 1).
+ * Assistant Stream State -- a single per-assistant (per-daemon-process)
+ * SSE sequence counter and ring buffer for `Last-Event-ID` replay.
  *
  * Every conversation-scoped outbound event picks up a monotonic `seq`
- * number from this module. The same event is also pushed onto a bounded
- * ring buffer so a reconnecting client can request replay of events the
- * daemon emitted while it was disconnected.
+ * from one global counter shared across all conversations, and is pushed
+ * onto one shared ring buffer. A reconnecting client presents the highest
+ * `seq` it has applied; the daemon replays everything newer from the ring
+ * -- re-applying the subscriber's targeting/scope filter -- then goes
+ * live.
+ *
+ * A single global seq space means the reconnect cursor is one number, not
+ * a per-conversation map: on one ordered SSE connection the client has
+ * received a contiguous prefix of the global stream, so "highest seq
+ * applied" is a valid resume point no matter how many conversations are
+ * multiplexed on the connection.
  *
  * Bounds (oldest evicted first; first bound hit wins):
  * - Count: 200 events
@@ -13,9 +21,9 @@
  * - Age: 30 seconds
  *
  * The ring is in-memory and per-daemon-process. After a daemon restart
- * all seqs reset and reconnecting clients fall through to the snapshot
- * path (delivered by B7 Unit 2). The ring is sized generously enough
- * that a typical refresh round-trip (~1-3s) is well within window.
+ * the seq resets and reconnecting clients fall through to the snapshot
+ * path. The ring is sized generously enough that a typical refresh
+ * round-trip (~1-3s) is well within window.
  */
 
 import type { AssistantEvent } from "./assistant-event.js";
@@ -63,7 +71,7 @@ interface RingEntry {
   targeting?: EventTargeting;
 }
 
-interface ConversationStreamState {
+interface AssistantStreamState {
   nextSeq: number;
   ring: RingEntry[];
   totalSizeBytes: number;
@@ -71,22 +79,17 @@ interface ConversationStreamState {
 
 // ── State ────────────────────────────────────────────────────────────
 
-const streams = new Map<string, ConversationStreamState>();
-
-function getOrCreate(conversationId: string): ConversationStreamState {
-  let state = streams.get(conversationId);
-  if (!state) {
-    state = { nextSeq: 1, ring: [], totalSizeBytes: 0 };
-    streams.set(conversationId, state);
-  }
-  return state;
-}
+const state: AssistantStreamState = {
+  nextSeq: 1,
+  ring: [],
+  totalSizeBytes: 0,
+};
 
 // ── Public API ───────────────────────────────────────────────────────
 
 /**
- * Assign a monotonic `seq` to a conversation-scoped event and push it
- * onto the ring buffer. No-op when `event.conversationId` is absent
+ * Assign a monotonic global `seq` to a conversation-scoped event and push
+ * it onto the ring buffer. No-op when `event.conversationId` is absent
  * (unscoped broadcasts are never replayable).
  *
  * When `options.targeting` is provided, the metadata is stored on the
@@ -101,10 +104,8 @@ export function stampAndBuffer(
   event: AssistantEvent,
   options?: { targeting?: EventTargeting },
 ): void {
-  const cid = event.conversationId;
-  if (cid == null) return;
+  if (event.conversationId == null) return;
 
-  const state = getOrCreate(cid);
   event.seq = state.nextSeq++;
 
   // Approximate size by serialized JSON length. This is the same
@@ -123,43 +124,36 @@ export function stampAndBuffer(
   state.ring.push(entry);
   state.totalSizeBytes += sizeBytes;
 
-  evict(state);
+  evict();
 }
 
 /**
- * Replay events with `seq > lastSeenSeq` for a given conversation.
+ * Replay events with `seq > lastSeenSeq` from the single global ring.
  * Returns `null` when the requested cursor is older than the oldest
  * buffered entry -- callers should fall back to a snapshot resync.
  *
  * When `subscriber` is provided, entries carrying targeting metadata
  * are filtered using the same rules as the live `publish()` path in
- * `AssistantEventHub`. This prevents targeted events from leaking to
- * subscribers outside their intended delivery set on reconnect.
- * When `subscriber` is omitted, all entries are returned unfiltered
- * (backwards-compatible behaviour).
+ * `AssistantEventHub`, so targeted events do not leak to subscribers
+ * outside their intended delivery set on reconnect.
  *
- * Sweeps age-expired entries at read time so an idle conversation
- * cannot serve stale deltas past the 30-second window (eviction
- * only runs on `stampAndBuffer`, so without this an idle stream
- * would retain its tail until the next write). When the sweep
- * drains the ring entirely, the conversation's state entry is
- * dropped to keep the global map from growing unboundedly with
- * inactive conversations.
+ * When `conversationId` is provided, only that conversation's events are
+ * returned -- a conversation-scoped subscription only delivers its own
+ * conversation live, so replaying any other conversation's gap would
+ * push events the client will never receive again live.
+ *
+ * Sweeps age-expired entries at read time so an idle stream cannot serve
+ * stale deltas past the 30-second window (eviction otherwise only runs on
+ * `stampAndBuffer`).
  */
 export function getReplayWindow(
-  conversationId: string,
   lastSeenSeq: number,
   subscriber?: ReplaySubscriber,
+  conversationId?: string,
 ): readonly AssistantEvent[] | null {
-  const state = streams.get(conversationId);
-  if (!state) return [];
+  evict();
 
-  evict(state);
-
-  if (state.ring.length === 0) {
-    streams.delete(conversationId);
-    return [];
-  }
+  if (state.ring.length === 0) return [];
 
   const oldest = state.ring[0]?.seq ?? Infinity;
   if (lastSeenSeq < oldest - 1) return null;
@@ -168,39 +162,32 @@ export function getReplayWindow(
     .filter(
       (entry) =>
         entry.seq > lastSeenSeq &&
+        (conversationId == null ||
+          entry.event.conversationId === conversationId) &&
         (subscriber == null || matchesSubscriber(entry, subscriber)),
     )
     .map((entry) => entry.event);
 }
 
 /**
- * Drop all state for a conversation. Currently unused -- the ring
- * self-evicts by age -- but exposed for explicit dispose flows
- * (e.g. when a conversation is deleted).
- */
-export function clearConversationStream(conversationId: string): void {
-  streams.delete(conversationId);
-}
-
-/**
  * Reset all stream state. Test-only.
  */
-export function _resetConversationStreamsForTesting(): void {
-  streams.clear();
+export function _resetStreamStateForTesting(): void {
+  state.nextSeq = 1;
+  state.ring = [];
+  state.totalSizeBytes = 0;
 }
 
 /**
  * Read-only inspector for tests.
  */
-export function _peekStreamForTesting(conversationId: string): {
+export function _peekStreamForTesting(): {
   nextSeq: number;
   ringLength: number;
   totalSizeBytes: number;
   oldestSeq: number | null;
   newestSeq: number | null;
-} | null {
-  const state = streams.get(conversationId);
-  if (!state) return null;
+} {
   return {
     nextSeq: state.nextSeq,
     ringLength: state.ring.length,
@@ -276,7 +263,7 @@ function matchesSubscriber(
   return true;
 }
 
-function evict(state: ConversationStreamState): void {
+function evict(): void {
   const now = Date.now();
   while (state.ring.length > 0) {
     const head = state.ring[0];

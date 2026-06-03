@@ -39,9 +39,9 @@ import {
   AssistantEventHub,
   assistantEventHub,
 } from "../assistant-event-hub.js";
+import type { ReplaySubscriber } from "../assistant-stream-state.js";
+import { getReplayWindow } from "../assistant-stream-state.js";
 import { ACTOR_PRINCIPALS, GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
-import type { ReplaySubscriber } from "../conversation-stream-state.js";
-import { getReplayWindow } from "../conversation-stream-state.js";
 import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
 import {
   BadRequestError,
@@ -462,16 +462,22 @@ export function handleSubscribeAssistantEvents(
           return;
         }
 
-        // Reconnect replay: when the caller passed lastSeenSeq and the
-        // subscription is scoped to a single conversation, deliver any
-        // buffered events the client missed before the first heartbeat.
+        // Reconnect replay: when the caller passed lastSeenSeq, deliver
+        // any buffered events the client missed before the first
+        // heartbeat. `seq` is a single global per-assistant counter, so
+        // one cursor resumes the stream regardless of how many
+        // conversations are multiplexed on an unfiltered connection.
+        // Replay re-applies the subscriber's targeting filter; a
+        // conversation-scoped subscription additionally scopes replay to
+        // its own conversation (other conversations are never delivered
+        // live on that connection, so replaying them would be wrong).
         //
         // If the cursor is older than the ring's oldest entry,
         // `getReplayWindow` returns `null`. We do not surface that to
         // the client over the wire -- the connection just goes live.
         // The client detects the gap from the seq jump on its first
         // live event and refetches via the existing messages API.
-        if (lastSeenSeq != null && filter.conversationId) {
+        if (lastSeenSeq != null) {
           const replaySubscriber: ReplaySubscriber =
             clientId && interfaceId
               ? {
@@ -484,9 +490,9 @@ export function handleSubscribeAssistantEvents(
                 }
               : { type: "process" };
           const window = getReplayWindow(
-            filter.conversationId,
             lastSeenSeq,
             replaySubscriber,
+            filter.conversationId,
           );
           if (window !== null) {
             for (const replayed of window) {
@@ -597,7 +603,7 @@ export const ROUTES: RouteDefinition[] = [
       {
         name: "lastSeenSeq",
         description:
-          "Optional reconnect cursor: the highest per-conversation event seq the client has already applied. When set together with a conversation scope, the daemon replays any buffered events with seq > lastSeenSeq before going live. If the cursor is older than the ring buffer's oldest entry the connection simply goes live; the client is expected to detect the gap from the next event's seq and refetch via the messages API. Must be a non-negative integer.",
+          "Optional reconnect cursor: the highest global event seq the client has already applied. `seq` is a single per-assistant counter shared across all conversations, so one cursor resumes the stream regardless of how many conversations are multiplexed on the connection. When set, the daemon replays any buffered events with seq > lastSeenSeq (re-applying the subscriber's targeting/scope filter) before going live. If the cursor is older than the ring buffer's oldest entry the connection simply goes live; the client is expected to detect the gap from the next event's seq and refetch via the messages API. Must be a non-negative integer.",
       },
     ],
     responseHeaders: {
