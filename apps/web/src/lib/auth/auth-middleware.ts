@@ -41,6 +41,12 @@ export const authMiddleware: MiddlewareFunction = async ({ request, context }, n
   if (isLocalMode() && !hasAssistants()) {
     const url = new URL(request.url);
     if (!url.pathname.includes("/onboarding/") && !url.pathname.includes("/account")) {
+      // The hosting-vs-welcome fork keys off `hasPlatformSession`, which is set
+      // by a fire-and-forget probe that may still be in flight here (the local
+      // gateway auth paths return before the platform session is known). Reading
+      // it early reports an ambiguous `false` and sends a returning platform
+      // user to the new-user welcome flow. Wait for the probe to settle first.
+      await waitForPlatformSessionResolved();
       const { hasPlatformSession } = useAuthStore.getState();
       throw redirect(hasPlatformSession ? routes.onboarding.hosting : routes.onboarding.welcome);
     }
@@ -59,6 +65,21 @@ function waitForAuthReady(): Promise<void> {
       }
     });
     if (!useAuthStore.getState().isLoading) {
+      unsubscribe();
+      resolve();
+    }
+  });
+}
+
+function waitForPlatformSessionResolved(): Promise<void> {
+  return new Promise((resolve) => {
+    const unsubscribe = useAuthStore.subscribe((state) => {
+      if (state.platformSessionResolved) {
+        unsubscribe();
+        resolve();
+      }
+    });
+    if (useAuthStore.getState().platformSessionResolved) {
       unsubscribe();
       resolve();
     }
