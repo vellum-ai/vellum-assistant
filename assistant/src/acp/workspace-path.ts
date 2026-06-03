@@ -1,23 +1,18 @@
 /**
  * Stable per-project workspace resolution for ACP sessions.
  *
- * An ACP session's `cwd` must be a DURABLE directory so cloned repos and
- * edits survive across turns, agent respawns, and idle-sleep/wake. The two
- * spawn paths (`runtime/routes/acp-routes.ts` and `tools/acp/spawn.ts`)
- * previously defaulted `cwd` to `process.cwd()` / `context.workingDir`,
- * which can be an ephemeral temp or vary between daemon restarts — anything
- * the agent wrote would be lost on the next turn.
+ * An ACP session's default `cwd` must be a DURABLE directory so cloned repos
+ * and edits survive across turns, agent respawns, and idle-sleep/wake. The
+ * pod's persistent workspace volume (the PVC in containerized deployments,
+ * `~/.vellum/workspace` on bare metal) survives those transitions, so the
+ * default `cwd` is pinned to a per-project subdirectory underneath it, keyed
+ * by a collision-resistant hash of the parent conversation id. A follow-up
+ * spawn for the same conversation deterministically resolves to the same
+ * directory and lands in the same workspace the previous turn left behind.
  *
- * The pod's persistent workspace volume (the PVC in containerized
- * deployments, `~/.vellum/workspace` on bare metal) already survives those
- * transitions, so we pin the default `cwd` to a per-project subdirectory
- * underneath it, keyed by the parent conversation id. A follow-up spawn for
- * the same conversation deterministically resolves to the same directory and
- * lands in the same workspace the previous turn left behind.
- *
- * For isolated/risky work the caller can still pass an explicit `cwd` (e.g. a
- * git worktree); see the ACP SKILL.md "Working directory" section. This
- * helper only governs the *default*.
+ * For isolated/risky work the caller can pass an explicit `cwd` (e.g. a git
+ * worktree); see the ACP SKILL.md "Working directory" section. This helper
+ * only governs the default.
  */
 
 import { createHash } from "node:crypto";
