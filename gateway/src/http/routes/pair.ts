@@ -24,6 +24,7 @@
  * Response body: `{ token, expiresAt, guardianId, assistantId }`
  */
 
+import { mintAndRecordDeviceBoundTokenPair } from "../../auth/guardian-bootstrap.js";
 import { CURRENT_POLICY_EPOCH } from "../../auth/policy.js";
 import { mintToken } from "../../auth/token-service.js";
 import { KNOWN_EXTENSION_ORIGINS } from "../../chrome-extension-origins.js";
@@ -282,6 +283,29 @@ export async function handlePair(
   const guardianPrincipalId = await resolveLocalGuardianPrincipalId();
   const assistantId = getExternalAssistantId();
 
+  // Optionally, a client may supply a deviceId to receive a device-bound,
+  // DB-recorded, refreshable token pair (revocable per device) instead of the
+  // legacy stateless token. The body is optional — a malformed or absent body
+  // simply leaves deviceId undefined and preserves the stateless path.
+  let deviceId: string | undefined;
+  let bodyPlatform: string | undefined;
+  if ((req.headers.get("content-type") ?? "").includes("json")) {
+    try {
+      const body = (await req.json()) as {
+        deviceId?: unknown;
+        platform?: unknown;
+      };
+      if (typeof body.deviceId === "string" && body.deviceId.trim()) {
+        deviceId = body.deviceId.trim();
+      }
+      if (typeof body.platform === "string" && body.platform.trim()) {
+        bodyPlatform = body.platform.trim();
+      }
+    } catch {
+      // Ignore malformed/empty body — fall back to the stateless path.
+    }
+  }
+
   if (interfaceId === "chrome-extension") {
     // Require the request to originate from a known Vellum extension origin.
     //
@@ -305,6 +329,30 @@ export async function handlePair(
         "origin does not match a known Vellum extension",
         403,
       );
+    }
+
+    // Device-bound path: mint a recorded, revocable, refreshable token pair.
+    if (deviceId) {
+      const platform = bodyPlatform ?? interfaceId;
+      const pair = mintAndRecordDeviceBoundTokenPair({
+        guardianPrincipalId,
+        deviceId,
+        platform,
+      });
+
+      log.info(
+        { interfaceId, clientId, guardianPrincipalId, platform },
+        "Client paired successfully via loopback (device-bound)",
+      );
+
+      return Response.json({
+        token: pair.accessToken,
+        expiresAt: new Date(pair.accessTokenExpiresAt).toISOString(),
+        guardianId: guardianPrincipalId,
+        assistantId,
+        refreshToken: pair.refreshToken,
+        refreshAfter: new Date(pair.refreshAfter).toISOString(),
+      });
     }
 
     const expiresAt = Date.now() + PAIR_TOKEN_TTL_SECONDS * 1000;

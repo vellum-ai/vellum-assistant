@@ -402,6 +402,17 @@ export async function createGuardianBinding(
 // ---------------------------------------------------------------------------
 
 /**
+ * A freshly minted, DB-recorded access + refresh token pair bound to a device.
+ */
+export interface DeviceBoundTokenPair {
+  accessToken: string;
+  accessTokenExpiresAt: number;
+  refreshToken: string;
+  refreshTokenExpiresAt: number;
+  refreshAfter: number;
+}
+
+/**
  * Revoke active actor tokens for a device binding.
  */
 function revokeActorTokensByDevice(
@@ -531,6 +542,45 @@ function mintRefreshToken(
   };
 }
 
+/**
+ * Revoke any existing credentials for a (guardian, device) pair and mint a
+ * fresh, DB-recorded access + refresh token pair bound to that device.
+ *
+ * This is the shared core used by both guardian bootstrap and device-scoped
+ * pairing. The device binding enforces one active token per
+ * (guardianPrincipalId, hashedDeviceId) via a unique index, so re-minting for
+ * the same device first revokes the prior tokens.
+ */
+export function mintAndRecordDeviceBoundTokenPair(params: {
+  guardianPrincipalId: string;
+  deviceId: string;
+  platform: string;
+}): DeviceBoundTokenPair {
+  const hashedDeviceId = hashToken(params.deviceId);
+
+  revokeActorTokensByDevice(params.guardianPrincipalId, hashedDeviceId);
+  revokeRefreshTokensByDevice(params.guardianPrincipalId, hashedDeviceId);
+
+  const access = mintAccessToken(
+    params.guardianPrincipalId,
+    hashedDeviceId,
+    params.platform,
+  );
+  const refresh = mintRefreshToken(
+    params.guardianPrincipalId,
+    hashedDeviceId,
+    params.platform,
+  );
+
+  return {
+    accessToken: access.token,
+    accessTokenExpiresAt: access.expiresAt,
+    refreshToken: refresh.refreshToken,
+    refreshTokenExpiresAt: refresh.refreshTokenExpiresAt,
+    refreshAfter: refresh.refreshAfter,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Public: guardian bootstrap
 // ---------------------------------------------------------------------------
@@ -628,10 +678,6 @@ export async function bootstrapGuardian(params: {
   platform: string;
   deviceId: string;
 }): Promise<GuardianBootstrapResult> {
-  const hashedDeviceId = createHash("sha256")
-    .update(params.deviceId)
-    .digest("hex");
-
   // 1. Ensure guardian principal
   let isNew = false;
   let guardianPrincipalId: string;
@@ -651,21 +697,12 @@ export async function bootstrapGuardian(params: {
     isNew = true;
   }
 
-  // 2. Revoke existing credentials for this device
-  revokeActorTokensByDevice(guardianPrincipalId, hashedDeviceId);
-  revokeRefreshTokensByDevice(guardianPrincipalId, hashedDeviceId);
-
-  // 3. Mint new credentials
-  const access = mintAccessToken(
+  // 2. Revoke existing credentials for this device and mint a fresh pair.
+  const pair = mintAndRecordDeviceBoundTokenPair({
     guardianPrincipalId,
-    hashedDeviceId,
-    params.platform,
-  );
-  const refresh = mintRefreshToken(
-    guardianPrincipalId,
-    hashedDeviceId,
-    params.platform,
-  );
+    deviceId: params.deviceId,
+    platform: params.platform,
+  });
 
   log.info(
     { platform: params.platform, guardianPrincipalId, isNew },
@@ -674,11 +711,11 @@ export async function bootstrapGuardian(params: {
 
   return {
     guardianPrincipalId,
-    accessToken: access.token,
-    accessTokenExpiresAt: access.expiresAt,
-    refreshToken: refresh.refreshToken,
-    refreshTokenExpiresAt: refresh.refreshTokenExpiresAt,
-    refreshAfter: refresh.refreshAfter,
+    accessToken: pair.accessToken,
+    accessTokenExpiresAt: pair.accessTokenExpiresAt,
+    refreshToken: pair.refreshToken,
+    refreshTokenExpiresAt: pair.refreshTokenExpiresAt,
+    refreshAfter: pair.refreshAfter,
     isNew,
   };
 }
