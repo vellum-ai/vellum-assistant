@@ -20,7 +20,7 @@ export function CreditsCard({
   onEarnCredits,
 }: CreditsCardProps) {
   return (
-    <div className="flex flex-col gap-4 rounded-lg border border-[var(--surface-base)] bg-[var(--surface-overlay)] px-3 pt-3 pb-4 w-full">
+    <div className="flex flex-col gap-2 max-md:gap-4 rounded-lg border border-[var(--surface-base)] bg-[var(--surface-overlay)] px-3 pt-3 pb-2 max-md:pb-4 w-full">
       {balance !== null && (
         <div className="flex items-center justify-between gap-2 rounded-[10px] bg-[var(--surface-base)] py-2 pl-1.5 pr-2 w-full">
           <div className="flex items-center gap-2">
