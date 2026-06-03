@@ -987,6 +987,7 @@ function startPendingApprovalPromptWatcher(params: {
 // concurrent pollers from different conversations from evicting each
 // other's entries.
 const globalNotifiedApprovalRequestIds = new Map<string, string>();
+const globalActivationPendingApprovalRequestIds = new Map<string, string>();
 
 /**
  * Start a poller that sends a one-shot "waiting for guardian approval" message
@@ -1038,6 +1039,23 @@ function startTrustedContactApprovalNotifier(params: {
             globalNotifiedApprovalRequestIds.delete(rid);
           }
         }
+        for (const [rid, cid] of globalActivationPendingApprovalRequestIds) {
+          if (cid === conversationId && !currentPendingIds.has(rid)) {
+            globalActivationPendingApprovalRequestIds.delete(rid);
+          }
+        }
+
+        if (
+          info &&
+          globalActivationPendingApprovalRequestIds.has(info.requestId) &&
+          (await activateSlackThreadAfterDirectReply({
+            sourceChannel,
+            replyCallbackUrl,
+            chatId: externalChatId,
+          }))
+        ) {
+          globalActivationPendingApprovalRequestIds.delete(info.requestId);
+        }
 
         if (info && !globalNotifiedApprovalRequestIds.has(info.requestId)) {
           globalNotifiedApprovalRequestIds.set(info.requestId, conversationId);
@@ -1052,11 +1070,19 @@ function startTrustedContactApprovalNotifier(params: {
               text: waitingText,
               assistantId: assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
             });
-            await activateSlackThreadAfterDirectReply({
+            const activated = await activateSlackThreadAfterDirectReply({
               sourceChannel,
               replyCallbackUrl,
               chatId: externalChatId,
             });
+            if (!activated) {
+              globalActivationPendingApprovalRequestIds.set(
+                info.requestId,
+                conversationId,
+              );
+            } else {
+              globalActivationPendingApprovalRequestIds.delete(info.requestId);
+            }
           } catch (err) {
             log.warn(
               { err, conversationId },
@@ -1064,6 +1090,7 @@ function startTrustedContactApprovalNotifier(params: {
             );
             // Remove from notified set so delivery is retried on next poll
             globalNotifiedApprovalRequestIds.delete(info.requestId);
+            globalActivationPendingApprovalRequestIds.delete(info.requestId);
           }
         }
       } catch (err) {
@@ -1085,6 +1112,11 @@ function startTrustedContactApprovalNotifier(params: {
     for (const [rid, cid] of globalNotifiedApprovalRequestIds) {
       if (cid === conversationId) {
         globalNotifiedApprovalRequestIds.delete(rid);
+      }
+    }
+    for (const [rid, cid] of globalActivationPendingApprovalRequestIds) {
+      if (cid === conversationId) {
+        globalActivationPendingApprovalRequestIds.delete(rid);
       }
     }
   };

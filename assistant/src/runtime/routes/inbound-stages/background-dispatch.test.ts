@@ -814,6 +814,63 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
 
     clearThreadTs(conversationId);
   });
+
+  test("retries Slack thread activation for trusted-contact waiting replies without re-delivering the waiting message", async () => {
+    const conversationId = "conv-trusted-contact-waiting-thread-retry";
+    const channelId = "C-WAITING-THREAD-RETRY";
+    const threadTs = "1700000000.000555";
+    const trustedContactTrustCtx: TrustContext = {
+      trustClass: "trusted_contact",
+      guardianExternalUserId: "guardian-1",
+      requesterExternalUserId: "trusted-contact-1",
+    } as unknown as TrustContext;
+    pendingApprovalInfos.push({
+      requestId: "req-retry-1",
+      toolName: "web_search",
+      input: { query: "example" },
+      riskLevel: "medium",
+    });
+    let activationAttempts = 0;
+    trackSlackActiveThreadImpl = async () => {
+      activationAttempts += 1;
+      return activationAttempts >= 4;
+    };
+
+    const processMessage: MessageProcessor = async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1_200));
+      return { messageId: "user-msg-trusted-contact-retry" };
+    };
+
+    processChannelMessageInBackground({
+      processMessage,
+      conversationId,
+      eventId: "evt-trusted-contact-waiting-thread-retry",
+      content: "can you ask my guardian?",
+      sourceChannel: "slack",
+      sourceInterface: "slack",
+      externalChatId: channelId,
+      trustCtx: trustedContactTrustCtx,
+      metadataHints: [],
+      chatType: "channel",
+      replyCallbackUrl: `https://example.test/deliver/slack?channel=${channelId}&threadTs=${threadTs}`,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 1_350));
+
+    expect(
+      deliveredChannelReplies
+        .map((entry) => entry.payload.text)
+        .filter(Boolean),
+    ).toEqual(["Waiting for Guardian Example's approval..."]);
+    expect(trackSlackActiveThreadCalls).toEqual([
+      { channelId, threadTs },
+      { channelId, threadTs },
+      { channelId, threadTs },
+      { channelId, threadTs },
+    ]);
+
+    clearThreadTs(conversationId);
+  });
 });
 
 describe("Slack thinking status timing", () => {
