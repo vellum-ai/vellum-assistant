@@ -38,6 +38,7 @@ import { buildVellumMutatingHeaders } from "@/lib/auth/request-headers";
 import type { ChatDebugEventsApi } from "@/domains/chat/api/debug-api";
 import type { ChatDebugApi } from "@/domains/chat/utils/debug-api";
 import { buildDiagnosticsSnapshot } from "@/lib/diagnostics";
+import { buildDebugFlagSnapshot } from "@/lib/feature-flags/debug-flag-snapshot";
 import { isElectron } from "@/runtime/is-electron";
 import { useAuthStore } from "@/stores/auth-store";
 import { VELLUM_COMMUNITY_URL } from "@/utils/external-urls";
@@ -248,6 +249,15 @@ async function buildClientLogsFile(
     buildTarEntry("web-client-context.json", contextBytes),
     buildTarEntry("web-chat-diagnostics.json", diagnosticsBytes),
   ];
+
+  // Capture client debug-flag state so flag values are unambiguous during
+  // analysis. The flags are localStorage-only overrides with no server
+  // targeting, so they can't be reconstructed after the fact — a report has
+  // to carry them or the resolved value is lost.
+  const debugFlagBytes = new TextEncoder().encode(
+    JSON.stringify(buildDebugFlagSnapshot(), null, 2),
+  );
+  tarParts.push(buildTarEntry("web-debug-flags.json", debugFlagBytes));
 
   // Capture the live chat debug API state for indicator-stuck reports.
   // This is a separate file so support can diff it against the main diagnostics
