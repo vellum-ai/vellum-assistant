@@ -20,27 +20,51 @@
  * helper only governs the *default*.
  */
 
+import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { getWorkspaceDir } from "../util/platform.js";
 
 /**
- * Sanitize a conversation id into a single safe path segment.
+ * Derive a collision-resistant single path segment from a conversation id.
  *
- * Conversation ids are normally UUIDs, but we don't want a hostile or
- * unusual id to escape the ACP workspace root (e.g. via `..` or a slash) or
- * collide with sibling state. Replace anything outside `[A-Za-z0-9._-]` with
- * `_`, collapse a leading-dot-only result, and cap the length so the path
- * stays well within filesystem limits.
+ * Conversation ids are normally UUIDs, but the HTTP ACP spawn route accepts
+ * `conversationId` as an arbitrary string and uses the resulting directory as
+ * the durable cwd. A naive "replace disallowed chars + truncate" scheme is
+ * NOT injective: distinct ids can map to the same segment (e.g. `foo/bar` and
+ * `foo_bar` both sanitize to `foo_bar`, and two long ids sharing the first
+ * 128 chars truncate to the same prefix). That would let malformed/external
+ * callers accidentally SHARE an ACP workspace and see/overwrite another
+ * session's repo.
+ *
+ * To guarantee uniqueness while staying debuggable we combine:
+ *   - a short, human-readable sanitized prefix of the original id, and
+ *   - a hex slice of a sha256 hash of the FULL original id.
+ * The hash makes the segment unique per distinct id (same id → same segment,
+ * so resolution stays deterministic), and we never let it escape its parent:
+ * the prefix is sanitized to `[A-Za-z0-9._-]` and capped, and the appended
+ * hash is pure hex, so the result is always a single safe path segment that
+ * can never equal "", ".", or "..".
  */
 function sanitizeProjectKey(conversationId: string): string {
-  const cleaned = conversationId.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 128);
-  // Guard against "", ".", ".." after sanitization.
-  if (cleaned === "" || cleaned === "." || cleaned === "..") {
-    return "_";
-  }
-  return cleaned;
+  // Hex sha256 of the full id — uniquely identifies the conversation and is
+  // itself a safe path-segment fragment (lowercase hex only).
+  const hash = createHash("sha256")
+    .update(conversationId, "utf8")
+    .digest("hex")
+    .slice(0, 16);
+
+  // Short readable prefix for debuggability. Replace anything outside
+  // `[A-Za-z0-9._-]` with `_` and cap the length so the segment stays well
+  // within filesystem limits; the hash below guarantees uniqueness regardless.
+  const prefix = conversationId.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 64);
+
+  // Drop a prefix that would otherwise produce a leading-dot-only or empty
+  // segment; the hash alone is a valid, unique, safe segment.
+  const safePrefix = prefix === "" || prefix === "." || prefix === ".." ? "" : prefix;
+
+  return safePrefix === "" ? hash : `${safePrefix}-${hash}`;
 }
 
 /**
@@ -50,7 +74,9 @@ function sanitizeProjectKey(conversationId: string): string {
  * The returned path is deterministic for a given conversation id and lives
  * under the persistent workspace volume, so repeated spawns for the same
  * conversation reuse the same on-disk workspace across turns, respawns, and
- * idle-sleep/wake.
+ * idle-sleep/wake. The directory segment is keyed by a sha256 of the FULL id
+ * (with a readable prefix) so distinct conversation ids never collide onto a
+ * shared workspace.
  */
 export function resolveAcpWorkspaceDir(conversationId: string): string {
   // Per-project workspaces live under `<workspaceDir>/acp` on the volume.

@@ -40,9 +40,13 @@ describe("resolveAcpWorkspaceDir", () => {
     const conversationId = "11111111-2222-3333-4444-555555555555";
     const dir = resolveAcpWorkspaceDir(conversationId);
 
-    const expected = join(workspaceRoot, "acp", conversationId);
-    expect(dir).toBe(expected);
-    expect(dir.startsWith(workspaceRoot + sep)).toBe(true);
+    const acpRoot = join(workspaceRoot, "acp");
+    expect(dir.startsWith(acpRoot + sep)).toBe(true);
+    // The segment keeps a readable prefix of the id for debuggability and
+    // appends a hash, so it is a single segment under the acp root.
+    const segment = dir.slice(acpRoot.length + 1);
+    expect(segment.includes(sep)).toBe(false);
+    expect(segment.startsWith(conversationId)).toBe(true);
   });
 
   test("returns the SAME path for repeated calls (across turns/respawns)", () => {
@@ -86,7 +90,36 @@ describe("resolveAcpWorkspaceDir", () => {
   });
 
   test("maps a degenerate id to a safe single segment", () => {
-    const dir = resolveAcpWorkspaceDir("..");
-    expect(dir).toBe(join(workspaceRoot, "acp", "_"));
+    const acpRoot = join(workspaceRoot, "acp");
+    for (const id of ["..", ".", ""]) {
+      const dir = resolveAcpWorkspaceDir(id);
+      expect(dir.startsWith(acpRoot + sep)).toBe(true);
+      const segment = dir.slice(acpRoot.length + 1);
+      expect(segment.includes(sep)).toBe(false);
+      expect(segment).not.toBe("");
+      expect(segment).not.toBe(".");
+      expect(segment).not.toBe("..");
+      // Hash-only segment (no usable readable prefix): lowercase hex.
+      expect(/^[0-9a-f]+$/.test(segment)).toBe(true);
+    }
+  });
+
+  test("does not collide ids that sanitize to the same prefix", () => {
+    // `foo/bar` and `foo_bar` both sanitize to `foo_bar`; the full-id hash
+    // must keep them in DISTINCT directories.
+    const slashed = resolveAcpWorkspaceDir("foo/bar");
+    const underscored = resolveAcpWorkspaceDir("foo_bar");
+    expect(slashed).not.toBe(underscored);
+  });
+
+  test("does not collide long ids sharing a truncated prefix", () => {
+    // Two ids identical for the first 128+ chars but differing at the end
+    // must still resolve to distinct directories (the hash sees the full id).
+    const base = "a".repeat(130);
+    const idA = base + "-A";
+    const idB = base + "-B";
+    expect(resolveAcpWorkspaceDir(idA)).not.toBe(resolveAcpWorkspaceDir(idB));
+    // And each remains deterministic.
+    expect(resolveAcpWorkspaceDir(idA)).toBe(resolveAcpWorkspaceDir(idA));
   });
 });

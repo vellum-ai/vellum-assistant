@@ -19,7 +19,7 @@
           },
           "cwd": {
             "type": "string",
-            "description": "Working directory for the agent. This determines where the agent runs and where its session is stored. Set this to the project/repo root the user wants the agent to work in. Defaults to current conversation's working directory."
+            "description": "Working directory for the agent. This determines where the agent runs and where its session is stored. Set this to the project/repo root the user wants the agent to work in. When omitted, defaults to a stable per-project persistent workspace under the workspace volume (keyed by conversation) that persists across turns, respawns, and idle-sleep — reuse this default for ongoing work. Pass an explicit path (e.g. a git worktree) for isolated/parallel work."
           }
         },
         "required": ["task"]
