@@ -31,7 +31,7 @@ import {
   selectSeedProfileForOverride,
 } from "@/domains/settings/ai/profile-pickers";
 import {
-  useDaemonConfig,
+  useDaemonConfigQuery,
   useDaemonConfigMutation,
 } from "@/domains/settings/ai/use-daemon-config";
 
@@ -128,7 +128,7 @@ function CallSiteOverridesModalInner({
     orderedProfiles,
     callSites: persistedOverrides,
     config: daemonConfig,
-  } = useDaemonConfig();
+  } = useDaemonConfigQuery();
   const configMutation = useDaemonConfigMutation();
 
   const [search, setSearch] = useState("");
