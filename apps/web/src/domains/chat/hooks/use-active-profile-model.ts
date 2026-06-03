@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { client } from "@/generated/api/client.gen";
+import { conversationsByIdGet } from "@/generated/daemon/sdk.gen";
 
 /**
  * Resolves the (provider, model) pair currently in effect for a chat
@@ -112,12 +113,8 @@ export function useActiveProfileModel(
           throwOnError: false,
         }),
         conversationId
-          ? client.get<Record<string, unknown>, unknown>({
-              url: `/v1/assistants/{assistant_id}/conversations/{conversation_id}`,
-              path: {
-                assistant_id: assistantId,
-                conversation_id: conversationId,
-              },
+          ? conversationsByIdGet({
+              path: { assistant_id: assistantId, id: conversationId },
               throwOnError: false,
             })
           : Promise.resolve(null),
@@ -134,20 +131,12 @@ export function useActiveProfileModel(
         (llm.activeProfile as string | null | undefined) ?? null;
 
       let effective: string | null = globalActive;
-      if (
-        convResult?.status === "fulfilled" &&
-        convResult.value !== null &&
-        convResult.value?.data
-      ) {
-        const convData = convResult.value.data as Record<string, unknown>;
-        const conv =
-          (convData.conversation as Record<string, unknown> | undefined) ??
-          convData;
+      if (convResult?.status === "fulfilled" && convResult.value !== null) {
         const override =
-          typeof conv.inferenceProfile === "string"
-            ? conv.inferenceProfile
-            : null;
-        if (override !== null) effective = override;
+          convResult.value.data?.conversation.inferenceProfile ?? null;
+        if (override !== null) {
+          effective = override;
+        }
       }
 
       if (!effective) return null;
