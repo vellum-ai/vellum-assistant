@@ -678,6 +678,32 @@ describe("channel-delivery-store", () => {
     expect(getRetryableDeliveryEvents()).toHaveLength(0);
   });
 
+  test("Slack activation-only delivery failures stay on the retry path", () => {
+    const result = recordInbound("slack", "chat-1", "msg-1");
+    markProcessed(result.eventId);
+
+    const err = new Error(
+      "Slack active thread activation failed after reply delivery",
+    ) as Error & { code?: string };
+    err.code = "SLACK_THREAD_ACTIVATION_PENDING";
+
+    recordDeliveryFailure(result.eventId, err);
+
+    const db = getDb();
+    const row = db
+      .select()
+      .from(channelInboundEvents)
+      .where(eq(channelInboundEvents.id, result.eventId))
+      .get();
+    expect(row!.processingStatus).toBe("processed");
+    expect(row!.deliveryStatus).toBe("failed");
+    expect(row!.deliveryAttempts).toBe(1);
+    expect(row!.lastProcessingError).toContain(
+      "Slack active thread activation failed after reply delivery",
+    );
+    expect(row!.retryAfter).toBeGreaterThan(0);
+  });
+
   test("delivery dead letters are listed and replayed as delivery retries", () => {
     const result = recordInbound("telegram", "chat-1", "msg-1");
     markProcessed(result.eventId);

@@ -96,6 +96,9 @@ export function classifyError(err: unknown): ErrorCategory {
       return "retryable";
     }
     const code = (err as Error & { code?: string }).code;
+    if (code === "SLACK_THREAD_ACTIVATION_PENDING") {
+      return "retryable";
+    }
     if (
       typeof code === "string" &&
       /^Connection(Refused|Reset|Timeout)|NetworkUnreachable|Unable.?to.?connect/i.test(

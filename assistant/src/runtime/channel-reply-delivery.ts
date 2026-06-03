@@ -26,6 +26,8 @@ import {
 const log = getLogger("channel-reply-delivery");
 
 const INTER_SEGMENT_DELAY_MS = 150;
+const SLACK_THREAD_ACTIVATION_PENDING_CODE =
+  "SLACK_THREAD_ACTIVATION_PENDING";
 
 type DeliverRenderedReplyParams = {
   callbackUrl: string;
@@ -152,9 +154,11 @@ function throwIfSlackThreadActivationPending(
   if (!target) {
     return;
   }
-  throw new Error(
+  const err = new Error(
     `Slack active thread activation failed after reply delivery (${target.channelId}:${target.threadTs})`,
-  );
+  ) as Error & { code?: string };
+  err.code = SLACK_THREAD_ACTIVATION_PENDING_CODE;
+  throw err;
 }
 
 export async function deliverRenderedReplyViaCallback(

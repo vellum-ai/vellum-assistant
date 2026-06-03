@@ -706,16 +706,23 @@ describe("channel-reply-delivery", () => {
     slackThreadActivationShouldSucceed = false;
     const deliveredCounts: number[] = [];
 
-    await expect(
-      deliverRenderedReplyViaCallback({
-        callbackUrl:
-          "http://gateway/deliver/slack?channel=C123THREAD&threadTs=1700000000.000001",
-        chatId: "C123THREAD",
-        textSegments: ["Part 1."],
-        interSegmentDelayMs: 0,
-        onSegmentDelivered: (count) => deliveredCounts.push(count),
-      }),
-    ).rejects.toThrow(
+    let thrown: unknown;
+    await deliverRenderedReplyViaCallback({
+      callbackUrl:
+        "http://gateway/deliver/slack?channel=C123THREAD&threadTs=1700000000.000001",
+      chatId: "C123THREAD",
+      textSegments: ["Part 1."],
+      interSegmentDelayMs: 0,
+      onSegmentDelivered: (count) => deliveredCounts.push(count),
+    }).catch((err) => {
+      thrown = err;
+    });
+
+    expect(thrown).toMatchObject({
+      code: "SLACK_THREAD_ACTIVATION_PENDING",
+    });
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toContain(
       "Slack active thread activation failed after reply delivery",
     );
 
