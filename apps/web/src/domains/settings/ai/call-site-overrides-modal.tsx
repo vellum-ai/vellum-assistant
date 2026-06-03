@@ -343,12 +343,12 @@ function CallSiteOverridesModalInner({
     const defaultModel = getDefaultModelForProvider(provider) ?? "";
     setDraftEdits((prev) => ({
       ...prev,
-      [id]: { ...prev[id], profile: null, provider, model: defaultModel },
+      [id]: { ...(prev[id] ?? drafts[id]), profile: null, provider, model: defaultModel },
     }));
   }
 
   function handleModelChange(id: string, model: string) {
-    setDraftEdits((prev) => ({ ...prev, [id]: { ...prev[id], model } }));
+    setDraftEdits((prev) => ({ ...prev, [id]: { ...(prev[id] ?? drafts[id]), model } }));
   }
 
   // ---------------------------------------------------------------------------
