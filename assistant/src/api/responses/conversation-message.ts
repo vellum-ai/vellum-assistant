@@ -192,6 +192,119 @@ export type ConversationSlackMessage = z.infer<
 >;
 
 // ---------------------------------------------------------------------------
+// Content block (unified ordered content)
+// ---------------------------------------------------------------------------
+
+/**
+ * A single ordered content block. `contentBlocks` is the unified, display-ready
+ * projection of a message's model-native content — the same ordering that
+ * `contentOrder` encodes positionally, inlined into one tagged array so clients
+ * render by mapping a single list instead of cross-referencing parallel arrays.
+ *
+ * Discriminants and field names mirror the model-loop `ContentBlock` union
+ * (`providers/types.ts`) so logic reads the same whether it runs in a
+ * plugin/hook (raw provider blocks) or on a client (this cleaned wire form).
+ * The wire form differs from the raw provider union in three deliberate ways:
+ *   - `tool_use` carries its paired result (`toolCall.result`): the daemon
+ *     merges the separate `tool_result` block at read time so clients never
+ *     re-pair calls with their results.
+ *   - internal/sensitive provider fields are dropped (risk/approval scratch
+ *     fields, raw base64 image bytes, provider thought signatures, opaque
+ *     server-tool blobs).
+ *   - vellum projections with no provider analog (`surface`, `attachment`)
+ *     reuse the existing history schemas.
+ */
+export const ConversationContentBlockSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("text"), text: z.string() }),
+  z.object({ type: z.literal("thinking"), thinking: z.string() }),
+  z.object({
+    type: z.literal("tool_use"),
+    toolCall: ConversationMessageToolCallSchema,
+  }),
+  z.object({
+    type: z.literal("surface"),
+    surface: ConversationMessageSurfaceSchema,
+  }),
+  z.object({
+    type: z.literal("attachment"),
+    attachment: ConversationMessageAttachmentSchema,
+  }),
+]);
+export type ConversationContentBlock = z.infer<
+  typeof ConversationContentBlockSchema
+>;
+
+/**
+ * Derive the unified `contentBlocks` array from a row's positional
+ * `contentOrder` + parallel arrays. Pure projection — the single place that
+ * encodes how a `"<type>:<index>"` ref resolves into a tagged block, so the
+ * daemon serializer and any client transition shim share one mapping and
+ * cannot drift. Entries that don't resolve (out-of-range index, unknown kind)
+ * are skipped, matching the positional arrays' own defensive reads.
+ */
+export function deriveContentBlocks(row: {
+  contentOrder?: string[];
+  textSegments?: string[];
+  thinkingSegments?: string[];
+  toolCalls?: ConversationMessageToolCall[];
+  surfaces?: ConversationMessageSurface[];
+  attachments?: ConversationMessageAttachment[];
+}): ConversationContentBlock[] {
+  const blocks: ConversationContentBlock[] = [];
+  for (const entry of row.contentOrder ?? []) {
+    const sep = entry.indexOf(":");
+    if (sep === -1) {
+      continue;
+    }
+    const kind = entry.slice(0, sep);
+    const index = Number(entry.slice(sep + 1));
+    if (!Number.isInteger(index) || index < 0) {
+      continue;
+    }
+    switch (kind) {
+      case "text": {
+        const text = row.textSegments?.[index];
+        if (text !== undefined) {
+          blocks.push({ type: "text", text });
+        }
+        break;
+      }
+      case "thinking": {
+        const thinking = row.thinkingSegments?.[index];
+        if (thinking !== undefined) {
+          blocks.push({ type: "thinking", thinking });
+        }
+        break;
+      }
+      case "tool": {
+        const toolCall = row.toolCalls?.[index];
+        if (toolCall) {
+          blocks.push({ type: "tool_use", toolCall });
+        }
+        break;
+      }
+      case "surface": {
+        const surface = row.surfaces?.[index];
+        if (surface) {
+          blocks.push({ type: "surface", surface });
+        }
+        break;
+      }
+      case "attachment": {
+        const attachment = row.attachments?.[index];
+        if (attachment) {
+          blocks.push({ type: "attachment", attachment });
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  }
+  return blocks;
+}
+
+// ---------------------------------------------------------------------------
 // Conversation message (history row)
 // ---------------------------------------------------------------------------
 
@@ -226,6 +339,14 @@ export const ConversationMessageSchema = z.object({
   thinkingSegments: z.array(z.string()).optional(),
   /** Positional `"<type>:<index>"` content ordering (e.g. `"text:0"`, `"thinking:1"`). */
   contentOrder: z.array(z.string()).optional(),
+  /**
+   * Unified ordered content blocks — the display-ready projection of the
+   * row's model-native content. Ships alongside the positional
+   * `contentOrder`/`textSegments`/`thinkingSegments` arrays during the client
+   * migration; a client that consumes `contentBlocks` can ignore the
+   * positional arrays entirely. Derived via `deriveContentBlocks`.
+   */
+  contentBlocks: z.array(ConversationContentBlockSchema).optional(),
   subagentNotification: ConversationSubagentNotificationSchema.optional(),
   slackMessage: ConversationSlackMessageSchema.optional(),
 });

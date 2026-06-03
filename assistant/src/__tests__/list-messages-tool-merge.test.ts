@@ -57,6 +57,8 @@ interface MessagePayload {
   role: string;
   toolCalls?: ToolCallPayload[];
   textSegments?: string[];
+  contentOrder?: string[];
+  contentBlocks?: Array<{ type: string; [key: string]: unknown }>;
 }
 
 describe("handleListMessages tool_result merging", () => {
@@ -106,6 +108,23 @@ describe("handleListMessages tool_result merging", () => {
     expect(toolCalls).toHaveLength(1);
     expect(toolCalls![0].name).toBe("bash");
     expect(toolCalls![0].result).toBe("file1.txt\nfile2.txt");
+
+    // The unified contentBlocks projection ships alongside the legacy arrays,
+    // in contentOrder order, with the tool_result already paired onto the
+    // tool_use block.
+    expect(body.messages[1].contentOrder).toEqual(["text:0", "tool:0"]);
+    expect(body.messages[1].contentBlocks).toEqual([
+      { type: "text", text: "Running command." },
+      {
+        type: "tool_use",
+        toolCall: {
+          name: "bash",
+          input: { command: "ls" },
+          result: "file1.txt\nfile2.txt",
+          isError: false,
+        },
+      },
+    ]);
   });
 
   test("merges multiple tool_results into matching tool_uses", async () => {

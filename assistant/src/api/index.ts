@@ -304,6 +304,8 @@ export {
   DictationRequestSchema,
 } from "./requests/dictation.js";
 export {
+  type ConversationContentBlock,
+  ConversationContentBlockSchema,
   type ConversationMessage,
   type ConversationMessageAttachment,
   ConversationMessageAttachmentSchema,
@@ -316,6 +318,7 @@ export {
   ConversationSlackMessageSchema,
   type ConversationSubagentNotification,
   ConversationSubagentNotificationSchema,
+  deriveContentBlocks,
 } from "./responses/conversation-message.js";
 export {
   type DiskPressureStatusResponse,

@@ -10,6 +10,7 @@ import {
   createAssistantMessage,
   createUserMessage,
 } from "../../agent/message-types.js";
+import { deriveContentBlocks } from "../../api/responses/conversation-message.js";
 import {
   CHANNEL_IDS,
   INTERFACE_IDS,
@@ -838,6 +839,17 @@ export function handleListMessages({
     // on createdAt. The mismatch is benign — it may return slightly extra
     // data on a page boundary but never loses messages.
     const displayTimestamp = m.sentAt ?? m.timestamp;
+    // Unified ordered projection of the row's content. Built from the same
+    // aligned positional arrays the legacy fields below carry, so the two
+    // representations stay in lockstep until clients finish migrating.
+    const contentBlocks = deriveContentBlocks({
+      contentOrder: alignedContentOrder,
+      textSegments: m.textSegments,
+      thinkingSegments: m.thinkingSegments,
+      toolCalls: m.toolCalls,
+      surfaces: m.surfaces,
+      attachments: msgAttachments,
+    });
     return {
       id: m.id ?? "",
       ...(mergedMessageIds.length > 0 ? { mergedMessageIds } : {}),
@@ -856,6 +868,7 @@ export function handleListMessages({
       ...(alignedContentOrder.length > 0
         ? { contentOrder: alignedContentOrder }
         : {}),
+      ...(contentBlocks.length > 0 ? { contentBlocks } : {}),
       ...(m.subagentNotification
         ? { subagentNotification: m.subagentNotification }
         : {}),
