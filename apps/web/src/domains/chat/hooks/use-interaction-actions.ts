@@ -692,7 +692,8 @@ export function useInteractionActions(): UseInteractionActionsReturn {
       // 3-tier fallback matching macOS AssistantProgressView.scopeOptions(from:):
       // 1. allowlistOptions (glob patterns, saveable as trust rules)
       // 2. riskScopeOptions (regex-flavored display-only ladder from tool_result)
-      // 3. Empty — the modal's ensureAllowlistOptions synthesizes a wildcard
+      // 3. Empty — the modal's buildApplyToOptions synthesizes the tier-3
+      //    fallback (raw command, or wildcard for natural-language input)
       let resolvedAllowlistOptions: AllowlistOption[];
       if (context.allowlistOptions.length > 0) {
         resolvedAllowlistOptions = context.allowlistOptions;

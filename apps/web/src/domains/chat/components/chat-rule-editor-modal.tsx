@@ -35,13 +35,18 @@ import type { RuleEditorContext } from "@/domains/chat/hooks/use-interaction-act
  * recommendation is selectable instead of a bare wildcard:
  *   (a) the suggested `pattern` (pre-selected), then
  *   (b) any `scopeOptions` ladder the suggestion returned,
- *   then the broad "Any {toolName} call" wildcard as a fallback choice.
- * Falls back to just the wildcard before the suggestion arrives.
+ *   then a tier-3 fallback option.
+ *
+ * The tier-3 fallback mirrors macOS `scopeOptions(from:)`: the raw command
+ * itself, collapsing to the "Any {toolName} call" wildcard only when the input
+ * is natural language (command text == reason) or empty.
  */
 function buildApplyToOptions(
   allowlistOptions: AllowlistOption[],
   toolName: string,
   suggestion: RuleEditorContext["suggestion"],
+  commandText: string,
+  commandDescription: string,
 ): AllowlistOption[] {
   if (allowlistOptions.length > 0) {
     return allowlistOptions;
@@ -60,8 +65,13 @@ function buildApplyToOptions(
       synthesized.push({ pattern: o.pattern, label: o.label, description: "" });
     }
   }
-  if (!hasPattern("*")) {
-    synthesized.push({ label: `Any ${toolName} call`, description: "", pattern: "*" });
+  const raw = commandText.trim();
+  const isNaturalLanguage = raw.length > 0 && raw === commandDescription.trim();
+  const fallbackPattern = !raw || isNaturalLanguage ? "*" : raw;
+  const fallbackLabel =
+    fallbackPattern === "*" ? `Any ${toolName} call` : fallbackPattern;
+  if (!hasPattern(fallbackPattern)) {
+    synthesized.push({ label: fallbackLabel, description: "", pattern: fallbackPattern });
   }
   return synthesized;
 }
@@ -172,8 +182,21 @@ export function ChatRuleEditorModal({
 
   const optionsFromToolCall = context.allowlistOptions.length > 0;
   const effectiveOptions = useMemo(
-    () => buildApplyToOptions(context.allowlistOptions, context.toolName, suggestion),
-    [context.allowlistOptions, context.toolName, suggestion],
+    () =>
+      buildApplyToOptions(
+        context.allowlistOptions,
+        context.toolName,
+        suggestion,
+        context.commandText,
+        context.commandDescription,
+      ),
+    [
+      context.allowlistOptions,
+      context.toolName,
+      suggestion,
+      context.commandText,
+      context.commandDescription,
+    ],
   );
 
   // Index 0 is a skippable exact match only for tool-call ladders; synthesized
