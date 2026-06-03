@@ -13,6 +13,7 @@ import { EmailServiceCard } from "@/domains/settings/ai/email-service-card";
 import { ImageGenerationCard } from "@/domains/settings/ai/image-generation-card";
 import { TextToSpeechCard } from "@/domains/settings/ai/text-to-speech-card";
 import { SpeechToTextCard } from "@/domains/settings/ai/speech-to-text-card";
+import { AcpCredentialsCard } from "@/domains/settings/ai/acp-credentials-card";
 
 // ---------------------------------------------------------------------------
 // AiPage — layout shell
@@ -57,6 +58,7 @@ export function AiPage() {
       <ImageGenerationCard />
       <TextToSpeechCard />
       <SpeechToTextCard />
+      <AcpCredentialsCard assistantId={assistantId} />
     </div>
   );
 }
