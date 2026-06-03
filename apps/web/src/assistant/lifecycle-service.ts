@@ -50,13 +50,13 @@ import {
   isLocalMode,
 } from "@/lib/local-mode";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
+import { isAuthenticated, type SessionStatus } from "@/stores/session-status";
 
 const MAX_HATCH_RETRIES = 3;
 const MAX_INITIALIZING_RECOVERIES = 3;
 
 export interface LifecycleServiceInputs {
-  isLoggedIn: boolean;
-  isLoading: boolean;
+  sessionStatus: SessionStatus;
   isRetired: boolean;
   isNonProduction: boolean;
   hasPlatformSession: boolean;
@@ -105,8 +105,7 @@ class AssistantLifecycleService {
    */
   private ready = false;
   private inputs: LifecycleServiceInputs = {
-    isLoggedIn: false,
-    isLoading: true,
+    sessionStatus: "initializing",
     isRetired: false,
     isNonProduction: false,
     hasPlatformSession: false,
@@ -126,9 +125,9 @@ class AssistantLifecycleService {
 
   /**
    * Synchronously drop the selection + lifecycle state. Called from
-   * `auth-store.logout()` before `isLoggedIn` flips, so subscribers
-   * to either store don't observe a stale id in their first
-   * re-render after logout. The `respondToInputs` `!isLoggedIn`
+   * `auth-store.logout()` before `sessionStatus` leaves `authenticated`,
+   * so subscribers to either store don't observe a stale id in their
+   * first re-render after logout. The `respondToInputs` not-authenticated
    * branch is the safety net for cases where auth flips without
    * going through the explicit logout call (e.g. token expiry
    * detected by an interceptor and surfaced as a state change
@@ -158,7 +157,7 @@ class AssistantLifecycleService {
    */
   async respondToInputs(): Promise<void> {
     if (!this.ready) return;
-    if (!this.inputs.isLoggedIn || this.inputs.isLoading) {
+    if (!isAuthenticated(this.inputs.sessionStatus)) {
       // Logout / pre-auth boot — same reset as `resetForLogout` but
       // reachable from the input-driven path for token-expiry style
       // flips that don't call `logout()` explicitly.
@@ -672,7 +671,7 @@ class AssistantLifecycleService {
   /**
    * Reset all state to the post-import default. For tests only —
    * production code should never call this. (Use `respondToInputs`
-   * with `isLoggedIn: false` for logout reset.)
+   * with a non-authenticated `sessionStatus` for logout reset.)
    */
   __resetForTesting(): void {
     if (this.initializingTimeout) {
@@ -689,8 +688,7 @@ class AssistantLifecycleService {
     this.ready = false;
     useAssistantLifecycleStore.setState({ expectingFirstMessage: false });
     this.inputs = {
-      isLoggedIn: false,
-      isLoading: true,
+      sessionStatus: "initializing",
       isRetired: false,
       isNonProduction: false,
       hasPlatformSession: false,

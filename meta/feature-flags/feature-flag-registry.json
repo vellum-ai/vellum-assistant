@@ -34,6 +34,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "experiment-activation-flow-2026-06-03",
+      "scope": "client",
+      "key": "experiment-activation-flow-2026-06-03",
+      "label": "Activation Flow Experiment 2026-06-03",
+      "description": "Route allowlisted users to the activation-rail bootstrap template after pre-chat. Off by default and targeted through LaunchDarkly.",
+      "defaultEnabled": false
+    },
+    {
       "id": "local-docker-enabled",
       "scope": "client",
       "key": "local-docker-enabled",

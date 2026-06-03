@@ -142,7 +142,6 @@ import {
   type AssistantAttachmentDraft,
   cleanAssistantContent,
 } from "./assistant-attachments.js";
-import { cleanupBootstrapAfterTurnThreshold } from "./bootstrap-turn-cleanup.js";
 import { resolveOverflowAction } from "./context-overflow-policy.js";
 import {
   createInitialReducerState,
@@ -300,6 +299,19 @@ function buildPluginTurnContext(
     contextWindowManager: ctx.contextWindowManager,
     callSite: ctx.currentCallSite,
   };
+}
+
+/**
+ * Trust class of the actor whose turn is in progress, for the compactor's
+ * image manifest filter. Prefers the turn-start snapshot
+ * ({@link AgentLoopConversationContext.currentTurnTrustContext}) over the live
+ * trust context so compaction running in a later tool iteration can't pick up
+ * a concurrent request's actor.
+ */
+function resolveTurnActorTrustClass(
+  ctx: AgentLoopConversationContext,
+): TrustContext["trustClass"] | undefined {
+  return (ctx.currentTurnTrustContext ?? ctx.trustContext)?.trustClass;
 }
 
 // ── Context Interface ────────────────────────────────────────────────
@@ -1040,7 +1052,7 @@ export async function runAgentLoopImpl(
     const compactionOptions = {
       precomputedEstimate: compactCheck.estimatedTokens,
       overrideProfile: resolveCurrentOverrideProfile() ?? null,
-      actorTrustClass: ctx.trustContext?.trustClass,
+      actorTrustClass: resolveTurnActorTrustClass(ctx),
     };
     let compacted: Awaited<
       ReturnType<typeof ctx.contextWindowManager.maybeCompact>
@@ -1799,7 +1811,7 @@ export async function runAgentLoopImpl(
                 options: {
                   ...(opts ?? {}),
                   overrideProfile: resolveCurrentOverrideProfile() ?? null,
-                  actorTrustClass: ctx.trustContext?.trustClass,
+                  actorTrustClass: resolveTurnActorTrustClass(ctx),
                 },
               },
               buildPluginTurnContext(ctx, reqId),
@@ -2036,24 +2048,13 @@ export async function runAgentLoopImpl(
     // with its own tool-use iteration counter.
     const loopTurnCtx = buildPluginTurnContext(ctx, reqId);
 
-    // Hooks for the loop-owned mid-loop compaction. The agent loop owns the
+    // Hook for the loop-owned mid-loop compaction. The agent loop owns the
     // trigger (its budget gate), the `compaction` pipeline call, the result
     // interpretation (circuit-breaker bookkeeping + the exhaustion decision),
-    // and the inline continue; these callbacks bridge the durable / injection
-    // state the loop is intentionally blind to. Durable persistence and
-    // re-injection stay orchestrator-supplied for now.
+    // and the inline continue; this callback bridges the injection state the
+    // loop is intentionally blind to. Durable persistence is signalled via
+    // events; re-injection stays orchestrator-supplied for now.
     const midLoopCompaction: MidLoopCompaction = {
-      prepare: () => {
-        // The loop strips runtime injections and commits the stripped basis to
-        // durable state via the `compaction_completed` event; this hook only
-        // resolves the pipeline options.
-        return {
-          options: {
-            overrideProfile: resolveCurrentOverrideProfile() ?? null,
-            actorTrustClass: ctx.trustContext?.trustClass,
-          },
-        };
-      },
       reinject: async () => {
         // stripInjectionsForCompaction() unconditionally removed the existing
         // NOW.md block, so re-inject the current content regardless of whether
@@ -2440,7 +2441,7 @@ export async function runAgentLoopImpl(
             ctx.contextWindowManager.maybeCompact(msgs, signal!, {
               ...(opts ?? {}),
               overrideProfile: resolveCurrentOverrideProfile() ?? null,
-              actorTrustClass: ctx.trustContext?.trustClass,
+              actorTrustClass: resolveTurnActorTrustClass(ctx),
             }),
           abortController.signal,
         );
@@ -3218,8 +3219,6 @@ export async function runAgentLoopImpl(
     }
   } finally {
     if (turnStarted) {
-      cleanupBootstrapAfterTurnThreshold(ctx.conversationId);
-
       ctx.turnCount++;
       const config = getConfig();
       const maxWait = config.workspaceGit?.turnCommitMaxWaitMs ?? 4000;

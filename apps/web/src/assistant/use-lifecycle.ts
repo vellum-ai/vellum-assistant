@@ -19,10 +19,10 @@ import { lifecycleService } from "@/assistant/lifecycle-service";
 import { useAssistantQuery } from "@/assistant/queries";
 import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
 import { isLocalMode } from "@/lib/local-mode";
+import { isAuthenticated, type SessionStatus } from "@/stores/session-status";
 
 interface UseAssistantLifecycleOptions {
-  isLoggedIn: boolean;
-  isLoading: boolean;
+  sessionStatus: SessionStatus;
   isRetired: boolean;
   isNonProduction: boolean;
   hasPlatformSession: boolean;
@@ -40,8 +40,7 @@ interface UseAssistantLifecycleOptions {
 }
 
 export function useAssistantLifecycle({
-  isLoggedIn,
-  isLoading,
+  sessionStatus,
   isRetired,
   isNonProduction,
   hasPlatformSession,
@@ -54,8 +53,7 @@ export function useAssistantLifecycle({
   // mode and "local mode without platform session" short-circuit
   // to local states without ever calling /assistant/.
   const shouldQueryServer =
-    isLoggedIn &&
-    !isLoading &&
+    isAuthenticated(sessionStatus) &&
     !isGatewayAuthMode() &&
     (hasPlatformSession || !isLocalMode());
 
@@ -69,8 +67,7 @@ export function useAssistantLifecycle({
   // hook itself.
   useEffect(() => {
     lifecycleService.setInputs({
-      isLoggedIn,
-      isLoading,
+      sessionStatus,
       isRetired,
       isNonProduction,
       hasPlatformSession,
@@ -80,8 +77,7 @@ export function useAssistantLifecycle({
     });
     void lifecycleService.respondToInputs();
   }, [
-    isLoggedIn,
-    isLoading,
+    sessionStatus,
     isRetired,
     isNonProduction,
     hasPlatformSession,

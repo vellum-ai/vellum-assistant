@@ -24,7 +24,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@vellum/design-library";
 import { useState, type ReactNode } from "react";
 
-import { useAuthStore } from "@/stores/auth-store";
+import { useAuthStore, useIsAuthenticated } from "@/stores/auth-store";
 import { useOrganizationStore } from "@/stores/organization-store";
 import { ProfileQuickAddProvider } from "@/components/profile-quick-add-provider";
 
@@ -65,12 +65,12 @@ function ScopeKeyedQueryClientProvider({
 }: {
   children: ReactNode;
 }) {
-  const isLoggedIn = useAuthStore.use.isLoggedIn();
+  const isAuthenticated = useIsAuthenticated();
   const user = useAuthStore.use.user();
   const currentOrganizationId =
     useOrganizationStore.use.currentOrganizationId();
   const scopeKey = `${
-    isLoggedIn ? `user:${user?.id ?? "unknown"}` : "anonymous"
+    isAuthenticated ? `user:${user?.id ?? "unknown"}` : "anonymous"
   }:org:${currentOrganizationId ?? "none"}`;
 
   return (
@@ -81,9 +81,9 @@ function ScopeKeyedQueryClientProvider({
 }
 
 export function AppProviders({ children }: { children: ReactNode }) {
-  const isLoggedIn = useAuthStore.use.isLoggedIn();
+  const isAuthenticated = useIsAuthenticated();
   const user = useAuthStore.use.user();
-  const authScopeKey = isLoggedIn
+  const authScopeKey = isAuthenticated
     ? `user:${user?.id ?? "unknown"}`
     : "anonymous";
 

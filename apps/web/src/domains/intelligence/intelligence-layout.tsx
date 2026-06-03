@@ -1,8 +1,11 @@
+import { useEffect } from "react";
 import { NavLink, Outlet, useLocation } from "react-router";
 
-import { cn } from "@vellum/design-library";
+import { Typography, cn } from "@vellum/design-library";
 
 import { PageShell } from "@/components/page-shell";
+import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { routes } from "@/utils/routes";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
@@ -40,6 +43,30 @@ export function IntelligenceLayout() {
   const hasHydrated = useAssistantFeatureFlagStore.use.hasHydrated();
   const externalPlugins = useAssistantFeatureFlagStore.use.externalPlugins();
   const { pathname } = useLocation();
+  const isMobile = useIsMobile();
+  const setTopBarCenter = useChatLayoutSlotsStore.use.setTopBarCenter();
+
+  // On mobile the title moves out of the page body and into the shared top
+  // bar — centered between the hamburger menu and the search icon — so the
+  // tab row can rise directly beneath the header. Desktop keeps the in-body
+  // <h1> and leaves the top-bar center empty.
+  useEffect(() => {
+    if (isMobile) {
+      setTopBarCenter(
+        <Typography
+          variant="body-medium-default"
+          className="truncate text-[var(--content-secondary)]"
+        >
+          About {assistantName || "Assistant"}
+        </Typography>,
+      );
+    } else {
+      setTopBarCenter(null);
+    }
+    return () => {
+      setTopBarCenter(null);
+    };
+  }, [isMobile, assistantName, setTopBarCenter]);
 
   // Insert the Plugins tab between Identity and Skills when the
   // `external-plugins` flag is on. Gated on `hasHydrated` so we don't
@@ -54,7 +81,7 @@ export function IntelligenceLayout() {
 
   return (
     <PageShell>
-      <h1 className="mb-4 shrink-0 text-title-large text-[var(--content-default)]">
+      <h1 className="mb-4 shrink-0 text-title-large text-[var(--content-default)] max-md:hidden">
         About {assistantName || "Assistant"}
       </h1>
 
@@ -73,11 +100,11 @@ export function IntelligenceLayout() {
               className={cn(
                 "relative -mb-px inline-flex cursor-pointer items-center gap-1.5 border-b-2 border-transparent bg-transparent px-2.5 py-[7px]",
                 "text-body-medium-default whitespace-nowrap",
-                "text-[var(--content-tertiary)] transition-colors",
+                "text-[var(--content-secondary)] transition-colors",
                 "outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-0",
                 "hover:bg-[var(--surface-hover)] hover:text-[var(--content-default)]",
                 isActive &&
-                  "border-[var(--primary-base)] text-[var(--content-default)]",
+                  "border-[var(--border-active)] text-[var(--primary-active)]",
                 isActive && "hover:bg-transparent",
               )}
             >

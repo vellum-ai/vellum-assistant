@@ -103,7 +103,7 @@ export function TrustRuleFormModal({
       onKeyDown={handleKeyDown}
       onClick={handleBackdropClick}
     >
-      <div className="mx-4 flex max-h-[calc(100vh-2rem)] w-full max-w-md flex-col rounded-xl border border-[var(--border-base)] bg-[var(--surface-raised)] shadow-xl">
+      <div className="mx-4 flex max-h-[calc(100vh-2rem)] w-full max-w-md flex-col rounded-xl border border-[var(--border-base)] bg-[var(--surface-lift)] shadow-xl">
         <div className="flex items-center justify-between gap-3 border-b border-[var(--border-base)] px-6 py-4">
           <h2
             id="trust-rule-form-title"

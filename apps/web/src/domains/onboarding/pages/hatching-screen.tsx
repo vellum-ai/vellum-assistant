@@ -39,6 +39,11 @@ import {
 } from "@/domains/onboarding/signals";
 import { isNativePlatform } from "@/runtime/native-auth";
 import { useAuthStore } from "@/stores/auth-store";
+import {
+  isAuthenticated,
+  isSessionSettled,
+  type SessionStatus,
+} from "@/stores/session-status";
 import { routes } from "@/utils/routes";
 
 const POLL_INTERVAL_MS = 3000;
@@ -85,16 +90,17 @@ export type HatchGateDecision =
   | { kind: "redirect"; to: string };
 
 export function decideHatchGate(input: {
-  isAuthLoading: boolean;
-  isLoggedIn: boolean;
+  sessionStatus: SessionStatus;
   isReplay: boolean;
   onboardingCompleted: boolean;
   tosAccepted: boolean;
   aiDataConsentAccepted: boolean;
   cameFromPrivacyScreen: boolean;
 }): HatchGateDecision {
-  if (input.isAuthLoading) return { kind: "wait" };
-  if (!input.isLoggedIn) return { kind: "redirect", to: routes.account.login };
+  if (!isSessionSettled(input.sessionStatus)) return { kind: "wait" };
+  if (!isAuthenticated(input.sessionStatus)) {
+    return { kind: "redirect", to: routes.account.login };
+  }
   if (input.onboardingCompleted && !input.isReplay) {
     return { kind: "redirect", to: routes.assistant };
   }
@@ -115,8 +121,7 @@ export function HatchingScreen() {
   const hostingParam = searchParams.get("hosting");
   const useLocalHatch = isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud";
   const userId = useAuthStore.use.user()?.id ?? null;
-  const isLoggedIn = useAuthStore.use.isLoggedIn();
-  const isAuthLoading = useAuthStore.use.isLoading();
+  const sessionStatus = useAuthStore.use.sessionStatus();
   const [, setOnboardingCompleted] = useOnboardingCompleted();
   const [hatchTraits] = useState<CharacterTraits>(() =>
     randomCharacterTraits(BUNDLED_COMPONENTS),
@@ -155,8 +160,7 @@ export function HatchingScreen() {
   useEffect(() => {
     const cameFromPrivacyScreen = hasRecentPrivacyConsent(userId);
     const decision = decideHatchGate({
-      isAuthLoading,
-      isLoggedIn,
+      sessionStatus,
       isReplay,
       onboardingCompleted: readOnboardingCompleted(),
       tosAccepted: readTosAccepted(),
@@ -424,8 +428,7 @@ export function HatchingScreen() {
   }, [
     attempt,
     hatchTraits,
-    isAuthLoading,
-    isLoggedIn,
+    sessionStatus,
     isReplay,
     navigate,
     setOnboardingCompleted,

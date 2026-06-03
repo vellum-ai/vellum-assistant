@@ -43,6 +43,7 @@ interface ResetButtonProps {
 }
 
 interface ByoServiceCardProps {
+  id?: string;
   title: string;
   subtitle: string;
   children: ReactNode;
@@ -98,9 +99,9 @@ export function ResetButton({ onClick, filled = false }: ResetButtonProps) {
   );
 }
 
-export function ByoServiceCard({ title, subtitle, children }: ByoServiceCardProps) {
+export function ByoServiceCard({ id, title, subtitle, children }: ByoServiceCardProps) {
   return (
-    <DetailCard title={title} subtitle={subtitle}>
+    <DetailCard id={id} title={title} subtitle={subtitle}>
       <div className="h-px bg-[var(--surface-active)]" />
       <div className="mt-4">{children}</div>
     </DetailCard>

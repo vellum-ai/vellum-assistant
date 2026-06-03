@@ -23,7 +23,7 @@ import { LazyBoundary } from "@/components/lazy-boundary";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { hardNavigate } from "@/lib/auth/hard-navigate";
-import { useAuthStore } from "@/stores/auth-store";
+import { useAuthStore, useIsAuthenticated } from "@/stores/auth-store";
 import {
   useActiveAssistantIsPlatformHosted,
   usePlatformGate,
@@ -59,13 +59,13 @@ export function PreferencesMenu({
   assistantVersion,
   activeConversationId,
 }: PreferencesMenuProps) {
-  const isLoggedIn = useAuthStore.use.isLoggedIn();
+  const isAuthenticated = useIsAuthenticated();
   const isMobile = useIsMobile();
   const [isOpen, setIsOpen] = useState(false);
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
   const [isEarnCreditsOpen, setIsEarnCreditsOpen] = useState(false);
 
-  if (!isLoggedIn) {
+  if (!isAuthenticated) {
     return null;
   }
 
@@ -166,24 +166,26 @@ function PreferencesMenuContent({
 
   return (
     <>
-      <ThemeToggle className="px-2 pt-0" />
+      <ThemeToggle className="px-2 py-0" />
 
       {showBillingRows ? (
-        <CreditsCard
-          balance={
-            effectiveBalance !== null
-              ? formatWholeCredits(effectiveBalance)
-              : null
-          }
-          onAddCredits={() => {
-            onClose();
-            navigate(routes.settings.billing);
-          }}
-          onEarnCredits={() => {
-            onClose();
-            onEarnCredits();
-          }}
-        />
+        <div className="my-2">
+          <CreditsCard
+            balance={
+              effectiveBalance !== null
+                ? formatWholeCredits(effectiveBalance)
+                : null
+            }
+            onAddCredits={() => {
+              onClose();
+              navigate(routes.settings.billing);
+            }}
+            onEarnCredits={() => {
+              onClose();
+              onEarnCredits();
+            }}
+          />
+        </div>
       ) : null}
 
       <PanelItem
