@@ -166,7 +166,7 @@ function PreferencesMenuContent({
 
   return (
     <>
-      <ThemeToggle className="px-2 pt-0" />
+      <ThemeToggle className="px-2 py-0" />
 
       {showBillingRows ? (
         // 8px gap separating the credits card from the menu rows below it.
