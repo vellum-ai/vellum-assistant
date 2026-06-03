@@ -335,14 +335,16 @@ describe("orchestrate — edge cases", () => {
     expect(result.finalInjection).toEqual(["page-a", "page-b"]);
   });
 
-  test("L1 routing fallback (omitted ids → all leaves) still works", async () => {
+  test("omitted L1 ids opens only the deterministic lanes, not the whole tree", async () => {
     const tree = makeTree();
-    // Omitted ids → routeL1 opens ALL leaves; select everything per leaf.
+    // L1 omits ids → routeL1 opens NO routed leaves; only the needle/core lanes
+    // drive the open set, so the whole tree is never fanned out (topic-y, which
+    // nothing routes or needles to, stays closed).
     providerStub = {
       name: "stub",
       sendMessage: async (_messages, options) => {
         if (options?.tools?.[0]?.name === "open_leaves") {
-          return toolUseResponse("open_leaves", {}); // omitted ids
+          return toolUseResponse("open_leaves", {}); // omitted ids → []
         }
         return toolUseResponse("select_pages", {}); // omitted → all members
       },
@@ -350,15 +352,12 @@ describe("orchestrate — edge cases", () => {
     const result = await orchestrate(makeTurn(1, "x"), {
       tree,
       core: new Set(),
-      needle: fakeNeedle([]),
+      needle: fakeNeedle(["page-a"]), // needle opens domain-a/topic-x only
       workingSet: new WorkingSet(),
       pageSummary: summaryOf,
     });
-    expect(result.openedLeaves).toEqual([
-      "domain-a/topic-x",
-      "domain-a/topic-y",
-    ]);
-    expect(result.finalInjection).toEqual(["page-a", "page-b", "page-c"]);
+    expect(result.openedLeaves).toEqual(["domain-a/topic-x"]);
+    expect(result.finalInjection).toEqual(["page-a", "page-b"]);
   });
 
   test("pinned current-turn selections land in the working set", async () => {

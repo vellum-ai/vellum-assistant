@@ -397,18 +397,19 @@ export type CreateBackupResult =
 export async function createAssistantBackup(
   assistantId: string,
 ): Promise<CreateBackupResult> {
-  // The daemon SDK's POST /backups/create URL only exists on the
-  // gateway. When no self-hosted ingress is configured the request
-  // falls through to Django, which serves a different URL layout
-  // (POST /backups/). Use the platform SDK in that case.
-  const usePlatformApi = getSelfHostedIngressUrl() === null;
-
-  const { data, error, response } = usePlatformApi
-    ? await assistantsBackupsCreate({
+  // When a self-hosted ingress URL is set, the daemon SDK client's
+  // request interceptor rewrites the URL to the assistant's gateway
+  // (skipSegmentAllowlist=true). The platform SDK client does NOT
+  // rewrite "backups" paths, so we must use the daemon SDK for any
+  // self-hosted assistant — whether accessed locally or via the
+  // platform web app. For pure platform-hosted assistants (no ingress
+  // URL), backup creation goes through Django → vembda.
+  const { data, error, response } = getSelfHostedIngressUrl()
+    ? await backupsCreatePost({
         path: { assistant_id: assistantId },
         throwOnError: false,
       })
-    : await backupsCreatePost({
+    : await assistantsBackupsCreate({
         path: { assistant_id: assistantId },
         throwOnError: false,
       });
@@ -439,22 +440,18 @@ export async function restoreAssistantBackup(
   assistantId: string,
   backup: AssistantBackup,
 ): Promise<RestoreBackupResult> {
-  // Same routing split as createAssistantBackup: the daemon SDK's
-  // POST /backups/restore URL only exists on the gateway. Django
-  // serves POST /backups/{snapshot_name}/restore/ instead.
-  const usePlatformApi = getSelfHostedIngressUrl() === null;
-
-  const { data, error, response } = usePlatformApi
-    ? await assistantsBackupsRestoreCreate({
+  // Same routing split as createAssistantBackup.
+  const { data, error, response } = getSelfHostedIngressUrl()
+    ? await backupsRestorePost({
+        path: { assistant_id: assistantId },
+        body: { path: backup.path ?? backup.snapshot_name },
+        throwOnError: false,
+      })
+    : await assistantsBackupsRestoreCreate({
         path: {
           assistant_id: assistantId,
           snapshot_name: backup.snapshot_name,
         },
-        throwOnError: false,
-      })
-    : await backupsRestorePost({
-        path: { assistant_id: assistantId },
-        body: { path: backup.path ?? backup.snapshot_name },
         throwOnError: false,
       });
 

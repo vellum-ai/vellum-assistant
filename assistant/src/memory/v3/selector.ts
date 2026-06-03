@@ -14,11 +14,18 @@
  * turn after turn. The trailing recent-context / current-message block changes
  * every turn and carries no breakpoint. This mirrors `./router.ts`.
  *
- * Recall-safe fallbacks. Like the router, the selector exists to widen recall,
- * so every failure degrades toward selecting MORE pages, never fewer:
- *   - omitted `ids` → select ALL members of the leaf,
- *   - missing/failed tool_use, provider unavailable, or any throw → ALL members.
- * Only an explicit empty `ids: []` returns nothing (deliberate abstention).
+ * Failure handling. A deliberate "select everything" and a model-call failure
+ * are different events with different outcomes:
+ *   - explicit `ids` → select exactly those pages,
+ *   - explicit empty `ids: []` → select nothing (deliberate abstention),
+ *   - omitted `ids` → select ALL members of the leaf (the recall-safe "this
+ *     whole leaf is relevant" signal, e.g. "give me all of X"); bounded to one
+ *     leaf, so unlike the router this stays a select-all,
+ *   - infrastructure failure (provider unavailable, a throw that survived the
+ *     provider's own retries, no usable `tool_use`, or a schema mismatch) →
+ *     select nothing after a short re-prompt retry, degrading to the
+ *     deterministic recall lanes (core, needle, carry-forward working set) the
+ *     orchestrator unions in regardless.
  */
 
 import { z } from "zod";
@@ -30,6 +37,7 @@ import {
 import type { Message, ToolDefinition } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
 import { mapLimit } from "../../util/map-limit.js";
+import { retryForResult } from "./llm-retry.js";
 import { cachedTextBlock } from "./provider-blocks.js";
 import { membersOf } from "./tree.js";
 import type { LeafPath, LeafTree, Slug, TurnContext } from "./types.js";
@@ -107,8 +115,10 @@ async function renderPagesBlock(
 /**
  * Run the L2 selector for a single opened leaf. Returns the pages to inject.
  *
- * Recall-safe: any failure to obtain an explicit selection returns ALL members
- * of the leaf. Only an explicit empty `ids` array returns no pages.
+ * An omitted `ids` selects ALL members (the recall-safe "whole leaf is
+ * relevant" signal); an explicit `[]` selects none; an infrastructure failure
+ * (after a short re-prompt retry) selects none, degrading to the deterministic
+ * recall lanes the orchestrator unions in.
  */
 export async function selectFromLeaf(
   leaf: LeafPath,
@@ -124,8 +134,11 @@ export async function selectFromLeaf(
 
   const provider = await getConfiguredProvider("memoryV3SelectL2");
   if (!provider) {
-    log.warn({ leaf }, "memoryV3SelectL2 provider unavailable; selecting all");
-    return allMembers();
+    log.warn(
+      { leaf },
+      "L2 selector provider unavailable; degrading to deterministic lanes",
+    );
+    return [];
   }
 
   const userMsg: Message = {
@@ -147,9 +160,12 @@ export async function selectFromLeaf(
     ],
   };
 
-  let response;
-  try {
-    response = await provider.sendMessage([userMsg], {
+  // One forced-tool call, retried a few times so a transient malformed response
+  // (no usable tool_use, or tool input that fails the schema) re-prompts before
+  // we give up. `null` from an attempt means "unusable, retry"; the provider
+  // layer already backs off transient throws, so this loop adds no delay.
+  const parsed = await retryForResult(async () => {
+    const response = await provider.sendMessage([userMsg], {
       tools: [SELECT_PAGES_TOOL],
       systemPrompt: SYSTEM_PROMPT,
       config: {
@@ -157,39 +173,31 @@ export async function selectFromLeaf(
         tool_choice: { type: "tool" as const, name: SELECT_PAGES_TOOL_NAME },
       },
     });
-  } catch (err) {
-    log.warn({ err, leaf }, "L2 selector call threw; selecting all");
-    return allMembers();
-  }
+    const toolBlock = extractToolUse(response);
+    if (!toolBlock || toolBlock.name !== SELECT_PAGES_TOOL_NAME) return null;
+    const result = SelectPagesSchema.safeParse(toolBlock.input);
+    return result.success ? result.data : null;
+  });
 
-  const toolBlock = extractToolUse(response);
-  if (!toolBlock || toolBlock.name !== SELECT_PAGES_TOOL_NAME) {
+  if (parsed === null) {
     log.warn(
-      { stopReason: response.stopReason, leaf },
-      "L2 selector returned no select_pages tool_use; selecting all",
+      { leaf },
+      "L2 selector could not obtain a selection after retries; degrading to deterministic lanes",
     );
-    return allMembers();
+    return [];
   }
 
-  const parsed = SelectPagesSchema.safeParse(toolBlock.input);
-  if (!parsed.success) {
-    log.warn(
-      { error: parsed.error.message, leaf },
-      "L2 selector tool input did not match schema; selecting all",
-    );
-    return allMembers();
-  }
+  // Omitted `ids` is the recall-safe "this whole leaf is relevant" signal.
+  // Bounded to one leaf, so it stays a select-all (unlike the L1 router).
+  if (parsed.ids === undefined) return allMembers();
 
-  // Omitted `ids` is the recall-safe "select everything" signal.
-  if (parsed.data.ids === undefined) return allMembers();
-
-  const pinned = new Set(parsed.data.pinned_ids ?? []);
+  const pinned = new Set(parsed.pinned_ids ?? []);
 
   // Map 1-based IDs back to member slugs, dropping out-of-range IDs without
   // throwing. De-duplicate while preserving model-returned order.
   const seen = new Set<number>();
   const selected: SelectedPage[] = [];
-  for (const id of parsed.data.ids) {
+  for (const id of parsed.ids) {
     if (id < 1 || id > members.length || seen.has(id)) continue;
     seen.add(id);
     selected.push({ slug: members[id - 1]!, pinned: pinned.has(id) });
