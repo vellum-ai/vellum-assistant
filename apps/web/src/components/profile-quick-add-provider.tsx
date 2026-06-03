@@ -39,15 +39,13 @@ import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 interface OpenProfileQuickAddArgs {
-  /** Names already present so the modal can reject duplicates. */
-  existingNames?: string[];
   /**
-   * Current picker order. The new profile is appended to this in the create
-   * PATCH so the daemon records its position — kept distinct from
-   * `existingNames` (which also includes map-only entries) to preserve the
-   * exact `profileOrder` the picker renders.
+   * Names already present, used only for the modal's immediate client-side
+   * duplicate-name feedback. The authoritative dedupe + `profileOrder` append
+   * happens at save time from a fresh server config fetch (see `handleSave`),
+   * so this list is a UX nicety, not a correctness dependency.
    */
-  profileOrder?: string[];
+  existingNames?: string[];
   /**
    * Invoked with the new profile name after the create persists. The caller
    * runs its own follow-up (e.g. autoselecting the profile for the thread).
@@ -72,7 +70,6 @@ export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
 
   const [isOpen, setIsOpen] = useState(false);
   const [existingNames, setExistingNames] = useState<string[]>([]);
-  const [profileOrder, setProfileOrder] = useState<string[]>([]);
   // Held in a ref so the modal's onSave closure always sees the latest caller
   // callback without re-creating handlers on every open.
   const onCreatedRef = useRef<((newProfileName: string) => void) | undefined>(
@@ -81,7 +78,6 @@ export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
 
   const openProfileQuickAdd = useCallback((args?: OpenProfileQuickAddArgs) => {
     setExistingNames(args?.existingNames ?? []);
-    setProfileOrder(args?.profileOrder ?? []);
     onCreatedRef.current = args?.onCreated;
     setIsOpen(true);
   }, []);
@@ -110,12 +106,36 @@ export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
   // Mirrors ManageProfilesModal's create path: write `llm.profiles[name]` plus
   // an appended `profileOrder` in a single config PATCH so the daemon records
   // both the entry and its picker position.
+  //
+  // The order is computed from a FRESH server fetch rather than the
+  // `profileOrder` captured when the modal opened. The caller may have opened
+  // the quick-add before its own config fetch settled (passing an empty
+  // order); trusting that would reset the persisted `profileOrder` to just the
+  // new name, dropping every existing profile's position. Reading the latest
+  // config here keeps the append authoritative regardless of stale inputs.
   const handleSave = useCallback(
     async (name: string, entry: ProfileEntry) => {
       if (!assistantId) return;
-      const profileOrderPatch = profileOrder.includes(name)
+
+      const configResult = await client.get<Record<string, unknown>, unknown>({
+        url: `/v1/assistants/{assistant_id}/config`,
+        path: { assistant_id: assistantId },
+        throwOnError: false,
+      });
+      const llm =
+        (configResult.data as { llm?: Record<string, unknown> } | undefined)
+          ?.llm ?? {};
+      const serverOrder = (llm.profileOrder as string[] | undefined) ?? [];
+      const serverProfiles =
+        (llm.profiles as Record<string, unknown> | undefined) ?? {};
+      // Dedupe against the union of order + map entries (an entry can exist in
+      // the map without being in the order), then append only if absent.
+      const existsOnServer =
+        serverOrder.includes(name) || name in serverProfiles;
+      const profileOrderPatch = existsOnServer
         ? undefined
-        : [...profileOrder, name];
+        : [...serverOrder, name];
+
       await client.patch({
         url: `/v1/assistants/{assistant_id}/config`,
         path: { assistant_id: assistantId },
@@ -132,7 +152,7 @@ export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
       setIsOpen(false);
       toast.success(`Profile "${name}" created`);
     },
-    [assistantId, profileOrder],
+    [assistantId],
   );
 
   const value = useMemo<ProfileQuickAddContextValue>(

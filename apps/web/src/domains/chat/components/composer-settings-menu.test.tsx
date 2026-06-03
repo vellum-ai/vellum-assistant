@@ -28,6 +28,13 @@ mock.module("@/hooks/use-is-mobile", () => ({
   MOBILE_MEDIA_QUERY: "(max-width: 767px)",
 }));
 
+// --- toast -------------------------------------------------------------------
+const toastSuccess = mock((_msg: string) => {});
+const toastError = mock((_msg: string) => {});
+mock.module("@vellum/design-library/components/toast", () => ({
+  toast: { success: toastSuccess, error: toastError },
+}));
+
 // --- feature flag store ------------------------------------------------------
 mock.module("@/stores/assistant-feature-flag-store", () => {
   const store = () => null;
@@ -53,7 +60,6 @@ mock.module("@/lib/threshold-api", () => ({
 // wiring and simulate the provider's onCreated callback firing.
 type QuickAddArgs = {
   existingNames?: string[];
-  profileOrder?: string[];
   onCreated?: (name: string) => void;
 };
 const openProfileQuickAdd = mock((_args?: QuickAddArgs) => {});
@@ -158,6 +164,9 @@ beforeEach(() => {
   openProfileQuickAdd.mockClear();
   inferenceprofilePut.mockClear();
   clientPatch.mockClear();
+  clientGet.mockClear();
+  toastSuccess.mockClear();
+  toastError.mockClear();
 });
 
 afterEach(() => {
@@ -205,7 +214,6 @@ describe("Model Profile quick-add", () => {
     });
     const args = openProfileQuickAdd.mock.calls[0]![0]!;
     expect(args.existingNames).toEqual(["smart"]);
-    expect(args.profileOrder).toEqual(["smart"]);
     expect(typeof args.onCreated).toBe("function");
   });
 
@@ -233,6 +241,56 @@ describe("Model Profile quick-add", () => {
     // The new profile is now reflected locally and renders in the picker.
     await waitFor(() => {
       expect(document.body.textContent).toContain(NEW_PROFILE_NAME);
+    });
+  });
+
+  test('"+" is disabled until the profile config fetch settles', async () => {
+    // Config never resolves — the "+" must stay disabled (opening the modal
+    // with the empty initial profileOrder/profileMap would let a duplicate
+    // overwrite a profile and reset the persisted order).
+    clientGet.mockImplementationOnce(() => new Promise(() => {}));
+    renderMenu();
+
+    await waitFor(() => screen.getByLabelText("New Profile"));
+    const plus = screen.getByLabelText("New Profile") as HTMLButtonElement;
+    expect(plus.disabled).toBe(true);
+    expect(plus.getAttribute("aria-disabled")).toBe("true");
+
+    // A click while disabled must NOT open the quick-add controller.
+    fireEvent.click(plus);
+    expect(openProfileQuickAdd).not.toHaveBeenCalled();
+  });
+
+  test('"+" enables once the config fetch settles', async () => {
+    renderMenu();
+    await waitFor(() => {
+      const plus = screen.getByLabelText("New Profile") as HTMLButtonElement;
+      expect(plus.disabled).toBe(false);
+    });
+  });
+
+  test("a failed autoselect surfaces an error toast (without claiming creation failed)", async () => {
+    // The per-thread profile PUT fails — the new profile was created but could
+    // not be switched to. The flow must surface that instead of silently
+    // reporting success.
+    inferenceprofilePut.mockImplementationOnce(async () => {
+      throw new Error("network");
+    });
+
+    renderMenu();
+    await waitFor(() => screen.getByLabelText("New Profile"));
+    fireEvent.click(screen.getByLabelText("New Profile"));
+
+    await waitFor(() => {
+      expect(openProfileQuickAdd).toHaveBeenCalledTimes(1);
+    });
+    const onCreated = openProfileQuickAdd.mock.calls[0]![0]!.onCreated!;
+    onCreated(NEW_PROFILE_NAME);
+
+    await waitFor(() => {
+      expect(toastError).toHaveBeenCalledWith(
+        "Profile created, but couldn't switch to it",
+      );
     });
   });
 });

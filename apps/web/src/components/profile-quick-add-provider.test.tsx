@@ -70,8 +70,16 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
 const clientPatch = mock(
   async (_opts: unknown): Promise<{ data: unknown }> => ({ data: {} }),
 );
+// The save path re-reads the latest server config so the appended profileOrder
+// is authoritative regardless of what the modal was opened with. Default to one
+// pre-existing profile; individual tests override per-call as needed.
+const clientGet = mock(
+  async (_opts: unknown): Promise<{ data: unknown }> => ({
+    data: { llm: { profileOrder: ["smart"], profiles: { smart: { label: "Smart" } } } },
+  }),
+);
 mock.module("@/generated/api/client.gen", () => ({
-  client: { patch: clientPatch },
+  client: { get: clientGet, patch: clientPatch },
 }));
 
 import {
@@ -81,15 +89,15 @@ import {
 
 // Test consumer: opens the quick-add on mount and records the onCreated name.
 const onCreated = mock((_name: string) => {});
-function Opener({ profileOrder }: { profileOrder: string[] }) {
+function Opener({ existingNames }: { existingNames: string[] }) {
   const { openProfileQuickAdd } = useProfileQuickAdd();
   useEffect(() => {
-    openProfileQuickAdd({ existingNames: profileOrder, profileOrder, onCreated });
-  }, [openProfileQuickAdd, profileOrder]);
+    openProfileQuickAdd({ existingNames, onCreated });
+  }, [openProfileQuickAdd, existingNames]);
   return null;
 }
 
-function renderProvider(profileOrder: string[]) {
+function renderProvider(existingNames: string[]) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -97,7 +105,7 @@ function renderProvider(profileOrder: string[]) {
     createElement(
       QueryClientProvider,
       { client: queryClient },
-      createElement(ProfileQuickAddProvider, null, createElement(Opener, { profileOrder })),
+      createElement(ProfileQuickAddProvider, null, createElement(Opener, { existingNames })),
     ),
   );
 }
@@ -106,6 +114,7 @@ beforeEach(() => {
   toastSuccess.mockClear();
   onCreated.mockClear();
   clientPatch.mockClear();
+  clientGet.mockClear();
 });
 
 afterEach(() => {
@@ -143,5 +152,57 @@ describe("ProfileQuickAddProvider", () => {
       expect(toastSuccess).toHaveBeenCalledWith(`Profile "${NEW_PROFILE_NAME}" created`);
     });
     expect(screen.queryByTestId("modal-save-btn")).toBeNull();
+  });
+
+  test("the save path reads the LATEST server config — appends to the server order, not the (stale/empty) opener input", async () => {
+    // Server already has two profiles in a specific order. The opener was given
+    // an EMPTY existingNames (simulating a click before config loaded); the
+    // PATCH must still append to the server's order, preserving both existing
+    // profiles rather than resetting the order to just the new name.
+    clientGet.mockImplementationOnce(async () => ({
+      data: {
+        llm: {
+          profileOrder: ["smart", "creative"],
+          profiles: { smart: { label: "Smart" }, creative: { label: "Creative" } },
+        },
+      },
+    }));
+
+    renderProvider([]); // opener passes no existing names
+    await waitFor(() => screen.getByTestId("modal-save-btn"));
+    fireEvent.click(screen.getByTestId("modal-save-btn"));
+
+    await waitFor(() => {
+      expect(clientPatch).toHaveBeenCalledTimes(1);
+    });
+    // Re-read the freshest config before persisting.
+    expect(clientGet).toHaveBeenCalledTimes(1);
+    const patchBody = (clientPatch.mock.calls[0]![0] as { body: { llm: Record<string, unknown> } }).body.llm;
+    expect(patchBody.profileOrder).toEqual(["smart", "creative", NEW_PROFILE_NAME]);
+  });
+
+  test("the save path dedupes against fresh server state — no profileOrder reset when the name already exists on the server", async () => {
+    // The new name already exists on the server (in the map). The PATCH must
+    // omit profileOrder entirely rather than re-appending or resetting it.
+    clientGet.mockImplementationOnce(async () => ({
+      data: {
+        llm: {
+          profileOrder: ["smart"],
+          profiles: { smart: { label: "Smart" }, [NEW_PROFILE_NAME]: { label: "Existing" } },
+        },
+      },
+    }));
+
+    renderProvider([]);
+    await waitFor(() => screen.getByTestId("modal-save-btn"));
+    fireEvent.click(screen.getByTestId("modal-save-btn"));
+
+    await waitFor(() => {
+      expect(clientPatch).toHaveBeenCalledTimes(1);
+    });
+    const patchBody = (clientPatch.mock.calls[0]![0] as { body: { llm: Record<string, unknown> } }).body.llm;
+    expect("profileOrder" in patchBody).toBe(false);
+    // The profile entry is still written (the create/overwrite of llm.profiles).
+    expect((patchBody.profiles as Record<string, unknown>)[NEW_PROFILE_NAME]).toBeTruthy();
   });
 });

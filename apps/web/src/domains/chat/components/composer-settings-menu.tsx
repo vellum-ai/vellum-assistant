@@ -3,6 +3,7 @@ import { Check, Plus, Sparkles, SlidersHorizontal } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
+import { toast } from "@vellum/design-library/components/toast";
 import { BottomSheet } from "@vellum/design-library";
 import { Button } from "@vellum/design-library";
 import { Menu } from "@vellum/design-library";
@@ -66,6 +67,12 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
   // Ref (not state) — flipped to true once the first combined fetch resolves.
   // Used to guard handleProfileSelect without triggering extra renders.
   const profilesReadyRef = useRef(false);
+  // State mirror of profilesReadyRef — drives a re-render so the quick-add "+"
+  // can disable itself until the config fetch settles. Gating "+" on the empty
+  // initial profileOrder/profileMap matters: opening the modal with those empty
+  // values would let a duplicate name overwrite an existing profile and reset
+  // the persisted profileOrder to just the new entry.
+  const [profilesLoaded, setProfilesLoaded] = useState(false);
 
   const conversationIdRef = useRef(conversationId);
   useLayoutEffect(() => {
@@ -113,6 +120,7 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
   useEffect(() => {
     if (!assistantId) return;
     profilesReadyRef.current = false;
+    setProfilesLoaded(false);
     let cancelled = false;
 
     (async () => {
@@ -159,6 +167,7 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
         setProfileActiveKey(effective);
         lastConfirmedProfileRef.current = effective;
         profilesReadyRef.current = true;
+        setProfilesLoaded(true);
       } catch {
         if (cancelled) return;
       }
@@ -215,11 +224,16 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
     [assistantId, conversationId, globalInteractive],
   );
 
+  // Resolves to `true` when the selection write was confirmed by the server,
+  // `false` when it was guarded out or rolled back. Normal picker callers
+  // ignore the result (their rollback UX is unchanged); the quick-add
+  // onCreated path awaits it so a failed autoselect can surface an error toast
+  // instead of silently reporting success.
   const handleProfileSelect = useCallback(
-    async (name: string) => {
+    async (name: string): Promise<boolean> => {
       // Guard against interaction before profiles are loaded — mirrors the
       // globalInteractive === null guard on handleSelect.
-      if (!profilesReadyRef.current) return;
+      if (!profilesReadyRef.current) return false;
       // Capture conversationId at call time so post-async guards can verify the
       // user hasn't switched conversations while the request was in flight.
       const capturedConversationId = conversationIdRef.current;
@@ -263,6 +277,7 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
               (seg, i) => seg === null || query.queryKey[i] === seg,
             ),
         });
+        return true;
       } catch {
         if (conversationIdRef.current === capturedConversationId) {
           // Roll back to the last server-confirmed value, not a stale closure
@@ -270,6 +285,7 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
           // requests race (select A → select B → A fails → should stay at B).
           setProfileActiveKey(lastConfirmedProfileRef.current);
         }
+        return false;
       }
     },
     [assistantId, queryClient],
@@ -315,18 +331,24 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
 
   // The "+" quick-add affordance rendered in both the desktop Menu.Label and
   // the mobile SectionLabel. Closes the popover/sheet, then opens the modal.
+  // Disabled until `profilesLoaded` (see its declaration for why).
   const quickAddButton = (
-    <Tooltip content="New Profile" side="top">
+    <Tooltip
+      content={profilesLoaded ? "New Profile" : "Loading profiles…"}
+      side="top"
+    >
       <Button
         variant="ghost"
         size="compact"
         iconOnly={<Plus className="h-3.5 w-3.5" />}
         aria-label="New Profile"
+        disabled={!profilesLoaded}
+        aria-disabled={!profilesLoaded}
         onClick={() => {
+          if (!profilesLoaded) return;
           setOpen(false);
           openProfileQuickAdd({
             existingNames: existingProfileNames,
-            profileOrder,
             onCreated: (name) => {
               // Reflect the new profile locally so the picker renders it
               // immediately (the daemon-config fetch only re-runs on
@@ -335,10 +357,18 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
               setProfileOrder((prev) =>
                 prev.includes(name) ? prev : [...prev, name],
               );
-              // Profiles are guaranteed loaded by now (the menu opened); allow
-              // the autoselect to write the per-thread override.
+              // Profiles are guaranteed loaded by now (the "+" is disabled
+              // until then); allow the autoselect to write the per-thread
+              // override. If that write fails, handleProfileSelect rolls the
+              // selection back and resolves false — surface that so the flow
+              // doesn't silently report the profile as selected. Creation
+              // itself succeeded, so the provider's create-success toast stays.
               profilesReadyRef.current = true;
-              void handleProfileSelect(name);
+              void handleProfileSelect(name).then((selected) => {
+                if (!selected) {
+                  toast.error("Profile created, but couldn't switch to it");
+                }
+              });
             },
           });
         }}
