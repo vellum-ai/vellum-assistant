@@ -1,25 +1,36 @@
 import { useEffect, useMemo, useState } from "react";
 
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@vellum/design-library/components/button";
+import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Input, Textarea } from "@vellum/design-library/components/input";
 import { Modal } from "@vellum/design-library/components/modal";
 import { Tag } from "@vellum/design-library/components/tag";
 import { Toggle } from "@vellum/design-library/components/toggle";
 import { Typography } from "@vellum/design-library/components/typography";
+import { ChevronRight } from "lucide-react";
 
 import { getModelsForProvider } from "@/assistant/llm-model-catalog";
+import { inferenceProviderconnectionsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 
 import type { ProfileEntry, ProfileStatus, ProfileWithName } from "@/domains/settings/ai/ai-types";
-import { OPENAI_COMPATIBLE_PROVIDER } from "@/domains/settings/ai/ai-types";
+import { INFERENCE_PROVIDER_DISPLAY_NAMES, OPENAI_COMPATIBLE_PROVIDER } from "@/domains/settings/ai/ai-types";
 import {
   ProfileAdvancedParams,
   THINKING_LEVEL_INHERIT,
 } from "@/domains/settings/ai/profile-advanced-params";
 import { ProfileEditorProviderSection } from "@/domains/settings/ai/profile-editor-provider-section";
 import { resolveProfileParamVisibility } from "@/domains/settings/ai/profile-param-visibility";
+import { deriveProfileDefaults } from "@/domains/settings/ai/profile-prefill";
 import { AUTO_PROFILE_NAME } from "@/domains/settings/ai/profile-pickers";
-import type { ProviderConnection } from "@/domains/settings/ai/provider-connections-client";
+import type { ConnectionProvider, ProviderConnection } from "@/domains/settings/ai/provider-connections-client";
+import { ProviderCreateForm } from "@/domains/settings/ai/provider-create-form";
 import { useLabelKeySync } from "@/domains/settings/ai/use-label-key-sync";
+
+// Sentinel value for the "+ Create new provider" option in the create-mode
+// Provider dropdown. Picking it mounts the inline ProviderCreateForm instead
+// of selecting a provider.
+const CREATE_NEW_PROVIDER_SENTINEL = "__create_new_provider__";
 
 export interface ProfileEditorModalProps {
   isOpen: boolean;
@@ -44,6 +55,14 @@ export interface ProfileEditorModalProps {
    */
   connections?: ProviderConnection[];
   openAICompatibleEndpointsEnabled?: boolean;
+  /**
+   * Assistant whose provider connections the inline "+ Create new provider"
+   * sub-form writes to. Required for the create-mode quick-add flow.
+   */
+  assistantId: string;
+  /** Surfaces the "Sign in with ChatGPT" subscription path in the inline
+   *  provider create sub-form when enabled. */
+  chatgptSubscriptionEnabled?: boolean;
   /**
    * Persist a profile entry. The optional `options.mode` argument tells the
    * parent how to combine `entry` with the existing on-disk record:
@@ -75,6 +94,8 @@ export function ProfileEditorModal({
   existingNames,
   connections,
   openAICompatibleEndpointsEnabled = false,
+  assistantId,
+  chatgptSubscriptionEnabled = false,
   onSave,
   onCancel,
 }: ProfileEditorModalProps) {
@@ -93,6 +114,8 @@ export function ProfileEditorModal({
           existingNames={existingNames}
           connections={connections}
           openAICompatibleEndpointsEnabled={openAICompatibleEndpointsEnabled}
+          assistantId={assistantId}
+          chatgptSubscriptionEnabled={chatgptSubscriptionEnabled}
           onSave={onSave}
           onCancel={onCancel}
         />
@@ -113,6 +136,8 @@ interface ProfileEditorModalInnerProps {
   // See `ProfileEditorModalProps.connections` for nil-vs-empty semantics.
   connections: ProviderConnection[] | undefined;
   openAICompatibleEndpointsEnabled: boolean;
+  assistantId: string;
+  chatgptSubscriptionEnabled: boolean;
   onSave: (
     name: string,
     entry: ProfileEntry,
@@ -128,6 +153,8 @@ function ProfileEditorModalInner({
   existingNames,
   connections,
   openAICompatibleEndpointsEnabled,
+  assistantId,
+  chatgptSubscriptionEnabled,
   onSave,
   onCancel,
 }: ProfileEditorModalInnerProps) {
@@ -238,12 +265,24 @@ function ProfileEditorModalInner({
     providerConnection !== "" &&
     !availableConnectionsForProvider.some((c) => c.name === providerConnection);
 
-  const { handleLabelChange, handleKeyChange, resetDirty } =
+  const { handleLabelChange, handleKeyChange, resetDirty, getDirty } =
     useLabelKeySync(effectiveMode, setLabel, setKey);
+
+  const queryClient = useQueryClient();
+
+  // Create-mode-only UI: whether the inline "+ Create new provider" sub-form
+  // is mounted, and whether the advanced-params disclosure is expanded.
+  const [creatingProvider, setCreatingProvider] = useState(false);
+  const [advancedExpanded, setAdvancedExpanded] = useState(false);
+  // One-time helper note shown after an inline provider create succeeds.
+  const [newProviderNote, setNewProviderNote] = useState(false);
 
   // Reset dirty tracking when modal re-opens with new values.
   useEffect(() => {
     resetDirty();
+    setCreatingProvider(false);
+    setAdvancedExpanded(false);
+    setNewProviderNote(false);
   }, [profileName, mode, resetDirty]);
 
   function handleProviderChange(newProvider: string) {
@@ -294,12 +333,53 @@ function ProfileEditorModalInner({
     }
   }
 
+  // Resolve a model id to its human-facing display name. The static catalog
+  // covers first-party providers; openai-compatible models live on the
+  // connection, so fall back to those and finally to the id itself.
+  function resolveModelDisplayName(modelId: string): string {
+    const catalogMatch = getModelsForProvider(provider).find((m) => m.id === modelId);
+    if (catalogMatch) return catalogMatch.displayName;
+    for (const conn of availableConnectionsForProvider) {
+      const match = (conn.models ?? []).find((m) => m.id === modelId);
+      if (match) return match.displayName ?? match.id;
+    }
+    return modelId;
+  }
+
   function handleModelChange(newModel: string) {
     if (newModel === model) return;
     setModel(newModel);
     // Reset token sliders when model changes
     setMaxTokens(null);
     setContextWindowMaxInputTokens(null);
+    // Create-mode pre-fill: seed Name + Key from the model's display name,
+    // but only while the user hasn't manually edited either field (dirty
+    // tracking lives in useLabelKeySync). Clearing the model leaves the
+    // current values untouched.
+    if (effectiveMode === "create" && newModel && !getDirty()) {
+      const { name, key: derivedKey } = deriveProfileDefaults(
+        resolveModelDisplayName(newModel),
+        existingNames,
+      );
+      setLabel(name);
+      setKey(derivedKey);
+    }
+  }
+
+  // Inline provider create: bind the new connection as this profile's
+  // provider + connection, collapse the sub-form, surface the helper note,
+  // and invalidate the connections query so the dropdown picks up the row.
+  function handleProviderCreated(connection: ProviderConnection) {
+    setProvider(connection.provider);
+    setProviderConnection(connection.name);
+    setModel("");
+    setCreatingProvider(false);
+    setNewProviderNote(true);
+    void queryClient.invalidateQueries({
+      queryKey: inferenceProviderconnectionsGetQueryKey({
+        path: { assistant_id: assistantId },
+      }),
+    });
   }
 
   // Validation
@@ -447,6 +527,238 @@ function ProfileEditorModalInner({
         ? "Edit Profile"
         : (initialValues?.label ?? profileName ?? "Profile");
 
+  const isCreate = effectiveMode === "create";
+
+  // ---- Reusable field nodes (shared by create + edit/view bodies) ----
+
+  const displayNameField = (
+    <div className="space-y-1">
+      <label className="block text-body-small-default text-[var(--content-tertiary)]">
+        {isCreate ? "Name" : "Display Name"}
+      </label>
+      <Input
+        type="text"
+        value={label}
+        onChange={(e) => handleLabelChange(e.target.value)}
+        placeholder="e.g. Fast & Cheap"
+        fullWidth
+      />
+    </div>
+  );
+
+  const descriptionField = (
+    <Textarea
+      label={
+        <>
+          Description{" "}
+          <span className="text-[var(--content-disabled)]">(optional)</span>
+        </>
+      }
+      value={description}
+      onChange={(e) => setDescription(e.target.value)}
+      placeholder="Describe when to use this profile"
+      disabled={isReadOnly}
+      rows={2}
+      fullWidth
+      className="resize-none"
+    />
+  );
+
+  const keyField = (
+    <div className="space-y-1">
+      <label className="block text-body-small-default text-[var(--content-tertiary)]">
+        Key
+      </label>
+      <Input
+        type="text"
+        value={key}
+        onChange={(e) => handleKeyChange(e.target.value)}
+        placeholder="e.g. fast-cheap"
+        disabled={isReadOnly || effectiveMode === "edit"}
+        fullWidth
+      />
+      {keyError && !isReadOnly ? (
+        <Typography
+          variant="body-small-default"
+          as="p"
+          className="text-(--system-negative-strong)"
+        >
+          {keyError}
+        </Typography>
+      ) : null}
+    </div>
+  );
+
+  const activeToggle = (
+    <Toggle
+      checked={status === "active"}
+      onChange={(v) => setStatus(v ? "active" : "disabled")}
+      label="Active"
+    />
+  );
+
+  const advancedParamsNode = !isAutoProfile ? (
+    <ProfileAdvancedParams
+      visibility={visibility}
+      isReadOnly={isReadOnly}
+      model={model}
+      selectedModel={selectedModel}
+      maxTokens={maxTokens}
+      onMaxTokensChange={setMaxTokens}
+      contextWindowMaxInputTokens={contextWindowMaxInputTokens}
+      onContextWindowChange={setContextWindowMaxInputTokens}
+      effort={effort}
+      onEffortChange={setEffort}
+      speed={speed}
+      onSpeedChange={setSpeed}
+      verbosity={verbosity}
+      onVerbosityChange={setVerbosity}
+      temperatureEnabled={temperatureEnabled}
+      onTemperatureEnabledChange={setTemperatureEnabled}
+      temperature={temperature}
+      onTemperatureChange={setTemperature}
+      thinkingEnabled={thinkingEnabled}
+      onThinkingEnabledChange={setThinkingEnabled}
+      thinkingStreamThinking={thinkingStreamThinking}
+      onThinkingStreamThinkingChange={setThinkingStreamThinking}
+      thinkingLevel={thinkingLevel}
+      onThinkingLevelChange={setThinkingLevel}
+    />
+  ) : null;
+
+  const saveErrorNode = saveError ? (
+    <Typography
+      variant="body-small-default"
+      as="p"
+      className="text-(--system-negative-strong)"
+    >
+      {saveError}
+    </Typography>
+  ) : null;
+
+  // ---- Create-mode-only: provider-first picker with inline create ----
+
+  // Providers with at least one connection, plus the always-present "+ Create
+  // new provider" sentinel. First-run empty state shows ONLY the sentinel.
+  const createModeProviderOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const opts: { value: string; label: string }[] = [];
+    for (const c of connections ?? []) {
+      if (
+        !openAICompatibleEndpointsEnabled &&
+        c.provider === OPENAI_COMPATIBLE_PROVIDER
+      ) {
+        continue;
+      }
+      if (!seen.has(c.provider)) {
+        seen.add(c.provider);
+        opts.push({
+          value: c.provider,
+          label: INFERENCE_PROVIDER_DISPLAY_NAMES[c.provider] ?? c.provider,
+        });
+      }
+    }
+    opts.push({
+      value: CREATE_NEW_PROVIDER_SENTINEL,
+      label: "+ Create new provider",
+    });
+    return opts;
+  }, [connections, openAICompatibleEndpointsEnabled]);
+
+  const createProviderSection = (
+    <div className="space-y-4">
+      <div className="space-y-1">
+        <div className="flex items-center justify-between gap-2">
+          <label
+            id="profile-editor-provider-label"
+            className="block text-body-small-default text-[var(--content-tertiary)]"
+          >
+            Provider
+          </label>
+          {providerMissing && !creatingProvider ? (
+            <span className="rounded-full bg-[var(--surface-warning-subtle)] px-2 py-0.5 text-body-small-default text-[var(--content-warning)]">
+              Pick a provider
+            </span>
+          ) : null}
+        </div>
+        <Dropdown
+          value={creatingProvider ? CREATE_NEW_PROVIDER_SENTINEL : provider}
+          onChange={(next) => {
+            if (next === CREATE_NEW_PROVIDER_SENTINEL) {
+              setCreatingProvider(true);
+              setNewProviderNote(false);
+              return;
+            }
+            setCreatingProvider(false);
+            handleProviderChange(next);
+          }}
+          placeholder="Select a provider…"
+          aria-labelledby="profile-editor-provider-label"
+          options={createModeProviderOptions}
+        />
+        {newProviderNote ? (
+          <Typography
+            variant="body-small-default"
+            as="p"
+            className="text-[var(--content-tertiary)]"
+          >
+            New provider connection will show up in the Providers section.
+          </Typography>
+        ) : null}
+      </div>
+
+      {creatingProvider ? (
+        <ProviderCreateForm
+          variant="inline"
+          assistantId={assistantId}
+          existingNames={(connections ?? []).map((c) => c.name)}
+          openAICompatibleEndpointsEnabled={openAICompatibleEndpointsEnabled}
+          chatgptSubscriptionEnabled={chatgptSubscriptionEnabled}
+          defaultProviderType={
+            (provider || undefined) as ConnectionProvider | undefined
+          }
+          onCreated={handleProviderCreated}
+          onCancel={() => setCreatingProvider(false)}
+        />
+      ) : (
+        <ProfileEditorProviderSection
+          provider={provider}
+          model={model}
+          providerConnection={providerConnection}
+          onProviderChange={handleProviderChange}
+          onModelChange={handleModelChange}
+          onConnectionChange={handleConnectionChange}
+          connections={connections}
+          openAICompatibleEndpointsEnabled={openAICompatibleEndpointsEnabled}
+          isReadOnly={isReadOnly}
+          availableConnectionsForProvider={availableConnectionsForProvider}
+          connectionNotFound={connectionNotFound}
+          hideProviderField
+        />
+      )}
+    </div>
+  );
+
+  const createAdvancedDisclosure =
+    !isAutoProfile && advancedParamsNode ? (
+      <div>
+        <button
+          type="button"
+          aria-expanded={advancedExpanded}
+          onClick={() => setAdvancedExpanded((v) => !v)}
+          className="flex items-center gap-1 text-body-small-default text-[var(--content-secondary)] w-full text-left"
+        >
+          <ChevronRight
+            className={`h-4 w-4 transition-transform ${advancedExpanded ? "rotate-90" : ""}`}
+          />
+          <span>Advanced</span>
+        </button>
+        {advancedExpanded ? (
+          <div className="mt-2">{advancedParamsNode}</div>
+        ) : null}
+      </div>
+    ) : null;
+
   return (
     <Modal.Content size="md">
       <Modal.Header>
@@ -461,142 +773,77 @@ function ProfileEditorModalInner({
       </Modal.Header>
 
       <Modal.Body>
-        <div className="space-y-4">
-          {/* Display Name — editable in all modes, including view (managed
-              profiles can be renamed without leaving view mode; everything
-              else stays locked). */}
-          <div className="space-y-1">
-            <label className="block text-body-small-default text-[var(--content-tertiary)]">
-              Display Name
-            </label>
-            <Input
-              type="text"
-              value={label}
-              onChange={(e) => handleLabelChange(e.target.value)}
-              placeholder="e.g. Fast & Cheap"
-              fullWidth
-            />
+        {isCreate ? (
+          // Create mode is provider-first: Provider (with inline create) ->
+          // Model -> Name -> Key -> Description -> collapsed Advanced.
+          <div className="space-y-4">
+            {isAutoProfile && (
+              <div className="rounded-lg bg-[var(--surface-info-subtle)] p-3">
+                <p className="text-body-small-default text-[var(--content-secondary)]">
+                  Auto mode routes each query to the best profile automatically
+                  — fast for simple questions, capable for complex ones. No
+                  provider or model configuration needed.
+                </p>
+              </div>
+            )}
+
+            {/* Provider + Connection + Model — hidden for the auto profile. */}
+            {!isAutoProfile && createProviderSection}
+
+            {displayNameField}
+            {keyField}
+            {descriptionField}
+            {activeToggle}
+
+            {/* Advanced params — collapsed by default in create mode. */}
+            {createAdvancedDisclosure}
+
+            {saveErrorNode}
           </div>
+        ) : (
+          // Edit / view modes keep the original field order and locking:
+          // Display Name -> Description -> Key -> Active -> Provider -> Model
+          // -> always-visible Advanced.
+          <div className="space-y-4">
+            {displayNameField}
+            {descriptionField}
+            {keyField}
+            {activeToggle}
 
-          {/* Description */}
-          <Textarea
-            label={
-              <>
-                Description{" "}
-                <span className="text-[var(--content-disabled)]">(optional)</span>
-              </>
-            }
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Describe when to use this profile"
-            disabled={isReadOnly}
-            rows={2}
-            fullWidth
-            className="resize-none"
-          />
+            {isAutoProfile && (
+              <div className="rounded-lg bg-[var(--surface-info-subtle)] p-3">
+                <p className="text-body-small-default text-[var(--content-secondary)]">
+                  Auto mode routes each query to the best profile automatically
+                  — fast for simple questions, capable for complex ones. No
+                  provider or model configuration needed.
+                </p>
+              </div>
+            )}
 
-          {/* Key */}
-          <div className="space-y-1">
-            <label className="block text-body-small-default text-[var(--content-tertiary)]">
-              Key
-            </label>
-            <Input
-              type="text"
-              value={key}
-              onChange={(e) => handleKeyChange(e.target.value)}
-              placeholder="e.g. fast-cheap"
-              disabled={isReadOnly || effectiveMode === "edit"}
-              fullWidth
-            />
-            {keyError && !isReadOnly ? (
-              <Typography
-                variant="body-small-default"
-                as="p"
-                className="text-(--system-negative-strong)"
-              >
-                {keyError}
-              </Typography>
-            ) : null}
+            {/* Provider, Connection, Model — hidden for the "auto" meta-profile
+                which has no provider/model of its own. */}
+            {!isAutoProfile && (
+              <ProfileEditorProviderSection
+                provider={provider}
+                model={model}
+                providerConnection={providerConnection}
+                onProviderChange={handleProviderChange}
+                onModelChange={handleModelChange}
+                onConnectionChange={handleConnectionChange}
+                connections={connections}
+                openAICompatibleEndpointsEnabled={openAICompatibleEndpointsEnabled}
+                isReadOnly={isReadOnly}
+                availableConnectionsForProvider={availableConnectionsForProvider}
+                connectionNotFound={connectionNotFound}
+              />
+            )}
+
+            {/* Advanced params — hidden for the auto meta-profile */}
+            {advancedParamsNode}
+
+            {saveErrorNode}
           </div>
-
-          {/* Status — editable in all modes, including view. Same rationale
-              as Display Name: status is user policy, not daemon contract,
-              so view-mode-on-managed still allows disabling. */}
-          <Toggle
-            checked={status === "active"}
-            onChange={(v) => setStatus(v ? "active" : "disabled")}
-            label="Active"
-          />
-
-          {isAutoProfile && (
-            <div className="rounded-lg bg-[var(--surface-info-subtle)] p-3">
-              <p className="text-body-small-default text-[var(--content-secondary)]">
-                Auto mode routes each query to the best profile automatically
-                — fast for simple questions, capable for complex ones. No
-                provider or model configuration needed.
-              </p>
-            </div>
-          )}
-
-          {/* Provider, Connection, Model — hidden for the "auto" meta-profile
-              which has no provider/model of its own. */}
-          {!isAutoProfile && (
-            <ProfileEditorProviderSection
-              provider={provider}
-              model={model}
-              providerConnection={providerConnection}
-              onProviderChange={handleProviderChange}
-              onModelChange={handleModelChange}
-              onConnectionChange={handleConnectionChange}
-              connections={connections}
-              openAICompatibleEndpointsEnabled={openAICompatibleEndpointsEnabled}
-              isReadOnly={isReadOnly}
-              availableConnectionsForProvider={availableConnectionsForProvider}
-              connectionNotFound={connectionNotFound}
-            />
-          )}
-
-          {/* Advanced params — hidden for the auto meta-profile */}
-          {!isAutoProfile && (
-            <ProfileAdvancedParams
-              visibility={visibility}
-              isReadOnly={isReadOnly}
-              model={model}
-              selectedModel={selectedModel}
-              maxTokens={maxTokens}
-              onMaxTokensChange={setMaxTokens}
-              contextWindowMaxInputTokens={contextWindowMaxInputTokens}
-              onContextWindowChange={setContextWindowMaxInputTokens}
-              effort={effort}
-              onEffortChange={setEffort}
-              speed={speed}
-              onSpeedChange={setSpeed}
-              verbosity={verbosity}
-              onVerbosityChange={setVerbosity}
-              temperatureEnabled={temperatureEnabled}
-              onTemperatureEnabledChange={setTemperatureEnabled}
-              temperature={temperature}
-              onTemperatureChange={setTemperature}
-              thinkingEnabled={thinkingEnabled}
-              onThinkingEnabledChange={setThinkingEnabled}
-              thinkingStreamThinking={thinkingStreamThinking}
-              onThinkingStreamThinkingChange={setThinkingStreamThinking}
-              thinkingLevel={thinkingLevel}
-              onThinkingLevelChange={setThinkingLevel}
-            />
-          )}
-
-          {/* Save error */}
-          {saveError ? (
-            <Typography
-              variant="body-small-default"
-              as="p"
-              className="text-(--system-negative-strong)"
-            >
-              {saveError}
-            </Typography>
-          ) : null}
-        </div>
+        )}
       </Modal.Body>
 
       <Modal.Footer>
