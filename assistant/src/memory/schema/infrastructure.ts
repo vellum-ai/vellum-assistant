@@ -278,6 +278,21 @@ export const onboardingEvents = sqliteTable("onboarding_events", {
   abVariant: text("ab_variant"),
 });
 
+// Aggregated legacy-loopback auth-fallback counts forwarded by the gateway.
+// One row per (guard, path, failure_kind) per flush window; `count` is how many
+// requests fell back to the loopback exemption in that window. Flushed to the
+// platform telemetry endpoint by the usage telemetry reporter.
+export const authFallbackEvents = sqliteTable("auth_fallback_events", {
+  id: text("id").primaryKey(),
+  createdAt: integer("created_at").notNull(),
+  guard: text("guard").notNull(), // 'edge' | 'edge-scoped' | 'edge-guardian'
+  path: text("path").notNull(),
+  failureKind: text("failure_kind").notNull(),
+  count: integer("count").notNull(),
+  windowStart: integer("window_start").notNull(),
+  windowEnd: integer("window_end").notNull(),
+});
+
 export const traceEvents = sqliteTable(
   "trace_events",
   {

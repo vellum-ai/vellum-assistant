@@ -130,6 +130,24 @@ mock.module("../memory/onboarding-events-store.js", () => ({
   queryUnreportedOnboardingEvents: mockQueryUnreportedOnboardingEvents,
 }));
 
+const mockQueryUnreportedAuthFallbackEvents = mock(
+  () =>
+    [] as {
+      id: string;
+      createdAt: number;
+      guard: string;
+      path: string;
+      failureKind: string;
+      count: number;
+      windowStart: number;
+      windowEnd: number;
+    }[],
+);
+
+mock.module("../memory/auth-fallback-events-store.js", () => ({
+  queryUnreportedAuthFallbackEvents: mockQueryUnreportedAuthFallbackEvents,
+}));
+
 // ---------------------------------------------------------------------------
 // Production import (after mocks)
 // ---------------------------------------------------------------------------
@@ -201,6 +219,8 @@ beforeEach(() => {
   mockQueryUnreportedLifecycleEvents.mockReturnValue([]);
   mockQueryUnreportedOnboardingEvents.mockReset();
   mockQueryUnreportedOnboardingEvents.mockReturnValue([]);
+  mockQueryUnreportedAuthFallbackEvents.mockReset();
+  mockQueryUnreportedAuthFallbackEvents.mockReturnValue([]);
   mockPlatformClient = null;
   mockGetPlatformBaseUrl.mockReset();
   mockGetDeviceId.mockReset();
@@ -909,9 +929,9 @@ describe("UsageTelemetryReporter", () => {
     // No HTTP call should have been made
     expect(mockFetch).not.toHaveBeenCalled();
 
-    // All 4 timestamp watermarks should have been advanced (IDs left untouched
+    // All 5 timestamp watermarks should have been advanced (IDs left untouched
     // so the compound-cursor branch stays active)
-    expect(mockSetMemoryCheckpoint).toHaveBeenCalledTimes(4);
+    expect(mockSetMemoryCheckpoint).toHaveBeenCalledTimes(5);
 
     const calls = mockSetMemoryCheckpoint.mock.calls;
     const keys = calls.map((c) => c[0]);
@@ -919,6 +939,7 @@ describe("UsageTelemetryReporter", () => {
     expect(keys).toContain("telemetry:turns:last_reported_at");
     expect(keys).toContain("telemetry:lifecycle:last_reported_at");
     expect(keys).toContain("telemetry:onboarding:last_reported_at");
+    expect(keys).toContain("telemetry:auth_fallback:last_reported_at");
   });
 
   test("events sent normally after re-enabling collectUsageData", async () => {
@@ -1074,5 +1095,95 @@ describe("UsageTelemetryReporter", () => {
     expect(versions.sort()).toEqual(["0.8.3", "0.8.5"]);
     // Envelope still reflects the running binary, not either event.
     expect(body.assistant_version).toBe("1.2.3-test");
+  });
+
+  // -------------------------------------------------------------------------
+  // Auth-fallback events
+  // -------------------------------------------------------------------------
+
+  test("auth_fallback events are included in the events array with type discriminator", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    mockQueryUnreportedAuthFallbackEvents.mockReturnValue([
+      {
+        id: "evt-af-1",
+        createdAt: 1700000800000,
+        guard: "edge",
+        path: "/v1/messages",
+        failureKind: "missing_authorization",
+        count: 42,
+        windowStart: 1700000740000,
+        windowEnd: 1700000800000,
+      },
+    ]);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.events.length).toBe(1);
+    expect(body.events[0]).toMatchObject({
+      type: "auth_fallback",
+      daemon_event_id: "evt-af-1",
+      recorded_at: 1700000800000,
+      guard: "edge",
+      path: "/v1/messages",
+      failure_kind: "missing_authorization",
+      count: 42,
+      window_start: 1700000740000,
+      window_end: 1700000800000,
+      assistant_version: "1.2.3-test",
+    });
+  });
+
+  test("auth_fallback watermark advances on successful upload", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    mockQueryUnreportedAuthFallbackEvents.mockReturnValue([
+      {
+        id: "evt-af-w1",
+        createdAt: 1700000001000,
+        guard: "edge-scoped",
+        path: "/v1/a",
+        failureKind: "insufficient_scope",
+        count: 1,
+        windowStart: 1700000000000,
+        windowEnd: 1700000001000,
+      },
+      {
+        id: "evt-af-w2",
+        createdAt: 1700000002000,
+        guard: "edge-guardian",
+        path: "/v1/b",
+        failureKind: "guardian_mismatch",
+        count: 3,
+        windowStart: 1700000001000,
+        windowEnd: 1700000002000,
+      },
+    ]);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":2}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    const watermarkCalls = mockSetMemoryCheckpoint.mock.calls.filter(
+      (c) => c[0] === "telemetry:auth_fallback:last_reported_at",
+    );
+    expect(watermarkCalls.length).toBeGreaterThanOrEqual(1);
+    expect(watermarkCalls[watermarkCalls.length - 1][1]).toBe(
+      String(1700000002000),
+    );
+
+    const idCalls = mockSetMemoryCheckpoint.mock.calls.filter(
+      (c) => c[0] === "telemetry:auth_fallback:last_reported_id",
+    );
+    expect(idCalls.length).toBeGreaterThanOrEqual(1);
+    expect(idCalls[idCalls.length - 1][1]).toBe("evt-af-w2");
   });
 });
