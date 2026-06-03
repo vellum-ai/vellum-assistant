@@ -420,6 +420,16 @@ export async function listAssistantBackups(
         data: [...platformSnapshots, ...daemonSnapshots],
       };
     }
+
+    // Platform call failed. If the daemon also returned nothing, surface
+    // the platform error so the user doesn't see a silent empty list.
+    if (daemonSnapshots.length === 0 && platformResult.response) {
+      return {
+        ok: false,
+        status: platformResult.response.status,
+        error: toErrorObject(platformResult.error, platformResult.response),
+      };
+    }
   }
 
   return { ok: true, status: daemonResult.response.status, data: daemonSnapshots };
