@@ -126,7 +126,7 @@ export function IntegrationDetailModal({
   const isNative = useIsNativePlatform();
   const managedAvailable = platformGate === "full";
   const [activeTab, setActiveTab] = useState<ModalTab>(
-    managedAvailable ? "managed" : "your-own",
+    platformGate === "gated" ? "your-own" : "managed",
   );
   const [pendingDisconnectId, setPendingDisconnectId] = useState<string | null>(
     null,
