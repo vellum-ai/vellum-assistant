@@ -21,7 +21,7 @@ For the full plugin authoring guide, see
   `PipelineMiddlewareMap` — `turn`, `llmCall`, `toolExecute`,
   `memoryRetrieval`, `tokenEstimate`, `compaction`,
   `overflowReduce`, `persistence`, `titleGenerate`,
-  `toolError`, and `circuitBreaker`.
+  and `circuitBreaker`.
 - Each middleware calls `next(args)` to pass the request through unchanged,
   measures wall-clock duration, and emits one line to `stderr` whether the
   downstream succeeded or threw.

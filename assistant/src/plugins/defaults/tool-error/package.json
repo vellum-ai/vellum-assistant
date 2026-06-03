@@ -1,7 +1,7 @@
 {
   "name": "default-tool-error",
   "version": "1.0.0",
-  "description": "First-party default plugin wrapping the assistant's built-in tool-error pipeline with a passthrough implementation.",
+  "description": "First-party default plugin contributing a post-tool-use hook that coaches the model to retry or report a failed tool call.",
   "private": true,
   "license": "MIT",
   "type": "module",

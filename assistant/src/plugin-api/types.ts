@@ -162,7 +162,8 @@ export interface UserPromptSubmitContext {
  * Multiple plugins' hooks chain in registration order — each plugin's hook
  * sees the previous plugin's mutations. The default tool-result-truncate
  * plugin contributes a hook here that tail-drops oversized output to fit the
- * model's context window; user hooks can swap in a smarter strategy (e.g. a
+ * model's context window; the default tool-error plugin appends retry coaching
+ * to failed results. User hooks can swap in a smarter strategy (e.g. a
  * summarizer) or observe results for side effects.
  */
 export interface PostToolUseContext {
@@ -173,6 +174,16 @@ export interface PostToolUseContext {
    * replace the block by returning a new context.
    */
   toolResponse: ToolResultContent;
+  /**
+   * Conversation history up to and including the assistant turn that issued
+   * this tool call. The current result is not in it yet — it lives in
+   * {@link toolResponse}. A hook reasoning about prior tool outcomes (e.g.
+   * how many times a tool has failed in a row) derives that from the history
+   * content rather than a precomputed counter, so the signal survives mid-run
+   * compaction rewriting the array. Read-only: hooks transform the result via
+   * {@link toolResponse}, not by mutating history.
+   */
+  readonly messages: ReadonlyArray<Message>;
   /**
    * The model's context-window size in tokens. Plugins derive their own
    * character budget from this (e.g. a share of the window) rather than

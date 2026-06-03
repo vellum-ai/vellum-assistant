@@ -1577,9 +1577,10 @@ describe("AgentLoop", () => {
     expect(textBlock!.text).toBe("Normal response with no placeholders.");
   });
 
-  // Tool error retry nudge — when a tool returns isError: true, the loop
-  // should inject a system_notice nudging the LLM to retry instead of ending.
-  test("injects retry nudge system_notice when tool returns an error", async () => {
+  // Tool error retry nudge — when a tool returns isError: true, the coaching
+  // notice is appended into that tool result's content, nudging the LLM to
+  // retry instead of ending the turn.
+  test("appends retry nudge into the tool result when a tool returns an error", async () => {
     const { provider, calls } = createMockProvider([
       // First turn: LLM calls a tool that errors
       toolUseResponse("t1", "read_file", { path: "/missing.txt" }),
@@ -1620,8 +1621,8 @@ describe("AgentLoop", () => {
     expect(toolResultMessage.role).toBe("user");
 
     const retryNudge = toolResultMessage.content.find(
-      (b): b is Extract<ContentBlock, { type: "text" }> =>
-        b.type === "text" && b.text.includes("looks recoverable"),
+      (b): b is Extract<ContentBlock, { type: "tool_result" }> =>
+        b.type === "tool_result" && b.content.includes("looks recoverable"),
     );
     expect(retryNudge).toBeDefined();
 
@@ -1630,14 +1631,15 @@ describe("AgentLoop", () => {
     const thirdToolResultMessage =
       thirdCallMessages[thirdCallMessages.length - 1];
     const noRetryNudge = thirdToolResultMessage.content.find(
-      (b): b is Extract<ContentBlock, { type: "text" }> =>
-        b.type === "text" && b.text.includes("looks recoverable"),
+      (b): b is Extract<ContentBlock, { type: "tool_result" }> =>
+        b.type === "tool_result" && b.content.includes("looks recoverable"),
     );
     expect(noRetryNudge).toBeUndefined();
   });
 
-  // Retry nudge stops after MAX_CONSECUTIVE_ERROR_NUDGES (3) consecutive errors
-  test("stops injecting retry nudge after 3 consecutive error turns", async () => {
+  // Retry coaching stops after a tool fails 3 times in a row — past that the
+  // error is likely unrecoverable and further nudging only burns tokens.
+  test("stops appending retry nudge after 3 consecutive failures of a tool", async () => {
     const { provider, calls } = createMockProvider([
       // 4 consecutive error turns, then final text
       toolUseResponse("t1", "read_file", { path: "/a" }),
@@ -1668,9 +1670,7 @@ describe("AgentLoop", () => {
       const lastMsg = msgs[msgs.length - 1];
       return lastMsg.content.some(
         (b) =>
-          b.type === "text" &&
-          "text" in b &&
-          (b as { text: string }).text.includes("looks recoverable"),
+          b.type === "tool_result" && b.content.includes("looks recoverable"),
       );
     };
 

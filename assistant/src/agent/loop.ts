@@ -13,7 +13,6 @@ import { HOOKS } from "../plugin-api/constants.js";
 import type { PostToolUseContext, StopContext } from "../plugin-api/types.js";
 import { defaultCompactionTerminal } from "../plugins/defaults/compaction/terminal.js";
 import { defaultTokenEstimateTerminal } from "../plugins/defaults/token-estimate/terminal.js";
-import { defaultToolErrorTerminal } from "../plugins/defaults/tool-error/terminal.js";
 import { DEFAULT_TIMEOUTS, runHook, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
@@ -24,8 +23,6 @@ import type {
   EstimateResult,
   LLMCallArgs,
   LLMCallResult,
-  ToolErrorArgs,
-  ToolErrorDecision,
   TurnContext,
 } from "../plugins/types.js";
 import { PluginTimeoutError } from "../plugins/types.js";
@@ -352,7 +349,6 @@ const DEFAULT_CONFIG: AgentLoopConfig = {
   minTurnIntervalMs: 150,
 };
 
-const MAX_CONSECUTIVE_ERROR_NUDGES = 3;
 const MAX_STOP_CONTINUE_RETRIES = 1;
 const MAX_TOKENS_STOP_REASONS = new Set([
   "length",
@@ -824,7 +820,6 @@ export class AgentLoop {
     let history = [...messages];
     let producedVisibleTextThisRun = false;
     let toolUseTurns = 0;
-    let consecutiveErrorTurns = 0;
     let stopContinueRetries = 0;
     let lastLlmCallTime = 0;
     let exitReason: ExitReason | null = null;
@@ -1459,6 +1454,7 @@ export class AgentLoop {
           const postToolUseCtx: PostToolUseContext = {
             conversationId: turnCtx.conversationId,
             toolResponse: block as ToolResultContent,
+            messages: history,
             maxInputTokens: contextWindowTokens,
             logger: rlog,
           };
@@ -1516,54 +1512,9 @@ export class AgentLoop {
 
         toolUseTurns++;
 
-        // When any tool returned an error, nudge the LLM to retry with
-        // corrected parameters instead of ending its turn. Skip the nudge
-        // after MAX_CONSECUTIVE_ERROR_NUDGES consecutive error turns
-        // (the error is likely unrecoverable at that point). The nudge
-        // decision is delegated to the `toolError` plugin pipeline so user
-        // plugins can change the text, observe the event, or suppress it.
-        const hasToolError = toolResults.some(({ result }) => result.isError);
-        if (hasToolError) {
-          consecutiveErrorTurns++;
-        } else {
-          consecutiveErrorTurns = 0;
-        }
-        const toolErrorArgs: ToolErrorArgs = {
-          hasToolError,
-          consecutiveErrorTurns,
-          maxConsecutiveErrorNudges: MAX_CONSECUTIVE_ERROR_NUDGES,
-        };
-        const toolErrorCtx: TurnContext = resolveLoopTurnContext(
-          turnContext,
-          requestId,
-          toolUseTurns - 1,
-        );
-        const toolErrorDecision = await runPipeline<
-          ToolErrorArgs,
-          ToolErrorDecision
-        >(
-          "toolError",
-          getMiddlewaresFor("toolError"),
-          // Terminal: the canonical nudge decision. The default plugin's
-          // middleware is a passthrough (so later-registered user plugins
-          // aren't shadowed), so this terminal is what actually produces
-          // the decision when no user plugin overrides it. Wiring the
-          // decision here also ensures the nudge fires for direct
-          // AgentLoop callers (tests, benchmarks) that skip
-          // `bootstrapPlugins()` and therefore never register the default.
-          async (args) => defaultToolErrorTerminal(args),
-          toolErrorArgs,
-          toolErrorCtx,
-          DEFAULT_TIMEOUTS.toolError,
-        );
-        if (toolErrorDecision.action === "nudge") {
-          resultBlocks.push({
-            type: "text",
-            text: toolErrorDecision.nudgeText,
-          });
-        }
-
-        // Add tool results as a user message and continue the loop
+        // Add tool results as a user message and continue the loop. The
+        // post-tool-use hook above coaches any failed result in place, so the
+        // model sees retry guidance attached to the error it must act on.
         history.push({ role: "user", content: resultBlocks });
 
         // Invoke checkpoint callback after tool results are in history.

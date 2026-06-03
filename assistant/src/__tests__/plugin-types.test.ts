@@ -36,8 +36,6 @@ import {
   PluginTimeoutError,
   type TitleArgs,
   type TitleResult,
-  type ToolErrorArgs,
-  type ToolErrorDecision,
   type ToolExecuteArgs,
   type ToolExecuteResult,
   type TurnContext,
@@ -86,14 +84,6 @@ describe("plugin core types", () => {
     const toolExecutePassthrough: Middleware<
       ToolExecuteArgs,
       ToolExecuteResult
-    > = async (args, next, _ctx) => next(args);
-
-    // The `toolError` slot has concrete args/result types (PR 19); use a
-    // dedicated passthrough so the shape-only test keeps compiling as types
-    // get tightened.
-    const toolErrorPassthrough: Middleware<
-      ToolErrorArgs,
-      ToolErrorDecision
     > = async (args, next, _ctx) => next(args);
 
     // `memoryRetrieval` has a concrete typed signature (MemoryArgs →
@@ -232,7 +222,6 @@ describe("plugin core types", () => {
         overflowReduce: overflowReducePassthrough,
         persistence: persistPassthrough,
         titleGenerate: titlePassthrough,
-        toolError: toolErrorPassthrough,
         circuitBreaker: circuitPassthrough,
       },
     } satisfies Plugin;

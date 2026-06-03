@@ -448,7 +448,6 @@ Every pipeline slot and its purpose. Type details live in
 | `overflowReduce`  | The reducer tier loop invoked when a turn blows the context budget.                                                                                |
 | `persistence`     | Every message CRUD op (`add` / `update` / `delete`). Discriminated by `args.op`.                                                                   |
 | `titleGenerate`   | Conversation title generation. Fire-and-forget by default.                                                                                         |
-| `toolError`       | The decision about what to do when one or more tool calls errored on a turn.                                                                       |
 | `circuitBreaker`  | The compaction circuit breaker. Tracks consecutive-failure state, decides whether to open the circuit.                                             |
 
 ## Timeouts
@@ -471,7 +470,6 @@ current values.
 | `overflowReduce`  | 30000 ms | Iterative compaction; matches the `compaction` budget since each tier step may invoke it.                      |
 | `persistence`     | 10000 ms | SQLite writes, Qdrant deletes, and disk syncs. 10 s is generous for the slowest op (batched segment inserts).  |
 | `titleGenerate`   | 30000 ms | Provider-backed. Fire-and-forget, but the budget exists so a stuck call doesn't leak forever.                  |
-| `toolError`       | 500 ms   | Decision logic only — must be near-instant.                                                                    |
 | `circuitBreaker`  | 500 ms   | Numeric state update — must be near-instant.                                                                   |
 
 `null` timeouts skip the timer entirely. Finite timeouts arm a

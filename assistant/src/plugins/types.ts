@@ -126,7 +126,6 @@ export type PipelineName =
   | "overflowReduce"
   | "persistence"
   | "titleGenerate"
-  | "toolError"
   | "circuitBreaker";
 
 // ─── Per-pipeline args / results (placeholder shapes) ────────────────────────
@@ -570,37 +569,6 @@ export type TitleGenerateArgs = TitleArgs;
 export type TitleGenerateResult = TitleResult;
 
 /**
- * Arguments to the `toolError` pipeline — invoked by the agent loop once per
- * turn that produced tool results, BEFORE the turn's tool-result user message
- * is pushed into history.
- *
- * `hasToolError` is true when at least one tool in the current turn returned
- * `isError: true`. `consecutiveErrorTurns` is the running count of
- * back-to-back error turns (reset to 0 on a clean turn, incremented on each
- * error turn). `maxConsecutiveErrorNudges` is the default cap the agent loop
- * currently applies; plugins receive it so they can match the default
- * threshold exactly or compute a relative offset.
- */
-export type ToolErrorArgs = {
-  readonly hasToolError: boolean;
-  readonly consecutiveErrorTurns: number;
-  readonly maxConsecutiveErrorNudges: number;
-};
-
-/**
- * Decision returned by the `toolError` pipeline. When `action` is `"nudge"`,
- * the agent loop appends a text block with `nudgeText` to the turn's tool
- * results so the next LLM turn sees the nudge. When `action` is `"skip"`, no
- * nudge is injected and the tool results pass through unchanged.
- */
-export type ToolErrorDecision =
-  | { readonly action: "nudge"; readonly nudgeText: string }
-  | { readonly action: "skip" };
-
-/** Alias kept so `PipelineMiddlewareMap.toolError` reads result-shaped. */
-export type ToolErrorResult = ToolErrorDecision;
-
-/**
  * Arguments for the `circuitBreaker` pipeline.
  *
  * A single call pattern handles both querying and updating the breaker:
@@ -677,7 +645,6 @@ export interface PipelineMiddlewareMap {
   overflowReduce: Middleware<OverflowReduceArgs, OverflowReduceResult>;
   persistence: Middleware<PersistArgs, PersistResult>;
   titleGenerate: Middleware<TitleArgs, TitleResult>;
-  toolError: Middleware<ToolErrorArgs, ToolErrorResult>;
   circuitBreaker: Middleware<CircuitBreakerArgs, CircuitBreakerResult>;
 }
 
