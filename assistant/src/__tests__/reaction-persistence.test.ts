@@ -40,6 +40,7 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
 
 mock.module("../runtime/gateway-client.js", () => ({
   deliverChannelReply: async () => {},
+  trackSlackActiveThread: async () => true,
 }));
 
 import { eq } from "drizzle-orm";

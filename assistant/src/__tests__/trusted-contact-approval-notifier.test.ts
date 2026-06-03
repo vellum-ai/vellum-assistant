@@ -54,6 +54,7 @@ mock.module("../runtime/gateway-client.js", () => ({
     deliveredReplies.push({ url, payload });
     return { ok: true };
   },
+  trackSlackActiveThread: async () => true,
 }));
 
 // ── Guardian binding mock ──

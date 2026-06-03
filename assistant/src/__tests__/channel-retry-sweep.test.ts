@@ -94,6 +94,7 @@ mock.module("../runtime/gateway-client.js", () => ({
     liveDeliveryCalls.push({ callbackUrl, payload });
     return deliverChannelReplyImpl(callbackUrl, payload);
   },
+  trackSlackActiveThread: async () => true,
 }));
 
 import { getDb } from "../memory/db-connection.js";

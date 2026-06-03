@@ -19,6 +19,7 @@ mock.module("../util/logger.js", () => ({
 
 mock.module("../runtime/gateway-client.js", () => ({
   deliverChannelReply: deliverChannelReplyMock,
+  trackSlackActiveThread: async () => true,
 }));
 
 const lockedDiskPressureStatus: DiskPressureStatus = {
