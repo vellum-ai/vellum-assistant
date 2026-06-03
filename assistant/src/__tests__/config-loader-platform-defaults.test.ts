@@ -467,6 +467,32 @@ describe("platform-gated acp.enabled default", () => {
       ).toBe("managed");
     }
   });
+
+  test("both flags set, no config file → acp.enabled is effective in-memory but NOT persisted as true, so a later flag-off load disables acp", () => {
+    process.env.IS_PLATFORM = "true";
+    process.env.VELLUM_ACP_ENABLED = "true";
+
+    // First launch with the rollout flag on: the env-gated default makes ACP
+    // effective in-memory.
+    const config = loadConfig();
+    expect(config.acp.enabled).toBe(true);
+
+    // ...but the persisted config.json must NOT bake `acp.enabled: true` in as
+    // durable user intent. The rest of the `acp` block still persists at its
+    // schema default so config.json remains discoverable/editable.
+    expect(existsSync(CONFIG_PATH)).toBe(true);
+    const written = readConfig() as { acp?: Record<string, unknown> };
+    expect(written.acp).toBeDefined();
+    expect(written.acp!["enabled"]).toBe(false);
+
+    // Roll back the release: flip VELLUM_ACP_ENABLED off and reload against the
+    // now-existing config.json. Because disk never recorded `enabled: true`,
+    // ACP rolls back cleanly to disabled — the gate survived the rollback.
+    process.env.VELLUM_ACP_ENABLED = "false";
+    invalidateConfigCache();
+    const rolledBack = loadConfig();
+    expect(rolledBack.acp.enabled).toBe(false);
+  });
 });
 
 /**

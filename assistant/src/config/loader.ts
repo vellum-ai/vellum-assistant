@@ -784,6 +784,23 @@ export function loadConfig(): AssistantConfig {
         }
         // Strip dataDir (runtime-derived) from the persisted config
         const { dataDir: _, ...persistable } = config;
+        // Keep the env-gated `acp.enabled` default off-disk so the per-release
+        // rollout gate survives a rollback. The default is effective in-memory
+        // (above), but persisting `acp.enabled: true` would bake it into
+        // config.json as durable user intent — the fill-only pass would then
+        // treat it as an explicit choice forever, keeping ACP on even after
+        // VELLUM_ACP_ENABLED is flipped back off. Only the env-gated default is
+        // stripped: a genuine `acp.enabled` from disk is never touched (this is
+        // the first-launch path where no config.json existed), and the rest of
+        // the `acp` block (maxConcurrentSessions, agents) still persists at its
+        // schema default. Clone the subtree so we never mutate the in-memory
+        // effective `config.acp`.
+        if (contextDefaults.acp !== undefined && persistable.acp !== undefined) {
+          persistable.acp = {
+            ...persistable.acp,
+            enabled: cloneDefaultConfig().acp.enabled,
+          };
+        }
         writeFileSync(configPath, JSON.stringify(persistable, null, 2) + "\n");
         log.info("Wrote default config to %s", configPath);
       } catch (err) {
