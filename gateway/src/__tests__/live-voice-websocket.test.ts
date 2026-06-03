@@ -578,3 +578,70 @@ describe("live voice gateway boundary", () => {
     );
   });
 });
+
+describe("createLiveVoiceWebsocketHandler — revocation", () => {
+  // These tests exercise the gateway DB, so set it up per-test. (The other
+  // suites run without a DB; the revocation check is fail-open when the DB is
+  // absent, so they upgrade as before.)
+  let testRoot: string;
+
+  beforeEach(async () => {
+    const { mkdtempSync, mkdirSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    testRoot = mkdtempSync(join(tmpdir(), "live-voice-revocation-"));
+    mkdirSync(join(testRoot, "protected"), { recursive: true });
+    process.env.GATEWAY_SECURITY_DIR = join(testRoot, "protected");
+    const { initGatewayDb } = await import("../db/connection.js");
+    await initGatewayDb();
+  });
+
+  afterEach(async () => {
+    const { resetGatewayDb } = await import("../db/connection.js");
+    resetGatewayDb();
+    delete process.env.GATEWAY_SECURITY_DIR;
+    const { rmSync } = await import("node:fs");
+    try {
+      rmSync(testRoot, { recursive: true, force: true });
+    } catch {
+      /* best effort */
+    }
+  });
+
+  test("returns 401 when the actor token has been revoked", async () => {
+    const { getGatewayDb } = await import("../db/connection.js");
+    const { actorTokenRecords } = await import("../db/schema.js");
+    const { createHash } = await import("node:crypto");
+
+    const jwt = mintEdgeToken();
+    const now = Date.now();
+    getGatewayDb()
+      .insert(actorTokenRecords)
+      .values({
+        id: "id-revoked",
+        tokenHash: createHash("sha256").update(jwt).digest("hex"),
+        guardianPrincipalId: "guardian-001",
+        hashedDeviceId: createHash("sha256").update("device").digest("hex"),
+        platform: "web",
+        status: "revoked",
+        issuedAt: now,
+        expiresAt: now + 300_000,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+
+    const handler = createLiveVoiceWebsocketHandler(makeConfig());
+    const server = makeFakeServer();
+    const res = handler(
+      new Request(`http://127.0.0.1:7830/v1/live-voice?token=${jwt}`, {
+        headers: { upgrade: "websocket" },
+      }),
+      server,
+    );
+
+    expect(res).not.toBeNull();
+    expect(res!.status).toBe(401);
+    expect(server.upgrade).not.toHaveBeenCalled();
+  });
+});
