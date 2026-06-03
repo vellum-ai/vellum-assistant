@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router";
 
 import { Button } from "@vellum/design-library";
 import { NativeSplash } from "@/components/native-splash";
-import { DarkLoginShell, LoginCard } from "@/domains/account/components/login-shell";
+import { DarkLoginShell, LoginCard, LoginErrorText } from "@/domains/account/components/login-shell";
 import { PlatformLoginButtons } from "@/domains/account/components/platform-login-buttons";
 import { LocalModeLoginPage } from "@/domains/account/pages/local-mode-login-page";
 import { PROVIDER_ID, buildProviderCallbackUrl } from "@/domains/account/login-flow";
@@ -66,9 +66,7 @@ function NativeLoginForm({ returnTo }: { returnTo: string | null }) {
     <NativeSplash>
       <div className="z-10 mt-8 flex w-full max-w-[320px] flex-col items-center gap-3">
         {errorMessage && (
-          <p className="text-body-small-default max-w-[280px] text-center text-[var(--system-negative-strong)]">
-            {errorMessage}
-          </p>
+          <LoginErrorText className="max-w-[280px]">{errorMessage}</LoginErrorText>
         )}
         <Button
           type="button"

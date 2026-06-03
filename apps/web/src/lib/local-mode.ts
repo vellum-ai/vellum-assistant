@@ -56,6 +56,14 @@ const EMPTY_LOCKFILE: Lockfile = { assistants: [], activeAssistant: null };
 const LOCKFILE_STORAGE_KEY = "vellum:local:lockfile";
 const SELECTED_ASSISTANT_STORAGE_KEY = "vellum:local:selectedAssistantId";
 
+// Advance the in-memory cache and mirror the lockfile to persisted storage in
+// one step. The mirror lets the synchronous `getLockfile()` hydrate from
+// storage on a cold read before the host transport has responded.
+const commitLockfile = (data: Lockfile): void => {
+  setCachedLockfile(data);
+  setLocalSetting(LOCKFILE_STORAGE_KEY, JSON.stringify(data));
+};
+
 // ---------------------------------------------------------------------------
 // Core helpers
 // ---------------------------------------------------------------------------
@@ -71,8 +79,7 @@ export function isLocalMode(): boolean {
 export async function loadLockfile(): Promise<Lockfile> {
   try {
     const data = await loadLockfileHost();
-    setCachedLockfile(data);
-    setLocalSetting(LOCKFILE_STORAGE_KEY, JSON.stringify(data));
+    commitLockfile(data);
     return data;
   } catch {
     const empty = { ...EMPTY_LOCKFILE };
@@ -108,8 +115,8 @@ export function getLockfile(): Lockfile {
 
 /**
  * Write an assistant entry to the lockfile on disk and refresh the cache,
- * making it the active assistant. Silently no-ops on a write failure, matching
- * the prior behaviour where the cache is only updated on success.
+ * making it the active assistant. Silently no-ops on a write failure: the
+ * cache only advances once the on-disk write succeeds.
  */
 export async function saveLockfileAssistant(
   assistant: { assistantId: string; cloud: string; runtimeUrl: string; hatchedAt: string },
@@ -119,8 +126,7 @@ export async function saveLockfileAssistant(
     assistant.assistantId,
   );
   if (result.ok) {
-    setCachedLockfile(result.lockfile);
-    setLocalSetting(LOCKFILE_STORAGE_KEY, JSON.stringify(result.lockfile));
+    commitLockfile(result.lockfile);
   }
 }
 
@@ -142,8 +148,7 @@ export async function syncPlatformAssistantsToLockfile(
 
   const result = await replacePlatformAssistantsHost(platformAssistants);
   if (result.ok) {
-    setCachedLockfile(result.lockfile);
-    setLocalSetting(LOCKFILE_STORAGE_KEY, JSON.stringify(result.lockfile));
+    commitLockfile(result.lockfile);
   }
 }
 

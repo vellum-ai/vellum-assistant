@@ -5,6 +5,7 @@ import { Button } from "@vellum/design-library";
 
 import { AppleLogo } from "@/components/icons/apple-logo";
 import { GoogleLogo } from "@/components/icons/google-logo";
+import { LoginErrorText, LoginHeading } from "@/domains/account/components/login-shell";
 import { routes } from "@/utils/routes";
 
 function SignUpFooter({ signUpHref }: { signUpHref: string }) {
@@ -44,14 +45,8 @@ export function PlatformLoginButtons({
 
   return (
     <>
-      <h1 className="text-title-large text-center text-[var(--content-emphasised)]">
-        Sign in to Vellum
-      </h1>
-      {errorMessage && (
-        <p className="text-body-small-default text-center text-[var(--system-negative-strong)]">
-          {errorMessage}
-        </p>
-      )}
+      <LoginHeading>Sign in to Vellum</LoginHeading>
+      {errorMessage && <LoginErrorText>{errorMessage}</LoginErrorText>}
       <div className="flex flex-col items-center gap-3">
         <Button
           type="button"

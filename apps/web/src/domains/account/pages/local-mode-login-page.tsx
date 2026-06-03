@@ -3,7 +3,12 @@ import { useNavigate } from "react-router";
 
 import { Button } from "@vellum/design-library";
 
-import { DarkLoginShell, LoginCard } from "@/domains/account/components/login-shell";
+import {
+  DarkLoginShell,
+  LoginCard,
+  LoginErrorText,
+  LoginHeading,
+} from "@/domains/account/components/login-shell";
 import { PlatformLoginButtons } from "@/domains/account/components/platform-login-buttons";
 import { PROVIDER_ID, buildProviderCallbackUrl } from "@/domains/account/login-flow";
 import { startLoopbackAuth, useIsPlatformLocal } from "@/lib/auth/loopback-auth";
@@ -18,23 +23,20 @@ import { startAuthFlow } from "@/runtime/native-auth";
 import { useAuthStore } from "@/stores/auth-store";
 import { useLockfileStore } from "@/stores/lockfile-store";
 
-/** Connect-failure headline plus the underlying reason, when available. */
-function ConnectErrorMessage({
-  message,
-  detail,
-}: {
-  message: string | null;
+interface ConnectError {
+  message: string;
   detail: string | null;
-}) {
-  if (!message) return null;
+}
+
+/** Connect-failure headline plus the underlying reason, when available. */
+function ConnectErrorMessage({ error }: { error: ConnectError | null }) {
+  if (!error) return null;
   return (
     <>
-      <p className="text-body-small-default text-center text-[var(--system-negative-strong)]">
-        {message}
-      </p>
-      {detail && (
+      <LoginErrorText>{error.message}</LoginErrorText>
+      {error.detail && (
         <p className="text-body-small-default text-center text-[var(--content-secondary)] break-words">
-          {detail}
+          {error.detail}
         </p>
       )}
     </>
@@ -53,10 +55,7 @@ function ConnectErrorMessage({
 export function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
   const navigate = useNavigate();
   const [connectingId, setConnectingId] = useState<string | null>(null);
-  const [connectError, setConnectError] = useState<string | null>(null);
-  const [connectErrorDetail, setConnectErrorDetail] = useState<string | null>(
-    null,
-  );
+  const [connectError, setConnectError] = useState<ConnectError | null>(null);
   const [platformError, setPlatformError] = useState<string | null>(null);
   const [platformLoading, setPlatformLoading] = useState(false);
   const isPlatformLocal = useIsPlatformLocal();
@@ -85,7 +84,6 @@ export function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
   const connectToLocal = useCallback(
     async (assistantId: string) => {
       setConnectError(null);
-      setConnectErrorDetail(null);
       setConnectingId(assistantId);
       try {
         await useAuthStore.getState().connectLocalAssistant(assistantId);
@@ -95,10 +93,11 @@ export function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
           context: "local-login.connect",
           extra: { assistantId },
         });
-        setConnectError(
-          "Couldn't connect to your assistant. Make sure it's running.",
-        );
-        setConnectErrorDetail(normalizeToError(err).message);
+        setConnectError({
+          message:
+            "Couldn't connect to your assistant. Make sure it's running.",
+          detail: normalizeToError(err).message,
+        });
         setConnectingId(null);
       }
     },
@@ -125,6 +124,13 @@ export function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
       }
     },
     [returnTo, isPlatformLocal, callbackUrl],
+  );
+
+  const handleProviderClick = useCallback(
+    (hint?: string) => {
+      void handlePlatformProvider(hint);
+    },
+    [handlePlatformProvider],
   );
 
   // Auto-connect when only local assistants are present.
@@ -156,31 +162,31 @@ export function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
     handlePlatformProvider,
   ]);
 
-  // No assistants at all — show login buttons when Django is local,
-  // otherwise prompt the user to hatch via CLI.
+  // The platform sign-in card is shared by the no-assistants and
+  // platform-only states whenever this build embeds a local Django.
+  const platformLoginCard = (
+    <DarkLoginShell>
+      <LoginCard>
+        <PlatformLoginButtons
+          returnTo={returnTo}
+          loading={platformLoading}
+          errorMessage={platformError}
+          onProviderClick={handleProviderClick}
+        />
+      </LoginCard>
+    </DarkLoginShell>
+  );
+
+  if (!hasLocal && isPlatformLocal) {
+    return platformLoginCard;
+  }
+
+  // No assistants at all — prompt the user to hatch via CLI.
   if (!hasLocal && !hasPlatform) {
-    if (isPlatformLocal) {
-      return (
-        <DarkLoginShell>
-          <LoginCard>
-            <PlatformLoginButtons
-              returnTo={returnTo}
-              loading={platformLoading}
-              errorMessage={platformError}
-              onProviderClick={(hint) => {
-                void handlePlatformProvider(hint);
-              }}
-            />
-          </LoginCard>
-        </DarkLoginShell>
-      );
-    }
     return (
       <DarkLoginShell>
         <LoginCard>
-          <h1 className="text-title-large text-center text-[var(--content-emphasised)]">
-            Vellum
-          </h1>
+          <LoginHeading>Vellum</LoginHeading>
           <p className="text-body-small-default text-center text-[var(--content-secondary)]">
             No assistants found. Hatch one via CLI (
             <code className="rounded bg-[var(--surface-sunken)] px-1 py-0.5 text-[var(--content-default)]">
@@ -198,35 +204,16 @@ export function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
     );
   }
 
-  // Only platform assistants
+  // Only platform assistants — redirect to sign in (the platform-local
+  // case already returned the shared sign-in card above).
   if (hasPlatform && !hasLocal) {
-    if (isPlatformLocal) {
-      return (
-        <DarkLoginShell>
-          <LoginCard>
-            <PlatformLoginButtons
-              returnTo={returnTo}
-              loading={platformLoading}
-              errorMessage={platformError}
-              onProviderClick={(hint) => {
-                void handlePlatformProvider(hint);
-              }}
-            />
-          </LoginCard>
-        </DarkLoginShell>
-      );
-    }
     return (
       <DarkLoginShell>
         <LoginCard>
-          <h1 className="text-title-large text-center text-[var(--content-emphasised)]">
-            Vellum
-          </h1>
+          <LoginHeading>Vellum</LoginHeading>
           {platformError ? (
             <>
-              <p className="text-body-small-default text-center text-[var(--system-negative-strong)]">
-                {platformError}
-              </p>
+              <LoginErrorText>{platformError}</LoginErrorText>
               <div className="flex justify-center">
                 <Button
                   type="button"
@@ -254,15 +241,10 @@ export function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
     return (
       <DarkLoginShell>
         <LoginCard>
-          <h1 className="text-title-large text-center text-[var(--content-emphasised)]">
-            Vellum
-          </h1>
+          <LoginHeading>Vellum</LoginHeading>
           {connectError ? (
             <>
-              <ConnectErrorMessage
-                message={connectError}
-                detail={connectErrorDetail}
-              />
+              <ConnectErrorMessage error={connectError} />
               <div className="flex justify-center">
                 <Button
                   type="button"
@@ -297,20 +279,12 @@ export function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
               returnTo={returnTo}
               loading={platformLoading}
               errorMessage={platformError}
-              onProviderClick={(hint) => {
-                void handlePlatformProvider(hint);
-              }}
+              onProviderClick={handleProviderClick}
             />
           ) : (
             <>
-              <h1 className="text-title-large text-center text-[var(--content-emphasised)]">
-                Vellum Cloud
-              </h1>
-              {platformError && (
-                <p className="text-body-small-default text-center text-[var(--system-negative-strong)]">
-                  {platformError}
-                </p>
-              )}
+              <LoginHeading>Vellum Cloud</LoginHeading>
+              {platformError && <LoginErrorText>{platformError}</LoginErrorText>}
               <div className="flex justify-center">
                 <Button
                   type="button"
@@ -329,10 +303,8 @@ export function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
           )}
         </LoginCard>
         <LoginCard>
-          <h1 className="text-title-large text-center text-[var(--content-emphasised)]">
-            Local Assistant
-          </h1>
-          <ConnectErrorMessage message={connectError} detail={connectErrorDetail} />
+          <LoginHeading>Local Assistant</LoginHeading>
+          <ConnectErrorMessage error={connectError} />
           <div className="flex flex-col gap-2">
             {localAssistants.map((assistant) => (
               <button
