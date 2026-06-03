@@ -1137,7 +1137,20 @@ export async function hatchDocker(
           await loadImageViaHost(HOST_IMAGE_LOADER_URL, ref, log);
         } else {
           log(`   ↪ pulling ${ref}`);
-          await exec("docker", ["pull", ref]);
+          const MAX_PULL_RETRIES = 3;
+          for (let attempt = 1; attempt <= MAX_PULL_RETRIES; attempt++) {
+            try {
+              await exec("docker", ["pull", ref]);
+              break;
+            } catch (err) {
+              if (attempt === MAX_PULL_RETRIES) throw err;
+              const delaySec = 2 ** attempt;
+              log(
+                `   ⚠ pull failed (attempt ${attempt}/${MAX_PULL_RETRIES}), retrying in ${delaySec}s...`,
+              );
+              await new Promise((r) => setTimeout(r, delaySec * 1000));
+            }
+          }
         }
       }
       log("✅ Docker images acquired");
