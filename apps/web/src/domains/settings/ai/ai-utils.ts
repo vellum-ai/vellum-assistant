@@ -5,6 +5,7 @@ import {
 
 import type {
   DaemonConfig,
+  DaemonConfigPatch,
   DaemonConfigReconciliation,
   InferenceTokenBudgetState,
   ProfileEntry,
@@ -139,4 +140,84 @@ export function getLongContextPricingHint(
  */
 export function getWebSearchProviderKeyStorage(provider: string): string {
   return WEB_SEARCH_PROVIDER_KEY_STORAGE[provider] ?? "";
+}
+
+/**
+ * Applies a `DaemonConfigPatch` to a cached `DaemonConfig`, mimicking the
+ * daemon's deep-merge semantics: omitted keys are left unchanged, explicit
+ * `null` at record-entry positions deletes the entry.
+ *
+ * Used by the mutation hook's `onMutate` callback to optimistically update
+ * the TanStack Query cache before the server responds.
+ */
+export function applyConfigPatch(config: DaemonConfig, patch: DaemonConfigPatch): DaemonConfig {
+  const result: DaemonConfig = { ...config };
+
+  if (patch.services) {
+    const services: NonNullable<DaemonConfig["services"]> = { ...result.services };
+    if ("web-search" in patch.services) {
+      const ws = patch.services["web-search"];
+      if (ws === null) {
+        delete services["web-search"];
+      } else if (ws) {
+        services["web-search"] = { ...services["web-search"], ...ws };
+      }
+    }
+    if ("image-generation" in patch.services) {
+      const ig = patch.services["image-generation"];
+      if (ig === null) {
+        delete services["image-generation"];
+      } else if (ig) {
+        services["image-generation"] = { ...services["image-generation"], ...ig };
+      }
+    }
+    result.services = services;
+  }
+
+  if (patch.llm) {
+    const llm: NonNullable<DaemonConfig["llm"]> = { ...result.llm };
+
+    if ("activeProfile" in patch.llm) {
+      llm.activeProfile = patch.llm.activeProfile ?? undefined;
+    }
+    if ("profileOrder" in patch.llm) {
+      llm.profileOrder = patch.llm.profileOrder;
+    }
+    if ("default" in patch.llm) {
+      if (patch.llm.default === null) {
+        delete llm.default;
+      } else if (patch.llm.default) {
+        llm.default = { ...llm.default, ...patch.llm.default };
+      }
+    }
+
+    if (patch.llm.profiles) {
+      const profiles: Record<string, ProfileEntry> = { ...llm.profiles };
+      for (const [name, entry] of Object.entries(patch.llm.profiles)) {
+        if (entry === null) {
+          delete profiles[name];
+        } else {
+          profiles[name] = { ...profiles[name], ...entry };
+        }
+      }
+      llm.profiles = profiles;
+    }
+
+    if (patch.llm.callSites) {
+      const callSites: NonNullable<DaemonConfig["llm"]>["callSites"] = { ...llm.callSites };
+      for (const [id, entry] of Object.entries(patch.llm.callSites)) {
+        if (entry === null) {
+          callSites[id] = null;
+        } else {
+          const existing = callSites[id];
+          callSites[id] = { ...(existing ?? {}), ...entry };
+        }
+      }
+      llm.callSites = callSites;
+    }
+
+    result.llm = llm;
+  }
+
+  return result;
 }

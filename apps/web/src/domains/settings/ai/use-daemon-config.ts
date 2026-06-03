@@ -23,7 +23,7 @@ import {
 import { configGet, configPatch, secretsPost } from "@/generated/daemon/sdk.gen";
 import { captureError } from "@/lib/sentry/capture-error";
 import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
-import { assertProvisionSuccess, buildOrderedProfiles } from "@/domains/settings/ai/ai-utils";
+import { applyConfigPatch, assertProvisionSuccess, buildOrderedProfiles } from "@/domains/settings/ai/ai-utils";
 import type { CallSiteOverrideDraft, DaemonConfig, DaemonConfigPatch, ProfileEntry } from "@/domains/settings/ai/ai-types";
 
 // ---------------------------------------------------------------------------
@@ -125,9 +125,17 @@ export function useDaemonConfigQuery() {
 /**
  * Mutation hook for daemon config patches.
  *
- * Wraps `configPatch` in a `useMutation` with automatic cache invalidation
- * on settle. Resolves the assistant ID lazily via `useAssistantId` so
- * callers don't need to gate on the assistant list being loaded.
+ * Wraps `configPatch` with optimistic cache updates and auto-invalidation:
+ * - `onMutate` applies the patch to the query cache immediately via
+ *   `applyConfigPatch`, so consumers see the new values before the server
+ *   responds. This prevents derived state (e.g. `configChanged`) from
+ *   briefly reverting to stale values during the refetch window.
+ * - `onError` rolls the cache back to the pre-mutation snapshot.
+ * - `onSettled` invalidates the cache so a refetch replaces the optimistic
+ *   data with the server's authoritative response.
+ *
+ * Resolves the assistant ID lazily via `useAssistantId` so callers don't
+ * need to gate on the assistant list being loaded.
  */
 export function useDaemonConfigMutation() {
   const queryClient = useQueryClient();
@@ -142,6 +150,21 @@ export function useDaemonConfigMutation() {
         throwOnError: true,
       });
       return { data, resolvedId };
+    },
+    onMutate: async (body) => {
+      if (!assistantId) return;
+      const queryKey = assistantDaemonConfigQueryKey(assistantId);
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData<DaemonConfig>(queryKey);
+      queryClient.setQueryData<DaemonConfig>(queryKey, (old) =>
+        old ? applyConfigPatch(old, body) : old,
+      );
+      return { previous, queryKey };
+    },
+    onError: (_err, _body, context) => {
+      if (context?.queryKey) {
+        queryClient.setQueryData(context.queryKey, context.previous);
+      }
     },
     onSettled: (result) => {
       const idToInvalidate = result?.resolvedId ?? assistantId;
