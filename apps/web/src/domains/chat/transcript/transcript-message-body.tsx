@@ -17,12 +17,16 @@ import { SubagentInlineProgressCard } from "@/domains/chat/components/subagent-i
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router";
 import { ThinkingBlock } from "@/domains/chat/components/thinking-block";
 import { ToolCallProgressCard } from "@/domains/chat/components/tool-call-progress-card/tool-call-progress-card";
+import { TurnProgressCard } from "@/domains/chat/components/turn-progress-card/turn-progress-card";
 import {
   getLeadingThinkingText,
   getLegacyLeadingThinkingText,
 } from "@/domains/chat/components/tool-progress-card/get-leading-thinking-text";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
-import { activityAnchorId } from "@/domains/chat/transcript/turn-activity";
+import {
+  activityAnchorId,
+  buildTurnActivity,
+} from "@/domains/chat/transcript/turn-activity";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 import {
@@ -38,6 +42,23 @@ import {
 import type { ConfirmationDecision } from "@/types/event-types";
 import type { AllowlistOption, DirectoryScopeOption, RiskScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+
+/**
+ * Detect a task-progress card surface — mirrors `CardSurface`'s `hasSteps`
+ * discrimination (`template === "task_progress"` with a non-empty `steps`
+ * array). Used by the activity-summary path to hoist this surface beneath the
+ * combined progress card and suppress it from its inline position.
+ */
+function isTaskProgressSurface(surface: Surface): boolean {
+  const data = surface.data as
+    | { template?: string; templateData?: { steps?: unknown } }
+    | undefined;
+  return (
+    data?.template === "task_progress" &&
+    Array.isArray(data.templateData?.steps) &&
+    (data.templateData!.steps as unknown[]).length > 0
+  );
+}
 
 export interface OpenRuleEditorContext {
   toolName: string;
@@ -352,10 +373,8 @@ export function TranscriptMessageBody({
   assistantId,
   onSubagentClick,
   onStopSubagent,
-  // Accepted but not yet read in render — the activity-summary card render
-  // path lands in a follow-up. Aliased to `_` so the unused props are explicit.
-  activitySummaryEnabled: _activitySummaryEnabled,
-  onActivityStepClick: _onActivityStepClick,
+  activitySummaryEnabled,
+  onActivityStepClick,
   isStreaming = false,
 }: TranscriptMessageBodyProps) {
   const hasInterleavedToolCalls = message.contentOrder?.some(
@@ -580,6 +599,61 @@ export function TranscriptMessageBody({
     );
   };
 
+  // Per-turn activity projection driving the combined progress card. Pure,
+  // cheap projection (no hook) — `buildTurnActivity` returns an empty activity
+  // for non-assistant messages, so it's safe to compute unconditionally. The
+  // card only renders below when the flag is on AND there's at least one step.
+  const activity = buildTurnActivity(message);
+  const renderActivityCard =
+    !isUser &&
+    Boolean(activitySummaryEnabled) &&
+    activity.steps.length > 0;
+
+  // Hoist the most recent task-progress surface beneath the combined card. Only
+  // when the card actually renders — with no steps there's nothing to attach to,
+  // so the task-progress surface renders inline as usual (see edge cases).
+  const hoistedTaskSurface = renderActivityCard
+    ? [...(message.surfaces ?? [])].reverse().find(isTaskProgressSurface)
+    : undefined;
+
+  // Suppress a surface from its INLINE position only when it's the hoisted
+  // task-progress surface (i.e. only when the combined card renders). Flag-off
+  // and no-step turns never suppress, keeping those paths byte-identical.
+  const isSuppressedInlineSurface = (surface: Surface): boolean =>
+    hoistedTaskSurface != null &&
+    surface.surfaceId === hoistedTaskSurface.surfaceId;
+
+  // Header block rendered as the FIRST child of the assistant content column in
+  // BOTH branches (interleaved + legacy). The combined card carousels through
+  // all tool/thinking steps; clicking a pill calls `onActivityStepClick` to
+  // scroll the matching inline card into view. The hoisted task-progress
+  // surface renders attached directly beneath, always expanded.
+  //
+  // Placement note: per the design screenshot the leading assistant text can
+  // appear above this card, but the plan specifies the combined card at the TOP
+  // of the assistant body. We render it at the top of the assistant content
+  // column (above the interleaved/legacy content); this is intentional and
+  // adjustable if the leading-text-above treatment is chosen later.
+  const activityHeader: ReactNode = renderActivityCard ? (
+    <div data-testid="turn-activity-header" className="flex w-full flex-col">
+      <TurnProgressCard
+        activity={activity}
+        onStepClick={(id) => onActivityStepClick?.(id)}
+        attachedBelow={Boolean(hoistedTaskSurface)}
+      />
+      {hoistedTaskSurface && (
+        <SurfaceRouter
+          surface={hoistedTaskSurface}
+          onAction={onSurfaceAction}
+          onOpenApp={onOpenApp}
+          onOpenDocument={onOpenDocument}
+          assistantId={assistantId}
+          toolCalls={message.toolCalls}
+        />
+      )}
+    </div>
+  ) : null;
+
   // Render the user-message content from an ordered, tagged list. Walks the
   // items in canonical `contentOrder` sequence, grouping CONTIGUOUS runs of
   // text into one `userBubbleClass` bubble while each non-text element (surface
@@ -793,6 +867,11 @@ export function TranscriptMessageBody({
               if (!surface) {
                 return null;
               }
+              // The hoisted task-progress surface renders only in the header
+              // block above — skip its inline position so it isn't duplicated.
+              if (isSuppressedInlineSurface(surface)) {
+                return null;
+              }
               return (
                 <div key={`surface-${gi}`} className="w-full">
                   <SurfaceRouter
@@ -853,6 +932,7 @@ export function TranscriptMessageBody({
             renderUserContent(interleavedUserItems)
           ) : (
             <>
+              {activityHeader}
               {interleavedGroupElements}
               {interleavedFallback}
               {hasAttachments && (
@@ -945,7 +1025,7 @@ export function TranscriptMessageBody({
         });
       } else if (entry.type === "surface") {
         const surface = resolveSurface(entry.id);
-        if (surface) {
+        if (surface && !isSuppressedInlineSurface(surface)) {
           contentEntries.push({
             type: "surface",
             node: (
@@ -1015,6 +1095,7 @@ export function TranscriptMessageBody({
       <div
         className={`flex w-full flex-col gap-2 ${message.role === "user" ? "items-end" : "items-start"}`}
       >
+        {activityHeader}
         {legacyToolCalls.length > 0 && (
           <>
             {/* Anchor the tool card only when a renderable (non-spawn) tool
@@ -1094,7 +1175,9 @@ export function TranscriptMessageBody({
               .map((e) => e.id) ?? [],
           );
           const unrendered = message.surfaces.filter(
-            (s) => !renderedSurfaceIds.has(s.surfaceId),
+            (s) =>
+              !renderedSurfaceIds.has(s.surfaceId) &&
+              !isSuppressedInlineSurface(s),
           );
           if (unrendered.length === 0) return null;
           return unrendered.map((surface) => (
