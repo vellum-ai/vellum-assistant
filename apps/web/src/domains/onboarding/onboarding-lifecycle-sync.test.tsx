@@ -12,6 +12,10 @@ import {
   DEFAULT_PRECHAT_INITIAL_MESSAGE,
   STORAGE_KEY,
 } from "@/domains/onboarding/prechat";
+import {
+  ACTIVATION_FLOW_COHORT,
+  ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE,
+} from "@/domains/onboarding/prechat-context";
 import { routes } from "@/utils/routes";
 
 let searchParams = new URLSearchParams();
@@ -61,6 +65,7 @@ type TestOnboardingRecipe = {
 
 let onboardingCompleted = false;
 let prechatOnboardingCondensedFlow = true;
+let activationFlowExperiment = false;
 let selfIntroGreeting = true;
 let isIOSWeb = false;
 let isMacOSWeb = false;
@@ -195,6 +200,7 @@ mock.module("@/stores/client-feature-flag-store", () => ({
   useClientFeatureFlagStore: {
     use: {
       prechatOnboardingCondensedFlow: () => prechatOnboardingCondensedFlow,
+      experimentActivationFlow20260603: () => activationFlowExperiment,
       selfIntroGreeting: () => selfIntroGreeting,
     },
   },
@@ -343,6 +349,7 @@ beforeEach(() => {
   checkAssistantImpl = async () => {};
   onboardingCompleted = false;
   prechatOnboardingCondensedFlow = true;
+  activationFlowExperiment = false;
   selfIntroGreeting = true;
   isIOSWeb = false;
   isMacOSWeb = false;
@@ -467,6 +474,27 @@ describe("onboarding lifecycle sync", () => {
       userName: "Alice",
       googleConnected: false,
       initialMessage: DEFAULT_PRECHAT_INITIAL_MESSAGE,
+    });
+  });
+
+  test("activation flow flag selects the activation bootstrap after pre-chat", async () => {
+    activationFlowExperiment = true;
+
+    render(<PreChatFlow />);
+
+    fireEvent.click(await screen.findByTestId("name-continue"));
+    fireEvent.click(await screen.findByText("Skip for now"));
+
+    await waitFor(() => expect(checkAssistantMock).toHaveBeenCalled());
+    expect(JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? "null")).toEqual({
+      tools: [],
+      tasks: [],
+      tone: "grounded",
+      userName: "Alice",
+      googleConnected: false,
+      cohort: ACTIVATION_FLOW_COHORT,
+      initialMessage: "Hi, I'm Alice. Nice to meet you.",
+      bootstrapTemplate: ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE,
     });
   });
 

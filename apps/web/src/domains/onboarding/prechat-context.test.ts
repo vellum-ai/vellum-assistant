@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  ACTIVATION_FLOW_COHORT,
+  ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE,
   buildPreChatContext,
   PARED_DOWN_GOOGLE_TOOL_IDS,
   type BuildPreChatContextInput,
@@ -24,6 +26,34 @@ function baseInput(
     ...overrides,
   };
 }
+
+describe("buildPreChatContext — activation rail", () => {
+  test("selects the activation bootstrap template when the experiment flag is on", () => {
+    const context = buildPreChatContext(
+      baseInput({ activationFlowEnabled: true }),
+    );
+
+    expect(context.cohort).toBe(ACTIVATION_FLOW_COHORT);
+    expect(context.bootstrapTemplate).toBe(ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE);
+  });
+
+  test("activation template wins over a marketing recipe template", () => {
+    const context = buildPreChatContext(
+      baseInput({
+        activationFlowEnabled: true,
+        recipe: {
+          cohort: "content-automation",
+          bootstrapTemplate: "BOOTSTRAP-CONTENT-AUTOMATION.md",
+          skills: ["geo-writing"],
+        } as BuildPreChatContextInput["recipe"],
+      }),
+    );
+
+    expect(context.cohort).toBe(ACTIVATION_FLOW_COHORT);
+    expect(context.bootstrapTemplate).toBe(ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE);
+    expect(context.skills).toEqual(["geo-writing"]);
+  });
+});
 
 describe("buildPreChatContext — control", () => {
   test("carries tools, sorted tasks, names, and tone", () => {

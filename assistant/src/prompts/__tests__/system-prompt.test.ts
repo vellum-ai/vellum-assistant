@@ -114,3 +114,24 @@ describe("maybeReseedBootstrap — content-automation template", () => {
     expect(content).toContain("VOICE.md");
   });
 });
+
+describe("maybeReseedBootstrap — activation rail template", () => {
+  const templatesDir = join(import.meta.dirname!, "..", "templates");
+
+  beforeEach(() => {
+    mkdirSync(TEST_DIR, { recursive: true });
+    copyFileSync(
+      join(templatesDir, "BOOTSTRAP.md"),
+      join(TEST_DIR, "BOOTSTRAP.md"),
+    );
+  });
+
+  test("replaces generic bootstrap with the activation rail template", () => {
+    maybeReseedBootstrap("BOOTSTRAP-ACTIVATION-RAIL.md");
+    const content = readFileSync(join(TEST_DIR, "BOOTSTRAP.md"), "utf-8");
+
+    expect(content).toContain("BOOTSTRAP — Activation Rail");
+    expect(content).toContain("single most useful outcome");
+    expect(content).toContain("Speed wins");
+  });
+});
