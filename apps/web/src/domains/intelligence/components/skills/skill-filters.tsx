@@ -1,11 +1,11 @@
 import {
   ArrowDownToLine,
+  Box,
   CheckCircle,
   Filter,
   Globe,
   LayoutGrid,
   Loader2,
-  Package,
   Search,
   Terminal,
   User,
@@ -35,7 +35,7 @@ const STATUS_FILTERS: FilterOption[] = [
 ];
 
 const ORIGIN_FILTERS: FilterOption[] = [
-  { value: "vellum", label: "Vellum", icon: Package },
+  { value: "vellum", label: "Vellum", icon: Box },
   { value: "clawhub", label: "Clawhub", icon: Globe },
   { value: "skillssh", label: "skills.sh", icon: Terminal },
   { value: "custom", label: "Custom", icon: User },
