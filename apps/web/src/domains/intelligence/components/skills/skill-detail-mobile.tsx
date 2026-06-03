@@ -2,15 +2,19 @@ import {
   ArrowDownToLine,
   ArrowLeft,
   ChevronDown,
+  Code,
+  Eye,
   FileText,
   Folder,
   Loader2,
   Trash2,
 } from "lucide-react";
+import { useEffect, useState } from "react";
 
-import { Button, Card, Menu } from "@vellum/design-library";
+import { Button, Card, Menu, SegmentControl } from "@vellum/design-library";
 import { SkillOriginBadge } from "./skill-origin-badge";
 import { SkillFileContent } from "./skill-file-content";
+import { isMarkdown } from "@/components/file-markdown";
 import { useSkillDetailFiles } from "@/domains/intelligence/skills/use-skill-detail-files";
 import {
   isAvailableSkill,
@@ -35,8 +39,10 @@ interface SkillDetailMobileProps {
  * Mirrors the desktop `SkillDetail` data/behavior (via the shared
  * `useSkillDetailFiles` hook) but lays out top-to-bottom: a circular action bar,
  * a header block with the full (non-clamped) description, and a content card
- * whose header hosts an inline file dropdown. The card-header right slot is an
- * intentional placeholder for the Preview/Source segment control added later.
+ * whose header hosts an inline file dropdown (left) and an icon-only
+ * Preview/Source segment control (right). Preview is disabled for non-markdown
+ * files, which always render as source, and the view resets to Preview when the
+ * active file changes.
  */
 export function SkillDetailMobile({
   assistantId,
@@ -60,6 +66,18 @@ export function SkillDetailMobile({
     isBinary,
     isContentLoading,
   } = useSkillDetailFiles(assistantId, skill.id);
+
+  const [viewMode, setViewMode] = useState<"preview" | "raw">("preview");
+
+  // Each newly opened file starts in preview.
+  useEffect(() => {
+    setViewMode("preview");
+  }, [activePath]);
+
+  const activeIsMarkdown = activeFile
+    ? isMarkdown(activeFile.name, undefined)
+    : false;
+  const effectiveViewMode = activeIsMarkdown ? viewMode : "raw";
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 bg-[var(--surface-overlay)]">
@@ -124,8 +142,25 @@ export function SkillDetailMobile({
               activeName={activeFile?.name ?? null}
               onSelect={setSelectedPath}
             />
-            {/* Placeholder for the Preview/Source segment control (later PR). */}
-            <div />
+            <SegmentControl<"preview" | "raw">
+              iconOnly
+              ariaLabel="File view mode"
+              value={effectiveViewMode}
+              onChange={setViewMode}
+              items={[
+                {
+                  value: "preview",
+                  label: "Preview",
+                  icon: <Eye aria-hidden />,
+                  disabled: !activeIsMarkdown,
+                },
+                {
+                  value: "raw",
+                  label: "Source",
+                  icon: <Code aria-hidden />,
+                },
+              ]}
+            />
           </div>
 
           <div className="min-h-0 flex-1 overflow-hidden">
@@ -141,6 +176,7 @@ export function SkillDetailMobile({
                 fileName={activeFile.name}
                 content={fileContent}
                 isBinary={isBinary}
+                viewMode={effectiveViewMode}
               />
             ) : (
               <p

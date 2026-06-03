@@ -2,9 +2,11 @@
  * Tests for `SkillDetailMobile` — the single-column phone skill-detail layout.
  *
  * The data hook (`useSkillDetailFiles`) is mocked so the component renders a
- * fixed set of file entries plus a markdown active file without touching React
- * Query or the daemon client. We verify the action bar wiring (back / remove),
- * the header content, and that the inline file dropdown lists the entries.
+ * fixed set of file entries plus an active file without touching React Query or
+ * the daemon client. A mutable `hookState` lets individual tests swap the active
+ * file (markdown vs non-markdown). We verify the action bar wiring (back /
+ * remove), the header content, the inline file dropdown, and the Preview/Source
+ * segment control.
  *
  * Mounted via `@testing-library/react` (happy-dom — see `apps/web/test-setup.ts`).
  */
@@ -37,7 +39,33 @@ const FILE_ENTRIES: SkillFileEntry[] = [
   },
 ];
 
-const ACTIVE_FILE = FILE_ENTRIES[0];
+const MARKDOWN_FILE = FILE_ENTRIES[0];
+
+const JSON_FILE: SkillFileEntry = {
+  name: "data.json",
+  path: "data.json",
+  mimeType: "application/json",
+  size: 13,
+  isBinary: false,
+  content: '{"hi":true}',
+};
+
+// Mutable so individual tests can swap the active file (markdown vs not).
+const hookState: {
+  activeFile: SkillFileEntry;
+  activePath: string;
+  fileContent: string;
+} = {
+  activeFile: MARKDOWN_FILE,
+  activePath: MARKDOWN_FILE.path,
+  fileContent: "# Hello",
+};
+
+function setActiveFile(file: SkillFileEntry): void {
+  hookState.activeFile = file;
+  hookState.activePath = file.path;
+  hookState.fileContent = file.content ?? "";
+}
 
 mock.module("@/domains/intelligence/skills/use-skill-detail-files", () => ({
   useSkillDetailFiles: () => ({
@@ -45,10 +73,10 @@ mock.module("@/domains/intelligence/skills/use-skill-detail-files", () => ({
     skillMd: FILE_ENTRIES[0],
     selectedPath: null,
     setSelectedPath: () => {},
-    activePath: ACTIVE_FILE.path,
-    activeFile: ACTIVE_FILE,
+    activePath: hookState.activePath,
+    activeFile: hookState.activeFile,
     isFilesLoading: false,
-    fileContent: "# Hello",
+    fileContent: hookState.fileContent,
     isBinary: false,
     isContentLoading: false,
   }),
@@ -60,6 +88,7 @@ const { SkillDetailMobile } = await import(
 
 afterEach(() => {
   cleanup();
+  setActiveFile(MARKDOWN_FILE);
 });
 
 function makeSkill(overrides: Partial<SkillInfo> = {}): SkillInfo {
@@ -148,5 +177,40 @@ describe("SkillDetailMobile", () => {
     fireEvent.keyDown(trigger, { key: "Enter" });
 
     expect(screen.getByText("helper.py")).toBeTruthy();
+  });
+
+  test("markdown file: toggles between rendered preview and raw source", () => {
+    render(
+      <SkillDetailMobile assistantId="asst-1" skill={makeSkill()} onBack={() => {}} />,
+    );
+
+    // Default is preview: rendered markdown (no raw <pre>, heading text shown).
+    expect(document.querySelector("pre")).toBeNull();
+    expect(screen.getByText("Hello")).toBeTruthy();
+
+    // Switch to Source: raw <pre> with the markdown source text.
+    fireEvent.click(getButton("Source"));
+    const pre = document.querySelector("pre");
+    expect(pre).not.toBeNull();
+    expect(pre?.textContent).toBe("# Hello");
+
+    // Switch back to Preview: rendered markdown again.
+    fireEvent.click(getButton("Preview"));
+    expect(document.querySelector("pre")).toBeNull();
+    expect(screen.getByText("Hello")).toBeTruthy();
+  });
+
+  test("non-markdown file: Preview disabled and content shows as source", () => {
+    setActiveFile(JSON_FILE);
+
+    render(
+      <SkillDetailMobile assistantId="asst-1" skill={makeSkill()} onBack={() => {}} />,
+    );
+
+    expect(getButton("Preview").disabled).toBe(true);
+
+    const pre = document.querySelector("pre");
+    expect(pre).not.toBeNull();
+    expect(pre?.textContent).toBe('{"hi":true}');
   });
 });
