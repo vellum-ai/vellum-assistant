@@ -4,14 +4,14 @@
 // (`event.seq > stored + 1`) or a server restart (`event.seq < stored`)
 // is detected.
 //
-// Default: enabled. Disable via the console if gap detection causes
-// issues in a specific environment.
+// Default: disabled. Enable via the console to opt a specific
+// environment into gap detection.
 //
 // Surface (exposed under `window._vellumDebug.flags`):
 //
 //   toggleSeqGapDetection(true)   — enable + reload
 //   toggleSeqGapDetection(false)  — disable + reload
-//   toggleSeqGapDetection(null)   — clear + reload (reverts to default: enabled)
+//   toggleSeqGapDetection(null)   — clear + reload (reverts to default: disabled)
 //   toggleSeqGapDetection()       — log + return current value, no reload
 
 import {
@@ -23,15 +23,17 @@ import {
 const STORAGE_KEY = "vellum:debug:seqGapDetection";
 
 /**
- * Read the flag synchronously. Returns `true` when no override is set
- * (enabled by default), or when localStorage throws (private browsing /
- * sandboxed iframes). Returns `false` only when explicitly disabled
- * via `setSeqGapDetectionEnabled(false)`. Safe to call during render.
+ * Read the flag synchronously. Returns `false` when no override is set
+ * (disabled by default) or when localStorage throws (private browsing /
+ * sandboxed iframes). Returns `true` only when explicitly enabled via
+ * `setSeqGapDetectionEnabled(true)`. Safe to call during render.
  */
 export function isSeqGapDetectionEnabled(): boolean {
   const stored = getLocalSetting(STORAGE_KEY, "");
-  if (stored === "false") return false;
-  return true;
+  if (stored === "true") {
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -66,5 +68,5 @@ export function setSeqGapDetectionEnabled(value?: boolean | null): boolean {
     console.info("[vellumDebug] seqGapDetection = true — reloading…");
   }
   window.location.reload();
-  return value !== false;
+  return value === true;
 }
