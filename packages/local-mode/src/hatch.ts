@@ -63,7 +63,7 @@ export function runHatch(
         return;
       }
       const assistantId = stdout
-        .match(/Hatching local assistant:\s+(.+)/)?.[1]
+        .match(/Hatching (?:local|Docker) assistant:\s+(.+)/)?.[1]
         ?.trim();
       if (!assistantId) {
         finish({
