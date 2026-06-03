@@ -14,7 +14,6 @@
 import { existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
-
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { resolveAcpWorkspaceDir } from "../workspace-path.js";
