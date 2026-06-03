@@ -19,6 +19,7 @@
 import type { CompactionCircuitClosedEvent } from "../api/events/compaction-circuit-closed.js";
 import type { CompactionCircuitOpenEvent } from "../api/events/compaction-circuit-open.js";
 import type { ContextWindowConfig } from "../config/schemas/inference.js";
+import type { LLMCallSite } from "../config/schemas/llm.js";
 import type {
   ContextWindowManager,
   ContextWindowResult,
@@ -925,6 +926,20 @@ export interface TurnContext {
    * a context without `injectionInputs` produces an empty injection chain.
    */
   injectionInputs?: TurnInjectionInputs;
+  /**
+   * The {@link LLMCallSite} this turn's pipeline work belongs to —
+   * `"mainAgent"` for the user-facing conversational reply, or the specific
+   * background/utility site (`"compactionAgent"`, `"subagentSpawn"`,
+   * `"memoryConsolidation"`, `"conversationTitle"`, …) when the agent loop is
+   * driving non-main work that happens to share the same `conversationId`.
+   *
+   * Lets `llmCall` middleware and {@link Injector}s scope their behaviour to
+   * the main reply and stay out of background turns, which `onEvent` presence
+   * alone cannot distinguish (compaction and subagent loops also stream).
+   * Omitted by call sites that don't tag a site (synthesized test contexts);
+   * consumers should treat absence conservatively.
+   */
+  callSite?: LLMCallSite;
 }
 
 // ─── Injectors ───────────────────────────────────────────────────────────────
