@@ -72,10 +72,6 @@ function isPipelineDecomposition(options: AllowlistOption[]): boolean {
   });
 }
 
-function capitalize(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
-
 // ---------------------------------------------------------------------------
 // Risk level config
 // ---------------------------------------------------------------------------
@@ -321,7 +317,6 @@ export function ChatRuleEditorModal({
         scope: "everywhere",
       });
     } else {
-      // Create mode: save creates a new rule with the selected pattern.
       const selectedOption = effectiveOptions[selectedPatternIndex];
       onSave({
         toolName: context.toolName,
@@ -462,7 +457,7 @@ export function ChatRuleEditorModal({
                 <div className="rounded-md bg-[var(--surface-base)] px-3 py-2">
                   <Typography
                     variant="body-small-default"
-                    className="whitespace-pre-wrap break-words font-mono [overflow-wrap:anywhere] text-[var(--content-default)]"
+                    className="whitespace-pre-wrap break-words font-mono leading-snug [overflow-wrap:anywhere] text-[var(--content-default)]"
                   >
                     {generalizedOptions[0]?.label ?? ""}
                   </Typography>
@@ -556,9 +551,9 @@ export function ChatRuleEditorModal({
               {showSuggestionAnnotation && (
                 <Typography
                   variant="label-medium-default"
-                  className="text-[var(--content-tertiary)]"
+                  className="capitalize text-[var(--content-tertiary)]"
                 >
-                  Suggested: {capitalize(suggestion.risk)}
+                  Suggested: {suggestion.risk}
                 </Typography>
               )}
               {riskHint && (
