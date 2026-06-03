@@ -1,6 +1,7 @@
 import { Heart, Monitor, Moon, Sun } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import { Notice } from "@vellum/design-library/components/notice";
 import { SegmentControl } from "@vellum/design-library/components/segment-control";
 import { AssistantPicker } from "@/domains/settings/components/assistant-picker";
 import { AssistantSleepPolicy } from "@/domains/settings/components/assistant-sleep-policy";
@@ -214,6 +215,7 @@ export function GeneralPage() {
   const settingsSleepPolicy = useAssistantFeatureFlagStore.use.settingsSleepPolicy();
   const isLoggedIn = useAuthStore.use.isLoggedIn();
   const platformGate = usePlatformGate();
+  const infraGate = usePlatformGate({ platformHostedOnly: true });
 
   const platformAssistant = assistant?.is_local && !isLocalMode() ? null : assistant;
 
@@ -245,7 +247,7 @@ export function GeneralPage() {
 
       {isLoggedIn && platformGate === "full" && <ProfileCard assistant={platformAssistant} />}
 
-      {assistant && (
+      {infraGate === "full" && assistant && (
         <ResizeCard
           assistant={assistant}
           healthz={healthz}
@@ -255,10 +257,21 @@ export function GeneralPage() {
           refetchUntilResized={refetchUntilResized}
         />
       )}
+      {infraGate === "disabled" && (
+        <DetailCard
+          id="storage-resources"
+          title="Compute & Resources"
+          subtitle="Monitor resource usage and manage your assistant's compute profile."
+        >
+          <Notice tone="info">
+            Log in to the Vellum platform to manage compute resources.
+          </Notice>
+        </DetailCard>
+      )}
 
       <ThemeCard />
 
-      {platformAssistant && (
+      {infraGate === "full" && platformAssistant && (
         <DetailCard title="Software Updates">
           <AssistantUpgrades
             assistantId={platformAssistant.id}
@@ -280,15 +293,32 @@ export function GeneralPage() {
           />
         </DetailCard>
       )}
+      {infraGate === "disabled" && (
+        <DetailCard title="Software Updates">
+          <Notice tone="info">
+            Log in to the Vellum platform to manage software updates.
+          </Notice>
+        </DetailCard>
+      )}
 
       <IOSAppCard />
 
-      {platformAssistant && settingsSleepPolicy && (
+      {infraGate === "full" && platformAssistant && settingsSleepPolicy && (
         <DetailCard
           title="Sleep Policy"
           subtitle="Control how long this assistant stays awake when idle."
         >
           <AssistantSleepPolicy assistantId={platformAssistant.id} />
+        </DetailCard>
+      )}
+      {infraGate === "disabled" && settingsSleepPolicy && (
+        <DetailCard
+          title="Sleep Policy"
+          subtitle="Control how long this assistant stays awake when idle."
+        >
+          <Notice tone="info">
+            Log in to the Vellum platform to manage sleep policy.
+          </Notice>
         </DetailCard>
       )}
 
