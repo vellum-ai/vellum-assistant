@@ -11,35 +11,13 @@ interface SentryBreadcrumbCall {
   message?: string;
   data?: Record<string, unknown>;
 }
-interface SentryCaptureMessageCall {
-  message: string;
-  level?: string;
-  tags?: Record<string, string>;
-  extra?: Record<string, unknown>;
-}
-
 const sentryBreadcrumbs: SentryBreadcrumbCall[] = [];
-const sentryCaptureMessages: SentryCaptureMessageCall[] = [];
 
 mock.module("@sentry/react", () => ({
   addBreadcrumb: (crumb: SentryBreadcrumbCall) => {
     sentryBreadcrumbs.push(crumb);
   },
-  captureMessage: (
-    message: string,
-    options?: {
-      level?: string;
-      tags?: Record<string, string>;
-      extra?: Record<string, unknown>;
-    },
-  ) => {
-    sentryCaptureMessages.push({
-      message,
-      level: options?.level,
-      tags: options?.tags,
-      extra: options?.extra,
-    });
-  },
+  captureMessage: () => {},
   captureException: () => {},
 }));
 
@@ -255,7 +233,6 @@ describe("subscribeEvents idle watchdog", () => {
 
     const eventCountBefore = getLifecycleDiagnosticsEvents().length;
     const breadcrumbsBefore = sentryBreadcrumbs.length;
-    const captureMessagesBefore = sentryCaptureMessages.length;
 
     const sub = subscribeEvents(
       "asst-watchdog",
@@ -284,9 +261,8 @@ describe("subscribeEvents idle watchdog", () => {
       // Centralized platform tag is injected by the diagnostics recorder.
       expect(first.details.platform).toBe("web");
 
-      // Sentry mirrors are how fleet data answers the L2/L3 question.
-      // Without these, telemetry is gated on user-submitted support
-      // bundles, which biases the sample toward broken-and-noisy.
+      // Breadcrumb attaches to nearby Sentry error events for
+      // debugging context.
       const newBreadcrumbs = sentryBreadcrumbs.slice(breadcrumbsBefore);
       const watchdogBreadcrumb = newBreadcrumbs.find(
         (crumb) =>
@@ -298,47 +274,17 @@ describe("subscribeEvents idle watchdog", () => {
         assistantId: "asst-watchdog",
         idleTimeoutMs: 50,
       });
-      const newCaptureMessages = sentryCaptureMessages.slice(
-        captureMessagesBefore,
-      );
-      const watchdogCapture = newCaptureMessages.find(
-        (call) => call.message === "sse_watchdog_fired",
-      );
-      expect(watchdogCapture).toBeDefined();
-      // platform must be a tag (not just an extra) so the L2/L3
-      // breakdown — Capacitor iOS vs web — is one Discover query
-      // away. Sentry's auto-detected os.name does not distinguish
-      // Capacitor iOS from Safari iOS.
-      expect(watchdogCapture!.tags).toMatchObject({
-        context: "sse_watchdog",
-        platform: "web",
-      });
-      expect(watchdogCapture!.extra).toMatchObject({
-        assistantId: "asst-watchdog",
-        idleTimeoutMs: 50,
-      });
     } finally {
       sub.cancel();
     }
   });
 
-  test("tags watchdog fires with wasTurnSending + liveness counters so user-harming vs benign stalls are aggregable", async () => {
-    // The 100% bucket=0 reading on `sse_post_watchdog_reconcile_result`
-    // collapses two populations into one: stalls during an in-flight
-    // turn (user-harming — visible blank screen) and stalls on an
-    // idle stream after a turn completed (benign — user is not
-    // waiting on anything). Without splitting these, the Layer 2/3
-    // decision is uninterpretable, because the L2/L3 work only
-    // helps the first population.
-    //
-    // wasTurnSending is the dimension that splits them: promoted to a
-    // tag so a single Discover groupBy answers "what fraction of
-    // watchdog fires happen while the user is waiting?" The liveness
-    // counters (keepalivesReceivedSinceConnect, dataFramesReceivedSinceConnect,
-    // lastByteAgeMs) further split each population by whether vembda
-    // was alive at the time of the stall, distinguishing
-    // "vembda alive, daemon silent" from "server never responded"
-    // from "stream died mid-turn".
+  test("records wasTurnSending + liveness counters in diagnostics and breadcrumb so user-harming vs benign stalls are distinguishable", async () => {
+    // wasTurnSending splits stalls into two populations: in-flight
+    // turn (user-harming — visible blank screen) vs idle stream
+    // (benign). The liveness counters further split by whether
+    // vembda was alive: "vembda alive, daemon silent" vs "server
+    // never responded" vs "stream died mid-turn".
     globalThis.fetch = mock(
       async () =>
         new Response(
@@ -352,7 +298,7 @@ describe("subscribeEvents idle watchdog", () => {
     ) as unknown as typeof fetch;
 
     const eventCountBefore = getLifecycleDiagnosticsEvents().length;
-    const captureMessagesBefore = sentryCaptureMessages.length;
+    const breadcrumbsBefore = sentryBreadcrumbs.length;
 
     const sub = subscribeEvents(
       "asst-aggregation",
@@ -376,38 +322,24 @@ describe("subscribeEvents idle watchdog", () => {
         (event) => event.kind === "sse_watchdog_fired",
       );
       expect(firstFire).toBeDefined();
-      // The diagnostic carries the same fields as the Sentry extras
-      // so support snapshots (which only ship the diagnostics
-      // buffer, not Sentry events) can answer the same questions.
+      // The diagnostic ring and breadcrumb carry the full context
+      // so both support snapshots and Sentry error events have it.
       expect(firstFire!.details).toMatchObject({
         wasTurnSending: true,
-        // No SSE traffic arrived because the stream stalled on
-        // first byte, so the counters stay at zero and
-        // lastByteAgeMs stays null (distinguishes
-        // "server never responded" from "stream stalled after
-        // some traffic").
         keepalivesReceivedSinceConnect: 0,
         dataFramesReceivedSinceConnect: 0,
         lastByteAgeMs: null,
       });
 
-      const newCaptureMessages = sentryCaptureMessages.slice(
-        captureMessagesBefore,
+      // Breadcrumb carries the same fields for debugging context.
+      const newBreadcrumbs = sentryBreadcrumbs.slice(breadcrumbsBefore);
+      const watchdogBreadcrumb = newBreadcrumbs.find(
+        (crumb) =>
+          crumb.category === "sse.watchdog" &&
+          crumb.message === "watchdog_fired",
       );
-      const watchdogCapture = newCaptureMessages.find(
-        (call) => call.message === "sse_watchdog_fired",
-      );
-      expect(watchdogCapture).toBeDefined();
-      // wasTurnSending is promoted to a TAG (not just extra) so
-      // Discover can groupBy it. String-encoded because Sentry
-      // tag values must be strings.
-      expect(watchdogCapture!.tags).toMatchObject({
-        context: "sse_watchdog",
-        wasTurnSending: "true",
-      });
-      // And mirrored as an extra so per-event drill-in shows the
-      // raw boolean alongside the counters.
-      expect(watchdogCapture!.extra).toMatchObject({
+      expect(watchdogBreadcrumb).toBeDefined();
+      expect(watchdogBreadcrumb!.data).toMatchObject({
         wasTurnSending: true,
         keepalivesReceivedSinceConnect: 0,
         dataFramesReceivedSinceConnect: 0,
@@ -418,14 +350,10 @@ describe("subscribeEvents idle watchdog", () => {
     }
   });
 
-  test("tags wasTurnSending: 'unknown' when no getActiveTurnSending snapshot is supplied", async () => {
-    // Backwards compatibility: callers that have not yet wired the
-    // turn-sending snapshot (e.g. unit tests of subscribeEvents
-    // in isolation, or any caller without turn-sending wiring) must still produce
-    // a tag value, not omit the field. Sentry groups absent tags as
-    // `"<no-tag>"` in Discover, which collides with healthy events
-    // that legitimately have no value. Sending `"unknown"` makes
-    // the missing-instrumentation population explicit.
+  test("records wasTurnSending: null in breadcrumb when no getActiveTurnSending snapshot is supplied", async () => {
+    // Callers without turn-sending wiring produce wasTurnSending: null
+    // in the breadcrumb, distinguishing "caller didn't provide" from
+    // "caller provided false".
     globalThis.fetch = mock(
       async () =>
         new Response(
@@ -438,7 +366,7 @@ describe("subscribeEvents idle watchdog", () => {
         ),
     ) as unknown as typeof fetch;
 
-    const captureMessagesBefore = sentryCaptureMessages.length;
+    const breadcrumbsBefore = sentryBreadcrumbs.length;
 
     const sub = subscribeEvents(
       "asst-no-snapshot",
@@ -450,20 +378,14 @@ describe("subscribeEvents idle watchdog", () => {
     try {
       await new Promise((r) => setTimeout(r, 200));
 
-      const newCaptureMessages = sentryCaptureMessages.slice(
-        captureMessagesBefore,
+      const newBreadcrumbs = sentryBreadcrumbs.slice(breadcrumbsBefore);
+      const watchdogBreadcrumb = newBreadcrumbs.find(
+        (crumb) =>
+          crumb.category === "sse.watchdog" &&
+          crumb.message === "watchdog_fired",
       );
-      const watchdogCapture = newCaptureMessages.find(
-        (call) => call.message === "sse_watchdog_fired",
-      );
-      expect(watchdogCapture).toBeDefined();
-      expect(watchdogCapture!.tags).toMatchObject({
-        wasTurnSending: "unknown",
-      });
-      // Extra remains the raw `null` so per-event drill-in
-      // distinguishes "caller didn't provide" from "caller
-      // provided false".
-      expect(watchdogCapture!.extra).toMatchObject({
+      expect(watchdogBreadcrumb).toBeDefined();
+      expect(watchdogBreadcrumb!.data).toMatchObject({
         wasTurnSending: null,
       });
     } finally {
