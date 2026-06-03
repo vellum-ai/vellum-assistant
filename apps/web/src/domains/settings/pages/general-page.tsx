@@ -14,7 +14,7 @@ import { IOSAppCard } from "@/domains/settings/components/ios-app-card";
 import { MediaEmbedsCard } from "@/domains/settings/components/media-embeds-card";
 import { PreviewReleaseChannel } from "@/domains/settings/components/preview-release-channel";
 import { RetireAssistant } from "@/domains/settings/components/retire-assistant";
-import { DiskPressureBanner, type DiskPressureBannerMode } from "@/domains/chat/components/disk-pressure-banner";
+import { DiskPressureBanner, type DiskPressureBannerMode } from "@/components/disk-pressure-banner";
 import { DetailCard } from "@/components/detail-card";
 import { TimezonePicker } from "@/domains/settings/components/timezone-picker";
 import { ProfileCard } from "@/components/profile-card";
