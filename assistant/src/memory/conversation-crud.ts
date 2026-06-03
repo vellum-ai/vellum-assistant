@@ -890,6 +890,12 @@ export function forkConversation(params: {
       conversationType: params.conversationType ?? "standard",
       groupId: params.groupId ?? parentGroupId ?? "system:all",
       ...(params.source != null ? { source: params.source } : {}),
+      // Inherit the parent's incognito state. A fork copies the parent's
+      // messages, so an incognito parent must produce an incognito fork —
+      // otherwise the copied history (and future messages in the fork) would
+      // be indexed and produce memories, breaking the incognito guarantee.
+      incognito: sourceConversation.incognito === 1,
+      factorInMemories: sourceConversation.factorInMemories === 1,
     });
 
     db.update(conversations)
