@@ -1411,7 +1411,7 @@ jobs:
       - name: Build
         working-directory: apps/web
         env:
-          VITE_PLATFORM_MODE: "false"
+          VITE_PLATFORM_MODE: "true"
         run: bun run build
 
       - name: Rewrite package.json for publish
