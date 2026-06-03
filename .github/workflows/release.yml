@@ -1286,6 +1286,9 @@ jobs:
           node-version-file: .nvmrc
           registry-url: https://registry.npmjs.org
 
+      - name: Sync feature flag registry for publish
+        run: bun run meta/feature-flags/sync-bundled-copies.ts
+
       - name: Install and publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
