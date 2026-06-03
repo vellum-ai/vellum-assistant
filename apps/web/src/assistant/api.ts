@@ -323,6 +323,13 @@ function parseDaemonBackups(
       ? (data as Record<string, unknown>)
       : {};
 
+  // Defensive: if the daemon SDK request fell through to Django
+  // (platform-hosted, no gateway intercept) it returns
+  // `{ backups: BackupItem[] }` instead of the daemon format.
+  if (Array.isArray(raw.backups)) {
+    return raw.backups as AssistantBackup[];
+  }
+
   const body = raw as {
     local?: { snapshots?: DaemonSnapshot[] };
     offsite?: Array<{ snapshots?: DaemonSnapshot[] }>;
@@ -382,10 +389,23 @@ function parsePlatformBackups(
 export async function listAssistantBackups(
   assistantId: string,
 ): Promise<ListBackupsResult> {
-  const daemonResult = await backupsGet({
-    path: { assistant_id: assistantId },
-    throwOnError: false,
-  });
+  // For platform-hosted assistants the K8s PVC backups are managed by
+  // the platform (vembda), not the daemon. Fetch both in parallel when
+  // no self-hosted ingress is configured.
+  const needsPlatform = !getSelfHostedIngressUrl();
+
+  const [daemonResult, platformResult] = await Promise.all([
+    backupsGet({
+      path: { assistant_id: assistantId },
+      throwOnError: false,
+    }),
+    needsPlatform
+      ? assistantsBackupsRetrieve({
+          path: { assistant_id: assistantId },
+          throwOnError: false,
+        })
+      : null,
+  ]);
 
   assertHasResponse(
     daemonResult.response,
@@ -403,15 +423,7 @@ export async function listAssistantBackups(
 
   const daemonSnapshots = parseDaemonBackups(daemonResult.data);
 
-  // For platform-hosted assistants the K8s PVC backups are managed by
-  // the platform (vembda), not the daemon. Fetch them in parallel when
-  // no self-hosted ingress is configured.
-  if (!getSelfHostedIngressUrl()) {
-    const platformResult = await assistantsBackupsRetrieve({
-      path: { assistant_id: assistantId },
-      throwOnError: false,
-    });
-
+  if (platformResult) {
     if (platformResult.response?.ok) {
       const platformSnapshots = parsePlatformBackups(platformResult.data);
       return {
