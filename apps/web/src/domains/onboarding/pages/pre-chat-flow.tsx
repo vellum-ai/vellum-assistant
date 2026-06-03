@@ -158,8 +158,8 @@ export function PreChatFlow() {
     persistNativeStep(currentStep === "nativeVibe" ? "nativeVibe" : null);
   }, [isNative, currentStep, persistNativeStep]);
 
-  const hasPlatformSession = useAuthStore.use.hasPlatformSession();
-  const platformSessionResolved = useAuthStore.use.platformSessionResolved();
+  const platformSession = useAuthStore.use.platformSession();
+  const hasPlatformSession = platformSession === "present";
   const [selectedTools, setSelectedTools] = useState<Set<string>>(
     () => new Set(),
   );
@@ -208,8 +208,7 @@ export function PreChatFlow() {
   // the funnel up so a returning user isn't raced past their steps.
   const platformFunnelAvailable = isPlatformFunnelAvailable({
     localMode,
-    hasPlatformSession,
-    platformSessionResolved,
+    platformSession,
     hasCachedPlatformAssistant: localPlatformAssistantId !== null,
   });
   const canOfferGoogleStep = platformFunnelAvailable;

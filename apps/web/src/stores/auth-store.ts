@@ -78,19 +78,29 @@ function toAuthUser(raw: RawSessionUser | null): AuthUser | null {
   };
 }
 
+/**
+ * Platform-session liveness as a single tri-state.
+ *
+ * - `"unknown"`: the probe has not settled yet. The local gateway path sets
+ *   `isLoading: false` before `getSession()` returns, so there is a window
+ *   where logged-in status is known but session liveness is not. Imperative
+ *   consumers (the onboarding fork) must wait this out before deciding;
+ *   reactive consumers treat it as "no session" but a cached platform
+ *   assistant can stand in as a liveness hint.
+ * - `"absent"`: the probe settled with no live platform session.
+ * - `"present"`: the probe settled with a live platform session.
+ *
+ * Encoding it as one value makes "false that really means unknown"
+ * unrepresentable, which is the ambiguity that let missing-session readers
+ * silently treat the pre-settle window as a confirmed negative.
+ */
+export type PlatformSessionStatus = "unknown" | "absent" | "present";
+
 interface AuthState {
   isLoggedIn: boolean;
   isLoading: boolean;
   user: AuthUser | null;
-  hasPlatformSession: boolean;
-  /**
-   * Whether the platform-session probe has settled. The local gateway path
-   * sets `isLoading: false` before probing `getSession()`, so `false` here
-   * means "unknown", not "no session" — consumers that gate on a missing
-   * session must wait for this to flip true before treating the absence as
-   * confirmed.
-   */
-  platformSessionResolved: boolean;
+  platformSession: PlatformSessionStatus;
 }
 
 interface AuthActions {
@@ -100,6 +110,15 @@ interface AuthActions {
 }
 
 type AuthStore = AuthState & AuthActions;
+
+/**
+ * The store's `set`, narrowed to what the probe needs: a partial patch or a
+ * functional updater that reads current state (used to resolve the first
+ * settle without clobbering a value a newer probe already wrote).
+ */
+type AuthSet = (
+  partial: Partial<AuthState> | ((state: AuthState) => Partial<AuthState>),
+) => void;
 
 let previousUserId: string | null = null;
 let broadcastChannel: BroadcastChannel | null = null;
@@ -133,62 +152,72 @@ function syncUserScopedState(nextUserId: string | null): void {
 // Monotonic id stamped on each platform-session probe. Probes can overlap
 // (an app-resume refresh firing while the initial probe is still in flight),
 // and a stale completion must not mutate session state — most importantly it
-// must not flip `platformSessionResolved` back to `true` while a newer probe
-// is still pending, which would resurface the very race this state guards.
-// Only the latest probe's id matches `latestPlatformProbe`, so older probes
-// no-op.
+// must not move `platformSession` while a newer probe is still pending, which
+// would resurface the very race this state guards. Only the latest probe's id
+// matches `latestPlatformProbe`, so older probes no-op.
 let latestPlatformProbe = 0;
 
 /**
  * Run the fire-and-forget platform-session probe used by the local gateway
  * auth paths, which return control before the session is known.
  *
- * `platformSessionResolved` is reset to `false` up front and flipped back to
- * `true` only once the probe settles, so a *re-run* probe (app-resume refresh,
- * return from a provider callback) re-enters the "unknown" state instead of
- * leaving a stale `true` from the previous probe. Consumers that treat a
- * missing session as confirmed must wait for this flip; until then a cached
- * platform assistant stands in as a liveness signal.
+ * The probe never reopens the `"unknown"` window: a re-run (app-resume
+ * refresh, return from a provider callback) leaves the last `"present"` /
+ * `"absent"` in place until the new result lands, so reactive consumers keep
+ * showing the last-known session instead of flickering on every resume. Only
+ * the initial boot probe starts from `"unknown"`, and the `.finally` settle
+ * resolves that first `"unknown"` to `"absent"` when neither branch confirmed
+ * a session.
  *
  * Overlapping probes are resolved latest-wins: each call captures a probe id
  * and only the newest probe is allowed to settle state, so a slower earlier
- * probe cannot retire the "unknown" window a later probe just opened.
+ * probe cannot overwrite the result of a later one.
  *
  * `setUserOnSuccess` adopts the probed user as the active user (the
  * no-platform-assistant local path, which starts as the placeholder local
- * user). `clearOnFailure` drives `hasPlatformSession` to `false` on a negative
+ * user). `clearOnFailure` drives the status to `"absent"` on a negative
  * result (the refresh path, which must retract a session that has ended);
  * init paths leave a prior optimistic value untouched.
  */
 function probePlatformSession(
-  set: (partial: Partial<AuthState>) => void,
+  set: AuthSet,
   options: { setUserOnSuccess?: boolean; clearOnFailure?: boolean } = {},
 ): void {
   const probeId = ++latestPlatformProbe;
   const isStale = (): boolean => probeId !== latestPlatformProbe;
-  set({ platformSessionResolved: false });
   getSession()
     .then((result) => {
       if (isStale()) return;
       if (result.ok && result.data.user) {
-        const next: Partial<AuthState> = { hasPlatformSession: true };
-        if (options.setUserOnSuccess) {
-          next.user = toAuthUser(result.data.user);
-        }
-        set(next);
+        set(
+          options.setUserOnSuccess
+            ? {
+                platformSession: "present",
+                user: toAuthUser(result.data.user),
+              }
+            : { platformSession: "present" },
+        );
       } else if (options.clearOnFailure) {
-        set({ hasPlatformSession: false });
+        set({ platformSession: "absent" });
       }
     })
     .catch(() => {
       if (isStale()) return;
       if (options.clearOnFailure) {
-        set({ hasPlatformSession: false });
+        set({ platformSession: "absent" });
       }
     })
     .finally(() => {
       if (isStale()) return;
-      set({ platformSessionResolved: true });
+      // Settle the initial boot probe: when neither branch above confirmed or
+      // cleared a session (init paths don't clear on failure), the first
+      // `"unknown"` resolves to `"absent"`. A probe that already settled
+      // `"present"`/`"absent"` is left untouched.
+      set((state) =>
+        state.platformSession === "unknown"
+          ? { platformSession: "absent" }
+          : {},
+      );
     });
 }
 
@@ -196,8 +225,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
   isLoggedIn: false,
   isLoading: true,
   user: null,
-  hasPlatformSession: false,
-  platformSessionResolved: false,
+  platformSession: "unknown",
 
   initSession: async () => {
     if (isGatewayAuthEnabled()) {
@@ -210,7 +238,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       if (!isLocalMode() || getPlatformAssistants().length > 0) {
         probePlatformSession(set);
       } else {
-        set({ platformSessionResolved: true });
+        set({ platformSession: "absent" });
       }
       return;
     }
@@ -230,27 +258,27 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
               if (apiAssistants.ok) {
                 await syncPlatformAssistantsToLockfile(apiAssistants.data);
                 if (getPlatformAssistants().length === 0 && getLocalAssistants().length === 0) {
-                  set({ isLoggedIn: true, isLoading: false, user, hasPlatformSession: true, platformSessionResolved: true });
+                  set({ isLoggedIn: true, isLoading: false, user, platformSession: "present" });
                   return;
                 }
               }
             } catch {
               // Sync failed — continue with cached data
             }
-            set({ isLoggedIn: true, isLoading: false, user, hasPlatformSession: true, platformSessionResolved: true });
+            set({ isLoggedIn: true, isLoading: false, user, platformSession: "present" });
             return;
           }
         } catch {
           // Session check failed — fall through to unauthenticated
         }
-        set({ isLoggedIn: false, isLoading: false, user: null, platformSessionResolved: true });
+        set({ isLoggedIn: false, isLoading: false, user: null, platformSession: "absent" });
         return;
       }
       set({ isLoggedIn: true, isLoading: false, user: GATEWAY_LOCAL_USER });
       if (!suppressPlatformProbe) {
         probePlatformSession(set, { setUserOnSuccess: true });
       } else {
-        set({ platformSessionResolved: true });
+        set({ platformSession: "absent" });
       }
       suppressPlatformProbe = false;
       return;
@@ -261,7 +289,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       if (result.ok && result.data.user) {
         const user = toAuthUser(result.data.user);
         syncUserScopedState(user?.id ?? null);
-        set({ isLoggedIn: true, isLoading: false, user, hasPlatformSession: true, platformSessionResolved: true });
+        set({ isLoggedIn: true, isLoading: false, user, platformSession: "present" });
         return;
       }
     } catch (err) {
@@ -280,7 +308,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
           if (retryResult.ok && retryResult.data.user) {
             const user = toAuthUser(retryResult.data.user);
             syncUserScopedState(user?.id ?? null);
-            set({ isLoggedIn: true, isLoading: false, user, hasPlatformSession: true, platformSessionResolved: true });
+            set({ isLoggedIn: true, isLoading: false, user, platformSession: "present" });
             return;
           }
         }
@@ -290,7 +318,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
     }
 
     syncUserScopedState(null);
-    set({ isLoggedIn: false, isLoading: false, user: null, platformSessionResolved: true });
+    set({ isLoggedIn: false, isLoading: false, user: null, platformSession: "absent" });
   },
 
   refreshSession: async () => {
@@ -299,13 +327,13 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
         await ensureGatewayToken(getLocalTokenUrl());
         set({ isLoggedIn: true });
       } catch {
-        set({ isLoggedIn: false, user: null, hasPlatformSession: false });
+        set({ isLoggedIn: false, user: null, platformSession: "absent" });
         return false;
       }
       if (!isLocalMode() || getPlatformAssistants().length > 0) {
         probePlatformSession(set, { clearOnFailure: true });
       } else {
-        set({ platformSessionResolved: true });
+        set({ platformSession: "absent" });
       }
       return true;
     }
@@ -315,14 +343,14 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       if (result.ok && result.data.user) {
         const user = toAuthUser(result.data.user);
         syncUserScopedState(user?.id ?? null);
-        set({ isLoggedIn: true, user, hasPlatformSession: true, platformSessionResolved: true });
+        set({ isLoggedIn: true, user, platformSession: "present" });
         return true;
       }
     } catch (err) {
       console.warn("auth.refreshSession failed", err);
     }
     syncUserScopedState(null);
-    set({ isLoggedIn: false, user: null, hasPlatformSession: false, platformSessionResolved: true });
+    set({ isLoggedIn: false, user: null, platformSession: "absent" });
     return false;
   },
 
@@ -338,7 +366,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       // their first re-render. The `respondToInputs` `!isLoggedIn`
       // branch is the safety net for token-expiry-style flips.
       lifecycleService.resetForLogout();
-      set({ isLoggedIn: false, user: null, hasPlatformSession: false, platformSessionResolved: true });
+      set({ isLoggedIn: false, user: null, platformSession: "absent" });
       broadcastAuthChange();
       return;
     }
@@ -355,7 +383,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       clearOrganization();
       clearUserScopedStorage();
       lifecycleService.resetForLogout();
-      set({ isLoggedIn: false, user: null, hasPlatformSession: false, platformSessionResolved: true });
+      set({ isLoggedIn: false, user: null, platformSession: "absent" });
       broadcastAuthChange();
     }
   },

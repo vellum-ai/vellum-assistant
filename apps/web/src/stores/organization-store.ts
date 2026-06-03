@@ -196,9 +196,11 @@ export function setupOrganizationStore(): () => void {
   //    platform concept; skip the fetch when there's no platform session
   //    (e.g. self-hosted/local mode with gateway-only auth).
   const unsubAuth = useAuthStore.subscribe((state, prevState) => {
+    const hasSession = state.platformSession === "present";
+    const hadSession = prevState.platformSession === "present";
     if (
-      state.hasPlatformSession &&
-      (!prevState.hasPlatformSession || state.user?.id !== prevState.user?.id)
+      hasSession &&
+      (!hadSession || state.user?.id !== prevState.user?.id)
     ) {
       useOrganizationStore.getState().fetchOrganizations();
     }
@@ -206,7 +208,7 @@ export function setupOrganizationStore(): () => void {
 
   // 2. App resume — refetch if stale and platform session is active.
   const refetchIfStale = () => {
-    if (!useAuthStore.getState().hasPlatformSession) return;
+    if (useAuthStore.getState().platformSession !== "present") return;
     const { status } = useOrganizationStore.getState();
     if (
       (status === "ready" || status === "error") &&

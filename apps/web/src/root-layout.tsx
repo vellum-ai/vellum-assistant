@@ -57,7 +57,7 @@ export function RootLayout() {
   const navigate = useNavigate();
   const isLoggedIn = useAuthStore.use.isLoggedIn();
   const authLoading = useAuthStore.use.isLoading();
-  const hasPlatformSession = useAuthStore.use.hasPlatformSession();
+  const hasPlatformSession = useAuthStore.use.platformSession() === "present";
   const isNonProduction = useEnvironmentStore.use.isNonProduction();
   useClientFeatureFlagSync(hasPlatformSession && !authLoading);
   useAssistantLifecycle({

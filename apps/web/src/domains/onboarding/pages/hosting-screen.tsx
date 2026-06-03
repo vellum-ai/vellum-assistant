@@ -24,7 +24,7 @@ interface HostingOption {
 const ICON_CLASS = "h-5 w-5 shrink-0 text-[var(--content-secondary)]";
 
 function useHostingOptions(): HostingOption[] {
-  const hasPlatformSession = useAuthStore.use.hasPlatformSession();
+  const hasPlatformSession = useAuthStore.use.platformSession() === "present";
 
   return [
     {
@@ -56,7 +56,7 @@ function useHostingOptions(): HostingOption[] {
 
 export function HostingScreen() {
   const navigate = useNavigate();
-  const hasPlatformSession = useAuthStore.use.hasPlatformSession();
+  const hasPlatformSession = useAuthStore.use.platformSession() === "present";
   const options = useHostingOptions();
   const [selected, setSelected] = useState<HostingMode>(
     hasPlatformSession ? "vellum-cloud" : "local",

@@ -13,6 +13,7 @@ import {
   STORAGE_KEY,
 } from "@/domains/onboarding/prechat";
 import { routes } from "@/utils/routes";
+import type { PlatformSessionStatus } from "@/stores/auth-store";
 
 let searchParams = new URLSearchParams();
 const navigateMock = mock(() => {});
@@ -67,8 +68,7 @@ let isMacOSWeb = false;
 let iosAppDownloaded = true;
 let macOsAppDownloaded = true;
 let isLocalModeValue = false;
-let hasPlatformSessionValue = false;
-let platformSessionResolvedValue = true;
+let platformSessionValue: PlatformSessionStatus = "absent";
 let fetchOnboardingRecipeImpl: () => Promise<TestOnboardingRecipe | null> =
   async () => null;
 const fetchOnboardingRecipeMock = mock(() => fetchOnboardingRecipeImpl());
@@ -210,8 +210,7 @@ mock.module("@/stores/auth-store", () => ({
       }),
       isLoggedIn: () => true,
       isLoading: () => false,
-      hasPlatformSession: () => hasPlatformSessionValue,
-      platformSessionResolved: () => platformSessionResolvedValue,
+      platformSession: () => platformSessionValue,
     },
   },
 }));
@@ -349,8 +348,7 @@ beforeEach(() => {
   iosAppDownloaded = true;
   macOsAppDownloaded = true;
   isLocalModeValue = false;
-  hasPlatformSessionValue = false;
-  platformSessionResolvedValue = true;
+  platformSessionValue = "absent";
   fetchOnboardingRecipeImpl = async () => null;
   sessionStorage.clear();
   localStorage.clear();
@@ -599,7 +597,7 @@ describe("onboarding lifecycle sync", () => {
   test("local mode without a platform session gates the prior-assistants step", async () => {
     prechatOnboardingCondensedFlow = false;
     isLocalModeValue = true;
-    hasPlatformSessionValue = false;
+    platformSessionValue = "absent";
 
     render(<PreChatFlow />);
 
@@ -620,7 +618,7 @@ describe("onboarding lifecycle sync", () => {
   test("local mode with a platform session shows the prior-assistants step", async () => {
     prechatOnboardingCondensedFlow = false;
     isLocalModeValue = true;
-    hasPlatformSessionValue = true;
+    platformSessionValue = "present";
 
     render(<PreChatFlow />);
 

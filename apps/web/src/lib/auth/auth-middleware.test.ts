@@ -52,8 +52,7 @@ describe("authMiddleware — local-mode onboarding fork", () => {
       isLoggedIn: true,
       isLoading: false,
       user: fakeUser,
-      hasPlatformSession: false,
-      platformSessionResolved: false,
+      platformSession: "unknown",
     });
 
     let settled: Response | null = null;
@@ -67,10 +66,7 @@ describe("authMiddleware — local-mode onboarding fork", () => {
     expect(settled).toBeNull();
 
     // Probe settles with a live platform session.
-    useAuthStore.setState({
-      hasPlatformSession: true,
-      platformSessionResolved: true,
-    });
+    useAuthStore.setState({ platformSession: "present" });
     await pending;
 
     expect(settled).not.toBeNull();
@@ -83,8 +79,7 @@ describe("authMiddleware — local-mode onboarding fork", () => {
       isLoggedIn: true,
       isLoading: false,
       user: fakeUser,
-      hasPlatformSession: false,
-      platformSessionResolved: true,
+      platformSession: "absent",
     });
 
     const res = await runMiddleware(routes.home);
@@ -97,8 +92,7 @@ describe("authMiddleware — local-mode onboarding fork", () => {
       isLoggedIn: true,
       isLoading: false,
       user: fakeUser,
-      hasPlatformSession: true,
-      platformSessionResolved: true,
+      platformSession: "present",
     });
 
     const res = await runMiddleware(routes.home);

@@ -121,8 +121,7 @@ function resetAuthStore(): void {
     isLoggedIn: false,
     isLoading: true,
     user: null,
-    hasPlatformSession: false,
-    platformSessionResolved: false,
+    platformSession: "unknown",
   });
 }
 
@@ -219,67 +218,60 @@ describe("session cleanup on logout", () => {
 
 describe("platform session probe resolution", () => {
   // A returning local-gateway user re-runs the platform probe on app resume.
-  // The gate must re-enter the "unknown" state for the probe window instead of
-  // leaving a stale `true` from the previous probe — otherwise a cached
-  // platform assistant stops standing in for the session and the onboarding
-  // funnel can be raced past before the probe settles.
-  test("a re-run gateway probe resets platformSessionResolved until it settles", async () => {
+  // The probe must NOT reopen the "unknown" window: it leaves the last-known
+  // "present"/"absent" in place until the new result lands, so a cached
+  // platform assistant keeps standing in for the session and reactive
+  // consumers don't flicker mid-session.
+  test("a re-run gateway probe retains the last status until it settles", async () => {
     mockIsGatewayAuth = true;
     mockIsLocalMode = false;
     sessionUser = { id: "user-1", email: "user@example.com" };
-    useAuthStore.setState({
-      platformSessionResolved: true,
-      hasPlatformSession: false,
-    });
+    useAuthStore.setState({ platformSession: "absent" });
 
     const gates: Array<() => void> = [];
     getSessionGates = gates;
 
     await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
 
-    // Probe launched but not settled: state is unknown again, not a stale true.
-    expect(useAuthStore.getState().platformSessionResolved).toBe(false);
+    // Probe launched but not settled: the prior status is retained, not reset
+    // to "unknown".
+    expect(useAuthStore.getState().platformSession).toBe("absent");
 
     gates[0]();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(useAuthStore.getState().platformSessionResolved).toBe(true);
-    expect(useAuthStore.getState().hasPlatformSession).toBe(true);
+    expect(useAuthStore.getState().platformSession).toBe("present");
   });
 
   // Two probes can overlap — an app-resume refresh firing while the initial
   // probe is still in flight. If a slower earlier probe settles after a newer
-  // one starts, it must not flip platformSessionResolved back to true while the
-  // newer probe is pending; otherwise isPlatformFunnelAvailable would treat the
-  // not-yet-known session as confirmed-absent and drop the funnel.
-  test("a stale probe completing after a newer one does not settle resolution", async () => {
+  // one starts, its result must be discarded so it can't overwrite the newer
+  // probe's outcome.
+  test("a stale probe completing after a newer one does not change status", async () => {
     mockIsGatewayAuth = true;
     mockIsLocalMode = false;
     sessionUser = { id: "user-1", email: "user@example.com" };
-    useAuthStore.setState({
-      platformSessionResolved: true,
-      hasPlatformSession: false,
-    });
+    useAuthStore.setState({ platformSession: "absent" });
 
     const gates: Array<() => void> = [];
     getSessionGates = gates;
 
-    // Launch two overlapping probes; both reset resolution to unknown.
+    // Launch two overlapping probes; neither has settled, so the prior status
+    // is still retained.
     await useAuthStore.getState().refreshSession();
     await useAuthStore.getState().refreshSession();
     expect(gates.length).toBe(2);
-    expect(useAuthStore.getState().platformSessionResolved).toBe(false);
+    expect(useAuthStore.getState().platformSession).toBe("absent");
 
-    // Settle the older probe first: it is stale, so it must not resolve.
+    // Settle the older probe first: it is stale, so it must not write status.
     gates[0]();
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(useAuthStore.getState().platformSessionResolved).toBe(false);
+    expect(useAuthStore.getState().platformSession).toBe("absent");
 
-    // The newest probe settling is what flips resolution to true.
+    // The newest probe settling is what moves status to "present".
     gates[1]();
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(useAuthStore.getState().platformSessionResolved).toBe(true);
-    expect(useAuthStore.getState().hasPlatformSession).toBe(true);
+    expect(useAuthStore.getState().platformSession).toBe("present");
   });
 });
 
