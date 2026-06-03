@@ -51,6 +51,7 @@ mock.module(
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
+import { buildTurnActivity } from "@/domains/chat/transcript/turn-activity";
 
 import { textBody } from "@/domains/chat/utils/message-test-helpers";
 const noop = () => {};
@@ -948,5 +949,146 @@ describe("TranscriptMessageBody", () => {
     // THEN both the thinking block and the tool-call card render
     expect(html).toContain("Thought process");
     expect(html).toContain('data-testid="tool-progress-card"');
+  });
+
+  function renderedAnchorIds(container: HTMLElement): string[] {
+    return Array.from(
+      container.querySelectorAll("[data-activity-anchor]"),
+    ).map((el) => el.getAttribute("data-activity-anchor")!);
+  }
+
+  function projectedAnchorIds(message: DisplayMessage): string[] {
+    return buildTurnActivity(message).steps.map((s) => s.anchorId);
+  }
+
+  test("interleaved render anchors exactly match buildTurnActivity step anchors", () => {
+    const message: DisplayMessage = {
+      id: "m-anchor-interleaved",
+      role: "assistant",
+      textSegments: ["done"],
+      thinkingSegments: ["why I called the tool", "more reasoning"],
+      contentOrder: [
+        { type: "thinking", id: "0" },
+        { type: "toolCall", id: "0" },
+        { type: "thinking", id: "1" },
+        { type: "toolCall", id: "1" },
+        { type: "text", id: "0" },
+      ],
+      toolCalls: [
+        { id: "tc-a", toolName: "bash", input: {}, status: "completed" },
+        { id: "tc-b", toolName: "bash", input: {}, status: "completed" },
+      ],
+      timestamp: 1_000,
+    };
+
+    const { container } = render(
+      <TranscriptMessageBody
+        message={message}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    const projected = projectedAnchorIds(message);
+    expect(projected.length).toBe(4);
+    // Interleaved DOM order matches projection order exactly.
+    expect(renderedAnchorIds(container)).toEqual(projected);
+  });
+
+  test("legacy render anchors exactly match buildTurnActivity step anchors", () => {
+    const message: DisplayMessage = {
+      id: "m-anchor-legacy",
+      role: "assistant",
+      textSegments: ["the answer"],
+      thinkingSegments: ["chain of thought"],
+      contentOrder: [{ type: "thinking", id: "0" }],
+      toolCalls: [
+        { id: "tc-legacy", toolName: "bash", input: {}, status: "completed" },
+      ],
+      timestamp: 1_000,
+    };
+
+    const { container } = render(
+      <TranscriptMessageBody
+        message={message}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    const projected = projectedAnchorIds(message);
+    expect(projected.length).toBe(2);
+    // The legacy DOM renders the trailing tool card above the reasoning block,
+    // while the projection lists thinking first then the trailing tool step —
+    // so the anchor *ids* are byte-identical but emitted in a different order.
+    // Compare as sets to assert the critical render-id === projection-id match.
+    expect(new Set(renderedAnchorIds(container))).toEqual(new Set(projected));
+  });
+
+  test("a subagent-spawn-only group produces no activity anchor", () => {
+    const message: DisplayMessage = {
+      id: "m-spawn-only",
+      role: "assistant",
+      textSegments: ["spawning"],
+      contentOrder: [
+        { type: "toolCall", id: "0" },
+        { type: "text", id: "0" },
+      ],
+      toolCalls: [
+        {
+          id: "tc-spawn",
+          toolName: "subagent_spawn",
+          input: {},
+          status: "completed",
+        },
+      ],
+      timestamp: 1_000,
+    };
+
+    const { container } = render(
+      <TranscriptMessageBody
+        message={message}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(projectedAnchorIds(message)).toEqual([]);
+    expect(renderedAnchorIds(container)).toEqual([]);
+  });
+
+  test("a suppressed ui_show group produces no activity anchor", () => {
+    const message: DisplayMessage = {
+      id: "m-ui-show",
+      role: "assistant",
+      textSegments: ["showing UI"],
+      contentOrder: [
+        { type: "toolCall", id: "0" },
+        { type: "text", id: "0" },
+      ],
+      toolCalls: [
+        { id: "tc-ui", toolName: "ui_show", input: {}, status: "completed" },
+      ],
+      timestamp: 1_000,
+    };
+
+    const { container } = render(
+      <TranscriptMessageBody
+        message={message}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(projectedAnchorIds(message)).toEqual([]);
+    expect(renderedAnchorIds(container)).toEqual([]);
   });
 });
