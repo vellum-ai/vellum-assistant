@@ -678,7 +678,12 @@ describe("buildSystemPrompt", () => {
       // communication guidance leads the operational sections.
       const result = buildSystemPrompt();
       expect(result).toContain("## Communication");
-      expect(result).toContain("keep your reasoning and tool calls adjacent");
+      // The core rule: deliberation belongs in private thinking, not text.
+      expect(result).toContain(
+        "in your private thinking — never in user-facing text",
+      );
+      // The section is self-editable, mirroring IDENTITY.md.
+      expect(result).toContain("prompts/system/01-communication.md");
       const communicationIdx = result.indexOf("## Communication");
       const parallelIdx = result.indexOf("<use_parallel_tool_calls>");
       expect(communicationIdx).toBeGreaterThan(-1);
