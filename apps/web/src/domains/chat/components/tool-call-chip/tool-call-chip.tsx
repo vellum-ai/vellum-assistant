@@ -46,6 +46,7 @@ export interface ToolCallChipProps {
     scopeOptions: ScopeOption[];
     riskScopeOptions: RiskScopeOption[];
     directoryScopeOptions: DirectoryScopeOption[];
+    matchedTrustRuleId?: string;
   }) => void;
   isSubmittingConfirmation?: boolean;
   isActiveConfirmation?: boolean;
@@ -336,6 +337,7 @@ export function ToolCallChip({
                 scopeOptions: toolCall.scopeOptions ?? [],
                 riskScopeOptions: toolCall.riskScopeOptions ?? [],
                 directoryScopeOptions: toolCall.directoryScopeOptions ?? [],
+                matchedTrustRuleId: toolCall.matchedTrustRuleId,
               });
             }}
             // typography: off-scale — compact risk badge pill
