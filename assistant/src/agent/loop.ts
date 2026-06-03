@@ -787,7 +787,7 @@ export class AgentLoop {
     // plugin consumers don't import the window manager; the loop ran the
     // pipeline, so it interprets the concrete result here.
     const compactResult = result as ContextWindowResult;
-    // `force: true` bypasses the cooldown/threshold gates, but early returns
+    // `force: true` bypasses the auto-threshold gate, but early returns
     // for "no eligible messages" / "insufficient messages" still leave
     // `summaryFailed` undefined. Only record an outcome when the summary LLM
     // actually ran.
