@@ -32,53 +32,29 @@ import type { RuleEditorContext } from "@/domains/chat/hooks/use-interaction-act
  * When the tool call shipped its own allowlist ladder (`handleOpenRuleEditor-
  * ForToolCall`'s 3-tier `riskAllowlistOptions → riskScopeOptions` resolution),
  * we use it verbatim — index 0 is the narrowest exact match, which the UI
- * skips. Otherwise the ladder is synthesized from the LLM suggestion so its
- * recommendation is selectable instead of a bare wildcard:
- *   (a) the suggested `pattern` (pre-selected), then
- *   (b) any `scopeOptions` ladder the suggestion returned,
- *   then a tier-3 fallback option.
+ * skips. Otherwise a single tier-3 fallback is synthesized, mirroring macOS
+ * `scopeOptions(from:)`: the raw command itself, collapsing to the
+ * "Any {toolName} call" wildcard only when the input is natural language
+ * (command text == reason) or empty.
  *
- * The tier-3 fallback mirrors macOS `scopeOptions(from:)`: the raw command
- * itself, collapsing to the "Any {toolName} call" wildcard only when the input
- * is natural language (command text == reason) or empty.
+ * The LLM suggestion never contributes to this list (matching macOS); it only
+ * pre-selects a matching option and sets the risk level (see the effect below).
  */
 function buildApplyToOptions(
   allowlistOptions: AllowlistOption[],
   toolName: string,
-  suggestion: RuleEditorContext["suggestion"],
   commandText: string,
   commandDescription: string,
 ): AllowlistOption[] {
   if (allowlistOptions.length > 0) {
     return allowlistOptions;
   }
-  const synthesized: AllowlistOption[] = [];
-  const hasPattern = (p: string) => synthesized.some((o) => o.pattern === p);
-  if (suggestion?.pattern && !hasPattern(suggestion.pattern)) {
-    // Show the human description plus the actual pattern as code, e.g.
-    // "Set assistant avatar image (`assistant avatar set *`)".
-    synthesized.push({
-      pattern: suggestion.pattern,
-      label: suggestion.description
-        ? `${suggestion.description} (${asCode(suggestion.pattern)})`
-        : asCode(suggestion.pattern),
-      description: suggestion.description ?? "",
-    });
-  }
-  for (const o of suggestion?.scopeOptions ?? []) {
-    if (!hasPattern(o.pattern)) {
-      synthesized.push({ pattern: o.pattern, label: o.label, description: "" });
-    }
-  }
   const raw = commandText.trim();
   const isNaturalLanguage = raw.length > 0 && raw === commandDescription.trim();
   const fallbackPattern = !raw || isNaturalLanguage ? "*" : raw;
   const fallbackLabel =
     fallbackPattern === "*" ? `Any ${toolName} call` : asCode(fallbackPattern);
-  if (!hasPattern(fallbackPattern)) {
-    synthesized.push({ label: fallbackLabel, description: "", pattern: fallbackPattern });
-  }
-  return synthesized;
+  return [{ label: fallbackLabel, description: "", pattern: fallbackPattern }];
 }
 
 /**
@@ -210,7 +186,7 @@ export function ChatRuleEditorModal({
   onSaveAsNew,
   onDismiss,
 }: ChatRuleEditorModalProps) {
-  const { existingRule, suggestion, suggestionPending } = context;
+  const { existingRule, suggestion } = context;
   const isEditMode = !!existingRule;
 
   const optionsFromToolCall = context.allowlistOptions.length > 0;
@@ -219,22 +195,20 @@ export function ChatRuleEditorModal({
       buildApplyToOptions(
         context.allowlistOptions,
         context.toolName,
-        suggestion,
         context.commandText,
         context.commandDescription,
       ),
     [
       context.allowlistOptions,
       context.toolName,
-      suggestion,
       context.commandText,
       context.commandDescription,
     ],
   );
 
-  // Index 0 is a skippable exact match only for tool-call ladders; synthesized
-  // (suggestion-derived) lists have no exact match to skip. This offset drives
-  // all the index math below so both shapes render the right rows.
+  // Index 0 is a skippable exact match only for tool-call ladders; the
+  // synthesized single-option fallback has no exact match to skip. This offset
+  // drives all the index math below so both shapes render the right rows.
   const generalizationOffset =
     optionsFromToolCall && effectiveOptions.length > 1 ? 1 : 0;
 
@@ -513,20 +487,6 @@ export function ChatRuleEditorModal({
                     </>
                   )}
                 </>
-              ) : suggestionPending && !suggestion && !optionsFromToolCall ? (
-                // Suggestion still loading and no tool-call ladder: show a
-                // loading row instead of the bare wildcard, so the option list
-                // doesn't flash "Any {tool} call" then re-render once the
-                // suggested pattern arrives.
-                <div className="flex items-center gap-2 rounded-md bg-[var(--surface-base)] px-3 py-2">
-                  <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-[var(--content-tertiary)] border-t-transparent" />
-                  <Typography
-                    variant="body-medium-default"
-                    className="text-[var(--content-tertiary)]"
-                  >
-                    Finding a suggested rule…
-                  </Typography>
-                </div>
               ) : pipelineCollapsed || generalizedOptions.length === 1 ? (
                 <div className="rounded-md bg-[var(--surface-base)] px-3 py-2">
                   <Typography

@@ -113,9 +113,6 @@ export interface RuleEditorContext {
   commandDescription: string;
   existingRule?: TrustRuleItem;
   suggestion?: TrustRuleSuggestion;
-  /** True while the background suggestion fetch is in flight (drives the
-   *  "Apply to" loading state so options don't flash then re-render). */
-  suggestionPending?: boolean;
 }
 
 /** Shape for `handleOpenRuleEditorForToolCall`'s argument. */
@@ -584,18 +581,10 @@ export function useInteractionActions(): UseInteractionActionsReturn {
               : undefined,
           });
           if (!abortController.signal.aborted) {
-            setRuleEditorContext((prev) =>
-              prev ? { ...prev, suggestion, suggestionPending: false } : null,
-            );
+            setRuleEditorContext((prev) => (prev ? { ...prev, suggestion } : null));
           }
         } catch {
-          // Suggestion is best-effort — silently ignore failures, but clear the
-          // pending flag so the editor falls back to the wildcard option.
-          if (!abortController.signal.aborted) {
-            setRuleEditorContext((prev) =>
-              prev ? { ...prev, suggestionPending: false } : null,
-            );
-          }
+          // Suggestion is best-effort — silently ignore failures.
         }
       })();
     },
@@ -628,7 +617,6 @@ export function useInteractionActions(): UseInteractionActionsReturn {
       directoryScopeOptions: snapshot.directoryScopeOptions ?? [],
       commandText: deriveCommandText(snapshot.input, snapshot.toolName ?? ""),
       commandDescription: snapshot.riskReason ?? snapshot.description ?? "",
-      suggestionPending: true,
     };
 
     // Open the editor in create mode and pre-populate it with a background LLM
@@ -716,7 +704,6 @@ export function useInteractionActions(): UseInteractionActionsReturn {
         directoryScopeOptions: context.directoryScopeOptions,
         commandText: deriveCommandText(context.input, context.toolName),
         commandDescription: context.riskReason ?? "",
-        suggestionPending: true,
       };
 
       // Fetch matched rule (edit mode) then open modal immediately.
