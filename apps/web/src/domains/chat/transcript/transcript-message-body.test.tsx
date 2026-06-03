@@ -1029,6 +1029,53 @@ describe("TranscriptMessageBody", () => {
     expect(new Set(renderedAnchorIds(container))).toEqual(new Set(projected));
   });
 
+  test("legacy [spawn, bash] anchors the tool card on the bash call, matching buildTurnActivity", () => {
+    // GIVEN a legacy turn whose FIRST tool call is a subagent spawn followed by
+    // a renderable bash call — `buildTurnActivity` anchors the legacy tool step
+    // on the first NON-spawn (renderable) call, so the rendered DOM anchor must
+    // resolve to the bash id, not the leading spawn id.
+    const message: DisplayMessage = {
+      id: "m-anchor-legacy-spawn",
+      role: "assistant",
+      textSegments: ["the answer"],
+      thinkingSegments: ["chain of thought"],
+      contentOrder: [{ type: "thinking", id: "0" }],
+      toolCalls: [
+        {
+          id: "tc-spawn",
+          toolName: "subagent_spawn",
+          input: {},
+          status: "completed",
+        },
+        { id: "tc-bash", toolName: "bash", input: {}, status: "completed" },
+      ],
+      timestamp: 1_000,
+    };
+
+    const { container } = render(
+      <TranscriptMessageBody
+        message={message}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    const projected = projectedAnchorIds(message);
+    // Two projected steps: the thinking block and the trailing tool step.
+    expect(projected.length).toBe(2);
+    // The trailing tool step anchors on the bash call's id (the first
+    // renderable, non-spawn call) — NOT the leading spawn.
+    const toolAnchor = projected.find((id) => id.includes("-tc-"));
+    expect(toolAnchor).toBe("activity-m-anchor-legacy-spawn-tc-tc-bash");
+
+    // Render anchors are byte-identical to the projection (legacy emits the
+    // trailing tool card above the reasoning block, so order differs; compare
+    // as a set to assert id equality).
+    expect(new Set(renderedAnchorIds(container))).toEqual(new Set(projected));
+  });
+
   test("a subagent-spawn-only group produces no activity anchor", () => {
     const message: DisplayMessage = {
       id: "m-spawn-only",

@@ -984,6 +984,15 @@ export function TranscriptMessageBody({
   }));
   const legacyToolCalls =
     message.toolCalls?.filter((tc) => !isSuppressedUiTool(tc)) ?? [];
+  // Anchor the legacy tool card on the FIRST renderable tool call — i.e. the
+  // first call that is not a subagent spawn (suppressed UI tools are already
+  // filtered out of `legacyToolCalls`). This mirrors `buildToolActivityStep`
+  // in turn-activity.ts exactly so the DOM anchor stays byte-identical to the
+  // projected step anchor. When every call is a spawn there is no renderable
+  // step (and `buildTurnActivity` emits none), so no anchor is rendered.
+  const firstRenderableLegacyToolCall = legacyToolCalls.find(
+    (tc) => !isSubagentSpawnCall(tc),
+  );
   const hasVisibleLegacyContent = contentElements.some((el) => !!el);
 
   return (
@@ -1000,11 +1009,15 @@ export function TranscriptMessageBody({
           <>
             <div
               className="w-full scroll-mt-24"
-              data-activity-anchor={activityAnchorId(
-                message.id,
-                "tool",
-                legacyToolCalls[0]!.id,
-              )}
+              data-activity-anchor={
+                firstRenderableLegacyToolCall
+                  ? activityAnchorId(
+                      message.id,
+                      "tool",
+                      firstRenderableLegacyToolCall.id,
+                    )
+                  : undefined
+              }
             >
               <ToolCallProgressCard
                 toolCalls={legacyToolCalls}
