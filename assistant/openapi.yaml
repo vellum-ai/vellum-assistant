@@ -238,8 +238,9 @@ paths:
       operationId: acp_sessions_by_id_delete
       summary: Delete ACP session from history
       description:
-        Remove a persisted ACP session row. Rejects with 409 when the session is still active in memory; idempotent
-        for unknown ids.
+        Remove a persisted ACP session row. Closes (tears down) a live `idle` session first so the delete is
+        consistent. Rejects with 409 only when the session is still running/initializing in memory; idempotent for
+        unknown ids.
       tags:
         - acp
       responses:
