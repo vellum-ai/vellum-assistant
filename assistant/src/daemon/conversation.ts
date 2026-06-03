@@ -1064,8 +1064,12 @@ export class Conversation {
       {
         force: true,
         overrideProfile,
-        actorTrustClass: (this.currentTurnTrustContext ?? this.trustContext)
-          ?.trustClass,
+        // forceCompact runs outside the agent-loop turn lifecycle (e.g.
+        // user-initiated `/compact`), so the per-turn trust snapshot may be
+        // stale from a prior turn. The route sets `trustContext` to the
+        // current requester before this runs, so read it live — matching the
+        // Slack chronological-context trust filter above.
+        actorTrustClass: this.trustContext?.trustClass,
       },
     );
     // Track circuit-breaker state for user-initiated `/compact` and other
