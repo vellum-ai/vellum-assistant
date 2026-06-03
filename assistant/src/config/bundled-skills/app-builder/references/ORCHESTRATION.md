@@ -24,7 +24,9 @@ The plan is the only thing workers read. A worker must be able to build its row 
 
 Spawn one `coder` subagent per partition row with `subagent_spawn`. Route them to the `balanced` tier — writing a component against a fixed spec is mechanical, not judgment work, so the cheaper tier is correct here.
 
-⚠️ **Spawns are uncapped. Cap them yourself.** Dispatch in **bounded waves of ≤3–4 workers at a time**. A 9-row partition is three waves, not nine simultaneous spawns. Wait for a wave to finish (step c) before starting the next.
+⚠️ **Spawns are uncapped. Cap them yourself.** Dispatch in bounded waves: **3 workers per wave for partitions of ≥7 files, 4 for ≤6.** A 9-file partition is bounded waves of 3, not nine simultaneous spawns. Wait for a wave to finish (step c) before starting the next.
+
+**If a worker fails or times out →** re-spawn that row once on a fresh worker; if it fails again, fold its files into the repair scope (step e).
 
 Each worker's `objective` carries **its partition slice plus the relevant excerpt of PLAN.md** — the §2 Visual direction (verbatim, every worker needs it), its own row of the §4 table, and the §3 component-tree context for its files. The worker reads PLAN.md from the sandbox if it needs more; the objective is the self-contained brief.
 
@@ -75,7 +77,7 @@ subagent_spawn({
 })
 ```
 
-After the repair agent reports done, the parent runs `skill_load("app-builder")` + `app_refresh(app_id)` again. **Bound the loop to ≤2 repair attempts.** If it still fails after two, stop and surface the remaining compile errors to the user — do not loop indefinitely.
+After the repair agent reports done, the parent runs `skill_load("app-builder")` + `app_refresh(app_id)` again. **Bound the loop to ≤2 repair attempts.** After the 2nd repair attempt fails → call `app_open(app_id, open_mode: "preview")` to surface the last good state, THEN post a chat message listing the failing files and unresolved errors. Do not loop indefinitely.
 
 ### (f) SURFACE — `app_open`
 
