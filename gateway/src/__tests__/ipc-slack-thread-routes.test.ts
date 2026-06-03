@@ -18,7 +18,10 @@ import {
 import { SlackStore } from "../db/slack-store.js";
 import { slackActiveThreads } from "../db/schema.js";
 import { GatewayIpcServer } from "../ipc/server.js";
-import { slackThreadRoutes } from "../ipc/slack-thread-handlers.js";
+import {
+  DEFAULT_SLACK_ACTIVE_THREAD_TTL_MS,
+  slackThreadRoutes,
+} from "../ipc/slack-thread-handlers.js";
 
 const CHANNEL_ID = "CFAKE00001";
 const OTHER_CHANNEL_ID = "COTHER0001";
@@ -73,8 +76,21 @@ function sendRequest(
   });
 }
 
+function trackActiveThreadRequest(
+  client: Socket,
+  params: {
+    channelId: string;
+    threadTs: string;
+    ttlMs?: number;
+  },
+): Promise<{ id: string; result?: unknown; error?: string }> {
+  return sendRequest(client, "track_slack_active_thread", params);
+}
+
 function activeThreadRows(): Array<{ threadTs: string; channelId: string }> {
-  return new SlackStore(getGatewayDb()).listActiveThreadsWithChannel();
+  return new SlackStore(getGatewayDb())
+    .listActiveThreadsWithChannel()
+    .sort((a, b) => a.threadTs.localeCompare(b.threadTs));
 }
 
 function rawActiveThreadRows(): Array<{
@@ -87,7 +103,9 @@ function rawActiveThreadRows(): Array<{
     };
   };
   return rawDb
-    .prepare("SELECT thread_ts, channel_id FROM slack_active_threads")
+    .prepare(
+      "SELECT thread_ts, channel_id FROM slack_active_threads ORDER BY thread_ts",
+    )
     .all()
     .map((row) => ({
       threadTs: row.thread_ts,
@@ -125,6 +143,75 @@ describe("IPC Slack thread routes", () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
     client = await connectClient(server.getSocketPath());
   }
+
+  test("track_slack_active_thread records an active thread", async () => {
+    await startServerAndConnect();
+    const res = await trackActiveThreadRequest(client, {
+      channelId: CHANNEL_ID,
+      threadTs: THREAD_TS,
+    });
+
+    expect(res.error).toBeUndefined();
+    expect(res.result).toEqual({
+      tracked: true,
+      channelId: CHANNEL_ID,
+      threadTs: THREAD_TS,
+      ttlMs: DEFAULT_SLACK_ACTIVE_THREAD_TTL_MS,
+    });
+    expect(activeThreadRows()).toEqual([
+      { threadTs: THREAD_TS, channelId: CHANNEL_ID },
+    ]);
+  });
+
+  test("track_slack_active_thread re-activates the same thread idempotently", async () => {
+    await startServerAndConnect();
+
+    const first = await trackActiveThreadRequest(client, {
+      channelId: CHANNEL_ID,
+      threadTs: THREAD_TS,
+      ttlMs: 60_000,
+    });
+    const second = await trackActiveThreadRequest(client, {
+      channelId: CHANNEL_ID,
+      threadTs: THREAD_TS,
+      ttlMs: 120_000,
+    });
+
+    expect(first.error).toBeUndefined();
+    expect(second.error).toBeUndefined();
+    expect(second.result).toEqual({
+      tracked: true,
+      channelId: CHANNEL_ID,
+      threadTs: THREAD_TS,
+      ttlMs: 120_000,
+    });
+    expect(rawActiveThreadRows()).toEqual([
+      { threadTs: THREAD_TS, channelId: CHANNEL_ID },
+    ]);
+    expect(activeThreadRows()).toEqual([
+      { threadTs: THREAD_TS, channelId: CHANNEL_ID },
+    ]);
+  });
+
+  test("track_slack_active_thread keeps different thread ids in the same channel separate", async () => {
+    await startServerAndConnect();
+
+    const first = await trackActiveThreadRequest(client, {
+      channelId: CHANNEL_ID,
+      threadTs: THREAD_TS,
+    });
+    const second = await trackActiveThreadRequest(client, {
+      channelId: CHANNEL_ID,
+      threadTs: OTHER_THREAD_TS,
+    });
+
+    expect(first.error).toBeUndefined();
+    expect(second.error).toBeUndefined();
+    expect(activeThreadRows()).toEqual([
+      { threadTs: THREAD_TS, channelId: CHANNEL_ID },
+      { threadTs: OTHER_THREAD_TS, channelId: CHANNEL_ID },
+    ]);
+  });
 
   test("detach_slack_active_thread removes a matching active thread", async () => {
     trackThread();
