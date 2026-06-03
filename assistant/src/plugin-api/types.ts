@@ -128,6 +128,16 @@ export interface UserPromptSubmitContext {
   /** Conversation ID the user prompt was submitted on. */
   readonly conversationId: string;
   /**
+   * The text of the user prompt that triggered this turn — the resolved
+   * user message (after slash-command expansion), independent of any
+   * internal rewriting applied to the message that flows into the model.
+   * Mirrors the `prompt` field Claude Code / Codex pass to their
+   * `UserPromptSubmit` hooks, so hooks that key off the submitted text
+   * (e.g. title generation) read it directly rather than reconstructing
+   * it from the message arrays.
+   */
+  readonly prompt: string;
+  /**
    * The user's original message list, immutable for the hook. Plugins
    * may snapshot or compare against this but MUST NOT mutate it.
    */

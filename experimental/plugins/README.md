@@ -196,6 +196,7 @@ export default async function userPromptSubmit(
   ctx: UserPromptSubmitContext,
 ): Promise<void> {
   // ctx.conversationId   — ID of the conversation associated with the User Message
+  // ctx.prompt           — Submitted prompt text (after slash-command expansion), independent of any internal rewriting
   // ctx.originalMessages — Original set of messages before any transformation by loop or hooks.
   // ctx.latestMessages   — Set of messages to be fed into the agent
 }

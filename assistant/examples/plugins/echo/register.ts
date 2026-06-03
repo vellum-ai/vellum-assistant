@@ -55,8 +55,6 @@ import type {
   PersistArgs,
   PersistResult,
   Plugin,
-  TitleArgs,
-  TitleResult,
   TokenEstimateArgs,
   TokenEstimateResult,
   ToolExecuteArgs,
@@ -156,7 +154,6 @@ const echoPlugin: Plugin = {
       "overflowReduce",
     ),
     persistence: makeObserver<PersistArgs, PersistResult>("persistence"),
-    titleGenerate: makeObserver<TitleArgs, TitleResult>("titleGenerate"),
     circuitBreaker: makeObserver<CircuitBreakerArgs, CircuitBreakerResult>(
       "circuitBreaker",
     ),

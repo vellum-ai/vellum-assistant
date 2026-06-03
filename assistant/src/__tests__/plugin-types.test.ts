@@ -34,8 +34,6 @@ import {
   type PluginInitContext,
   type PluginManifest,
   PluginTimeoutError,
-  type TitleArgs,
-  type TitleResult,
   type ToolExecuteArgs,
   type ToolExecuteResult,
   type TurnContext,
@@ -151,15 +149,6 @@ describe("plugin core types", () => {
       _ctx,
     ) => next(args);
 
-    // The `titleGenerate` slot now has concrete arg/result types (PR 28)
-    // rather than the placeholder `{ input/output: unknown }` shape, so it
-    // needs its own passthrough implementation.
-    const titlePassthrough: Middleware<TitleArgs, TitleResult> = async (
-      args,
-      next,
-      _ctx,
-    ) => next(args);
-
     const injector: Injector = {
       name: "sample-injector",
       order: 10,
@@ -221,7 +210,6 @@ describe("plugin core types", () => {
         compaction: compactionPassthrough,
         overflowReduce: overflowReducePassthrough,
         persistence: persistPassthrough,
-        titleGenerate: titlePassthrough,
         circuitBreaker: circuitPassthrough,
       },
     } satisfies Plugin;

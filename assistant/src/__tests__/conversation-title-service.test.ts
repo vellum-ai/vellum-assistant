@@ -51,6 +51,13 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+const mockPublishConversationTitleChanged = mock(
+  (_conversationId: string, _title: string) => {},
+);
+mock.module("../runtime/sync/resource-sync-events.js", () => ({
+  publishConversationTitleChanged: mockPublishConversationTitleChanged,
+}));
+
 import {
   generateAndPersistConversationTitle,
   queueGenerateConversationTitle,
@@ -65,6 +72,7 @@ describe("conversation-title-service", () => {
     mockGetMessages.mockClear();
     mockUpdateConversationTitle.mockClear();
     mockGetConfiguredProvider.mockClear();
+    mockPublishConversationTitleChanged.mockClear();
   });
 
   test("uses the BTW side-chain helper for initial title generation", async () => {
@@ -96,6 +104,12 @@ describe("conversation-title-service", () => {
       "conv-1",
       "Project kickoff",
       1,
+    );
+    // Emit is service-native: persisting a title broadcasts the update so
+    // every title origin (agent loop, bootstrap, voice) updates clients live.
+    expect(mockPublishConversationTitleChanged).toHaveBeenCalledWith(
+      "conv-1",
+      "Project kickoff",
     );
   });
 

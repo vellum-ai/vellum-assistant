@@ -60,7 +60,6 @@ export const DEFAULT_TIMEOUTS: Record<PipelineName, number | null> = {
   compaction: null,
   overflowReduce: null,
   persistence: null,
-  titleGenerate: null,
   circuitBreaker: null,
 };
 

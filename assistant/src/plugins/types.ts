@@ -125,7 +125,6 @@ export type PipelineName =
   | "compaction"
   | "overflowReduce"
   | "persistence"
-  | "titleGenerate"
   | "circuitBreaker";
 
 // ─── Per-pipeline args / results (placeholder shapes) ────────────────────────
@@ -531,44 +530,6 @@ export type PersistResult =
   | PersistDeleteResult;
 
 /**
- * Arguments for the `titleGenerate` pipeline. Mirrors the parameters of
- * `queueGenerateConversationTitle` in `memory/conversation-title-service.ts`
- * so the default plugin can delegate verbatim.
- *
- * `provider` is optional because the underlying service falls back to
- * `getConfiguredProvider("conversationTitle")` when absent. `userMessage`
- * carries the first turn's text — the service uses it as LLM context and
- * also to derive a deterministic fallback title if the call fails.
- *
- * `onTitleUpdated` is a fire-and-forget callback the pipeline invokes when
- * the title is finally persisted. The default implementation is
- * fire-and-forget overall, so the pipeline result (`TitleResult`) carries no
- * payload — callers that need the title must use the callback.
- */
-export type TitleArgs = {
-  readonly conversationId: string;
-  readonly provider?: Provider;
-  readonly userMessage: string;
-  readonly onTitleUpdated?: (title: string) => void;
-};
-/**
- * Result of the `titleGenerate` pipeline. The default implementation is
- * fire-and-forget (it schedules background work and returns immediately),
- * so there is nothing meaningful to return. Defined as an empty object so
- * custom plugins can opt into richer payloads later.
- */
-export type TitleResult = Readonly<Record<string, never>>;
-
-/**
- * @deprecated Alias kept for the M1 scaffolding era. Prefer {@link TitleArgs}.
- */
-export type TitleGenerateArgs = TitleArgs;
-/**
- * @deprecated Alias kept for the M1 scaffolding era. Prefer {@link TitleResult}.
- */
-export type TitleGenerateResult = TitleResult;
-
-/**
  * Arguments for the `circuitBreaker` pipeline.
  *
  * A single call pattern handles both querying and updating the breaker:
@@ -644,7 +605,6 @@ export interface PipelineMiddlewareMap {
   compaction: Middleware<CompactionArgs, CompactionResult>;
   overflowReduce: Middleware<OverflowReduceArgs, OverflowReduceResult>;
   persistence: Middleware<PersistArgs, PersistResult>;
-  titleGenerate: Middleware<TitleArgs, TitleResult>;
   circuitBreaker: Middleware<CircuitBreakerArgs, CircuitBreakerResult>;
 }
 

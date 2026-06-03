@@ -104,7 +104,6 @@ import {
   runDefaultMemoryRetrieval,
 } from "../plugins/defaults/memory-retrieval/register.js";
 import { defaultPersistenceTerminal } from "../plugins/defaults/persistence/terminal.js";
-import { defaultTitleGenerateTerminal } from "../plugins/defaults/title-generate/terminal.js";
 import { defaultTokenEstimateTerminal } from "../plugins/defaults/token-estimate/terminal.js";
 import { DEFAULT_TIMEOUTS, runHook, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
@@ -211,7 +210,6 @@ import type {
 } from "./message-protocol.js";
 import type { MemoryRecalled } from "./message-types/memory.js";
 import type { ConfirmationStateChanged } from "./message-types/messages.js";
-import { conversationMetadataSyncTag } from "./message-types/sync.js";
 import { parseActualTokensFromError } from "./parse-actual-tokens-from-error.js";
 import {
   persistUnsendableImageDowngrades,
@@ -889,55 +887,6 @@ export async function runAgentLoopImpl(
         markSurfaceCompleted(ctx, surfaceId, "Dismissed");
         ctx.pendingSurfaceActions.delete(surfaceId);
       }
-    }
-
-    // Generate title early — the user message alone is sufficient context.
-    // Firing before the main LLM call removes the delay of waiting for the
-    // full assistant response. The second-pass regeneration at turn 3 will
-    // refine the title with more context.
-    // No abort signal — title generation should complete even if the user
-    // cancels the response, since the user message is already persisted.
-    // Deferred via setTimeout so the main agent loop LLM call enqueues
-    // first, avoiding rate-limit slot contention on strict configs.
-    if (isReplaceableTitle(turnStartConversation?.title ?? null)) {
-      // TurnContext routed through the canonical builder so the pipeline's
-      // log record reports the same `conversationId`/`turnIndex` shape as
-      // every other slot in this turn. Title generation does not depend on
-      // the context-window manager attached by the builder, but sharing the
-      // builder keeps the invariant enforced in one place.
-      const titlePipelineCtx = buildPluginTurnContext(ctx, reqId);
-      const titleArgs = {
-        conversationId: ctx.conversationId,
-        provider: ctx.provider,
-        userMessage: options?.titleText ?? content,
-        onTitleUpdated: (title: string) => {
-          onEvent({
-            type: "conversation_title_updated",
-            conversationId: ctx.conversationId,
-            title,
-          });
-          onEvent({
-            type: "sync_changed",
-            tags: [conversationMetadataSyncTag(ctx.conversationId)],
-          });
-        },
-      };
-      setTimeout(() => {
-        runPipeline(
-          "titleGenerate",
-          getMiddlewaresFor("titleGenerate"),
-          defaultTitleGenerateTerminal,
-          titleArgs,
-          titlePipelineCtx,
-          DEFAULT_TIMEOUTS.titleGenerate,
-        ).catch((err) => {
-          // Fire-and-forget — keep previous non-propagating semantics.
-          // queueGenerateConversationTitle already swallows internal
-          // errors; this catch covers pipeline-layer errors (timeouts,
-          // middleware throws) without surfacing them to the agent loop.
-          rlog.warn({ err }, "titleGenerate pipeline failed (non-fatal)");
-        });
-      }, 0);
     }
 
     const isFirstMessage = ctx.messages.length === 1;
@@ -2037,6 +1986,7 @@ export async function runAgentLoopImpl(
     // `agentLoop.run` receives.
     const userPromptCtx: UserPromptSubmitContext = {
       conversationId: ctx.conversationId,
+      prompt: options?.titleText ?? content,
       originalMessages: ctx.messages,
       latestMessages: runMessages,
       logger: rlog,
@@ -3225,17 +3175,6 @@ export async function runAgentLoopImpl(
       queueRegenerateConversationTitle({
         conversationId: ctx.conversationId,
         provider: ctx.provider,
-        onTitleUpdated: (title) => {
-          onEvent({
-            type: "conversation_title_updated",
-            conversationId: ctx.conversationId,
-            title,
-          });
-          onEvent({
-            type: "sync_changed",
-            tags: [conversationMetadataSyncTag(ctx.conversationId)],
-          });
-        },
         signal: abortController.signal,
       });
     }
