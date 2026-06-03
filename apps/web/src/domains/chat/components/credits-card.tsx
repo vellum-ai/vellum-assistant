@@ -63,7 +63,7 @@ export function CreditsCard({
           aria-hidden
         />
         <span
-          className="text-body-large-default"
+          className="text-body-medium-lighter max-md:text-body-large-default"
           style={{ color: "var(--content-secondary)" }}
         >
           Earn Credits
