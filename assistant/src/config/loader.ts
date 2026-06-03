@@ -15,6 +15,7 @@ import {
   getWorkspaceDir,
 } from "../util/platform.js";
 import { isAssistantFeatureFlagEnabled } from "./assistant-feature-flags.js";
+import { getAcpEnabled } from "./env-registry.js";
 import { AssistantConfigSchema } from "./schema.js";
 import type { AssistantConfig } from "./types.js";
 
@@ -126,7 +127,7 @@ export function getDeploymentContextDefaults(): Record<string, unknown> {
   // for non-native inference providers while preserving provider-native hosted
   // search for providers/models that support it.
   const managed = { mode: "managed" as const };
-  return {
+  const defaults: Record<string, unknown> = {
     services: {
       "image-generation": managed,
       "web-search": managed,
@@ -141,6 +142,13 @@ export function getDeploymentContextDefaults(): Record<string, unknown> {
       "hubspot-oauth": managed,
     },
   };
+  // ACP is gated behind VELLUM_ACP_ENABLED on top of IS_PLATFORM so it can be
+  // flipped on per release for hosted assistants only. Fill-only, so an
+  // explicit user `acp.enabled` on disk still wins.
+  if (getAcpEnabled()) {
+    defaults.acp = { enabled: true };
+  }
+  return defaults;
 }
 
 /**

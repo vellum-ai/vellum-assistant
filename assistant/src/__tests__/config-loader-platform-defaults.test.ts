@@ -381,6 +381,95 @@ describe("platform-managed config defaults", () => {
 });
 
 /**
+ * Platform-gated `acp.enabled` default. ACP is enabled by default only when
+ * BOTH IS_PLATFORM and VELLUM_ACP_ENABLED are truthy, so the feature can be
+ * flipped on per release for hosted assistants without affecting local or
+ * self-hosted users. The fill-only pass means an explicit user `acp.enabled`
+ * on disk always wins, and the existing `services` block is unaffected.
+ */
+describe("platform-gated acp.enabled default", () => {
+  const originalIsPlatform = process.env.IS_PLATFORM;
+  const originalAcpEnabled = process.env.VELLUM_ACP_ENABLED;
+
+  beforeEach(() => {
+    resetWorkspace();
+    setStorePathForTesting(join(WORKSPACE_DIR, "keys.enc"));
+    invalidateConfigCache();
+  });
+
+  afterEach(() => {
+    setStorePathForTesting(null);
+    invalidateConfigCache();
+    if (originalIsPlatform === undefined) {
+      delete process.env.IS_PLATFORM;
+    } else {
+      process.env.IS_PLATFORM = originalIsPlatform;
+    }
+    if (originalAcpEnabled === undefined) {
+      delete process.env.VELLUM_ACP_ENABLED;
+    } else {
+      process.env.VELLUM_ACP_ENABLED = originalAcpEnabled;
+    }
+  });
+
+  test("IS_PLATFORM=true and VELLUM_ACP_ENABLED=true → acp.enabled is true", () => {
+    process.env.IS_PLATFORM = "true";
+    process.env.VELLUM_ACP_ENABLED = "true";
+
+    const config = loadConfig();
+
+    expect(config.acp.enabled).toBe(true);
+  });
+
+  test("IS_PLATFORM=true but VELLUM_ACP_ENABLED unset → acp.enabled is false", () => {
+    process.env.IS_PLATFORM = "true";
+    delete process.env.VELLUM_ACP_ENABLED;
+
+    const config = loadConfig();
+
+    expect(config.acp.enabled).toBe(false);
+  });
+
+  test("VELLUM_ACP_ENABLED=true but IS_PLATFORM=false → acp.enabled is false", () => {
+    process.env.IS_PLATFORM = "false";
+    process.env.VELLUM_ACP_ENABLED = "true";
+
+    const config = loadConfig();
+
+    expect(config.acp.enabled).toBe(false);
+  });
+
+  test("both flags set but config explicitly disables acp → user choice wins", () => {
+    process.env.IS_PLATFORM = "true";
+    process.env.VELLUM_ACP_ENABLED = "true";
+
+    writeFileSync(
+      CONFIG_PATH,
+      JSON.stringify({ acp: { enabled: false } }, null, 2) + "\n",
+    );
+
+    const config = loadConfig();
+
+    expect(config.acp.enabled).toBe(false);
+  });
+
+  test("both flags set → enabling acp does not disturb the managed services block", () => {
+    process.env.IS_PLATFORM = "true";
+    process.env.VELLUM_ACP_ENABLED = "true";
+
+    const config = loadConfig();
+
+    expect(config.acp.enabled).toBe(true);
+    for (const svc of MANAGED_SERVICES) {
+      expect(
+        (config.services as unknown as Record<string, { mode: string }>)[svc]!
+          .mode,
+      ).toBe("managed");
+    }
+  });
+});
+
+/**
  * Regression guard for the `handleGetConfig` route handler in
  * `assistant/src/runtime/routes/conversation-query-routes.ts`. That handler
  * returns the raw on-disk JSON to clients (macOS, web, CLI) via

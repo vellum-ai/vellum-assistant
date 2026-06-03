@@ -73,6 +73,17 @@ export function isPlatformRemote(): boolean {
 }
 
 /**
+ * VELLUM_ACP_ENABLED — boolean, default: false
+ * When true (and IS_PLATFORM is also true), the deployment-context defaults
+ * fill `acp.enabled = true` so the Agent Communication Protocol is enabled by
+ * default on platform-hosted assistants. Lets the feature be flipped on per
+ * release without affecting local/self-hosted users. User config still wins.
+ */
+export function getAcpEnabled(): boolean {
+  return flag("VELLUM_ACP_ENABLED");
+}
+
+/**
  * VELLUM_WORKSPACE_DIR — string, default: undefined
  * Overrides the default workspace directory.
  * Used in containerized deployments where the workspace is a separate volume.
@@ -180,6 +191,7 @@ export function getProfilerMinFreeMb(): number | undefined {
  * to warn about typos or unrecognized variables.
  */
 const KNOWN_VELLUM_VARS = new Set([
+  "VELLUM_ACP_ENABLED",
   "VELLUM_ASSISTANT_NAME",
   "VELLUM_ASSISTANT_PLATFORM_URL",
   "VELLUM_AWS_ROLE_ARN",
