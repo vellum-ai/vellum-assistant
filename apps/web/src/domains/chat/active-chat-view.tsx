@@ -36,6 +36,7 @@ import type { UIContext } from "@/domains/chat/turn-selectors";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 
 import { peekPendingPreChatContext } from "@/domains/onboarding/prechat";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { useChatAttachments } from "@/domains/chat/components/chat-attachments/use-chat-attachments";
@@ -153,10 +154,17 @@ export function ActiveChatView() {
   const {
     didOnboarding,
     onboardingTasksEmpty,
+    firstTask,
     onboardingConversationId,
     pendingOnboardingContextRef,
     onboardingDraftConversationIdRef,
   } = useOnboardingOrchestrator();
+
+  // Activation-flow experiment (JARVIS-1090). `firstTask` is captured at mount
+  // by the orchestrator (before the pending context is consumed on first send)
+  // and threaded down to ChatRouteContent alongside the flag.
+  const activationFlowEnabled =
+    useClientFeatureFlagStore.use.experimentActivationFlow20260603();
 
   // -------------------------------------------------------------------------
   // Reachability
@@ -443,6 +451,8 @@ export function ActiveChatView() {
     onboardingTasksEmpty,
     didOnboarding,
     onboardingConversationId,
+    firstTask,
+    activationFlowEnabled,
   };
 
   return (
