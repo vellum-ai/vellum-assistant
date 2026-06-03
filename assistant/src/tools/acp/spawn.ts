@@ -3,6 +3,7 @@ import { execFile } from "node:child_process";
 import { getAcpSessionManager } from "../../acp/index.js";
 import { prepareAgentEnv } from "../../acp/prepare-agent-env.js";
 import { resolveAcpAgent } from "../../acp/resolve-agent.js";
+import { resolveAcpWorkspaceDir } from "../../acp/workspace-path.js";
 import { DEFAULT_AGENT_NPM_PACKAGES } from "../../config/acp-defaults.js";
 import { getLogger } from "../../util/logger.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
@@ -190,7 +191,13 @@ export async function executeAcpSpawn(
 
   try {
     const manager = getAcpSessionManager();
-    const cwd = (input.cwd as string) || context.workingDir;
+    // Default to a STABLE per-project directory under the persistent workspace
+    // volume (keyed by conversation id) so the agent's clones and edits
+    // survive across turns, respawns, and idle-sleep — not the ephemeral
+    // `context.workingDir`. An explicit `cwd` (e.g. a git worktree for
+    // isolated/risky work; see the ACP SKILL.md) still wins.
+    const cwd =
+      (input.cwd as string) || resolveAcpWorkspaceDir(context.conversationId);
     const { acpSessionId, protocolSessionId } = await manager.spawn(
       agent,
       agentConfig,
