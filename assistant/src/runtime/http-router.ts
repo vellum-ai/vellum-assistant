@@ -23,6 +23,7 @@ import type {
   RouteLoggingConfig,
   RoutePathParam,
   RouteRequestBody,
+  RouteResponseBody,
 } from "./routes/types.js";
 
 // ---------------------------------------------------------------------------
@@ -109,8 +110,12 @@ export interface HTTPRouteDefinition {
    * bodies (e.g. a raw `application/octet-stream` upload).
    */
   requestBody?: RouteRequestBody;
-  /** Zod schema for the success response body. */
-  responseBody?: RouteBodySchema;
+  /**
+   * Success response body. A bare Zod schema is advertised as
+   * `application/json`; use the `{ contentType, schema }` form for non-JSON
+   * responses (e.g. a binary `application/octet-stream` download).
+   */
+  responseBody?: RouteResponseBody;
   /**
    * HTTP status code for the documented success response. Defaults to 200.
    * Set to "202" for async endpoints that enqueue a job and return

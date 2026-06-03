@@ -60,6 +60,38 @@ export type RouteRequestBody =
       schema: z.ZodType | Record<string, unknown>;
     };
 
+/**
+ * Content types a route can declare a success response body for.
+ * `application/json` is the implicit default when `responseBody` is a bare
+ * Zod schema, so it is only spelled out here for the explicit
+ * `{ contentType, schema }` form (e.g. a binary `application/octet-stream`
+ * download).
+ */
+export type RouteResponseContentType =
+  | "application/json"
+  | "application/octet-stream";
+
+/**
+ * A route's success response body. Either:
+ * - a bare Zod schema, which is advertised as `application/json`, or
+ * - an explicit `{ contentType, schema }` pair for non-JSON responses (e.g. a
+ *   binary download). `schema` may be a Zod schema or a plain JSON Schema
+ *   fragment (e.g. `{ type: "string", format: "binary" }`, which is not
+ *   expressible as a bare Zod type).
+ *
+ * The OpenAPI generator turns this into the operation's success response, so
+ * the generated client SDK describes a real response type (e.g. `Blob`)
+ * instead of `unknown`. Handlers serialize their own bytes via `RouteResponse`,
+ * so this field is a codegen signal only and does not change runtime
+ * response handling.
+ */
+export type RouteResponseBody =
+  | z.ZodType
+  | {
+      contentType: RouteResponseContentType;
+      schema: z.ZodType | Record<string, unknown>;
+    };
+
 export interface RouteHandlerArgs {
   pathParams?: Record<string, string>;
   queryParams?: Record<string, string>;
@@ -132,7 +164,7 @@ export interface RouteDefinition {
   pathParams?: RoutePathParam[];
   queryParams?: RouteQueryParam[];
   requestBody?: RouteRequestBody;
-  responseBody?: z.ZodType;
+  responseBody?: RouteResponseBody;
   /**
    * HTTP status code for the success response. Defaults to "200".
    * Use "201" for resource creation, "204" for no-content responses.

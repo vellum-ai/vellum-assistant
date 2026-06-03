@@ -663,6 +663,10 @@ export const ROUTES: RouteDefinition[] = [
       "Serve raw file bytes for an attachment. Supports Range headers.",
     tags: ["attachments"],
     responseStatus: ({ headers }) => (headers?.["range"] ? "206" : "200"),
+    responseBody: {
+      contentType: "application/octet-stream",
+      schema: { type: "string", format: "binary" },
+    },
     additionalResponses: {
       "416": { description: "Range Not Satisfiable" },
     },
