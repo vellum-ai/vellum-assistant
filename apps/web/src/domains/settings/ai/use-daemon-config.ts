@@ -23,7 +23,7 @@ import {
 import { configGet, configPatch, secretsPost } from "@/generated/daemon/sdk.gen";
 import { captureError } from "@/lib/sentry/capture-error";
 import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
-import { applyConfigPatch, assertProvisionSuccess, buildOrderedProfiles } from "@/domains/settings/ai/ai-utils";
+import { applyConfigPatch, assertProvisionSuccess, buildOrderedProfiles, snapshotPatchedFields } from "@/domains/settings/ai/ai-utils";
 import type { CallSiteOverrideDraft, DaemonConfig, DaemonConfigPatch, ProfileEntry } from "@/domains/settings/ai/ai-types";
 
 // ---------------------------------------------------------------------------
@@ -155,15 +155,19 @@ export function useDaemonConfigMutation() {
       if (!assistantId) return;
       const queryKey = assistantDaemonConfigQueryKey(assistantId);
       await queryClient.cancelQueries({ queryKey });
-      const previous = queryClient.getQueryData<DaemonConfig>(queryKey);
+      const current = queryClient.getQueryData<DaemonConfig>(queryKey);
+      const rollback = current ? snapshotPatchedFields(current, body) : undefined;
       queryClient.setQueryData<DaemonConfig>(queryKey, (old) =>
         old ? applyConfigPatch(old, body) : old,
       );
-      return { previous, queryKey };
+      return { rollback, queryKey };
     },
     onError: (_err, _body, context) => {
-      if (context?.queryKey) {
-        queryClient.setQueryData(context.queryKey, context.previous);
+      const { queryKey, rollback } = context ?? {};
+      if (queryKey && rollback) {
+        queryClient.setQueryData<DaemonConfig>(queryKey, (old) =>
+          old ? applyConfigPatch(old, rollback) : old,
+        );
       }
     },
     onSettled: (result) => {

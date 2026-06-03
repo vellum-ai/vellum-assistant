@@ -4,6 +4,7 @@ import {
 } from "@/assistant/generated/web-search-provider-catalog.gen";
 
 import type {
+  CallSiteOverrideDraft,
   DaemonConfig,
   DaemonConfigPatch,
   DaemonConfigReconciliation,
@@ -143,12 +144,78 @@ export function getWebSearchProviderKeyStorage(provider: string): string {
 }
 
 /**
+ * Snapshots only the fields in `config` that `patch` will touch, so
+ * `onError` can roll back just those fields without clobbering concurrent
+ * mutations' optimistic updates.
+ *
+ * Returns a `DaemonConfigPatch`-shaped object containing the previous values
+ * for every key present in the patch. Feed it back to `applyConfigPatch` in
+ * the rollback updater to restore exactly what was changed.
+ */
+export function snapshotPatchedFields(config: DaemonConfig, patch: DaemonConfigPatch): DaemonConfigPatch {
+  const snapshot: DaemonConfigPatch = {};
+
+  if (patch.services) {
+    const services: NonNullable<DaemonConfigPatch["services"]> = {};
+    if ("web-search" in patch.services) {
+      services["web-search"] = config.services?.["web-search"]
+        ? { ...config.services["web-search"] }
+        : null;
+    }
+    if ("image-generation" in patch.services) {
+      services["image-generation"] = config.services?.["image-generation"]
+        ? { ...config.services["image-generation"] }
+        : null;
+    }
+    snapshot.services = services;
+  }
+
+  if (patch.llm) {
+    const llm: NonNullable<DaemonConfigPatch["llm"]> = {};
+
+    if ("activeProfile" in patch.llm) {
+      llm.activeProfile = config.llm?.activeProfile ?? null;
+    }
+    if ("profileOrder" in patch.llm) {
+      llm.profileOrder = config.llm?.profileOrder ? [...config.llm.profileOrder] : [];
+    }
+    if ("default" in patch.llm) {
+      llm.default = config.llm?.default ? { ...config.llm.default } : null;
+    }
+
+    if (patch.llm.profiles) {
+      const profiles: Record<string, Partial<ProfileEntry> | null> = {};
+      for (const name of Object.keys(patch.llm.profiles)) {
+        const existing = config.llm?.profiles?.[name];
+        profiles[name] = existing ? { ...existing } : null;
+      }
+      llm.profiles = profiles;
+    }
+
+    if (patch.llm.callSites) {
+      const callSites: Record<string, CallSiteOverrideDraft | null> = {};
+      for (const id of Object.keys(patch.llm.callSites)) {
+        const existing = config.llm?.callSites?.[id];
+        callSites[id] = existing ? { ...existing } : null;
+      }
+      llm.callSites = callSites;
+    }
+
+    snapshot.llm = llm;
+  }
+
+  return snapshot;
+}
+
+/**
  * Applies a `DaemonConfigPatch` to a cached `DaemonConfig`, mimicking the
  * daemon's deep-merge semantics: omitted keys are left unchanged, explicit
  * `null` at record-entry positions deletes the entry.
  *
  * Used by the mutation hook's `onMutate` callback to optimistically update
- * the TanStack Query cache before the server responds.
+ * the TanStack Query cache before the server responds, and by `onError` to
+ * roll back only the fields that were changed (via a snapshot from
+ * `snapshotPatchedFields`).
  */
 export function applyConfigPatch(config: DaemonConfig, patch: DaemonConfigPatch): DaemonConfig {
   const result: DaemonConfig = { ...config };

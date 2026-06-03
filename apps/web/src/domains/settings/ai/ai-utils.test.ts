@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { DaemonConfig, DaemonConfigPatch } from "@/domains/settings/ai/ai-types";
-import { applyConfigPatch } from "@/domains/settings/ai/ai-utils";
+import { applyConfigPatch, snapshotPatchedFields } from "@/domains/settings/ai/ai-utils";
 
 const BASE_CONFIG: DaemonConfig = {
   services: {
@@ -179,5 +179,74 @@ describe("applyConfigPatch", () => {
       llm: { profiles: { default: { model: "claude-opus" } } },
     });
     expect(BASE_CONFIG).toEqual(original);
+  });
+});
+
+describe("snapshotPatchedFields", () => {
+  test("snapshots only service keys touched by the patch", () => {
+    const patch: DaemonConfigPatch = {
+      services: { "web-search": { mode: "managed" } },
+    };
+    const snapshot = snapshotPatchedFields(BASE_CONFIG, patch);
+    expect(snapshot.services?.["web-search"]).toEqual({
+      mode: "your-own",
+      provider: "perplexity",
+    });
+    expect(snapshot.services?.["image-generation"]).toBeUndefined();
+    expect(snapshot.llm).toBeUndefined();
+  });
+
+  test("snapshots null for missing service entries", () => {
+    const sparse: DaemonConfig = {};
+    const patch: DaemonConfigPatch = {
+      services: { "web-search": { mode: "managed" } },
+    };
+    const snapshot = snapshotPatchedFields(sparse, patch);
+    expect(snapshot.services?.["web-search"]).toBeNull();
+  });
+
+  test("snapshots only the profile entries touched by the patch", () => {
+    const patch: DaemonConfigPatch = {
+      llm: { profiles: { default: { model: "claude-opus" } } },
+    };
+    const snapshot = snapshotPatchedFields(BASE_CONFIG, patch);
+    expect(snapshot.llm?.profiles?.["default"]).toEqual(
+      BASE_CONFIG.llm?.profiles?.["default"],
+    );
+    expect(snapshot.llm?.profiles?.["fast"]).toBeUndefined();
+  });
+
+  test("snapshots activeProfile and default independently", () => {
+    const patch: DaemonConfigPatch = {
+      llm: { activeProfile: "fast" },
+    };
+    const snapshot = snapshotPatchedFields(BASE_CONFIG, patch);
+    expect(snapshot.llm?.activeProfile).toBe("default");
+    expect(snapshot.llm?.default).toBeUndefined();
+    expect(snapshot.llm?.profiles).toBeUndefined();
+  });
+
+  test("field-level rollback preserves concurrent mutation", () => {
+    // Simulate: mutation A changes web-search, mutation B changes image-generation.
+    // If A fails, rolling back A's snapshot should NOT revert B's change.
+    const afterB = applyConfigPatch(BASE_CONFIG, {
+      services: { "image-generation": { mode: "your-own" } },
+    });
+    const afterAandB = applyConfigPatch(afterB, {
+      services: { "web-search": { mode: "managed" } },
+    });
+    // Snapshot taken BEFORE A's optimistic update (at afterB)
+    const snapshotA = snapshotPatchedFields(afterB, {
+      services: { "web-search": { mode: "managed" } },
+    });
+    // A fails — roll back only A's fields
+    const rolledBack = applyConfigPatch(afterAandB, snapshotA);
+    // B's change should survive
+    expect(rolledBack.services?.["image-generation"]).toEqual({ mode: "your-own" });
+    // A's change should be reverted
+    expect(rolledBack.services?.["web-search"]).toEqual({
+      mode: "your-own",
+      provider: "perplexity",
+    });
   });
 });
