@@ -332,12 +332,18 @@ export async function handlePair(
     }
 
     // Device-bound path: mint a recorded, revocable, refreshable token pair.
+    // Keep the access token on the short pair TTL (not the 30-day bootstrap
+    // default): until hot-path revocation is enforced, the access JWT is only
+    // checked by signature, so a short lifetime bounds its blast radius. The
+    // refresh token is long-lived and DB-backed, so the client stays paired by
+    // rotating through the refresh endpoint (which honors revocation).
     if (deviceId) {
       const platform = bodyPlatform ?? interfaceId;
       const pair = mintAndRecordDeviceBoundTokenPair({
         guardianPrincipalId,
         deviceId,
         platform,
+        accessTtlSeconds: PAIR_TOKEN_TTL_SECONDS,
       });
 
       log.info(

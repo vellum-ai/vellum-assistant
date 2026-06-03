@@ -108,6 +108,19 @@ describe("/v1/pair device-bound minting", () => {
     expect(refresh[0].hashedDeviceId).toBe(hashToken("device-A"));
   });
 
+  test("uses the short 24h pair TTL for the access token, not the 30-day bootstrap default", async () => {
+    const before = Date.now();
+    await handlePair(makePairRequest({ deviceId: "device-A" }), LOOPBACK_IP);
+
+    const PAIR_TTL_MS = 24 * 60 * 60 * 1000;
+    const [token] = activeTokens();
+    // expiresAt should be ~24h out (allow a generous window), and well under
+    // the 30-day bootstrap TTL — until hot-path revocation lands, the access
+    // token's blast radius must stay bounded.
+    expect(token.expiresAt! - before).toBeGreaterThan(PAIR_TTL_MS - 60_000);
+    expect(token.expiresAt! - before).toBeLessThan(PAIR_TTL_MS + 60_000);
+  });
+
   test("the returned refresh token can be rotated via the refresh handler", async () => {
     const res = await handlePair(
       makePairRequest({ deviceId: "device-A" }),

@@ -461,6 +461,7 @@ function mintAccessToken(
   guardianPrincipalId: string,
   hashedDeviceId: string,
   platform: string,
+  ttlSeconds: number = ACCESS_TOKEN_TTL_SECONDS,
 ): { token: string; expiresAt: number } {
   const externalAssistantId = getExternalAssistantId();
   const sub = `actor:${externalAssistantId}:${guardianPrincipalId}`;
@@ -470,11 +471,11 @@ function mintAccessToken(
     sub,
     scope_profile: "actor_client_v1",
     policy_epoch: CURRENT_POLICY_EPOCH,
-    ttlSeconds: ACCESS_TOKEN_TTL_SECONDS,
+    ttlSeconds,
   });
 
   const now = Date.now();
-  const expiresAt = now + ACCESS_TOKEN_TTL_MS;
+  const expiresAt = now + ttlSeconds * 1000;
   const tokenHash = hashToken(token);
 
   getGatewayDb()
@@ -503,6 +504,7 @@ function mintRefreshToken(
   guardianPrincipalId: string,
   hashedDeviceId: string,
   platform: string,
+  accessTtlMs: number = ACCESS_TOKEN_TTL_MS,
 ): {
   refreshToken: string;
   refreshTokenExpiresAt: number;
@@ -537,8 +539,7 @@ function mintRefreshToken(
   return {
     refreshToken,
     refreshTokenExpiresAt: Math.min(absoluteExpiresAt, inactivityExpiresAt),
-    refreshAfter:
-      now + Math.floor(ACCESS_TOKEN_TTL_MS * REFRESH_AFTER_FRACTION),
+    refreshAfter: now + Math.floor(accessTtlMs * REFRESH_AFTER_FRACTION),
   };
 }
 
@@ -550,13 +551,20 @@ function mintRefreshToken(
  * pairing. The device binding enforces one active token per
  * (guardianPrincipalId, hashedDeviceId) via a unique index, so re-minting for
  * the same device first revokes the prior tokens.
+ *
+ * `accessTtlSeconds` controls the access-token lifetime (default: the
+ * bootstrap TTL). Callers can pass a shorter value — e.g. loopback pairing
+ * keeps a short access TTL so a token stays low-blast-radius until hot-path
+ * revocation is enforced; the refresh token remains long-lived and DB-backed.
  */
 export function mintAndRecordDeviceBoundTokenPair(params: {
   guardianPrincipalId: string;
   deviceId: string;
   platform: string;
+  accessTtlSeconds?: number;
 }): DeviceBoundTokenPair {
   const hashedDeviceId = hashToken(params.deviceId);
+  const accessTtlSeconds = params.accessTtlSeconds ?? ACCESS_TOKEN_TTL_SECONDS;
 
   revokeActorTokensByDevice(params.guardianPrincipalId, hashedDeviceId);
   revokeRefreshTokensByDevice(params.guardianPrincipalId, hashedDeviceId);
@@ -565,11 +573,13 @@ export function mintAndRecordDeviceBoundTokenPair(params: {
     params.guardianPrincipalId,
     hashedDeviceId,
     params.platform,
+    accessTtlSeconds,
   );
   const refresh = mintRefreshToken(
     params.guardianPrincipalId,
     hashedDeviceId,
     params.platform,
+    accessTtlSeconds * 1000,
   );
 
   return {
