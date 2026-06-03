@@ -7,10 +7,12 @@
  * its trigger label and the user has a visible recovery path.
  */
 
+import type { ProfileStatus } from "@/domains/settings/ai/ai-types";
+
 export interface ProfilePickerEntry {
   readonly name: string;
   readonly label?: string | null;
-  readonly status?: "active" | "disabled";
+  readonly status?: ProfileStatus;
 }
 
 /**

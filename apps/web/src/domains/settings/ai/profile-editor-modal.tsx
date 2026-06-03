@@ -9,15 +9,15 @@ import { Typography } from "@vellum/design-library/components/typography";
 
 import { getModelsForProvider } from "@/assistant/llm-model-catalog";
 
-import type { ProfileEntry, ProfileWithName } from "@/domains/settings/ai/ai-types";
+import type { ProfileEntry, ProfileStatus, ProfileWithName } from "@/domains/settings/ai/ai-types";
+import { OPENAI_COMPATIBLE_PROVIDER } from "@/domains/settings/ai/ai-types";
 import {
   ProfileAdvancedParams,
   THINKING_LEVEL_INHERIT,
 } from "@/domains/settings/ai/profile-advanced-params";
-import type { ProfileStatus } from "@/domains/settings/ai/profile-editor-constants";
-import { OPENAI_COMPATIBLE_PROVIDER } from "@/domains/settings/ai/profile-editor-constants";
 import { ProfileEditorProviderSection } from "@/domains/settings/ai/profile-editor-provider-section";
 import { resolveProfileParamVisibility } from "@/domains/settings/ai/profile-param-visibility";
+import { AUTO_PROFILE_NAME } from "@/domains/settings/ai/profile-pickers";
 import type { ProviderConnection } from "@/domains/settings/ai/provider-connections-client";
 import { useLabelKeySync } from "@/domains/settings/ai/use-label-key-sync";
 
@@ -133,7 +133,7 @@ function ProfileEditorModalInner({
 }: ProfileEditorModalInnerProps) {
   const [effectiveMode, setEffectiveMode] = useState<"create" | "edit" | "view">(mode);
   const isReadOnly = effectiveMode === "view";
-  const isAutoProfile = profileName === "auto";
+  const isAutoProfile = profileName === AUTO_PROFILE_NAME;
 
   // Managed profiles open the editor in view mode (mode === "view") so they
   // can't be reshaped (provider, model, advanced params) — those are
@@ -279,10 +279,17 @@ function ProfileEditorModalInner({
     // For providers with per-connection models (openai-compatible), clear the
     // selected model when switching connections if it's not in the new list.
     if (provider && getModelsForProvider(provider).length === 0 && model) {
-      const conn = availableConnectionsForProvider.find((c) => c.name === newConnection);
-      const connModelIds = new Set((conn?.models ?? []).map((m) => m.id));
-      if (newConnection === "" || !connModelIds.has(model)) {
-        setModel("");
+      if (newConnection === "") {
+        // "Any connection" — merge models from all connections and keep the
+        // model if it exists in the merged set.
+        const allModelIds = new Set(
+          availableConnectionsForProvider.flatMap((c) => (c.models ?? []).map((m) => m.id)),
+        );
+        if (!allModelIds.has(model)) setModel("");
+      } else {
+        const conn = availableConnectionsForProvider.find((c) => c.name === newConnection);
+        const connModelIds = new Set((conn?.models ?? []).map((m) => m.id));
+        if (!connModelIds.has(model)) setModel("");
       }
     }
   }

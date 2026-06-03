@@ -5,15 +5,28 @@ import { Typography } from "@vellum/design-library/components/typography";
 
 import {
   getModelsForProvider,
+  MODELS_BY_PROVIDER,
   PROVIDER_DISPLAY_NAMES as INFERENCE_PROVIDER_DISPLAY_NAMES,
 } from "@/assistant/llm-model-catalog";
 
+import { OPENAI_COMPATIBLE_PROVIDER } from "@/domains/settings/ai/ai-types";
 import type { ConnectionModel, ProviderConnection } from "@/domains/settings/ai/provider-connections-client";
-import {
-  ALL_PROVIDERS,
-  CODEX_SUBSCRIPTION_MODEL_IDS,
-  OPENAI_COMPATIBLE_PROVIDER,
-} from "@/domains/settings/ai/profile-editor-constants";
+
+const ALL_PROVIDERS = Object.keys(MODELS_BY_PROVIDER) as (keyof typeof MODELS_BY_PROVIDER)[];
+
+const CODEX_SUBSCRIPTION_MODEL_IDS = new Set([
+  "gpt-5.5",
+  "gpt-5.4",
+  "gpt-5.4-mini",
+  "gpt-5.3-codex",
+]);
+
+function connectionModelsToCatalog(models: ConnectionModel[] | null | undefined) {
+  return (models ?? []).map((m) => ({
+    id: m.id,
+    displayName: m.displayName ?? m.id,
+  }));
+}
 
 // ---------------------------------------------------------------------------
 // Props
@@ -147,11 +160,6 @@ export function ProfileEditorProviderSection({
       return catalogModels;
     }
     // Static catalog is empty (openai-compatible) — derive from connections.
-    const connectionModelsToCatalog = (models: ConnectionModel[] | null | undefined) =>
-      (models ?? []).map((m) => ({
-        id: m.id,
-        displayName: m.displayName ?? m.id,
-      }));
     if (providerConnection) {
       const conn = availableConnectionsForProvider.find((c) => c.name === providerConnection);
       return conn ? connectionModelsToCatalog(conn.models) : [];
@@ -297,7 +305,7 @@ export function ProfileEditorProviderSection({
               value: "",
               label: !provider
                 ? "Select a provider first"
-                : provider === "openai-compatible" && availableModels.length === 0
+                : provider === OPENAI_COMPATIBLE_PROVIDER && availableModels.length === 0
                   ? "Configure models on connection"
                   : "Select a model",
             },
@@ -313,7 +321,7 @@ export function ProfileEditorProviderSection({
             as="p"
             className="text-(--system-negative-strong)"
           >
-            {provider === "openai-compatible" && availableModels.length === 0
+            {provider === OPENAI_COMPATIBLE_PROVIDER && availableModels.length === 0
               ? "No models available. Configure models on the provider connection first."
               : "Select a model."}
           </Typography>

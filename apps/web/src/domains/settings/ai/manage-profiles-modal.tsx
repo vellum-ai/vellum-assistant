@@ -11,7 +11,7 @@ import { Typography } from "@vellum/design-library/components/typography";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { captureError } from "@/lib/sentry/capture-error";
 
-import type { CallSiteOverrideDraft, DaemonConfig, DaemonConfigPatch, ProfileEntry, ProfileWithName } from "@/domains/settings/ai/ai-types";
+import type { CallSiteOverrideDraft, DaemonConfig, DaemonConfigPatch, ProfileEntry, ProfileStatus, ProfileWithName } from "@/domains/settings/ai/ai-types";
 import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal";
 import {
   AUTO_PROFILE_NAME,
@@ -252,7 +252,7 @@ function ManageProfilesModalInner({
     setTogglingNames((prev) => new Set(prev).add(profile.name));
     setToggleError(null);
 
-    const wireStatus: "active" | "disabled" = active ? "active" : "disabled";
+    const wireStatus: ProfileStatus = active ? "active" : "disabled";
     const previousEntry = profiles[profile.name];
     if (!previousEntry) {
       setTogglingNames((prev) => {
