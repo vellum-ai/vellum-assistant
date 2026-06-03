@@ -677,23 +677,15 @@ export function useInteractionActions(): UseInteractionActionsReturn {
       suggestionAbortRef.current?.abort();
       suggestionAbortRef.current = null;
 
-      // 3-tier fallback matching macOS AssistantProgressView.scopeOptions(from:):
-      // 1. allowlistOptions (glob patterns, saveable as trust rules)
-      // 2. riskScopeOptions (regex-flavored display-only ladder from tool_result)
-      // 3. Empty — the modal's buildApplyToOptions synthesizes the tier-3
-      //    fallback (raw command, or wildcard for natural-language input)
-      let resolvedAllowlistOptions: AllowlistOption[];
-      if (context.allowlistOptions.length > 0) {
-        resolvedAllowlistOptions = context.allowlistOptions;
-      } else if (context.riskScopeOptions.length > 0) {
-        resolvedAllowlistOptions = context.riskScopeOptions.map((o) => ({
-          pattern: o.pattern,
-          label: o.label,
-          description: "",
-        }));
-      } else {
-        resolvedAllowlistOptions = [];
-      }
+      // Only `riskAllowlistOptions` (minimatch globs) are valid save-path
+      // patterns. Per the `tool_result` wire contract, `riskScopeOptions` are a
+      // regex-flavored, display-only ladder and must NOT be persisted as trust
+      // rules, so we never feed them into the "Apply to" list. When no saveable
+      // ladder is present we leave this empty and let the modal's
+      // buildApplyToOptions synthesize the fallback (raw command, or wildcard
+      // for natural-language input).
+      const resolvedAllowlistOptions: AllowlistOption[] =
+        context.allowlistOptions.length > 0 ? context.allowlistOptions : [];
 
       const baseContext: RuleEditorContext = {
         requestId: "",
