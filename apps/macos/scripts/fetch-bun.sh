@@ -125,12 +125,20 @@ fetch_single_bun() {
 
 DEST="$RESOURCES_DIR/bun"
 
-# For non-universal builds, check if existing binary already matches
+# For non-universal builds, check if existing binary matches version AND architecture
 if [ "$TARGET_ARCH" != "universal" ] && [ -x "$DEST" ]; then
   CURRENT_VERSION=$("$DEST" --version 2>/dev/null || echo "")
   if [ "$CURRENT_VERSION" = "$BUN_VERSION" ]; then
-    echo "bun $BUN_VERSION already present at $DEST — skipping download."
-    exit 0
+    CURRENT_ARCHS=$(lipo -archs "$DEST" 2>/dev/null || echo "")
+    case "$TARGET_ARCH" in
+      aarch64) EXPECTED_ARCH="arm64" ;;
+      x64)     EXPECTED_ARCH="x86_64" ;;
+    esac
+    if [ "$CURRENT_ARCHS" = "$EXPECTED_ARCH" ]; then
+      echo "bun $BUN_VERSION ($TARGET_ARCH) already present at $DEST — skipping download."
+      exit 0
+    fi
+    echo "bun $BUN_VERSION present but wrong arch (have $CURRENT_ARCHS, need $EXPECTED_ARCH) — re-fetching."
   fi
 fi
 
