@@ -19,6 +19,7 @@ Enable the briefing by telling your assistant:
 The assistant will create a recurring schedule. On first run you will receive a briefing in all connected channels.
 
 You can also say:
+
 - "Set my daily briefing to 7:30am"
 - "What time is my daily briefing?"
 - "Pause my daily briefing"
@@ -52,21 +53,21 @@ The setup script asks for your preferred delivery time and timezone, then create
 
 Once enabled, all management is conversational — just tell your assistant:
 
-| What you want | Say |
-|---|---|
-| Change time | "Move my briefing to 8am" |
-| Check status | "When is my next briefing?" |
-| Pause | "Pause my daily briefing" |
-| Resume | "Resume my daily briefing" |
-| Disable | "Turn off my morning briefing" |
+| What you want | Say                            |
+| ------------- | ------------------------------ |
+| Change time   | "Move my briefing to 8am"      |
+| Check status  | "When is my next briefing?"    |
+| Pause         | "Pause my daily briefing"      |
+| Resume        | "Resume my daily briefing"     |
+| Disable       | "Turn off my morning briefing" |
 
 ## How it works
 
-The skill creates a recurring `execute`-mode schedule via `schedule_create`. When the schedule fires:
+Setup runs `scripts/setup.ts` via bash, which calls `assistant schedules create` to register a recurring `execute`-mode schedule. When the schedule fires each day:
 
 1. The scheduler boots a background conversation with the briefing prompt as the initial message.
 2. The agent runtime injects your recent memory, decisions, and workspace context automatically.
-3. The agent composes the briefing and delivers it using `assistant notifications send`.
+3. The agent composes the briefing and runs `assistant notifications send` to deliver it.
 4. The notification routes to all your connected channels — the same pipeline as any other Vellum notification.
 
 The briefing conversation is reused across runs so context accumulates over time (the agent sees prior briefings when composing today's).
