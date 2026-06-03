@@ -328,7 +328,7 @@ export function SoundsPage() {
   };
 
   return (
-    <div className="max-w-[940px] space-y-6">
+    <div className="mx-auto max-w-[940px] space-y-6">
       <Card>
         <ToggleRow
           label="Enable sound effects"
