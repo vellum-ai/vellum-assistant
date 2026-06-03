@@ -18,11 +18,15 @@
  * loop: this hook always asks to continue when a nudge is warranted, and the
  * loop stops anyway once the run's nudge budget is spent.
  *
- * Both prior-turn signals are derived from `ctx.messages`, which the loop scopes
- * to the current `run()`. A prior assistant turn this run implies a completed
- * tool-use iteration (an empty turn nudges-and-continues without pushing an
- * assistant message), so "a prior assistant turn exists" is the run-scoped
- * equivalent of "this is not the first model call".
+ * Both prior-turn signals are derived from the current response cycle — the
+ * messages after the last genuine user prompt (a user turn that isn't purely
+ * tool results). Scoping this way keeps prior conversation turns from polluting
+ * the signals, and deriving the boundary from history content rather than an
+ * index means mid-run compaction (which rewrites the array in place) can't
+ * invalidate it. A prior assistant turn this cycle implies a completed tool-use
+ * iteration (an empty turn nudges-and-continues without pushing an assistant
+ * message), so "a prior assistant turn exists" is the equivalent of "this is
+ * not the first model call".
  *
  * Defaults register before any user plugin, so this hook runs at the front of
  * the `stop` chain — later hooks see (and may override) its decision.
@@ -64,6 +68,31 @@ function isAssistantTurn(message: Message): boolean {
   return message.role === "assistant";
 }
 
+/** A user-role message carrying only tool results, not a fresh prompt. */
+function isToolResultMessage(message: Message): boolean {
+  return (
+    message.role === "user" &&
+    message.content.length > 0 &&
+    message.content.every((block) => block.type === "tool_result")
+  );
+}
+
+/**
+ * Messages belonging to the current response cycle: everything after the last
+ * genuine user prompt. Falls back to the whole history when none is found.
+ */
+function currentCycleMessages(
+  messages: ReadonlyArray<Message>,
+): ReadonlyArray<Message> {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message.role === "user" && !isToolResultMessage(message)) {
+      return messages.slice(i + 1);
+    }
+  }
+  return messages;
+}
+
 const stop: PluginHookFn<StopContext> = async (ctx) => {
   const turnHasVisibleText = hasVisibleText(ctx.responseContent);
 
@@ -77,7 +106,8 @@ const stop: PluginHookFn<StopContext> = async (ctx) => {
     return;
   }
 
-  const priorAssistantTurns = ctx.messages.filter(isAssistantTurn);
+  const cycleMessages = currentCycleMessages(ctx.messages);
+  const priorAssistantTurns = cycleMessages.filter(isAssistantTurn);
   const hadPriorAssistantTurn = priorAssistantTurns.length > 0;
   const priorAssistantHadVisibleText = priorAssistantTurns.some((message) =>
     hasVisibleText(message.content),

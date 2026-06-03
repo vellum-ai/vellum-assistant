@@ -335,7 +335,7 @@ const DEFAULT_CONFIG: AgentLoopConfig = {
 };
 
 const MAX_CONSECUTIVE_ERROR_NUDGES = 3;
-const MAX_EMPTY_RESPONSE_RETRIES = 1;
+const MAX_STOP_CONTINUE_RETRIES = 1;
 const MAX_TOKENS_STOP_REASONS = new Set([
   "length",
   "max_output_tokens",
@@ -800,14 +800,10 @@ export class AgentLoop {
       mutableLatestUserMessage,
     } = options ?? {};
     let history = [...messages];
-    // Boundary between the inbound conversation and messages this run() appends.
-    // The `stop` hook receives the run-scoped tail so it can reason about what
-    // this run has produced without prior conversation turns polluting the signal.
-    const runStartIndex = history.length;
     let producedVisibleTextThisRun = false;
     let toolUseTurns = 0;
     let consecutiveErrorTurns = 0;
-    let emptyResponseRetries = 0;
+    let stopContinueRetries = 0;
     let lastLlmCallTime = 0;
     let exitReason: ExitReason | null = null;
     const rlog = requestId ? log.child({ requestId }) : log;
@@ -1250,12 +1246,11 @@ export class AgentLoop {
         if (toolUseBlocks.length === 0) {
           // The model stopped requesting tools — the run's stop boundary. The
           // `stop` hook decides whether to let the turn end or re-query with a
-          // follow-up turn. It receives the run-scoped message tail (excluding
-          // the inbound conversation) and, when it asks to continue, appends
-          // the follow-up turn itself.
+          // follow-up turn. It receives the full history and, when it asks to
+          // continue, appends the follow-up turn itself.
           const stopCtx: StopContext = {
             conversationId: turnCtx.conversationId,
-            messages: history.slice(runStartIndex),
+            messages: [...history],
             responseContent: response.content,
             stopReason: response.stopReason,
             decision: "stop",
@@ -1267,16 +1262,13 @@ export class AgentLoop {
             // The loop owns the retry budget: a hook always asks to continue
             // when a nudge is warranted, and the loop stops anyway once the
             // budget is spent. This bounds the hook-driven re-query loop.
-            if (emptyResponseRetries < MAX_EMPTY_RESPONSE_RETRIES) {
-              emptyResponseRetries++;
+            if (stopContinueRetries < MAX_STOP_CONTINUE_RETRIES) {
+              stopContinueRetries++;
               rlog.warn(
-                { turn: toolUseTurns, retry: emptyResponseRetries },
+                { turn: toolUseTurns, retry: stopContinueRetries },
                 "Model returned empty response after tool results — retrying",
               );
-              history = [
-                ...history.slice(0, runStartIndex),
-                ...finalStopCtx.messages,
-              ];
+              history = finalStopCtx.messages;
               continue;
             }
 
@@ -1289,7 +1281,7 @@ export class AgentLoop {
               !priorAssistantHadVisibleText
             ) {
               rlog.error(
-                { turn: toolUseTurns, retries: emptyResponseRetries },
+                { turn: toolUseTurns, retries: stopContinueRetries },
                 "Model returned empty response after tool results — retries exhausted",
               );
             }
