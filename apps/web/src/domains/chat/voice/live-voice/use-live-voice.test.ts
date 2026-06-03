@@ -19,11 +19,9 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 // Tests inject fake primitives, so we never construct the real client; mock the
 // connection module so importing the controller doesn't drag in the SDK client.
 mock.module("@/domains/chat/voice/live-voice/connection", () => ({
-  mintLiveVoiceToken: mock(async () => ({
-    token: "tok",
-    expiresAt: "2026-06-01T00:05:00Z",
-  })),
-  buildLiveVoiceWsUrl: () => "wss://velay.vellum.ai/a/v1/live-voice",
+  resolveLiveVoiceWsUrl: mock(
+    async () => "wss://velay.vellum.ai/a/v1/live-voice",
+  ),
 }));
 
 import type {
@@ -253,7 +251,7 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("full turn", () => {
-  test("drives idle → connecting → listening → thinking → speaking → listening (continuous)", async () => {
+  test("drives idle → connecting → listening → thinking → speaking → idle (session ends after the turn)", async () => {
     const h = renderController();
 
     expect(h.view.result.current.state).toBe("idle");
@@ -331,17 +329,16 @@ describe("full turn", () => {
     expect(h.view.result.current.state).toBe("speaking");
     expect(h.player.enqueued).toHaveLength(1);
 
-    // tts_done awaits playback drain, then resumes listening for the next turn
-    // (continuous conversation): the mic is NOT shut down and the socket stays
-    // open.
+    // tts_done awaits playback drain, then ends the session (single-utterance):
+    // the socket is closed and the mic is shut down, returning to idle.
     await act(async () => {
       h.client.emit("ttsDone", { type: "tts_done", seq: 8, turnId: "t1" });
       h.player.finishPlayback();
       await Promise.resolve();
     });
-    expect(h.view.result.current.state).toBe("listening");
-    expect(h.client.closed).toBe(false);
-    expect(h.getCapture().shutdownCount).toBe(0);
+    expect(h.view.result.current.state).toBe("idle");
+    expect(h.client.closed).toBe(true);
+    expect(h.getCapture().shutdownCount).toBe(1);
   });
 });
 
@@ -350,7 +347,7 @@ describe("full turn", () => {
 // ---------------------------------------------------------------------------
 
 describe("barge-in", () => {
-  test("amplitude over threshold while speaking stops playback and interrupts", async () => {
+  test("amplitude over threshold while speaking stops playback, interrupts, and ends the session", async () => {
     const h = renderController();
     await startListening(h);
 
@@ -371,10 +368,13 @@ describe("barge-in", () => {
       h.getCapture().pushAmplitude(0.2); // over BARGE_IN_AMPLITUDE_THRESHOLD
     });
 
-    expect(h.player.stopCount).toBe(1);
+    // Playback is stopped and a single interrupt is sent; the (now terminal)
+    // session is then torn down → idle (mic shut down, socket closed).
+    expect(h.player.isPlaying).toBe(false);
     expect(h.client.interruptCount).toBe(1);
-    // Capture is still running, so barge-in returns us to listening.
-    expect(h.view.result.current.state).toBe("listening");
+    expect(h.view.result.current.state).toBe("idle");
+    expect(h.client.closed).toBe(true);
+    expect(h.getCapture().shutdownCount).toBe(1);
   });
 
   test("interrupt is sent at most once per response", async () => {
@@ -397,12 +397,12 @@ describe("barge-in", () => {
     expect(h.client.interruptCount).toBe(1);
   });
 
-  test("realistic turn: auto-release → speaking → barge-in resumes listening → second auto-release", async () => {
+  test("realistic turn: auto-release → speaking → barge-in ends the session", async () => {
     const h = renderController();
     await startListening(h);
     const capture = h.getCapture();
 
-    // --- Turn 1: speak, then go silent so push-to-talk auto-releases. ---
+    // Speak, then go silent so push-to-talk auto-releases.
     act(() => {
       capture.pushAmplitude(0.1); // speech
       capture.pushChunk(pcmChunk(200));
@@ -411,8 +411,6 @@ describe("barge-in", () => {
     });
     expect(h.client.pttReleaseCount).toBe(1);
     expect(h.view.result.current.state).toBe("transcribing");
-    // Forwarding is gated off after release, but the mic is still running.
-    const forwardedAfterRelease = h.client.sentAudio.length;
 
     // Server thinks, then streams TTS — we move to speaking.
     act(() => {
@@ -428,27 +426,14 @@ describe("barge-in", () => {
     expect(h.view.result.current.state).toBe("speaking");
 
     // The mic never stopped, so amplitude still flows while the assistant
-    // speaks: a loud reading interrupts (barge-in) and resumes listening.
+    // speaks: a loud reading interrupts (barge-in), which ends the session.
     act(() => {
       capture.pushAmplitude(0.3); // over BARGE_IN_AMPLITUDE_THRESHOLD
     });
     expect(h.client.interruptCount).toBe(1);
-    expect(h.player.stopCount).toBe(1);
-    expect(h.view.result.current.state).toBe("listening");
-    // Capture was never shut down across the whole turn.
-    expect(capture.shutdownCount).toBe(0);
-
-    // --- Turn 2: forwarding resumed, so a fresh utterance auto-releases too. ---
-    act(() => {
-      capture.pushAmplitude(0.1); // speech again
-      capture.pushChunk(pcmChunk(200));
-      capture.pushAmplitude(0.0); // silence
-      capture.pushChunk(pcmChunk(1000));
-    });
-    expect(h.client.pttReleaseCount).toBe(2);
-    expect(h.view.result.current.state).toBe("transcribing");
-    // The second utterance's PCM was forwarded after listening resumed.
-    expect(h.client.sentAudio.length).toBeGreaterThan(forwardedAfterRelease);
+    expect(h.player.isPlaying).toBe(false);
+    expect(h.view.result.current.state).toBe("idle");
+    expect(capture.shutdownCount).toBe(1);
   });
 });
 

@@ -339,6 +339,12 @@ export class LiveVoiceAudioPlayer {
     }
     this.activeSources.clear();
     this.pendingContainerDecodes = 0;
+    // Reset the decode chain so the next response's container frames don't queue
+    // behind the abandoned (now generation-invalidated) decode — a slow/stuck
+    // `decodeAudioData` from the interrupted utterance must not delay or silence
+    // subsequent TTS. The in-flight decode's own `.then` still runs but no-ops on
+    // the generation mismatch.
+    this.containerDecodeChain = Promise.resolve();
     this.settleIfIdle();
   }
 
