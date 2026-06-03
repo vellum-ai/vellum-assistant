@@ -26,6 +26,28 @@ mock.module("../../assistant-event-hub.js", () => ({
   broadcastMessage: () => {},
 }));
 
+// Capture sync invalidations so we can assert that conversation-metadata
+// writes notify other clients. Module-scope so the hoisted factory closes
+// over it.
+const syncInvalidations: Array<{ tags: string[]; originClientId?: string }> =
+  [];
+mock.module("../../sync/sync-publisher.js", () => ({
+  publishSyncInvalidation: (tags: string[], originClientId?: string) => {
+    syncInvalidations.push({ tags, originClientId });
+  },
+}));
+
+// Capture live-conversation evictions so we can assert that changing the
+// memory-factoring setting drops the in-memory instance (forcing a reload
+// with the updated gate on the next turn).
+const evictedConversations: string[] = [];
+mock.module("../../../daemon/conversation-store.js", () => ({
+  destroyActiveConversation: (conversationId: string) => {
+    evictedConversations.push(conversationId);
+  },
+}));
+
+import { getConversation } from "../../../memory/conversation-crud.js";
 import { getDb } from "../../../memory/db-connection.js";
 import { initializeDb } from "../../../memory/db-init.js";
 import { conversations } from "../../../memory/schema.js";
@@ -75,6 +97,10 @@ const putHandler = findHandler(
   CONVERSATION_MANAGEMENT_ROUTES,
   "setConversationInferenceProfile",
 );
+const incognitoHandler = findHandler(
+  CONVERSATION_MANAGEMENT_ROUTES,
+  "setConversationIncognitoFactorInMemories",
+);
 const openHandler = findHandler(
   INFERENCE_PROFILE_SESSION_ROUTES,
   "inference_profile_open",
@@ -92,7 +118,10 @@ function clearConversations(): void {
   getDb().delete(conversations).run();
 }
 
-function seedConversation(id: string): void {
+function seedConversation(
+  id: string,
+  opts: { incognito?: boolean } = {},
+): void {
   const now = Date.now();
   getDb()
     .insert(conversations)
@@ -104,6 +133,7 @@ function seedConversation(id: string): void {
       source: "test",
       conversationType: "standard",
       memoryScopeId: "default",
+      incognito: opts.incognito ? 1 : 0,
     })
     .run();
 }
@@ -315,5 +345,112 @@ describe("POST /v1/conversations/inference-profile-session/close (inference_prof
 
     expect(result.noop).toBe(true);
     expect(result.closed).toBeNull();
+  });
+});
+
+describe("PUT /v1/conversations/:id/incognito", () => {
+  beforeEach(() => {
+    clearConversations();
+    syncInvalidations.length = 0;
+    evictedConversations.length = 0;
+  });
+
+  test("evicts the live conversation when the setting changes, not on a no-op", async () => {
+    const convId = crypto.randomUUID();
+    seedConversation(convId, { incognito: true }); // factor_in_memories = 1
+
+    // 1 -> 0 changes the value, so the live instance must be dropped.
+    await incognitoHandler({
+      pathParams: { id: convId },
+      body: { factorInMemories: false },
+    });
+    expect(evictedConversations).toEqual([convId]);
+
+    // 0 -> 0 is a no-op; do not evict again.
+    evictedConversations.length = 0;
+    await incognitoHandler({
+      pathParams: { id: convId },
+      body: { factorInMemories: false },
+    });
+    expect(evictedConversations).toEqual([]);
+  });
+
+  test("updates factor_in_memories on an incognito conversation", async () => {
+    const convId = crypto.randomUUID();
+    seedConversation(convId, { incognito: true });
+
+    // Default seed leaves factor_in_memories = 1; turn it off.
+    const off = (await incognitoHandler({
+      pathParams: { id: convId },
+      body: { factorInMemories: false },
+    })) as { incognito: boolean; factorInMemories: boolean };
+
+    expect(off.incognito).toBe(true);
+    expect(off.factorInMemories).toBe(false);
+    expect(getConversation(convId)!.factorInMemories).toBe(0);
+
+    // And back on.
+    const on = (await incognitoHandler({
+      pathParams: { id: convId },
+      body: { factorInMemories: true },
+    })) as { incognito: boolean; factorInMemories: boolean };
+
+    expect(on.factorInMemories).toBe(true);
+    expect(getConversation(convId)!.factorInMemories).toBe(1);
+  });
+
+  test("publishes a metadata sync invalidation, suppressing the requester", async () => {
+    const convId = crypto.randomUUID();
+    seedConversation(convId, { incognito: true });
+
+    await incognitoHandler({
+      pathParams: { id: convId },
+      body: { factorInMemories: false },
+      headers: { "x-vellum-client-id": "tab-1" },
+    });
+
+    // Other clients are told to refetch this conversation's metadata; the tag
+    // references the conversation, and the requester is suppressed by id.
+    expect(syncInvalidations).toHaveLength(1);
+    expect(syncInvalidations[0]!.tags.some((t) => t.includes(convId))).toBe(
+      true,
+    );
+    expect(syncInvalidations[0]!.originClientId).toBe("tab-1");
+  });
+
+  test("rejects a non-incognito conversation with 409", async () => {
+    const convId = crypto.randomUUID();
+    seedConversation(convId, { incognito: false });
+
+    await expect(
+      incognitoHandler({
+        pathParams: { id: convId },
+        body: { factorInMemories: false },
+      }),
+    ).rejects.toMatchObject({ statusCode: 409 });
+    // Unchanged, and no invalidation published for a rejected write.
+    expect(getConversation(convId)!.factorInMemories).toBe(1);
+    expect(syncInvalidations).toHaveLength(0);
+  });
+
+  test("returns 404 for an unknown conversation", async () => {
+    await expect(
+      incognitoHandler({
+        pathParams: { id: crypto.randomUUID() },
+        body: { factorInMemories: true },
+      }),
+    ).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  test("rejects a non-boolean factorInMemories with 400", async () => {
+    const convId = crypto.randomUUID();
+    seedConversation(convId, { incognito: true });
+
+    await expect(
+      incognitoHandler({
+        pathParams: { id: convId },
+        body: { factorInMemories: "yes" },
+      }),
+    ).rejects.toMatchObject({ statusCode: 400 });
   });
 });

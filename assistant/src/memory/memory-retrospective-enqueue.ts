@@ -18,7 +18,11 @@ import {
   type TrustClass,
 } from "../runtime/actor-trust-resolver.js";
 import { getLogger } from "../util/logger.js";
-import { getConversationSource } from "./conversation-crud.js";
+// Namespace import + optional call: Bun `mock.module` global-leak means many
+// test files mock conversation-crud with only a partial export set. A named
+// `getConversation` import would fail at link time under those mocks; the
+// namespace access degrades to undefined (treated as non-incognito) instead.
+import * as conversationCrud from "./conversation-crud.js";
 import {
   isMemoryEnabled,
   upsertMemoryRetrospectiveJob,
@@ -53,6 +57,15 @@ export function enqueueMemoryRetrospectiveIfEnabled(args: {
     return;
   }
 
+  const conversation = conversationCrud.getConversation?.(conversationId);
+  if (conversation?.incognito) {
+    log.debug(
+      { conversationId, trigger },
+      "Skipping memory-retrospective enqueue: conversation is incognito",
+    );
+    return;
+  }
+
   const runAfter =
     trigger === "compaction" ? Date.now() + COMPACTION_DEBOUNCE_MS : Date.now();
 
@@ -74,7 +87,7 @@ export function enqueueMemoryRetrospectiveIfEnabled(args: {
 export function isMemoryRetrospectiveConversation(
   conversationId: string,
 ): boolean {
-  const source = getConversationSource(conversationId);
+  const source = conversationCrud.getConversationSource(conversationId);
   return source !== null && MEMORY_RETROSPECTIVE_SOURCES.includes(source);
 }
 

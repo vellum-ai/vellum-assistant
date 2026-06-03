@@ -231,6 +231,8 @@ export interface ConversationRow {
   inferenceProfileSessionId: string | null;
   inferenceProfileExpiresAt: number | null;
   lastNotifiedInferenceProfile: string | null;
+  incognito: number;
+  factorInMemories: number;
 }
 
 export const parseConversation = createRowMapper<
@@ -265,6 +267,8 @@ export const parseConversation = createRowMapper<
   inferenceProfileSessionId: "inferenceProfileSessionId",
   inferenceProfileExpiresAt: "inferenceProfileExpiresAt",
   lastNotifiedInferenceProfile: "lastNotifiedInferenceProfile",
+  incognito: "incognito",
+  factorInMemories: "factorInMemories",
 });
 
 /** Allowed values for the `role` column on `messages`. */
@@ -501,6 +505,8 @@ export function createConversation(
         scheduleJobId?: string;
         groupId?: string;
         forkParentConversationId?: string;
+        incognito?: boolean;
+        factorInMemories?: boolean;
       },
 ) {
   const db = getDb();
@@ -540,6 +546,8 @@ export function createConversation(
     memoryScopeId,
     scheduleJobId: opts.scheduleJobId ?? null,
     forkParentConversationId: opts.forkParentConversationId ?? null,
+    incognito: opts.incognito ? 1 : 0,
+    factorInMemories: opts.factorInMemories === false ? 0 : 1,
   };
 
   // Retry on SQLITE_BUSY and SQLITE_IOERR — transient disk I/O errors or WAL
@@ -882,6 +890,12 @@ export function forkConversation(params: {
       conversationType: params.conversationType ?? "standard",
       groupId: params.groupId ?? parentGroupId ?? "system:all",
       ...(params.source != null ? { source: params.source } : {}),
+      // Inherit the parent's incognito state. A fork copies the parent's
+      // messages, so an incognito parent must produce an incognito fork —
+      // otherwise the copied history (and future messages in the fork) would
+      // be indexed and produce memories, breaking the incognito guarantee.
+      incognito: sourceConversation.incognito === 1,
+      factorInMemories: sourceConversation.factorInMemories === 1,
     });
 
     db.update(conversations)
@@ -1242,6 +1256,11 @@ export async function addMessage(
         ? parsed.data.provenanceTrustClass
         : undefined;
       const automated = parsed?.success ? parsed.data.automated : undefined;
+      // Incognito conversations must never produce memories — resolve the flag
+      // locally (getConversation lives in this module) and let indexMessageNow
+      // short-circuit the whole indexing/extraction pipeline.
+      const incognito =
+        getConversation(message.conversationId)?.incognito === 1;
       await indexMessageNow(
         {
           messageId: message.id,
@@ -1252,6 +1271,7 @@ export async function addMessage(
           scopeId: "default",
           provenanceTrustClass,
           automated,
+          incognito,
         },
         config.memory,
       );
@@ -1791,6 +1811,24 @@ export function setConversationInferenceProfile(
       updatedAt: Date.now(),
     })
     .where(eq(conversations.id, conversationId))
+    .run();
+}
+
+/**
+ * Set whether an incognito conversation should factor in existing memories.
+ * Stored as 1/0 in the `factor_in_memories` column. Bumps `updatedAt`.
+ */
+export function setConversationFactorInMemories(
+  id: string,
+  factorInMemories: boolean,
+): void {
+  const db = getDb();
+  db.update(conversations)
+    .set({
+      factorInMemories: factorInMemories ? 1 : 0,
+      updatedAt: Date.now(),
+    })
+    .where(eq(conversations.id, id))
     .run();
 }
 

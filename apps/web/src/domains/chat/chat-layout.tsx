@@ -281,6 +281,19 @@ export function ChatLayout() {
     requestComposerFocus();
   }, [navigate]);
 
+  const handleStartNewIncognitoConversation = useCallback(() => {
+    haptic.light();
+    useViewerStore.getState().setMainView("chat");
+    const draftConversationId = createDraftConversationId();
+    useConversationStore.getState().setActiveConversationId(draftConversationId);
+    useConversationStore.getState().setConversationSettings(draftConversationId, {
+      incognito: true,
+      factorInMemories: false,
+    });
+    void navigate(routes.conversation(draftConversationId));
+    requestComposerFocus();
+  }, [navigate]);
+
   const handleOpenHome = useCallback(() => {
     navigate(routes.home);
   }, [navigate]);
@@ -616,6 +629,7 @@ export function ChatLayout() {
         attentionConversationIds={attentionConversationIds}
         onSelectConversation={handleSelectConversation}
         onStartNewConversation={handleStartNewConversation}
+        onStartNewIncognitoConversation={handleStartNewIncognitoConversation}
         isIntelligenceActive={isIdentityActive}
         onOpenIntelligence={handleOpenIdentity}
         isLibraryActive={isLibraryActive}
@@ -656,6 +670,7 @@ export function ChatLayout() {
       attentionConversationIds,
       handleSelectConversation,
       handleStartNewConversation,
+      handleStartNewIncognitoConversation,
       handleTogglePinConversation,
       handleRenameConversation,
       handleArchiveConversation,

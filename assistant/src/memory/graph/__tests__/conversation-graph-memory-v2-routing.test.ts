@@ -127,6 +127,20 @@ mock.module("../../qdrant-client.js", () => ({
   resolveQdrantUrl: () => "http://127.0.0.1:6333",
 }));
 
+// Mock `getConversation` so the incognito opt-out gate in `prepareMemory`
+// is driven by a controllable holder instead of a real `conversations` row
+// (the in-memory test DB created below doesn't provision that table). Spread
+// the real module so other crud helpers keep their real bindings.
+let getConversationResult: {
+  incognito: number;
+  factorInMemories: number;
+} | null = null;
+const realConversationCrud = await import("../../conversation-crud.js");
+mock.module("../../conversation-crud.js", () => ({
+  ...realConversationCrud,
+  getConversation: () => getConversationResult,
+}));
+
 // ---------------------------------------------------------------------------
 // Workspace + DB fixtures
 // ---------------------------------------------------------------------------
@@ -301,6 +315,8 @@ beforeEach(() => {
   embedWithBackendMock.mockClear();
   generateSparseEmbeddingMock.mockClear();
   _resetMemoryV2QdrantForTests();
+  // Default: non-incognito conversation so the opt-out gate stays open.
+  getConversationResult = { incognito: 0, factorInMemories: 1 };
 });
 
 // ---------------------------------------------------------------------------
@@ -562,6 +578,109 @@ describe("ConversationGraphMemory.prepareMemory — memory.enabled gate", () => 
     expect(result.runMessages).toEqual(messages);
     expect(loadContextMemoryMock).not.toHaveBeenCalled();
     expect(retrieveForTurnMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("ConversationGraphMemory.prepareMemory — incognito opt-out gate", () => {
+  test("incognito + factorInMemories=0 → mode=none, no injection, v2/v1 not called", async () => {
+    stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
+    getConversationResult = { incognito: 1, factorInMemories: 0 };
+
+    const memory = makeMemory();
+    const config = makeConfig(true);
+    const messages = makeMessages("Tell me about Alice's editor preferences");
+
+    const result = await memory.prepareMemory(
+      messages,
+      config,
+      new AbortController().signal,
+      noopEvent,
+    );
+
+    expect(result.mode).toBe("none");
+    expect(result.injectedBlockText).toBeNull();
+    expect(result.runMessages).toEqual(messages);
+    expect(retrieveForTurnMock).not.toHaveBeenCalled();
+    expect(loadContextMemoryMock).not.toHaveBeenCalled();
+  });
+
+  test("opting out strips a <memory> block injected on an earlier turn", async () => {
+    // Simulate a conversation that had factoring ON (a <memory> block was
+    // prepended to the user message) and was then switched OFF.
+    getConversationResult = { incognito: 1, factorInMemories: 0 };
+
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [
+          { type: "text" as const, text: "<memory>\nstale recalled fact\n</memory>" },
+          { type: "text" as const, text: "what did I say earlier?" },
+        ],
+      },
+    ];
+
+    const memory = makeMemory();
+    const config = makeConfig(true);
+
+    const result = await memory.prepareMemory(
+      messages,
+      config,
+      new AbortController().signal,
+      noopEvent,
+    );
+
+    expect(result.mode).toBe("none");
+    // The historical <memory> block must be gone so it stops being replayed,
+    // while the user's actual text survives.
+    const lastMsg = result.runMessages[result.runMessages.length - 1]!;
+    const textBlocks = lastMsg.content.filter(
+      (b): b is { type: "text"; text: string } => b.type === "text",
+    );
+    expect(textBlocks.some((b) => b.text.includes("<memory>"))).toBe(false);
+    expect(textBlocks.some((b) => b.text.includes("what did I say earlier?"))).toBe(
+      true,
+    );
+  });
+
+  test("incognito + factorInMemories=1 → not short-circuited, normal injection occurs", async () => {
+    stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
+    getConversationResult = { incognito: 1, factorInMemories: 1 };
+
+    const memory = makeMemory();
+    const config = makeConfig(true);
+    const messages = makeMessages("Tell me about Alice's editor preferences");
+
+    const result = await memory.prepareMemory(
+      messages,
+      config,
+      new AbortController().signal,
+      noopEvent,
+    );
+
+    expect(result.mode).toBe("per-turn");
+    expect(result.injectedBlockText).not.toBeNull();
+    expect(result.injectedBlockText).toContain(
+      "# memory/concepts/alice-vscode.md",
+    );
+  });
+
+  test("non-incognito + factorInMemories=0 → not short-circuited (gate requires incognito)", async () => {
+    stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
+    getConversationResult = { incognito: 0, factorInMemories: 0 };
+
+    const memory = makeMemory();
+    const config = makeConfig(true);
+    const messages = makeMessages("Tell me about Alice's editor preferences");
+
+    const result = await memory.prepareMemory(
+      messages,
+      config,
+      new AbortController().signal,
+      noopEvent,
+    );
+
+    expect(result.mode).toBe("per-turn");
+    expect(result.injectedBlockText).not.toBeNull();
   });
 });
 

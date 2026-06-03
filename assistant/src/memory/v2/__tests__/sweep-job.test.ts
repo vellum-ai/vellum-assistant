@@ -188,6 +188,7 @@ function seedMessages(
   conversationId: string,
   rows: Array<{ role: string; content: string; offsetMs: number }>,
   conversationType: "standard" | "background" | "scheduled" = "standard",
+  incognito = false,
 ): void {
   const db = getDb();
   const now = Date.now();
@@ -198,6 +199,7 @@ function seedMessages(
       createdAt: now - 60_000,
       updatedAt: now,
       conversationType,
+      incognito: incognito ? 1 : 0,
     })
     .run();
   for (let i = 0; i < rows.length; i++) {
@@ -269,6 +271,27 @@ describe("memoryV2SweepJob — no recent messages", () => {
       { role: "user", content: "Hello.", offsetMs: -60 * 60 * 1000 }, // 1h ago
       { role: "assistant", content: "Hi!", offsetMs: -59 * 60 * 1000 },
     ]);
+    providerStub = makeEntriesProvider(["should-not-be-written"]);
+
+    const written = await memoryV2SweepJob(makeJob(), CONFIG);
+
+    expect(written).toBe(0);
+    expect(providerCalls).toHaveLength(0);
+  });
+
+  test("excludes incognito conversations from the sweep window", async () => {
+    // Recent messages exist, but only in an incognito conversation — they must
+    // not reach the model, so the sweep skips entirely (mirrors the no-recent
+    // path). Otherwise an incognito transcript could be written to buffer.md.
+    seedMessages(
+      "conv-incognito",
+      [
+        { role: "user", content: "Secret incognito thing.", offsetMs: -1000 },
+        { role: "assistant", content: "Understood.", offsetMs: -500 },
+      ],
+      "standard",
+      true,
+    );
     providerStub = makeEntriesProvider(["should-not-be-written"]);
 
     const written = await memoryV2SweepJob(makeJob(), CONFIG);

@@ -32,6 +32,22 @@ export const rememberTool = {
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
     const typedInput = input as unknown as RememberInput;
+
+    // Incognito conversations must never produce memories. The lookup is a
+    // lazy import so tool-handlers / register stay out of conversation-crud's
+    // static module graph (a static import perturbs Bun's test-suite module
+    // load order and trips partial `mock.module` mocks elsewhere).
+    const { getConversation } = await import(
+      "../../memory/conversation-crud.js"
+    );
+    if (getConversation(context.conversationId)?.incognito) {
+      return {
+        content: "remember is not available in incognito conversations",
+        isError: true,
+        ...(typedInput.finish_turn === true ? { yieldToUser: true } : {}),
+      };
+    }
+
     const result = handleRemember(
       typedInput,
       context.conversationId,
@@ -64,6 +80,23 @@ export const recallTool = {
       return {
         content:
           "Recall is only available to the guardian because it can read sensitive local context.",
+        isError: true,
+      };
+    }
+
+    // When an incognito conversation has opted out of factoring in memories,
+    // existing memories must not be read — mirror the automatic-injection gate
+    // in ConversationGraphMemory.prepareMemory so manual `recall` can't bypass
+    // the user's "Factor in memories" off setting. Lazy import for the same
+    // module-graph reason as the `remember` gate above.
+    const { getConversation } = await import(
+      "../../memory/conversation-crud.js"
+    );
+    const conversation = getConversation(context.conversationId);
+    if (conversation?.incognito && !conversation.factorInMemories) {
+      return {
+        content:
+          "recall is not available in this incognito conversation because factoring in memories is turned off",
         isError: true,
       };
     }

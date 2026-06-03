@@ -6,6 +6,11 @@ import {
 } from "../runtime/actor-trust-resolver.js";
 import { getLogger } from "../util/logger.js";
 import { isAutoAnalysisConversation } from "./auto-analysis-guard.js";
+// Namespace import + optional call: many test files mock conversation-crud with
+// a partial export set, and Bun's `mock.module` global leak would break a named
+// `getConversation` import at link time. The namespace access degrades to
+// undefined (treated as non-incognito) instead. Mirrors memory-retrospective-enqueue.ts.
+import * as conversationCrud from "./conversation-crud.js";
 import { isMemoryEnabled, upsertAutoAnalysisJob } from "./jobs-store.js";
 
 const log = getLogger("auto-analysis-enqueue");
@@ -69,6 +74,17 @@ export function enqueueAutoAnalysisIfEnabled(args: {
     log.debug(
       { conversationId, trigger },
       "Skipping auto-analysis enqueue: source is an auto-analysis conversation",
+    );
+    return;
+  }
+
+  // Incognito conversations must never produce memories. Auto-analysis runs a
+  // guardian prompt that may call `remember`, so gate every trigger here
+  // (compaction, lifecycle, batch, idle) — not just the live-indexing path.
+  if (conversationCrud.getConversation?.(conversationId)?.incognito) {
+    log.debug(
+      { conversationId, trigger },
+      "Skipping auto-analysis enqueue: conversation is incognito",
     );
     return;
   }

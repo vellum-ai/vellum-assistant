@@ -444,6 +444,8 @@ export async function postChatMessage(
   content: string,
   attachmentIds: string[] = [],
   onboarding?: PreChatOnboardingContext,
+  incognito?: boolean,
+  factorInMemories?: boolean,
 ): Promise<PostMessageResult> {
   // Wire-field selection picks exactly one of `conversationId` (0.8.6+
   // strict internal-id lookup) or `conversationKey` (legacy
@@ -465,6 +467,12 @@ export async function postChatMessage(
     sourceChannel: "vellum",
     interface: "vellum",
   };
+  // Incognito context is only attached when the caller flags the send as
+  // incognito; non-incognito sends stay byte-for-byte unchanged on the wire.
+  if (incognito) {
+    body.incognito = true;
+    body.factorInMemories = factorInMemories ?? false;
+  }
   // Read the effective timezone LIVE at send time (not from cached state) so
   // every message carries the user's current zone, keeping the assistant's
   // per-turn time awareness fresh as the OS/browser timezone changes. The

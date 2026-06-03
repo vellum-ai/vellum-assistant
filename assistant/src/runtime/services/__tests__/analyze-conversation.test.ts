@@ -153,6 +153,29 @@ describe("analyzeConversation", () => {
     expect(result.error.status).toBe(400);
   });
 
+  test("returns BAD_REQUEST and persists nothing for an incognito source", async () => {
+    mockGetConversation.mockImplementation(() => ({
+      id: "conv-1",
+      title: "Secret",
+      conversationType: "standard",
+      incognito: 1,
+    }));
+
+    const result = await analyzeConversation("conv-1", {
+      trigger: "manual",
+    });
+
+    expect("error" in result).toBe(true);
+    if (!("error" in result)) throw new Error("expected error");
+    expect(result.error.kind).toBe("BAD_REQUEST");
+    expect(result.error.status).toBe(400);
+    expect(result.error.message).toContain("Incognito");
+    // No analysis conversation created and no transcript persisted (which would
+    // otherwise be indexed into memory).
+    expect(mockCreateConversation).not.toHaveBeenCalled();
+    expect(mockAddMessage).not.toHaveBeenCalled();
+  });
+
   test("creates an analysis conversation with unknown trust, no tools, and returns the new ID", async () => {
     const result = await analyzeConversation("conv-1", {
       trigger: "manual",

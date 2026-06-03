@@ -19,6 +19,11 @@ import type {
 } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
+// Namespace import + optional call: Bun `mock.module` global-leak means many
+// test files mock conversation-crud with only a partial export set. A named
+// `getConversation` import would fail at link time under those mocks; the
+// namespace access degrades to undefined (treated as non-incognito) instead.
+import * as conversationCrud from "../conversation-crud.js";
 import { getDb } from "../db-connection.js";
 import { embedWithRetry } from "../embed.js";
 import { generateSparseEmbedding } from "../embedding-backend.js";
@@ -375,6 +380,29 @@ export class ConversationGraphMemory {
       this.lastInjectedNodeIds = [];
       this.lastInjectedImages = new Map();
       return noopResult;
+    }
+
+    const conversation = conversationCrud.getConversation?.(this.conversationId);
+    if (conversation?.incognito && !conversation.factorInMemories) {
+      // Incognito conversation opted out of memory recall — clear any cached
+      // injection (mirroring the !config.memory.enabled branch) so a later
+      // overflow-reduction re-injection via `reinjectCachedMemory()` cannot
+      // reintroduce a stale <memory> block, and inject nothing. Also strip any
+      // <memory> block already prepended on an earlier turn (e.g. when the user
+      // had factoring on and then turned it off mid-conversation) so subsequent
+      // turns don't keep replaying historical memory to the model.
+      this.lastInjectedBlock = null;
+      this.lastInjectedNodeIds = [];
+      this.lastInjectedImages = new Map();
+      return {
+        ...noopResult,
+        // Strip across ALL user messages, not just the tail: a conversation
+        // that ran with factoring on can carry <memory>/<info>/<memory_image>
+        // blocks on older (non-tail) user messages too (e.g. rehydrated from
+        // persisted history), and every one must be removed so none replays
+        // to the model after opt-out.
+        runMessages: stripAllMemoryInjections(messages),
+      };
     }
 
     // Gate: skip for empty/tool-result-only messages — unless we need to

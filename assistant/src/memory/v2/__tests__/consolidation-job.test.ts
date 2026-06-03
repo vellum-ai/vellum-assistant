@@ -103,6 +103,18 @@ mock.module("../../jobs-store.js", () => ({
     return `job-${nextJobIdCounter}`;
   },
   isMemoryEnabled: () => true,
+  // Bun's mock.module replaces the whole module and leaks across the suite, so
+  // any jobs-store export reachable from this test's graph (e.g. via
+  // auto-analysis-enqueue / indexer) must be stubbed or its named import fails
+  // at link time.
+  upsertAutoAnalysisJob: (): string => {
+    nextJobIdCounter += 1;
+    return `job-${nextJobIdCounter}`;
+  },
+  upsertDebouncedJob: (): string => {
+    nextJobIdCounter += 1;
+    return `job-${nextJobIdCounter}`;
+  },
 }));
 
 // ── v3 health-injection mocks ───────────────────────────────────────

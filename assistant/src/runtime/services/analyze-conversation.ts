@@ -104,6 +104,22 @@ export async function analyzeConversation(
     };
   }
 
+  // b2. Incognito conversations must never produce memories. Analysis spins up
+  // a normal (non-incognito) analysis conversation and persists the full source
+  // transcript as its prompt, which would be indexed into memory — refuse to
+  // analyze incognito sources. (The auto trigger is already gated at enqueue
+  // time; this also guards the manual Analyze action.)
+  if (conversation.incognito) {
+    return {
+      error: {
+        kind: "BAD_REQUEST",
+        status: 400,
+        message:
+          "Incognito conversations cannot be analyzed because analysis would persist their transcript into memory",
+      },
+    };
+  }
+
   // c. Check for messages
   const existingMessages = getMessages(resolvedId);
   if (existingMessages.length === 0) {

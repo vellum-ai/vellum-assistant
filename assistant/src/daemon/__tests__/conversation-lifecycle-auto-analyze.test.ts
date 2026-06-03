@@ -135,6 +135,16 @@ mock.module("../conversation-skill-tools.js", () => ({
   resetSkillToolProjection: () => {},
 }));
 
+// disposeConversation reads the conversation row to skip extraction for
+// incognito conversations. Default non-incognito so the existing cases behave
+// as before; flip `disposeConvIncognito` for the incognito case.
+let disposeConvIncognito = 0;
+const realConversationCrud = await import("../../memory/conversation-crud.js");
+mock.module("../../memory/conversation-crud.js", () => ({
+  ...realConversationCrud,
+  getConversation: (_id: string) => ({ incognito: disposeConvIncognito }),
+}));
+
 // Dynamic import after mock.module calls so stubs take effect.
 const { disposeConversation } = await import("../conversation-lifecycle.js");
 type DisposeContext = import("../conversation-lifecycle.js").DisposeContext;
@@ -202,6 +212,24 @@ describe("disposeConversation — auto-analysis enqueue", () => {
     autoAnalyzeEnabled = true;
     autoAnalysisConversations.clear();
     v2Enabled = false;
+    disposeConvIncognito = 0;
+  });
+
+  test("incognito conversation — enqueues no extraction even for a guardian", () => {
+    autoAnalyzeEnabled = true;
+    disposeConvIncognito = 1;
+    const ctx = makeDisposeContext({
+      conversationId: "conv-incognito",
+      trustClass: "guardian",
+    });
+
+    disposeConversation(ctx);
+
+    // Incognito conversations must never produce memories: no graph_extract,
+    // no retrospective, no auto-analysis on disposal.
+    expect(memoryJobCalls).toHaveLength(0);
+    expect(memoryRetroCalls).toHaveLength(0);
+    expect(autoAnalyzeCalls).toHaveLength(0);
   });
 
   test("guardian conversation with auto-analyze ON — enqueues both graph_extract and conversation_analyze (via helper)", () => {

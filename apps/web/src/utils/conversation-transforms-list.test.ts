@@ -96,6 +96,26 @@ describe("toConversation — field mapping", () => {
     expect(result.scheduleJobId).toBe("job-1");
     expect(result.displayOrder).toBe(3);
   });
+
+  test("maps incognito state with factorInMemories", () => {
+    const recalled = toConversation(
+      makeRaw({ id: "c", incognito: true, factorInMemories: true }),
+    );
+    expect(recalled.incognito).toBe(true);
+    expect(recalled.factorInMemories).toBe(true);
+
+    const isolated = toConversation(
+      makeRaw({ id: "c", incognito: true, factorInMemories: false }),
+    );
+    expect(isolated.incognito).toBe(true);
+    expect(isolated.factorInMemories).toBe(false);
+  });
+
+  test("omits incognito fields for a normal conversation", () => {
+    const result = toConversation(makeRaw({ id: "c" }));
+    expect(result.incognito).toBeUndefined();
+    expect(result.factorInMemories).toBeUndefined();
+  });
 });
 
 // ---------------------------------------------------------------------------

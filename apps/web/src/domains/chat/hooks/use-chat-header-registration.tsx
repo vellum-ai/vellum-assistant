@@ -15,6 +15,7 @@ import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-s
 import type { ChatHeaderSupplements } from "@/components/layout/chat-layout-slots-store";
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import { useConversationStore } from "@/stores/conversation-store";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
 import { useSlackConversationDisplay } from "@/domains/chat/hooks/use-slack-conversation-display";
@@ -22,6 +23,7 @@ import {
   formatSlackConversationDisplayLabel,
 } from "@/domains/chat/utils/slack-conversation-display";
 import { ConversationAssetsPill } from "@/domains/chat/components/conversation-assets-pill";
+import { IncognitoBadge } from "@/domains/chat/components/incognito-badge";
 import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
 import { useViewerStore } from "@/stores/viewer-store";
 import { haptic } from "@/utils/haptics";
@@ -53,6 +55,17 @@ export function useChatHeaderRegistration({
   const setHeaderSupplements = useChatLayoutSlotsStore.use.setHeaderSupplements();
 
   const activeConversation = useActiveConversation(assistantId, activeConversationId, true);
+
+  // Incognito badge gating — flag + (server-backed conversation flag OR
+  // client draft setting for not-yet-sent conversations). Subscribing to the
+  // settings map keeps the badge reactive as drafts toggle incognito.
+  const incognitoFlagEnabled = useAssistantFeatureFlagStore.use.incognitoConversations();
+  const conversationSettings = useConversationStore.use.conversationSettings();
+  const isIncognito =
+    activeConversation?.incognito ??
+    (activeConversationId
+      ? conversationSettings.get(activeConversationId)?.incognito ?? false
+      : false);
 
   // Slack header label derivation
   const slackConversationDisplay = useSlackConversationDisplay({
@@ -108,18 +121,23 @@ export function useChatHeaderRegistration({
     [assistantId],
   );
 
+  const showIncognitoBadge = incognitoFlagEnabled && isIncognito;
+
   const topBarRightContent = useMemo(() => {
     if (!activeConversation?.conversationId || !assistantId) return null;
     return (
-      <ConversationAssetsPill
-        assistantId={assistantId}
-        conversationId={activeConversation.conversationId}
-        refreshKey={assetsRefreshKey}
-        onOpenApp={handleOpenAppFromChat}
-        onOpenDocument={handleOpenDocument}
-      />
+      <div className="flex items-center gap-[8px]">
+        {showIncognitoBadge ? <IncognitoBadge /> : null}
+        <ConversationAssetsPill
+          assistantId={assistantId}
+          conversationId={activeConversation.conversationId}
+          refreshKey={assetsRefreshKey}
+          onOpenApp={handleOpenAppFromChat}
+          onOpenDocument={handleOpenDocument}
+        />
+      </div>
     );
-  }, [activeConversation?.conversationId, assistantId, assetsRefreshKey, handleOpenAppFromChat, handleOpenDocument]);
+  }, [activeConversation?.conversationId, assistantId, assetsRefreshKey, handleOpenAppFromChat, handleOpenDocument, showIncognitoBadge]);
 
   useEffect(() => {
     setTopBarRightSlot(topBarRightContent);

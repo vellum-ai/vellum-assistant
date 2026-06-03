@@ -5,6 +5,7 @@ import { getConfig } from "../../config/loader.js";
 import {
   addMessage,
   createConversation,
+  getConversation,
   type MessageRole,
 } from "../../memory/conversation-crud.js";
 import {
@@ -143,7 +144,9 @@ async function handleConversationsImport({ body }: RouteHandlerArgs) {
           .run();
       }
 
-      // Index messages
+      // Index messages. Incognito conversations must never produce memories,
+      // so skip the indexing pipeline for them (resolved once per conversation).
+      const incognito = getConversation(conversation.id)?.incognito === 1;
       for (let i = 0; i < dbMessages.length && i < conv.messages.length; i++) {
         const msg = conv.messages[i];
         const contentStr =
@@ -158,6 +161,7 @@ async function handleConversationsImport({ body }: RouteHandlerArgs) {
               role: msg.role,
               content: contentStr,
               createdAt: messageTimestamps[i],
+              incognito,
             },
             memoryConfig,
           );

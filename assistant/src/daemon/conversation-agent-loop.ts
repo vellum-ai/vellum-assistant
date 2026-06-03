@@ -1538,6 +1538,16 @@ export async function runAgentLoopImpl(
       isTrustedActor,
     });
 
+    // Incognito opt-out: when an incognito conversation has turned "factor in
+    // memories" off, suppress every personal-memory injector below (NOW.md,
+    // PKB, static v2) — not just graph/manual recall — so no existing memory
+    // reaches the model, including on the first turn and after compaction.
+    const factorInMemoriesConversation = getConversation(ctx.conversationId);
+    const factorInMemoriesAllowed = !(
+      factorInMemoriesConversation?.incognito &&
+      !factorInMemoriesConversation.factorInMemories
+    );
+
     // Inject NOW.md and PKB content only on the first turn (or after
     // compaction re-strips them).  Old injections persist in history and
     // are never stripped on normal turns — this preserves the cached prefix.
@@ -1547,17 +1557,24 @@ export async function runAgentLoopImpl(
     const scratchpadInjectionEnabled =
       getConfig().memory.retrieval.scratchpadInjection.enabled;
     const currentNowContent =
-      personalMemoryAllowed && scratchpadInjectionEnabled
+      personalMemoryAllowed && scratchpadInjectionEnabled && factorInMemoriesAllowed
         ? memoryResult.nowContent
         : null;
     const shouldInjectNowAndPkb = isFirstMessage || compactedThisTurn;
     const nowScratchpad = shouldInjectNowAndPkb ? currentNowContent : null;
 
-    const currentPkbContent = personalMemoryAllowed
-      ? memoryResult.pkbContent
-      : null;
+    const currentPkbContent =
+      personalMemoryAllowed && factorInMemoriesAllowed
+        ? memoryResult.pkbContent
+        : null;
     const pkbContext = shouldInjectNowAndPkb ? currentPkbContent : null;
-    const pkbActive = currentPkbContent !== null;
+    // `pkbActive` drives the pkb-reminder injector, which tells the model to
+    // call `remember` and promises a retrospective sweep. In incognito chats
+    // `remember` is rejected and retrospectives are skipped, so that reminder
+    // would be contradictory/spurious — suppress it for any incognito
+    // conversation while still allowing read-only PKB context above.
+    const isIncognitoConversation = !!factorInMemoriesConversation?.incognito;
+    const pkbActive = currentPkbContent !== null && !isIncognitoConversation;
 
     // V2 static memory block (essentials/threads/recent/buffer).
     // `currentMemoryV2Static` is the trust-gated content reused by every
@@ -1567,9 +1584,10 @@ export async function runAgentLoopImpl(
     // first-turn / post-compaction cadence-gated value for initial
     // injection only. `readMemoryV2StaticContent` self-gates on the v2
     // flag + config and returns null when v2 is off.
-    const currentMemoryV2Static = personalMemoryAllowed
-      ? readMemoryV2StaticContent()
-      : null;
+    const currentMemoryV2Static =
+      personalMemoryAllowed && factorInMemoriesAllowed
+        ? readMemoryV2StaticContent()
+        : null;
     const memoryV2Static = shouldInjectNowAndPkb ? currentMemoryV2Static : null;
 
     // PKB relevance-hint inputs. Resolved once per turn and reused across

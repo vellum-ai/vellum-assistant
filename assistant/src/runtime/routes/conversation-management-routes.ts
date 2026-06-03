@@ -5,6 +5,7 @@
  * POST   /v1/conversations/switch         — switch to an existing conversation
  * POST   /v1/conversations/fork           — fork an existing conversation
  * PUT    /v1/conversations/:id/inference-profile — set per-conversation inference profile
+ * PUT    /v1/conversations/:id/incognito  — set incognito conversation memory opt-in
  * PATCH  /v1/conversations/:id/name       — rename a conversation
  * DELETE /v1/conversations                 — clear all conversations
  * POST   /v1/conversations/:id/wipe       — wipe conversation and revert memory
@@ -36,6 +37,7 @@ import {
   deleteConversation,
   forkConversation as forkConversationInStore,
   getConversation,
+  setConversationFactorInMemories,
   unarchiveConversation,
   updateConversationTitle,
   wipeConversation,
@@ -54,10 +56,16 @@ import { buildConversationDetailResponse } from "../services/conversation-serial
 import {
   publishConversationListAndMetadataChanged,
   publishConversationListChanged,
+  publishConversationMemoryModeChanged,
   publishConversationTitleChanged,
 } from "../sync/resource-sync-events.js";
 import { conversationSummarySchema } from "./conversation-list-routes.js";
-import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
+import {
+  BadRequestError,
+  ConflictError,
+  InternalError,
+  NotFoundError,
+} from "./errors.js";
 import { setInferenceProfileSession } from "./inference-profile-session-handler.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -203,6 +211,52 @@ async function handleSetInferenceProfile({
   });
 
   return result;
+}
+
+async function handleSetIncognitoFactorInMemories({
+  pathParams = {},
+  body = {},
+  headers,
+}: RouteHandlerArgs) {
+  if (typeof body.factorInMemories !== "boolean") {
+    throw new BadRequestError("factorInMemories must be a boolean");
+  }
+  const factorInMemories = body.factorInMemories as boolean;
+
+  const conversation = getConversation(pathParams.id!);
+  if (!conversation) {
+    throw new NotFoundError(`Conversation ${pathParams.id} not found`);
+  }
+  if (!conversation.incognito) {
+    throw new ConflictError(
+      `Conversation ${pathParams.id} is not incognito; factorInMemories can only be set on incognito conversations`,
+    );
+  }
+
+  const previousFactorInMemories = conversation.factorInMemories === 1;
+  setConversationFactorInMemories(pathParams.id!, factorInMemories);
+
+  // The live in-memory conversation reuses its messages array across turns
+  // without reloading, so it can still hold memory blocks injected on earlier
+  // turns (PKB/NOW/static v2/graph <memory>). The loadFromDb gate only applies
+  // on the next load, so drop the active instance when the setting actually
+  // changes — the next turn rebuilds from the DB with the updated gate. Without
+  // this, turning factoring off wouldn't take effect until eviction/restart.
+  // No-op when the conversation isn't currently live.
+  if (previousFactorInMemories !== factorInMemories) {
+    destroyActiveConversation(pathParams.id!);
+  }
+
+  // Notify other clients so a second tab / native client refetches this
+  // conversation's metadata instead of showing a stale memory mode. The
+  // requester is suppressed via its origin client id (it already updated
+  // optimistically).
+  publishConversationMemoryModeChanged(
+    pathParams.id!,
+    headers?.["x-vellum-client-id"]?.trim() || undefined,
+  );
+
+  return { incognito: true, factorInMemories };
 }
 
 function handleRenameConversation({
@@ -550,6 +604,29 @@ export const ROUTES: RouteDefinition[] = [
         .nullable(),
     }),
     handler: handleSetInferenceProfile,
+  },
+  {
+    operationId: "setConversationIncognitoFactorInMemories",
+    endpoint: "conversations/:id/incognito",
+    method: "PUT",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Set incognito conversation memory opt-in",
+    description:
+      "Toggle whether an incognito conversation factors in existing memories. " +
+      "Returns 404 if the conversation does not exist and 409 if it is not incognito.",
+    tags: ["conversations"],
+    pathParams: [{ name: "id", type: "uuid" }],
+    requestBody: z.object({
+      factorInMemories: z.boolean(),
+    }),
+    responseBody: z.object({
+      incognito: z.literal(true),
+      factorInMemories: z.boolean(),
+    }),
+    handler: handleSetIncognitoFactorInMemories,
   },
   {
     operationId: "renameConversation",

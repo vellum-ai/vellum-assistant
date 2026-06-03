@@ -48,6 +48,8 @@ export interface HomePageProps {
   assistantId: string;
   validConversationIds: Set<string>;
   onStartNewChat: () => void;
+  /** Flag-gated incognito new-chat entry. Omitted when the flag is off. */
+  onStartNewIncognitoChat?: () => void;
   onOpenConversation: (conversationId: string) => void;
   onSuggestionSelected: (prompt: string) => void;
 }
@@ -56,6 +58,7 @@ export function HomePage({
   assistantId,
   validConversationIds,
   onStartNewChat,
+  onStartNewIncognitoChat,
   onOpenConversation,
   onSuggestionSelected,
 }: HomePageProps) {
@@ -138,6 +141,7 @@ export function HomePage({
         greeting={feedQuery.data?.contextBanner?.greeting}
         isMobile={isMobile}
         onStartNewChat={onStartNewChat}
+        onStartNewIncognitoChat={onStartNewIncognitoChat}
       />
       {feedQuery.isError ? (
         <div

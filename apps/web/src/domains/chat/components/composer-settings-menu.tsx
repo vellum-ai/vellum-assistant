@@ -30,6 +30,7 @@ import {
   type ThresholdPreset,
 } from "@/utils/threshold-presets";
 import { activeProfileModelQueryKey } from "@/domains/chat/hooks/use-active-profile-model";
+import { IncognitoMemoryToggle } from "@/domains/chat/components/incognito-memory-toggle";
 
 interface Props {
   assistantId: string;
@@ -371,6 +372,9 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
                 })}
               </>
             )}
+            <div className="px-[8px] pt-1 empty:hidden">
+              <IncognitoMemoryToggle assistantId={assistantId} conversationId={conversationId} />
+            </div>
           </BottomSheet.Body>
         </BottomSheet.Content>
       </BottomSheet.Root>
@@ -428,6 +432,16 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
             })}
           </>
         )}
+        {/* Wrapped so toggling the switch doesn't bubble to Radix and close
+            the menu. `empty:hidden` collapses the padding when the toggle
+            self-gates to null (flag off / non-incognito conversation). */}
+        <div
+          className="px-2 py-1.5 empty:hidden"
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => e.stopPropagation()}
+        >
+          <IncognitoMemoryToggle assistantId={assistantId} conversationId={conversationId} />
+        </div>
       </Menu.Content>
     </Menu.Root>
   );

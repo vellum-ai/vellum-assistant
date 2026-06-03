@@ -185,6 +185,60 @@ describe("loadFromDb metadata injection rehydration", () => {
     ]);
   });
 
+  test("incognito opt-out suppresses memory-bearing rehydration but keeps env blocks", async () => {
+    // Incognito conversation that turned "factor in memories" off. Memory,
+    // PKB, NOW.md, and static-v2 blocks persisted on a historical row must NOT
+    // be replayed; turn-context and workspace (environmental) blocks still do.
+    mockConversation = { ...defaultConv(), incognito: 1, factorInMemories: 0 };
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "First turn" }]),
+        metadata: JSON.stringify({
+          memoryInjectedBlock: "mem payload",
+          pkbContextBlock: "<knowledge_base>\npkb\n</knowledge_base>",
+          pkbSystemReminderBlock:
+            "<system_reminder>\npkb reminder\n</system_reminder>",
+          nowScratchpadBlock: "<NOW.md>\nnow payload\n</NOW.md>",
+          memoryV2StaticBlock: "<info>\nv2 static\n</info>",
+          turnContextBlock: "<turn_context>\nctx payload\n</turn_context>",
+          workspaceBlock: "<workspace>\nws payload\n</workspace>",
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+      },
+      {
+        id: "m3",
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "Second turn (tail)" }]),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    const m1Text = (messages[0].content as { type: string; text?: string }[])
+      .map((b) => b.text ?? "")
+      .join("\n");
+
+    // No memory-bearing block replays.
+    expect(m1Text).not.toContain("mem payload");
+    expect(m1Text).not.toContain("knowledge_base");
+    expect(m1Text).not.toContain("pkb reminder");
+    expect(m1Text).not.toContain("NOW.md");
+    expect(m1Text).not.toContain("v2 static");
+    // Environmental blocks are not memory and still rehydrate, and the
+    // original user text survives.
+    expect(m1Text).toContain("ctx payload");
+    expect(m1Text).toContain("ws payload");
+    expect(m1Text).toContain("First turn");
+  });
+
   test("historical user row rehydrates all three injection fields", async () => {
     mockConversation = defaultConv();
     mockDbMessages = [

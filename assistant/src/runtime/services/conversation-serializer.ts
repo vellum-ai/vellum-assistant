@@ -221,6 +221,9 @@ export function serializeConversationSummary(params: {
     ...(conversation.inferenceProfile != null
       ? { inferenceProfile: conversation.inferenceProfile }
       : {}),
+    ...(conversation.incognito
+      ? { incognito: true, factorInMemories: conversation.factorInMemories !== 0 }
+      : {}),
     isProcessing,
   };
 }

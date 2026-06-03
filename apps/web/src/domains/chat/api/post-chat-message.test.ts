@@ -195,6 +195,89 @@ describe("postChatMessage onboarding payload", () => {
   });
 });
 
+describe("postChatMessage incognito payload", () => {
+  // Incognito context (`incognito` + `factorInMemories`) is threaded into
+  // the request body only when the caller flags the send as incognito.
+  // Normal sends must stay byte-for-byte unchanged on the wire.
+  let originalFetch: typeof fetch;
+  let originalDocument: unknown;
+  let capturedRequests: Array<{ url: string; body: string }> = [];
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+    capturedRequests = [];
+    useAssistantIdentityStore.getState().clearIdentity();
+    originalDocument = (globalThis as { document?: unknown }).document;
+    (globalThis as { document?: unknown }).document = { cookie: "csrftoken=test" };
+    globalThis.fetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input instanceof Request ? input.url : String(input);
+      let bodyText: string | undefined;
+      if (input instanceof Request) {
+        bodyText = await input.clone().text();
+      } else if (typeof init?.body === "string") {
+        bodyText = init.body;
+      }
+      capturedRequests.push({ url, body: bodyText ?? "" });
+      return new Response(
+        JSON.stringify({
+          accepted: true,
+          messageId: "msg-1",
+          conversationId: "conv-resp-1",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    if (originalDocument === undefined) {
+      delete (globalThis as { document?: unknown }).document;
+    } else {
+      (globalThis as { document?: unknown }).document = originalDocument;
+    }
+    useAssistantIdentityStore.getState().clearIdentity();
+  });
+
+  function getMessageBody(): Record<string, unknown> {
+    const requests = capturedRequests.filter((r) => r.url.includes("/messages"));
+    expect(requests).toHaveLength(1);
+    return JSON.parse(requests[0]!.body) as Record<string, unknown>;
+  }
+
+  test("omits incognito fields on a normal (non-incognito) send", async () => {
+    await postChatMessage("asst-1", "K", "hello");
+
+    const body = getMessageBody();
+    expect(body).not.toHaveProperty("incognito");
+    expect(body).not.toHaveProperty("factorInMemories");
+  });
+
+  test("includes incognito with factorInMemories: false", async () => {
+    await postChatMessage("asst-1", "K", "hello", [], undefined, true, false);
+
+    const body = getMessageBody();
+    expect(body.incognito).toBe(true);
+    expect(body.factorInMemories).toBe(false);
+  });
+
+  test("includes factorInMemories: true when requested", async () => {
+    await postChatMessage("asst-1", "K", "hello", [], undefined, true, true);
+
+    const body = getMessageBody();
+    expect(body.incognito).toBe(true);
+    expect(body.factorInMemories).toBe(true);
+  });
+
+  test("defaults factorInMemories to false when incognito is set without the flag", async () => {
+    await postChatMessage("asst-1", "K", "hello", [], undefined, true);
+
+    const body = getMessageBody();
+    expect(body.incognito).toBe(true);
+    expect(body.factorInMemories).toBe(false);
+  });
+});
+
 describe("postChatMessage wire-field bilingual cutover", () => {
   // Verifies the assistant-version gate picks exactly ONE wire field
   // on `POST /v1/messages`:
