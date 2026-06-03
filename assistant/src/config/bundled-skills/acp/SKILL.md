@@ -81,10 +81,15 @@ npm i -g @zed-industries/codex-acp@latest
 
 Then retry the `acp_spawn` call.
 
-## When to use acp_steer vs acp_spawn
+## When to use acp_continue vs acp_spawn vs acp_steer
 
-- **`acp_steer` interrupts the in-flight prompt.** Use it to course-correct a running agent ("stop, do X instead"). It cancels whatever the agent is currently working on and replaces it with the new instruction.
-- **For follow-ups after the current task** ("also do Y when you're done"), do NOT use `acp_steer`. Wait for the `acp_session_completed` notification and call `acp_spawn` again with the new task. Queued follow-ups in the same session are not yet supported.
+Three distinct verbs — pick by intent:
+
+- **`acp_continue` builds on the SAME session.** This is the default for iterating on the same piece of work. After a session reports `acp_session_completed`, call `acp_continue` with the follow-up ("now also do Y", "fix the test you just broke", "address the review comments"). The agent reuses its existing process, ACP session, context, and workspace, so it remembers what it just did. By default it targets the conversation's most-recent live session; pass an explicit `acp_session_id` to continue a specific one.
+- **`acp_spawn` starts a FRESH session.** Use it only when you want a brand-new agent with no prior context — a different, unrelated task, or parallel work in a separate workspace/worktree.
+- **`acp_steer` interrupts the in-flight prompt.** Use it to course-correct a *running* agent mid-task ("stop, do X instead"). It cancels whatever the agent is currently working on and replaces it with the new instruction.
+
+Rule of thumb: same thread of work → `acp_continue`; new unrelated work → `acp_spawn`; redirect something already running → `acp_steer`. Do NOT wait-for-completion-then-respawn to continue work — that loses the agent's context; use `acp_continue` instead.
 
 ## Discoverability
 

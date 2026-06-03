@@ -132,6 +132,51 @@ paths:
               required:
                 - instruction
               additionalProperties: false
+  /v1/acp/continue:
+    post:
+      operationId: acp_continue_post
+      summary: Continue ACP session
+      description:
+        Send a follow-up turn to an existing live (running/idle) ACP session so the agent builds on the same
+        context and workspace. Resolve the target by explicit acpSessionId, or by the conversation's most-recent live
+        session via conversationId. Errors cleanly (404) for a closed or non-existent session.
+      tags:
+        - acp
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  acpSessionId:
+                    type: string
+                  continued:
+                    type: boolean
+                required:
+                  - acpSessionId
+                  - continued
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                instruction:
+                  type: string
+                  description: The follow-up task for this turn
+                acpSessionId:
+                  type: string
+                  description: Explicit live session to continue
+                conversationId:
+                  type: string
+                  description: Resolve the most-recent live session for this conversation when acpSessionId is omitted
+              required:
+                - instruction
+              additionalProperties: false
   /v1/acp/credentials/link:
     post:
       operationId: acp_credentials_link_post
