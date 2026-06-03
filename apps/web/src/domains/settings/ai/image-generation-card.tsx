@@ -1,10 +1,13 @@
 import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { useQueryClient } from "@tanstack/react-query";
+
 import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Input } from "@vellum/design-library/components/input";
 import { toast } from "@vellum/design-library/components/toast";
 import { captureError } from "@/lib/sentry/capture-error";
+import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
 import {
   removeLocalSetting,
   setLocalSetting,
@@ -21,15 +24,13 @@ import {
 } from "@/domains/settings/ai/ai-types";
 import { reconcileFromDaemonConfig } from "@/domains/settings/ai/ai-utils";
 import { ServiceCard, SaveButton, ResetButton } from "@/domains/settings/ai/ai-shared-ui";
-import { useDaemonConfigQuery, useDaemonConfigMutation, useProvisionProviderKey } from "@/domains/settings/ai/use-daemon-config";
+import { useAssistantId, useDaemonConfigQuery, useDaemonConfigMutation, useProvisionProviderKey } from "@/domains/settings/ai/use-daemon-config";
 import { modelImagegenPut } from "@/generated/daemon/sdk.gen";
 
 export function ImageGenerationCard() {
-  const {
-    config: daemonConfig,
-    resolveAssistantId,
-    invalidateConfig,
-  } = useDaemonConfigQuery();
+  const { config: daemonConfig } = useDaemonConfigQuery();
+  const { resolveAssistantId } = useAssistantId();
+  const queryClient = useQueryClient();
   const configMutation = useDaemonConfigMutation();
   const provisionProviderKey = useProvisionProviderKey();
   const [imageGenMode, setImageGenMode] = useState<ServiceMode>(
@@ -77,7 +78,9 @@ export function ImageGenerationCard() {
         captureError(error, { context: "set_image_gen_model" });
         throw error;
       } finally {
-        invalidateConfig();
+        void queryClient.invalidateQueries({
+          queryKey: assistantDaemonConfigQueryKey(resolvedId),
+        });
       }
     } catch {
       setSaving(false);
@@ -103,7 +106,7 @@ export function ImageGenerationCard() {
     configMutation,
     provisionProviderKey,
     resolveAssistantId,
-    invalidateConfig,
+    queryClient,
   ]);
 
   const handleReset = useCallback(() => {

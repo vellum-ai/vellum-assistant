@@ -66,8 +66,7 @@ export function useAssistantId() {
  * Consumers that only read config pay no mutation overhead.
  */
 export function useDaemonConfigQuery() {
-  const queryClient = useQueryClient();
-  const { assistantId, resolveAssistantId } = useAssistantId();
+  const { assistantId } = useAssistantId();
 
   const { data: config } = useQuery({
     queryKey: assistantDaemonConfigQueryKey(assistantId),
@@ -108,12 +107,6 @@ export function useDaemonConfigQuery() {
     [profiles, profileOrder],
   );
 
-  const invalidateConfig = useCallback(() => {
-    void queryClient.invalidateQueries({
-      queryKey: assistantDaemonConfigQueryKey(assistantId),
-    });
-  }, [assistantId, queryClient]);
-
   return {
     assistantId,
     config,
@@ -122,8 +115,6 @@ export function useDaemonConfigQuery() {
     orderedProfiles,
     activeProfile,
     callSites,
-    resolveAssistantId,
-    invalidateConfig,
   };
 }
 
