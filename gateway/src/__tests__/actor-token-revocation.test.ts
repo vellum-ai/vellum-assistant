@@ -91,6 +91,15 @@ describe("isActorTokenRevoked", () => {
     resetGatewayDb();
     expect(isActorTokenRevoked("token-anything", actorClaims)).toBe(false);
   });
+
+  test("still detects revocation when the token has surrounding whitespace", () => {
+    // The record is stored under the canonical (trimmed) token hash; a token
+    // supplied with trailing whitespace (e.g. a `?token=<jwt>%20` WS param)
+    // must still resolve to the revoked record.
+    insertTokenRecord("token-revoked", "revoked");
+    expect(isActorTokenRevoked("token-revoked ", actorClaims)).toBe(true);
+    expect(isActorTokenRevoked(" token-revoked\n", actorClaims)).toBe(true);
+  });
 });
 
 describe("runtime proxy enforcement", () => {

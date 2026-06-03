@@ -53,11 +53,18 @@ export function isActorTokenRevoked(
     return false;
   }
 
+  // Canonicalize before hashing. validateEdgeToken tolerates surrounding
+  // whitespace (base64url signature decode ignores it), but tokens are stored
+  // hashed in their canonical form — so a token supplied with trailing
+  // whitespace (e.g. a `?token=<jwt>%20` WebSocket query param) would hash to a
+  // different value and miss the revoked record. Trim so the lookup matches.
+  const tokenHash = hashToken(rawToken.trim());
+
   try {
     const record = getGatewayDb()
       .select({ status: actorTokenRecords.status })
       .from(actorTokenRecords)
-      .where(eq(actorTokenRecords.tokenHash, hashToken(rawToken)))
+      .where(eq(actorTokenRecords.tokenHash, tokenHash))
       .get();
     return record?.status === "revoked";
   } catch (err) {
