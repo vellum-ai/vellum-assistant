@@ -284,6 +284,10 @@ function loadRecentMessagesText(nowMs: number): string {
   // naive scan would touch every recent message. Joining conversations and
   // excluding background/scheduled types keeps automation chatter
   // (heartbeats, filing, update bulletins, scheduled jobs) out of buffer.md.
+  // Incognito conversations are excluded entirely: the sweep asks the model to
+  // append remember-able entries to buffer.md, so including an incognito
+  // conversation's messages would turn it into persistent memory even though
+  // its own per-message indexing was skipped.
   const rows = db
     .select({
       role: messages.role,
@@ -295,6 +299,7 @@ function loadRecentMessagesText(nowMs: number): string {
       and(
         gt(messages.createdAt, cutoff),
         notInArray(conversations.conversationType, ["background", "scheduled"]),
+        eq(conversations.incognito, 0),
       ),
     )
     .orderBy(desc(messages.createdAt))
