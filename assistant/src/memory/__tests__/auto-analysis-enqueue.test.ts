@@ -13,6 +13,7 @@ mock.module("../../util/logger.js", () => ({
 
 let flagEnabled = true;
 let isAuto = false;
+let incognitoFlag = 0;
 let configValue: { analysis?: { idleTimeoutMs?: number } } = {
   analysis: { idleTimeoutMs: 600_000 },
 };
@@ -44,6 +45,10 @@ mock.module("../../config/assistant-feature-flags.js", () => ({
 mock.module("../auto-analysis-guard.js", () => ({
   AUTO_ANALYSIS_SOURCE: "auto-analysis",
   isAutoAnalysisConversation: (_conversationId: string) => isAuto,
+}));
+
+mock.module("../conversation-crud.js", () => ({
+  getConversation: (_id: string) => ({ incognito: incognitoFlag }),
 }));
 
 mock.module("../jobs-store.js", () => ({
@@ -90,10 +95,28 @@ describe("enqueueAutoAnalysisIfEnabled", () => {
   beforeEach(() => {
     flagEnabled = true;
     isAuto = false;
+    incognitoFlag = 0;
     getConfigThrows = false;
     configValue = { analysis: { idleTimeoutMs: 600_000 } };
     enqueueCalls.length = 0;
     debouncedCalls.length = 0;
+  });
+
+  test("incognito conversation — no job is enqueued for any trigger", () => {
+    incognitoFlag = 1;
+    for (const trigger of [
+      "batch",
+      "idle",
+      "lifecycle",
+      "compaction",
+    ] as const) {
+      enqueueAutoAnalysisIfEnabled({
+        conversationId: "conv-incognito",
+        trigger,
+      });
+    }
+    expect(enqueueCalls).toHaveLength(0);
+    expect(debouncedCalls).toHaveLength(0);
   });
 
   test("flag off — no job is enqueued for any trigger", () => {
@@ -262,6 +285,7 @@ describe("enqueueAutoAnalysisOnCompaction", () => {
   beforeEach(() => {
     flagEnabled = true;
     isAuto = false;
+    incognitoFlag = 0;
     getConfigThrows = false;
     configValue = { analysis: { idleTimeoutMs: 600_000 } };
     enqueueCalls.length = 0;
