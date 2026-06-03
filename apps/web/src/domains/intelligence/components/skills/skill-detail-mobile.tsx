@@ -99,7 +99,7 @@ export function SkillDetailMobile({
 
   const overlay = (
     <div
-      className="fixed inset-0 z-40 flex flex-col gap-4 overflow-hidden bg-[var(--surface-overlay)]"
+      className="fixed inset-0 z-40 flex flex-col overflow-hidden bg-[var(--surface-overlay)]"
       style={{
         paddingTop:
           "calc(8px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px)))",
@@ -137,8 +137,8 @@ export function SkillDetailMobile({
         />
       </div>
 
-      {/* Header block */}
-      <div className="flex flex-col gap-2">
+      {/* Header block — 16px below the action bar */}
+      <div className="mt-4 flex flex-col gap-2">
         <div className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2">
             <SkillIcon
@@ -162,10 +162,10 @@ export function SkillDetailMobile({
         </p>
       </div>
 
-      {/* Content card */}
+      {/* Content card — 24px below the description */}
       <Card.Root asChild noPadding>
         <div
-          className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border bg-[var(--surface-lift)]"
+          className="mt-6 flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border bg-[var(--surface-lift)]"
           style={{ borderColor: "var(--border-hover)" }}
         >
           <div
