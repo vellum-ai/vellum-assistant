@@ -6,6 +6,7 @@ extraResources:
   - from: resources/bun
     to: bun
   # TODO(LUM-2192): Stage web renderer (apps/web/dist) for packaged builds.
+afterPack: ./scripts/afterPack.js
 mac:
   category: public.app-category.productivity
   target:
