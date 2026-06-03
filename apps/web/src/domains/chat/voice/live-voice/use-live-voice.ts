@@ -175,9 +175,13 @@ export function useLiveVoice(
   const sessionRef = useRef<SessionContext | null>(null);
 
   // Keep the factories in a ref so start()/stop() stay stable across renders
-  // even if callers pass inline option objects.
+  // even if callers pass inline option objects. The ref is updated in an effect
+  // (not during render) to satisfy the react-compiler "no refs during render"
+  // rule; `start()` only reads it on user action, well after mount.
   const optionsRef = useRef(options);
-  optionsRef.current = options;
+  useEffect(() => {
+    optionsRef.current = options;
+  });
 
   /**
    * Tear down the active session's primitives, clear the ref, and reset the
