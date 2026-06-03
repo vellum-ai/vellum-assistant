@@ -106,6 +106,10 @@ const { prepareAgentEnv } = await import("../prepare-agent-env.js");
 beforeEach(() => {
   metadataStore.clear();
   vaultStore.clear();
+  // Ambient daemon-level creds are an explicit fallback source; clear them so
+  // a value leaking in from the test runner's own env can't mask precedence.
+  delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+  delete process.env.ANTHROPIC_API_KEY;
 });
 
 // ---------------------------------------------------------------------------
@@ -266,6 +270,95 @@ describe("prepareAgentEnv — claude-agent-acp gating", () => {
     });
 
     expect(prepared.env?.ANTHROPIC_API_KEY).toBe("config-anthropic");
+  });
+
+  test("explicit agent.env ANTHROPIC_API_KEY wins over a vault OAuth token (no OAuth-over-API-key)", async () => {
+    // The precedence bug: a stored OAuth token must NOT be injected over an
+    // API key the user intentionally set via config.json, because the adapter
+    // prefers OAuth when both are present.
+    seedVaultToken("vault-oauth");
+
+    const prepared = await prepareAgentEnv({
+      command: "claude-agent-acp",
+      args: [],
+      env: { ANTHROPIC_API_KEY: "config-anthropic" },
+    });
+
+    expect(prepared.env?.ANTHROPIC_API_KEY).toBe("config-anthropic");
+    expect(prepared.env?.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+  });
+
+  test("explicit agent.env CLAUDE_CODE_OAUTH_TOKEN wins over a vault Anthropic API key", async () => {
+    seedVaultField("anthropic_api_key", "vault-anthropic-key");
+
+    const prepared = await prepareAgentEnv({
+      command: "claude-agent-acp",
+      args: [],
+      env: { CLAUDE_CODE_OAUTH_TOKEN: "config-oauth" },
+    });
+
+    expect(prepared.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe("config-oauth");
+    expect(prepared.env?.ANTHROPIC_API_KEY).toBeUndefined();
+  });
+
+  test("falls back to ambient process.env.ANTHROPIC_API_KEY when neither agent.env nor the vault has a credential", async () => {
+    process.env.ANTHROPIC_API_KEY = "ambient-anthropic";
+
+    const prepared = await prepareAgentEnv({
+      command: "claude-agent-acp",
+      args: [],
+    });
+
+    expect(prepared.env?.ANTHROPIC_API_KEY).toBe("ambient-anthropic");
+    expect(prepared.env?.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+  });
+
+  test("falls back to ambient process.env.CLAUDE_CODE_OAUTH_TOKEN, preferred over an ambient API key", async () => {
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = "ambient-oauth";
+    process.env.ANTHROPIC_API_KEY = "ambient-anthropic";
+
+    const prepared = await prepareAgentEnv({
+      command: "claude-agent-acp",
+      args: [],
+    });
+
+    expect(prepared.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe("ambient-oauth");
+    expect(prepared.env?.ANTHROPIC_API_KEY).toBeUndefined();
+  });
+
+  test("vault credential wins over the ambient process.env fallback", async () => {
+    seedVaultToken("vault-oauth");
+    process.env.ANTHROPIC_API_KEY = "ambient-anthropic";
+
+    const prepared = await prepareAgentEnv({
+      command: "claude-agent-acp",
+      args: [],
+    });
+
+    expect(prepared.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe("vault-oauth");
+    // Ambient is only consulted when neither agent.env nor the vault supplies one.
+    expect(prepared.env?.ANTHROPIC_API_KEY).toBeUndefined();
+  });
+
+  test("full precedence: agent.env API key beats both a vault OAuth token and an ambient OAuth token", async () => {
+    seedVaultToken("vault-oauth");
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = "ambient-oauth";
+
+    const prepared = await prepareAgentEnv({
+      command: "claude-agent-acp",
+      args: [],
+      env: { ANTHROPIC_API_KEY: "config-anthropic" },
+    });
+
+    expect(prepared.env?.ANTHROPIC_API_KEY).toBe("config-anthropic");
+    expect(prepared.env?.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+  });
+
+  test("throws when no LLM credential exists in agent.env, the vault, or the ambient env", async () => {
+    // No vault entry, no agent.env, no ambient cred (cleared in beforeEach).
+    await expect(
+      prepareAgentEnv({ command: "claude-agent-acp", args: [] }),
+    ).rejects.toThrow("ANTHROPIC_API_KEY");
   });
 
   test("injects GH_TOKEN from the vault when a git token is present", async () => {
