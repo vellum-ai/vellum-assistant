@@ -6,6 +6,7 @@ import { Button } from "@vellum/design-library/components/button";
 import { Notice } from "@vellum/design-library/components/notice";
 import { assistantsConnectionStatus } from "@/generated/api/sdk.gen";
 import type { AssistantsConnectionStatusResponse } from "@/generated/api/types.gen";
+import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { VELLUM_COMMUNITY_URL } from "@/utils/external-urls";
 import { routes } from "@/utils/routes";
@@ -28,11 +29,12 @@ interface AssistantOutOfStorageBannerProps {
 export function AssistantOutOfStorageBanner({
   assistantId,
 }: AssistantOutOfStorageBannerProps) {
+  const platformGate = usePlatformGate({ platformHostedOnly: true });
   const doctorEnabled = useClientFeatureFlagStore.use.doctor();
 
   const { data } = useQuery({
     queryKey: ["assistant-out-of-storage", assistantId] as const,
-    enabled: Boolean(assistantId),
+    enabled: Boolean(assistantId) && platformGate === "full",
     refetchInterval: REFETCH_INTERVAL_MS,
     retry: false,
     queryFn: async () => {
@@ -45,7 +47,7 @@ export function AssistantOutOfStorageBanner({
     },
   });
 
-  if (!isOutOfStorageStatus(data)) {
+  if (platformGate !== "full" || !isOutOfStorageStatus(data)) {
     return null;
   }
 
