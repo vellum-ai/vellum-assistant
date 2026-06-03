@@ -169,21 +169,24 @@ function PreferencesMenuContent({
       <ThemeToggle className="px-2 pt-0" />
 
       {showBillingRows ? (
-        <CreditsCard
-          balance={
-            effectiveBalance !== null
-              ? formatWholeCredits(effectiveBalance)
-              : null
-          }
-          onAddCredits={() => {
-            onClose();
-            navigate(routes.settings.billing);
-          }}
-          onEarnCredits={() => {
-            onClose();
-            onEarnCredits();
-          }}
-        />
+        // 8px gap separating the credits card from the menu rows below it.
+        <div className="mb-2">
+          <CreditsCard
+            balance={
+              effectiveBalance !== null
+                ? formatWholeCredits(effectiveBalance)
+                : null
+            }
+            onAddCredits={() => {
+              onClose();
+              navigate(routes.settings.billing);
+            }}
+            onEarnCredits={() => {
+              onClose();
+              onEarnCredits();
+            }}
+          />
+        </div>
       ) : null}
 
       <PanelItem

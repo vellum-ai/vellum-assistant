@@ -28,7 +28,7 @@ export function CreditsCard({
               className="h-3.5 w-3.5 text-[color:var(--credits-accent)]"
               aria-hidden
             />
-            <span className="text-body-large-default max-md:text-title-medium text-[color:var(--content-default)]">
+            <span className="text-body-medium-default max-md:text-title-medium text-[color:var(--content-default)]">
               {balance} credits
             </span>
           </div>
