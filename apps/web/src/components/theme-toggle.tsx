@@ -61,7 +61,7 @@ export function ThemeToggle({ className }: { className?: string } = {}) {
   return (
     <div
       className={cn(
-        "flex items-center justify-between gap-3 px-4 py-2 max-md:py-3",
+        "flex items-center justify-between gap-3 px-4 py-2",
         className,
       )}
     >
