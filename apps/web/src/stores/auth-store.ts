@@ -224,6 +224,25 @@ function probePlatformSession(
     });
 }
 
+/**
+ * Probe the platform session only when one could exist — non-local mode, or
+ * local mode with at least one platform assistant in the lockfile. When there
+ * is nothing to probe, settle directly to `"absent"` rather than leaving the
+ * status `"unknown"`. Centralizes the reachability gate shared by the local
+ * gateway auth entry points (`initSession`, `refreshSession`,
+ * `connectLocalAssistant`).
+ */
+function probePlatformSessionIfReachable(
+  set: AuthSet,
+  options?: { setUserOnSuccess?: boolean; clearOnFailure?: boolean },
+): void {
+  if (!isLocalMode() || getPlatformAssistants().length > 0) {
+    probePlatformSession(set, options);
+  } else {
+    set({ platformSession: "absent" });
+  }
+}
+
 const useAuthStoreBase = create<AuthStore>()((set) => ({
   isLoggedIn: false,
   isLoading: true,
@@ -238,11 +257,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       } catch {
         set({ isLoggedIn: false, isLoading: false, user: null });
       }
-      if (!isLocalMode() || getPlatformAssistants().length > 0) {
-        probePlatformSession(set);
-      } else {
-        set({ platformSession: "absent" });
-      }
+      probePlatformSessionIfReachable(set);
       return;
     }
 
@@ -342,11 +357,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
     setSelectedAssistantId(assistantId);
     await primeLocalGatewayConnectionWithRepair();
     set({ isLoggedIn: true, isLoading: false, user: GATEWAY_LOCAL_USER });
-    if (!isLocalMode() || getPlatformAssistants().length > 0) {
-      probePlatformSession(set);
-    } else {
-      set({ platformSessionResolved: true });
-    }
+    probePlatformSessionIfReachable(set);
   },
 
   refreshSession: async () => {
@@ -358,11 +369,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
         set({ isLoggedIn: false, user: null, platformSession: "absent" });
         return false;
       }
-      if (!isLocalMode() || getPlatformAssistants().length > 0) {
-        probePlatformSession(set, { clearOnFailure: true });
-      } else {
-        set({ platformSession: "absent" });
-      }
+      probePlatformSessionIfReachable(set, { clearOnFailure: true });
       return true;
     }
 

@@ -353,8 +353,9 @@ describe("connectLocalAssistant", () => {
     expect(primeLocalGatewayConnectionWithRepairMock).toHaveBeenCalledTimes(1);
     expect(useAuthStore.getState().isLoggedIn).toBe(true);
     expect(useAuthStore.getState().user?.id).toBe("gateway-local");
-    // No platform assistants — the probe resolves synchronously.
-    expect(useAuthStore.getState().platformSessionResolved).toBe(true);
+    // No platform assistants — nothing to probe, so the status settles
+    // directly to "absent" rather than staying "unknown".
+    expect(useAuthStore.getState().platformSession).toBe("absent");
   });
 
   test("rethrows the prime failure without marking the session logged in", async () => {
