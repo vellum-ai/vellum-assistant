@@ -7,6 +7,7 @@ extraResources:
     to: bun
 afterPack: ./scripts/afterPack.js
 mac:
+  icon: build/icon.icns
   category: public.app-category.productivity
   hardenedRuntime: true
   entitlements: ./scripts/entitlements/app.plist
