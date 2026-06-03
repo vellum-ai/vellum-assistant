@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { X } from "lucide-react";
+import { Minimize2 } from "lucide-react";
 
 import { Button } from "@vellum/design-library";
 import { AppNavBar } from "@/components/app-nav-bar";
@@ -112,8 +112,8 @@ export function AppViewerContainer({
             }}
           >
             <Button
-              variant="outlined"
-              iconOnly={<X />}
+              variant="primary"
+              iconOnly={<Minimize2 />}
               onClick={toggleFullscreen}
               tooltip="Exit fullscreen"
             />

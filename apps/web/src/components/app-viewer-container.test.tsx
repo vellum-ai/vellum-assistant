@@ -7,8 +7,9 @@
  * plumbing.
  *
  * Buttons are located by their lucide glyph class (e.g. `svg.lucide-maximize2`,
- * `svg.lucide-x`) rather than by accessible name, because the design-library
- * `Button` only exposes its tooltip text via a Radix tooltip while open.
+ * `svg.lucide-minimize2`) rather than by accessible name, because the
+ * design-library `Button` only exposes its tooltip text via a Radix tooltip
+ * while open.
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
@@ -49,9 +50,9 @@ function getMaximizeButton(): HTMLButtonElement | null {
 function getFloatingExitButton(): HTMLButtonElement | null {
   // The floating exit button lives inside the `absolute z-10` container (its
   // top/right offsets are applied via inline safe-area-aware styles); scope to
-  // that so we don't match the nav-bar close (X) button.
+  // that so we don't match any nav-bar button.
   const container = document.querySelector(".absolute.z-10");
-  return container?.querySelector("svg.lucide-x")?.closest("button") ?? null;
+  return container?.querySelector("svg.lucide-minimize2")?.closest("button") ?? null;
 }
 
 function getRoot(): HTMLElement {
