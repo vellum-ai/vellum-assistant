@@ -101,6 +101,10 @@ export interface TranscriptProps {
   onSubagentClick?: (subagentId: string) => void;
   /** Callback to abort/stop a running subagent from an inline card. */
   onStopSubagent?: (subagentId: string) => void;
+  /** Whether the combined per-turn activity-summary card is enabled
+   *  (feature-flag gated). Threaded down to `TranscriptMessageBody`, which
+   *  gates the `TurnProgressCard` render on it. */
+  activitySummaryEnabled?: boolean;
   /** Optional render-prop that produces the chat avatar element to mount
    *  at the bottom of the conversation. Rendered inside the latest-edge
    *  region so the avatar pins to the bottom of the viewport while the
@@ -276,6 +280,8 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
       assistantId: rest.assistantId,
       onSubagentClick: rest.onSubagentClick,
       onStopSubagent: rest.onStopSubagent,
+      activitySummaryEnabled: rest.activitySummaryEnabled,
+      onActivityStepClick: scrollToActivity,
     };
 
     return (

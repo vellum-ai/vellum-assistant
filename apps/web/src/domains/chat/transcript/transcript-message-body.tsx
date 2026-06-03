@@ -109,6 +109,12 @@ export interface TranscriptMessageBodyProps {
   onSubagentClick?: (subagentId: string) => void;
   /** Callback to abort/stop a running subagent from an inline card. */
   onStopSubagent?: (subagentId: string) => void;
+  /** Whether the combined per-turn activity-summary card is enabled
+   *  (feature-flag gated). Gates the `TurnProgressCard` render. */
+  activitySummaryEnabled?: boolean;
+  /** Click handler for an activity-summary step pill — scrolls the matching
+   *  inline card into view. Backed by the transcript's `scrollToActivity`. */
+  onActivityStepClick?: (anchorId: string) => void;
   /**
    * True when this message belongs to the turn that is actively streaming.
    * Set by `LatestTurnRow` for the in-progress response cluster; history
@@ -346,6 +352,10 @@ export function TranscriptMessageBody({
   assistantId,
   onSubagentClick,
   onStopSubagent,
+  // Accepted but not yet read in render — the activity-summary card render
+  // path lands in a follow-up. Aliased to `_` so the unused props are explicit.
+  activitySummaryEnabled: _activitySummaryEnabled,
+  onActivityStepClick: _onActivityStepClick,
   isStreaming = false,
 }: TranscriptMessageBodyProps) {
   const hasInterleavedToolCalls = message.contentOrder?.some(
