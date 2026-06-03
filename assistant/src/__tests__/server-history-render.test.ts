@@ -618,54 +618,75 @@ describe("renderHistoryContent contentBlocks", () => {
     expect(surfaceBlock.type === "surface" && surfaceBlock.surface).toBe(
       output.surfaces[0],
     );
-    // AND attachments are not inlined here (the route splices hydrated rows)
-    expect(output.attachmentBlockOffsets).toEqual([]);
+    // AND no attachment block appears (this turn has no file blocks)
+    expect(output.contentBlocks.some((b) => b.type === "attachment")).toBe(
+      false,
+    );
   });
 
-  test("records an offset per file block instead of an inline block", () => {
-    // GIVEN a turn with text, a file attachment, then more text
+  const pdfBlock = {
+    type: "file",
+    source: {
+      type: "base64",
+      media_type: "application/pdf",
+      filename: "spec.pdf",
+      data: Buffer.from("hi").toString("base64"),
+    },
+  } as const;
+  const pdfAttachment = {
+    id: "att-1",
+    filename: "spec.pdf",
+    mimeType: "application/pdf",
+    sizeBytes: 2,
+    kind: "file",
+  } as const;
+
+  test("inlines an attachment block when hydrated metadata is supplied", () => {
+    // GIVEN a turn with text, a file attachment, then more text, and the
+    // caller supplies the DB-hydrated metadata for that file block
+    const output = renderHistoryContent(
+      [
+        { type: "text", text: "see file" },
+        pdfBlock,
+        { type: "text", text: "thanks" },
+      ],
+      [pdfAttachment],
+    );
+
+    // THEN the attachment block is placed inline between the two text blocks
+    expect(output.contentBlocks).toEqual([
+      { type: "text", text: "see file" },
+      { type: "attachment", attachment: pdfAttachment },
+      { type: "text", text: "thanks" },
+    ]);
+  });
+
+  test("omits the file block from contentBlocks when no metadata is supplied", () => {
+    // GIVEN the same turn but no hydrated metadata (the file still ships via
+    // the positional attachments array, just not as an inline block)
     const output = renderHistoryContent([
       { type: "text", text: "see file" },
-      {
-        type: "file",
-        source: {
-          type: "base64",
-          media_type: "application/pdf",
-          filename: "spec.pdf",
-          data: Buffer.from("hi").toString("base64"),
-        },
-      },
+      pdfBlock,
       { type: "text", text: "thanks" },
     ]);
 
-    // THEN no attachment block is emitted, but its insertion point is recorded
-    // at the position after the first text block
     expect(output.contentBlocks).toEqual([
       { type: "text", text: "see file" },
       { type: "text", text: "thanks" },
     ]);
-    expect(output.attachmentBlockOffsets).toEqual([1]);
+    expect(output.attachments.length).toBe(1);
   });
 
   test("excludes the trailing attachment-description segment from blocks", () => {
     // GIVEN an attachment-only turn (the legacy text body carries a synthetic
     // attachment description segment for clients without attachment UI)
-    const output = renderHistoryContent([
-      {
-        type: "file",
-        source: {
-          type: "base64",
-          media_type: "application/pdf",
-          filename: "spec.pdf",
-          data: Buffer.from("hi").toString("base64"),
-        },
-      },
-    ]);
+    const output = renderHistoryContent([pdfBlock], [pdfAttachment]);
 
-    // THEN that synthetic segment is not duplicated as a text block — the
-    // attachment surfaces via its recorded offset instead
-    expect(output.contentBlocks).toEqual([]);
-    expect(output.attachmentBlockOffsets).toEqual([0]);
+    // THEN the only block is the inlined attachment — the synthetic text
+    // segment stays in textSegments but never pollutes contentBlocks
+    expect(output.contentBlocks).toEqual([
+      { type: "attachment", attachment: pdfAttachment },
+    ]);
     expect(output.textSegments.length).toBe(1);
   });
 
