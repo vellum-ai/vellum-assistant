@@ -265,28 +265,6 @@ export function EmailManagedContent({
   ]);
 
   // -- Render ----------------------------------------------------------------
-  if (subscriptionUnknown) {
-    return (
-      <Notice
-        tone="warning"
-        title="Couldn't verify subscription status"
-        actions={
-          <Button
-            size="compact"
-            variant="outlined"
-            onClick={() => subscriptionQuery.refetch()}
-          >
-            Retry
-          </Button>
-        }
-      >
-        We couldn&apos;t reach the billing service. The form below
-        assumes managed email is enabled for your org — if it isn&apos;t,
-        registering a domain will fail.
-      </Notice>
-    );
-  }
-
   if (subscriptionQuery.isLoading) {
     return (
       <div className="flex items-center gap-2 text-body-small-default text-[var(--content-tertiary)]">
@@ -319,9 +297,34 @@ export function EmailManagedContent({
     );
   }
 
+  // subscriptionUnknown: billing service unreachable. Render warning above
+  // the form but still show the form (fail-open). The backend
+  // `assert_entitlement` remains the source of truth — if the user isn't
+  // entitled, domain registration will 403.
+  const subscriptionWarning = subscriptionUnknown ? (
+    <Notice
+      tone="warning"
+      title="Couldn't verify subscription status"
+      actions={
+        <Button
+          size="compact"
+          variant="outlined"
+          onClick={() => subscriptionQuery.refetch()}
+        >
+          Retry
+        </Button>
+      }
+    >
+      We couldn&apos;t reach the billing service. The form below
+      assumes managed email is enabled for your org — if it isn&apos;t,
+      registering a domain will fail.
+    </Notice>
+  ) : null;
+
   if (!domain) {
     return (
       <div className="space-y-3">
+        {subscriptionWarning}
         <label className="block text-body-small-default text-[var(--content-quiet)]">
           Subdomain
         </label>
@@ -360,6 +363,7 @@ export function EmailManagedContent({
   if (!address) {
     return (
       <div className="space-y-4">
+        {subscriptionWarning}
         <div className="space-y-1.5">
           <label className="block text-body-small-default text-[var(--content-quiet)]">
             Domain
@@ -435,6 +439,7 @@ export function EmailManagedContent({
 
   return (
     <div className="space-y-4">
+      {subscriptionWarning}
       <div className="space-y-1.5">
         <label className="block text-body-small-default text-[var(--content-quiet)]">
           Address
