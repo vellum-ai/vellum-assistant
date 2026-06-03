@@ -25,7 +25,6 @@ export interface CallSiteOverrideRowProps {
   id: string;
   displayName: string;
   description?: string;
-  defaultProfile?: string;
   defaultProfileLabel: string | null;
   draft: CallSiteOverrideDraft | null;
   profileOptions: ProfileOption[];

@@ -421,7 +421,6 @@ function CallSiteOverridesModalInner({
                           id={cs.id}
                           displayName={cs.displayName}
                           description={cs.description}
-                          defaultProfile={cs.defaultProfile}
                           defaultProfileLabel={defaultProfileLabel}
                           draft={drafts[cs.id] ?? null}
                           profileOptions={buildProfileOptionsForRow(
