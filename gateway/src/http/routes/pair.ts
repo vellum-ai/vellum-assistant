@@ -31,6 +31,7 @@ import { assistantDbQuery } from "../../db/assistant-db-proxy.js";
 import { getLogger } from "../../logger.js";
 import { isLoopbackAddress } from "../../util/is-loopback-address.js";
 import { VELAY_FORWARDED_HEADER } from "../../velay/bridge-utils.js";
+import { requestArrivedViaEdgeProxy } from "../edge-forwarded-header.js";
 
 const log = getLogger("pair");
 
@@ -74,9 +75,7 @@ function checkRateLimit(peerIp: string): {
 
   if (entry.timestamps.length >= RATE_LIMIT_MAX_REQUESTS) {
     const oldestInWindow = entry.timestamps[0] ?? now;
-    const resetAt = Math.ceil(
-      (oldestInWindow + RATE_LIMIT_WINDOW_MS) / 1000,
-    );
+    const resetAt = Math.ceil((oldestInWindow + RATE_LIMIT_WINDOW_MS) / 1000);
     return {
       allowed: false,
       limit: RATE_LIMIT_MAX_REQUESTS,
@@ -216,6 +215,16 @@ export async function handlePair(
   // header on every forwarded request; it cannot be stripped by a Velay client.
   if (req.headers.get(VELAY_FORWARDED_HEADER)) {
     auditDeny(req, clientIp, "velay_bridged");
+    return errorResponse("FORBIDDEN", "endpoint is local-only", 403);
+  }
+
+  // Defense-in-depth: reject requests forwarded by the self-hosted nginx edge
+  // (e.g. the SPA reached over an ngrok tunnel). The edge sets this marker
+  // unconditionally and it cannot be spoofed or stripped by the client — see
+  // edge-forwarded-header.ts. The X-Forwarded-For check below also catches the
+  // edge today, but this marker is the explicit, unspoofable signal.
+  if (requestArrivedViaEdgeProxy(req)) {
+    auditDeny(req, clientIp, "edge_proxy_forwarded");
     return errorResponse("FORBIDDEN", "endpoint is local-only", 403);
   }
 
