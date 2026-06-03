@@ -1,9 +1,11 @@
-import { BrowserWindow, app, ipcMain, shell } from "electron";
+import { BrowserWindow, app, shell } from "electron";
 import path from "node:path";
+import { z } from "zod";
 
 import { RENDERER_BASE_PROD, getDevRendererBase } from "./app-config";
 import { isAllowedOrigin, resolveAllowedOrigin } from "./app-origin";
 import { type VellumCommand } from "./commands";
+import { handle } from "./ipc";
 import { restoreBounds, track as trackWindowState } from "./window-state";
 
 /**
@@ -300,7 +302,7 @@ export const installMainWindow = (): void => {
   // (deep links, future notification clicks, etc.). The renderer
   // wrapper at `apps/web/src/runtime/main-window.ts` calls this; the
   // handler returns void so the caller can `await` without value.
-  ipcMain.handle("vellum:mainWindow:ensureVisible", async (): Promise<void> => {
+  handle("vellum:mainWindow:ensureVisible", z.tuple([]), async (): Promise<void> => {
     await ensureVisible();
   });
 
