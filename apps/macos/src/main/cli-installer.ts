@@ -26,17 +26,99 @@ export function getBundledBunPath(): string {
   return path.join(process.resourcesPath, "bun");
 }
 
+/** Absolute path to the installed `@vellumai/web` dist directory. */
+export function getWebDistPath(): string {
+  return path.join(
+    getCliInstallDir(),
+    "node_modules",
+    "@vellumai",
+    "web",
+    "dist",
+  );
+}
+
+/** Whether the web renderer package is installed. */
+export function isWebInstalled(): boolean {
+  return existsSync(path.join(getWebDistPath(), "index.html"));
+}
+
 /** Whether the pinned CLI version is already installed on disk. */
 export function isCliInstalled(): boolean {
   return existsSync(getCliBinPath());
 }
 
-// Singleton promise prevents concurrent installs from corrupting node_modules.
-let installPromise: Promise<void> | null = null;
+function bunAdd(pkg: string): Promise<void> {
+  const installDir = getCliInstallDir();
+  mkdirSync(installDir, { recursive: true });
 
-/** Reset the install lock. Exposed for testing only. */
+  const bunPath = getBundledBunPath();
+
+  return new Promise<void>((resolve, reject) => {
+    const child = spawn(bunPath, ["add", `${pkg}@${PINNED_CLI_VERSION}`], {
+      cwd: installDir,
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout.on("data", (data: Buffer) => {
+      stdout += data.toString();
+    });
+
+    child.stderr.on("data", (data: Buffer) => {
+      stderr += data.toString();
+    });
+
+    child.on("error", (err: Error) => {
+      reject(
+        new Error(
+          `Failed to spawn bun for package install: ${err.message}`,
+        ),
+      );
+    });
+
+    child.on("close", (code: number | null) => {
+      if (code !== 0) {
+        const detail = (stderr || stdout).trim();
+        reject(
+          new Error(
+            `Package install failed with exit code ${code ?? "unknown"}${detail ? `: ${detail}` : ""}`,
+          ),
+        );
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+// Singleton promises prevent concurrent installs from corrupting node_modules.
+let webInstallPromise: Promise<void> | null = null;
+let cliInstallPromise: Promise<void> | null = null;
+
+/** Reset the install locks. Exposed for testing only. */
 export function _resetInstallLock(): void {
-  installPromise = null;
+  webInstallPromise = null;
+  cliInstallPromise = null;
+}
+
+/** Install just the web renderer package — fast path to unblock the UI. */
+export async function ensureWebInstalled(): Promise<void> {
+  if (isWebInstalled()) return;
+
+  if (webInstallPromise) return webInstallPromise;
+
+  webInstallPromise = (async () => {
+    await bunAdd("@vellumai/web");
+    cleanupOldVersions();
+  })();
+
+  try {
+    await webInstallPromise;
+  } catch (err) {
+    webInstallPromise = null;
+    throw err;
+  }
 }
 
 /**
@@ -50,59 +132,17 @@ export function _resetInstallLock(): void {
 export async function ensureCliInstalled(): Promise<void> {
   if (isCliInstalled()) return;
 
-  if (installPromise) return installPromise;
+  if (cliInstallPromise) return cliInstallPromise;
 
-  installPromise = (async () => {
-    const installDir = getCliInstallDir();
-    mkdirSync(installDir, { recursive: true });
-
-    const bunPath = getBundledBunPath();
-
-    await new Promise<void>((resolve, reject) => {
-      const child = spawn(bunPath, ["add", `vellum@${PINNED_CLI_VERSION}`], {
-        cwd: installDir,
-      });
-
-      let stdout = "";
-      let stderr = "";
-
-      child.stdout.on("data", (data: Buffer) => {
-        stdout += data.toString();
-      });
-
-      child.stderr.on("data", (data: Buffer) => {
-        stderr += data.toString();
-      });
-
-      child.on("error", (err: Error) => {
-        reject(
-          new Error(
-            `Failed to spawn bun for CLI install: ${err.message}`,
-          ),
-        );
-      });
-
-      child.on("close", (code: number | null) => {
-        if (code !== 0) {
-          const detail = (stderr || stdout).trim();
-          reject(
-            new Error(
-              `CLI install failed with exit code ${code ?? "unknown"}${detail ? `: ${detail}` : ""}`,
-            ),
-          );
-          return;
-        }
-        resolve();
-      });
-    });
-
+  cliInstallPromise = (async () => {
+    await bunAdd("vellum");
     cleanupOldVersions();
   })();
 
   try {
-    await installPromise;
+    await cliInstallPromise;
   } catch (err) {
-    installPromise = null;
+    cliInstallPromise = null;
     throw err;
   }
 }
