@@ -45,6 +45,21 @@ describe("runHatch", () => {
     expect(spawnArgs[0]).toEqual(["bun", ["run", "cli", "hatch", "vellum"]]);
   });
 
+  test("parses the assistant id from a Docker hatch banner", async () => {
+    const pending = runHatch(invocation, "vellum", { remote: "docker" });
+    lastChild.stdout.emit(
+      "data",
+      Buffer.from("🥚 Hatching Docker assistant: asst-docker\n"),
+    );
+    lastChild.emit("close", 0);
+
+    expect(await pending).toEqual({ ok: true, assistantId: "asst-docker" });
+    expect(spawnArgs[0]).toEqual([
+      "bun",
+      ["run", "cli", "hatch", "vellum", "--remote", "docker"],
+    ]);
+  });
+
   test("a non-zero exit resolves to a failure carrying the CLI's output", async () => {
     const pending = runHatch(invocation, "vellum");
     lastChild.stderr.emit("data", Buffer.from("daemon already running"));
