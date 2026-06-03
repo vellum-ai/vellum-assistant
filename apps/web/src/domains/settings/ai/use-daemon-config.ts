@@ -150,11 +150,12 @@ export function useDaemonConfigMutation() {
         body,
         throwOnError: true,
       });
-      return data;
+      return { data, resolvedId };
     },
-    onSettled: () => {
+    onSettled: (result) => {
+      const idToInvalidate = result?.resolvedId ?? assistantId;
       void queryClient.invalidateQueries({
-        queryKey: assistantDaemonConfigQueryKey(assistantId),
+        queryKey: assistantDaemonConfigQueryKey(idToInvalidate),
       });
     },
   });
