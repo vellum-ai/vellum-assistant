@@ -171,16 +171,57 @@ async function createProviderConnection(
 }
 
 /**
+ * Probe a freshly created provider connection via the daemon's test route.
+ * Raw template-literal URL (gateway route), matching enableAssistantFeatureFlag
+ * above; the generated client has no typed path for this endpoint. A probe
+ * failure is informational, never thrown: a non-ok HTTP response or a thrown
+ * error becomes `{ ok: false, reason }`. `skipped` (non-openai-compatible
+ * providers) is treated as ok.
+ */
+async function testProviderConnection(
+  assistantId: string,
+  name: string,
+): Promise<{ ok: boolean; reason?: string }> {
+  try {
+    const result = await client.post({
+      url: `/v1/assistants/${assistantId}/inference/provider-connections/${name}/test`,
+      headers: { "Content-Type": "application/json" },
+    });
+    if (!result.response?.ok) {
+      return {
+        ok: false,
+        reason: "Could not reach the daemon to test the connection.",
+      };
+    }
+    const body = (result.data ?? {}) as {
+      ok?: boolean;
+      reason?: string;
+      skipped?: boolean;
+    };
+    return { ok: body.skipped === true || body.ok === true, reason: body.reason };
+  } catch {
+    return {
+      ok: false,
+      reason: "Could not reach the daemon to test the connection.",
+    };
+  }
+}
+
+/**
  * Apply the API key collected during onboarding to the freshly hatched local
  * assistant: store the secret (when a key was entered) and create the provider
  * connection so the daemon can use it. Consumes the pending key; no-op when
  * nothing was collected (e.g. Vellum Cloud, which skips the API-key step).
+ *
+ * For openai-compatible providers, the connection is probed after creation and
+ * the result returned as `validation` so the caller can surface a non-blocking
+ * warning when the endpoint is unreachable or the key is bad.
  */
 export async function applyPendingProviderKey(
   assistantId: string,
-): Promise<void> {
+): Promise<{ validation?: { ok: boolean; reason?: string } }> {
   const pending = consumePendingProviderKey();
-  if (!pending) return;
+  if (!pending) return {};
   const trimmed = pending.key.trim();
   const hasKey = trimmed.length > 0;
   if (pending.provider === "openai-compatible") {
@@ -196,4 +237,13 @@ export async function applyPendingProviderKey(
     pending.baseUrl?.trim() || undefined,
     pending.models,
   );
+  if (pending.provider === "openai-compatible") {
+    // Connection name === provider id (see createProviderConnection's `name`).
+    const validation = await testProviderConnection(
+      assistantId,
+      pending.provider,
+    );
+    return { validation };
+  }
+  return {};
 }

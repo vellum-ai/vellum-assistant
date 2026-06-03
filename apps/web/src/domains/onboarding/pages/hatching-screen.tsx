@@ -133,6 +133,10 @@ export function HatchingScreen() {
   }, [hatchTraits]);
   const [phase, setPhase] = useState<HatchPhase>("initializing");
   const [error, setError] = useState<string | null>(null);
+  // Non-blocking notice when the openai-compatible endpoint probe fails. Unlike
+  // `error`, this does not replace the screen or halt onboarding — the flow
+  // proceeds and the user can fix the connection in Settings.
+  const [providerWarning, setProviderWarning] = useState<string | null>(null);
   const [platformHostedDisabled, setPlatformHostedDisabled] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [displayProgress, setDisplayProgress] = useState<number>(0);
@@ -299,7 +303,14 @@ export function HatchingScreen() {
           // proceeds and the user can fix it in Settings.
           if (result.assistantId) {
             try {
-              await applyPendingProviderKey(result.assistantId);
+              const applyResult = await applyPendingProviderKey(
+                result.assistantId,
+              );
+              if (applyResult?.validation && !applyResult.validation.ok) {
+                setProviderWarning(
+                  `Your assistant is ready, but we couldn't verify your OpenAI-compatible endpoint: ${applyResult.validation.reason ?? "the endpoint did not respond"}. You can update the connection in Settings.`,
+                );
+              }
             } catch (err) {
               captureError(err, { context: "onboarding_apply_provider_key" });
             }
@@ -570,6 +581,21 @@ export function HatchingScreen() {
         <p className="mt-3 text-body-small-default text-[var(--content-tertiary)]">
           {PHASE_LABEL[phase]}
         </p>
+        {providerWarning && (
+          <div
+            role="alert"
+            className="mt-6 flex w-full max-w-sm flex-col gap-2 rounded-lg border border-[var(--border-warning)] bg-[var(--background-warning)] p-4 text-left text-body-small-default text-[var(--content-warning)]"
+          >
+            <p>{providerWarning}</p>
+            <button
+              type="button"
+              className="self-end text-body-small-default underline"
+              onClick={() => setProviderWarning(null)}
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
       </div>
     </OnboardingLayout>
   );
