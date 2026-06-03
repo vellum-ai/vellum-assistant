@@ -45,6 +45,19 @@ export function wireTextBody(
 }
 
 /**
+ * Build the wire-shape `thinkingSegments` + `contentOrder` for a server
+ * message whose body is a single reasoning (thinking) block. Mirrors
+ * `wireTextBody` for the reasoning content kind.
+ */
+export function wireThinkingBody(
+  thinking: string,
+): Pick<ConversationMessage, "thinkingSegments" | "contentOrder"> {
+  return thinking
+    ? { thinkingSegments: [thinking], contentOrder: ["thinking:0"] }
+    : { thinkingSegments: [], contentOrder: [] };
+}
+
+/**
  * Build a server-shape history row (`ConversationMessage`) from a partial,
  * filling the fields the wire contract requires (`timestamp`, `attachments`).
  */
