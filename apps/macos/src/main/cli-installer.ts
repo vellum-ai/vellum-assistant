@@ -40,11 +40,12 @@ export function _resetInstallLock(): void {
 }
 
 /**
- * Install the pinned CLI version if it isn't already present.
+ * Install the pinned vellum meta-package if it isn't already present.
  *
- * Uses the bundled bun runtime to `bun add @vellumai/cli@<version>` into the
- * per-version install directory. After a successful install, stale
- * versions are cleaned up.
+ * Uses the bundled bun runtime to `bun add vellum@<version>` into the
+ * per-version install directory. The meta-package brings the full local
+ * stack (daemon, gateway, credential-executor, web). After a successful
+ * install, stale versions are cleaned up.
  */
 export async function ensureCliInstalled(): Promise<void> {
   if (isCliInstalled()) return;
@@ -58,7 +59,7 @@ export async function ensureCliInstalled(): Promise<void> {
     const bunPath = getBundledBunPath();
 
     await new Promise<void>((resolve, reject) => {
-      const child = spawn(bunPath, ["add", `@vellumai/cli@${PINNED_CLI_VERSION}`], {
+      const child = spawn(bunPath, ["add", `vellum@${PINNED_CLI_VERSION}`], {
         cwd: installDir,
       });
 
