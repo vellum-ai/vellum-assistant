@@ -396,7 +396,12 @@ export class ConversationGraphMemory {
       this.lastInjectedImages = new Map();
       return {
         ...noopResult,
-        runMessages: stripExistingMemoryInjections(messages),
+        // Strip across ALL user messages, not just the tail: a conversation
+        // that ran with factoring on can carry <memory>/<info>/<memory_image>
+        // blocks on older (non-tail) user messages too (e.g. rehydrated from
+        // persisted history), and every one must be removed so none replays
+        // to the model after opt-out.
+        runMessages: stripAllMemoryInjections(messages),
       };
     }
 

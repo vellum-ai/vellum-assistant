@@ -178,6 +178,12 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
     sourceChannel: ctx.trustContext?.sourceChannel,
     isTrustedActor: resolveTrustClass(ctx.trustContext) === "guardian",
   });
+  // Incognito opt-out: when an incognito conversation has turned "factor in
+  // memories" off, persisted memory-bearing injection blocks (PKB, NOW.md,
+  // static v2, graph <memory>) must NOT be rehydrated onto older rows —
+  // otherwise they would replay to the model on reload despite the opt-out.
+  // Environmental blocks (turn context, workspace) are not memory and stay.
+  const factorInMemoriesAllowed = !(conv?.incognito && !conv.factorInMemories);
   const parsedMessages: Message[] = slicedDbMessages.map((m, index, arr) => {
     const isPreStripped = index < preStrippedCount;
     const role = m.role as "user" | "assistant";
@@ -220,21 +226,33 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
         // across daemon restart and conversation eviction. The tail
         // row only rehydrates `memoryInjectedBlock` — the next turn
         // re-injects the rest fresh.
-        if (!isTail && typeof meta.pkbContextBlock === "string") {
+        if (
+          !isTail &&
+          factorInMemoriesAllowed &&
+          typeof meta.pkbContextBlock === "string"
+        ) {
           content = [
             { type: "text" as const, text: meta.pkbContextBlock },
             ...content,
           ];
         }
 
-        if (!isTail && typeof meta.pkbSystemReminderBlock === "string") {
+        if (
+          !isTail &&
+          factorInMemoriesAllowed &&
+          typeof meta.pkbSystemReminderBlock === "string"
+        ) {
           content = [
             { type: "text" as const, text: meta.pkbSystemReminderBlock },
             ...content,
           ];
         }
 
-        if (!isTail && typeof meta.nowScratchpadBlock === "string") {
+        if (
+          !isTail &&
+          factorInMemoriesAllowed &&
+          typeof meta.nowScratchpadBlock === "string"
+        ) {
           content = [
             { type: "text" as const, text: meta.nowScratchpadBlock },
             ...content,
@@ -251,6 +269,7 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
         if (
           !isTail &&
           personalMemoryAllowed &&
+          factorInMemoriesAllowed &&
           typeof meta.memoryV2StaticBlock === "string"
         ) {
           content = [
@@ -267,7 +286,10 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
         // the full <memory>...</memory> pair is present so we don't mutate
         // legitimate unwrapped payloads that happen to start with
         // "<memory>\n" or end with "\n</memory>".
-        if (typeof meta.memoryInjectedBlock === "string") {
+        if (
+          factorInMemoriesAllowed &&
+          typeof meta.memoryInjectedBlock === "string"
+        ) {
           const block = meta.memoryInjectedBlock;
           const inner =
             block.startsWith("<memory>\n") && block.endsWith("\n</memory>")
