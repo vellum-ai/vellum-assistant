@@ -462,7 +462,23 @@ function deriveCarouselItems(
 // ---------------------------------------------------------------------------
 
 /**
- * Card-level state derivation. Precedence (highest first):
+ * Combine per-call/per-step states into a single card-level state using the
+ * canonical precedence (highest first): `denied` > `loading` > `error` >
+ * `complete`. Shared so the per-turn activity aggregate (`turn-activity.ts`)
+ * and `deriveCardState` below cannot drift.
+ */
+export function combineCardStates(
+  states: Array<"loading" | "complete" | "error" | "denied">,
+): "loading" | "complete" | "error" | "denied" {
+  if (states.includes("denied")) return "denied";
+  if (states.includes("loading")) return "loading";
+  if (states.includes("error")) return "error";
+  return "complete";
+}
+
+/**
+ * Card-level state derivation. Maps each tool call to its narrowed state and
+ * combines them via `combineCardStates`. Precedence (highest first):
  *   1. `denied` — any tool call whose confirmation was denied or timed-out.
  *   2. `loading` — any tool call still running.
  *   3. `error` — any tool ended in `status === "error"` (no still-running).
@@ -471,23 +487,19 @@ function deriveCarouselItems(
 function deriveCardState(
   toolCalls: ChatMessageToolCall[],
 ): "loading" | "complete" | "error" | "denied" {
-  let anyRunning = false;
-  let anyError = false;
-  let anyDenied = false;
-  for (const tc of toolCalls) {
-    if (
-      tc.confirmationDecision === "denied" ||
-      tc.confirmationDecision === "timed_out"
-    ) {
-      anyDenied = true;
-    }
-    if (tc.status === "running") anyRunning = true;
-    if (tc.status === "error") anyError = true;
-  }
-  if (anyDenied) return "denied";
-  if (anyRunning) return "loading";
-  if (anyError) return "error";
-  return "complete";
+  return combineCardStates(
+    toolCalls.map((tc) => {
+      if (
+        tc.confirmationDecision === "denied" ||
+        tc.confirmationDecision === "timed_out"
+      ) {
+        return "denied";
+      }
+      if (tc.status === "running") return "loading";
+      if (tc.status === "error") return "error";
+      return "complete";
+    }),
+  );
 }
 
 // ---------------------------------------------------------------------------

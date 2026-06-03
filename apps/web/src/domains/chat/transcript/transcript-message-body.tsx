@@ -27,6 +27,15 @@ import {
   activityAnchorId,
   buildTurnActivity,
 } from "@/domains/chat/transcript/turn-activity";
+import {
+  groupMessageContent,
+  isSubagentSpawnCall,
+  isSuppressedUiTool,
+  isTaskProgressSurface,
+  resolveThinkingContent,
+  resolveToolCall,
+  type ContentGroup,
+} from "@/domains/chat/transcript/message-content";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 import {
@@ -42,23 +51,6 @@ import {
 import type { ConfirmationDecision } from "@/types/event-types";
 import type { AllowlistOption, DirectoryScopeOption, RiskScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
-
-/**
- * Detect a task-progress card surface — mirrors `CardSurface`'s `hasSteps`
- * discrimination (`template === "task_progress"` with a non-empty `steps`
- * array). Used by the activity-summary path to hoist this surface beneath the
- * combined progress card and suppress it from its inline position.
- */
-function isTaskProgressSurface(surface: Surface): boolean {
-  const data = surface.data as
-    | { template?: string; templateData?: { steps?: unknown } }
-    | undefined;
-  return (
-    data?.template === "task_progress" &&
-    Array.isArray(data.templateData?.steps) &&
-    (data.templateData!.steps as unknown[]).length > 0
-  );
-}
 
 export interface OpenRuleEditorContext {
   toolName: string;
@@ -145,24 +137,6 @@ export interface TranscriptMessageBodyProps {
    * of the turn. Collapses back to the compact default once the turn ends.
    */
   isStreaming?: boolean;
-}
-
-/**
- * Detect whether a tool call is a `subagent_spawn` invocation. The daemon
- * exposes `subagent_spawn` as a bundled-skill tool, which means the LLM
- * actually emits a `skill_execute` call with `input.tool === "subagent_spawn"`
- * — the daemon's `skill_execute` interceptor (see
- * `assistant/src/daemon/conversation-tool-setup.ts`) re-dispatches to the
- * real executor, but the `tool_use_start` event the frontend receives still
- * carries `toolName: "skill_execute"`. Matching on the raw `toolName` would
- * miss every spawn and leave inline subagent cards unrendered.
- */
-export function isSubagentSpawnCall(toolCall: ChatMessageToolCall): boolean {
-  if (toolCall.toolName === "subagent_spawn") return true;
-  if (toolCall.toolName !== "skill_execute") return false;
-  const input = toolCall.input;
-  if (input == null || typeof input !== "object") return false;
-  return (input as Record<string, unknown>).tool === "subagent_spawn";
 }
 
 /**
@@ -388,18 +362,6 @@ export function TranscriptMessageBody({
   // groups (e.g. a tool_use lands before the first assistant_text_delta).
   const messageText = segmentsToPlainText(message.textSegments);
 
-  // Join the reasoning segments referenced by a run of `thinking`
-  // content-order ids into a single markdown string (mirrors macOS, which
-  // joins adjacent reasoning indices with newlines).
-  const resolveThinkingContent = (ids: string[]): string =>
-    ids
-      .map((id) => {
-        const idx = parseInt(id, 10);
-        return !isNaN(idx) ? message.thinkingSegments?.[idx] : undefined;
-      })
-      .filter((s): s is string => Boolean(s))
-      .join("\n");
-
   // `textBubbleClass` applies only to the assistant text path: it carries the
   // text bubble per segment inside `segmentClass`'s assistant branch. User
   // messages get their bubble once at the wrapper via `userBubbleClass`, so the
@@ -488,14 +450,6 @@ export function TranscriptMessageBody({
     }
     return undefined;
   };
-
-  // UI surface tools are rendered by the inline surface widget, not as
-  // tool call chips — unless they have a pending confirmation attached,
-  // in which case the chip must render so the inline confirmation card
-  // is visible.
-  const isSuppressedUiTool = (tc: ChatMessageToolCall) =>
-    !tc.pendingConfirmation &&
-    (tc.toolName === "ui_show" || tc.toolName === "ui_update" || tc.toolName === "ui_dismiss");
 
   // Hard line breaks are enabled for every transcript message regardless of
   // role: single `\n`s in assistant output (not just user Shift+Enter input)
@@ -721,49 +675,10 @@ export function TranscriptMessageBody({
 
   if (hasInterleavedToolCalls && message.contentOrder) {
     // Group consecutive entries: merge adjacent toolCall/tool entries into a
-    // single group (mirrors macOS `groupContentBlocks`).
-    type ContentGroup =
-      | { type: "text"; id: string }
-      | { type: "toolCalls"; ids: string[] }
-      | { type: "thinking"; ids: string[] }
-      | { type: "surface"; id: string };
-
-    const groups: ContentGroup[] = [];
-    for (const entry of message.contentOrder) {
-      if (entry.type === "toolCall" || entry.type === "tool") {
-        const lastGroup = groups[groups.length - 1];
-        if (lastGroup?.type === "toolCalls") {
-          lastGroup.ids.push(entry.id);
-        } else {
-          groups.push({ type: "toolCalls", ids: [entry.id] });
-        }
-      } else if (entry.type === "thinking") {
-        // Merge consecutive thinking entries into one block (mirrors macOS
-        // `groupContentBlocks`, which joins adjacent reasoning indices).
-        const lastGroup = groups[groups.length - 1];
-        if (lastGroup?.type === "thinking") {
-          lastGroup.ids.push(entry.id);
-        } else {
-          groups.push({ type: "thinking", ids: [entry.id] });
-        }
-      } else if (entry.type === "text") {
-        groups.push({ type: "text", id: entry.id });
-      } else if (entry.type === "surface") {
-        groups.push({ type: "surface", id: entry.id });
-      }
-    }
-
-    const resolveToolCall = (id: string): ChatMessageToolCall | undefined => {
-      const tc = message.toolCalls?.find((t) => t.id === id);
-      if (tc) {
-        return tc;
-      }
-      const idx = parseInt(id, 10);
-      if (!isNaN(idx) && message.toolCalls && idx < message.toolCalls.length) {
-        return message.toolCalls[idx];
-      }
-      return undefined;
-    };
+    // single group (mirrors macOS `groupContentBlocks`). Shared with the pure
+    // activity projection via `./message-content` so the rendered anchors and
+    // the projected step anchors stay byte-identical.
+    const groups = groupMessageContent(message);
 
     // Each entry carries its group `type` alongside the rendered node so the
     // user branch can place text inside the bubble and tool-call/surface
@@ -776,7 +691,7 @@ export function TranscriptMessageBody({
       const node = ((): ReactNode => {
             if (group.type === "toolCalls") {
               const toolCalls = group.ids
-                .map(resolveToolCall)
+                .map((id) => resolveToolCall(message, id))
                 .filter((tc): tc is ChatMessageToolCall => tc != null && !isSuppressedUiTool(tc));
               if (toolCalls.length === 0) {
                 return null;
@@ -828,7 +743,7 @@ export function TranscriptMessageBody({
               );
             }
             if (group.type === "thinking") {
-              const thinkingContent = resolveThinkingContent(group.ids);
+              const thinkingContent = resolveThinkingContent(message, group.ids);
               if (!thinkingContent) {
                 return null;
               }
@@ -983,7 +898,7 @@ export function TranscriptMessageBody({
       }
       const ids = pendingThinkingIds;
       pendingThinkingIds = [];
-      const thinkingContent = resolveThinkingContent(ids);
+      const thinkingContent = resolveThinkingContent(message, ids);
       if (!thinkingContent) {
         return;
       }
