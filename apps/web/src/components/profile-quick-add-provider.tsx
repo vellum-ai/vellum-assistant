@@ -12,8 +12,16 @@
  * The controller owns everything settings-specific the composer previously
  * inlined: the `ProfileEditorModal` render (create mode), the provider-
  * connections query that feeds its Provider picker, the existing-name list,
- * the feature-flag props, the create-persistence config PATCH (byte-identical
- * to `ManageProfilesModal`'s create path), and the success toast.
+ * the feature-flag props, the create-persistence config PATCH, and the
+ * success toast.
+ *
+ * The create-persistence here is a re-implementation, not a copy, of
+ * `ManageProfilesModal`'s create path: that modal lives in the settings
+ * domain and uses its `useDaemonConfigMutation` hook, which this provider
+ * cannot import (`local/no-cross-domain-imports`). So it persists via raw
+ * `client.get`/`client.patch`, sources `profileOrder` from a fresh
+ * authoritative server fetch (not a captured prop), and adds a server-side
+ * duplicate-existence guard the modal does not have. See `handleSave`.
  *
  * `assistantId` and feature flags are read from top-level stores rather than
  * threaded through props, so the provider stays decoupled from any one domain.
@@ -103,9 +111,13 @@ export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
   );
 
   // Persist a freshly-created profile, then hand the name back to the caller.
-  // Mirrors ManageProfilesModal's create path: write `llm.profiles[name]` plus
-  // an appended `profileOrder` in a single config PATCH so the daemon records
-  // both the entry and its picker position.
+  // Writes `llm.profiles[name]` plus an appended `profileOrder` in a single
+  // config PATCH so the daemon records both the entry and its picker position.
+  // This re-implements (rather than reuses) ManageProfilesModal's create path:
+  // that modal goes through the settings-domain `useDaemonConfigMutation` hook,
+  // which this cross-domain provider cannot import
+  // (`local/no-cross-domain-imports`). So it persists via raw `client.get`/
+  // `client.patch` and adds the server-side duplicate guard below.
   //
   // The order is computed from a FRESH server fetch rather than the
   // `profileOrder` captured when the modal opened. The caller may have opened
