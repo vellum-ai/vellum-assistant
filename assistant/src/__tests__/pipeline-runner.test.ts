@@ -456,7 +456,7 @@ describe("runPipeline — structured log record", () => {
 
     await expect(
       runPipeline(
-        "emptyResponse",
+        "toolError",
         [sleeper],
         terminal,
         { value: 1 },
@@ -468,9 +468,9 @@ describe("runPipeline — structured log record", () => {
     expect(fakeLogger.calls.length).toBe(1);
     const [record] = fakeLogger.calls[0]!;
     expect(record.outcome).toBe("timeout");
-    expect(record.pipeline).toBe("emptyResponse");
+    expect(record.pipeline).toBe("toolError");
     expect(record.errorName).toBe("PluginTimeoutError");
-    expect(String(record.errorMessage)).toContain("emptyResponse");
+    expect(String(record.errorMessage)).toContain("toolError");
     expect(String(record.errorMessage)).toContain("slow-plugin");
     expect(record.timeoutMs).toBe(15);
     expect(record.pluginName).toBe("slow-plugin");
@@ -555,7 +555,6 @@ describe("DEFAULT_TIMEOUTS", () => {
       overflowReduce: null,
       persistence: null,
       titleGenerate: null,
-      emptyResponse: null,
       toolError: null,
       circuitBreaker: null,
     });

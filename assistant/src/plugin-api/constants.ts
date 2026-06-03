@@ -22,6 +22,8 @@ export const HOOKS = {
   USER_PROMPT_SUBMIT: "user-prompt-submit",
   /** Fires once per tool result, after the tool returns and before the result is sent to the provider. */
   POST_TOOL_USE: "post-tool-use",
+  /** Fires when the model yields a response with no tool calls — the run's stop boundary. Decides whether to stop or continue with a follow-up turn. */
+  STOP: "stop",
 } as const;
 
 /** Union of every hook name declared in {@link HOOKS}. */

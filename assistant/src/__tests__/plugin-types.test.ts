@@ -17,8 +17,6 @@ import {
   type CircuitBreakerResult,
   type CompactionArgs,
   type CompactionResult,
-  type EmptyResponseArgs,
-  type EmptyResponseResult,
   type EstimateArgs,
   type EstimateResult,
   type Injector,
@@ -88,13 +86,6 @@ describe("plugin core types", () => {
     const toolExecutePassthrough: Middleware<
       ToolExecuteArgs,
       ToolExecuteResult
-    > = async (args, next, _ctx) => next(args);
-
-    // The `emptyResponse` slot has concrete args/result types; use a
-    // dedicated passthrough so the `satisfies Plugin` check stays honest.
-    const emptyResponsePassthrough: Middleware<
-      EmptyResponseArgs,
-      EmptyResponseResult
     > = async (args, next, _ctx) => next(args);
 
     // The `toolError` slot has concrete args/result types (PR 19); use a
@@ -241,7 +232,6 @@ describe("plugin core types", () => {
         overflowReduce: overflowReducePassthrough,
         persistence: persistPassthrough,
         titleGenerate: titlePassthrough,
-        emptyResponse: emptyResponsePassthrough,
         toolError: toolErrorPassthrough,
         circuitBreaker: circuitPassthrough,
       },

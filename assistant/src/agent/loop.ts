@@ -10,12 +10,8 @@ import {
 import type { ContextWindowResult } from "../context/window-manager.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import { HOOKS } from "../plugin-api/constants.js";
-import type { PostToolUseContext } from "../plugin-api/types.js";
+import type { PostToolUseContext, StopContext } from "../plugin-api/types.js";
 import { defaultCompactionTerminal } from "../plugins/defaults/compaction/terminal.js";
-import {
-  defaultEmptyResponseTerminal,
-  NUDGE_TEXT,
-} from "../plugins/defaults/empty-response/terminal.js";
 import { defaultTokenEstimateTerminal } from "../plugins/defaults/token-estimate/terminal.js";
 import { defaultToolErrorTerminal } from "../plugins/defaults/tool-error/terminal.js";
 import { DEFAULT_TIMEOUTS, runHook, runPipeline } from "../plugins/pipeline.js";
@@ -24,8 +20,6 @@ import type {
   CompactionArgs,
   CompactionCircuitEvent,
   CompactionResult,
-  EmptyResponseArgs,
-  EmptyResponseDecision,
   EstimateArgs,
   EstimateResult,
   LLMCallArgs,
@@ -48,7 +42,7 @@ import {
   applyStreamingSubstitution,
   applySubstitutions,
 } from "../tools/sensitive-output-placeholders.js";
-import { AssistantError, ErrorCode, ProviderError } from "../util/errors.js";
+import { ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { isRetryableNetworkError } from "../util/retry.js";
 import { CompactionCircuit } from "./compaction-circuit.js";
@@ -129,8 +123,6 @@ export interface AgentLoopRunResult {
 export type AgentLoopExitReason =
   /** `if (signal?.aborted) break;` at the top of the loop. */
   | "aborted_pre_call"
-  /** Empty assistant response after the configured retry budget. */
-  | "empty_response_exhausted"
   /** Assistant message has no tool-use blocks (or no tool executor). */
   | "no_tool_calls"
   /** Signal aborted while building the user-side tool-results message. */
@@ -808,6 +800,10 @@ export class AgentLoop {
       mutableLatestUserMessage,
     } = options ?? {};
     let history = [...messages];
+    // Boundary between the inbound conversation and messages this run() appends.
+    // The `stop` hook receives the run-scoped tail so it can reason about what
+    // this run has produced without prior conversation turns polluting the signal.
+    const runStartIndex = history.length;
     let producedVisibleTextThisRun = false;
     let toolUseTurns = 0;
     let consecutiveErrorTurns = 0;
@@ -822,12 +818,11 @@ export class AgentLoop {
     const substitutionMap = new Map<string, string>();
     let streamingPending = "";
 
-    // Idempotency guard for `emitExit`. Used so the throw path in the
-    // empty-response branch can stamp its reason ("empty_response_exhausted")
-    // before throwing — the catch handler that observes the rethrow will
-    // then attempt to stamp "error" and harmlessly no-op, preserving the
-    // more specific reason. Also defends against accidental future
-    // double-emits if a new break site is added without checking this.
+    // Idempotency guard for `emitExit`: the first reason stamped wins. A break
+    // site that stamps a specific reason before unwinding into the catch
+    // handler keeps that reason instead of the generic "error", and the guard
+    // also defends against accidental double-emits if a new break site is
+    // added without checking this.
     let exitReasonEmitted = false;
     const emitExit = async (reason: AgentLoopExitReason): Promise<void> => {
       if (exitReasonEmitted) return;
@@ -1241,8 +1236,9 @@ export class AgentLoop {
         }
 
         // The model's "stop" moment: a response with no tool calls is about to
-        // yield to the user, so the loop decides whether to accept the turn or
-        // re-query it with a nudge (decision logic in the `emptyResponse` plugin).
+        // yield to the user. The `stop` hook (below) decides whether to accept
+        // the turn or re-query with a follow-up; `priorAssistantHadVisibleText`
+        // gates the ops log for the post-tool empty case.
         const hasVisibleText = response.content.some(
           (block) => block.type === "text" && block.text.trim().length > 0,
         );
@@ -1252,75 +1248,51 @@ export class AgentLoop {
         }
 
         if (toolUseBlocks.length === 0) {
-          const emptyResponseArgs: EmptyResponseArgs = {
+          // The model stopped requesting tools — the run's stop boundary. The
+          // `stop` hook decides whether to let the turn end or re-query with a
+          // follow-up turn. It receives the run-scoped message tail (excluding
+          // the inbound conversation) and, when it asks to continue, appends
+          // the follow-up turn itself.
+          const stopCtx: StopContext = {
+            conversationId: turnCtx.conversationId,
+            messages: history.slice(runStartIndex),
             responseContent: response.content,
-            toolUseTurns,
-            emptyResponseRetries,
-            maxEmptyResponseRetries: MAX_EMPTY_RESPONSE_RETRIES,
-            priorAssistantHadVisibleText,
             stopReason: response.stopReason,
+            decision: "stop",
+            logger: rlog,
           };
-          const emptyResponseCtx = resolveLoopTurnContext(
-            turnContext,
-            requestId,
-            toolUseTurns,
-          );
-          const emptyResponseDecision: EmptyResponseDecision =
-            await runPipeline(
-              "emptyResponse",
-              getMiddlewaresFor("emptyResponse"),
-              async (args) => defaultEmptyResponseTerminal(args),
-              emptyResponseArgs,
-              emptyResponseCtx,
-              DEFAULT_TIMEOUTS.emptyResponse,
-            );
+          const finalStopCtx = await runHook(HOOKS.STOP, stopCtx);
 
-          if (emptyResponseDecision.action === "nudge") {
-            // Fall back to the canonical nudge text if the plugin returned
-            // `action: "nudge"` but forgot `nudgeText`. Keeps a misbehaving
-            // plugin from silently breaking the loop invariant that the
-            // model sees a coherent prompt.
-            const nudgeText = emptyResponseDecision.nudgeText ?? NUDGE_TEXT;
-            emptyResponseRetries++;
-            rlog.warn(
-              { turn: toolUseTurns, retry: emptyResponseRetries },
-              "Model returned empty response after tool results — retrying",
-            );
-            history.push({
-              role: "user",
-              content: [{ type: "text", text: nudgeText }],
-            });
-            continue;
-          }
+          if (finalStopCtx.decision === "continue") {
+            // The loop owns the retry budget: a hook always asks to continue
+            // when a nudge is warranted, and the loop stops anyway once the
+            // budget is spent. This bounds the hook-driven re-query loop.
+            if (emptyResponseRetries < MAX_EMPTY_RESPONSE_RETRIES) {
+              emptyResponseRetries++;
+              rlog.warn(
+                { turn: toolUseTurns, retry: emptyResponseRetries },
+                "Model returned empty response after tool results — retrying",
+              );
+              history = [
+                ...history.slice(0, runStartIndex),
+                ...finalStopCtx.messages,
+              ];
+              continue;
+            }
 
-          if (emptyResponseDecision.action === "error") {
-            rlog.error(
-              { turn: toolUseTurns, retries: emptyResponseRetries },
-              "emptyResponse pipeline requested error surface",
-            );
-            // Stamp the specific exit reason *before* throwing. The catch
-            // handler below will see the rethrown error and attempt to stamp
-            // "error" — guarded by `exitReasonEmitted`, that becomes a no-op
-            // and the more specific reason wins.
-            await emitExit("empty_response_exhausted");
-            throw new AssistantError(
-              "Model returned empty response after tool results",
-              ErrorCode.INTERNAL_ERROR,
-            );
-          }
-
-          // action === "accept" — fall through. Emit a dedicated log line for
-          // the specific "empty turn after tool results, retries exhausted"
-          // case so ops dashboards that grep on this line keep working.
-          if (
-            !hasVisibleText &&
-            toolUseTurns > 0 &&
-            !priorAssistantHadVisibleText
-          ) {
-            rlog.error(
-              { turn: toolUseTurns, retries: emptyResponseRetries },
-              "Model returned empty response after tool results — retries exhausted",
-            );
+            // Budget spent — accept the empty turn. Emit a dedicated log line
+            // for the post-tool empty case so ops dashboards that grep on it
+            // keep working.
+            if (
+              !hasVisibleText &&
+              toolUseTurns > 0 &&
+              !priorAssistantHadVisibleText
+            ) {
+              rlog.error(
+                { turn: toolUseTurns, retries: emptyResponseRetries },
+                "Model returned empty response after tool results — retries exhausted",
+              );
+            }
           }
         }
 
@@ -1675,11 +1647,9 @@ export class AgentLoop {
           Sentry.captureException(err);
         }
         onEvent({ type: "error", error: err });
-        // Catch-block fallback. If the rethrow came from the
-        // empty-response throw path above, `emitExit("error")` no-ops
-        // because `emitExit("empty_response_exhausted")` already ran
-        // before the throw. Otherwise, this is the genuine
-        // unhandled-error exit.
+        // Catch-block fallback. A break site that stamped a more specific
+        // reason before unwinding here keeps it; the guard makes this a no-op.
+        // Otherwise this is the genuine unhandled-error exit.
         await emitExit("error");
         break;
       }
