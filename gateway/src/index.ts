@@ -1103,6 +1103,29 @@ async function main() {
       handler: (req) => handleCreateBackup(req),
     },
 
+    // ── Backups — assistant-scoped variants ──
+    // Mirror the flat /v1/backups routes for clients that use the daemon
+    // SDK's assistant-scoped URLs (/v1/assistants/<id>/backups/...).
+    // Without these, the request falls through to the runtime-proxy
+    // catch-all and the daemon rejects create ("moved to gateway").
+    // Backups are gateway-global, so the assistant id is matched and
+    // discarded. Same precedent as the trust-rules assistant-scoped
+    // variants below.
+    {
+      path: /^\/v1\/assistants\/[^/]+\/backups\/?$/,
+      method: "GET",
+      auth: "edge-scoped",
+      scope: "settings.read",
+      handler: (req) => handleListBackups(req),
+    },
+    {
+      path: /^\/v1\/assistants\/[^/]+\/backups\/create\/?$/,
+      method: "POST",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req) => handleCreateBackup(req),
+    },
+
     // ── Channel readiness ──
     {
       path: "/v1/channels/readiness",
