@@ -188,7 +188,14 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
         `[data-activity-anchor="${CSS.escape(anchorId)}"]`,
       );
       if (!el) return;
-      el.scrollIntoView({ behavior: "smooth", block: "start" });
+      const prefersReduced =
+        typeof window !== "undefined" &&
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      el.scrollIntoView({
+        behavior: prefersReduced ? "auto" : "smooth",
+        block: "start",
+      });
       el.setAttribute("data-activity-highlight", "true");
       window.setTimeout(
         () => el.removeAttribute("data-activity-highlight"),

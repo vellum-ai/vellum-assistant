@@ -596,4 +596,38 @@ describe("Transcript scrollToActivity handle", () => {
     }).not.toThrow();
     expect(scrollIntoView).not.toHaveBeenCalled();
   });
+
+  test("uses behavior 'auto' when prefers-reduced-motion: reduce matches", () => {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = ((query: string) =>
+      ({
+        matches: query.includes("prefers-reduced-motion: reduce"),
+        media: query,
+        onchange: null,
+        addListener: () => {},
+        removeListener: () => {},
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        dispatchEvent: () => false,
+      }) as unknown as MediaQueryList) as typeof window.matchMedia;
+
+    try {
+      const handle = renderWithHandle();
+
+      const anchor = document.createElement("div");
+      anchor.setAttribute("data-activity-anchor", "step-1");
+      handle.getScrollElement()!.appendChild(anchor);
+
+      act(() => {
+        handle.scrollToActivity("step-1");
+      });
+
+      expect(scrollIntoView).toHaveBeenCalledTimes(1);
+      expect(scrollIntoView).toHaveBeenLastCalledWith(
+        expect.objectContaining({ behavior: "auto" }),
+      );
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
+  });
 });
