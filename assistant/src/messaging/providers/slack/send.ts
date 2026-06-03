@@ -150,33 +150,51 @@ export async function sendSlackReply(
     typeof options?.messageTs === "string" && options.messageTs.length > 0;
 
   if (isUpdate) {
+    const messageTs = options!.messageTs;
     const updateBody: Record<string, unknown> = {
       channel: chatId,
       text,
-      ts: options!.messageTs,
+      ts: messageTs,
     };
     if (blocks.length > 0) updateBody.blocks = blocks;
 
     try {
       const result = await callSlackApi("chat.update", updateBody);
-      log.info(
-        { chatId, messageTs: options!.messageTs },
-        "Slack message updated",
-      );
-      return { ok: true, ts: result.ts };
+      log.info({ chatId, messageTs }, "Slack message updated");
+      return { ok: true, ts: result.ts ?? messageTs };
     } catch (err) {
-      if (err instanceof SlackApiError && err.slackError === "invalid_blocks") {
+      if (
+        err instanceof SlackApiError &&
+        err.slackError === "invalid_blocks" &&
+        Array.isArray(updateBody.blocks) &&
+        updateBody.blocks.length > 0
+      ) {
         log.warn(
-          { chatId, messageTs: options!.messageTs },
-          "chat.update returned invalid_blocks; falling back to chat.postMessage without blocks",
+          { chatId, messageTs },
+          "chat.update returned invalid_blocks; retrying chat.update without blocks",
         );
-        delete slackBody.blocks;
-      } else {
-        log.warn(
-          { chatId, messageTs: options!.messageTs },
-          "Slack chat.update failed, falling back to chat.postMessage",
-        );
+        delete updateBody.blocks;
+        try {
+          const retryResult = await callSlackApi("chat.update", updateBody);
+          log.info(
+            { chatId, messageTs },
+            "Slack message updated without blocks after invalid_blocks",
+          );
+          return { ok: true, ts: retryResult.ts ?? messageTs };
+        } catch (retryErr) {
+          log.warn(
+            { err: retryErr, chatId, messageTs },
+            "Slack chat.update retry without blocks failed",
+          );
+          throw retryErr;
+        }
       }
+
+      log.warn(
+        { err, chatId, messageTs },
+        "Slack chat.update failed",
+      );
+      throw err;
     }
   }
 

@@ -56,6 +56,7 @@ let renderedHistoryContent: RenderedHistoryStub = {
 const renderedHistoryContentQueue: RenderedHistoryStub[] = [];
 
 let deliveryFailAtIndex = -1;
+let failOnRecordedMessageTs: string | null = null;
 
 mock.module("../runtime/gateway-client.js", () => ({
   deliverChannelReply: async (
@@ -69,6 +70,12 @@ mock.module("../runtime/gateway-client.js", () => ({
       throw new Error("Simulated delivery failure (502)");
     }
     deliveryCalls.push({ callbackUrl, payload });
+    if (
+      failOnRecordedMessageTs !== null &&
+      payload.messageTs === failOnRecordedMessageTs
+    ) {
+      throw new Error("Simulated Slack update failure");
+    }
     if (nextDeliveryTs !== null) {
       const ts = nextDeliveryTs;
       // Only the first segment of a multi-segment delivery should carry
@@ -152,6 +159,7 @@ describe("channel-reply-delivery", () => {
   beforeEach(() => {
     deliveryCalls.length = 0;
     deliveryFailAtIndex = -1;
+    failOnRecordedMessageTs = null;
     conversationMessages.length = 0;
     attachmentsByMessageId.clear();
     updateMessageMetadataCalls.length = 0;
@@ -612,6 +620,26 @@ describe("channel-reply-delivery", () => {
     expect(seenTs).toEqual(["1700000000.000055"]);
   });
 
+  it("does not retry a failed Slack thread update as a second assistant message", async () => {
+    failOnRecordedMessageTs = "1700000000.000077";
+
+    await expect(
+      deliverRenderedReplyViaCallback({
+        callbackUrl:
+          "http://gateway/deliver/slack?threadTs=1700000000.000001",
+        chatId: "C123THREAD",
+        textSegments: ["Updated threaded reply."],
+        interSegmentDelayMs: 0,
+        messageTs: failOnRecordedMessageTs,
+      }),
+    ).rejects.toThrow("Simulated Slack update failure");
+
+    expect(deliveryCalls).toHaveLength(1);
+    expect(deliveryCalls[0].callbackUrl).toContain("threadTs=");
+    expect(deliveryCalls[0].payload.chatId).toBe("C123THREAD");
+    expect(deliveryCalls[0].payload.messageTs).toBe(failOnRecordedMessageTs);
+  });
+
   it("passes ephemeral and user through to each delivery call", async () => {
     await deliverRenderedReplyViaCallback({
       callbackUrl: "http://gateway/deliver/slack",
@@ -1052,6 +1080,30 @@ describe("channel-reply-delivery", () => {
       expect(parsed?.channelId).toBe("C222");
       expect(parsed?.source).toBe("slack");
       expect(parsed?.eventKind).toBe("message");
+    });
+
+    it("does not reconcile channelTs when a Slack DM update fails", async () => {
+      const messageTs = "1700000800.000444";
+      failOnRecordedMessageTs = messageTs;
+      pushPartialAssistantRow("conv-dm-update", "msg-dm-update", "D123DM");
+
+      await expect(
+        deliverReplyViaCallback(
+          "conv-dm-update",
+          "D123DM",
+          "http://gateway/deliver/slack",
+          "assistant-dm-update",
+          {
+            messageId: "msg-dm-update",
+            messageTs,
+          },
+        ),
+      ).rejects.toThrow("Simulated Slack update failure");
+
+      expect(deliveryCalls).toHaveLength(1);
+      expect(deliveryCalls[0].payload.chatId).toBe("D123DM");
+      expect(deliveryCalls[0].payload.messageTs).toBe(messageTs);
+      expect(updateMessageMetadataCalls).toHaveLength(0);
     });
   });
 });
