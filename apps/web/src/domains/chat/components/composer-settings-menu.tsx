@@ -1,20 +1,18 @@
 
 import { Check, Plus, Sparkles, SlidersHorizontal } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { BottomSheet } from "@vellum/design-library";
 import { Button } from "@vellum/design-library";
 import { Menu } from "@vellum/design-library";
 import { PanelItem } from "@vellum/design-library";
 import { Tooltip } from "@vellum/design-library";
-import { toast } from "@vellum/design-library/components/toast";
 import { client } from "@/generated/api/client.gen";
 import {
   conversationsByIdGet,
   conversationsByIdInferenceprofilePut,
 } from "@/generated/daemon/sdk.gen";
-import { inferenceProviderconnectionsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import {
   profilePickerLabel,
@@ -22,9 +20,7 @@ import {
   gateAutoProfile,
   type ProfilePickerEntry,
 } from "@/assistant/profile-pickers";
-import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal";
-import { filterFlaggedConnections } from "@/domains/settings/ai/provider-connections-client";
-import type { ProfileEntry } from "@/domains/settings/ai/ai-types";
+import { useProfileQuickAdd } from "@/components/profile-quick-add-provider";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import {
   deleteConversationOverride,
@@ -295,10 +291,6 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
 
   const queryComplexityRoutingEnabled =
     useAssistantFeatureFlagStore.use.queryComplexityRouting();
-  const openAICompatibleEndpoints =
-    useAssistantFeatureFlagStore.use.openAICompatibleEndpoints();
-  const chatgptSubscriptionAuth =
-    useAssistantFeatureFlagStore.use.chatgptSubscriptionAuth();
 
   const visibleProfileEntries = useMemo(
     () =>
@@ -309,65 +301,16 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
     [orderedProfileEntries, profileActiveKey, queryComplexityRoutingEnabled],
   );
 
-  // Quick-add: open the shared provider-first ProfileEditorModal in create
-  // mode over the chat. Provider connections feed the modal's Provider picker;
-  // the query is gated on `quickAddOpen` so the menu doesn't fetch them until
-  // the user actually starts creating a profile.
-  const [quickAddOpen, setQuickAddOpen] = useState(false);
-  const { data: connectionsData } = useQuery({
-    ...inferenceProviderconnectionsGetOptions({
-      path: { assistant_id: assistantId },
-    }),
-    enabled: quickAddOpen && !!assistantId,
-  });
-  const quickAddConnections = useMemo(
-    () =>
-      connectionsData
-        ? filterFlaggedConnections(connectionsData.connections, openAICompatibleEndpoints)
-        : undefined,
-    [connectionsData, openAICompatibleEndpoints],
-  );
+  // Quick-add is owned by the top-level ProfileQuickAddProvider (chat must not
+  // import settings directly — see local/no-cross-domain-imports). The provider
+  // renders the ProfileEditorModal in create mode, persists the new profile,
+  // and toasts; we hand it the current profile names and an onCreated callback
+  // so the new profile is autoselected for this thread once it persists.
+  const { openProfileQuickAdd } = useProfileQuickAdd();
 
   const existingProfileNames = useMemo(
     () => Array.from(new Set([...profileOrder, ...Object.keys(profileMap)])),
     [profileOrder, profileMap],
-  );
-
-  // Persist a freshly-created profile, then autoselect it for this thread.
-  // Mirrors ManageProfilesModal's create path: write `llm.profiles[name]`
-  // plus an appended `profileOrder` in a single config PATCH so the daemon
-  // records both the entry and its picker position. On success we reuse the
-  // existing per-thread selection handler (writes the override + invalidates
-  // the active-model cache) and surface a success toast.
-  const handleQuickAddSave = useCallback(
-    async (name: string, entry: ProfileEntry) => {
-      const profileOrderPatch = profileOrder.includes(name)
-        ? undefined
-        : [...profileOrder, name];
-      await client.patch({
-        url: `/v1/assistants/{assistant_id}/config`,
-        path: { assistant_id: assistantId },
-        body: {
-          llm: {
-            profiles: { [name]: entry },
-            ...(profileOrderPatch ? { profileOrder: profileOrderPatch } : {}),
-          },
-        },
-        headers: { "Content-Type": "application/json" },
-        throwOnError: true,
-      });
-      // Reflect the new profile locally so the picker renders it immediately
-      // (the daemon-config fetch only re-runs on assistant/conversation change).
-      setProfileMap((prev) => ({ ...prev, [name]: { label: entry.label ?? null } }));
-      if (profileOrderPatch) setProfileOrder(profileOrderPatch);
-      // Profiles are guaranteed loaded by now (the menu opened); allow the
-      // autoselect below to write the per-thread override.
-      profilesReadyRef.current = true;
-      await handleProfileSelect(name);
-      setQuickAddOpen(false);
-      toast.success(`Profile "${name}" created`);
-    },
-    [assistantId, profileOrder, handleProfileSelect],
   );
 
   // The "+" quick-add affordance rendered in both the desktop Menu.Label and
@@ -381,24 +324,26 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
         aria-label="New Profile"
         onClick={() => {
           setOpen(false);
-          setQuickAddOpen(true);
+          openProfileQuickAdd({
+            existingNames: existingProfileNames,
+            profileOrder,
+            onCreated: (name) => {
+              // Reflect the new profile locally so the picker renders it
+              // immediately (the daemon-config fetch only re-runs on
+              // assistant/conversation change).
+              setProfileMap((prev) => ({ ...prev, [name]: { label: null } }));
+              setProfileOrder((prev) =>
+                prev.includes(name) ? prev : [...prev, name],
+              );
+              // Profiles are guaranteed loaded by now (the menu opened); allow
+              // the autoselect to write the per-thread override.
+              profilesReadyRef.current = true;
+              void handleProfileSelect(name);
+            },
+          });
         }}
       />
     </Tooltip>
-  );
-
-  const quickAddModal = (
-    <ProfileEditorModal
-      isOpen={quickAddOpen}
-      mode="create"
-      existingNames={existingProfileNames}
-      connections={quickAddConnections}
-      openAICompatibleEndpointsEnabled={openAICompatibleEndpoints}
-      assistantId={assistantId}
-      chatgptSubscriptionEnabled={chatgptSubscriptionAuth}
-      onSave={handleQuickAddSave}
-      onCancel={() => setQuickAddOpen(false)}
-    />
   );
 
   const trigger = (
@@ -412,7 +357,6 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
 
   if (isMobile) {
     return (
-      <>
       <BottomSheet.Root open={open} onOpenChange={setOpen}>
         <BottomSheet.Trigger asChild>{trigger}</BottomSheet.Trigger>
         {/* Radix Dialog requires a Title for screen-reader accessibility;
@@ -475,13 +419,10 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
           </BottomSheet.Body>
         </BottomSheet.Content>
       </BottomSheet.Root>
-      {quickAddModal}
-      </>
     );
   }
 
   return (
-    <>
     <Menu.Root open={open} onOpenChange={setOpen}>
       <Menu.Trigger asChild>{trigger}</Menu.Trigger>
       <Menu.Content side="top" align="start">
@@ -531,8 +472,6 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
         })}
       </Menu.Content>
     </Menu.Root>
-    {quickAddModal}
-    </>
   );
 }
 

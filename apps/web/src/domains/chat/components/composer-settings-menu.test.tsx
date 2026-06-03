@@ -3,16 +3,17 @@
  *
  * Mounted with `@testing-library/react` (happy-dom — see
  * `apps/web/test-setup.ts`). The real Radix `Menu`/`BottomSheet` only mount
- * their content when open, and the real `ProfileEditorModal` pulls in the
- * provider/model catalog plus its own queries — so we mock both:
- *   - `@vellum/design-library` surfaces render inline so popover/sheet content
- *     is always in the DOM and clickable.
- *   - `ProfileEditorModal` is a lightweight stub that renders a
- *     `data-testid="modal-save-btn"` calling `onSave` with a fixed entry,
- *     letting us assert the create → autoselect → toast flow.
+ * their content when open, so we mock `@vellum/design-library` surfaces to
+ * render inline (popover/sheet content is always in the DOM and clickable).
  *
- * We also stub the generated daemon/api SDK so the menu's mount-time config
- * fetch and the quick-add config PATCH / per-thread profile PUT are observable.
+ * The quick-add modal now lives in the top-level `ProfileQuickAddProvider`
+ * (chat must not import settings — see `local/no-cross-domain-imports`). The
+ * composer only consumes `useProfileQuickAdd()`, so we mock that hook: clicking
+ * "+" must close the popover and call `openProfileQuickAdd`, and simulating the
+ * provider's `onCreated(name)` callback must run the composer's autoselect.
+ *
+ * We stub the generated daemon/api SDK so the menu's mount-time config fetch
+ * and the autoselect per-thread profile PUT are observable.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -47,10 +48,17 @@ mock.module("@/lib/threshold-api", () => ({
   setGlobalThresholds: async () => {},
 }));
 
-// --- toast -------------------------------------------------------------------
-const toastSuccess = mock((_msg: string) => {});
-mock.module("@vellum/design-library/components/toast", () => ({
-  toast: { success: toastSuccess, error: () => {} },
+// --- profile quick-add controller (top-level) --------------------------------
+// Capture the args passed to openProfileQuickAdd so tests can assert the "+"
+// wiring and simulate the provider's onCreated callback firing.
+type QuickAddArgs = {
+  existingNames?: string[];
+  profileOrder?: string[];
+  onCreated?: (name: string) => void;
+};
+const openProfileQuickAdd = mock((_args?: QuickAddArgs) => {});
+mock.module("@/components/profile-quick-add-provider", () => ({
+  useProfileQuickAdd: () => ({ openProfileQuickAdd }),
 }));
 
 // --- design-library surfaces (render content inline) -------------------------
@@ -98,34 +106,7 @@ mock.module("@vellum/design-library", () => {
   };
 });
 
-// --- ProfileEditorModal stub -------------------------------------------------
-// Renders a Save button that invokes onSave with a deterministic entry so the
-// test drives the create flow without the real provider-first form.
 const NEW_PROFILE_NAME = "fast-cheap";
-mock.module("@/domains/settings/ai/profile-editor-modal", () => ({
-  ProfileEditorModal: ({ isOpen, onSave }: { isOpen: boolean; onSave: (n: string, e: unknown) => Promise<void> }) =>
-    isOpen
-      ? createElement(
-          "button",
-          {
-            "data-testid": "modal-save-btn",
-            onClick: () => void onSave(NEW_PROFILE_NAME, { label: "Fast & Cheap" }),
-          },
-          "Save",
-        )
-      : null,
-}));
-
-mock.module("@/domains/settings/ai/provider-connections-client", () => ({
-  filterFlaggedConnections: (c: unknown) => c,
-}));
-
-mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
-  inferenceProviderconnectionsGetOptions: () => ({
-    queryKey: [{ _id: "inferenceProviderconnectionsGet" }],
-    queryFn: async () => ({ connections: [] }),
-  }),
-}));
 
 // --- generated SDK -----------------------------------------------------------
 // Mocks are loosely typed (`unknown` args, structural returns) so per-test
@@ -174,7 +155,7 @@ function renderMenu() {
 
 beforeEach(() => {
   isMobileRef.value = false;
-  toastSuccess.mockClear();
+  openProfileQuickAdd.mockClear();
   inferenceprofilePut.mockClear();
   clientPatch.mockClear();
 });
@@ -212,30 +193,36 @@ describe("Model Profile quick-add", () => {
     expect(document.body.textContent).toContain("Model Profile");
   });
 
-  test("clicking + closes the popover and opens the create modal", async () => {
+  test("clicking + closes the popover and opens the quick-add controller", async () => {
     renderMenu();
     await waitFor(() => screen.getByLabelText("New Profile"));
 
-    expect(screen.queryByTestId("modal-save-btn")).toBeNull();
     fireEvent.click(screen.getByLabelText("New Profile"));
-    expect(screen.getByTestId("modal-save-btn")).toBeTruthy();
+
+    // Delegates to the top-level controller with the current profile names.
+    await waitFor(() => {
+      expect(openProfileQuickAdd).toHaveBeenCalledTimes(1);
+    });
+    const args = openProfileQuickAdd.mock.calls[0]![0]!;
+    expect(args.existingNames).toEqual(["smart"]);
+    expect(args.profileOrder).toEqual(["smart"]);
+    expect(typeof args.onCreated).toBe("function");
   });
 
-  test("completing a create autoselects the new profile and toasts", async () => {
+  test("the onCreated callback autoselects the new profile for the thread", async () => {
     renderMenu();
     await waitFor(() => screen.getByLabelText("New Profile"));
     fireEvent.click(screen.getByLabelText("New Profile"));
-    fireEvent.click(screen.getByTestId("modal-save-btn"));
 
-    // Persists the profile via the daemon config PATCH.
     await waitFor(() => {
-      expect(clientPatch).toHaveBeenCalledTimes(1);
+      expect(openProfileQuickAdd).toHaveBeenCalledTimes(1);
     });
-    const patchBody = (clientPatch.mock.calls[0]![0] as { body: { llm: Record<string, unknown> } }).body.llm;
-    expect((patchBody.profiles as Record<string, unknown>)[NEW_PROFILE_NAME]).toBeTruthy();
-    expect(patchBody.profileOrder).toEqual(["smart", NEW_PROFILE_NAME]);
 
-    // Autoselects the new profile as the per-thread override.
+    // Simulate the provider persisting a profile and invoking onCreated — the
+    // composer must run handleProfileSelect (per-thread override PUT).
+    const onCreated = openProfileQuickAdd.mock.calls[0]![0]!.onCreated!;
+    onCreated(NEW_PROFILE_NAME);
+
     await waitFor(() => {
       expect(inferenceprofilePut).toHaveBeenCalledTimes(1);
     });
@@ -243,13 +230,9 @@ describe("Model Profile quick-add", () => {
       (inferenceprofilePut.mock.calls[0]![0] as { body: { profile: string } }).body.profile,
     ).toBe(NEW_PROFILE_NAME);
 
-    // Surfaces the success toast and closes the modal.
+    // The new profile is now reflected locally and renders in the picker.
     await waitFor(() => {
-      expect(toastSuccess).toHaveBeenCalledWith(`Profile "${NEW_PROFILE_NAME}" created`);
+      expect(document.body.textContent).toContain(NEW_PROFILE_NAME);
     });
-    expect(screen.queryByTestId("modal-save-btn")).toBeNull();
-
-    // The new profile now renders as active/checked in the picker.
-    expect(document.body.textContent).toContain("Fast & Cheap");
   });
 });
