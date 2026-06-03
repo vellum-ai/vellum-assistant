@@ -387,11 +387,17 @@ export class ConversationGraphMemory {
       // Incognito conversation opted out of memory recall — clear any cached
       // injection (mirroring the !config.memory.enabled branch) so a later
       // overflow-reduction re-injection via `reinjectCachedMemory()` cannot
-      // reintroduce a stale <memory> block, and inject nothing.
+      // reintroduce a stale <memory> block, and inject nothing. Also strip any
+      // <memory> block already prepended on an earlier turn (e.g. when the user
+      // had factoring on and then turned it off mid-conversation) so subsequent
+      // turns don't keep replaying historical memory to the model.
       this.lastInjectedBlock = null;
       this.lastInjectedNodeIds = [];
       this.lastInjectedImages = new Map();
-      return noopResult;
+      return {
+        ...noopResult,
+        runMessages: stripExistingMemoryInjections(messages),
+      };
     }
 
     // Gate: skip for empty/tool-result-only messages — unless we need to

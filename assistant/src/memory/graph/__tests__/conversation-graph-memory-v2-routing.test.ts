@@ -604,6 +604,44 @@ describe("ConversationGraphMemory.prepareMemory — incognito opt-out gate", () 
     expect(loadContextMemoryMock).not.toHaveBeenCalled();
   });
 
+  test("opting out strips a <memory> block injected on an earlier turn", async () => {
+    // Simulate a conversation that had factoring ON (a <memory> block was
+    // prepended to the user message) and was then switched OFF.
+    getConversationResult = { incognito: 1, factorInMemories: 0 };
+
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [
+          { type: "text" as const, text: "<memory>\nstale recalled fact\n</memory>" },
+          { type: "text" as const, text: "what did I say earlier?" },
+        ],
+      },
+    ];
+
+    const memory = makeMemory();
+    const config = makeConfig(true);
+
+    const result = await memory.prepareMemory(
+      messages,
+      config,
+      new AbortController().signal,
+      noopEvent,
+    );
+
+    expect(result.mode).toBe("none");
+    // The historical <memory> block must be gone so it stops being replayed,
+    // while the user's actual text survives.
+    const lastMsg = result.runMessages[result.runMessages.length - 1]!;
+    const textBlocks = lastMsg.content.filter(
+      (b): b is { type: "text"; text: string } => b.type === "text",
+    );
+    expect(textBlocks.some((b) => b.text.includes("<memory>"))).toBe(false);
+    expect(textBlocks.some((b) => b.text.includes("what did I say earlier?"))).toBe(
+      true,
+    );
+  });
+
   test("incognito + factorInMemories=1 → not short-circuited, normal injection occurs", async () => {
     stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
     getConversationResult = { incognito: 1, factorInMemories: 1 };
