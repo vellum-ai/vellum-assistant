@@ -3,7 +3,20 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { VellumAcpClientHandler } from "../acp/client-handler.js";
 import { AcpSessionManager } from "../acp/session-manager.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import { getSqlite } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
+
+// Ensure the acp_session_history table exists so terminal-row persistence in
+// the session-cleanup tests has somewhere to write.
+initializeDb();
+
+function readHistoryStatus(id: string): string | null {
+  const row = getSqlite()
+    .query("SELECT status FROM acp_session_history WHERE id = ?")
+    .get(id) as { status: string } | null;
+  return row?.status ?? null;
+}
 
 // ---------------------------------------------------------------------------
 // VellumAcpClientHandler tests
@@ -246,13 +259,20 @@ describe("AcpSessionManager", () => {
   });
 
   describe("session cleanup after prompt", () => {
-    test("completed session is removed from the session map", async () => {
+    test("completed session is retained as idle and its process kept alive", async () => {
+      getSqlite().run("DELETE FROM acp_session_history WHERE id = ?", [
+        "test-session",
+      ]);
+
       let resolvePrompt: (v: { stopReason: string }) => void;
       const promptPromise = new Promise<{ stopReason: string }>((r) => {
         resolvePrompt = r;
       });
 
-      const manager = new AcpSessionManager(1);
+      // Large idle timeout so the reaper doesn't fire during the test — we're
+      // asserting the post-completion idle state, not the timeout teardown
+      // (that path is covered in session-manager-idle.test.ts).
+      const manager = new AcpSessionManager(1, 60_000);
       const sendToVellum = mock(() => {});
 
       // Inject a fake session directly into the manager to avoid needing
@@ -273,6 +293,8 @@ describe("AcpSessionManager", () => {
 
       // Access private sessions map via any cast
       const sessions = (manager as any).sessions as Map<string, any>;
+      const eventBuffers = (manager as any).eventBuffers as Map<string, any[]>;
+      eventBuffers.set("test-session", []);
       const entry = {
         process: fakeProcess,
         state: {
@@ -288,6 +310,9 @@ describe("AcpSessionManager", () => {
         currentPrompt: null as any,
         parentConversationId: "conv-1",
         cwd: "/tmp",
+        command: "codex-acp",
+        idleTimer: null,
+        historyPersisted: false,
       };
       sessions.set("test-session", entry);
 
@@ -307,9 +332,20 @@ describe("AcpSessionManager", () => {
       resolvePrompt!({ stopReason: "end_turn" });
       await bgPromise;
 
-      // Session should be cleaned up
-      expect((manager.getStatus() as any[]).length).toBe(0);
-      expect(fakeProcess.kill).toHaveBeenCalled();
+      // Under the keep-alive lifecycle the completed session is RETAINED in
+      // the map as `idle`, with its adapter process still alive so a
+      // follow-up steer() can reuse the same context. It is reclaimed later
+      // by an explicit close() or the idle-timeout reaper, not here.
+      expect((manager.getStatus() as any[]).length).toBe(1);
+      const state = manager.getStatus("test-session") as any;
+      expect(state.status).toBe("idle");
+      expect(fakeProcess.kill).not.toHaveBeenCalled();
+
+      // The terminal `completed` task is still persisted to history.
+      expect(readHistoryStatus("test-session")).toBe("completed");
+
+      // Clean up the live session + its idle timer.
+      manager.close("test-session");
     });
 
     test("failed session is removed from the session map", async () => {
