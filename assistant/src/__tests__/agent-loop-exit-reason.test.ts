@@ -413,9 +413,9 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
     // THEN the loop runs the compaction ceremony in place and continues to a
     // clean exit instead of yielding for budget. The durable commit is
-    // signalled via a `compaction_applied` event rather than an injected hook.
+    // signalled via a `compaction_completed` event rather than an injected hook.
     expect(prepared).toBe(true);
-    expect(events.some((event) => event.type === "compaction_applied")).toBe(
+    expect(events.some((event) => event.type === "compaction_completed")).toBe(
       true,
     );
     expect(reinjected).toBe(true);
