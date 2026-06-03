@@ -230,8 +230,10 @@ function resolveAssistantIndexPath(): string | undefined {
   }
 
   try {
-    const vellumPkgPath = _require.resolve("vellum/package.json");
-    const resolved = join(dirname(vellumPkgPath), "src", "index.ts");
+    const assistantPkgPath = _require.resolve(
+      "@vellumai/assistant/package.json",
+    );
+    const resolved = join(dirname(assistantPkgPath), "src", "index.ts");
     if (existsSync(resolved)) {
       return resolved;
     }
@@ -416,13 +418,13 @@ async function startDaemonFromSource(
   writeFileSync(pidFile, "starting", "utf-8");
 
   const child = foreground
-    ? spawn("bun", ["run", daemonMainPath], {
+    ? spawn(process.execPath, ["run", daemonMainPath], {
         stdio: "inherit",
         env,
       })
     : (() => {
         const daemonLogFd = openLogFile("hatch.log");
-        const c = spawn("bun", ["run", daemonMainPath], {
+        const c = spawn(process.execPath, ["run", daemonMainPath], {
           detached: true,
           stdio: ["ignore", "pipe", "pipe"],
           env,
@@ -486,7 +488,7 @@ async function startDaemonWatchFromSource(
   writeFileSync(pidFile, "starting", "utf-8");
 
   const daemonLogFd = openLogFile("hatch.log");
-  const child = spawn("bun", ["--watch", "run", mainPath], {
+  const child = spawn(process.execPath, ["--watch", "run", mainPath], {
     detached: true,
     stdio: ["ignore", "pipe", "pipe"],
     env,
@@ -512,6 +514,18 @@ function resolveGatewayDir(): string {
   const sourceDir = join(import.meta.dir, "..", "..", "..", "gateway");
   if (isGatewaySourceDir(sourceDir)) {
     return sourceDir;
+  }
+
+  // npm-installed: @vellumai/cli and @vellumai/vellum-gateway are siblings
+  const npmGatewayDir = join(
+    import.meta.dir,
+    "..",
+    "..",
+    "..",
+    "vellum-gateway",
+  );
+  if (isGatewaySourceDir(npmGatewayDir)) {
+    return npmGatewayDir;
   }
 
   // Compiled binary: gateway/ bundled adjacent to the CLI executable.
@@ -1135,7 +1149,7 @@ export async function startGateway(
       ? ["--watch", "run", "src/index.ts", "--vellum-gateway"]
       : ["run", "src/index.ts", "--vellum-gateway"];
     const gwLogFd = openLogFile("hatch.log");
-    gateway = spawn("bun", bunArgs, {
+    gateway = spawn(process.execPath, bunArgs, {
       cwd: gatewayDir,
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
