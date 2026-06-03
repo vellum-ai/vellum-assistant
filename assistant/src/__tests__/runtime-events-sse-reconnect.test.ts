@@ -35,9 +35,9 @@ import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import {
-  _resetConversationStreamsForTesting,
+  _resetStreamStateForTesting,
   stampAndBuffer,
-} from "../runtime/conversation-stream-state.js";
+} from "../runtime/assistant-stream-state.js";
 
 initializeDb();
 
@@ -56,11 +56,11 @@ describe("SSE reconnect replay (B7.2)", () => {
     const db = getDb();
     db.run("DELETE FROM conversation_keys");
     db.run("DELETE FROM conversations");
-    _resetConversationStreamsForTesting();
+    _resetStreamStateForTesting();
   });
 
   afterEach(() => {
-    _resetConversationStreamsForTesting();
+    _resetStreamStateForTesting();
   });
 
   test("replays buffered events with seq > lastSeenSeq before the first heartbeat", async () => {
@@ -94,13 +94,55 @@ describe("SSE reconnect replay (B7.2)", () => {
     const frame1 = await readFrame(reader);
     expect(frame1).toContain("event: assistant_event");
     expect(frame1).toContain('"seq":2');
-    expect(frame1).toContain('"clientSeq":1');
 
     const frame2 = await readFrame(reader);
     expect(frame2).toContain('"seq":3');
-    expect(frame2).toContain('"clientSeq":2');
 
     // Then the heartbeat.
+    const heartbeat = await readFrame(reader);
+    expect(heartbeat).toBe(": heartbeat\n\n");
+
+    ac.abort();
+  });
+
+  test("unfiltered connection replays events across conversations from one global cursor", async () => {
+    // The web app rides a single unfiltered (assistant-wide) SSE
+    // connection that multiplexes every conversation. Because `seq` is
+    // one global counter, a single `lastSeenSeq` resumes the whole
+    // stream -- replay must return the missed events from BOTH
+    // conversations, interleaved in global seq order.
+    const { conversationId: convA } = getOrCreateConversation("multi-conv-a");
+    const { conversationId: convB } = getOrCreateConversation("multi-conv-b");
+
+    stampAndBuffer(buildAssistantEvent({ type: "pong" }, convA)); // seq 1
+    stampAndBuffer(buildAssistantEvent({ type: "pong" }, convB)); // seq 2
+    stampAndBuffer(buildAssistantEvent({ type: "pong" }, convA)); // seq 3
+    stampAndBuffer(buildAssistantEvent({ type: "pong" }, convB)); // seq 4
+
+    const ac = new AbortController();
+    const { handleSubscribeAssistantEvents } =
+      await import("../runtime/routes/events-routes.js");
+    // No conversation scope -> unfiltered connection.
+    const stream = handleSubscribeAssistantEvents({
+      queryParams: { lastSeenSeq: "1" },
+      abortSignal: ac.signal,
+    });
+
+    const reader = stream.getReader();
+
+    // seqs 2, 3, 4 replay in global order regardless of conversation.
+    const f2 = await readFrame(reader);
+    expect(f2).toContain('"seq":2');
+    expect(f2).toContain(convB);
+
+    const f3 = await readFrame(reader);
+    expect(f3).toContain('"seq":3');
+    expect(f3).toContain(convA);
+
+    const f4 = await readFrame(reader);
+    expect(f4).toContain('"seq":4');
+    expect(f4).toContain(convB);
+
     const heartbeat = await readFrame(reader);
     expect(heartbeat).toBe(": heartbeat\n\n");
 
@@ -124,10 +166,10 @@ describe("SSE reconnect replay (B7.2)", () => {
       stampAndBuffer(buildAssistantEvent({ type: "pong" }, conversationId));
     }
     const { _peekStreamForTesting } =
-      await import("../runtime/conversation-stream-state.js");
-    const peek = _peekStreamForTesting(conversationId);
-    expect(peek?.oldestSeq).toBe(3);
-    expect(peek?.newestSeq).toBe(202);
+      await import("../runtime/assistant-stream-state.js");
+    const peek = _peekStreamForTesting();
+    expect(peek.oldestSeq).toBe(3);
+    expect(peek.newestSeq).toBe(202);
 
     const ac = new AbortController();
     const { handleSubscribeAssistantEvents } =
@@ -226,14 +268,13 @@ describe("SSE reconnect replay (B7.2)", () => {
     ac.abort();
   });
 
-  test("clientSeq is gap-free when targeted events create seq gaps", async () => {
+  test("replay excludes events the subscriber is not targeted to receive", async () => {
     // Stamp three events: two untargeted (seq 1, 3) + one with a
     // capability target (seq 2, host_bash). A process subscriber
     // does NOT match capability targeting (matchesSubscriber requires
     // type=client + matching capability), so the replay filters out
-    // seq 2. The subscriber receives seq 1 and 3 — a gap in raw seq
-    // — but clientSeq is 1, 2 — gap-free.
-    const { conversationId } = getOrCreateConversation("clientseq-gap");
+    // seq 2. The subscriber receives seq 1 and 3.
+    const { conversationId } = getOrCreateConversation("replay-targeting");
 
     stampAndBuffer(buildAssistantEvent({ type: "pong" }, conversationId));
     stampAndBuffer(buildAssistantEvent({ type: "pong" }, conversationId), {
@@ -246,7 +287,7 @@ describe("SSE reconnect replay (B7.2)", () => {
       await import("../runtime/routes/events-routes.js");
     const stream = handleSubscribeAssistantEvents({
       queryParams: {
-        conversationKey: "clientseq-gap",
+        conversationKey: "replay-targeting",
         lastSeenSeq: "0",
       },
       abortSignal: ac.signal,
@@ -255,14 +296,12 @@ describe("SSE reconnect replay (B7.2)", () => {
     const reader = stream.getReader();
 
     // seq 2 (host_bash-targeted) is filtered out by replay.
-    // Only seq 1 and 3 are delivered, with gap-free clientSeq.
+    // Only seq 1 and 3 are delivered.
     const f1 = await readFrame(reader);
     expect(f1).toContain('"seq":1');
-    expect(f1).toContain('"clientSeq":1');
 
     const f2 = await readFrame(reader);
     expect(f2).toContain('"seq":3');
-    expect(f2).toContain('"clientSeq":2');
 
     const heartbeat = await readFrame(reader);
     expect(heartbeat).toBe(": heartbeat\n\n");
@@ -270,8 +309,8 @@ describe("SSE reconnect replay (B7.2)", () => {
     ac.abort();
   });
 
-  test("live callback includes clientSeq on conversation-scoped events", async () => {
-    const { conversationId } = getOrCreateConversation("clientseq-live");
+  test("live callback stamps seq on conversation-scoped events", async () => {
+    const { conversationId } = getOrCreateConversation("live-seq");
 
     const ac = new AbortController();
     const { AssistantEventHub } =
@@ -281,7 +320,7 @@ describe("SSE reconnect replay (B7.2)", () => {
       await import("../runtime/routes/events-routes.js");
     const stream = handleSubscribeAssistantEvents(
       {
-        queryParams: { conversationKey: "clientseq-live" },
+        queryParams: { conversationKey: "live-seq" },
         abortSignal: ac.signal,
       },
       { hub: testHub },
@@ -303,11 +342,9 @@ describe("SSE reconnect replay (B7.2)", () => {
 
     const f1 = await readFrame(reader);
     expect(f1).toContain('"seq":1');
-    expect(f1).toContain('"clientSeq":1');
 
     const f2 = await readFrame(reader);
     expect(f2).toContain('"seq":2');
-    expect(f2).toContain('"clientSeq":2');
 
     ac.abort();
   });

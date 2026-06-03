@@ -7,6 +7,7 @@ metadata:
   icon: assets/icon.svg
   emoji: "🎨"
   vellum:
+    category: "development"
     display-name: "Frontend Design"
 ---
 

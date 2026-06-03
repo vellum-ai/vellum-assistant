@@ -17,6 +17,7 @@
  */
 
 import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 
 import { getIsContainerized } from "../config/env-registry.js";
@@ -158,6 +159,21 @@ export function discoverLocalCes():
   if (existsSync(sourceEntry)) {
     log.info({ path: sourceEntry }, "Found local CES source entry point");
     return { mode: "local-source", sourcePath: sourceEntry };
+  }
+
+  // npm-layout fallback: resolve via node_modules when installed as a package
+  try {
+    const _require = createRequire(import.meta.url);
+    const pkgPath = _require.resolve(
+      "@vellumai/credential-executor/package.json",
+    );
+    const npmSourceEntry = join(dirname(pkgPath), "src", "main.ts");
+    if (existsSync(npmSourceEntry)) {
+      log.info({ path: npmSourceEntry }, "Found CES source via npm package");
+      return { mode: "local-source", sourcePath: npmSourceEntry };
+    }
+  } catch {
+    // Package not installed — fall through to unavailable
   }
 
   const reason = `CES executable not found. Searched: ${searchPaths.join(", ")}; also checked source at ${sourceEntry}`;

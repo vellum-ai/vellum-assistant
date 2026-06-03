@@ -14,15 +14,12 @@ import {
   syncPlatformAssistantsToLockfile,
 } from "@/lib/local-mode";
 import { isNativePlatform } from "@/runtime/native-auth";
-import { useAuthStore } from "@/stores/auth-store";
+import { resolveLocalOnboardingRoute } from "@/utils/local-onboarding-route";
 import { routes } from "@/utils/routes";
 
-function getPostRetireRoute(): string {
+async function getPostRetireRoute(): Promise<string> {
   if (isNativePlatform()) return routes.onboarding.prechat;
-  if (isLocalMode()) {
-    const { hasPlatformSession } = useAuthStore.getState();
-    return hasPlatformSession ? routes.onboarding.hosting : routes.onboarding.welcome;
-  }
+  if (isLocalMode()) return resolveLocalOnboardingRoute();
   return routes.onboarding.privacy;
 }
 
@@ -48,7 +45,7 @@ export function RetireAssistant({ assistantId }: RetireAssistantProps) {
           clearOnboardingFlags();
           setConfirmOpen(false);
           toast.success("Assistant retired.");
-          navigate(getPostRetireRoute(), { replace: true });
+          navigate(await getPostRetireRoute(), { replace: true });
           return;
         } else {
           toast.error(result.error || "Failed to retire assistant.");
@@ -69,7 +66,7 @@ export function RetireAssistant({ assistantId }: RetireAssistantProps) {
           clearOnboardingFlags();
           setConfirmOpen(false);
           toast.success("Assistant retired.");
-          navigate(getPostRetireRoute(), { replace: true });
+          navigate(await getPostRetireRoute(), { replace: true });
           return;
         } else {
           const detail =

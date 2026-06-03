@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.8.6
+  version: 0.8.7
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -1057,119 +1057,6 @@ paths:
               required:
                 - uuid
               additionalProperties: false
-  /v1/apps/gallery:
-    get:
-      operationId: apps_gallery_get
-      summary: List gallery apps
-      description: Return the built-in app gallery catalog.
-      tags:
-        - apps
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  gallery:
-                    type: object
-                    properties:
-                      version:
-                        type: number
-                      updatedAt:
-                        type: string
-                      categories:
-                        type: array
-                        items:
-                          type: object
-                          properties:
-                            id:
-                              type: string
-                            name:
-                              type: string
-                            icon:
-                              type: string
-                          required:
-                            - id
-                            - name
-                            - icon
-                          additionalProperties: false
-                      apps:
-                        type: array
-                        items:
-                          type: object
-                          properties:
-                            id:
-                              type: string
-                            name:
-                              type: string
-                            description:
-                              type: string
-                            icon:
-                              type: string
-                            category:
-                              type: string
-                            version:
-                              type: string
-                            featured:
-                              type: boolean
-                          required:
-                            - id
-                            - name
-                            - description
-                            - icon
-                            - category
-                            - version
-                          additionalProperties: false
-                    required:
-                      - version
-                      - updatedAt
-                      - categories
-                      - apps
-                    additionalProperties: false
-                required:
-                  - gallery
-                additionalProperties: false
-  /v1/apps/gallery/install:
-    post:
-      operationId: apps_gallery_install_post
-      summary: Install a gallery app
-      description: Install an app from the built-in gallery by its ID.
-      tags:
-        - apps
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                    const: true
-                  appId:
-                    type: string
-                  name:
-                    type: string
-                required:
-                  - success
-                  - appId
-                  - name
-                additionalProperties: false
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                galleryAppId:
-                  type: string
-              required:
-                - galleryAppId
-              additionalProperties: false
   /v1/apps/import-bundle:
     post:
       operationId: apps_importbundle_post
@@ -1230,6 +1117,13 @@ paths:
                   - scanResult
                   - signatureResult
                 additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
   /v1/apps/open-bundle:
     post:
       operationId: apps_openbundle_post
@@ -1585,29 +1479,22 @@ paths:
       requestBody:
         required: true
         content:
-          application/json:
+          multipart/form-data:
             schema:
               type: object
               properties:
+                file:
+                  type: string
+                  format: binary
+                  description: The file to upload
                 filename:
                   type: string
                 mimeType:
                   type: string
-                data:
-                  type: string
-                  description: Base64-encoded file data
-                filePath:
-                  type: string
-                  description: On-disk file path (file-backed upload)
-                trustedSource:
-                  type: boolean
-                  description:
-                    Set by the gateway when the file came from a guardian-bound channel actor. Honored only when the request is
-                    authenticated as a gateway service token; ignored otherwise.
               required:
+                - file
                 - filename
                 - mimeType
-              additionalProperties: false
   /v1/attachments/{id}:
     get:
       operationId: attachments_by_id_get
@@ -10531,11 +10418,12 @@ paths:
           schema:
             type: string
           description:
-            "Optional reconnect cursor: the highest per-conversation event seq the client has already applied. When set
-            together with a conversation scope, the daemon replays any buffered events with seq > lastSeenSeq before
-            going live. If the cursor is older than the ring buffer's oldest entry the connection simply goes live; the
-            client is expected to detect the gap from the next event's seq and refetch via the messages API. Must be a
-            non-negative integer."
+            "Optional reconnect cursor: the highest global event seq the client has already applied. `seq` is a single
+            per-assistant counter shared across all conversations, so one cursor resumes the stream regardless of how
+            many conversations are multiplexed on the connection. When set, the daemon replays any buffered events with
+            seq > lastSeenSeq (re-applying the subscriber's targeting/scope filter) before going live. If the cursor is
+            older than the ring buffer's oldest entry the connection simply goes live; the client is expected to detect
+            the gap from the next event's seq and refetch via the messages API. Must be a non-negative integer."
   /v1/events/emit:
     post:
       operationId: events_emit_post
@@ -16688,6 +16576,63 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  providers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        provider_key:
+                          type: string
+                        display_name:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        description:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        dashboard_url:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        client_id_placeholder:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        requires_client_secret:
+                          type: boolean
+                        logo_url:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        supports_managed_mode:
+                          type: boolean
+                        managed_service_is_paid:
+                          type: boolean
+                        feature_flag:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                      required:
+                        - provider_key
+                        - display_name
+                        - description
+                        - dashboard_url
+                        - client_id_placeholder
+                        - requires_client_secret
+                        - logo_url
+                        - supports_managed_mode
+                        - managed_service_is_paid
+                        - feature_flag
+                      additionalProperties: false
+                required:
+                  - providers
+                additionalProperties: false
       parameters:
         - name: supports_managed_mode
           in: query
@@ -19583,15 +19528,6 @@ paths:
                                 - available
                             category:
                               type: string
-                              enum:
-                                - communication
-                                - productivity
-                                - development
-                                - media
-                                - automation
-                                - webSocial
-                                - knowledge
-                                - integration
                             origin:
                               type: string
                               const: vellum
@@ -19630,15 +19566,6 @@ paths:
                                 - available
                             category:
                               type: string
-                              enum:
-                                - communication
-                                - productivity
-                                - development
-                                - media
-                                - automation
-                                - webSocial
-                                - knowledge
-                                - integration
                             origin:
                               type: string
                               const: clawhub
@@ -19697,15 +19624,6 @@ paths:
                                 - available
                             category:
                               type: string
-                              enum:
-                                - communication
-                                - productivity
-                                - development
-                                - media
-                                - automation
-                                - webSocial
-                                - knowledge
-                                - integration
                             origin:
                               type: string
                               const: skillssh
@@ -19779,15 +19697,6 @@ paths:
                                 - available
                             category:
                               type: string
-                              enum:
-                                - communication
-                                - productivity
-                                - development
-                                - media
-                                - automation
-                                - webSocial
-                                - knowledge
-                                - integration
                             origin:
                               type: string
                               const: custom
@@ -19945,15 +19854,6 @@ paths:
                               - available
                           category:
                             type: string
-                            enum:
-                              - communication
-                              - productivity
-                              - development
-                              - media
-                              - automation
-                              - webSocial
-                              - knowledge
-                              - integration
                           origin:
                             type: string
                             const: vellum
@@ -19992,15 +19892,6 @@ paths:
                               - available
                           category:
                             type: string
-                            enum:
-                              - communication
-                              - productivity
-                              - development
-                              - media
-                              - automation
-                              - webSocial
-                              - knowledge
-                              - integration
                           origin:
                             type: string
                             const: clawhub
@@ -20113,15 +20004,6 @@ paths:
                               - available
                           category:
                             type: string
-                            enum:
-                              - communication
-                              - productivity
-                              - development
-                              - media
-                              - automation
-                              - webSocial
-                              - knowledge
-                              - integration
                           origin:
                             type: string
                             const: skillssh
@@ -20195,15 +20077,6 @@ paths:
                               - available
                           category:
                             type: string
-                            enum:
-                              - communication
-                              - productivity
-                              - development
-                              - media
-                              - automation
-                              - webSocial
-                              - knowledge
-                              - integration
                           origin:
                             type: string
                             const: custom
@@ -20371,15 +20244,6 @@ paths:
                               - available
                           category:
                             type: string
-                            enum:
-                              - communication
-                              - productivity
-                              - development
-                              - media
-                              - automation
-                              - webSocial
-                              - knowledge
-                              - integration
                           origin:
                             type: string
                             const: vellum
@@ -20418,15 +20282,6 @@ paths:
                               - available
                           category:
                             type: string
-                            enum:
-                              - communication
-                              - productivity
-                              - development
-                              - media
-                              - automation
-                              - webSocial
-                              - knowledge
-                              - integration
                           origin:
                             type: string
                             const: clawhub
@@ -20485,15 +20340,6 @@ paths:
                               - available
                           category:
                             type: string
-                            enum:
-                              - communication
-                              - productivity
-                              - development
-                              - media
-                              - automation
-                              - webSocial
-                              - knowledge
-                              - integration
                           origin:
                             type: string
                             const: skillssh
@@ -20567,15 +20413,6 @@ paths:
                               - available
                           category:
                             type: string
-                            enum:
-                              - communication
-                              - productivity
-                              - development
-                              - media
-                              - automation
-                              - webSocial
-                              - knowledge
-                              - integration
                           origin:
                             type: string
                             const: custom
@@ -20740,6 +20577,43 @@ paths:
           required: true
           schema:
             type: string
+  /v1/skills/categories:
+    get:
+      operationId: skills_categories_get
+      summary: List skill categories
+      description: Return all skill category definitions with labels, icons, and descriptions.
+      tags:
+        - skills
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  categories:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        slug:
+                          type: string
+                        label:
+                          type: string
+                        description:
+                          type: string
+                        icon:
+                          type: string
+                      required:
+                        - slug
+                        - label
+                        - description
+                        - icon
+                      additionalProperties: false
+                required:
+                  - categories
+                additionalProperties: false
   /v1/skills/check-updates:
     post:
       operationId: skills_checkupdates_post
@@ -20887,15 +20761,6 @@ paths:
                                 - available
                             category:
                               type: string
-                              enum:
-                                - communication
-                                - productivity
-                                - development
-                                - media
-                                - automation
-                                - webSocial
-                                - knowledge
-                                - integration
                             origin:
                               type: string
                               const: vellum
@@ -20934,15 +20799,6 @@ paths:
                                 - available
                             category:
                               type: string
-                              enum:
-                                - communication
-                                - productivity
-                                - development
-                                - media
-                                - automation
-                                - webSocial
-                                - knowledge
-                                - integration
                             origin:
                               type: string
                               const: clawhub
@@ -21001,15 +20857,6 @@ paths:
                                 - available
                             category:
                               type: string
-                              enum:
-                                - communication
-                                - productivity
-                                - development
-                                - media
-                                - automation
-                                - webSocial
-                                - knowledge
-                                - integration
                             origin:
                               type: string
                               const: skillssh
@@ -21083,15 +20930,6 @@ paths:
                                 - available
                             category:
                               type: string
-                              enum:
-                                - communication
-                                - productivity
-                                - development
-                                - media
-                                - automation
-                                - webSocial
-                                - knowledge
-                                - integration
                             origin:
                               type: string
                               const: custom

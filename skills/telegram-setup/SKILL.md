@@ -6,6 +6,7 @@ metadata:
   icon: assets/icon.svg
   emoji: "🤖"
   vellum:
+    category: "messaging"
     display-name: "Telegram Setup"
     activation-hints:
       - "Telegram bot setup, webhook configuration, or BotFather token"

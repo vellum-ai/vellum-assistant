@@ -6,6 +6,7 @@ metadata:
   icon: assets/icon.svg
   emoji: "🗺️"
   vellum:
+    category: "development"
     display-name: "API Mapping"
 ---
 

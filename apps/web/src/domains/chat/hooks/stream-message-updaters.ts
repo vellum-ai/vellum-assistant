@@ -133,7 +133,7 @@ export function createStreamingBubble(
       id: messageId ?? crypto.randomUUID(),
       ...(messageId ? {} : { isOptimistic: true }),
       role: "assistant",
-      textSegments: [{ type: "text", content: text }],
+      textSegments: [text],
       contentOrder: [{ type: "text", id: "0" }],
       timestamp: Date.now(),
     },
@@ -157,16 +157,10 @@ function appendTextIntoRow(
   const lastOrderEntry = order[order.length - 1];
 
   if (lastOrderEntry?.type === "text" && segments.length > 0) {
-    const lastSeg = segments[segments.length - 1];
-    if (lastSeg) {
-      segments[segments.length - 1] = {
-        ...lastSeg,
-        content: lastSeg.content + text,
-      };
-    }
+    segments[segments.length - 1] = segments[segments.length - 1]! + text;
   } else {
     const newIndex = segments.length;
-    segments.push({ type: "text", content: text });
+    segments.push(text);
     order.push({ type: "text", id: String(newIndex) });
   }
 
@@ -473,7 +467,7 @@ export function applyUserMessageEcho(
       id: serverId ?? crypto.randomUUID(),
       ...(serverId === undefined ? { isOptimistic: true } : {}),
       role: "user",
-      textSegments: [{ type: "text", content: event.text }],
+      textSegments: [event.text],
       contentOrder: [{ type: "text", id: "0" }],
       timestamp: Date.now(),
     },

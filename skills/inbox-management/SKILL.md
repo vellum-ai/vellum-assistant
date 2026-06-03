@@ -6,6 +6,7 @@ metadata:
   icon: assets/icon.svg
   emoji: "📬"
   vellum:
+    category: "email"
     display-name: "Inbox Management"
     includes: ["gmail"]
     activation-hints:

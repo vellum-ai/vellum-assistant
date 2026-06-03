@@ -1,5 +1,5 @@
 import { Loader2, Search } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 
@@ -132,13 +132,11 @@ function CallSiteOverridesModalInner({
   const configMutation = useDaemonConfigMutation();
 
   const [search, setSearch] = useState("");
-  const [drafts, setDrafts] = useState<
+  const [draftEdits, setDraftEdits] = useState<
     Record<string, CallSiteOverrideDraft | null>
   >({});
   const [saving, setSaving] = useState(false);
-  const [isSeeded, setIsSeeded] = useState(false);
   const [showResetConfirmation, setShowResetConfirmation] = useState(false);
-  const seeded = useRef(false);
   const analyzeConversationEnabled =
     useAssistantFeatureFlagStore.use.analyzeConversation();
 
@@ -164,34 +162,31 @@ function CallSiteOverridesModalInner({
     return all.filter((cs) => cs.id !== "analyzeConversation");
   }, [catalog, analyzeConversationEnabled]);
 
-  const daemonConfigLoaded = !!daemonConfig;
-
-  // Seed drafts once per open, but defer until BOTH the catalog and the daemon
-  // config have loaded.
   const catalogLoaded = !isLoading && !isError && !!catalog;
+  const daemonConfigLoaded = !!daemonConfig;
+  const isSeeded = catalogLoaded && daemonConfigLoaded;
+
   const catalogCallSiteIds = useMemo(
     () => gatedCallSites.map((c) => c.id),
     [gatedCallSites],
   );
 
-  useEffect(() => {
-    if (seeded.current) return;
-    if (!catalogLoaded) return;
-    if (daemonConfigLoaded === false) return;
-    const initial: Record<string, CallSiteOverrideDraft | null> = {};
+  // Derive the full draft map: persisted server values merged with any
+  // user edits made this session. When the user hasn't touched a row,
+  // it falls through to the persisted override (or empty).
+  const drafts = useMemo(() => {
+    if (!isSeeded) return {} as Record<string, CallSiteOverrideDraft | null>;
+    const merged: Record<string, CallSiteOverrideDraft | null> = {};
     for (const id of catalogCallSiteIds) {
-      const persisted = persistedOverrides[id];
-      initial[id] = persisted ? { ...persisted } : {};
+      if (id in draftEdits) {
+        merged[id] = draftEdits[id];
+      } else {
+        const persisted = persistedOverrides[id];
+        merged[id] = persisted ? { ...persisted } : {};
+      }
     }
-    setDrafts(initial);
-    seeded.current = true;
-    setIsSeeded(true);
-  }, [
-    catalogLoaded,
-    daemonConfigLoaded,
-    catalogCallSiteIds,
-    persistedOverrides,
-  ]);
+    return merged;
+  }, [isSeeded, catalogCallSiteIds, persistedOverrides, draftEdits]);
 
   // ---------------------------------------------------------------------------
   // Derived state
@@ -306,7 +301,7 @@ function CallSiteOverridesModalInner({
 
   function handleToggle(id: string, on: boolean, defaultProfile?: string) {
     if (!on) {
-      setDrafts((prev) => ({ ...prev, [id]: null }));
+      setDraftEdits((prev) => ({ ...prev, [id]: null }));
       return;
     }
     const seedProfile = selectSeedProfileForOverride(
@@ -315,11 +310,11 @@ function CallSiteOverridesModalInner({
       queryComplexityRoutingEnabled,
     );
     if (seedProfile) {
-      setDrafts((prev) => ({ ...prev, [id]: { profile: seedProfile } }));
+      setDraftEdits((prev) => ({ ...prev, [id]: { profile: seedProfile } }));
     } else {
       const defaultProvider = availableProviders[0];
       const defaultModel = getDefaultModelForProvider(defaultProvider) ?? "";
-      setDrafts((prev) => ({
+      setDraftEdits((prev) => ({
         ...prev,
         [id]: { provider: defaultProvider, model: defaultModel },
       }));
@@ -330,14 +325,14 @@ function CallSiteOverridesModalInner({
     if (val === CUSTOM_SENTINEL) {
       const defaultProvider = availableProviders[0];
       const defaultModel = getDefaultModelForProvider(defaultProvider) ?? "";
-      setDrafts((prev) => ({
+      setDraftEdits((prev) => ({
         ...prev,
         [id]: { profile: null, provider: defaultProvider, model: defaultModel },
       }));
     } else if (val === "") {
-      setDrafts((prev) => ({ ...prev, [id]: null }));
+      setDraftEdits((prev) => ({ ...prev, [id]: null }));
     } else {
-      setDrafts((prev) => ({
+      setDraftEdits((prev) => ({
         ...prev,
         [id]: { profile: val, provider: null, model: null },
       }));
@@ -346,14 +341,14 @@ function CallSiteOverridesModalInner({
 
   function handleProviderChange(id: string, provider: string) {
     const defaultModel = getDefaultModelForProvider(provider) ?? "";
-    setDrafts((prev) => ({
+    setDraftEdits((prev) => ({
       ...prev,
-      [id]: { ...prev[id], profile: null, provider, model: defaultModel },
+      [id]: { ...(prev[id] ?? drafts[id]), profile: null, provider, model: defaultModel },
     }));
   }
 
   function handleModelChange(id: string, model: string) {
-    setDrafts((prev) => ({ ...prev, [id]: { ...prev[id], model } }));
+    setDraftEdits((prev) => ({ ...prev, [id]: { ...(prev[id] ?? drafts[id]), model } }));
   }
 
   // ---------------------------------------------------------------------------

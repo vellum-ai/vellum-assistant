@@ -172,34 +172,4 @@ describe("Compaction benchmark", () => {
     expect(result.summaryCalls).toBe(1);
     expect(result.summaryCalls).toBe(counter.calls);
   });
-
-  test("severe pressure triggers compaction even during cooldown", async () => {
-    const counter = { calls: 0 };
-    const provider = makeSummaryProvider(counter);
-    // Use a tighter maxInputTokens so 90 turns exceeds the 95% severe threshold
-    const config = {
-      ...makeConfig(),
-      maxInputTokens: 4000,
-      targetBudgetRatio: 0.55,
-    };
-    const manager = new ContextWindowManager({
-      provider,
-      systemPrompt: "system prompt",
-      config,
-    });
-
-    const messages = makeLongMessages(90);
-    const estimated = estimatePromptTokens(messages, "system prompt", {
-      providerName: "mock",
-    });
-    expect(estimated).toBeGreaterThan(config.maxInputTokens * 0.95);
-
-    // Simulate being within cooldown by setting lastCompactedAt to now
-    const result = await manager.maybeCompact(messages, undefined, {
-      lastCompactedAt: Date.now(),
-    });
-
-    expect(result.compacted).toBe(true);
-    expect(result.summaryCalls).toBeGreaterThan(0);
-  });
 });

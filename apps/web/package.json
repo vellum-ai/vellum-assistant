@@ -1,6 +1,6 @@
 {
   "name": "@vellumai/web",
-  "version": "0.8.6",
+  "version": "0.8.7",
   "type": "module",
   "description": "Pre-built web SPA for the Vellum Assistant",
   "license": "MIT",
@@ -8,7 +8,7 @@
     "dist"
   ],
   "scripts": {
-    "predev": "bun run postinstall && bun run openapi-ts",
+    "predev": "bun run postinstall && bun run openapi-ts && node scripts/copy-skill-assets.mjs",
     "dev": "bun --bun vite",
     "prebuild": "node scripts/copy-skill-assets.mjs",
     "build": "bun --bun vite build",

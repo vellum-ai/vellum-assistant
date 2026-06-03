@@ -10,7 +10,6 @@
 import {
   lazy,
   useCallback,
-  useEffect,
   useMemo,
   useRef,
   useState,
@@ -52,8 +51,6 @@ import { useConversationSecondaryActions } from "@/domains/chat/hooks/use-conver
 import { canUseLlmInspector } from "@/domains/chat/inspector/access";
 import { useSendMessage } from "@/domains/chat/hooks/use-send-message";
 import { useMessageLifecycle } from "@/domains/chat/hooks/use-message-lifecycle";
-import { hydrateLastSeenSeqFromStorage } from "@/lib/streaming/last-seen-seq";
-import { isSeqGapDetectionEnabled } from "@/lib/feature-flags/seq-gap-detection-flag";
 import { useActiveAppPinSync } from "@/domains/chat/hooks/use-active-app-pin-sync";
 import { useDraftInput } from "@/domains/chat/components/chat-composer/use-draft-input";
 import { useDeepLinkConsumer } from "@/domains/chat/hooks/use-deep-link-consumer";
@@ -110,15 +107,6 @@ export function ActiveChatView() {
   const [restoredDraftConversationId, setRestoredDraftConversationId] = useState<string | null>(null);
   const [refreshEpoch, setRefreshEpoch] = useState(0);
   const [assetsRefreshKey, setAssetsRefreshKey] = useState(0);
-
-  // Hydrate per-conversation seq cursors from localStorage once so gap
-  // detection in use-event-stream has a seeded cursor before the first
-  // bus event arrives. Gated behind the debug flag.
-  useEffect(() => {
-    if (isSeqGapDetectionEnabled()) {
-      hydrateLastSeenSeqFromStorage();
-    }
-  }, []);
 
   // -------------------------------------------------------------------------
   // Zustand store selectors

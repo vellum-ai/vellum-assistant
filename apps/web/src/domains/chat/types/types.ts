@@ -2,6 +2,7 @@
  * Shared types for the chat/surface system.
  */
 
+import type { ConversationMessage } from "@vellumai/assistant-api";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayAttachment } from "@/types/attachment-types";
 import type { SlackMessageLink } from "@/utils/slack-message-link";
@@ -58,9 +59,17 @@ export interface DisplayMessage {
    * these as aliases so a live SSE row can merge into its collapsed history row.
    */
   mergedMessageIds?: string[];
-  role: "user" | "assistant";
+  /**
+   * Message role, carried straight through from the canonical wire contract
+   * (`ConversationMessage["role"]`). The transcript renders `"user"` rows as
+   * the sender's bubble and treats every other role as an assistant turn, so
+   * no narrowing of the wire value is required.
+   */
+  role: ConversationMessage["role"];
   surfaces?: Surface[];
-  textSegments?: Array<{ type: string; content: string; [key: string]: unknown }>;
+  /** Ordered text bodies, matching the wire `textSegments: string[]`. Each
+   *  entry is referenced positionally by a `text:N` entry in `contentOrder`. */
+  textSegments?: string[];
   contentOrder?: Array<{ type: string; id: string }>;
   slackMessage?: SlackRuntimeMessage;
   toolCalls?: ChatMessageToolCall[];

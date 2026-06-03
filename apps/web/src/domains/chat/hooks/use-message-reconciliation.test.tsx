@@ -94,24 +94,6 @@ mock.module("@/domains/chat/api/messages", () => ({
     }
     return result.length > 0 ? result : undefined;
   },
-  normalizeTextSegments: (raw: unknown[] | undefined) => {
-    if (!raw || raw.length === 0) return undefined;
-    const result: Array<{ type: string; content: string }> = [];
-    for (const entry of raw) {
-      if (typeof entry === "string") {
-        result.push({ type: "text", content: entry });
-      } else if (entry && typeof entry === "object") {
-        const obj = entry as Record<string, unknown>;
-        if (typeof obj.content === "string") {
-          result.push({
-            type: typeof obj.type === "string" ? obj.type : "text",
-            content: obj.content,
-          });
-        }
-      }
-    }
-    return result.length > 0 ? result : undefined;
-  },
 }));
 
 // ---------------------------------------------------------------------------

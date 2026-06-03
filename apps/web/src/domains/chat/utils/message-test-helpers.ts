@@ -25,7 +25,7 @@ export function textBody(
 ): Pick<DisplayMessage, "textSegments" | "contentOrder"> {
   return content
     ? {
-        textSegments: [{ type: "text", content }],
+        textSegments: [content],
         contentOrder: [{ type: "text", id: "0" }],
       }
     : { textSegments: [], contentOrder: [] };

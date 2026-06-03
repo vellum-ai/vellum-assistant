@@ -46,8 +46,6 @@ import type {
   CircuitBreakerResult,
   CompactionArgs,
   CompactionResult,
-  EmptyResponseArgs,
-  EmptyResponseResult,
   LLMCallArgs,
   LLMCallResult,
   MemoryArgs,
@@ -61,8 +59,6 @@ import type {
   TitleResult,
   TokenEstimateArgs,
   TokenEstimateResult,
-  ToolErrorArgs,
-  ToolErrorResult,
   ToolExecuteArgs,
   ToolExecuteResult,
   TurnArgs,
@@ -161,10 +157,6 @@ const echoPlugin: Plugin = {
     ),
     persistence: makeObserver<PersistArgs, PersistResult>("persistence"),
     titleGenerate: makeObserver<TitleArgs, TitleResult>("titleGenerate"),
-    emptyResponse: makeObserver<EmptyResponseArgs, EmptyResponseResult>(
-      "emptyResponse",
-    ),
-    toolError: makeObserver<ToolErrorArgs, ToolErrorResult>("toolError"),
     circuitBreaker: makeObserver<CircuitBreakerArgs, CircuitBreakerResult>(
       "circuitBreaker",
     ),

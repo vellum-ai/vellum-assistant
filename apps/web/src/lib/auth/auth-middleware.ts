@@ -17,7 +17,8 @@ import {
 import { useAuthStore, type AuthUser } from "@/stores/auth-store";
 import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
 import { isLocalMode, hasAssistants } from "@/lib/local-mode";
-import { routes } from "@/utils/routes";
+import { resolveLocalOnboardingRoute } from "@/utils/local-onboarding-route";
+import { whenStoreState } from "@/utils/when-store-state";
 
 export const authUserContext = createRouterContext<AuthUser | null>(null);
 
@@ -25,7 +26,7 @@ export const authMiddleware: MiddlewareFunction = async ({ request, context }, n
   const { isLoggedIn, isLoading, user } = useAuthStore.getState();
 
   if (isLoading) {
-    await waitForAuthReady();
+    await whenStoreState(useAuthStore, (state) => !state.isLoading);
     return authMiddleware({ request, context } as Parameters<MiddlewareFunction>[0], next);
   }
 
@@ -41,26 +42,10 @@ export const authMiddleware: MiddlewareFunction = async ({ request, context }, n
   if (isLocalMode() && !hasAssistants()) {
     const url = new URL(request.url);
     if (!url.pathname.includes("/onboarding/") && !url.pathname.includes("/account")) {
-      const { hasPlatformSession } = useAuthStore.getState();
-      throw redirect(hasPlatformSession ? routes.onboarding.hosting : routes.onboarding.welcome);
+      throw redirect(await resolveLocalOnboardingRoute());
     }
   }
 
   context.set(authUserContext, user);
   return next();
 };
-
-function waitForAuthReady(): Promise<void> {
-  return new Promise((resolve) => {
-    const unsubscribe = useAuthStore.subscribe((state) => {
-      if (!state.isLoading) {
-        unsubscribe();
-        resolve();
-      }
-    });
-    if (!useAuthStore.getState().isLoading) {
-      unsubscribe();
-      resolve();
-    }
-  });
-}

@@ -4,34 +4,39 @@ import type { AssistantEvent } from "../runtime/assistant-event.js";
 import type {
   EventTargeting,
   ReplaySubscriber,
-} from "../runtime/conversation-stream-state.js";
+} from "../runtime/assistant-stream-state.js";
 import {
   _peekStreamForTesting,
-  _resetConversationStreamsForTesting,
-  clearConversationStream,
+  _resetStreamStateForTesting,
   getReplayWindow,
   stampAndBuffer,
-} from "../runtime/conversation-stream-state.js";
+} from "../runtime/assistant-stream-state.js";
 
 const CONV = "conv_test";
 
 function mkEvent(overrides: Partial<AssistantEvent> = {}): AssistantEvent {
+  const conversationId =
+    "conversationId" in overrides ? overrides.conversationId : CONV;
   return {
     id: `uuid-${Math.random().toString(36).slice(2, 10)}`,
-    conversationId: CONV,
+    conversationId,
     emittedAt: new Date().toISOString(),
-    message: { type: "assistant_text_delta", conversationId: CONV, text: "x" },
+    message: {
+      type: "assistant_text_delta",
+      conversationId,
+      text: "x",
+    },
     ...overrides,
   } as AssistantEvent;
 }
 
-describe("conversation-stream-state", () => {
+describe("assistant-stream-state", () => {
   beforeEach(() => {
-    _resetConversationStreamsForTesting();
+    _resetStreamStateForTesting();
   });
 
   describe("stampAndBuffer", () => {
-    test("assigns monotonic seq starting at 1 per conversation", () => {
+    test("assigns monotonic seq starting at 1", () => {
       const a = mkEvent();
       const b = mkEvent();
       const c = mkEvent();
@@ -43,16 +48,26 @@ describe("conversation-stream-state", () => {
       expect(c.seq).toBe(3);
     });
 
-    test("seq is per-conversation, not global", () => {
+    test("seq is a single global counter shared across conversations", () => {
+      /**
+       * All conversations draw from one global seq space, so a reconnect
+       * cursor can be a single number rather than a per-conversation map.
+       */
+
+      // GIVEN events interleaved across two conversations
       const a = mkEvent({ conversationId: "conv_a" });
       const b = mkEvent({ conversationId: "conv_b" });
       const a2 = mkEvent({ conversationId: "conv_a" });
+
+      // WHEN they are stamped
       stampAndBuffer(a);
       stampAndBuffer(b);
       stampAndBuffer(a2);
+
+      // THEN seq is contiguous across conversations, not reset per conversation
       expect(a.seq).toBe(1);
-      expect(b.seq).toBe(1); // independent counter
-      expect(a2.seq).toBe(2);
+      expect(b.seq).toBe(2);
+      expect(a2.seq).toBe(3);
     });
 
     test("no-op when conversationId is absent (unscoped broadcasts)", () => {
@@ -61,17 +76,17 @@ describe("conversation-stream-state", () => {
       expect(event.seq).toBeUndefined();
     });
 
-    test("pushes event onto ring buffer", () => {
+    test("pushes event onto the ring buffer", () => {
       stampAndBuffer(mkEvent());
       stampAndBuffer(mkEvent());
-      const peek = _peekStreamForTesting(CONV);
-      expect(peek?.ringLength).toBe(2);
-      expect(peek?.oldestSeq).toBe(1);
-      expect(peek?.newestSeq).toBe(2);
+      const peek = _peekStreamForTesting();
+      expect(peek.ringLength).toBe(2);
+      expect(peek.oldestSeq).toBe(1);
+      expect(peek.newestSeq).toBe(2);
     });
 
     test("targeted events are buffered with targeting metadata", () => {
-      /** Targeted events now stay in the ring so replay can filter them. */
+      /** Targeted events stay in the ring so replay can filter them. */
 
       // GIVEN a targeting modifier
       const targeting: EventTargeting = {
@@ -84,9 +99,9 @@ describe("conversation-stream-state", () => {
 
       // THEN it receives a seq and lands in the ring
       expect(targeted.seq).toBe(1);
-      const peek = _peekStreamForTesting(CONV);
-      expect(peek?.ringLength).toBe(1);
-      expect(peek?.oldestSeq).toBe(1);
+      const peek = _peekStreamForTesting();
+      expect(peek.ringLength).toBe(1);
+      expect(peek.oldestSeq).toBe(1);
     });
 
     test("seq stays monotonic across targeted and untargeted events", () => {
@@ -106,21 +121,21 @@ describe("conversation-stream-state", () => {
 
       // THEN seqs are monotonic and all four are buffered
       expect([a.seq, b.seq, c.seq, d.seq]).toEqual([1, 2, 3, 4]);
-      const peek = _peekStreamForTesting(CONV);
-      expect(peek?.ringLength).toBe(4);
-      expect(peek?.oldestSeq).toBe(1);
-      expect(peek?.newestSeq).toBe(4);
+      const peek = _peekStreamForTesting();
+      expect(peek.ringLength).toBe(4);
+      expect(peek.oldestSeq).toBe(1);
+      expect(peek.newestSeq).toBe(4);
     });
   });
 
   describe("ring buffer eviction", () => {
     test("evicts oldest entries past the 200-event count cap", () => {
       for (let i = 0; i < 250; i++) stampAndBuffer(mkEvent());
-      const peek = _peekStreamForTesting(CONV);
-      expect(peek?.ringLength).toBe(200);
+      const peek = _peekStreamForTesting();
+      expect(peek.ringLength).toBe(200);
       // Newest is 250, oldest should be 51 (250 - 200 + 1)
-      expect(peek?.newestSeq).toBe(250);
-      expect(peek?.oldestSeq).toBe(51);
+      expect(peek.newestSeq).toBe(250);
+      expect(peek.oldestSeq).toBe(51);
     });
 
     test("evicts past the 256 KB size cap", () => {
@@ -137,14 +152,13 @@ describe("conversation-stream-state", () => {
           }),
         );
       }
-      const peek = _peekStreamForTesting(CONV);
-      expect(peek).not.toBeNull();
+      const peek = _peekStreamForTesting();
       // 60 * ~8KB = ~480KB pushed; ring must have evicted down under 256KB.
-      expect(peek!.totalSizeBytes).toBeLessThanOrEqual(256 * 1024);
-      expect(peek!.ringLength).toBeLessThan(60);
+      expect(peek.totalSizeBytes).toBeLessThanOrEqual(256 * 1024);
+      expect(peek.ringLength).toBeLessThan(60);
     });
 
-    test("evicts past the 30s age cap", async () => {
+    test("evicts past the 30s age cap", () => {
       const originalNow = Date.now;
       let fakeNow = 1_000_000;
       Date.now = () => fakeNow;
@@ -157,11 +171,11 @@ describe("conversation-stream-state", () => {
         fakeNow = 1_000_000 + 31_000;
         stampAndBuffer(mkEvent()); // triggers eviction sweep on push
 
-        const peek = _peekStreamForTesting(CONV);
+        const peek = _peekStreamForTesting();
         // First event is now > 30s old → evicted. Second + third remain.
-        expect(peek?.ringLength).toBe(2);
-        expect(peek?.oldestSeq).toBe(2);
-        expect(peek?.newestSeq).toBe(3);
+        expect(peek.ringLength).toBe(2);
+        expect(peek.oldestSeq).toBe(2);
+        expect(peek.newestSeq).toBe(3);
       } finally {
         Date.now = originalNow;
       }
@@ -172,7 +186,7 @@ describe("conversation-stream-state", () => {
     test("returns events with seq > lastSeenSeq in order", () => {
       const events = Array.from({ length: 5 }, () => mkEvent());
       events.forEach((e) => stampAndBuffer(e));
-      const replay = getReplayWindow(CONV, 2);
+      const replay = getReplayWindow(2);
       expect(replay).not.toBeNull();
       expect(replay!.map((e) => e.seq)).toEqual([3, 4, 5]);
     });
@@ -180,22 +194,22 @@ describe("conversation-stream-state", () => {
     test("returns empty array when lastSeenSeq is current (nothing to replay)", () => {
       stampAndBuffer(mkEvent());
       stampAndBuffer(mkEvent());
-      const replay = getReplayWindow(CONV, 2);
+      const replay = getReplayWindow(2);
       expect(replay).toEqual([]);
     });
 
     test("returns null when lastSeenSeq is older than oldest buffered entry", () => {
       // Force eviction by pushing past the count cap.
       for (let i = 0; i < 250; i++) stampAndBuffer(mkEvent());
-      const peek = _peekStreamForTesting(CONV);
-      expect(peek?.oldestSeq).toBe(51);
+      const peek = _peekStreamForTesting();
+      expect(peek.oldestSeq).toBe(51);
       // Client claims to have last seen seq=10 — that's far below oldest.
-      const replay = getReplayWindow(CONV, 10);
+      const replay = getReplayWindow(10);
       expect(replay).toBeNull();
     });
 
-    test("returns empty array for a conversation with no stream state", () => {
-      const replay = getReplayWindow("conv_never_streamed", 0);
+    test("returns empty array when the ring is empty", () => {
+      const replay = getReplayWindow(0);
       expect(replay).toEqual([]);
     });
 
@@ -204,12 +218,12 @@ describe("conversation-stream-state", () => {
       stampAndBuffer(mkEvent()); // seq 2
       stampAndBuffer(mkEvent()); // seq 3
       // Client saw nothing → lastSeenSeq=0, oldest=1, replay [1,2,3].
-      const replay = getReplayWindow(CONV, 0);
+      const replay = getReplayWindow(0);
       expect(replay).not.toBeNull();
       expect(replay!.map((e) => e.seq)).toEqual([1, 2, 3]);
     });
 
-    test("evicts age-expired entries at read time on idle stream", () => {
+    test("evicts age-expired entries at read time on an idle stream", () => {
       const originalNow = Date.now;
       let fakeNow = 5_000_000;
       Date.now = () => fakeNow;
@@ -223,15 +237,14 @@ describe("conversation-stream-state", () => {
 
         // Eviction has not run since the last write -- the buffer still
         // physically holds [1, 2]. getReplayWindow must sweep first.
-        const replay = getReplayWindow(CONV, 0);
+        const replay = getReplayWindow(0);
 
         // Both events were past their TTL, so eviction drains the ring
-        // and the call returns [] (no replay possible, no snapshot
-        // needed either -- client claims they saw nothing and there is
-        // nothing left).
+        // and the call returns [] (no replay possible, no snapshot needed
+        // either -- client claims they saw nothing and there is nothing
+        // left).
         expect(replay).toEqual([]);
-        // State entry is dropped after the drain.
-        expect(_peekStreamForTesting(CONV)).toBeNull();
+        expect(_peekStreamForTesting().ringLength).toBe(0);
       } finally {
         Date.now = originalNow;
       }
@@ -252,17 +265,53 @@ describe("conversation-stream-state", () => {
         stampAndBuffer(mkEvent()); // seq 3
         // After this write, evict() already ran and dropped the stale
         // entries from the write path. Verify that.
-        const peek = _peekStreamForTesting(CONV);
-        expect(peek?.ringLength).toBe(1);
-        expect(peek?.oldestSeq).toBe(3);
+        const peek = _peekStreamForTesting();
+        expect(peek.ringLength).toBe(1);
+        expect(peek.oldestSeq).toBe(3);
 
         // Client reconnects claiming lastSeenSeq=1. Oldest buffered is
         // 3, so 1 < 3 - 1 = 2 -> snapshot fallback (null).
-        const replay = getReplayWindow(CONV, 1);
+        const replay = getReplayWindow(1);
         expect(replay).toBeNull();
       } finally {
         Date.now = originalNow;
       }
+    });
+  });
+
+  describe("getReplayWindow — conversation filter", () => {
+    test("restricts replay to a single conversation when conversationId is given", () => {
+      /**
+       * A scoped subscription only delivers its own conversation live, so
+       * replay must not push other conversations' buffered events.
+       */
+
+      // GIVEN events interleaved across two conversations in the global ring
+      stampAndBuffer(mkEvent({ conversationId: "conv_a" })); // seq 1
+      stampAndBuffer(mkEvent({ conversationId: "conv_b" })); // seq 2
+      stampAndBuffer(mkEvent({ conversationId: "conv_a" })); // seq 3
+      stampAndBuffer(mkEvent({ conversationId: "conv_b" })); // seq 4
+
+      // WHEN replay is scoped to conv_a
+      const replay = getReplayWindow(0, undefined, "conv_a");
+
+      // THEN only conv_a's events return, still in global seq order
+      expect(replay!.map((e) => e.seq)).toEqual([1, 3]);
+    });
+
+    test("unfiltered replay returns every conversation's events in seq order", () => {
+      /** The unfiltered (assistant-wide) stream resumes the whole ring. */
+
+      // GIVEN events across two conversations
+      stampAndBuffer(mkEvent({ conversationId: "conv_a" })); // seq 1
+      stampAndBuffer(mkEvent({ conversationId: "conv_b" })); // seq 2
+      stampAndBuffer(mkEvent({ conversationId: "conv_a" })); // seq 3
+
+      // WHEN replay is requested without a conversation filter
+      const replay = getReplayWindow(0);
+
+      // THEN all events return in one contiguous global seq order
+      expect(replay!.map((e) => e.seq)).toEqual([1, 2, 3]);
     });
   });
 
@@ -298,9 +347,9 @@ describe("conversation-stream-state", () => {
       stampAndBuffer(mkEvent());
 
       // WHEN each subscriber type requests replay
-      const macReplay = getReplayWindow(CONV, 0, MACOS_CLIENT);
-      const webReplay = getReplayWindow(CONV, 0, WEB_CLIENT);
-      const procReplay = getReplayWindow(CONV, 0, PROCESS_SUB);
+      const macReplay = getReplayWindow(0, MACOS_CLIENT);
+      const webReplay = getReplayWindow(0, WEB_CLIENT);
+      const procReplay = getReplayWindow(0, PROCESS_SUB);
 
       // THEN all see both events
       expect(macReplay!.map((e) => e.seq)).toEqual([1, 2]);
@@ -318,9 +367,9 @@ describe("conversation-stream-state", () => {
       });
 
       // WHEN each subscriber requests replay
-      const macReplay = getReplayWindow(CONV, 0, MACOS_CLIENT);
-      const webReplay = getReplayWindow(CONV, 0, WEB_CLIENT);
-      const procReplay = getReplayWindow(CONV, 0, PROCESS_SUB);
+      const macReplay = getReplayWindow(0, MACOS_CLIENT);
+      const webReplay = getReplayWindow(0, WEB_CLIENT);
+      const procReplay = getReplayWindow(0, PROCESS_SUB);
 
       // THEN macOS sees both; web and process see only the untargeted event
       expect(macReplay!.map((e) => e.seq)).toEqual([1, 2]);
@@ -337,9 +386,9 @@ describe("conversation-stream-state", () => {
       });
 
       // WHEN macOS and chrome-extension request replay
-      const macReplay = getReplayWindow(CONV, 0, MACOS_CLIENT);
-      const extReplay = getReplayWindow(CONV, 0, CHROME_EXT_CLIENT);
-      const webReplay = getReplayWindow(CONV, 0, WEB_CLIENT);
+      const macReplay = getReplayWindow(0, MACOS_CLIENT);
+      const extReplay = getReplayWindow(0, CHROME_EXT_CLIENT);
+      const webReplay = getReplayWindow(0, WEB_CLIENT);
 
       // THEN both capable clients see it; web does not
       expect(macReplay!.map((e) => e.seq)).toEqual([1]);
@@ -356,9 +405,9 @@ describe("conversation-stream-state", () => {
       });
 
       // WHEN different clients request replay
-      const macReplay = getReplayWindow(CONV, 0, MACOS_CLIENT);
-      const webReplay = getReplayWindow(CONV, 0, WEB_CLIENT);
-      const procReplay = getReplayWindow(CONV, 0, PROCESS_SUB);
+      const macReplay = getReplayWindow(0, MACOS_CLIENT);
+      const webReplay = getReplayWindow(0, WEB_CLIENT);
+      const procReplay = getReplayWindow(0, PROCESS_SUB);
 
       // THEN only the named client receives it
       expect(macReplay!.map((e) => e.seq)).toEqual([1]);
@@ -378,8 +427,8 @@ describe("conversation-stream-state", () => {
       });
 
       // WHEN the named client (without the capability) and macOS request replay
-      const webReplay = getReplayWindow(CONV, 0, WEB_CLIENT);
-      const macReplay = getReplayWindow(CONV, 0, MACOS_CLIENT);
+      const webReplay = getReplayWindow(0, WEB_CLIENT);
+      const macReplay = getReplayWindow(0, MACOS_CLIENT);
 
       // THEN neither receives it — web-1 lacks the capability, mac-1 isn't the target
       expect(webReplay).toEqual([]);
@@ -395,9 +444,9 @@ describe("conversation-stream-state", () => {
       });
 
       // WHEN web-1 and mac-1 request replay
-      const webReplay = getReplayWindow(CONV, 0, WEB_CLIENT);
-      const macReplay = getReplayWindow(CONV, 0, MACOS_CLIENT);
-      const procReplay = getReplayWindow(CONV, 0, PROCESS_SUB);
+      const webReplay = getReplayWindow(0, WEB_CLIENT);
+      const macReplay = getReplayWindow(0, MACOS_CLIENT);
+      const procReplay = getReplayWindow(0, PROCESS_SUB);
 
       // THEN web-1 is suppressed; mac-1 and process subscribers see it
       expect(webReplay).toEqual([]);
@@ -414,9 +463,9 @@ describe("conversation-stream-state", () => {
       });
 
       // WHEN different subscribers request replay
-      const macReplay = getReplayWindow(CONV, 0, MACOS_CLIENT);
-      const webReplay = getReplayWindow(CONV, 0, WEB_CLIENT);
-      const procReplay = getReplayWindow(CONV, 0, PROCESS_SUB);
+      const macReplay = getReplayWindow(0, MACOS_CLIENT);
+      const webReplay = getReplayWindow(0, WEB_CLIENT);
+      const procReplay = getReplayWindow(0, PROCESS_SUB);
 
       // THEN only the macos client receives it
       expect(macReplay!.map((e) => e.seq)).toEqual([1]);
@@ -441,8 +490,8 @@ describe("conversation-stream-state", () => {
       stampAndBuffer(mkEvent()); // seq 4: untargeted
 
       // WHEN each subscriber requests replay from seq 0
-      const macReplay = getReplayWindow(CONV, 0, MACOS_CLIENT);
-      const webReplay = getReplayWindow(CONV, 0, WEB_CLIENT);
+      const macReplay = getReplayWindow(0, MACOS_CLIENT);
+      const webReplay = getReplayWindow(0, WEB_CLIENT);
 
       // THEN macOS sees all four; web sees 1 + 4 (not 2=no capability, not 3=excluded)
       expect(macReplay!.map((e) => e.seq)).toEqual([1, 2, 3, 4]);
@@ -450,7 +499,7 @@ describe("conversation-stream-state", () => {
     });
 
     test("no subscriber argument returns all entries unfiltered", () => {
-      /** Backwards-compatible: omitting subscriber skips filtering. */
+      /** Omitting subscriber skips targeting filtering. */
 
       // GIVEN targeted and untargeted events
       stampAndBuffer(mkEvent());
@@ -459,26 +508,35 @@ describe("conversation-stream-state", () => {
       });
 
       // WHEN replay is requested without a subscriber
-      const replay = getReplayWindow(CONV, 0);
+      const replay = getReplayWindow(0);
 
       // THEN all events are returned
       expect(replay!.map((e) => e.seq)).toEqual([1, 2]);
     });
-  });
 
-  describe("clearConversationStream", () => {
-    test("drops all state for the conversation", () => {
-      stampAndBuffer(mkEvent());
-      stampAndBuffer(mkEvent());
-      expect(_peekStreamForTesting(CONV)).not.toBeNull();
+    test("subscriber and conversation filters compose", () => {
+      /**
+       * When both filters are supplied, an entry must satisfy targeting
+       * AND belong to the requested conversation.
+       */
 
-      clearConversationStream(CONV);
+      // GIVEN bash-targeted events across two conversations
+      stampAndBuffer(mkEvent({ conversationId: "conv_a" }), {
+        targeting: { targetCapability: "host_bash" },
+      }); // seq 1
+      stampAndBuffer(mkEvent({ conversationId: "conv_b" }), {
+        targeting: { targetCapability: "host_bash" },
+      }); // seq 2
+      stampAndBuffer(mkEvent({ conversationId: "conv_a" })); // seq 3 untargeted
 
-      expect(_peekStreamForTesting(CONV)).toBeNull();
-      // Subsequent emit starts seq fresh at 1.
-      const event = mkEvent();
-      stampAndBuffer(event);
-      expect(event.seq).toBe(1);
+      // WHEN a web client (no host_bash) replays scoped to conv_a
+      const webReplay = getReplayWindow(0, WEB_CLIENT, "conv_a");
+      // AND macOS replays scoped to conv_a
+      const macReplay = getReplayWindow(0, MACOS_CLIENT, "conv_a");
+
+      // THEN web sees only conv_a's untargeted event; macOS sees both conv_a entries
+      expect(webReplay!.map((e) => e.seq)).toEqual([3]);
+      expect(macReplay!.map((e) => e.seq)).toEqual([1, 3]);
     });
   });
 });

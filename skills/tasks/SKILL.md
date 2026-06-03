@@ -6,6 +6,7 @@ metadata:
   icon: assets/icon.svg
   emoji: "✅"
   vellum:
+    category: "productivity"
     display-name: "Tasks"
     activation-hints:
       - "User wants to add, check, or manage items on their to-do list or task queue"

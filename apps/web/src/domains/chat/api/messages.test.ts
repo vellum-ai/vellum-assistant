@@ -9,9 +9,8 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { client } from "@/generated/api/client.gen";
 import { client as daemonClient } from "@/generated/daemon/client.gen";
-import { getChatHistory, normalizeContentOrder, normalizeTextSegments, postChatMessage } from "@/domains/chat/api/messages";
+import { getChatHistory, normalizeContentOrder, postChatMessage } from "@/domains/chat/api/messages";
 import { messageText } from "@/domains/chat/utils/message-test-helpers";
 
 // ---------------------------------------------------------------------------
@@ -21,7 +20,7 @@ import { messageText } from "@/domains/chat/utils/message-test-helpers";
 let capturedBody: Record<string, unknown> | null = null;
 let nextPostResult: { data: unknown; error: unknown; response: Response };
 const originalPost = daemonClient.post;
-const originalGet = client.get;
+const originalGet = daemonClient.get;
 
 beforeEach(() => {
   capturedBody = null;
@@ -40,7 +39,7 @@ beforeEach(() => {
 
 afterEach(() => {
   daemonClient.post = originalPost;
-  client.get = originalGet;
+  daemonClient.get = originalGet;
 });
 
 // ---------------------------------------------------------------------------
@@ -159,58 +158,6 @@ describe("normalizeContentOrder", () => {
   });
 });
 
-describe("normalizeTextSegments", () => {
-  test("converts plain strings to text segment objects", () => {
-    const result = normalizeTextSegments(["Hello world", "Second segment"]);
-    expect(result).toEqual([
-      { type: "text", content: "Hello world" },
-      { type: "text", content: "Second segment" },
-    ]);
-  });
-
-  test("passes through already-object segments unchanged", () => {
-    const input = [
-      { type: "text", content: "Hello" },
-      { type: "markdown", content: "# Header" },
-    ];
-    const result = normalizeTextSegments(input);
-    expect(result).toEqual(input);
-  });
-
-  test("defaults type to text when object has content but no type", () => {
-    const result = normalizeTextSegments([
-      { content: "no type field" } as unknown as string,
-    ]);
-    expect(result).toEqual([{ type: "text", content: "no type field" }]);
-  });
-
-  test("handles mixed string and object entries", () => {
-    const result = normalizeTextSegments([
-      "plain string",
-      { type: "text", content: "object form" },
-    ]);
-    expect(result).toEqual([
-      { type: "text", content: "plain string" },
-      { type: "text", content: "object form" },
-    ]);
-  });
-
-  test("returns undefined for empty or missing input", () => {
-    expect(normalizeTextSegments(undefined)).toBeUndefined();
-    expect(normalizeTextSegments([])).toBeUndefined();
-  });
-
-  test("skips entries without content", () => {
-    const result = normalizeTextSegments([
-      "valid",
-      { type: "text" } as unknown as string,
-      42 as unknown as string,
-      null as unknown as string,
-    ]);
-    expect(result).toEqual([{ type: "text", content: "valid" }]);
-  });
-});
-
 describe("getChatHistory", () => {
   test("uses shared runtime mapping for Slack metadata and timestamps", async () => {
     const slackMessage = {
@@ -233,7 +180,7 @@ describe("getChatHistory", () => {
       },
     };
 
-    client.get = mock(async () => ({
+    daemonClient.get = mock(async () => ({
       data: {
         messages: [
           {
@@ -250,7 +197,7 @@ describe("getChatHistory", () => {
       },
       error: null,
       response: new Response(null, { status: 200 }),
-    })) as typeof client.get;
+    })) as typeof daemonClient.get;
 
     const result = await getChatHistory("assistant-1", "conv-key");
 

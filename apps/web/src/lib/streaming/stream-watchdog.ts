@@ -8,18 +8,16 @@
  * watchdog aborts the active fetch when no SSE traffic (events OR
  * heartbeat comments) arrives within a configurable window.
  *
- * Telemetry is recorded to both the durable lifecycle diagnostics ring
- * (via {@link recordLifecycleDiagnostic}) and Sentry (breadcrumb +
- * captureMessage) so fleet-wide stall frequency can be measured without
- * relying on user-submitted diagnostic bundles.
+ * Telemetry is recorded to the durable lifecycle diagnostics ring
+ * (via {@link recordLifecycleDiagnostic}) and as a Sentry breadcrumb
+ * that attaches to any nearby error event for debugging context.
  *
  * @see https://docs.sentry.io/platforms/javascript/enriching-events/breadcrumbs/
- * @see https://docs.sentry.io/product/explore/discover-queries/
  */
 
 import * as Sentry from "@sentry/react";
 
-import { recordLifecycleDiagnostic, resolvePlatformTag } from "@/lib/diagnostics";
+import { recordLifecycleDiagnostic } from "@/lib/diagnostics";
 import type { StreamReconnectCause } from "@/lib/streaming/stream-transport";
 
 // ---------------------------------------------------------------------------
@@ -128,43 +126,17 @@ export function createStreamWatchdog(
         dataFramesReceivedSinceConnect,
       });
 
-      // Mirror into Sentry for fleet-wide aggregation.
-      // sessionStorage diagnostics only ship when a user manually
-      // attaches a bundle, biasing toward broken-and-noisy cases.
-      // Sentry breadcrumbs + captureMessage give an aggregable count
-      // across all users.
+      // Breadcrumb-only: attaches to any nearby Sentry error event for
+      // debugging context. No captureMessage — watchdog fires are
+      // expected on iOS (background/foreground cycle) and generate
+      // noise as a standalone Sentry issue. Fleet-wide stall frequency
+      // belongs in an analytics pipeline, not Sentry issues.
       // @see https://docs.sentry.io/platforms/javascript/enriching-events/breadcrumbs/
       Sentry.addBreadcrumb({
         category: "sse.watchdog",
         level: "warning",
         message: "watchdog_fired",
         data: {
-          assistantId,
-          attempt,
-          idleTimeoutMs,
-          wasTurnSending,
-          lastByteAgeMs,
-          keepalivesReceivedSinceConnect,
-          dataFramesReceivedSinceConnect,
-        },
-      });
-      Sentry.captureMessage("sse_watchdog_fired", {
-        level: "warning",
-        // `platform` distinguishes Capacitor iOS from Safari iOS —
-        // Sentry's auto-detected os.name does not, but the watchdog
-        // is iOS-specific so the L2/L3 decision needs the breakdown.
-        // `wasTurnSending` is promoted to a tag so the user-harming
-        // vs benign split is queryable in Discover without per-event
-        // drill-in.
-        // @see https://docs.sentry.io/concepts/key-terms/key-terms/#tags
-        tags: {
-          context: "sse_watchdog",
-          platform: resolvePlatformTag(),
-          attempt: String(attempt),
-          wasTurnSending:
-            wasTurnSending === null ? "unknown" : String(wasTurnSending),
-        },
-        extra: {
           assistantId,
           attempt,
           idleTimeoutMs,

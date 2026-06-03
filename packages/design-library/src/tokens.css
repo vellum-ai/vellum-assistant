@@ -248,6 +248,8 @@
   --feed-nudge-weak: #F0D9E0;
   --feed-digest-strong: #0E9B8B;
   --feed-digest-weak: #C8E5E2;
+  /* credits/coins accent (teal) */
+  --credits-accent: #0E9B8B;
   --feed-thread-strong: #E9C91A;
   --feed-thread-weak: #EFE8C4;
 
@@ -328,6 +330,8 @@
   --feed-nudge-weak: #432B33;
   --feed-digest-strong: #0E9B8B;
   --feed-digest-weak: #293D3B;
+  /* credits/coins accent (teal) */
+  --credits-accent: #0E9B8B;
   --feed-thread-strong: #E9C91A;
   --feed-thread-weak: #464125;
 
@@ -414,6 +418,8 @@
   --feed-nudge-weak: #432B33;
   --feed-digest-strong: #0E9B8B;
   --feed-digest-weak: #293D3B;
+  /* credits/coins accent (teal) */
+  --credits-accent: #0E9B8B;
   --feed-thread-strong: #E9C91A;
   --feed-thread-weak: #464125;
 

@@ -1,5 +1,5 @@
 import { Loader2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Dropdown } from "@vellum/design-library/components/dropdown";
@@ -55,46 +55,46 @@ export function WebSearchCard() {
   const provisionProviderKey = useProvisionProviderKey();
   const queryClient = useQueryClient();
 
-  // --- Form state (local, unsaved) ---
-  const [saving, setSaving] = useState(false);
-  const [webSearchMode, setWebSearchMode] = useState<ServiceMode>(
-    () => getLocalSetting(LS_WEB_SEARCH_MODE, "your-own") as ServiceMode,
-  );
-  const [webSearchProvider, setWebSearchProvider] = useState(() =>
-    getLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native"),
-  );
-  const [webSearchApiKey, setWebSearchApiKey] = useState("");
-
-  // --- Saved state derived from daemon config ---
-  // Optimistic override bridges the gap between a successful save and the
-  // async daemon config refetch. Without it, savedWebSearch* would reflect
-  // stale config during the refetch window, making configChanged=true and
-  // briefly re-enabling the save button.
-  const [savedOverride, setSavedOverride] = useState<{
-    mode: ServiceMode;
-    provider: string;
-  } | null>(null);
-  const reconciled = useMemo(
-    () => (daemonConfig ? reconcileFromDaemonConfig(daemonConfig) : null),
-    [daemonConfig],
-  );
-  // Clear override once daemon config catches up.
-  useEffect(() => {
-    if (reconciled) setSavedOverride(null);
-  }, [reconciled]);
-  const savedWebSearchMode = savedOverride?.mode ?? reconciled?.webSearchMode ?? webSearchMode;
-  const savedWebSearchProvider = savedOverride?.provider ?? reconciled?.webSearchProvider ?? webSearchProvider;
-
-  // Seed form state from daemon config on first load. Subsequent config
-  // refetches (after save) do not overwrite in-progress edits.
-  const initialized = useRef(false);
-  useEffect(() => {
-    if (!daemonConfig || initialized.current) return;
-    initialized.current = true;
-    const r = reconcileFromDaemonConfig(daemonConfig);
-    if (r.webSearchMode) setWebSearchMode(r.webSearchMode);
-    if (r.webSearchProvider) setWebSearchProvider(r.webSearchProvider);
+  // Server values derived from daemon config, falling back to localStorage.
+  // When the cache refreshes (after save + invalidation), these update
+  // automatically.
+  const serverWebSearchMode = useMemo<ServiceMode>(() => {
+    if (!daemonConfig) return getLocalSetting(LS_WEB_SEARCH_MODE, "your-own") as ServiceMode;
+    const reconciled = reconcileFromDaemonConfig(daemonConfig);
+    return reconciled.webSearchMode ?? (getLocalSetting(LS_WEB_SEARCH_MODE, "your-own") as ServiceMode);
   }, [daemonConfig]);
+
+  const serverWebSearchProvider = useMemo(() => {
+    if (!daemonConfig) return getLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native");
+    const reconciled = reconcileFromDaemonConfig(daemonConfig);
+    return reconciled.webSearchProvider ?? getLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native");
+  }, [daemonConfig]);
+
+  // Draft overrides — null means the user hasn't changed the value yet.
+  const [saving, setSaving] = useState(false);
+  const [draftWebSearchMode, setDraftWebSearchMode] = useState<ServiceMode | null>(null);
+  const [draftWebSearchProvider, setDraftWebSearchProvider] = useState<string | null>(null);
+
+  // Auto-clear drafts once the server value catches up after save.
+  // Avoids a UI flicker where the mode toggle briefly reverts to the
+  // stale server value during the cache refetch window.
+  useEffect(() => {
+    if (draftWebSearchMode !== null && serverWebSearchMode === draftWebSearchMode) {
+      setDraftWebSearchMode(null);
+    }
+  }, [serverWebSearchMode, draftWebSearchMode]);
+
+  useEffect(() => {
+    if (draftWebSearchProvider !== null && serverWebSearchProvider === draftWebSearchProvider) {
+      setDraftWebSearchProvider(null);
+    }
+  }, [serverWebSearchProvider, draftWebSearchProvider]);
+
+  // Effective values: user draft takes precedence over server.
+  const webSearchMode = draftWebSearchMode ?? serverWebSearchMode;
+  const webSearchProvider = draftWebSearchProvider ?? serverWebSearchProvider;
+
+  const [webSearchApiKey, setWebSearchApiKey] = useState("");
 
   // --- Secret presence query (TanStack Query) ---
   const isOrgReady = useIsOrgReady();
@@ -144,8 +144,8 @@ export function WebSearchCard() {
   const effectiveProvider =
     webSearchMode === "managed" ? "inference-provider-native" : webSearchProvider;
   const configChanged =
-    webSearchMode !== savedWebSearchMode ||
-    effectiveProvider !== savedWebSearchProvider;
+    webSearchMode !== serverWebSearchMode ||
+    effectiveProvider !== serverWebSearchProvider;
   const needsKeyBeforeSave =
     webSearchMode === "your-own" &&
     requiresProviderCredential &&
@@ -179,9 +179,6 @@ export function WebSearchCard() {
         captureError(error, { context: "patch_daemon_config" });
         throw error;
       });
-      // Optimistically mark these values as "saved" so configChanged stays
-      // false while the async config refetch is in flight.
-      setSavedOverride({ mode: webSearchMode, provider: providerToSave });
     } catch {
       setSaving(false);
       return;
@@ -190,7 +187,6 @@ export function WebSearchCard() {
     try {
       setLocalSetting(LS_WEB_SEARCH_MODE, webSearchMode);
       setLocalSetting(LS_WEB_SEARCH_PROVIDER, providerToSave);
-      setWebSearchProvider(providerToSave);
       if (hasUserKey) {
         if (storageKey) {
           setLocalSetting(storageKey, trimmed);
@@ -227,7 +223,7 @@ export function WebSearchCard() {
       removeLocalSetting(storageKey);
     }
     setWebSearchApiKey("");
-    setWebSearchProvider("inference-provider-native");
+    setDraftWebSearchProvider("inference-provider-native");
     setLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native");
   }, [webSearchProvider]);
 
@@ -236,7 +232,7 @@ export function WebSearchCard() {
       title="Web Search"
       subtitle="Configure how your assistant should search the web"
       mode={webSearchMode}
-      onModeChange={(m) => setWebSearchMode(m)}
+      onModeChange={(m) => setDraftWebSearchMode(m)}
     >
       {webSearchMode === "managed" ? (
         <div className="space-y-3">
@@ -256,7 +252,7 @@ export function WebSearchCard() {
             </label>
             <Dropdown
               value={webSearchProvider}
-              onChange={setWebSearchProvider}
+              onChange={setDraftWebSearchProvider}
               options={WEB_SEARCH_PROVIDER_IDS.map((p) => ({
                 value: p,
                 label: WEB_SEARCH_PROVIDER_DISPLAY_NAMES[p] ?? p,
