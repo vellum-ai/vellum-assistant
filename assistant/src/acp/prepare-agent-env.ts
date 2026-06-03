@@ -22,15 +22,19 @@
 
 import { basename } from "node:path";
 
+import { getIsPlatform } from "../config/env-registry.js";
 import { FailedDependencyError } from "../runtime/routes/errors.js";
 import { credentialBroker } from "../tools/credentials/broker.js";
 import {
   getCredentialMetadata,
   upsertCredentialMetadata,
 } from "../tools/credentials/metadata-store.js";
+import { getLogger } from "../util/logger.js";
 import type { AcpAgentConfig } from "./types.js";
 
 const ACP_SPAWN_TOOL = "acp_spawn";
+
+const log = getLogger("acp:prepare-agent-env");
 
 /**
  * Ensure the `acp/<field>` credential has metadata that allows the
@@ -100,6 +104,17 @@ function ensureAcpTokenPolicy(field: string, usageDescription: string): void {
  * codex adapter if this helper reads it and re-injects it into the returned
  * `env` (which survives F1's strip). Whichever source wins, BOTH
  * `OPENAI_API_KEY` and `CODEX_API_KEY` are injected.
+ *
+ * If NO codex credential resolves from any of those three routes, the
+ * missing-key handling is PLATFORM-SCOPED:
+ *   - Platform-hosted (`getIsPlatform()` true): THROW `FailedDependencyError`.
+ *     Hosted pods have no interactive terminal, so the `codex login`
+ *     (ChatGPT OAuth) flow is unavailable and an API key is mandatory.
+ *   - Local (non-platform): DO NOT throw. A locally logged-in `codex` CLI
+ *     authenticates from its own stored auth state (`~/.codex`, via
+ *     `codex login`), so the spawn must be allowed to proceed without us
+ *     forcing any `OPENAI_API_KEY`/`CODEX_API_KEY`. We inject nothing extra
+ *     and let the adapter read its own auth state.
  */
 export async function prepareAgentEnv(
   agentConfig: AcpAgentConfig,
@@ -168,14 +183,27 @@ export async function prepareAgentEnv(
       }
     }
     if (!env.OPENAI_API_KEY && !env.CODEX_API_KEY) {
-      throw new FailedDependencyError(
-        "codex-acp requires an OpenAI/Codex API key (OPENAI_API_KEY or CODEX_API_KEY) " +
-          "for hosted/agent-driven spawns. Resolution order: acp.agents.<id>.env in " +
-          "config.json → vault (assistant credentials set --service acp --field " +
-          "openai_api_key <key>) → ambient OPENAI_API_KEY/CODEX_API_KEY in the daemon " +
-          "environment. None were set. The interactive `codex login` (ChatGPT OAuth) " +
-          "flow is a local-only path and is not available on platform-hosted pods, so " +
-          "an API key is required here.",
+      // No credential from any route. The requirement is platform-scoped:
+      // hosted pods have no interactive `codex login`, so an API key is
+      // mandatory and we fail fast. Local assistants CAN authenticate via the
+      // codex CLI's own stored OAuth state (`codex login`, ~/.codex), so we
+      // let the spawn proceed without forcing any key and let the adapter
+      // read its own auth state.
+      if (getIsPlatform()) {
+        throw new FailedDependencyError(
+          "codex-acp requires an OpenAI/Codex API key (OPENAI_API_KEY or CODEX_API_KEY) " +
+            "for hosted/agent-driven spawns. Resolution order: acp.agents.<id>.env in " +
+            "config.json → vault (assistant credentials set --service acp --field " +
+            "openai_api_key <key>) → ambient OPENAI_API_KEY/CODEX_API_KEY in the daemon " +
+            "environment. None were set. The interactive `codex login` (ChatGPT OAuth) " +
+            "flow is a local-only path and is not available on platform-hosted pods, so " +
+            "an API key is required here.",
+        );
+      }
+      log.debug(
+        "codex-acp: no API key resolved (agent.env/vault/ambient); proceeding " +
+          "on local (non-platform) assistant so the codex CLI can use its own " +
+          "stored OAuth/auth state (codex login, ~/.codex).",
       );
     }
   }

@@ -119,21 +119,31 @@ function restoreEnv(name: string, prev: string | undefined): void {
 // Snapshot + clear any ambient codex/openai creds the test daemon may have
 // exported, so the vault/agent.env/throw paths exercise the intended source
 // rather than silently picking up an ambient key. Restored in afterEach.
+//
+// IS_PLATFORM gates the codex-acp missing-key handling (throw on hosted pods,
+// proceed locally). `getIsPlatform()` reads `process.env.IS_PLATFORM` via the
+// dependency-free env-registry flag helper, so we toggle it through the env
+// var directly. Default each test to the LOCAL (non-platform) posture and
+// snapshot/restore so a leaked value can't cross-contaminate.
 let savedOpenAiKey: string | undefined;
 let savedCodexKey: string | undefined;
+let savedIsPlatform: string | undefined;
 
 beforeEach(() => {
   metadataStore.clear();
   vaultStore.clear();
   savedOpenAiKey = process.env.OPENAI_API_KEY;
   savedCodexKey = process.env.CODEX_API_KEY;
+  savedIsPlatform = process.env.IS_PLATFORM;
   delete process.env.OPENAI_API_KEY;
   delete process.env.CODEX_API_KEY;
+  delete process.env.IS_PLATFORM;
 });
 
 afterEach(() => {
   restoreEnv("OPENAI_API_KEY", savedOpenAiKey);
   restoreEnv("CODEX_API_KEY", savedCodexKey);
+  restoreEnv("IS_PLATFORM", savedIsPlatform);
 });
 
 // ---------------------------------------------------------------------------
@@ -290,6 +300,10 @@ describe("prepareAgentEnv — codex-acp gating", () => {
   });
 
   test("respects explicit tool policy that excludes acp_spawn", async () => {
+    // The broker denies the vault read (policy excludes acp_spawn), so no
+    // credential resolves. On platform that is fatal; pin the throw under the
+    // hosted posture so this asserts the denial, not the platform default.
+    process.env.IS_PLATFORM = "true";
     metadataStore.set("acp/openai_api_key", { allowedTools: ["other_tool"] });
     seedVaultOpenAiKey("vault-openai-restricted");
 
@@ -387,11 +401,64 @@ describe("prepareAgentEnv — codex-acp gating", () => {
     expect(prepared.env?.CODEX_API_KEY).toBeUndefined();
   });
 
-  test("throws FailedDependencyError when no key is provided from any route", async () => {
+  test("PLATFORM + no key from any route → throws FailedDependencyError", async () => {
     // beforeEach already cleared ambient OPENAI_API_KEY/CODEX_API_KEY.
+    // On platform-hosted pods there is no interactive `codex login`, so a
+    // missing key is fatal.
+    process.env.IS_PLATFORM = "true";
+
     await expect(
       prepareAgentEnv({ command: "codex-acp", args: [] }),
     ).rejects.toThrow("codex-acp requires an OpenAI/Codex API key");
+  });
+
+  test("LOCAL (non-platform) + no key from any route → does NOT throw, no OPENAI/CODEX vars forced", async () => {
+    // beforeEach leaves IS_PLATFORM unset (local). A locally logged-in codex
+    // CLI authenticates from its own stored OAuth state, so the spawn must be
+    // allowed to proceed and we must NOT force any OPENAI_API_KEY/CODEX_API_KEY.
+    const prepared = await prepareAgentEnv({ command: "codex-acp", args: [] });
+
+    expect(prepared.env?.OPENAI_API_KEY).toBeUndefined();
+    expect(prepared.env?.CODEX_API_KEY).toBeUndefined();
+  });
+
+  test("LOCAL (non-platform) preserves unrelated agent.env without forcing codex keys", async () => {
+    const prepared = await prepareAgentEnv({
+      command: "codex-acp",
+      args: [],
+      env: { OTHER_VAR: "keep-me" },
+    });
+
+    expect(prepared.env?.OTHER_VAR).toBe("keep-me");
+    expect(prepared.env?.OPENAI_API_KEY).toBeUndefined();
+    expect(prepared.env?.CODEX_API_KEY).toBeUndefined();
+  });
+
+  test("a resolved credential injects BOTH vars regardless of platform (platform=true)", async () => {
+    // A present credential short-circuits the platform-scoped missing-key
+    // branch entirely: injection is identical on platform and local.
+    process.env.IS_PLATFORM = "true";
+    seedVaultOpenAiKey("vault-platform-key");
+
+    const prepared = await prepareAgentEnv({
+      command: "codex-acp",
+      args: [],
+    });
+
+    expect(prepared.env?.OPENAI_API_KEY).toBe("vault-platform-key");
+    expect(prepared.env?.CODEX_API_KEY).toBe("vault-platform-key");
+  });
+
+  test("a resolved credential injects BOTH vars regardless of platform (local)", async () => {
+    seedVaultOpenAiKey("vault-local-key");
+
+    const prepared = await prepareAgentEnv({
+      command: "codex-acp",
+      args: [],
+    });
+
+    expect(prepared.env?.OPENAI_API_KEY).toBe("vault-local-key");
+    expect(prepared.env?.CODEX_API_KEY).toBe("vault-local-key");
   });
 
   test("gates on the resolved command BASENAME (alias to /custom/path/codex-acp still gets the key)", async () => {
