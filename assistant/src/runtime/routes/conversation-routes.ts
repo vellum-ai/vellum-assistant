@@ -2569,6 +2569,18 @@ export const ROUTES: RouteDefinition[] = [
       conversationType: z.string().optional(),
       slashCommand: z.string().optional(),
       clientTimezone: z.string().optional(),
+      incognito: z
+        .boolean()
+        .describe(
+          "When true, mint the conversation as incognito so it never produces memories.",
+        )
+        .optional(),
+      factorInMemories: z
+        .boolean()
+        .describe(
+          "For incognito conversations, whether existing memories are factored in. Ignored when incognito is not set.",
+        )
+        .optional(),
       inferenceProfile: z.string().nullable().optional(),
       riskThreshold: z.enum(VALID_RISK_THRESHOLDS).optional(),
       onboarding: z

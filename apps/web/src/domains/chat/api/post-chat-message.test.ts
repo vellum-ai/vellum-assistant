@@ -240,7 +240,7 @@ describe("postChatMessage incognito payload", () => {
   });
 
   function getMessageBody(): Record<string, unknown> {
-    const requests = capturedRequests.filter((r) => r.url.includes("/messages/"));
+    const requests = capturedRequests.filter((r) => r.url.includes("/messages"));
     expect(requests).toHaveLength(1);
     return JSON.parse(requests[0]!.body) as Record<string, unknown>;
   }

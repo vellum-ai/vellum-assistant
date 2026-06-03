@@ -15263,6 +15263,12 @@ paths:
                   type: string
                 clientTimezone:
                   type: string
+                incognito:
+                  type: boolean
+                  description: When true, mint the conversation as incognito so it never produces memories.
+                factorInMemories:
+                  type: boolean
+                  description: For incognito conversations, whether existing memories are factored in. Ignored when incognito is not set.
                 inferenceProfile:
                   anyOf:
                     - type: string
