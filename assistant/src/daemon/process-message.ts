@@ -437,9 +437,7 @@ export async function processMessage(
     conversation.getMessages().push(cleanMsg);
 
     conversation.emitActivityState("thinking", "context_compacting");
-    const result = await conversation.forceCompact({
-      targetInputTokensOverride: slashResult.targetInputTokensOverride,
-    });
+    const result = await conversation.forceCompact();
     const responseText = formatCompactResult(result);
     const assistantMsg = createAssistantMessage(responseText);
     const persistedAssistant = await addMessage(

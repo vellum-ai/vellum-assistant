@@ -1907,9 +1907,7 @@ export async function handleSendMessage(
         });
         publishConversationMessagesChanged(conversationId, originClientId);
         conversation.emitActivityState("thinking", "context_compacting");
-        const result = await conversation.forceCompact({
-          targetInputTokensOverride: slashResult.targetInputTokensOverride,
-        });
+        const result = await conversation.forceCompact();
         const responseText = formatCompactResult(result);
 
         const assistantMsg = createAssistantMessage(responseText);

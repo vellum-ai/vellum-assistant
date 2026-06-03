@@ -2102,8 +2102,6 @@ export async function runAgentLoopImpl(
         // resolves the pipeline options.
         return {
           options: {
-            targetInputTokensOverride:
-              resolveCurrentContextBudget().preflightBudget,
             overrideProfile: resolveCurrentOverrideProfile() ?? null,
             actorTrustClass: ctx.trustContext?.trustClass,
           },
@@ -2627,7 +2625,6 @@ export async function runAgentLoopImpl(
                 options: {
                   force: true,
                   minKeepRecentUserTurns: 0,
-                  targetInputTokensOverride: correctedTarget,
                   overrideProfile: resolveCurrentOverrideProfile() ?? null,
                 },
               },

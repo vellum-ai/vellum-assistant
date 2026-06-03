@@ -103,13 +103,12 @@ export interface ContextWindowCompactOptions {
    */
   precomputedEstimate?: number;
   /**
-   * Legacy fields retained for backwards compatibility with existing
-   * callers. The new assistant-driven compactor does not consume them —
-   * the model decides where to cut and what to keep — but accepting them
+   * Legacy field retained for backwards compatibility with existing
+   * callers. The new assistant-driven compactor does not consume it —
+   * the model decides where to cut and what to keep — but accepting it
    * here lets callers keep their existing call sites unchanged.
    */
   minKeepRecentUserTurns?: number;
-  targetInputTokensOverride?: number;
   /**
    * Trust class of the actor whose turn triggered compaction. Forwarded to
    * the compactor so the image manifest excludes guardian-only attachments

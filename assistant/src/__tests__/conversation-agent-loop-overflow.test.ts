@@ -1151,22 +1151,13 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
   });
 
   // ── Test 3 ────────────────────────────────────────────────────────
-  // BUG: When the provider rejection reveals actual token count (e.g.,
-  // "242201 tokens > 200000"), the reducer should target a budget below
-  // the actual limit (not below the estimator's inaccurate budget).
-  // Currently the reducer always uses `preflightBudget` (190k) as the
-  // target, but the actual tokens were 242k — so 190k is already too
-  // high relative to the real count. The target should be adjusted
-  // downward based on the observed mismatch.
-  //
-  // Expected behavior (PR 4 fix): `targetInputTokensOverride` should
-  // be adjusted based on the ratio between estimated and actual tokens.
-  // BUG: The targetTokens passed to the reducer is preflightBudget = 190k.
-  // But when the actual token count is 242k (1.31x the estimate of 185k),
-  // the target should be adjusted downward to account for the estimation
-  // inaccuracy. For example: 190k / 1.31 ≈ 145k.
-  // Planned fix: targetInputTokensOverride should be adjusted based on
-  // the ratio between estimated and actual tokens.
+  // When the provider rejection reveals the actual token count (e.g.,
+  // "242201 tokens > 200000"), the overflow reducer's `targetTokens`
+  // should be a budget below the actual limit, not below the estimator's
+  // inaccurate budget. With a preflightBudget of 190k but an actual count
+  // of 242k (1.31x the estimate of 185k), the target is adjusted downward
+  // based on the observed mismatch (190k / 1.31 ≈ 145k) so the reducer
+  // converges toward the real ceiling rather than the optimistic estimate.
   test.todo(
     "forced compaction targets a lower budget when estimation has been inaccurate",
     async () => {

@@ -1019,9 +1019,7 @@ export class Conversation {
     }
   }
 
-  async forceCompact(options?: {
-    targetInputTokensOverride?: number;
-  }): Promise<ContextWindowResult> {
+  async forceCompact(): Promise<ContextWindowResult> {
     const conversationRow = getConversation(this.conversationId);
     const overrideProfile =
       getConversationOverrideProfileFromRow(conversationRow) ?? null;
@@ -1066,7 +1064,6 @@ export class Conversation {
       {
         force: true,
         overrideProfile,
-        targetInputTokensOverride: options?.targetInputTokensOverride,
         actorTrustClass: this.trustContext?.trustClass,
       },
     );
