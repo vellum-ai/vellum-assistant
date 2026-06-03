@@ -323,14 +323,15 @@ export async function listAssistantBackups(
 
   if (response.ok) {
     const body = data as {
-      local?: DaemonSnapshot[];
+      local?: { snapshots?: DaemonSnapshot[] };
       offsite?: Array<{ snapshots?: DaemonSnapshot[] }>;
     };
 
     const snapshots: AssistantBackup[] = [];
 
-    if (Array.isArray(body.local)) {
-      for (const s of body.local) {
+    const localSnapshots = body.local?.snapshots;
+    if (Array.isArray(localSnapshots)) {
+      for (const s of localSnapshots) {
         snapshots.push({
           snapshot_name: s.filename,
           pvc: "",
