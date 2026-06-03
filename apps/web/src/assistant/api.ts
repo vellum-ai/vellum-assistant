@@ -5,6 +5,7 @@ import {
 
 import {
   assistantsActivateCreate,
+  assistantsBackupsCreate,
   assistantsHatchCreate,
   assistantsList,
   assistantsRestartDetailCreate,
@@ -377,10 +378,19 @@ export type CreateBackupResult =
 export async function createAssistantBackup(
   assistantId: string,
 ): Promise<CreateBackupResult> {
-  const { data, error, response } = await backupsCreatePost({
-    path: { assistant_id: assistantId },
-    throwOnError: false,
-  });
+  // In platform mode, backup creation goes through Django → vembda (K8s
+  // VolumeSnapshots). The daemon rejects create requests with a "moved
+  // to gateway" error, so the daemon SDK path is only valid in
+  // self-hosted mode where the interceptor rewrites to the gateway.
+  const { data, error, response } = isGatewayAuthMode()
+    ? await backupsCreatePost({
+        path: { assistant_id: assistantId },
+        throwOnError: false,
+      })
+    : await assistantsBackupsCreate({
+        path: { assistant_id: assistantId },
+        throwOnError: false,
+      });
 
   assertHasResponse(response, error, "Failed to create assistant backup.");
 
