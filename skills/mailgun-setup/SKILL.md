@@ -6,6 +6,7 @@ metadata:
   icon: assets/icon.svg
   emoji: "📬"
   vellum:
+    category: "email"
     display-name: "Mailgun Email Setup"
     user-invocable: true
 ---

@@ -6,6 +6,7 @@ metadata:
   icon: assets/icon.svg
   emoji: "📱"
   vellum:
+    category: "integrations"
     display-name: "Twilio Setup"
     includes: ["public-ingress"]
 ---

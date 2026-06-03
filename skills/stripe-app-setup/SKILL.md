@@ -6,6 +6,7 @@ metadata:
   icon: assets/icon.svg
   emoji: "💳"
   vellum:
+    category: "commerce"
     display-name: "Stripe App Setup"
     user-invocable: true
 ---

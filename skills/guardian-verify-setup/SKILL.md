@@ -5,6 +5,7 @@ compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🔐"
   vellum:
+    category: "integrations"
     display-name: "Guardian Verify Setup"
     activation-hints:
       - "Any guardian verification intent -> load this skill exclusively"

@@ -5,6 +5,7 @@ metadata:
   icon: assets/icon.svg
   emoji: "💳"
   vellum:
+    category: "commerce"
     display-name: "Stripe Link Wallet"
 compatibility: "Designed for Vellum personal assistants"
 ---
