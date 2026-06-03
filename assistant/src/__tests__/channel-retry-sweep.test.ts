@@ -2,37 +2,11 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { asc, eq } from "drizzle-orm";
 
-const logEntries: Array<{
-  level: "debug" | "error" | "info" | "warn";
-  fields?: Record<string, unknown>;
-  message?: string;
-}> = [];
-
-function recordLog(
-  level: "debug" | "error" | "info" | "warn",
-  args: unknown[],
-): void {
-  const [first, second] = args;
-  const fields =
-    first && typeof first === "object" && !Array.isArray(first)
-      ? (first as Record<string, unknown>)
-      : undefined;
-  const message =
-    typeof second === "string"
-      ? second
-      : typeof first === "string"
-        ? first
-        : undefined;
-  logEntries.push({ level, fields, message });
-}
-
 mock.module("../util/logger.js", () => ({
-  getLogger: () => ({
-    debug: (...args: unknown[]) => recordLog("debug", args),
-    error: (...args: unknown[]) => recordLog("error", args),
-    info: (...args: unknown[]) => recordLog("info", args),
-    warn: (...args: unknown[]) => recordLog("warn", args),
-  }),
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: () => () => {},
+    }),
 }));
 
 const deliveryCalls: Array<{
@@ -215,25 +189,11 @@ function parseStoredPayload(
   return JSON.parse(rawPayload) as Record<string, unknown>;
 }
 
-function findReplayLog(
-  eventId: string,
-  retryClass: "delivery_retry" | "processing_retry",
-): (typeof logEntries)[number] | undefined {
-  return logEntries.find(
-    (entry) =>
-      entry.level === "info" &&
-      entry.message === "Replaying Slack channel event" &&
-      entry.fields?.inboundEventId === eventId &&
-      entry.fields?.retryClass === retryClass,
-  );
-}
-
 describe("channel-retry-sweep", () => {
   beforeEach(() => {
     resetTables();
     deliveryCalls.length = 0;
     liveDeliveryCalls.length = 0;
-    logEntries.length = 0;
     deliverReplyViaCallbackImpl = async () => {};
     deliverChannelReplyImpl = async () => ({ ok: true });
   });
@@ -927,7 +887,7 @@ describe("channel-retry-sweep", () => {
     expect(row?.deliveryStatus).toBe("delivered");
   });
 
-  test("Slack replay logs and dead-letter metadata distinguish regenerated replies from delivery-only retries", async () => {
+  test("Slack dead-letter diagnostics distinguish regenerated replies from delivery-only retries", async () => {
     const processingInbound = deliveryCrud.recordInbound(
       "slack",
       "C-RETRY-THREAD",
@@ -1008,33 +968,6 @@ describe("channel-retry-sweep", () => {
       return { messageId: "user-processing-retry" };
     });
 
-    const processingLog = findReplayLog(
-      processingInbound.eventId,
-      "processing_retry",
-    );
-    const deliveryLog = findReplayLog(
-      deliveryInbound.eventId,
-      "delivery_retry",
-    );
-    expect(processingLog?.fields).toMatchObject({
-      inboundEventId: processingInbound.eventId,
-      retryClass: "processing_retry",
-      externalChatId: "C-RETRY-THREAD",
-      replyCallbackUrl:
-        "https://example.test/deliver/slack?channel=C-RETRY-THREAD&threadTs=1700000000.000101",
-      threadTs: "1700000000.000101",
-      replayMode: "regenerate_reply",
-    });
-    expect(deliveryLog?.fields).toMatchObject({
-      inboundEventId: deliveryInbound.eventId,
-      retryClass: "delivery_retry",
-      externalChatId: "D-RETRY-DM",
-      replyCallbackUrl:
-        "https://example.test/deliver/slack?channel=D-RETRY-DM&messageTs=1700000000.000202",
-      messageTs: "1700000000.000202",
-      replayMode: "redeliver_existing_reply",
-    });
-
     const processingRow = db
       .select()
       .from(channelInboundEvents)
@@ -1052,6 +985,11 @@ describe("channel-retry-sweep", () => {
 
     expect(processingRow?.processingStatus).toBe("processed");
     expect(processingRow?.deliveryStatus).toBe("dead_letter");
+    expect(processingRow?.lastProcessingError).toContain("processing_retry");
+    expect(processingRow?.lastProcessingError).toContain("regenerate_reply");
+    expect(processingRow?.lastProcessingError).toContain(
+      "threadTs=1700000000.000101",
+    );
     expect(processingFailure).toMatchObject({
       reason: "invalid callback payload",
       stage: "callback_delivery",
@@ -1062,6 +1000,13 @@ describe("channel-retry-sweep", () => {
     });
     expect(deliveryRow?.processingStatus).toBe("processed");
     expect(deliveryRow?.deliveryStatus).toBe("dead_letter");
+    expect(deliveryRow?.lastProcessingError).toContain("delivery_retry");
+    expect(deliveryRow?.lastProcessingError).toContain(
+      "redeliver_existing_reply",
+    );
+    expect(deliveryRow?.lastProcessingError).toContain(
+      "messageTs=1700000000.000202",
+    );
     expect(deliveryFailure).toMatchObject({
       reason: "invalid callback payload",
       stage: "callback_delivery",
