@@ -7,6 +7,7 @@ mock.module("@/runtime/is-electron", () => ({
 }));
 
 const {
+  GuardianTokenError,
   hatchLocalAssistant,
   loadLockfileHost,
   saveLockfileAssistantHost,
@@ -220,16 +221,17 @@ describe("fetchGuardianTokenHost", () => {
     expect(url).toBe("/assistant/__local/guardian-token/a%201");
   });
 
-  test("web/dev host throws the middleware error body on a non-ok response", async () => {
+  test("web/dev host throws a GuardianTokenError carrying the response status", async () => {
     globalThis.fetch = mock(async () => ({
       ok: false,
       status: 404,
       json: async () => ({ error: "assistant not found" }),
     })) as unknown as typeof fetch;
 
-    await expect(fetchGuardianTokenHost("a-1")).rejects.toThrow(
-      "assistant not found",
-    );
+    const err = await fetchGuardianTokenHost("a-1").catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(GuardianTokenError);
+    expect((err as InstanceType<typeof GuardianTokenError>).status).toBe(404);
+    expect((err as Error).message).toBe("assistant not found");
   });
 
   test("Electron host reads through the bridge and never touches fetch", async () => {
@@ -248,7 +250,7 @@ describe("fetchGuardianTokenHost", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  test("Electron host throws the bridge error when acquisition fails", async () => {
+  test("Electron host throws a GuardianTokenError carrying the bridge status", async () => {
     const guardianToken = mock(async () => ({
       ok: false,
       status: 500,
@@ -256,8 +258,9 @@ describe("fetchGuardianTokenHost", () => {
     }));
     setElectronBridge({ guardianToken });
 
-    await expect(fetchGuardianTokenHost("a-1")).rejects.toThrow(
-      "refresh failed",
-    );
+    const err = await fetchGuardianTokenHost("a-1").catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(GuardianTokenError);
+    expect((err as InstanceType<typeof GuardianTokenError>).status).toBe(500);
+    expect((err as Error).message).toBe("refresh failed");
   });
 });

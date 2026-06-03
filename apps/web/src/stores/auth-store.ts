@@ -32,6 +32,7 @@ import {
   getPlatformAssistants,
   getLocalAssistants,
   clearSelectedAssistant,
+  setSelectedAssistantId,
   primeLocalGatewayConnection,
   syncPlatformAssistantsToLockfile,
 } from "@/lib/local-mode";
@@ -95,6 +96,7 @@ interface AuthState {
 
 interface AuthActions {
   initSession: () => Promise<void>;
+  connectLocalAssistant: (assistantId: string) => Promise<void>;
   refreshSession: () => Promise<boolean>;
   logout: () => Promise<void>;
 }
@@ -291,6 +293,29 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
 
     syncUserScopedState(null);
     set({ isLoggedIn: false, isLoading: false, user: null, platformSessionResolved: true });
+  },
+
+  /**
+   * Connect to a specific local assistant from an interactive surface (the
+   * login picker / auto-connect). Selects the assistant, primes its gateway
+   * connection, and marks the session logged in.
+   *
+   * Unlike {@link AuthActions.initSession}, which is the best-effort boot
+   * probe and swallows failures, this rethrows so the caller can surface the
+   * reason — including the typed `GuardianTokenError` from the host seam — and
+   * offer recovery instead of dead-ending. Both paths share
+   * `primeLocalGatewayConnection`, so the guardian-token and gateway exchange
+   * happen exactly once per connect.
+   */
+  connectLocalAssistant: async (assistantId: string) => {
+    setSelectedAssistantId(assistantId);
+    await primeLocalGatewayConnection();
+    set({ isLoggedIn: true, isLoading: false, user: GATEWAY_LOCAL_USER });
+    if (!isLocalMode() || getPlatformAssistants().length > 0) {
+      probePlatformSession(set);
+    } else {
+      set({ platformSessionResolved: true });
+    }
   },
 
   refreshSession: async () => {

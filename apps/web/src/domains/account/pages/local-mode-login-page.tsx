@@ -1,0 +1,369 @@
+import { useCallback, useEffect, useState } from "react";
+import { useNavigate } from "react-router";
+
+import { Button } from "@vellum/design-library";
+
+import { DarkLoginShell, LoginCard } from "@/domains/account/components/login-shell";
+import { PlatformLoginButtons } from "@/domains/account/components/platform-login-buttons";
+import { PROVIDER_ID, buildProviderCallbackUrl } from "@/domains/account/login-flow";
+import { startLoopbackAuth, useIsPlatformLocal } from "@/lib/auth/loopback-auth";
+import { captureError, normalizeToError } from "@/lib/sentry/capture-error";
+import {
+  getActiveAssistant,
+  isLocalAssistant,
+  isPlatformAssistant,
+  loadLockfile,
+} from "@/lib/local-mode";
+import { startAuthFlow } from "@/runtime/native-auth";
+import { useAuthStore } from "@/stores/auth-store";
+import { useLockfileStore } from "@/stores/lockfile-store";
+
+/** Connect-failure headline plus the underlying reason, when available. */
+function ConnectErrorMessage({
+  message,
+  detail,
+}: {
+  message: string | null;
+  detail: string | null;
+}) {
+  if (!message) return null;
+  return (
+    <>
+      <p className="text-body-small-default text-center text-[var(--system-negative-strong)]">
+        {message}
+      </p>
+      {detail && (
+        <p className="text-body-small-default text-center text-[var(--content-secondary)] break-words">
+          {detail}
+        </p>
+      )}
+    </>
+  );
+}
+
+/**
+ * Lockfile-driven self-hosted login for `/account/login`.
+ *
+ * Renders one of four states from the lockfile the host exposes: no
+ * assistants (hatch prompt / platform sign-in), platform-only (redirect to
+ * sign-in), local-only (auto-connect to the active assistant), or mixed
+ * (two-card picker). The lockfile is read from its store so the screen
+ * re-renders when a load or mutation changes it.
+ */
+export function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
+  const navigate = useNavigate();
+  const [connectingId, setConnectingId] = useState<string | null>(null);
+  const [connectError, setConnectError] = useState<string | null>(null);
+  const [connectErrorDetail, setConnectErrorDetail] = useState<string | null>(
+    null,
+  );
+  const [platformError, setPlatformError] = useState<string | null>(null);
+  const [platformLoading, setPlatformLoading] = useState(false);
+  const isPlatformLocal = useIsPlatformLocal();
+
+  const lockfile = useLockfileStore.use.lockfile();
+  const assistants = lockfile?.assistants ?? [];
+  const localAssistants = assistants.filter(isLocalAssistant);
+  const platformAssistants = assistants.filter(isPlatformAssistant);
+  const hasLocal = localAssistants.length > 0;
+  const hasPlatform = platformAssistants.length > 0;
+
+  // Auto-connect targets the active assistant, falling back to the first local
+  // entry only when the active id is stale — so a stale entry never shadows the
+  // real active assistant.
+  const autoConnectId =
+    hasLocal && !hasPlatform
+      ? (getActiveAssistant() ?? localAssistants[0])?.assistantId
+      : undefined;
+
+  const callbackUrl = buildProviderCallbackUrl(returnTo);
+
+  const handleRefresh = useCallback(() => {
+    void loadLockfile();
+  }, []);
+
+  const connectToLocal = useCallback(
+    async (assistantId: string) => {
+      setConnectError(null);
+      setConnectErrorDetail(null);
+      setConnectingId(assistantId);
+      try {
+        await useAuthStore.getState().connectLocalAssistant(assistantId);
+        navigate(returnTo || "/assistant");
+      } catch (err) {
+        captureError(err, {
+          context: "local-login.connect",
+          extra: { assistantId },
+        });
+        setConnectError(
+          "Couldn't connect to your assistant. Make sure it's running.",
+        );
+        setConnectErrorDetail(normalizeToError(err).message);
+        setConnectingId(null);
+      }
+    },
+    [navigate, returnTo],
+  );
+
+  const handlePlatformProvider = useCallback(
+    async (providerHint?: string) => {
+      setPlatformError(null);
+      setPlatformLoading(true);
+      try {
+        if (isPlatformLocal) {
+          await startAuthFlow(PROVIDER_ID, callbackUrl, {
+            ...(providerHint ? { providerHint } : {}),
+            returnTo,
+          });
+        } else {
+          await startLoopbackAuth(returnTo ?? undefined);
+        }
+      } catch (err) {
+        console.error("[local-login] platform auth flow failed:", err);
+        setPlatformError("Something went wrong. Please try again.");
+        setPlatformLoading(false);
+      }
+    },
+    [returnTo, isPlatformLocal, callbackUrl],
+  );
+
+  // Auto-connect when only local assistants are present.
+  useEffect(() => {
+    if (autoConnectId && !connectingId && !connectError) {
+      void connectToLocal(autoConnectId);
+    }
+  }, [autoConnectId, connectingId, connectError, connectToLocal]);
+
+  // Auto-redirect to loopback login when only platform assistants exist
+  // and we're in standalone mode (no local Django).
+  useEffect(() => {
+    if (
+      hasPlatform &&
+      !hasLocal &&
+      !platformLoading &&
+      !platformError &&
+      isPlatformLocal === false
+    ) {
+      setPlatformLoading(true);
+      void handlePlatformProvider();
+    }
+  }, [
+    hasPlatform,
+    hasLocal,
+    platformLoading,
+    platformError,
+    isPlatformLocal,
+    handlePlatformProvider,
+  ]);
+
+  // No assistants at all — show login buttons when Django is local,
+  // otherwise prompt the user to hatch via CLI.
+  if (!hasLocal && !hasPlatform) {
+    if (isPlatformLocal) {
+      return (
+        <DarkLoginShell>
+          <LoginCard>
+            <PlatformLoginButtons
+              returnTo={returnTo}
+              loading={platformLoading}
+              errorMessage={platformError}
+              onProviderClick={(hint) => {
+                void handlePlatformProvider(hint);
+              }}
+            />
+          </LoginCard>
+        </DarkLoginShell>
+      );
+    }
+    return (
+      <DarkLoginShell>
+        <LoginCard>
+          <h1 className="text-title-large text-center text-[var(--content-emphasised)]">
+            Vellum
+          </h1>
+          <p className="text-body-small-default text-center text-[var(--content-secondary)]">
+            No assistants found. Hatch one via CLI (
+            <code className="rounded bg-[var(--surface-sunken)] px-1 py-0.5 text-[var(--content-default)]">
+              vellum hatch
+            </code>
+            ) or the Mac app to get started.
+          </p>
+          <div className="flex justify-center">
+            <Button type="button" variant="outlined" onClick={handleRefresh}>
+              Refresh
+            </Button>
+          </div>
+        </LoginCard>
+      </DarkLoginShell>
+    );
+  }
+
+  // Only platform assistants
+  if (hasPlatform && !hasLocal) {
+    if (isPlatformLocal) {
+      return (
+        <DarkLoginShell>
+          <LoginCard>
+            <PlatformLoginButtons
+              returnTo={returnTo}
+              loading={platformLoading}
+              errorMessage={platformError}
+              onProviderClick={(hint) => {
+                void handlePlatformProvider(hint);
+              }}
+            />
+          </LoginCard>
+        </DarkLoginShell>
+      );
+    }
+    return (
+      <DarkLoginShell>
+        <LoginCard>
+          <h1 className="text-title-large text-center text-[var(--content-emphasised)]">
+            Vellum
+          </h1>
+          {platformError ? (
+            <>
+              <p className="text-body-small-default text-center text-[var(--system-negative-strong)]">
+                {platformError}
+              </p>
+              <div className="flex justify-center">
+                <Button
+                  type="button"
+                  variant="outlined"
+                  onClick={() => {
+                    setPlatformError(null);
+                  }}
+                >
+                  Retry
+                </Button>
+              </div>
+            </>
+          ) : (
+            <p className="text-body-small-default text-center text-[var(--content-secondary)]">
+              Redirecting to sign in...
+            </p>
+          )}
+        </LoginCard>
+      </DarkLoginShell>
+    );
+  }
+
+  // Only local assistants — auto-connecting state
+  if (hasLocal && !hasPlatform) {
+    return (
+      <DarkLoginShell>
+        <LoginCard>
+          <h1 className="text-title-large text-center text-[var(--content-emphasised)]">
+            Vellum
+          </h1>
+          {connectError ? (
+            <>
+              <ConnectErrorMessage
+                message={connectError}
+                detail={connectErrorDetail}
+              />
+              <div className="flex justify-center">
+                <Button
+                  type="button"
+                  variant="outlined"
+                  onClick={() => {
+                    if (autoConnectId) void connectToLocal(autoConnectId);
+                  }}
+                >
+                  Retry
+                </Button>
+              </div>
+            </>
+          ) : (
+            <p className="text-body-small-default text-center text-[var(--content-secondary)]">
+              {connectingId
+                ? "Connecting to your assistant..."
+                : "Preparing connection..."}
+            </p>
+          )}
+        </LoginCard>
+      </DarkLoginShell>
+    );
+  }
+
+  // Mixed: platform + local assistants — two-card layout
+  return (
+    <DarkLoginShell>
+      <div className="flex w-full max-w-[960px] flex-col items-start justify-center gap-6 md:flex-row">
+        <LoginCard>
+          {isPlatformLocal ? (
+            <PlatformLoginButtons
+              returnTo={returnTo}
+              loading={platformLoading}
+              errorMessage={platformError}
+              onProviderClick={(hint) => {
+                void handlePlatformProvider(hint);
+              }}
+            />
+          ) : (
+            <>
+              <h1 className="text-title-large text-center text-[var(--content-emphasised)]">
+                Vellum Cloud
+              </h1>
+              {platformError && (
+                <p className="text-body-small-default text-center text-[var(--system-negative-strong)]">
+                  {platformError}
+                </p>
+              )}
+              <div className="flex justify-center">
+                <Button
+                  type="button"
+                  variant="primary"
+                  fullWidth
+                  onClick={() => {
+                    void handlePlatformProvider();
+                  }}
+                  disabled={platformLoading}
+                  className="max-w-[300px]"
+                >
+                  {platformLoading ? "Redirecting…" : "Sign in"}
+                </Button>
+              </div>
+            </>
+          )}
+        </LoginCard>
+        <LoginCard>
+          <h1 className="text-title-large text-center text-[var(--content-emphasised)]">
+            Local Assistant
+          </h1>
+          <ConnectErrorMessage message={connectError} detail={connectErrorDetail} />
+          <div className="flex flex-col gap-2">
+            {localAssistants.map((assistant) => (
+              <button
+                key={assistant.assistantId}
+                type="button"
+                className="flex w-full items-center justify-between rounded-lg border border-[var(--border-disabled)] bg-[var(--surface-sunken)] px-4 py-3 text-left transition-colors hover:bg-[var(--surface-lift)] disabled:opacity-50"
+                disabled={connectingId === assistant.assistantId}
+                onClick={() => {
+                  void connectToLocal(assistant.assistantId);
+                }}
+              >
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-body-small-default text-[var(--content-emphasised)]">
+                    {assistant.name || assistant.assistantId}
+                  </span>
+                  {assistant.species && (
+                    <span className="text-body-small-default text-[var(--content-secondary)]">
+                      {assistant.species}
+                    </span>
+                  )}
+                </div>
+                {connectingId === assistant.assistantId && (
+                  <span className="text-body-small-default text-[var(--content-secondary)]">
+                    Connecting...
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        </LoginCard>
+      </div>
+    </DarkLoginShell>
+  );
+}
