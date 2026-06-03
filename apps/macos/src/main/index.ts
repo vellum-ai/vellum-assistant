@@ -1,7 +1,8 @@
-import { app, ipcMain, net, protocol, session, shell } from "electron";
+import { app, net, protocol, session, shell } from "electron";
 import fs from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
+import { z } from "zod";
 
 import {
   readAllowedGatewayPorts,
@@ -10,6 +11,7 @@ import {
 
 import { installAbout, openAboutWindow } from "./about";
 import { APP_PROTOCOL } from "./app-config";
+import { handle } from "./ipc";
 import { resolveAppProtocolPath } from "./app-protocol";
 import { planGatewayForward } from "./gateway-forward";
 import {
@@ -194,13 +196,23 @@ const installPermissionHandler = (): void => {
 };
 
 // IPC bridge for the `window.vellum.settings.*` API exposed by preload.
-// Errors from electron-store's schema validator (thrown as SyntaxError from
-// `set`) propagate as rejected Promises to the renderer.
+// The IPC layer only asserts the key is a string; electron-store's own
+// ajv schema is the validator for both the key namespace and each
+// value's shape, so the value crosses as `unknown` rather than being
+// re-modeled here (a second schema would just be a drift risk).
+// Validator errors (thrown as SyntaxError from `set`) propagate as
+// rejected Promises to the renderer.
 const installSettingsIpc = (): void => {
-  ipcMain.handle("vellum:settings:get", (_event, key: string) => readSetting(key));
-  ipcMain.handle("vellum:settings:set", (_event, key: string, value: unknown) => {
-    writeSetting(key, value);
-  });
+  handle("vellum:settings:get", z.tuple([z.string()]), ([key]) =>
+    readSetting(key),
+  );
+  handle(
+    "vellum:settings:set",
+    z.tuple([z.string(), z.unknown()]),
+    ([key, value]) => {
+      writeSetting(key, value);
+    },
+  );
 };
 
 // ---------------------------------------------------------------------------

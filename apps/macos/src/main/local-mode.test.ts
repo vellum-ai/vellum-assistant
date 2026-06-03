@@ -55,6 +55,19 @@ process.env.VELLUM_LOCKFILE_DIR = lockfileDir;
 const lockfilePath = path.join(lockfileDir, ".vellum.lock.json");
 
 const { installLocalMode } = await import("./local-mode");
+const { resolveAllowedOrigin } = await import("./app-origin");
+
+// The IPC wrappers reject any sender whose frame origin isn't the build's
+// renderer origin. Tests drive the registered handlers directly, so they
+// must present a frame at that origin; deriving it from the guard's own
+// resolver keeps the fake sender correct across the dev/packaged toggle
+// (`appState.isPackaged`) without hard-coding either origin here.
+const allowedEvent = {
+  get senderFrame() {
+    const { protocol, host } = resolveAllowedOrigin();
+    return { origin: `${protocol}//${host}` };
+  },
+};
 
 beforeAll(() => {
   installLocalMode();
@@ -68,7 +81,7 @@ afterEach(() => {
 });
 
 const hatch = (species?: unknown): Promise<unknown> =>
-  handlers["vellum:localMode:hatch"]({}, species) as Promise<unknown>;
+  handlers["vellum:localMode:hatch"](allowedEvent, species) as Promise<unknown>;
 
 describe("vellum:localMode:hatch handler", () => {
   test("dev: spawns `bun run <repo>/cli/src/index.ts hatch <species>` and parses the id from stdout", async () => {
@@ -157,23 +170,26 @@ type WriteResult =
   | { ok: false; error: string };
 
 const readLockfile = (): Record<string, unknown> =>
-  handlers["vellum:localMode:readLockfile"]({}) as Record<string, unknown>;
+  handlers["vellum:localMode:readLockfile"](allowedEvent) as Record<
+    string,
+    unknown
+  >;
 const saveLockfileAssistant = (
   assistant: unknown,
   activeAssistant?: unknown,
 ): WriteResult =>
   handlers["vellum:localMode:saveLockfileAssistant"](
-    {},
+    allowedEvent,
     assistant,
     activeAssistant,
   ) as WriteResult;
 const replacePlatformAssistants = (platformAssistants: unknown): WriteResult =>
   handlers["vellum:localMode:replacePlatformAssistants"](
-    {},
+    allowedEvent,
     platformAssistants,
   ) as WriteResult;
 const retire = (assistantId?: unknown): Promise<unknown> =>
-  handlers["vellum:localMode:retire"]({}, assistantId) as Promise<unknown>;
+  handlers["vellum:localMode:retire"](allowedEvent, assistantId) as Promise<unknown>;
 
 describe("lockfile IPC handlers", () => {
   beforeEach(() => {
@@ -268,20 +284,22 @@ describe("lockfile IPC handlers", () => {
     expect(ids).toEqual(["local-1", "new-platform"]);
   });
 
-  test("replacePlatformAssistants coerces a non-array argument to an empty set", () => {
+  test("replacePlatformAssistants rejects a non-array argument without touching disk", () => {
     saveLockfileAssistant(
       { assistantId: "local-1", cloud: "local", runtimeUrl: "http://127.0.0.1:1" },
       "local-1",
     );
 
-    const result = replacePlatformAssistants("not-an-array");
+    // The renderer's typed bridge only ever sends an array. A non-array is a
+    // programming error or a hostile sender, so the schema rejects it rather
+    // than coercing to an empty set — coercion would silently wipe every
+    // platform assistant from the lockfile, a far worse outcome than failing.
+    expect(() => replacePlatformAssistants("not-an-array")).toThrow();
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    const ids = (result.lockfile.assistants as Array<{ assistantId: string }>).map(
-      (a) => a.assistantId,
-    );
-    expect(ids).toEqual(["local-1"]);
+    const onDisk = JSON.parse(fs.readFileSync(lockfilePath, "utf-8")) as {
+      assistants: Array<{ assistantId: string }>;
+    };
+    expect(onDisk.assistants.map((a) => a.assistantId)).toEqual(["local-1"]);
   });
 });
 
