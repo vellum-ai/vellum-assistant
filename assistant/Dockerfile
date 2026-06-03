@@ -245,11 +245,20 @@ RUN printf '%s\n' \
 # Ensure the CES bootstrap socket volume is writable by the non-root CES user.
 RUN mkdir -p /run/ces-bootstrap && chmod 777 /run/ces-bootstrap
 
-# Bake the Claude Code ACP adapter into the image so resolve-agent.ts finds it
-# on PATH at runtime. Installed as the runtime `assistant` user so it lands in
-# BUN_INSTALL (/home/assistant/.bun/bin), which is already on PATH.
+# Bake the ACP adapters + Codex CLI into the image so resolve-agent.ts finds
+# them on PATH at runtime. Installed as the runtime `assistant` user so they
+# land in BUN_INSTALL (/home/assistant/.bun/bin), which is already on PATH.
+#   - @agentclientprotocol/claude-agent-acp -> `claude-agent-acp` bin (Claude)
+#   - @zed-industries/codex-acp             -> `codex-acp` bin (Codex adapter)
+#   - @openai/codex                         -> `codex` bin (the OpenAI Codex
+#     CLI that codex-acp shells out to; ships the native binary via
+#     platform-specific optionalDependencies that bun resolves at install)
+# Pinned to exact published versions per the Dockerfile pinning convention.
 USER assistant
-RUN bun install -g @agentclientprotocol/claude-agent-acp@0.40.0
+RUN bun install -g \
+    @agentclientprotocol/claude-agent-acp@0.40.0 \
+    @zed-industries/codex-acp@0.15.0 \
+    @openai/codex@0.136.0
 USER root
 
 EXPOSE 3001
