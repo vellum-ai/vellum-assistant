@@ -47,6 +47,21 @@ export function normalizeToError(value: unknown): Error {
 }
 
 /**
+ * Known daemon transient detail messages. HeyAPI's `throwOnError`
+ * throws the raw JSON body (`{detail: "..."}`) without the HTTP status
+ * code, so we fall back to substring matching on the `detail` value.
+ *
+ * Each entry is a lowercase substring that uniquely identifies one of
+ * the daemon's expected transient responses.
+ */
+const DAEMON_TRANSIENT_DETAILS: readonly string[] = [
+  "still starting up",            // 503 — daemon booting
+  "organization-id header",       // 400 — org store not hydrated
+  "authentication credentials",   // 401 — auth session race
+  "bad gateway",                  // 502 — reverse proxy
+];
+
+/**
  * Detects expected transient HTTP errors from daemon API calls that
  * occur during normal startup sequences and auth-session hydration.
  *
@@ -59,21 +74,37 @@ export function normalizeToError(value: unknown): Error {
  * - **400 with org-header message** — Org store has not hydrated yet;
  *   the `Vellum-Organization-Id` header interceptor read `null`
  *
- * Only `ApiError` instances are matched. Other error types (TypeError,
- * generic Error, plain objects) pass through — they represent network
- * failures (handled by `isTransientNetworkError`) or application bugs.
+ * Matches both structured `ApiError` instances (from manual
+ * construction with `throwOnError: false`) and raw `{detail: string}`
+ * objects thrown by HeyAPI's `throwOnError: true`.
+ *
+ * Reference: https://heyapi.dev/openapi-ts/clients/fetch#throwing-errors
  */
 export function isExpectedDaemonTransientError(error: unknown): boolean {
-  if (!(error instanceof ApiError)) return false;
-  if (error.status === 503) return true;
-  if (error.status === 502) return true;
-  if (error.status === 401) return true;
-  if (
-    error.status === 400 &&
-    error.message.includes("Organization-Id header")
-  ) {
-    return true;
+  if (error instanceof ApiError) {
+    if (error.status === 503) return true;
+    if (error.status === 502) return true;
+    if (error.status === 401) return true;
+    if (
+      error.status === 400 &&
+      error.message.includes("Organization-Id header")
+    ) {
+      return true;
+    }
+    return false;
   }
+
+  // HeyAPI throwOnError throws the raw JSON response body — typically
+  // {detail: "message"} for Django REST framework errors — without the
+  // HTTP status code. Match on known daemon transient detail strings.
+  if (typeof error === "object" && error !== null && "detail" in error) {
+    const detail = (error as Record<string, unknown>).detail;
+    if (typeof detail === "string") {
+      const lower = detail.toLowerCase();
+      return DAEMON_TRANSIENT_DETAILS.some((pattern) => lower.includes(pattern));
+    }
+  }
+
   return false;
 }
 

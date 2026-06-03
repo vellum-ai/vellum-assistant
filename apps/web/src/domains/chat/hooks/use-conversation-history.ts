@@ -310,6 +310,7 @@ export function useConversationHistory({
       context: isOlderPageError
         ? "conversation_history_older_page"
         : "conversation_history_initial",
+      bestEffort: true,
     });
 
     if (!isOlderPageError) {

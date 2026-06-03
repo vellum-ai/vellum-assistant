@@ -186,14 +186,109 @@ describe("isExpectedDaemonTransientError", () => {
     ).toBe(false);
   });
 
-  test("returns false for non-ApiError instances", () => {
+  test("returns false for non-ApiError Error instances", () => {
     expect(isExpectedDaemonTransientError(new Error("random error"))).toBe(
       false,
     );
     expect(
       isExpectedDaemonTransientError(new TypeError("Failed to fetch")),
     ).toBe(false);
+  });
+
+  test("returns false for primitives and null", () => {
     expect(isExpectedDaemonTransientError("string error")).toBe(false);
     expect(isExpectedDaemonTransientError(null)).toBe(false);
+    expect(isExpectedDaemonTransientError(undefined)).toBe(false);
+    expect(isExpectedDaemonTransientError(42)).toBe(false);
+  });
+
+  // HeyAPI throwOnError throws raw JSON response bodies ({detail: "..."})
+  // without wrapping in ApiError. These tests verify detection of the raw
+  // Django REST framework error shape.
+  test("returns true for raw {detail} with 503 startup message", () => {
+    expect(
+      isExpectedDaemonTransientError({
+        detail: "Your assistant is still starting up. Please try again in a moment.",
+      }),
+    ).toBe(true);
+  });
+
+  test("returns true for raw {detail} with org-header message", () => {
+    expect(
+      isExpectedDaemonTransientError({
+        detail: "Vellum-Organization-Id header is required.",
+      }),
+    ).toBe(true);
+  });
+
+  test("returns true for raw {detail} with 401 auth message", () => {
+    expect(
+      isExpectedDaemonTransientError({
+        detail: "Authentication credentials were not provided.",
+      }),
+    ).toBe(true);
+  });
+
+  test("returns true for raw {detail} with bad gateway message", () => {
+    expect(
+      isExpectedDaemonTransientError({ detail: "Bad gateway" }),
+    ).toBe(true);
+    expect(
+      isExpectedDaemonTransientError({ detail: "Bad Gateway" }),
+    ).toBe(true);
+  });
+
+  test("returns false for raw {detail} with unknown message", () => {
+    expect(
+      isExpectedDaemonTransientError({ detail: "Internal Server Error" }),
+    ).toBe(false);
+    expect(
+      isExpectedDaemonTransientError({ detail: "Permission denied." }),
+    ).toBe(false);
+  });
+
+  test("returns false for raw object without detail field", () => {
+    expect(
+      isExpectedDaemonTransientError({ message: "something" }),
+    ).toBe(false);
+    expect(isExpectedDaemonTransientError({})).toBe(false);
+  });
+
+  test("returns false for raw {detail} with non-string value", () => {
+    expect(
+      isExpectedDaemonTransientError({ detail: 503 }),
+    ).toBe(false);
+    expect(
+      isExpectedDaemonTransientError({ detail: ["error1", "error2"] }),
+    ).toBe(false);
+  });
+});
+
+describe("captureError with bestEffort and raw HeyAPI errors", () => {
+  test("silently drops raw {detail} daemon transient errors with bestEffort", () => {
+    captureExceptionMock.mockClear();
+    captureError(
+      { detail: "Your assistant is still starting up. Please try again in a moment." },
+      { context: "test-ctx", bestEffort: true },
+    );
+    expect(captureExceptionMock).not.toHaveBeenCalled();
+  });
+
+  test("reports raw {detail} daemon transient errors without bestEffort", () => {
+    captureExceptionMock.mockClear();
+    captureError(
+      { detail: "Your assistant is still starting up." },
+      { context: "test-ctx" },
+    );
+    expect(captureExceptionMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("reports raw {detail} with unknown message even with bestEffort", () => {
+    captureExceptionMock.mockClear();
+    captureError(
+      { detail: "Internal Server Error" },
+      { context: "test-ctx", bestEffort: true },
+    );
+    expect(captureExceptionMock).toHaveBeenCalledTimes(1);
   });
 });

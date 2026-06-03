@@ -125,7 +125,7 @@ export function WebSearchCard() {
       } catch (error) {
         if (cancelled) return;
         setWebSearchHasStoredKey(false);
-        captureError(error, { context: "settings-ai-web-search-read-secret" });
+        captureError(error, { context: "settings-ai-web-search-read-secret", bestEffort: true });
       }
     })();
 
