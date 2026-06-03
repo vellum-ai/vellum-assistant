@@ -49,6 +49,7 @@ mock.module(
 );
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { Surface } from "@/domains/chat/types/types";
 
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
 import { buildTurnActivity } from "@/domains/chat/transcript/turn-activity";
@@ -1179,5 +1180,174 @@ describe("TranscriptMessageBody", () => {
 
     expect(projectedAnchorIds(message)).toEqual([]);
     expect(renderedAnchorIds(container)).toEqual([]);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Combined activity-summary card (web-activity-summary flag)
+  // ---------------------------------------------------------------------------
+
+  /** A task-progress surface fixture, as produced by a `task_progress` card. */
+  function taskProgressSurface(surfaceId: string): Surface {
+    return {
+      surfaceId,
+      surfaceType: "card",
+      data: {
+        template: "task_progress",
+        templateData: {
+          steps: [{ id: "s1", label: "Do the thing", status: "completed" }],
+        },
+      },
+    };
+  }
+
+  /** Assistant message with thinking + a tool call + a task-progress surface. */
+  function activityMessage(surfaceId = "tps-1"): DisplayMessage {
+    return {
+      id: "m-activity",
+      role: "assistant",
+      textSegments: ["all done"],
+      thinkingSegments: ["reasoning"],
+      contentOrder: [
+        { type: "thinking", id: "0" },
+        { type: "toolCall", id: "0" },
+        { type: "surface", id: surfaceId },
+        { type: "text", id: "0" },
+      ],
+      toolCalls: [
+        { id: "tc-1", toolName: "bash", input: {}, status: "completed" },
+      ],
+      surfaces: [taskProgressSurface(surfaceId)],
+      timestamp: 1_000,
+    };
+  }
+
+  test("flag ON: renders one combined card at the top with the task-progress surface hoisted, not inline", () => {
+    const message = activityMessage();
+    const { container, getByTestId } = render(
+      <TranscriptMessageBody
+        message={message}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
+        onSurfaceAction={noop}
+        activitySummaryEnabled
+      />,
+    );
+
+    // Exactly one combined-card header block renders, and it is the first child
+    // of the assistant content column (above the inline tool card).
+    const header = getByTestId("turn-activity-header");
+    expect(header).not.toBeNull();
+    expect(
+      container.querySelectorAll("[data-testid='turn-activity-header']").length,
+    ).toBe(1);
+
+    const toolCard = container.querySelector(
+      "[data-testid='tool-progress-card']",
+    );
+    expect(toolCard).not.toBeNull();
+    expect(
+      header.compareDocumentPosition(toolCard!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    // The task-progress surface renders exactly once, and it lives INSIDE the
+    // header block (hoisted) — not in its inline position.
+    const surfaces = container.querySelectorAll(
+      "[data-testid='surface'][data-surface-id='tps-1']",
+    );
+    expect(surfaces.length).toBe(1);
+    expect(header.contains(surfaces[0]!)).toBe(true);
+
+    // Inline tool/thinking cards still render with their activity anchors.
+    expect(renderedAnchorIds(container)).toEqual(projectedAnchorIds(message));
+  });
+
+  test("flag ON: clicking a pill calls onActivityStepClick with a matching inline anchorId", () => {
+    const message = activityMessage();
+    const clicked: string[] = [];
+    const { container } = render(
+      <TranscriptMessageBody
+        message={message}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
+        onSurfaceAction={noop}
+        activitySummaryEnabled
+        onActivityStepClick={(id) => clicked.push(id)}
+      />,
+    );
+
+    // The combined card starts collapsed; expand it so the step pills mount.
+    const expandToggle = container.querySelector(
+      "[aria-label='Expand steps']",
+    );
+    expect(expandToggle).not.toBeNull();
+    fireEvent.click(expandToggle!);
+
+    const pill = container.querySelector("[data-testid='turn-progress-pill']");
+    expect(pill).not.toBeNull();
+    // The pill wraps the actual clickable; click the inner button/element.
+    fireEvent.click(pill!.querySelector("button") ?? pill!);
+
+    expect(clicked.length).toBe(1);
+    // The clicked anchor matches one of the message's inline anchors.
+    expect(renderedAnchorIds(container)).toContain(clicked[0]!);
+  });
+
+  test("flag OFF (default): no combined card; task-progress surface renders inline", () => {
+    const message = activityMessage();
+    const { container } = render(
+      <TranscriptMessageBody
+        message={message}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(
+      container.querySelector("[data-testid='turn-activity-header']"),
+    ).toBeNull();
+    // The task-progress surface renders once, in its original inline position.
+    const surfaces = container.querySelectorAll(
+      "[data-testid='surface'][data-surface-id='tps-1']",
+    );
+    expect(surfaces.length).toBe(1);
+  });
+
+  test("flag ON but no tool/thinking activity: no combined card; surface renders inline", () => {
+    const message: DisplayMessage = {
+      id: "m-no-activity",
+      role: "assistant",
+      textSegments: ["here is a plan"],
+      contentOrder: [
+        { type: "text", id: "0" },
+        { type: "surface", id: "tps-2" },
+      ],
+      surfaces: [taskProgressSurface("tps-2")],
+      timestamp: 1_000,
+    };
+
+    const { container } = render(
+      <TranscriptMessageBody
+        message={message}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
+        onSurfaceAction={noop}
+        activitySummaryEnabled
+      />,
+    );
+
+    // No steps → no combined card, and the surface is NOT hoisted.
+    expect(
+      container.querySelector("[data-testid='turn-activity-header']"),
+    ).toBeNull();
+    const surfaces = container.querySelectorAll(
+      "[data-testid='surface'][data-surface-id='tps-2']",
+    );
+    expect(surfaces.length).toBe(1);
   });
 });
