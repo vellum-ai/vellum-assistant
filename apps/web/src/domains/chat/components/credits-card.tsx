@@ -55,7 +55,7 @@ export function CreditsCard({
       <button
         type="button"
         onClick={onEarnCredits}
-        className="flex items-center gap-2 pl-1.5 transition-colors hover:opacity-80"
+        className="flex items-center justify-center gap-2 transition-colors hover:opacity-80"
       >
         <Gift
           className="h-3.5 w-3.5"
