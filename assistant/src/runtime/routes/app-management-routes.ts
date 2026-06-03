@@ -969,13 +969,10 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Upload, validate, and install a .vbundle archive as a new local app.",
     tags: ["apps"],
-    rawBody: true,
-    requestBodies: [
-      {
-        contentType: "application/octet-stream",
-        schema: { type: "string", format: "binary" },
-      },
-    ],
+    requestBody: {
+      contentType: "application/octet-stream",
+      schema: { type: "string", format: "binary" },
+    },
     responseBody: z.object({
       success: z.boolean(),
       appId: z.string(),

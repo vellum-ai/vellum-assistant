@@ -32,14 +32,33 @@ export interface RoutePathParam {
 }
 
 /**
- * A single request-body media type for a route. `schema` may be a Zod schema
- * or a plain JSON Schema fragment (e.g. `{ type: "string", format: "binary" }`
- * for a raw binary upload) — the OpenAPI generator accepts either.
+ * Content types a route can declare a request body for. `application/json`
+ * is the implicit default when `requestBody` is a bare Zod schema, so it is
+ * only spelled out here for the explicit `{ contentType, schema }` form.
  */
-export interface RouteRequestBodyVariant {
-  contentType: string;
-  schema: z.ZodType | Record<string, unknown>;
-}
+export type RouteRequestContentType =
+  | "application/json"
+  | "application/octet-stream"
+  | "multipart/form-data";
+
+/**
+ * A route's request body. Either:
+ * - a bare Zod schema, which is advertised as `application/json`, or
+ * - an explicit `{ contentType, schema }` pair for non-JSON bodies (e.g. a
+ *   raw `application/octet-stream` upload). `schema` may be a Zod schema or a
+ *   plain JSON Schema fragment (e.g. `{ type: "string", format: "binary" }`).
+ *
+ * The OpenAPI generator turns this into the operation's `requestBody`, so the
+ * generated client SDK describes a real body type instead of `never`. The HTTP
+ * adapter parses the body off the request `Content-Type` header, so this field
+ * is a codegen signal only and does not change runtime request handling.
+ */
+export type RouteRequestBody =
+  | z.ZodType
+  | {
+      contentType: RouteRequestContentType;
+      schema: z.ZodType | Record<string, unknown>;
+    };
 
 export interface RouteHandlerArgs {
   pathParams?: Record<string, string>;
@@ -112,17 +131,7 @@ export interface RouteDefinition {
   tags?: string[];
   pathParams?: RoutePathParam[];
   queryParams?: RouteQueryParam[];
-  requestBody?: z.ZodType;
-  /**
-   * Multi-content-type request body variants. Use this instead of
-   * `requestBody` when a route accepts a non-JSON body (e.g. a raw
-   * `application/octet-stream` upload) so the generated OpenAPI spec — and
-   * therefore the generated client SDK — describes a real body type rather
-   * than `never`. The HTTP adapter already reads `rawBody` for non-JSON
-   * content types, so this field is a declarative codegen signal only and
-   * does not change runtime request handling.
-   */
-  requestBodies?: RouteRequestBodyVariant[];
+  requestBody?: RouteRequestBody;
   responseBody?: z.ZodType;
   /**
    * HTTP status code for the success response. Defaults to "200".
@@ -165,12 +174,6 @@ export interface RouteDefinition {
    * RouteError subclasses rather than explicit Response objects.
    */
   additionalResponses?: Record<string, { description: string }>;
-  /**
-   * When true, the route expects a raw binary body (e.g. file uploads).
-   * The HTTP adapter already reads `rawBody` for non-JSON content types;
-   * this flag is a declarative signal for documentation and tooling.
-   */
-  rawBody?: boolean;
   /**
    * Per-route request-log control. Routes that opt in can suppress the
    * per-request INFO log line after a confirmed run of successful

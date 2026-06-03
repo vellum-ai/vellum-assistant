@@ -19,7 +19,11 @@ import { httpError } from "./http-errors.js";
 import { withErrorHandling } from "./middleware/error-handler.js";
 import { routeDefinitionsToHTTPRoutes } from "./routes/http-adapter.js";
 import { ROUTES } from "./routes/index.js";
-import type { RouteLoggingConfig, RoutePathParam } from "./routes/types.js";
+import type {
+  RouteLoggingConfig,
+  RoutePathParam,
+  RouteRequestBody,
+} from "./routes/types.js";
 
 // ---------------------------------------------------------------------------
 // Route definition types
@@ -65,17 +69,6 @@ export interface RouteAdditionalResponse {
 }
 
 /**
- * Request-body variant keyed by Content-Type. Use this when an endpoint
- * accepts multiple body shapes (e.g. `application/octet-stream` OR
- * `application/json`). For the common single-JSON case, use `requestBody`.
- */
-export interface RouteRequestBodyVariant {
-  contentType: string;
-  /** Zod schema or plain JSON Schema fragment. Plain objects are embedded verbatim. */
-  schema: RouteBodySchema | Record<string, unknown>;
-}
-
-/**
  * A single route entry in the declarative table.
  *
  * - `endpoint`: The endpoint pattern after `/v1/`. Use `:paramName` for
@@ -110,15 +103,12 @@ export interface HTTPRouteDefinition {
   tags?: string[];
   /** Query parameter definitions for the operation. */
   queryParams?: RouteQueryParam[];
-  /** Zod schema for the request body (POST/PUT/PATCH/DELETE). */
-  requestBody?: RouteBodySchema;
   /**
-   * Alternate request-body variants keyed by Content-Type. When set,
-   * overrides `requestBody` in the generated OpenAPI spec — use this for
-   * endpoints that accept multiple body shapes on the same URL (e.g.
-   * raw bytes OR JSON URL).
+   * Request body for POST/PUT/PATCH/DELETE. A bare Zod schema is advertised
+   * as `application/json`; use the `{ contentType, schema }` form for non-JSON
+   * bodies (e.g. a raw `application/octet-stream` upload).
    */
-  requestBodies?: RouteRequestBodyVariant[];
+  requestBody?: RouteRequestBody;
   /** Zod schema for the success response body. */
   responseBody?: RouteBodySchema;
   /**
