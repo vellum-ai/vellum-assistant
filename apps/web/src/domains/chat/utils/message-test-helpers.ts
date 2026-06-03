@@ -25,7 +25,7 @@ export function textBody(
 ): Pick<DisplayMessage, "textSegments" | "contentOrder"> {
   return content
     ? {
-        textSegments: [{ type: "text", content }],
+        textSegments: [content],
         contentOrder: [{ type: "text", id: "0" }],
       }
     : { textSegments: [], contentOrder: [] };
@@ -42,6 +42,19 @@ export function wireTextBody(
   return content
     ? { textSegments: [content], contentOrder: ["text:0"] }
     : { textSegments: [], contentOrder: [] };
+}
+
+/**
+ * Build the wire-shape `thinkingSegments` + `contentOrder` for a server
+ * message whose body is a single reasoning (thinking) block. Mirrors
+ * `wireTextBody` for the reasoning content kind.
+ */
+export function wireThinkingBody(
+  thinking: string,
+): Pick<ConversationMessage, "thinkingSegments" | "contentOrder"> {
+  return thinking
+    ? { thinkingSegments: [thinking], contentOrder: ["thinking:0"] }
+    : { thinkingSegments: [], contentOrder: [] };
 }
 
 /**

@@ -17,6 +17,14 @@ let getSessionGates: Array<() => void> | null = null;
 let mockIsGatewayAuth = false;
 let mockIsLocalMode = false;
 let mockPlatformAssistants: unknown[] = [];
+let mockPrimeError: Error | null = null;
+const setSelectedAssistantIdMock = mock((_id: string) => {});
+const primeLocalGatewayConnectionMock = mock(async () => {
+  if (mockPrimeError) throw mockPrimeError;
+});
+const primeLocalGatewayConnectionWithRepairMock = mock(async () => {
+  if (mockPrimeError) throw mockPrimeError;
+});
 const syncOnboardingUserMock = mock((_userId: string | null) => {});
 const clearOnboardingFlagsMock = mock(() => {});
 const clearOrganizationMock = mock(() => {});
@@ -61,7 +69,10 @@ mock.module("@/lib/local-mode", () => ({
   getPlatformAssistants: () => mockPlatformAssistants,
   getLocalAssistants: () => [],
   clearSelectedAssistant: () => {},
-  primeLocalGatewayConnection: async () => {},
+  setSelectedAssistantId: setSelectedAssistantIdMock,
+  primeLocalGatewayConnection: primeLocalGatewayConnectionMock,
+  primeLocalGatewayConnectionWithRepair:
+    primeLocalGatewayConnectionWithRepairMock,
   syncPlatformAssistantsToLockfile: async () => {},
 }));
 
@@ -136,6 +147,10 @@ beforeEach(() => {
   mockIsNativePlatform = false;
   mockIsBiometricEnabled = false;
   mockBiometricToken = null;
+  mockPrimeError = null;
+  setSelectedAssistantIdMock.mockClear();
+  primeLocalGatewayConnectionMock.mockClear();
+  primeLocalGatewayConnectionWithRepairMock.mockClear();
   syncOnboardingUserMock.mockClear();
   clearOnboardingFlagsMock.mockClear();
   clearOrganizationMock.mockClear();
@@ -324,5 +339,33 @@ describe("biometric session recovery", () => {
     expect(installSessionCookiesMock).toHaveBeenCalledWith("expired-token");
     expect(useAuthStore.getState().isLoggedIn).toBe(false);
     expect(useAuthStore.getState().user).toBeNull();
+  });
+});
+
+describe("connectLocalAssistant", () => {
+  test("selects the assistant, primes the connection, and logs in", async () => {
+    mockIsLocalMode = true;
+    mockPlatformAssistants = [];
+
+    await useAuthStore.getState().connectLocalAssistant("local-a");
+
+    expect(setSelectedAssistantIdMock).toHaveBeenCalledWith("local-a");
+    expect(primeLocalGatewayConnectionWithRepairMock).toHaveBeenCalledTimes(1);
+    expect(useAuthStore.getState().isLoggedIn).toBe(true);
+    expect(useAuthStore.getState().user?.id).toBe("gateway-local");
+    // No platform assistants — the probe resolves synchronously.
+    expect(useAuthStore.getState().platformSessionResolved).toBe(true);
+  });
+
+  test("rethrows the prime failure without marking the session logged in", async () => {
+    mockIsLocalMode = true;
+    mockPrimeError = new Error("Guardian token not found");
+
+    await expect(
+      useAuthStore.getState().connectLocalAssistant("local-a"),
+    ).rejects.toThrow("Guardian token not found");
+
+    expect(setSelectedAssistantIdMock).toHaveBeenCalledWith("local-a");
+    expect(useAuthStore.getState().isLoggedIn).toBe(false);
   });
 });

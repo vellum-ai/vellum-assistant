@@ -298,18 +298,35 @@ describe("selectFromLeaf — request shape", () => {
     const [blockA, blockB] = providerCalls[0].messages[0].content as Array<{
       type: string;
       text: string;
-      cache_control?: { type: string };
+      cache_control?: { type: string; ttl?: string };
     }>;
     expect(blockA.type).toBe("text");
     expect(blockA.text).toContain("<leaf>people/alice</leaf>");
     expect(blockA.text).toContain("<pages>");
     expect(blockA.text).toContain("[1] alice-bio — summary of alice-bio");
-    expect(blockA.cache_control).toEqual({ type: "ephemeral" });
+    expect(blockA.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
 
     expect(blockB.type).toBe("text");
     expect(blockB.text).toContain("<current_message>alice?</current_message>");
     expect(blockB.text).toContain("<recent_context>");
     expect(blockB.cache_control).toBeUndefined();
+  });
+
+  test("situational context renders in the per-turn block when present", async () => {
+    providerStub = makeProvider(toolUseResponse({ ids: [1] }));
+    await selectFromLeaf(
+      "people/alice",
+      {
+        ...makeTurn("alice?"),
+        situationalContext: "Today is Saturday. Alice's anniversary is today.",
+      },
+      makeTree(),
+      summaryOf,
+    );
+    const blockB = providerCalls[0].messages[0].content[1] as { text: string };
+    expect(blockB.text).toContain(
+      "<situation>Today is Saturday. Alice's anniversary is today.</situation>",
+    );
   });
 
   test("system prompt mentions pinned (locks the pinning commitment)", async () => {

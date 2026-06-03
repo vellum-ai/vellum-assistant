@@ -42,6 +42,7 @@ export interface CatalogSkill {
       "activation-hints"?: string[];
       "avoid-when"?: string[];
       "feature-flag"?: string;
+      category?: string;
     };
   };
 }

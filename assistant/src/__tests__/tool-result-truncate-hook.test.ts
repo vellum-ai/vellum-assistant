@@ -46,6 +46,7 @@ function makeCtx(content: string): PostToolUseContext {
   return {
     conversationId: "conv-test",
     toolResponse: makeToolResponse(content),
+    messages: [],
     maxInputTokens: MAX_INPUT_TOKENS,
     logger: noopLogger,
   };

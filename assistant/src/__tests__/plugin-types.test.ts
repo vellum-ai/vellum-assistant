@@ -17,8 +17,6 @@ import {
   type CircuitBreakerResult,
   type CompactionArgs,
   type CompactionResult,
-  type EmptyResponseArgs,
-  type EmptyResponseResult,
   type EstimateArgs,
   type EstimateResult,
   type Injector,
@@ -36,10 +34,6 @@ import {
   type PluginInitContext,
   type PluginManifest,
   PluginTimeoutError,
-  type TitleArgs,
-  type TitleResult,
-  type ToolErrorArgs,
-  type ToolErrorDecision,
   type ToolExecuteArgs,
   type ToolExecuteResult,
   type TurnContext,
@@ -88,21 +82,6 @@ describe("plugin core types", () => {
     const toolExecutePassthrough: Middleware<
       ToolExecuteArgs,
       ToolExecuteResult
-    > = async (args, next, _ctx) => next(args);
-
-    // The `emptyResponse` slot has concrete args/result types; use a
-    // dedicated passthrough so the `satisfies Plugin` check stays honest.
-    const emptyResponsePassthrough: Middleware<
-      EmptyResponseArgs,
-      EmptyResponseResult
-    > = async (args, next, _ctx) => next(args);
-
-    // The `toolError` slot has concrete args/result types (PR 19); use a
-    // dedicated passthrough so the shape-only test keeps compiling as types
-    // get tightened.
-    const toolErrorPassthrough: Middleware<
-      ToolErrorArgs,
-      ToolErrorDecision
     > = async (args, next, _ctx) => next(args);
 
     // `memoryRetrieval` has a concrete typed signature (MemoryArgs →
@@ -170,15 +149,6 @@ describe("plugin core types", () => {
       _ctx,
     ) => next(args);
 
-    // The `titleGenerate` slot now has concrete arg/result types (PR 28)
-    // rather than the placeholder `{ input/output: unknown }` shape, so it
-    // needs its own passthrough implementation.
-    const titlePassthrough: Middleware<TitleArgs, TitleResult> = async (
-      args,
-      next,
-      _ctx,
-    ) => next(args);
-
     const injector: Injector = {
       name: "sample-injector",
       order: 10,
@@ -240,9 +210,6 @@ describe("plugin core types", () => {
         compaction: compactionPassthrough,
         overflowReduce: overflowReducePassthrough,
         persistence: persistPassthrough,
-        titleGenerate: titlePassthrough,
-        emptyResponse: emptyResponsePassthrough,
-        toolError: toolErrorPassthrough,
         circuitBreaker: circuitPassthrough,
       },
     } satisfies Plugin;

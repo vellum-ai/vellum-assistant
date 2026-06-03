@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { mergeAdjacentAssistantMessages } from "@/domains/chat/utils/message-merge";
+import { mergeAdjacentAssistantMessages, mergeThinkingSegments } from "@/domains/chat/utils/message-merge";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 
 import { messageText, textBody } from "@/domains/chat/utils/message-test-helpers";
@@ -125,8 +125,8 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
     const survivor = makeAssistant({
       id: "a-1",
       textSegments: [
-        { type: "text", content: "A0 " },
-        { type: "text", content: "A1 " },
+        "A0 ",
+        "A1 ",
       ],
       contentOrder: [
         { type: "text", id: "0" },
@@ -135,14 +135,14 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
     });
     const donor = makeAssistant({
       id: "a-2",
-      textSegments: [{ type: "text", content: "B0" }],
+      textSegments: ["B0"],
       contentOrder: [{ type: "text", id: "0" }],
     });
     const result = mergeAdjacentAssistantMessages([survivor, donor]);
     expect(result[0]!.textSegments).toEqual([
-      { type: "text", content: "A0 " },
-      { type: "text", content: "A1 " },
-      { type: "text", content: "B0" },
+      "A0 ",
+      "A1 ",
+      "B0",
     ]);
     expect(result[0]!.contentOrder).toEqual([
       { type: "text", id: "0" },
@@ -310,7 +310,7 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
   test("interleaved text + tool positional entries remap each by their own offset", () => {
     const survivor = makeAssistant({
       id: "a-1",
-      textSegments: [{ type: "text", content: "thinking..." }],
+      textSegments: ["thinking..."],
       toolCalls: [
         { id: "toolu_S", toolName: "bash", input: {}, status: "completed" },
       ],
@@ -322,8 +322,8 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
     const donor = makeAssistant({
       id: "a-2",
       textSegments: [
-        { type: "text", content: "done with bash" },
-        { type: "text", content: "now editing" },
+        "done with bash",
+        "now editing",
       ],
       toolCalls: [
         { id: "toolu_D", toolName: "edit", input: {}, status: "completed" },
@@ -391,7 +391,7 @@ describe("mergeAdjacentAssistantMessages · cross-page bug repro", () => {
       id: "page-old-anchor",
       timestamp: 1000,
       mergedMessageIds: Array.from({ length: 14 }, (_, i) => `row-A-${i}`),
-      textSegments: [{ type: "text", content: "[A] " }],
+      textSegments: ["[A] "],
       contentOrder: [{ type: "text", id: "0" }],
       toolCalls: [
         { id: "tool-A-1", toolName: "bash", input: {}, status: "completed" },
@@ -401,7 +401,7 @@ describe("mergeAdjacentAssistantMessages · cross-page bug repro", () => {
       id: "page-middle-anchor",
       timestamp: 1010,
       mergedMessageIds: Array.from({ length: 24 }, (_, i) => `row-B-${i}`),
-      textSegments: [{ type: "text", content: "[B] " }],
+      textSegments: ["[B] "],
       contentOrder: [{ type: "text", id: "0" }],
       toolCalls: [
         { id: "tool-B-1", toolName: "edit", input: {}, status: "completed" },
@@ -411,7 +411,7 @@ describe("mergeAdjacentAssistantMessages · cross-page bug repro", () => {
       id: "page-latest-anchor",
       timestamp: 1020,
       mergedMessageIds: Array.from({ length: 34 }, (_, i) => `row-C-${i}`),
-      textSegments: [{ type: "text", content: "[C]" }],
+      textSegments: ["[C]"],
       contentOrder: [{ type: "text", id: "0" }],
       toolCalls: [
         { id: "tool-C-1", toolName: "test", input: {}, status: "completed" },
@@ -437,5 +437,69 @@ describe("mergeAdjacentAssistantMessages · cross-page bug repro", () => {
     expect(result[0]!.mergedMessageIds).toHaveLength(74);
     expect(result[0]!.mergedMessageIds).toContain("page-middle-anchor");
     expect(result[0]!.mergedMessageIds).toContain("page-latest-anchor");
+  });
+});
+
+describe("mergeThinkingSegments", () => {
+  test("returns the populated side when the other is missing or empty", () => {
+    // GIVEN one side has thinking and the other is undefined / empty
+    const segments = ["reasoning"];
+
+    // WHEN merging in either direction
+    // THEN the populated side is returned untouched
+    expect(mergeThinkingSegments(segments, undefined)).toEqual(segments);
+    expect(mergeThinkingSegments(undefined, segments)).toEqual(segments);
+    expect(mergeThinkingSegments(segments, [])).toEqual(segments);
+    expect(mergeThinkingSegments([], segments)).toEqual(segments);
+    expect(mergeThinkingSegments(undefined, undefined)).toBeUndefined();
+  });
+
+  test("keeps the locally-accumulated block while the live stream is ahead", () => {
+    // GIVEN the local row has streamed more reasoning than the server snapshot
+    const local = ["The full local reasoning so far"];
+
+    // AND the server's periodic snapshot still lags behind
+    const server = ["The full local"];
+
+    // WHEN reconciliation merges them
+    const merged = mergeThinkingSegments(local, server);
+
+    // THEN the richer local block is preserved (no rewind)
+    expect(merged).toEqual(local);
+  });
+
+  test("heals a block truncated by dropped deltas from the server snapshot", () => {
+    // GIVEN deltas dropped while the stream was torn down, so the local block
+    // is missing its leading reasoning
+    const local = [") and so I will summarize the options."];
+
+    // AND the server persisted the complete reasoning for that block
+    const server = [
+      "Let me think about this carefully (weighing the trade-offs) and so I will summarize the options.",
+    ];
+
+    // WHEN reconciliation merges them
+    const merged = mergeThinkingSegments(local, server);
+
+    // THEN the truncated block is healed from the server's fuller copy
+    expect(merged).toEqual(server);
+  });
+
+  test("merges per index and appends extra trailing blocks from either side", () => {
+    // GIVEN the local row is ahead on its first block but never saw a later one
+    const local = ["full first block reasoning", "partial"];
+
+    // AND the server has a shorter first block but a complete second + third
+    const server = ["full first", "partial third-party block", "trailing"];
+
+    // WHEN reconciliation merges them
+    const merged = mergeThinkingSegments(local, server);
+
+    // THEN each position keeps the longer text and trailing blocks are unioned
+    expect(merged).toEqual([
+      "full first block reasoning",
+      "partial third-party block",
+      "trailing",
+    ]);
   });
 });

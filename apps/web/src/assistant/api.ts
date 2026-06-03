@@ -5,9 +5,6 @@ import {
 
 import {
   assistantsActivateCreate,
-  assistantsBackupsCreate,
-  assistantsBackupsRestoreCreate,
-  assistantsBackupsRetrieve,
   assistantsHatchCreate,
   assistantsList,
   assistantsRestartDetailCreate,
@@ -20,6 +17,9 @@ import type {
   HatchAssistantRequest,
 } from "@/generated/api/types.gen";
 import {
+  backupsCreatePost,
+  backupsGet,
+  backupsRestorePost,
   diskpressureAcknowledgePost,
   diskpressureStatusGet,
   healthzGet,
@@ -295,16 +295,26 @@ export interface AssistantBackup {
   created_at: string;
   ready_to_use: boolean;
   backup_type: string;
+  /** Full path to the snapshot file — used by daemon SDK restore. */
+  path?: string;
 }
 
 export type ListBackupsResult =
   | { ok: true; status: number; data: AssistantBackup[] }
   | { ok: false; status: number; error: Record<string, unknown> };
 
+interface DaemonSnapshot {
+  path: string;
+  filename: string;
+  created_at: string;
+  size_bytes: number;
+  encrypted: boolean;
+}
+
 export async function listAssistantBackups(
   assistantId: string,
 ): Promise<ListBackupsResult> {
-  const { data, error, response } = await assistantsBackupsRetrieve({
+  const { data, error, response } = await backupsGet({
     path: { assistant_id: assistantId },
     throwOnError: false,
   });
@@ -312,24 +322,45 @@ export async function listAssistantBackups(
   assertHasResponse(response, error, "Failed to list assistant backups.");
 
   if (response.ok) {
-    const body =
-      data && typeof data === "object" && !Array.isArray(data)
-        ? (data as Record<string, unknown>)
-        : {};
+    const body = data as {
+      local?: { snapshots?: DaemonSnapshot[] };
+      offsite?: Array<{ snapshots?: DaemonSnapshot[] }>;
+    };
 
-    if (!Array.isArray(body.backups)) {
-      return {
-        ok: false,
-        status: response.status,
-        error: toErrorObject(error ?? body, response),
-      };
+    const snapshots: AssistantBackup[] = [];
+
+    const localSnapshots = body.local?.snapshots;
+    if (Array.isArray(localSnapshots)) {
+      for (const s of localSnapshots) {
+        snapshots.push({
+          snapshot_name: s.filename,
+          pvc: "",
+          created_at: s.created_at,
+          ready_to_use: true,
+          backup_type: "scheduled",
+          path: s.path,
+        });
+      }
     }
 
-    return {
-      ok: true,
-      status: response.status,
-      data: body.backups as AssistantBackup[],
-    };
+    if (Array.isArray(body.offsite)) {
+      for (const dest of body.offsite) {
+        if (Array.isArray(dest.snapshots)) {
+          for (const s of dest.snapshots) {
+            snapshots.push({
+              snapshot_name: s.filename,
+              pvc: "",
+              created_at: s.created_at,
+              ready_to_use: !s.encrypted,
+              backup_type: "scheduled",
+              path: s.path,
+            });
+          }
+        }
+      }
+    }
+
+    return { ok: true, status: response.status, data: snapshots };
   }
 
   return {
@@ -346,7 +377,7 @@ export type CreateBackupResult =
 export async function createAssistantBackup(
   assistantId: string,
 ): Promise<CreateBackupResult> {
-  const { data, error, response } = await assistantsBackupsCreate({
+  const { data, error, response } = await backupsCreatePost({
     path: { assistant_id: assistantId },
     throwOnError: false,
   });
@@ -377,11 +408,9 @@ export async function restoreAssistantBackup(
   assistantId: string,
   backup: AssistantBackup,
 ): Promise<RestoreBackupResult> {
-  const { data, error, response } = await assistantsBackupsRestoreCreate({
-    path: {
-      assistant_id: assistantId,
-      snapshot_name: backup.snapshot_name,
-    },
+  const { data, error, response } = await backupsRestorePost({
+    path: { assistant_id: assistantId },
+    body: { path: backup.path ?? backup.snapshot_name },
     throwOnError: false,
   });
 

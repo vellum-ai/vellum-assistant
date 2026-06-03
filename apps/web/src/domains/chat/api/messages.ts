@@ -16,8 +16,8 @@ import type {
 } from "@vellumai/assistant-api";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayMessage } from "@/domains/chat/types/types";
-import { client } from "@/generated/api/client.gen";
 import {
+  attachmentsPost,
   messagesGet,
   messagesPost,
   messagesQueuedByIdSteerPost,
@@ -57,8 +57,7 @@ export type RuntimeAttachment = ConversationMessageAttachment;
  * that spawned the subagent (see `history.ts`); those fields are not part of
  * the wire contract.
  */
-export interface RuntimeSubagentNotification
-  extends ConversationSubagentNotification {
+export interface RuntimeSubagentNotification extends ConversationSubagentNotification {
   /** StableId of the parent assistant message that spawned this subagent. */
   parentMessageStableId?: string;
   /** Daemon UUID of the parent assistant message. Stable across reloads. */
@@ -222,39 +221,6 @@ export function normalizeContentOrder(
   return result.length > 0 ? result : undefined;
 }
 
-/**
- * Normalize a textSegments array from the server. The server sends plain
- * strings, but the client expects objects with `{ type, content }`.
- */
-export function normalizeTextSegments(
-  raw: unknown[] | undefined,
-):
-  | Array<{ type: string; content: string; [key: string]: unknown }>
-  | undefined {
-  if (!raw || raw.length === 0) return undefined;
-  const result: Array<{
-    type: string;
-    content: string;
-    [key: string]: unknown;
-  }> = [];
-  for (const entry of raw) {
-    if (typeof entry === "string") {
-      result.push({ type: "text", content: entry });
-    } else if (entry && typeof entry === "object" && !Array.isArray(entry)) {
-      const obj = entry as Record<string, unknown>;
-      if (typeof obj.content === "string") {
-        const type = typeof obj.type === "string" ? obj.type : "text";
-        result.push({ ...obj, type, content: obj.content } as {
-          type: string;
-          content: string;
-          [key: string]: unknown;
-        });
-      }
-    }
-  }
-  return result.length > 0 ? result : undefined;
-}
-
 export type ChatHistoryResult =
   | { ok: true; messages: DisplayMessage[] }
   | { ok: false; status: number; error: string };
@@ -354,7 +320,7 @@ export type UploadAttachmentResult =
  * Upload a single file as a chat attachment and return the server-assigned id.
  *
  * The assistant backend exposes a multipart upload at
- * `/v1/assistants/{assistant_id}/attachments/` that accepts a `file` field
+ * `/v1/assistants/{assistant_id}/attachments` that accepts a `file` field
  * plus `filename` and `mimeType` text fields. The response body contains an
  * `id` that can be included in a subsequent `postChatMessage` call via
  * `attachmentIds`.
@@ -366,25 +332,9 @@ export async function uploadChatAttachment(
   const filename = file.name || "attachment";
   const mimeType = file.type || "application/octet-stream";
 
-  const form = new FormData();
-  form.append("filename", filename);
-  form.append("mimeType", mimeType);
-  form.append("file", file, filename);
-
-  const { data, error, response } = await client.post<
-    Record<string, unknown>,
-    unknown
-  >({
-    url: "/v1/assistants/{assistant_id}/attachments/",
+  const { data, error, response } = await attachmentsPost({
     path: { assistant_id: assistantId },
-    body: form as unknown as Record<string, unknown>,
-    // Pass the FormData through without serialization so the browser sets
-    // the correct multipart boundary on Content-Type.
-    bodySerializer: (body: unknown) => body as BodyInit,
-    headers: {
-      // Let fetch compute the multipart boundary for us.
-      "Content-Type": null,
-    },
+    body: { file, filename, mimeType },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to upload attachment");
@@ -401,12 +351,7 @@ export async function uploadChatAttachment(
     return { ok: false, status: response.status, error: { detail } };
   }
 
-  const dataRecord =
-    data && typeof data === "object" && !Array.isArray(data)
-      ? (data as Record<string, unknown>)
-      : undefined;
-  const rawId = dataRecord?.id;
-  const id = typeof rawId === "string" ? rawId : undefined;
+  const id = data?.id;
   if (!id) {
     return {
       ok: false,

@@ -120,6 +120,7 @@ export function SegmentControl<T extends string>({
       className={cn(
         "inline-flex rounded-lg bg-[var(--surface-active)] p-0.5",
         !iconOnly && "w-full",
+        iconOnly && "rounded-[10px]",
         className,
       )}
     >
@@ -144,7 +145,7 @@ export function SegmentControl<T extends string>({
             className={cn(
               "min-w-[30px] cursor-pointer justify-center gap-1.5 rounded-md border-0 text-body-medium-default",
               iconOnly
-                ? "h-7 px-[5px] py-1 max-md:h-9 max-md:min-w-9 max-md:px-2"
+                ? "h-7 rounded-lg px-2 py-1 max-md:h-9 max-md:min-w-9 max-md:px-2"
                 : "h-auto flex-1 px-3 py-1.5",
               isActive
                 ? "bg-[var(--surface-overlay)] text-[var(--content-emphasised)] shadow-sm hover:bg-[var(--surface-overlay)]"

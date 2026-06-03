@@ -65,11 +65,12 @@ const OPEN_LEAVES_TOOL: ToolDefinition = {
 
 const SYSTEM_PROMPT = `You route a conversation turn to the leaves of a topic tree that should be opened for the next reply.
 
-Each leaf has a numbered ID, a path, and a description of what it holds. Decide which leaves to open by weighing three signals:
+Each leaf has a numbered ID, a path, and a description of what it holds. Decide which leaves to open by weighing four signals:
 
 - Topic — entities, projects, and events named or implied by the turn.
 - Register — the affect and mode of the message (e.g. playful, distressed, formal). A register signal is enough to open a leaf even when no entity is named.
 - Recent context — the immediately preceding exchange, which resolves references like "this", "that", or "the same thing" to concrete topics.
+- Situation — the current date and a live scratchpad of what is salient right now. A date or state cue can make a leaf relevant even when the message never names it (e.g. a person whose anniversary is today, an active thread).
 
 Include on doubt: open every leaf that could plausibly hold something useful. Missing a relevant leaf is a worse error than opening an unused one. Call \`open_leaves\` with the chosen IDs. Omit \`ids\` to open every leaf; return \`[]\` only when nothing in the tree could possibly help.`;
 
@@ -129,6 +130,9 @@ export async function routeL1(
       {
         type: "text",
         text:
+          (turn.situationalContext
+            ? `<situation>${turn.situationalContext}</situation>\n`
+            : "") +
           `<recent_context>${turn.recentContext}</recent_context>\n` +
           `<current_message>${turn.currentMessage}</current_message>`,
       },

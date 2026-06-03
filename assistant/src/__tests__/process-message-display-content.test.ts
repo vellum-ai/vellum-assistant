@@ -12,7 +12,7 @@ let activeConversation: unknown;
 type TestSlashResolution =
   | { kind: "passthrough"; content: string }
   | { kind: "unknown"; message: string }
-  | { kind: "compact"; targetInputTokensOverride?: number };
+  | { kind: "compact" };
 
 let resolveSlashForTest: (
   content: string,

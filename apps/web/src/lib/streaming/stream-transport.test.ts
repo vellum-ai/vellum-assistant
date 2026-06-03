@@ -21,6 +21,18 @@ mock.module("@sentry/react", () => ({
   captureException: () => {},
 }));
 
+// Controllable seq-gap flag + reconnect cursor so the reconnect-URL
+// tests can exercise the resumable-stream wiring without a live daemon.
+let mockSeqGapEnabled = true;
+mock.module("@/lib/feature-flags/seq-gap-detection-flag", () => ({
+  isSeqGapDetectionEnabled: () => mockSeqGapEnabled,
+}));
+
+let mockReconnectCursor: number | null = null;
+mock.module("@/lib/streaming/reconnect-cursor", () => ({
+  getReconnectCursor: () => mockReconnectCursor,
+}));
+
 import { getLifecycleDiagnosticsEvents } from "@/lib/diagnostics";
 import { subscribeEvents, type StreamReconnectCause } from "@/lib/streaming/stream-transport";
 
@@ -700,5 +712,113 @@ describe("subscribeEvents idle watchdog", () => {
     // After cancel, no further attempts should be scheduled.
     await new Promise((r) => setTimeout(r, 250));
     expect(fetchCallCount).toBe(countAtCancel);
+  });
+});
+
+describe("subscribeEvents reconnect cursor (resumable stream)", () => {
+  let originalFetch: typeof fetch;
+  let originalDocument: unknown;
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+    originalDocument = (globalThis as { document?: unknown }).document;
+    (globalThis as { document?: unknown }).document = { cookie: "csrftoken=test" };
+    mockSeqGapEnabled = true;
+    mockReconnectCursor = null;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    if (originalDocument === undefined) {
+      delete (globalThis as { document?: unknown }).document;
+    } else {
+      (globalThis as { document?: unknown }).document = originalDocument;
+    }
+  });
+
+  // First connect closes the stream cleanly so the transport schedules
+  // a reconnect; the second connect is the one that should carry the
+  // cursor. Returns the URLs requested in order.
+  const captureReconnectUrls = async (): Promise<string[]> => {
+    const requestedUrls: string[] = [];
+    let callCount = 0;
+    globalThis.fetch = mock(async (input: RequestInfo | URL) => {
+      requestedUrls.push(input instanceof Request ? input.url : String(input));
+      callCount++;
+      const closeImmediately = callCount === 1;
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            // First attempt ends cleanly (→ reconnect); later attempts
+            // stay open so no third connect races into the assertion.
+            if (closeImmediately) controller.close();
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "text/event-stream" } },
+      );
+    }) as unknown as typeof fetch;
+
+    const stream = subscribeEvents(
+      "asst-1",
+      () => {},
+      () => {},
+      { idleTimeoutMs: 10_000, reconnectBaseDelayMs: 5 },
+    );
+    try {
+      await new Promise((r) => setTimeout(r, 80));
+    } finally {
+      stream.cancel();
+    }
+    return requestedUrls;
+  };
+
+  test("first connect omits lastSeenSeq even when a cursor exists", async () => {
+    // GIVEN a non-null cursor and the flag enabled
+    mockReconnectCursor = 42;
+
+    // WHEN the stream connects for the first time
+    const urls = await captureReconnectUrls();
+
+    // THEN the initial (cold) connect carries no resume cursor — a
+    // fresh connection has nothing buffered to replay.
+    expect(urls.length).toBeGreaterThanOrEqual(1);
+    expect(urls[0]).not.toContain("lastSeenSeq");
+  });
+
+  test("reconnect sends lastSeenSeq when the flag is on and a cursor exists", async () => {
+    // GIVEN a non-null cursor and the flag enabled
+    mockReconnectCursor = 42;
+
+    // WHEN the stream drops and reconnects
+    const urls = await captureReconnectUrls();
+
+    // THEN the reconnect URL resumes the global stream from the cursor
+    expect(urls.length).toBeGreaterThanOrEqual(2);
+    expect(urls[1]).toContain("lastSeenSeq=42");
+  });
+
+  test("reconnect omits lastSeenSeq when the flag is disabled", async () => {
+    // GIVEN a cursor but the seq-gap feature disabled
+    mockReconnectCursor = 42;
+    mockSeqGapEnabled = false;
+
+    // WHEN the stream drops and reconnects
+    const urls = await captureReconnectUrls();
+
+    // THEN no resume cursor is sent (replay stays inert behind the flag)
+    expect(urls.length).toBeGreaterThanOrEqual(2);
+    expect(urls[1]).not.toContain("lastSeenSeq");
+  });
+
+  test("reconnect omits lastSeenSeq when no cursor has been seen yet", async () => {
+    // GIVEN the flag enabled but no event has seeded the cursor
+    mockReconnectCursor = null;
+
+    // WHEN the stream drops and reconnects
+    const urls = await captureReconnectUrls();
+
+    // THEN there is nothing to resume from, so the param is omitted
+    expect(urls.length).toBeGreaterThanOrEqual(2);
+    expect(urls[1]).not.toContain("lastSeenSeq");
   });
 });

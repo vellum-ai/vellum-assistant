@@ -3178,6 +3178,49 @@ paths:
           description: ''
       x-vellum-api-clients:
       - platform
+  /v1/auth/live-voice-token/:
+    post:
+      operationId: auth_live_voice_token_create
+      description: |-
+        Mint a short-lived, single-use live-voice WS token for the web SPA.
+
+        Requires session auth + CSRF (enforced by DRF ``SessionAuthentication`` for
+        this unsafe POST) and the ``Vellum-Organization-Id`` header. The caller
+        must own the requested assistant within the resolved organization.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LiveVoiceTokenRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LiveVoiceTokenRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LiveVoiceTokenRequestRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LiveVoiceTokenResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
   /v1/feature-flags/client-flag-values/:
     get:
       operationId: feature_flags_client_flag_values_retrieve
@@ -5715,6 +5758,25 @@ components:
             $ref: '#/components/schemas/Invoice'
       required:
       - invoices
+    LiveVoiceTokenRequestRequest:
+      type: object
+      properties:
+        assistantId:
+          type: string
+          format: uuid
+      required:
+      - assistantId
+    LiveVoiceTokenResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+      required:
+      - expiresAt
+      - token
     MachineSizeEnum:
       enum:
       - small

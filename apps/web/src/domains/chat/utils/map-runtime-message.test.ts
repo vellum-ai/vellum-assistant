@@ -26,9 +26,7 @@ describe("prepareServerMessage", () => {
     const prepared = prepareServerMessage(m);
 
     expect(runtimeMessagePlainText(m)).toBe("hello world");
-    expect(prepared.normalizedSegments).toEqual([
-      { type: "text", content: "hello world" },
-    ]);
+    expect(prepared.normalizedSegments).toEqual(["hello world"]);
   });
 
   test("strips attachment summary appended to the only segment", () => {
@@ -42,9 +40,7 @@ describe("prepareServerMessage", () => {
     const prepared = prepareServerMessage(m);
 
     expect(runtimeMessagePlainText(m)).toBe("here you go");
-    expect(prepared.normalizedSegments).toEqual([
-      { type: "text", content: "here you go" },
-    ]);
+    expect(prepared.normalizedSegments).toEqual(["here you go"]);
   });
 
   test("strips attachment summary from the trailing segment for interleaved messages (LUM-1527)", () => {
@@ -64,10 +60,7 @@ describe("prepareServerMessage", () => {
     const prepared = prepareServerMessage(m);
 
     expect(runtimeMessagePlainText(m)).toBe("preamble after-tool");
-    expect(prepared.normalizedSegments).toEqual([
-      { type: "text", content: "preamble" },
-      { type: "text", content: "after-tool" },
-    ]);
+    expect(prepared.normalizedSegments).toEqual(["preamble", "after-tool"]);
   });
 
   test("strips attachment summary when it lands in segment[1] but segment[0] is unrelated", () => {
@@ -85,8 +78,8 @@ describe("prepareServerMessage", () => {
     const prepared = prepareServerMessage(m);
 
     expect(prepared.normalizedSegments).toEqual([
-      { type: "text", content: "Connected as user@example.com" },
-      { type: "text", content: "Here is the analysis." },
+      "Connected as user@example.com",
+      "Here is the analysis.",
     ]);
     expect(runtimeMessagePlainText(m)).toBe(
       "Connected as user@example.com Here is the analysis.",
@@ -107,10 +100,7 @@ describe("prepareServerMessage", () => {
 
     const prepared = prepareServerMessage(m);
 
-    expect(prepared.normalizedSegments).toEqual([
-      { type: "text", content: "look at this" },
-      { type: "text", content: "" },
-    ]);
+    expect(prepared.normalizedSegments).toEqual(["look at this", ""]);
   });
 
 });
@@ -130,10 +120,7 @@ describe("mapRuntimeToDisplayMessage", () => {
     const display = mapRuntimeToDisplayMessage(m);
 
     expect(messageText(display)).toBe("intro tail");
-    expect(display.textSegments).toEqual([
-      { type: "text", content: "intro" },
-      { type: "text", content: "tail" },
-    ]);
+    expect(display.textSegments).toEqual(["intro", "tail"]);
     expect(display.attachments?.[0]).toMatchObject({
       filename: "sheet.csv",
       mimeType: "text/csv",
@@ -199,7 +186,7 @@ describe("mapRuntimeToDisplayMessage", () => {
     expect(display).toMatchObject({
       id: "msg-slack",
       role: "user",
-      textSegments: [{ type: "text", content: "Slack reply" }],
+      textSegments: ["Slack reply"],
       slackMessage: m.slackMessage,
       timestamp: Date.parse("2026-05-15T12:34:56.000Z"),
     });

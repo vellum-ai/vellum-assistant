@@ -37,7 +37,6 @@ import {
 import { getLogger } from "../util/logger.js";
 import { getCachedCatalogSync, getCatalog } from "./catalog-cache.js";
 import { type CatalogSkill, getRepoSkillsDir } from "./catalog-install.js";
-import { inferCategory } from "./category-inference.js";
 import type { SkillFileProvider } from "./skill-file-provider.js";
 
 const log = getLogger("catalog-files");
@@ -508,7 +507,7 @@ export function catalogSkillToSlim(cs: CatalogSkill): SlimSkillResponse {
     kind: "catalog",
     origin: "vellum",
     status: "available",
-    category: inferCategory(name, cs.description),
+    category: cs.metadata?.vellum?.category ?? "system",
   };
 }
 

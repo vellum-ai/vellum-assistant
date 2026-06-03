@@ -52,7 +52,6 @@ import { registerToolTraceListener } from "../events/tool-trace-listener.js";
 import { resolveCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import {
   getConversation,
-  getConversationOriginChannel,
   getConversationOverrideProfileFromRow,
   setConversationHistoryStrippedAt,
 } from "../memory/conversation-crud.js";
@@ -1020,9 +1019,7 @@ export class Conversation {
     }
   }
 
-  async forceCompact(options?: {
-    targetInputTokensOverride?: number;
-  }): Promise<ContextWindowResult> {
+  async forceCompact(): Promise<ContextWindowResult> {
     const conversationRow = getConversation(this.conversationId);
     const overrideProfile =
       getConversationOverrideProfileFromRow(conversationRow) ?? null;
@@ -1066,11 +1063,7 @@ export class Conversation {
       this.abortController?.signal ?? undefined,
       {
         force: true,
-        lastCompactedAt: this.contextCompactedAt ?? undefined,
-        conversationOriginChannel:
-          getConversationOriginChannel(this.conversationId) ?? undefined,
         overrideProfile,
-        targetInputTokensOverride: options?.targetInputTokensOverride,
         actorTrustClass: this.trustContext?.trustClass,
       },
     );

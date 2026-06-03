@@ -52,6 +52,7 @@ my-plugin/
 │   ├── shutdown.ts            # Teardown
 │   ├── user-prompt-submit.ts  # Per-turn message-list transform
 │   ├── post-tool-use.ts       # Per-tool-result transform
+│   ├── stop.ts                # Per-run stop-boundary decision
 │   └── <future-hook>.ts       # Forward-compat slot
 ├── tools/
 │   ├── my_tool.ts             # Default export = tool definition
@@ -195,6 +196,7 @@ export default async function userPromptSubmit(
   ctx: UserPromptSubmitContext,
 ): Promise<void> {
   // ctx.conversationId   — ID of the conversation associated with the User Message
+  // ctx.prompt           — Submitted prompt text (after slash-command expansion), independent of any internal rewriting
   // ctx.originalMessages — Original set of messages before any transformation by loop or hooks.
   // ctx.latestMessages   — Set of messages to be fed into the agent
 }
@@ -235,6 +237,49 @@ the previous plugin's mutations. The default `tool-result-truncate`
 plugin contributes a hook here that tail-drops oversized output to fit
 the context window; because defaults register first, it runs ahead of
 user hooks.
+
+### `stop`
+
+Fires once per `run()` at the model's stop boundary — when the model
+returns a response with **no tool calls** and the loop is about to hand
+the turn back to the user. Refusals (a turn with no usable content) also
+land here. Tool-calling turns never reach the hook.
+
+```ts
+// hooks/stop.ts
+import type { StopContext } from "@vellumai/plugin-api";
+
+// In-place mutation style (return void):
+export default async function stop(ctx: StopContext): Promise<void> {
+  // ctx.conversationId  — ID of the conversation the run belongs to
+  // ctx.messages        — full conversation history; append a follow-up turn
+  //                       here when continuing. To reason about just the
+  //                       current response cycle, scope to the messages after
+  //                       the last genuine user prompt
+  // ctx.responseContent — content blocks of the stopping turn (no tool_use)
+  // ctx.stopReason      — provider stop reason (e.g. "refusal", "end_turn")
+  // ctx.decision        — seeded "stop"; set "continue" to re-query the model
+  // ctx.logger          — turn-scoped; tag log fields with { plugin: <name> }
+}
+```
+
+The hook decides the outcome by setting `ctx.decision`. The default is
+`"stop"` (let the turn end). Setting it to `"continue"` forces another
+loop iteration — when continuing, the hook must also append its follow-up
+turn (e.g. a nudge `user` message) to `ctx.messages`, which the loop
+threads into the next iteration. To abort with an error, throw; there is
+no error decision value.
+
+The loop owns the re-query budget: a hook may ask to continue every time,
+but the loop stops once its retry cap is spent, so a continuing hook
+cannot loop forever.
+
+Multiple plugins' hooks chain in registration order — each sees the
+previous hook's `decision` and `messages` mutations. The default
+`empty-response` plugin contributes a hook here that re-queries the model
+with a nudge when a turn comes back empty after tool use, or with a
+refusal nudge on a first-call refusal; because defaults register first,
+it runs ahead of user hooks.
 
 ### Forward-compatible hooks
 

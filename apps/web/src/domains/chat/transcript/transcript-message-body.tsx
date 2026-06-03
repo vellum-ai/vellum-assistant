@@ -749,12 +749,9 @@ export function TranscriptMessageBody({
             if (group.type === "text") {
               const textSegments = message.textSegments ?? [];
               const numericIdx = parseInt(group.id, 10);
-              const seg = !isNaN(numericIdx)
+              const text = !isNaN(numericIdx)
                 ? textSegments[numericIdx]
-                : textSegments.find(
-                    (s) => (s as Record<string, unknown>).id === group.id,
-                  );
-              const text = seg?.content;
+                : undefined;
               if (!text) {
                 return null;
               }
@@ -900,12 +897,8 @@ export function TranscriptMessageBody({
       flushThinking(false);
       if (entry.type === "text") {
         const segIndex = parseInt(entry.id, 10);
-        const seg = !isNaN(segIndex)
-          ? textSegmentsArr[segIndex]
-          : textSegmentsArr.find(
-              (s) => (s as Record<string, unknown>).id === entry.id,
-            );
-        const segText = seg?.content ?? entry.id;
+        const seg = !isNaN(segIndex) ? textSegmentsArr[segIndex] : undefined;
+        const segText = seg ?? entry.id;
         contentEntries.push({
           type: "text",
           node: renderTextWithInlineSurfaces(segText, `text-${entry.id}`),

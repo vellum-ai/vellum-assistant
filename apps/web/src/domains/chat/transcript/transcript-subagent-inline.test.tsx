@@ -478,7 +478,7 @@ describe("Transcript — cross-group claimed-set (fix-r1-c)", () => {
         { type: "text", id: "0" },
         { type: "toolCall", id: "tc-1" },
       ],
-      textSegments: [{ type: "text", content: "between spawns" }],
+      textSegments: ["between spawns"],
       toolCalls: [
         {
           id: "tc-0",

@@ -73,6 +73,10 @@ declare global {
           platformAssistants: Array<Record<string, unknown>>,
         ): Promise<LockfileWriteResult>;
         retire(assistantId: string): Promise<{ ok: boolean; error?: string }>;
+        // Optional: older Electron shells predate the wake IPC channel. The
+        // macOS app and web bundle don't release together, so a newer renderer
+        // can run against an older preload; callers must guard on its presence.
+        wake?(assistantId: string): Promise<{ ok: boolean; error?: string }>;
         guardianToken(
           assistantId: string,
         ): Promise<

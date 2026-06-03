@@ -203,9 +203,7 @@ export interface ProcessConversationContext {
     },
   ): void;
   /** Force context compaction regardless of threshold/cooldown. */
-  forceCompact(options?: {
-    targetInputTokensOverride?: number;
-  }): Promise<ContextWindowResult>;
+  forceCompact(): Promise<ContextWindowResult>;
   /** Strip runtime injections and reset memory-injection state. */
   forceClean(): Promise<CleanResult>;
   /** Set transport-derived hints for the conversation. */
@@ -757,9 +755,7 @@ async function drainSingleMessage(
       conversation.emitActivityState("thinking", "context_compacting", {
         requestId: next.requestId,
       });
-      const result = await conversation.forceCompact({
-        targetInputTokensOverride: slashResult.targetInputTokensOverride,
-      });
+      const result = await conversation.forceCompact();
       const responseText = formatCompactResult(result);
 
       const assistantMsg = createAssistantMessage(responseText);
@@ -1773,9 +1769,7 @@ export async function processMessage(
       conversation.emitActivityState("thinking", "context_compacting", {
         requestId,
       });
-      const result = await conversation.forceCompact({
-        targetInputTokensOverride: slashResult.targetInputTokensOverride,
-      });
+      const result = await conversation.forceCompact();
       const responseText = formatCompactResult(result);
 
       const assistantMsg = createAssistantMessage(responseText);

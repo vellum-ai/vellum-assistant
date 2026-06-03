@@ -1,35 +1,23 @@
 /**
- * Default `toolError` plugin.
+ * Default `tool-error` plugin.
  *
- * The plugin's middleware is a passthrough — it calls `next(args)` and returns
- * the result unchanged. The actual nudge-decision logic lives in the terminal
- * handler in `./terminal.ts`, which is wired in as the pipeline's `terminal`
- * argument by the `runPipeline` call site in `agent/loop.ts`. This separation
- * matters: the default plugin is registered before any user plugin (defaults
- * load first via module-side-effect imports / `registerDefaultPlugins`), which
- * puts it at the OUTERMOST position of the onion chain. If the default
- * middleware invoked the decision logic directly without calling `next`, it
- * would shadow every later-registered plugin. Routing through `next(args)`
- * lets user middleware participate normally.
- *
- * Design doc: `.private/plans/agent-plugin-system.md` (PR 19).
+ * Contributes a `post-tool-use` hook that coaches the model to retry or report
+ * a failed tool call, bounded per tool so an unrecoverable error doesn't churn.
+ * The coaching is surfaced via `additionalContext` (a separate provider-only
+ * block), leaving the tool result's own content untouched. The decision logic
+ * lives in `./hooks/post-tool-use.ts`.
  */
 
 import { type Plugin } from "../../types.js";
-import defaultToolErrorMiddleware from "./middlewares/toolError.js";
+import postToolUse from "./hooks/post-tool-use.js";
 import pkg from "./package.json" with { type: "json" };
 
-/**
- * Plugin registration for the default `toolError` behavior. Registered by
- * `daemon/external-plugins-bootstrap.ts` via a side-effect import so the
- * middleware is available to the pipeline runner from daemon startup.
- */
 export const defaultToolErrorPlugin: Plugin = {
   manifest: {
     name: pkg.name,
     version: pkg.version,
   },
-  middleware: {
-    toolError: defaultToolErrorMiddleware,
+  hooks: {
+    "post-tool-use": postToolUse,
   },
 };

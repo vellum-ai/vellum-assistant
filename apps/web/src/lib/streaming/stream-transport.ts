@@ -11,6 +11,8 @@ import { client } from "@/generated/api/client.gen";
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import { parseAssistantEvent } from "@/lib/streaming/event-parser";
 
+import { isSeqGapDetectionEnabled } from "@/lib/feature-flags/seq-gap-detection-flag";
+import { getReconnectCursor } from "@/lib/streaming/reconnect-cursor";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 import {
   markClientEstablished,
@@ -104,6 +106,33 @@ const STREAM_MAX_RECONNECT_DELAY_MS = 30_000;
 // comfortably exceed both intervals to avoid false positives on a
 // healthy connection that is idle between user turns.
 const STREAM_IDLE_TIMEOUT_MS = 45_000;
+// Query param carrying the resumable-stream reconnect cursor: the
+// highest global event seq the client has already applied. The daemon
+// replays every buffered event with seq > cursor on this one unfiltered
+// stream. Must match the `lastSeenSeq` param parsed by
+// assistant/src/runtime/routes/events-routes.ts.
+const LAST_SEEN_SEQ_WIRE_FIELD = "lastSeenSeq";
+
+/**
+ * Build the query params for the events SSE connection.
+ *
+ * On reconnect, when seq gap detection is enabled, attaches the
+ * resumable-stream cursor ({@link LAST_SEEN_SEQ_WIRE_FIELD}) — the
+ * highest global seq received so far — so the daemon can replay missed
+ * events from its global ring rather than forcing a refetch. A fresh
+ * connect has nothing buffered to resume, so the cursor is omitted
+ * there.
+ */
+function buildEventsQuery(isReconnect: boolean): Record<string, string> {
+  const query: Record<string, string> = {};
+  if (isReconnect && isSeqGapDetectionEnabled()) {
+    const cursor = getReconnectCursor();
+    if (cursor !== null) {
+      query[LAST_SEEN_SEQ_WIRE_FIELD] = String(cursor);
+    }
+  }
+  return query;
+}
 
 /**
  * Open an SSE connection to the assistant's events endpoint and emit typed
@@ -175,10 +204,12 @@ export function subscribeEvents(
     watchdog.resetCounters();
     let streamError: Error | null = null;
     try {
+      const query = buildEventsQuery(isReconnect);
       const { stream } = await client.sse.get<Record<string, unknown> | string>(
         {
           url: "/v1/assistants/{assistant_id}/events/",
           path: { assistant_id: assistantId },
+          ...(Object.keys(query).length > 0 ? { query } : {}),
           headers: {
             Accept: "text/event-stream, application/json",
             ...getClientRegistrationHeaders(),

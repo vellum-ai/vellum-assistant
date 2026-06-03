@@ -55,11 +55,13 @@ const SelectPagesSchema = z.object({
 const SELECT_PAGES_TOOL: ToolDefinition = {
   name: SELECT_PAGES_TOOL_NAME,
   description:
-    "Select the pages in this leaf whose content is relevant or useful for " +
-    "the next reply. Lean toward inclusion — a missed relevant page is a " +
-    "worse error than an unused one. Pass `pinned_ids` for pages the " +
-    "conversation is centrally about. Omit `ids` entirely to select every " +
-    "page; return `[]` only when none of the pages could possibly help.",
+    "Select the pages in this leaf whose content the reply would directly " +
+    "draw on. Be selective — prefer a few precisely-relevant pages over many " +
+    "loosely-related ones; a leaf opened on a weak signal may yield none. " +
+    "Pass `pinned_ids` for pages the conversation is centrally about. Omit " +
+    "`ids` only as a recall-safe fallback when you cannot judge the leaf " +
+    "(selects every page); return `[]` when pages are present but none are " +
+    "directly relevant.",
   input_schema: {
     type: "object",
     properties: {
@@ -75,11 +77,13 @@ const SELECT_PAGES_TOOL: ToolDefinition = {
   },
 };
 
-const SYSTEM_PROMPT = `This leaf of the topic tree is potentially relevant to the conversation. Select the pages whose content is relevant or useful for responding.
+const SYSTEM_PROMPT = `This leaf of the topic tree is potentially relevant to the conversation. Select ONLY the pages whose content the reply to THIS message would directly draw on.
 
-Be inclusive — include frame and affect matches, not just literal-topic matches. A page that shares the conversation's mode or register can be as useful as one that names the same entity. Missing a relevant page is a worse error than selecting an unused one.
+Be selective: exclude pages that are merely topically adjacent, part of the ever-present background, or only loosely related. Most opened leaves should contribute a few precisely-relevant pages, not most of their contents — a leaf opened on a weak signal may yield none.
 
-If the conversation is centrally ABOUT a page (rather than only peripherally relevant to it), mark that page as pinned. Call \`select_pages\` with the chosen IDs. Omit \`ids\` to select every page; return \`[]\` only when none of the pages could possibly help.`;
+A page can also be directly relevant because of the current situation — the date or the live scratchpad — not only the message: keep a page the situation makes pertinent (e.g. a person whose anniversary is today).
+
+If the conversation is centrally ABOUT a page (rather than only peripherally relevant to it), mark that page as pinned. Call \`select_pages\` with the chosen IDs. Omit \`ids\` only as a recall-safe fallback when you cannot judge the leaf (selects every page); return \`[]\` when the pages are present but none are directly relevant.`;
 
 /**
  * Render the STATIC numbered `<pages>` block for a leaf from its member slugs.
@@ -134,6 +138,9 @@ export async function selectFromLeaf(
       {
         type: "text",
         text:
+          (turn.situationalContext
+            ? `<situation>${turn.situationalContext}</situation>\n`
+            : "") +
           `<recent_context>${turn.recentContext}</recent_context>\n` +
           `<current_message>${turn.currentMessage}</current_message>`,
       },

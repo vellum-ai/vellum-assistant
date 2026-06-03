@@ -35,10 +35,10 @@ import { type Options } from "@/generated/daemon/sdk.gen";
 import type { SkillsGetData } from "@/generated/daemon/types.gen";
 import { installSkill } from "@/domains/intelligence/skills/install";
 import {
-  type SkillCategory,
   type SkillFilter,
   type SkillInfo,
 } from "@/domains/intelligence/skills/types";
+import { useSkillCategories } from "@/domains/intelligence/skills/use-skill-categories";
 import { resolveFilterParams, sortSkills } from "@/domains/intelligence/skills/utils";
 
 interface SkillsTabProps {
@@ -60,7 +60,7 @@ export function SkillsTab({ assistantId, initialSkillId }: SkillsTabProps) {
   const [searchValue, setSearchValue] = useState("");
   const debouncedSearch = useDebouncedValue(searchValue.trim(), SEARCH_DEBOUNCE_MS);
   const [filter, setFilter] = useState<SkillFilter>("all");
-  const [category, setCategory] = useState<SkillCategory | null>(null);
+  const [category, setCategory] = useState<string | null>(null);
   const [selectedSkillId, setSelectedSkillId] = useState<string | null>(initialSkillId ?? null);
   const [installingSkillId, setInstallingSkillId] = useState<string | null>(null);
   const [removingSkillId, setRemovingSkillId] = useState<string | null>(null);
@@ -69,6 +69,8 @@ export function SkillsTab({ assistantId, initialSkillId }: SkillsTabProps) {
   const [tipDismissed, setTipDismissed] = useState(() =>
     getLocalBool(TIP_STORAGE_KEY, false),
   );
+
+  const { data: categories = [] } = useSkillCategories(assistantId);
 
   const { origin, kind } = useMemo(() => resolveFilterParams(filter), [filter]);
 
@@ -236,6 +238,7 @@ export function SkillsTab({ assistantId, initialSkillId }: SkillsTabProps) {
             counts={counts}
             totalCount={totalCount}
             showCounts={!isSearching}
+            categories={categories}
           />
         </aside>
 
@@ -253,6 +256,7 @@ export function SkillsTab({ assistantId, initialSkillId }: SkillsTabProps) {
             counts={counts}
             totalCount={totalCount}
             showCounts={!isSearching}
+            categories={categories}
           />
         </MobileSidebarDrawer>
 
@@ -300,7 +304,7 @@ function useDerivedCounts(
     }
     const computed: Record<string, number> = {};
     for (const skill of skills) {
-      const cat = skill.category ?? "knowledge";
+      const cat = skill.category ?? "system";
       computed[cat] = (computed[cat] ?? 0) + 1;
     }
     return {
@@ -383,7 +387,7 @@ function EmptyState({
   category,
 }: {
   filter: SkillFilter;
-  category: SkillCategory | null;
+  category: string | null;
 }) {
   const { title, subtitle, Icon } = getEmptyStateCopy(filter, category);
   return (
@@ -413,7 +417,7 @@ function EmptyState({
 
 function getEmptyStateCopy(
   filter: SkillFilter,
-  category: SkillCategory | null,
+  category: string | null,
 ): { title: string; subtitle: string; Icon: typeof Puzzle } {
   if (category) {
     return {

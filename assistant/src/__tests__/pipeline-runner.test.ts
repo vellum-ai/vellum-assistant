@@ -428,19 +428,19 @@ describe("runPipeline — structured log record", () => {
 
     await expect(
       runPipeline(
-        "toolError",
+        "persistence",
         [thrower],
         terminal,
         { value: 1 },
         makeCtx({ pluginName: "noisy-plugin" }),
-        DEFAULT_TIMEOUTS.toolError,
+        DEFAULT_TIMEOUTS.persistence,
       ),
     ).rejects.toBeInstanceOf(Boom);
 
     expect(fakeLogger.calls.length).toBe(1);
     const [record] = fakeLogger.calls[0]!;
     expect(record.outcome).toBe("error");
-    expect(record.pipeline).toBe("toolError");
+    expect(record.pipeline).toBe("persistence");
     expect(record.errorName).toBe("BoomError");
     expect(record.errorMessage).toBe("kaboom");
     expect(typeof record.errorStack).toBe("string");
@@ -456,7 +456,7 @@ describe("runPipeline — structured log record", () => {
 
     await expect(
       runPipeline(
-        "emptyResponse",
+        "persistence",
         [sleeper],
         terminal,
         { value: 1 },
@@ -468,9 +468,9 @@ describe("runPipeline — structured log record", () => {
     expect(fakeLogger.calls.length).toBe(1);
     const [record] = fakeLogger.calls[0]!;
     expect(record.outcome).toBe("timeout");
-    expect(record.pipeline).toBe("emptyResponse");
+    expect(record.pipeline).toBe("persistence");
     expect(record.errorName).toBe("PluginTimeoutError");
-    expect(String(record.errorMessage)).toContain("emptyResponse");
+    expect(String(record.errorMessage)).toContain("persistence");
     expect(String(record.errorMessage)).toContain("slow-plugin");
     expect(record.timeoutMs).toBe(15);
     expect(record.pluginName).toBe("slow-plugin");
@@ -554,9 +554,6 @@ describe("DEFAULT_TIMEOUTS", () => {
       compaction: null,
       overflowReduce: null,
       persistence: null,
-      titleGenerate: null,
-      emptyResponse: null,
-      toolError: null,
       circuitBreaker: null,
     });
   });

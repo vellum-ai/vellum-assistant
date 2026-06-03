@@ -97,7 +97,7 @@ import { haptic } from "@/utils/haptics";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
 import { type TurnState, useTurnStore } from "@/domains/chat/turn-store";
-import { DiskPressureBanner, type DiskPressureBannerMode } from "@/domains/chat/components/disk-pressure-banner";
+import { DiskPressureBanner, type DiskPressureBannerMode } from "@/components/disk-pressure-banner";
 import { submitQuestionResponse } from "@/domains/chat/api/interactions";
 import { useStreamStore } from "@/domains/chat/stream-store";
 
@@ -1222,6 +1222,7 @@ export function ChatRouteContent({
     onVoiceBeforeStart: handleVoiceBeforeStart,
     onStopGenerating: handleStopGenerating,
     assistantId,
+    conversationId: activeConversation?.conversationId,
     modelSupportsVision: activeModelSupportsVision,
     onRecallLastMessage: phase === "idle" ? () => {
       const content = startEditing();

@@ -6,6 +6,8 @@
  * bearer-token authenticated via the standard runtime auth middleware.
  */
 
+import { z } from "zod";
+
 import { orchestrateOAuthConnect } from "../../oauth/connect-orchestrator.js";
 import {
   deleteApp,
@@ -22,11 +24,8 @@ import {
 } from "../../oauth/oauth-store.js";
 import { serializeProviderSummary } from "../../oauth/provider-serializer.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
-import {
-  BadRequestError,
-  InternalError,
-  NotFoundError,
-} from "./errors.js";
+import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
+import { oauthProviderSummarySchema } from "./oauth-providers.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 function parseGrantedScopes(
@@ -131,17 +130,14 @@ async function handleUpsertApp({ body = {} }: RouteHandlerArgs) {
   const clientId = b.client_id as string | undefined;
 
   if (!providerKey || !clientId) {
-    throw new BadRequestError(
-      "provider_key and client_id are required",
-    );
+    throw new BadRequestError("provider_key and client_id are required");
   }
 
   const clientSecretOpts = b.client_secret
     ? { clientSecretValue: b.client_secret as string }
     : b.client_secret_credential_path
       ? {
-          clientSecretCredentialPath:
-            b.client_secret_credential_path as string,
+          clientSecretCredentialPath: b.client_secret_credential_path as string,
         }
       : undefined;
 
@@ -298,6 +294,38 @@ async function handleConnectApp({ pathParams = {}, body }: RouteHandlerArgs) {
 }
 
 // ---------------------------------------------------------------------------
+// Schemas
+// ---------------------------------------------------------------------------
+
+/** Custom OAuth app registration (snake_case wire shape from `formatAppRow`). */
+const oauthAppSchema = z.object({
+  id: z.string(),
+  provider_key: z.string(),
+  client_id: z.string(),
+  created_at: z.number(),
+  updated_at: z.number(),
+});
+
+/** OAuth connection linked to a custom OAuth app. */
+const oauthAppConnectionSchema = z.object({
+  id: z.string(),
+  provider_key: z.string(),
+  account_info: z.string().nullable(),
+  granted_scopes: z.array(z.string()),
+  status: z.string(),
+  has_refresh_token: z.boolean(),
+  expires_at: z.number().nullable(),
+  created_at: z.number(),
+  updated_at: z.number(),
+});
+
+const oauthAppCredentialsSchema = z.object({
+  provider_key: z.string(),
+  client_id: z.string(),
+  client_secret: z.string(),
+});
+
+// ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
 
@@ -321,6 +349,10 @@ export const ROUTES: RouteDefinition[] = [
         description: "OAuth provider key to filter by",
       },
     ],
+    responseBody: z.object({
+      provider: oauthProviderSummarySchema.nullable(),
+      apps: z.array(oauthAppSchema),
+    }),
     handler: handleListApps,
   },
   {
@@ -352,6 +384,7 @@ export const ROUTES: RouteDefinition[] = [
         description: "OAuth client ID (requires provider)",
       },
     ],
+    responseBody: z.object({ app: oauthAppSchema }),
     handler: handleGetApp,
   },
   {
@@ -366,6 +399,13 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Create or return an existing OAuth app registration. Updates client secret if provided.",
     tags: ["oauth"],
+    requestBody: z.object({
+      provider_key: z.string(),
+      client_id: z.string(),
+      client_secret: z.string().optional(),
+      client_secret_credential_path: z.string().optional(),
+    }),
+    responseBody: z.object({ app: oauthAppSchema }),
     handler: handleUpsertApp,
   },
   {
@@ -379,6 +419,8 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Create OAuth app",
     description: "Register a new OAuth app with client credentials.",
     tags: ["oauth"],
+    requestBody: oauthAppCredentialsSchema,
+    responseBody: z.object({ app: oauthAppSchema }),
     responseStatus: "201",
     handler: handleCreateApp,
   },
@@ -391,9 +433,9 @@ export const ROUTES: RouteDefinition[] = [
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     summary: "Delete OAuth app",
-    description:
-      "Delete an OAuth app and disconnect all its connections.",
+    description: "Delete an OAuth app and disconnect all its connections.",
     tags: ["oauth"],
+    responseBody: z.object({ ok: z.boolean() }),
     handler: handleDeleteApp,
   },
   {
@@ -407,6 +449,9 @@ export const ROUTES: RouteDefinition[] = [
     summary: "List OAuth connections",
     description: "List connections for an OAuth app.",
     tags: ["oauth"],
+    responseBody: z.object({
+      connections: z.array(oauthAppConnectionSchema),
+    }),
     handler: handleListConnections,
   },
   {
@@ -420,6 +465,7 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Disconnect OAuth connection",
     description: "Disconnect a single OAuth connection.",
     tags: ["oauth"],
+    responseBody: z.object({ ok: z.boolean() }),
     handler: handleDeleteConnection,
   },
   {
@@ -433,6 +479,14 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Start OAuth connect",
     description: "Start an OAuth connect flow for an app.",
     tags: ["oauth"],
+    requestBody: z.object({
+      scopes: z.array(z.string()).optional(),
+      callback_transport: z.enum(["loopback", "gateway"]).optional(),
+    }),
+    responseBody: z.union([
+      z.object({ auth_url: z.string(), state: z.string() }),
+      z.object({ ok: z.literal(true) }),
+    ]),
     handler: handleConnectApp,
   },
 ];

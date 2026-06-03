@@ -1057,119 +1057,6 @@ paths:
               required:
                 - uuid
               additionalProperties: false
-  /v1/apps/gallery:
-    get:
-      operationId: apps_gallery_get
-      summary: List gallery apps
-      description: Return the built-in app gallery catalog.
-      tags:
-        - apps
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  gallery:
-                    type: object
-                    properties:
-                      version:
-                        type: number
-                      updatedAt:
-                        type: string
-                      categories:
-                        type: array
-                        items:
-                          type: object
-                          properties:
-                            id:
-                              type: string
-                            name:
-                              type: string
-                            icon:
-                              type: string
-                          required:
-                            - id
-                            - name
-                            - icon
-                          additionalProperties: false
-                      apps:
-                        type: array
-                        items:
-                          type: object
-                          properties:
-                            id:
-                              type: string
-                            name:
-                              type: string
-                            description:
-                              type: string
-                            icon:
-                              type: string
-                            category:
-                              type: string
-                            version:
-                              type: string
-                            featured:
-                              type: boolean
-                          required:
-                            - id
-                            - name
-                            - description
-                            - icon
-                            - category
-                            - version
-                          additionalProperties: false
-                    required:
-                      - version
-                      - updatedAt
-                      - categories
-                      - apps
-                    additionalProperties: false
-                required:
-                  - gallery
-                additionalProperties: false
-  /v1/apps/gallery/install:
-    post:
-      operationId: apps_gallery_install_post
-      summary: Install a gallery app
-      description: Install an app from the built-in gallery by its ID.
-      tags:
-        - apps
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                    const: true
-                  appId:
-                    type: string
-                  name:
-                    type: string
-                required:
-                  - success
-                  - appId
-                  - name
-                additionalProperties: false
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                galleryAppId:
-                  type: string
-              required:
-                - galleryAppId
-              additionalProperties: false
   /v1/apps/import-bundle:
     post:
       operationId: apps_importbundle_post
@@ -1230,6 +1117,13 @@ paths:
                   - scanResult
                   - signatureResult
                 additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
   /v1/apps/open-bundle:
     post:
       operationId: apps_openbundle_post
@@ -1585,29 +1479,22 @@ paths:
       requestBody:
         required: true
         content:
-          application/json:
+          multipart/form-data:
             schema:
               type: object
               properties:
+                file:
+                  type: string
+                  format: binary
+                  description: The file to upload
                 filename:
                   type: string
                 mimeType:
                   type: string
-                data:
-                  type: string
-                  description: Base64-encoded file data
-                filePath:
-                  type: string
-                  description: On-disk file path (file-backed upload)
-                trustedSource:
-                  type: boolean
-                  description:
-                    Set by the gateway when the file came from a guardian-bound channel actor. Honored only when the request is
-                    authenticated as a gateway service token; ignored otherwise.
               required:
+                - file
                 - filename
                 - mimeType
-              additionalProperties: false
   /v1/attachments/{id}:
     get:
       operationId: attachments_by_id_get
@@ -1664,6 +1551,11 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
         "416":
           description: Range Not Satisfiable
       parameters:
@@ -10531,11 +10423,12 @@ paths:
           schema:
             type: string
           description:
-            "Optional reconnect cursor: the highest per-conversation event seq the client has already applied. When set
-            together with a conversation scope, the daemon replays any buffered events with seq > lastSeenSeq before
-            going live. If the cursor is older than the ring buffer's oldest entry the connection simply goes live; the
-            client is expected to detect the gap from the next event's seq and refetch via the messages API. Must be a
-            non-negative integer."
+            "Optional reconnect cursor: the highest global event seq the client has already applied. `seq` is a single
+            per-assistant counter shared across all conversations, so one cursor resumes the stream regardless of how
+            many conversations are multiplexed on the connection. When set, the daemon replays any buffered events with
+            seq > lastSeenSeq (re-applying the subscriber's targeting/scope filter) before going live. If the cursor is
+            older than the ring buffer's oldest entry the connection simply goes live; the client is expected to detect
+            the gap from the next event's seq and refetch via the messages API. Must be a non-negative integer."
   /v1/events/emit:
     post:
       operationId: events_emit_post
@@ -10572,6 +10465,11 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/gzip:
+              schema:
+                type: string
+                format: binary
         "500":
           description: Failed to create archive
       requestBody:
@@ -14392,6 +14290,11 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/gzip:
+              schema:
+                type: string
+                format: binary
         "500":
           description: Failed to create archive
       requestBody:
@@ -16466,6 +16369,86 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  provider:
+                    anyOf:
+                      - type: object
+                        properties:
+                          provider_key:
+                            type: string
+                          display_name:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          description:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          dashboard_url:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          client_id_placeholder:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          requires_client_secret:
+                            type: boolean
+                          logo_url:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          supports_managed_mode:
+                            type: boolean
+                          managed_service_is_paid:
+                            type: boolean
+                          feature_flag:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                        required:
+                          - provider_key
+                          - display_name
+                          - description
+                          - dashboard_url
+                          - client_id_placeholder
+                          - requires_client_secret
+                          - logo_url
+                          - supports_managed_mode
+                          - managed_service_is_paid
+                          - feature_flag
+                        additionalProperties: false
+                      - type: "null"
+                  apps:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        provider_key:
+                          type: string
+                        client_id:
+                          type: string
+                        created_at:
+                          type: number
+                        updated_at:
+                          type: number
+                      required:
+                        - id
+                        - provider_key
+                        - client_id
+                        - created_at
+                        - updated_at
+                      additionalProperties: false
+                required:
+                  - provider
+                  - apps
+                additionalProperties: false
       parameters:
         - name: provider_key
           in: query
@@ -16482,6 +16465,52 @@ paths:
       responses:
         "201":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  app:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      provider_key:
+                        type: string
+                      client_id:
+                        type: string
+                      created_at:
+                        type: number
+                      updated_at:
+                        type: number
+                    required:
+                      - id
+                      - provider_key
+                      - client_id
+                      - created_at
+                      - updated_at
+                    additionalProperties: false
+                required:
+                  - app
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                provider_key:
+                  type: string
+                client_id:
+                  type: string
+                client_secret:
+                  type: string
+              required:
+                - provider_key
+                - client_id
+                - client_secret
+              additionalProperties: false
   /v1/oauth/apps/{appId}/connect:
     post:
       operationId: oauth_apps_by_appId_connect_post
@@ -16492,12 +16521,51 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      auth_url:
+                        type: string
+                      state:
+                        type: string
+                    required:
+                      - auth_url
+                      - state
+                    additionalProperties: false
+                  - type: object
+                    properties:
+                      ok:
+                        type: boolean
+                        const: true
+                    required:
+                      - ok
+                    additionalProperties: false
       parameters:
         - name: appId
           in: path
           required: true
           schema:
             type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                scopes:
+                  type: array
+                  items:
+                    type: string
+                callback_transport:
+                  type: string
+                  enum:
+                    - loopback
+                    - gateway
+              additionalProperties: false
   /v1/oauth/apps/{appId}/connections:
     get:
       operationId: oauth_apps_by_appId_connections_get
@@ -16508,6 +16576,54 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connections:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        provider_key:
+                          type: string
+                        account_info:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        granted_scopes:
+                          type: array
+                          items:
+                            type: string
+                        status:
+                          type: string
+                        has_refresh_token:
+                          type: boolean
+                        expires_at:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        created_at:
+                          type: number
+                        updated_at:
+                          type: number
+                      required:
+                        - id
+                        - provider_key
+                        - account_info
+                        - granted_scopes
+                        - status
+                        - has_refresh_token
+                        - expires_at
+                        - created_at
+                        - updated_at
+                      additionalProperties: false
+                required:
+                  - connections
+                additionalProperties: false
       parameters:
         - name: appId
           in: path
@@ -16524,6 +16640,16 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                  - ok
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -16540,6 +16666,34 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  app:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      provider_key:
+                        type: string
+                      client_id:
+                        type: string
+                      created_at:
+                        type: number
+                      updated_at:
+                        type: number
+                    required:
+                      - id
+                      - provider_key
+                      - client_id
+                      - created_at
+                      - updated_at
+                    additionalProperties: false
+                required:
+                  - app
+                additionalProperties: false
       parameters:
         - name: id
           in: query
@@ -16569,6 +16723,53 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  app:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      provider_key:
+                        type: string
+                      client_id:
+                        type: string
+                      created_at:
+                        type: number
+                      updated_at:
+                        type: number
+                    required:
+                      - id
+                      - provider_key
+                      - client_id
+                      - created_at
+                      - updated_at
+                    additionalProperties: false
+                required:
+                  - app
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                provider_key:
+                  type: string
+                client_id:
+                  type: string
+                client_secret:
+                  type: string
+                client_secret_credential_path:
+                  type: string
+              required:
+                - provider_key
+                - client_id
+              additionalProperties: false
   /v1/oauth/connection-changed:
     post:
       operationId: oauth_connectionchanged_post
@@ -16599,6 +16800,16 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                  - ok
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -16688,6 +16899,63 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  providers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        provider_key:
+                          type: string
+                        display_name:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        description:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        dashboard_url:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        client_id_placeholder:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        requires_client_secret:
+                          type: boolean
+                        logo_url:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        supports_managed_mode:
+                          type: boolean
+                        managed_service_is_paid:
+                          type: boolean
+                        feature_flag:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                      required:
+                        - provider_key
+                        - display_name
+                        - description
+                        - dashboard_url
+                        - client_id_placeholder
+                        - requires_client_secret
+                        - logo_url
+                        - supports_managed_mode
+                        - managed_service_is_paid
+                        - feature_flag
+                      additionalProperties: false
+                required:
+                  - providers
+                additionalProperties: false
       parameters:
         - name: supports_managed_mode
           in: query
@@ -16729,6 +16997,24 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  provider:
+                    type: object
+                    propertyNames:
+                      type: string
+                    additionalProperties: {}
+                  oauth_callback_url:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                required:
+                  - provider
+                  - oauth_callback_url
+                additionalProperties: false
       parameters:
         - name: providerKey
           in: path
@@ -19583,15 +19869,6 @@ paths:
                                 - available
                             category:
                               type: string
-                              enum:
-                                - communication
-                                - productivity
-                                - development
-                                - media
-                                - automation
-                                - webSocial
-                                - knowledge
-                                - integration
                             origin:
                               type: string
                               const: vellum
@@ -19630,15 +19907,6 @@ paths:
                                 - available
                             category:
                               type: string
-                              enum:
-                                - communication
-                                - productivity
-                                - development
-                                - media
-                                - automation
-                                - webSocial
-                                - knowledge
-                                - integration
                             origin:
                               type: string
                               const: clawhub
@@ -19697,15 +19965,6 @@ paths:
                                 - available
                             category:
                               type: string
-                              enum:
-                                - communication
-                                - productivity
-                                - development
-                                - media
-                                - automation
-                                - webSocial
-                                - knowledge
-                                - integration
                             origin:
                               type: string
                               const: skillssh
@@ -19779,15 +20038,6 @@ paths:
                                 - available
                             category:
                               type: string
-                              enum:
-                                - communication
-                                - productivity
-                                - development
-                                - media
-                                - automation
-                                - webSocial
-                                - knowledge
-                                - integration
                             origin:
                               type: string
                               const: custom
@@ -19945,15 +20195,6 @@ paths:
                               - available
                           category:
                             type: string
-                            enum:
-                              - communication
-                              - productivity
-                              - development
-                              - media
-                              - automation
-                              - webSocial
-                              - knowledge
-                              - integration
                           origin:
                             type: string
                             const: vellum
@@ -19992,15 +20233,6 @@ paths:
                               - available
                           category:
                             type: string
-                            enum:
-                              - communication
-                              - productivity
-                              - development
-                              - media
-                              - automation
-                              - webSocial
-                              - knowledge
-                              - integration
                           origin:
                             type: string
                             const: clawhub
@@ -20113,15 +20345,6 @@ paths:
                               - available
                           category:
                             type: string
-                            enum:
-                              - communication
-                              - productivity
-                              - development
-                              - media
-                              - automation
-                              - webSocial
-                              - knowledge
-                              - integration
                           origin:
                             type: string
                             const: skillssh
@@ -20195,15 +20418,6 @@ paths:
                               - available
                           category:
                             type: string
-                            enum:
-                              - communication
-                              - productivity
-                              - development
-                              - media
-                              - automation
-                              - webSocial
-                              - knowledge
-                              - integration
                           origin:
                             type: string
                             const: custom
@@ -20371,15 +20585,6 @@ paths:
                               - available
                           category:
                             type: string
-                            enum:
-                              - communication
-                              - productivity
-                              - development
-                              - media
-                              - automation
-                              - webSocial
-                              - knowledge
-                              - integration
                           origin:
                             type: string
                             const: vellum
@@ -20418,15 +20623,6 @@ paths:
                               - available
                           category:
                             type: string
-                            enum:
-                              - communication
-                              - productivity
-                              - development
-                              - media
-                              - automation
-                              - webSocial
-                              - knowledge
-                              - integration
                           origin:
                             type: string
                             const: clawhub
@@ -20485,15 +20681,6 @@ paths:
                               - available
                           category:
                             type: string
-                            enum:
-                              - communication
-                              - productivity
-                              - development
-                              - media
-                              - automation
-                              - webSocial
-                              - knowledge
-                              - integration
                           origin:
                             type: string
                             const: skillssh
@@ -20567,15 +20754,6 @@ paths:
                               - available
                           category:
                             type: string
-                            enum:
-                              - communication
-                              - productivity
-                              - development
-                              - media
-                              - automation
-                              - webSocial
-                              - knowledge
-                              - integration
                           origin:
                             type: string
                             const: custom
@@ -20740,6 +20918,43 @@ paths:
           required: true
           schema:
             type: string
+  /v1/skills/categories:
+    get:
+      operationId: skills_categories_get
+      summary: List skill categories
+      description: Return all skill category definitions with labels, icons, and descriptions.
+      tags:
+        - skills
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  categories:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        slug:
+                          type: string
+                        label:
+                          type: string
+                        description:
+                          type: string
+                        icon:
+                          type: string
+                      required:
+                        - slug
+                        - label
+                        - description
+                        - icon
+                      additionalProperties: false
+                required:
+                  - categories
+                additionalProperties: false
   /v1/skills/check-updates:
     post:
       operationId: skills_checkupdates_post
@@ -20887,15 +21102,6 @@ paths:
                                 - available
                             category:
                               type: string
-                              enum:
-                                - communication
-                                - productivity
-                                - development
-                                - media
-                                - automation
-                                - webSocial
-                                - knowledge
-                                - integration
                             origin:
                               type: string
                               const: vellum
@@ -20934,15 +21140,6 @@ paths:
                                 - available
                             category:
                               type: string
-                              enum:
-                                - communication
-                                - productivity
-                                - development
-                                - media
-                                - automation
-                                - webSocial
-                                - knowledge
-                                - integration
                             origin:
                               type: string
                               const: clawhub
@@ -21001,15 +21198,6 @@ paths:
                                 - available
                             category:
                               type: string
-                              enum:
-                                - communication
-                                - productivity
-                                - development
-                                - media
-                                - automation
-                                - webSocial
-                                - knowledge
-                                - integration
                             origin:
                               type: string
                               const: skillssh
@@ -21083,15 +21271,6 @@ paths:
                                 - available
                             category:
                               type: string
-                              enum:
-                                - communication
-                                - productivity
-                                - development
-                                - media
-                                - automation
-                                - webSocial
-                                - knowledge
-                                - integration
                             origin:
                               type: string
                               const: custom
@@ -22458,6 +22637,61 @@ paths:
                 - currentThreshold
                 - intent
               additionalProperties: false
+  /v1/tts/providers:
+    get:
+      operationId: tts_providers_get
+      summary: List TTS providers
+      description: Return the catalog of available TTS providers with client-facing metadata.
+      tags:
+        - tts
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  providers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        displayName:
+                          type: string
+                        subtitle:
+                          type: string
+                        supportsVoiceSelection:
+                          type: boolean
+                        apiKeyPlaceholder:
+                          type: string
+                        credentialsGuide:
+                          type: object
+                          properties:
+                            description:
+                              type: string
+                            url:
+                              type: string
+                            linkLabel:
+                              type: string
+                          required:
+                            - description
+                            - url
+                            - linkLabel
+                          additionalProperties: false
+                      required:
+                        - id
+                        - displayName
+                        - subtitle
+                        - supportsVoiceSelection
+                        - apiKeyPlaceholder
+                        - credentialsGuide
+                      additionalProperties: false
+                required:
+                  - providers
+                additionalProperties: false
   /v1/tts/synthesize:
     post:
       operationId: tts_synthesize_post

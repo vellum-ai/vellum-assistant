@@ -8,17 +8,7 @@ import type {
   SlackRuntimeMessage,
   Surface,
 } from "@/domains/chat/types/types";
-import { mapRuntimeToolCalls, normalizeContentOrder, normalizeTextSegments, type RuntimeMessage } from "@/domains/chat/api/messages";
-
-/**
- * Narrow a wire message `role` (an open string on the canonical contract) to
- * the two roles the transcript renders. History and reconcile both pre-filter
- * server rows to user/assistant before reaching here, so non-user rows can
- * only be assistant turns.
- */
-export function toDisplayRole(role: string): "user" | "assistant" {
-  return role === "user" ? "user" : "assistant";
-}
+import { mapRuntimeToolCalls, normalizeContentOrder, type RuntimeMessage } from "@/domains/chat/api/messages";
 
 /**
  * Narrow the wire surface `display` (an open string) to the display union.
@@ -67,9 +57,7 @@ export function mapServerSurfaces(
 export interface PreparedRuntimeMessage {
   parsedAttachments: DisplayAttachment[] | undefined;
   structuredAttachments: DisplayAttachment[] | undefined;
-  normalizedSegments:
-    | Array<{ type: string; content: string; [key: string]: unknown }>
-    | undefined;
+  normalizedSegments: string[] | undefined;
   normalizedContentOrder: Array<{ type: string; id: string }> | undefined;
   toolCalls: ReturnType<typeof mapRuntimeToolCalls> | undefined;
   slackMessage: SlackRuntimeMessage | undefined;
@@ -116,18 +104,17 @@ export function prepareServerMessage(m: RuntimeMessage): PreparedRuntimeMessage 
   // segments[0] (as a prior implementation did) left raw "[File attachment]"
   // text in trailing segments, which the transcript renderer then printed
   // into chat bubbles. LUM-1527.
-  const rawSegments = normalizeTextSegments(m.textSegments);
+  const rawSegments =
+    m.textSegments && m.textSegments.length > 0 ? m.textSegments : undefined;
   const parsedAttachmentsAccum: DisplayAttachment[] = [];
   const normalizedSegments = rawSegments
     ? rawSegments.map((seg) => {
         const { cleanedContent: segCleaned, attachments: segAttachments } =
-          parseAttachmentSummariesFromContent(seg.content);
+          parseAttachmentSummariesFromContent(seg);
         if (segAttachments) {
           parsedAttachmentsAccum.push(...segAttachments);
         }
-        return segCleaned === seg.content
-          ? seg
-          : { ...seg, content: segCleaned };
+        return segCleaned;
       })
     : undefined;
 
@@ -179,7 +166,7 @@ export function mapRuntimeToDisplayMessage(m: RuntimeMessage): DisplayMessage {
 
   const msg: DisplayMessage = {
     id: m.id,
-    role: toDisplayRole(m.role),
+    role: m.role,
   };
   if (m.mergedMessageIds?.length) msg.mergedMessageIds = m.mergedMessageIds;
   if (m.surfaces) msg.surfaces = mapServerSurfaces(m.surfaces);

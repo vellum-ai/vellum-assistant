@@ -1075,6 +1075,27 @@ public struct SkillsListResponseMessage: Codable, Sendable {
     }
 }
 
+/// A skill category definition fetched from the daemon.
+public struct SkillCategoryDef: Codable, Sendable, Identifiable {
+    public var id: String { slug }
+    public let slug: String
+    public let label: String
+    public let description: String
+    public let icon: String
+
+    public init(slug: String, label: String, description: String, icon: String) {
+        self.slug = slug
+        self.label = label
+        self.description = description
+        self.icon = icon
+    }
+}
+
+/// Response from the daemon's `GET /v1/skills/categories` endpoint.
+public struct SkillCategoriesResponse: Codable, Sendable {
+    public let categories: [SkillCategoryDef]
+}
+
 /// Response containing the full body of a specific skill.
 /// Backed by generated `SkillDetailResponse`.
 public typealias SkillDetailResponseMessage = SkillDetailResponse

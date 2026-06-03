@@ -68,7 +68,6 @@ import {
   getLastUserTimestampBefore,
   getMessageById,
   provenanceFromTrustContext,
-  setConversationHistoryStrippedAt,
   setLastNotifiedInferenceProfile,
   updateConversationContextWindow,
   updateConversationSlackContextWatermark,
@@ -105,7 +104,6 @@ import {
   runDefaultMemoryRetrieval,
 } from "../plugins/defaults/memory-retrieval/register.js";
 import { defaultPersistenceTerminal } from "../plugins/defaults/persistence/terminal.js";
-import { defaultTitleGenerateTerminal } from "../plugins/defaults/title-generate/terminal.js";
 import { defaultTokenEstimateTerminal } from "../plugins/defaults/token-estimate/terminal.js";
 import { DEFAULT_TIMEOUTS, runHook, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
@@ -158,6 +156,7 @@ import {
   createEventHandlerState,
   dispatchAgentEvent,
   type EventHandlerDeps,
+  markHistoryStrippedBestEffort,
 } from "./conversation-agent-loop-handlers.js";
 import {
   approveHostAttachmentRead,
@@ -211,7 +210,6 @@ import type {
 } from "./message-protocol.js";
 import type { MemoryRecalled } from "./message-types/memory.js";
 import type { ConfirmationStateChanged } from "./message-types/messages.js";
-import { conversationMetadataSyncTag } from "./message-types/sync.js";
 import { parseActualTokensFromError } from "./parse-actual-tokens-from-error.js";
 import {
   persistUnsendableImageDowngrades,
@@ -222,29 +220,6 @@ import type { TrustContext } from "./trust-context.js";
 import { stripHistoricalWebSearchResults } from "./web-search-history.js";
 
 const log = getLogger("conversation-agent-loop");
-
-/**
- * Best-effort persistence of the history-stripped marker after an
- * injection-strip event (compaction / overflow recovery). The marker is a
- * durability hint, not turn-critical state — a transient SQLite write failure
- * (SQLITE_BUSY, disk-full, read-only FS) must not abort the turn. Logs a
- * warning and continues on failure, preserving the long-standing non-fatal
- * contract for this metadata write.
- */
-function markHistoryStrippedBestEffort(
-  conversationId: string,
-  strippedAt: number,
-  logger: ReturnType<typeof getLogger>,
-): void {
-  try {
-    setConversationHistoryStrippedAt(conversationId, strippedAt);
-  } catch (err) {
-    logger.warn(
-      { err },
-      "Failed to persist history-stripped marker after compaction strip (non-fatal)",
-    );
-  }
-}
 
 const DISK_PRESSURE_ERROR_CODE = "DISK_SPACE_CRITICAL" as const;
 const DISK_PRESSURE_ERROR_CATEGORY = "disk_pressure";
@@ -914,55 +889,6 @@ export async function runAgentLoopImpl(
       }
     }
 
-    // Generate title early — the user message alone is sufficient context.
-    // Firing before the main LLM call removes the delay of waiting for the
-    // full assistant response. The second-pass regeneration at turn 3 will
-    // refine the title with more context.
-    // No abort signal — title generation should complete even if the user
-    // cancels the response, since the user message is already persisted.
-    // Deferred via setTimeout so the main agent loop LLM call enqueues
-    // first, avoiding rate-limit slot contention on strict configs.
-    if (isReplaceableTitle(turnStartConversation?.title ?? null)) {
-      // TurnContext routed through the canonical builder so the pipeline's
-      // log record reports the same `conversationId`/`turnIndex` shape as
-      // every other slot in this turn. Title generation does not depend on
-      // the context-window manager attached by the builder, but sharing the
-      // builder keeps the invariant enforced in one place.
-      const titlePipelineCtx = buildPluginTurnContext(ctx, reqId);
-      const titleArgs = {
-        conversationId: ctx.conversationId,
-        provider: ctx.provider,
-        userMessage: options?.titleText ?? content,
-        onTitleUpdated: (title: string) => {
-          onEvent({
-            type: "conversation_title_updated",
-            conversationId: ctx.conversationId,
-            title,
-          });
-          onEvent({
-            type: "sync_changed",
-            tags: [conversationMetadataSyncTag(ctx.conversationId)],
-          });
-        },
-      };
-      setTimeout(() => {
-        runPipeline(
-          "titleGenerate",
-          getMiddlewaresFor("titleGenerate"),
-          defaultTitleGenerateTerminal,
-          titleArgs,
-          titlePipelineCtx,
-          DEFAULT_TIMEOUTS.titleGenerate,
-        ).catch((err) => {
-          // Fire-and-forget — keep previous non-propagating semantics.
-          // queueGenerateConversationTitle already swallows internal
-          // errors; this catch covers pipeline-layer errors (timeouts,
-          // middleware throws) without surfacing them to the agent loop.
-          rlog.warn({ err }, "titleGenerate pipeline failed (non-fatal)");
-        });
-      }, 0);
-    }
-
     const isFirstMessage = ctx.messages.length === 1;
     // Promote a pending post-compaction re-inject signal (e.g. from `/compact`)
     // into `compactedThisTurn` so NOW.md / PKB / v2 static blocks land on this
@@ -1115,10 +1041,7 @@ export async function runAgentLoopImpl(
       });
     }
     const compactionOptions = {
-      lastCompactedAt: ctx.contextCompactedAt ?? undefined,
       precomputedEstimate: compactCheck.estimatedTokens,
-      conversationOriginChannel:
-        getConversationOriginChannel(ctx.conversationId) ?? undefined,
       overrideProfile: resolveCurrentOverrideProfile() ?? null,
       actorTrustClass: ctx.trustContext?.trustClass,
     };
@@ -1166,7 +1089,7 @@ export async function runAgentLoopImpl(
     }
     // Only track circuit-breaker state when a summary LLM call actually ran.
     // `summaryFailed` is `undefined` on early returns (compaction disabled,
-    // below threshold, cooldown active, no eligible messages, truncation-only
+    // below threshold, no eligible messages, truncation-only
     // path) — treating those as "successful" compactions would silently reset
     // the 3-strike counter and break the invariant.
     if (compacted && compacted.summaryFailed !== undefined) {
@@ -2063,6 +1986,7 @@ export async function runAgentLoopImpl(
     // `agentLoop.run` receives.
     const userPromptCtx: UserPromptSubmitContext = {
       conversationId: ctx.conversationId,
+      prompt: options?.titleText ?? content,
       originalMessages: ctx.messages,
       latestMessages: runMessages,
       logger: rlog,
@@ -2108,8 +2032,8 @@ export async function runAgentLoopImpl(
     rlog.info({ callSite: turnCallSite }, "Starting agent loop run");
 
     // Thread the orchestrator's canonical per-turn context into the agent
-    // loop so its internal pipeline invocations (llmCall, emptyResponse,
-    // toolError, toolExecute) see the real conversation identity / trust /
+    // loop so its internal pipeline invocations (llmCall, toolExecute) see
+    // the real conversation identity / trust /
     // contextWindowManager instead of the synthesized `"agent-loop"`
     // placeholder. The loop clones this value and overwrites `turnIndex`
     // with its own tool-use iteration counter.
@@ -2122,19 +2046,12 @@ export async function runAgentLoopImpl(
     // state the loop is intentionally blind to. Durable persistence and
     // re-injection stay orchestrator-supplied for now.
     const midLoopCompaction: MidLoopCompaction = {
-      prepare: (rawHistory) => {
-        // The loop already stripped runtime injections; commit the raw
-        // persistent messages to durable state and resolve pipeline options.
-        ctx.messages = rawHistory;
-        markHistoryStrippedBestEffort(ctx.conversationId, Date.now(), rlog);
+      prepare: () => {
+        // The loop strips runtime injections and commits the stripped basis to
+        // durable state via the `compaction_completed` event; this hook only
+        // resolves the pipeline options.
         return {
           options: {
-            lastCompactedAt: ctx.contextCompactedAt ?? undefined,
-            force: true,
-            targetInputTokensOverride:
-              resolveCurrentContextBudget().preflightBudget,
-            conversationOriginChannel:
-              getConversationOriginChannel(ctx.conversationId) ?? undefined,
             overrideProfile: resolveCurrentOverrideProfile() ?? null,
             actorTrustClass: ctx.trustContext?.trustClass,
           },
@@ -2383,7 +2300,7 @@ export async function runAgentLoopImpl(
 
       if (updatedHistory.length > preRunHistoryLength) {
         ctx.messages = stripInjectionsForCompaction(updatedHistory);
-        markHistoryStrippedBestEffort(ctx.conversationId, Date.now(), rlog);
+        markHistoryStrippedBestEffort(ctx.conversationId);
         convergenceStripped = true;
         preRepairMessages = updatedHistory;
         preRunHistoryLength = updatedHistory.length;
@@ -2614,7 +2531,7 @@ export async function runAgentLoopImpl(
           // pre-rerun messages.
           if (updatedHistory.length > preRunHistoryLength) {
             ctx.messages = stripInjectionsForCompaction(updatedHistory);
-            markHistoryStrippedBestEffort(ctx.conversationId, Date.now(), rlog);
+            markHistoryStrippedBestEffort(ctx.conversationId);
             convergenceStripped = true;
             preRepairMessages = updatedHistory;
             preRunHistoryLength = updatedHistory.length;
@@ -2656,10 +2573,8 @@ export async function runAgentLoopImpl(
                 messages: ctx.messages,
                 signal: abortController.signal,
                 options: {
-                  lastCompactedAt: ctx.contextCompactedAt ?? undefined,
                   force: true,
                   minKeepRecentUserTurns: 0,
-                  targetInputTokensOverride: correctedTarget,
                   overrideProfile: resolveCurrentOverrideProfile() ?? null,
                 },
               },
@@ -2689,7 +2604,7 @@ export async function runAgentLoopImpl(
             }
           }
           // Only track when the summary LLM actually ran; `force: true`
-          // bypasses the cooldown but not the early-return paths.
+          // bypasses the auto-threshold gate but not the early-return paths.
           if (
             emergencyCompact &&
             emergencyCompact.summaryFailed !== undefined
@@ -3257,17 +3172,6 @@ export async function runAgentLoopImpl(
       queueRegenerateConversationTitle({
         conversationId: ctx.conversationId,
         provider: ctx.provider,
-        onTitleUpdated: (title) => {
-          onEvent({
-            type: "conversation_title_updated",
-            conversationId: ctx.conversationId,
-            title,
-          });
-          onEvent({
-            type: "sync_changed",
-            tags: [conversationMetadataSyncTag(ctx.conversationId)],
-          });
-        },
         signal: abortController.signal,
       });
     }
@@ -3516,7 +3420,7 @@ export async function applyCompactionResult(
     result.summaryText,
     ctx.contextCompactedMessageCount,
   );
-  markHistoryStrippedBestEffort(ctx.conversationId, compactedAt, log);
+  markHistoryStrippedBestEffort(ctx.conversationId);
   if (options.slackContextCompactionWatermarkTs) {
     updateConversationSlackContextWatermark(
       ctx.conversationId,

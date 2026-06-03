@@ -10,7 +10,7 @@ export function AdvancedPage() {
   const platformAssistant = assistant?.is_local ? null : assistant;
 
   return (
-    <div className="max-w-[940px] space-y-4">
+    <div className="mx-auto max-w-[940px] space-y-4">
       {infraGate === "full" && platformAssistant && (
         <DetailCard
           title="Update Window"

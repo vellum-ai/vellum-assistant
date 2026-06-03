@@ -155,7 +155,11 @@ describe("memory_v2_ema_scores route registration", () => {
     expect(route!.tags).toContain("memory");
     // Schema rejects unknown keys so accidental request-body fields fail
     // loudly during route adapter parsing rather than silently propagating.
-    expect(() => route!.requestBody!.parse({ extra: true })).toThrow();
-    expect(() => route!.requestBody!.parse({})).not.toThrow();
+    const requestBody = route!.requestBody;
+    if (!requestBody || !("parse" in requestBody)) {
+      throw new Error("expected a JSON (Zod) request-body schema");
+    }
+    expect(() => requestBody.parse({ extra: true })).toThrow();
+    expect(() => requestBody.parse({})).not.toThrow();
   });
 });

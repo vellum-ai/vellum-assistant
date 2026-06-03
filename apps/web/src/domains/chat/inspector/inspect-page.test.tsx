@@ -78,7 +78,7 @@ let contextStub: ContextStub = {
 interface MessageListEntry {
   id: string;
   role: "user" | "assistant";
-  textSegments?: Array<{ type: string; content: string; [key: string]: unknown }>;
+  textSegments?: string[];
   contentOrder?: Array<{ type: string; id: string }>;
   timestamp: number;
 }

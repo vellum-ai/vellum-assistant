@@ -580,18 +580,21 @@ async function simulateInlineCompaction(
   compactionCircuit: CompactionCircuit,
 ): Promise<Message[] | null> {
   await onEvent({ type: "context_compacting" });
-  // The agent loop strips runtime injections before calling prepare (the strip
-  // is identity-stubbed in this suite); prepare commits the stripped history to
-  // durable state and returns only the pipeline options.
+  // The agent loop strips runtime injections (identity-stubbed in this suite),
+  // records the history-stripped marker via `history_stripped`, then prepare
+  // returns only the orchestrator options. The loop owns the forced-compaction
+  // decision for its mid-loop budget gate and layers `force` onto the options
+  // bag before invoking the pipeline.
   const rawHistory = stripInjectionsForCompaction(history);
-  const { options } = compaction.prepare(rawHistory);
+  await onEvent({ type: "history_stripped" });
+  const { options } = compaction.prepare();
   let result: CompactionResult;
   try {
     result = await runPipeline<CompactionArgs, CompactionResult>(
       "compaction",
       getMiddlewaresFor("compaction"),
       (args) => defaultCompactionTerminal(args, turnContext as TurnContext),
-      { messages: rawHistory, signal, options },
+      { messages: rawHistory, signal, options: { force: true, ...options } },
       turnContext as TurnContext,
       DEFAULT_TIMEOUTS.compaction,
     );
@@ -622,13 +625,11 @@ async function simulateInlineCompaction(
       onEvent,
     );
   }
-  if (compactResult.compacted) {
-    await onEvent({
-      type: "compaction_applied",
-      result: compactResult,
-      basis: rawHistory,
-    });
-  }
+  await onEvent({
+    type: "compaction_completed",
+    result: compactResult,
+    basis: rawHistory,
+  });
   if (compactResult.exhausted ?? false) {
     return null;
   }

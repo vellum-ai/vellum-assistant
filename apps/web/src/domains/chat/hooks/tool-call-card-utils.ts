@@ -53,8 +53,14 @@ export type ToolCallCardStep =
       title: string;
       durationLabel: string;
       linkCount: number;
+      /** Results shown inline as favicon chips (clamped to `MAX_VISIBLE_RESULTS`). */
       results: WebSearchResultItem[];
-      overflow?: number;
+      /**
+       * Results beyond the visible clamp. Surfaced behind the `+N more`
+       * overflow pill so the additional sources remain reachable. Empty or
+       * omitted when every result fits inline.
+       */
+      overflowResults?: WebSearchResultItem[];
     }
   | {
       kind: "web_search_error";
@@ -171,11 +177,11 @@ function webSearchStepTitle(terminal: boolean): string {
 
 function clampResults(results: WebSearchResultItem[]): {
   visible: WebSearchResultItem[];
-  overflow: number;
+  overflowResults: WebSearchResultItem[];
 } {
   return {
     visible: results.slice(0, MAX_VISIBLE_RESULTS),
-    overflow: Math.max(0, results.length - MAX_VISIBLE_RESULTS),
+    overflowResults: results.slice(MAX_VISIBLE_RESULTS),
   };
 }
 
@@ -183,14 +189,14 @@ function buildWebSearchStep(
   metadata: NonNullable<ToolActivityMetadata["webSearch"]>,
   terminal: boolean,
 ): ToolCallCardStep {
-  const { visible, overflow } = clampResults(metadata.results);
+  const { visible, overflowResults } = clampResults(metadata.results);
   return {
     kind: "web_search",
     title: webSearchStepTitle(terminal),
     durationLabel: formatMs(metadata.durationMs),
     linkCount: metadata.resultCount,
     results: visible,
-    overflow,
+    overflowResults,
   };
 }
 
@@ -214,14 +220,14 @@ function buildWebSearchStepFromResultText(
 ): (ToolCallCardStep & { kind: "web_search" }) | null {
   const parsed = parseWebSearchResultText(text);
   if (parsed.length === 0) return null;
-  const { visible, overflow } = clampResults(parsed);
+  const { visible, overflowResults } = clampResults(parsed);
   return {
     kind: "web_search",
     title: webSearchStepTitle(true),
     durationLabel: "",
     linkCount: parsed.length,
     results: visible,
-    overflow,
+    overflowResults,
   };
 }
 

@@ -1,8 +1,10 @@
 import { Heart, Monitor, Moon, Sun } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router";
 
 import { Notice } from "@vellum/design-library/components/notice";
 import { SegmentControl } from "@vellum/design-library/components/segment-control";
+import { useDiskPressureMonitor } from "@/assistant/use-disk-pressure-monitor";
 import { AssistantPicker } from "@/domains/settings/components/assistant-picker";
 import { AssistantSleepPolicy } from "@/domains/settings/components/assistant-sleep-policy";
 import { AssistantUpgrades } from "@/domains/settings/components/assistant-upgrades";
@@ -12,10 +14,10 @@ import { IOSAppCard } from "@/domains/settings/components/ios-app-card";
 import { MediaEmbedsCard } from "@/domains/settings/components/media-embeds-card";
 import { PreviewReleaseChannel } from "@/domains/settings/components/preview-release-channel";
 import { RetireAssistant } from "@/domains/settings/components/retire-assistant";
+import { DiskPressureBanner, type DiskPressureBannerMode } from "@/components/disk-pressure-banner";
 import { DetailCard } from "@/components/detail-card";
 import { TimezonePicker } from "@/domains/settings/components/timezone-picker";
 import { ProfileCard } from "@/components/profile-card";
-import { AssistantOutOfStorageBanner } from "@/domains/settings/components/assistant-out-of-storage-banner";
 import {
   AssistantStatusPanel,
   useAssistantWithHealthz,
@@ -44,6 +46,7 @@ import {
   setDeviceSetting,
   watchDeviceSetting,
 } from "@/utils/device-settings";
+import { routes } from "@/utils/routes";
 
 function ThemeCard() {
   const velvet = useClientFeatureFlagStore.use.velvet();
@@ -218,8 +221,13 @@ export function GeneralPage() {
   const multiPlatformAssistant = useAssistantFeatureFlagStore.use.multiPlatformAssistant();
   const settingsSleepPolicy = useAssistantFeatureFlagStore.use.settingsSleepPolicy();
   const isLoggedIn = useAuthStore.use.isLoggedIn();
+  const navigate = useNavigate();
   const platformGate = usePlatformGate();
   const infraGate = usePlatformGate({ platformHostedOnly: true });
+  const diskPressure = useDiskPressureMonitor({
+    assistantId: assistant?.id ?? null,
+    enabled: true,
+  });
 
   const platformAssistant = assistant?.is_local && !isLocalMode() ? null : assistant;
   const selected = getSelectedAssistant();
@@ -239,9 +247,21 @@ export function GeneralPage() {
   }, [assistant]);
 
   return (
-    <div className="max-w-[940px] space-y-4">
-      {platformAssistant && (
-        <AssistantOutOfStorageBanner assistantId={platformAssistant.id} />
+    <div className="mx-auto max-w-[940px] space-y-4">
+      {diskPressure.status && diskPressure.mode !== "inactive" && (
+        <DiskPressureBanner
+          status={diskPressure.status}
+          mode={diskPressure.mode as DiskPressureBannerMode}
+          isAcknowledging={diskPressure.isAcknowledging}
+          acknowledgeError={diskPressure.acknowledgeError?.message ?? null}
+          onAcknowledge={() => void diskPressure.acknowledge()}
+          onReviewWorkspaceData={() => void navigate(routes.workspace)}
+          onUpgradeStorage={
+            infraGate === "full"
+              ? () => void navigate(`${routes.settings.billing}?adjust_plan=1`)
+              : null
+          }
+        />
       )}
       <DetailCard title="General">
         <AssistantStatusPanel

@@ -508,6 +508,10 @@ export const ROUTES: RouteDefinition[] = [
       "Export audit records, assistant logs, and config as a tar.gz archive.",
     tags: ["export"],
     requestBody: exportRequestBody,
+    responseBody: {
+      contentType: "application/gzip",
+      schema: { type: "string", format: "binary" },
+    },
     responseHeaders: {
       "Content-Type": "application/gzip",
       "Content-Disposition": 'attachment; filename="logs.tar.gz"',
@@ -532,6 +536,10 @@ export const ROUTES: RouteDefinition[] = [
       "Alias for /v1/export. Export audit records, assistant logs, and config as a tar.gz archive.",
     tags: ["export"],
     requestBody: exportRequestBody,
+    responseBody: {
+      contentType: "application/gzip",
+      schema: { type: "string", format: "binary" },
+    },
     responseHeaders: {
       "Content-Type": "application/gzip",
       "Content-Disposition": 'attachment; filename="logs.tar.gz"',

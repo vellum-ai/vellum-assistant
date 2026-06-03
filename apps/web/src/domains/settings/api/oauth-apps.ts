@@ -1,42 +1,22 @@
 import {
-  buildVellumHeaders,
-  buildVellumMutatingHeaders,
-} from "@/lib/auth/request-headers";
+  oauthAppsByAppIdConnectionsGet,
+  oauthAppsByAppIdConnectPost,
+  oauthAppsByIdDelete,
+  oauthAppsGet,
+  oauthAppsPost,
+  oauthConnectionsByIdDelete,
+} from "@/generated/daemon/sdk.gen";
+import type {
+  OauthAppsByAppIdConnectionsGetResponses,
+  OauthAppsGetResponses,
+} from "@/generated/daemon/types.gen";
 
 /** Custom OAuth app stored on the daemon (encrypted on-disk). */
-export interface OAuthApp {
-  id: string;
-  provider_key: string;
-  client_id: string;
-  created_at: number;
-  updated_at: number;
-}
+export type OAuthApp = OauthAppsGetResponses[200]["apps"][number];
 
 /** OAuth connection linked to a custom OAuth app. */
-export interface OAuthAppConnection {
-  id: string;
-  provider_key: string;
-  account_info: string | null;
-  granted_scopes: string[] | null;
-  status: string;
-  has_refresh_token: boolean;
-  expires_at: number | null;
-  created_at: number;
-  updated_at: number;
-}
-
-interface OAuthAppsListResponse {
-  apps?: OAuthApp[];
-}
-
-interface OAuthAppConnectionsResponse {
-  connections?: OAuthAppConnection[];
-}
-
-interface OAuthAppConnectResponse {
-  auth_url?: string;
-  state?: string;
-}
+export type OAuthAppConnection =
+  OauthAppsByAppIdConnectionsGetResponses[200]["connections"][number];
 
 interface DaemonErrorBody {
   error?: { message?: string };
@@ -44,42 +24,36 @@ interface DaemonErrorBody {
   message?: string;
 }
 
-async function readError(res: Response, fallback: string): Promise<string> {
-  try {
-    const body = (await res.json()) as DaemonErrorBody;
-    if (body?.error?.message) {
+/** Pull a human-readable message out of the daemon SDK's error body. */
+function daemonErrorMessage(error: unknown, fallback: string): string {
+  if (error && typeof error === "object") {
+    const body = error as DaemonErrorBody;
+    if (body.error?.message) {
       return body.error.message;
     }
-    if (body?.detail) {
+    if (body.detail) {
       return body.detail;
     }
-    if (body?.message) {
+    if (body.message) {
       return body.message;
     }
-  } catch {
-    // ignore — body was not JSON
   }
-  return `${fallback} (HTTP ${res.status})`;
+  return fallback;
 }
-
-/**
- * Custom OAuth app endpoints live on the daemon, reachable from the web app
- * only via the gateway wildcard runtime proxy (`/v1/assistants/<id>/<rest>/`).
- * That proxy is excluded from OpenAPI, so the generated HeyAPI client can't
- * call these routes — hence the hand-written fetch wrappers below.
- */
 
 export async function listOAuthApps(
   assistantId: string,
   providerKey: string,
 ): Promise<OAuthApp[]> {
-  const url = `/v1/assistants/${assistantId}/oauth/apps/?provider_key=${encodeURIComponent(providerKey)}`;
-  const res = await fetch(url, { headers: buildVellumHeaders() });
-  if (!res.ok) {
-    throw new Error(await readError(res, "Failed to load OAuth apps"));
+  const { data, error } = await oauthAppsGet({
+    path: { assistant_id: assistantId },
+    query: { provider_key: providerKey },
+    throwOnError: false,
+  });
+  if (error || !data) {
+    throw new Error(daemonErrorMessage(error, "Failed to load OAuth apps"));
   }
-  const data: OAuthAppsListResponse = await res.json();
-  return data.apps ?? [];
+  return data.apps;
 }
 
 export async function createOAuthApp(
@@ -90,31 +64,27 @@ export async function createOAuthApp(
     client_secret: string;
   },
 ): Promise<OAuthApp> {
-  const url = `/v1/assistants/${assistantId}/oauth/apps/`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: await buildVellumMutatingHeaders({
-      "Content-Type": "application/json",
-    }),
-    body: JSON.stringify(input),
+  const { data, error } = await oauthAppsPost({
+    path: { assistant_id: assistantId },
+    body: input,
+    throwOnError: false,
   });
-  if (!res.ok) {
-    throw new Error(await readError(res, "Failed to create OAuth app"));
+  if (error || !data) {
+    throw new Error(daemonErrorMessage(error, "Failed to create OAuth app"));
   }
-  return (await res.json()) as OAuthApp;
+  return data.app;
 }
 
 export async function deleteOAuthApp(
   assistantId: string,
   appId: string,
 ): Promise<void> {
-  const url = `/v1/assistants/${assistantId}/oauth/apps/${appId}/`;
-  const res = await fetch(url, {
-    method: "DELETE",
-    headers: await buildVellumMutatingHeaders(),
+  const { error } = await oauthAppsByIdDelete({
+    path: { assistant_id: assistantId, id: appId },
+    throwOnError: false,
   });
-  if (!res.ok) {
-    throw new Error(await readError(res, "Failed to delete OAuth app"));
+  if (error) {
+    throw new Error(daemonErrorMessage(error, "Failed to delete OAuth app"));
   }
 }
 
@@ -122,28 +92,30 @@ export async function listOAuthAppConnections(
   assistantId: string,
   appId: string,
 ): Promise<OAuthAppConnection[]> {
-  const url = `/v1/assistants/${assistantId}/oauth/apps/${appId}/connections/`;
-  const res = await fetch(url, { headers: buildVellumHeaders() });
-  if (!res.ok) {
+  const { data, error } = await oauthAppsByAppIdConnectionsGet({
+    path: { assistant_id: assistantId, appId },
+    throwOnError: false,
+  });
+  if (error || !data) {
     throw new Error(
-      await readError(res, "Failed to load OAuth app connections"),
+      daemonErrorMessage(error, "Failed to load OAuth app connections"),
     );
   }
-  const data: OAuthAppConnectionsResponse = await res.json();
-  return data.connections ?? [];
+  return data.connections;
 }
 
 export async function deleteOAuthAppConnection(
   assistantId: string,
   connectionId: string,
 ): Promise<void> {
-  const url = `/v1/assistants/${assistantId}/oauth/connections/${connectionId}/`;
-  const res = await fetch(url, {
-    method: "DELETE",
-    headers: await buildVellumMutatingHeaders(),
+  const { error } = await oauthConnectionsByIdDelete({
+    path: { assistant_id: assistantId, id: connectionId },
+    throwOnError: false,
   });
-  if (!res.ok) {
-    throw new Error(await readError(res, "Failed to disconnect OAuth account"));
+  if (error) {
+    throw new Error(
+      daemonErrorMessage(error, "Failed to disconnect OAuth account"),
+    );
   }
 }
 
@@ -152,22 +124,15 @@ export async function startOAuthAppConnect(
   appId: string,
   scopes?: string[],
 ): Promise<{ authUrl: string; state?: string }> {
-  const url = `/v1/assistants/${assistantId}/oauth/apps/${appId}/connect/`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: await buildVellumMutatingHeaders({
-      "Content-Type": "application/json",
-    }),
-    body: JSON.stringify({
-      callback_transport: "gateway",
-      scopes: scopes ?? [],
-    }),
+  const { data, error } = await oauthAppsByAppIdConnectPost({
+    path: { assistant_id: assistantId, appId },
+    body: { callback_transport: "gateway", scopes: scopes ?? [] },
+    throwOnError: false,
   });
-  if (!res.ok) {
-    throw new Error(await readError(res, "Failed to start OAuth flow"));
+  if (error || !data) {
+    throw new Error(daemonErrorMessage(error, "Failed to start OAuth flow"));
   }
-  const data: OAuthAppConnectResponse = await res.json();
-  if (!data.auth_url) {
+  if (!("auth_url" in data)) {
     throw new Error("OAuth flow did not return an authorization URL");
   }
   return { authUrl: data.auth_url, state: data.state };

@@ -83,6 +83,10 @@ mock.module("@/components/theme-toggle", () => ({
   ThemeToggle: () => createElement("div", { "data-testid": "theme-toggle" }, "Theme"),
 }));
 
+mock.module("@/domains/chat/components/credits-card", () => ({
+  CreditsCard: () => createElement("div", { "data-testid": "credits-card" }, "Credits"),
+}));
+
 import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
 
 beforeEach(() => {

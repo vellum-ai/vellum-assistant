@@ -7,11 +7,13 @@ mock.module("@/runtime/is-electron", () => ({
 }));
 
 const {
+  GuardianTokenError,
   hatchLocalAssistant,
   loadLockfileHost,
   saveLockfileAssistantHost,
   replacePlatformAssistantsHost,
   retireLocalAssistantHost,
+  wakeLocalAssistantHost,
   fetchGuardianTokenHost,
 } = await import("./local-mode-host");
 
@@ -207,6 +209,41 @@ describe("retireLocalAssistantHost", () => {
   });
 });
 
+describe("wakeLocalAssistantHost", () => {
+  test("web/dev host POSTs the assistant id to the wake middleware", async () => {
+    const fetchMock = mock(async () => ({ json: async () => ({ ok: true }) }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    expect(await wakeLocalAssistantHost("a-1")).toEqual({ ok: true });
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("/assistant/__local/wake");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({ assistantId: "a-1" });
+  });
+
+  test("Electron host wakes through the bridge and never touches fetch", async () => {
+    const wake = mock(async () => ({ ok: true }));
+    const fetchMock = mock(async () => {
+      throw new Error("fetch must not run on the Electron branch");
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    setElectronBridge({ wake });
+
+    expect(await wakeLocalAssistantHost("a-1")).toEqual({ ok: true });
+    expect(wake).toHaveBeenCalledWith("a-1");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("older Electron shell without the wake channel reports an unsupported failure", async () => {
+    // The macOS app and web bundle don't release together: a newer renderer
+    // can run against a preload that predates the wake IPC channel.
+    setElectronBridge({});
+
+    const result = await wakeLocalAssistantHost("a-1");
+    expect(result.ok).toBe(false);
+  });
+});
+
 describe("fetchGuardianTokenHost", () => {
   test("web/dev host GETs the guardian-token middleware and returns the access token", async () => {
     const fetchMock = mock(async () => ({
@@ -220,16 +257,17 @@ describe("fetchGuardianTokenHost", () => {
     expect(url).toBe("/assistant/__local/guardian-token/a%201");
   });
 
-  test("web/dev host throws the middleware error body on a non-ok response", async () => {
+  test("web/dev host throws a GuardianTokenError carrying the response status", async () => {
     globalThis.fetch = mock(async () => ({
       ok: false,
       status: 404,
       json: async () => ({ error: "assistant not found" }),
     })) as unknown as typeof fetch;
 
-    await expect(fetchGuardianTokenHost("a-1")).rejects.toThrow(
-      "assistant not found",
-    );
+    const err = await fetchGuardianTokenHost("a-1").catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(GuardianTokenError);
+    expect((err as InstanceType<typeof GuardianTokenError>).status).toBe(404);
+    expect((err as Error).message).toBe("assistant not found");
   });
 
   test("Electron host reads through the bridge and never touches fetch", async () => {
@@ -248,7 +286,7 @@ describe("fetchGuardianTokenHost", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  test("Electron host throws the bridge error when acquisition fails", async () => {
+  test("Electron host throws a GuardianTokenError carrying the bridge status", async () => {
     const guardianToken = mock(async () => ({
       ok: false,
       status: 500,
@@ -256,8 +294,9 @@ describe("fetchGuardianTokenHost", () => {
     }));
     setElectronBridge({ guardianToken });
 
-    await expect(fetchGuardianTokenHost("a-1")).rejects.toThrow(
-      "refresh failed",
-    );
+    const err = await fetchGuardianTokenHost("a-1").catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(GuardianTokenError);
+    expect((err as InstanceType<typeof GuardianTokenError>).status).toBe(500);
+    expect((err as Error).message).toBe("refresh failed");
   });
 });

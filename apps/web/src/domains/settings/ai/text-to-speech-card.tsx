@@ -8,6 +8,8 @@ import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Input } from "@vellum/design-library/components/input";
 import { toast } from "@vellum/design-library/components/toast";
 import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
+import { ttsProvidersGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { synthesizeTTS } from "@/lib/tts-synthesize";
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
 
@@ -25,7 +27,21 @@ import {
 } from "@/domains/settings/ai/ai-shared-ui";
 
 export function TextToSpeechCard() {
-  const defaultProviderId = TTS_PROVIDERS[0]?.id ?? "elevenlabs";
+  const { data: assistantList } = useQuery(assistantsListOptions());
+  const assistantId = assistantList?.results?.[0]?.id;
+  const assistantName = assistantList?.results?.[0]?.name ?? "your assistant";
+  const isOrgReady = useIsOrgReady();
+
+  const { data: catalogData } = useQuery({
+    ...ttsProvidersGetOptions({
+      path: { assistant_id: assistantId! },
+    }),
+    enabled: !!assistantId && isOrgReady,
+    staleTime: Infinity,
+  });
+  const providers = catalogData?.providers ?? TTS_PROVIDERS;
+
+  const defaultProviderId = providers[0]?.id ?? "elevenlabs";
   const [draftProvider, setDraftProvider] = useState<string>(() =>
     getLocalSetting(LS_TTS_PROVIDER, defaultProviderId),
   );
@@ -36,14 +52,10 @@ export function TextToSpeechCard() {
   const [providerHasKey, setProviderHasKey] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
-  const { data: assistantList } = useQuery(assistantsListOptions());
-  const assistantName = assistantList?.results?.[0]?.name ?? "your assistant";
 
   const selectedProvider = useMemo(() => {
-    return (
-      TTS_PROVIDERS.find((p) => p.id === draftProvider) ?? TTS_PROVIDERS[0]!
-    );
-  }, [draftProvider]);
+    return providers.find((p) => p.id === draftProvider) ?? providers[0]!;
+  }, [draftProvider, providers]);
 
   const loadProviderState = useCallback((providerId: string) => {
     const storedKey = getLocalSetting(LS_TTS_API_KEY_PREFIX + providerId, "");
@@ -157,7 +169,7 @@ export function TextToSpeechCard() {
           <Dropdown
             value={draftProvider}
             onChange={setDraftProvider}
-            options={TTS_PROVIDERS.map((p) => ({
+            options={providers.map((p) => ({
               value: p.id,
               label: p.displayName,
             }))}

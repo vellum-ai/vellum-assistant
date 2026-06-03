@@ -17,12 +17,8 @@ function resolveSegmentPreview(
 ): string | null {
   const textSegments = message.textSegments ?? [];
   const numericIdx = parseInt(id, 10);
-  const segment = !isNaN(numericIdx)
-    ? textSegments[numericIdx]
-    : textSegments.find(
-        (s) => (s as Record<string, unknown>).id === id,
-      );
-  const rawText = segment?.content?.trim();
+  const segment = !isNaN(numericIdx) ? textSegments[numericIdx] : undefined;
+  const rawText = segment?.trim();
   return rawText ? rawText.slice(0, MAX_THINKING_TEXT_LENGTH) : null;
 }
 

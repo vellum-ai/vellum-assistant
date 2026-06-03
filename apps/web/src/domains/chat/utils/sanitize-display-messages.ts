@@ -94,12 +94,7 @@ function isInvalidMessage(message: DisplayMessage): boolean {
   // Any meaningful signal short-circuits as valid. Without one of these the
   // row is a blank bubble (e.g. an orphan tool_result at a pagination boundary
   // that the daemon's renderer already stripped).
-  if (
-    message.textSegments?.some(
-      (s) => typeof s.content === "string" && s.content.trim().length > 0,
-    )
-  )
-    return false;
+  if (message.textSegments?.some((s) => s.trim().length > 0)) return false;
   if (message.surfaces && message.surfaces.length > 0) return false;
   if (message.attachments && message.attachments.length > 0) return false;
   if (message.slackMessage) return false;
@@ -124,8 +119,7 @@ function isInvalidMessage(message: DisplayMessage): boolean {
 //   - the trailing row has SOMETHING substantive to render — at least one of
 //     `textSegments`/`toolCalls` is non-empty. Guards against accidentally
 //     dropping two empty placeholders that happen to be sequentially equal,
-//   - their `textSegments` arrays match position-for-position on `type` and
-//     `content`,
+//   - their `textSegments` arrays match position-for-position,
 //   - their `toolCalls` arrays match position-for-position on `toolName` and
 //     `result`.
 // When all four hold, drop the trailing row.
@@ -160,10 +154,7 @@ function textSegmentsMatch(a: DisplayMessage, b: DisplayMessage): boolean {
   const bSegs = b.textSegments ?? [];
   if (aSegs.length !== bSegs.length) return false;
   for (let i = 0; i < aSegs.length; i++) {
-    const aSeg = aSegs[i]!;
-    const bSeg = bSegs[i]!;
-    if (aSeg.type !== bSeg.type) return false;
-    if (aSeg.content !== bSeg.content) return false;
+    if (aSegs[i] !== bSegs[i]) return false;
   }
   return true;
 }

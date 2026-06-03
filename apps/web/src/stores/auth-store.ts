@@ -32,7 +32,9 @@ import {
   getPlatformAssistants,
   getLocalAssistants,
   clearSelectedAssistant,
+  setSelectedAssistantId,
   primeLocalGatewayConnection,
+  primeLocalGatewayConnectionWithRepair,
   syncPlatformAssistantsToLockfile,
 } from "@/lib/local-mode";
 import { listAssistants } from "@/assistant/api";
@@ -105,6 +107,7 @@ interface AuthState {
 
 interface AuthActions {
   initSession: () => Promise<void>;
+  connectLocalAssistant: (assistantId: string) => Promise<void>;
   refreshSession: () => Promise<boolean>;
   logout: () => Promise<void>;
 }
@@ -319,6 +322,31 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
 
     syncUserScopedState(null);
     set({ isLoggedIn: false, isLoading: false, user: null, platformSession: "absent" });
+  },
+
+  /**
+   * Connect to a specific local assistant from an interactive surface (the
+   * login picker / auto-connect). Selects the assistant, primes its gateway
+   * connection, and marks the session logged in.
+   *
+   * Unlike {@link AuthActions.initSession}, which is the best-effort boot
+   * probe and swallows failures, this rethrows so the caller can surface the
+   * reason — including the typed `GuardianTokenError` from the host seam — and
+   * offer recovery instead of dead-ending. It primes through
+   * `primeLocalGatewayConnectionWithRepair`, which self-heals a stopped or
+   * mis-seeded assistant via `wake` before surfacing any error — matching the
+   * native client's re-pair-on-connect bootstrap. The boot probe deliberately
+   * stays on the plain primitive so app launch never spawns daemon processes.
+   */
+  connectLocalAssistant: async (assistantId: string) => {
+    setSelectedAssistantId(assistantId);
+    await primeLocalGatewayConnectionWithRepair();
+    set({ isLoggedIn: true, isLoading: false, user: GATEWAY_LOCAL_USER });
+    if (!isLocalMode() || getPlatformAssistants().length > 0) {
+      probePlatformSession(set);
+    } else {
+      set({ platformSessionResolved: true });
+    }
   },
 
   refreshSession: async () => {

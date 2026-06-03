@@ -37,7 +37,6 @@ import type { MessageRole } from "../memory/conversation-crud.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
 import type { PluginHookFn } from "../plugin-api/types.js";
 import type {
-  ContentBlock,
   Message,
   Provider,
   ProviderResponse,
@@ -126,9 +125,6 @@ export type PipelineName =
   | "compaction"
   | "overflowReduce"
   | "persistence"
-  | "titleGenerate"
-  | "emptyResponse"
-  | "toolError"
   | "circuitBreaker";
 
 // ─── Per-pipeline args / results (placeholder shapes) ────────────────────────
@@ -534,139 +530,6 @@ export type PersistResult =
   | PersistDeleteResult;
 
 /**
- * Arguments for the `titleGenerate` pipeline. Mirrors the parameters of
- * `queueGenerateConversationTitle` in `memory/conversation-title-service.ts`
- * so the default plugin can delegate verbatim.
- *
- * `provider` is optional because the underlying service falls back to
- * `getConfiguredProvider("conversationTitle")` when absent. `userMessage`
- * carries the first turn's text — the service uses it as LLM context and
- * also to derive a deterministic fallback title if the call fails.
- *
- * `onTitleUpdated` is a fire-and-forget callback the pipeline invokes when
- * the title is finally persisted. The default implementation is
- * fire-and-forget overall, so the pipeline result (`TitleResult`) carries no
- * payload — callers that need the title must use the callback.
- */
-export type TitleArgs = {
-  readonly conversationId: string;
-  readonly provider?: Provider;
-  readonly userMessage: string;
-  readonly onTitleUpdated?: (title: string) => void;
-};
-/**
- * Result of the `titleGenerate` pipeline. The default implementation is
- * fire-and-forget (it schedules background work and returns immediately),
- * so there is nothing meaningful to return. Defined as an empty object so
- * custom plugins can opt into richer payloads later.
- */
-export type TitleResult = Readonly<Record<string, never>>;
-
-/**
- * @deprecated Alias kept for the M1 scaffolding era. Prefer {@link TitleArgs}.
- */
-export type TitleGenerateArgs = TitleArgs;
-/**
- * @deprecated Alias kept for the M1 scaffolding era. Prefer {@link TitleResult}.
- */
-export type TitleGenerateResult = TitleResult;
-
-/**
- * Snapshot of the just-completed assistant turn plus retry/context counters
- * the `emptyResponse` pipeline needs to decide whether to nudge, accept, or
- * surface an error.
- *
- * `emptyResponseRetries` is the *current* retry counter — the pipeline may
- * compare it to `maxEmptyResponseRetries` to implement a retry cap. The loop
- * increments the counter only after a `"nudge"` decision; the pipeline is
- * stateless across turns.
- *
- * `priorAssistantHadVisibleText` signals that an earlier turn in the current
- * `run()` invocation already delivered user-visible text. When true, an
- * empty follow-up is the model correctly ending its turn and nudging would
- * mislead it into resending text the user already saw.
- */
-export interface EmptyResponseArgs {
-  /**
-   * Content blocks produced by the assistant on this turn. The decision only
-   * runs at the stop boundary, so these never contain `tool_use` blocks.
-   */
-  readonly responseContent: ReadonlyArray<ContentBlock>;
-  /** 0-based index of the tool-use turn being evaluated. */
-  readonly toolUseTurns: number;
-  /** How many empty-response nudges the loop has already issued this run. */
-  readonly emptyResponseRetries: number;
-  /** Upper bound for `emptyResponseRetries`. The default is 1. */
-  readonly maxEmptyResponseRetries: number;
-  /**
-   * Whether ANY prior assistant turn in the current `run()` call carried
-   * visible text. See `agent/loop.ts` for why the whole-run scan matters.
-   */
-  readonly priorAssistantHadVisibleText: boolean;
-  /**
-   * Provider-reported stop reason for the assistant turn being evaluated.
-   * `null`/`undefined` when the provider didn't report one (older
-   * providers, partial responses). The default terminal uses this to
-   * distinguish an explicit safety-classifier refusal (Anthropic's
-   * `"refusal"`) from an organically-empty turn — refusals deserve a
-   * nudge even on the very first model call of the run, whereas an
-   * organically-empty first call usually means the model legitimately
-   * had nothing to say.
-   */
-  readonly stopReason: string | null | undefined;
-}
-
-/**
- * Decision produced by the `emptyResponse` pipeline.
- *
- * - `"nudge"`  — loop appends `nudgeText` as a `user` message and retries.
- *                `nudgeText` MUST be present; it is what the model will see.
- * - `"accept"` — loop treats the turn as complete (pushes the assistant
- *                message to history and exits the tool-use chain normally).
- * - `"error"`  — loop surfaces a clear error. Reserved for middleware that
- *                wants to escalate an empty response rather than absorb it.
- */
-export interface EmptyResponseDecision {
-  readonly action: "nudge" | "accept" | "error";
-  /** Nudge text the loop will push to history. Required when `action === "nudge"`. */
-  readonly nudgeText?: string;
-}
-
-/** Alias so the {@link PipelineMiddlewareMap} entry names its own result shape. */
-export type EmptyResponseResult = EmptyResponseDecision;
-
-/**
- * Arguments to the `toolError` pipeline — invoked by the agent loop once per
- * turn that produced tool results, BEFORE the turn's tool-result user message
- * is pushed into history.
- *
- * `hasToolError` is true when at least one tool in the current turn returned
- * `isError: true`. `consecutiveErrorTurns` is the running count of
- * back-to-back error turns (reset to 0 on a clean turn, incremented on each
- * error turn). `maxConsecutiveErrorNudges` is the default cap the agent loop
- * currently applies; plugins receive it so they can match the default
- * threshold exactly or compute a relative offset.
- */
-export type ToolErrorArgs = {
-  readonly hasToolError: boolean;
-  readonly consecutiveErrorTurns: number;
-  readonly maxConsecutiveErrorNudges: number;
-};
-
-/**
- * Decision returned by the `toolError` pipeline. When `action` is `"nudge"`,
- * the agent loop appends a text block with `nudgeText` to the turn's tool
- * results so the next LLM turn sees the nudge. When `action` is `"skip"`, no
- * nudge is injected and the tool results pass through unchanged.
- */
-export type ToolErrorDecision =
-  | { readonly action: "nudge"; readonly nudgeText: string }
-  | { readonly action: "skip" };
-
-/** Alias kept so `PipelineMiddlewareMap.toolError` reads result-shaped. */
-export type ToolErrorResult = ToolErrorDecision;
-
-/**
  * Arguments for the `circuitBreaker` pipeline.
  *
  * A single call pattern handles both querying and updating the breaker:
@@ -742,9 +605,6 @@ export interface PipelineMiddlewareMap {
   compaction: Middleware<CompactionArgs, CompactionResult>;
   overflowReduce: Middleware<OverflowReduceArgs, OverflowReduceResult>;
   persistence: Middleware<PersistArgs, PersistResult>;
-  titleGenerate: Middleware<TitleArgs, TitleResult>;
-  emptyResponse: Middleware<EmptyResponseArgs, EmptyResponseResult>;
-  toolError: Middleware<ToolErrorArgs, ToolErrorResult>;
   circuitBreaker: Middleware<CircuitBreakerArgs, CircuitBreakerResult>;
 }
 

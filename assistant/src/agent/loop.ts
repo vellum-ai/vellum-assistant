@@ -7,31 +7,25 @@ import {
   estimateToolsTokens,
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
-import type { ContextWindowResult } from "../context/window-manager.js";
+import type {
+  ContextWindowCompactOptions,
+  ContextWindowResult,
+} from "../context/window-manager.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import { HOOKS } from "../plugin-api/constants.js";
-import type { PostToolUseContext } from "../plugin-api/types.js";
+import type { PostToolUseContext, StopContext } from "../plugin-api/types.js";
 import { defaultCompactionTerminal } from "../plugins/defaults/compaction/terminal.js";
-import {
-  defaultEmptyResponseTerminal,
-  NUDGE_TEXT,
-} from "../plugins/defaults/empty-response/terminal.js";
 import { defaultTokenEstimateTerminal } from "../plugins/defaults/token-estimate/terminal.js";
-import { defaultToolErrorTerminal } from "../plugins/defaults/tool-error/terminal.js";
 import { DEFAULT_TIMEOUTS, runHook, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
   CompactionArgs,
   CompactionCircuitEvent,
   CompactionResult,
-  EmptyResponseArgs,
-  EmptyResponseDecision,
   EstimateArgs,
   EstimateResult,
   LLMCallArgs,
   LLMCallResult,
-  ToolErrorArgs,
-  ToolErrorDecision,
   TurnContext,
 } from "../plugins/types.js";
 import { PluginTimeoutError } from "../plugins/types.js";
@@ -48,7 +42,7 @@ import {
   applyStreamingSubstitution,
   applySubstitutions,
 } from "../tools/sensitive-output-placeholders.js";
-import { AssistantError, ErrorCode, ProviderError } from "../util/errors.js";
+import { ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { isRetryableNetworkError } from "../util/retry.js";
 import { CompactionCircuit } from "./compaction-circuit.js";
@@ -129,8 +123,6 @@ export interface AgentLoopRunResult {
 export type AgentLoopExitReason =
   /** `if (signal?.aborted) break;` at the top of the loop. */
   | "aborted_pre_call"
-  /** Empty assistant response after the configured retry budget. */
-  | "empty_response_exhausted"
   /** Assistant message has no tool-use blocks (or no tool executor). */
   | "no_tool_calls"
   /** Signal aborted while building the user-side tool-results message. */
@@ -297,21 +289,39 @@ export type AgentEvent =
     }
   | {
       /**
-       * Emitted after the loop's inline mid-loop compaction successfully
-       * compacts the running history, immediately before re-injection. The
-       * daemon's event dispatcher commits the durable compaction result
-       * (DB-record fields, graph-memory side effects, SSE) and flips the
-       * per-turn re-injection guards on the handler state. Treated as a
-       * critical event: a failed commit re-throws so the turn aborts rather
-       * than re-injecting against half-applied state.
+       * Emitted after the loop's inline mid-loop compaction pipeline runs,
+       * immediately before re-injection — whether or not the pipeline actually
+       * compacted. The daemon's event dispatcher always commits `basis` (the
+       * stripped pre-compaction history) as the conversation's durable message
+       * state, so re-injection ({@link MidLoopCompaction.reinject}) re-applies
+       * injections onto the stripped base rather than stacking on top of the
+       * still-injected messages. When `result.compacted` is set it
+       * additionally commits the durable compaction result (DB-record fields,
+       * graph-memory side effects, SSE) and flips the per-turn re-injection
+       * guards on the handler state.
+       *
+       * Treated as a critical event: a failed durable commit re-throws so the
+       * turn aborts rather than re-injecting against half-applied state.
        *
        * `basis` is the stripped pre-compaction history the summary was built
        * from; the dispatcher uses it to project Slack provenance onto the
        * compacted result.
        */
-      type: "compaction_applied";
+      type: "compaction_completed";
       result: ContextWindowResult;
       basis: Message[];
+    }
+  | {
+      /**
+       * Emitted right after the loop strips runtime injections from the
+       * running history, before the compaction pipeline runs. The daemon's
+       * event dispatcher records the history-stripped marker — a Conversation
+       * DB-record field read back at load time to strip embedded injection
+       * prefixes from pre-strip messages. Best-effort: a transient marker
+       * write must not abort the turn, so unlike `compaction_completed` this
+       * event is not treated as critical.
+       */
+      type: "history_stripped";
     }
   /**
    * Circuit-breaker transitions emitted when auto-compaction is paused
@@ -342,8 +352,7 @@ const DEFAULT_CONFIG: AgentLoopConfig = {
   minTurnIntervalMs: 150,
 };
 
-const MAX_CONSECUTIVE_ERROR_NUDGES = 3;
-const MAX_EMPTY_RESPONSE_RETRIES = 1;
+const MAX_STOP_CONTINUE_RETRIES = 1;
 const MAX_TOKENS_STOP_REASONS = new Set([
   "length",
   "max_output_tokens",
@@ -460,19 +469,21 @@ export interface ResolvedSystemPrompt {
  * `compaction` pipeline call, the result interpretation (circuit-breaker
  * bookkeeping + the exhaustion decision), and the inline continue; these hooks
  * bridge the injection state the loop is intentionally blind to. Durable
- * persistence of a successful compaction is signalled out-of-band via the
- * `compaction_applied` {@link AgentEvent}; re-injection ({@link reinject})
- * remains orchestrator-supplied for now and is expected to move into the loop
- * in a future change.
+ * persistence is signalled out-of-band via the `history_stripped` (marker)
+ * and `compaction_completed` (basis commit + successful summary) {@link
+ * AgentEvent}s; re-injection ({@link reinject}) remains orchestrator-supplied
+ * for now and is expected to move into the loop in a future change.
  */
 export interface MidLoopCompaction {
   /**
-   * Commit the loop-stripped history to durable state and resolve pipeline
-   * options. Receives the history already stripped of runtime injections by
-   * the loop, so durable state records the raw persistent messages.
+   * Resolve the orchestrator-owned options for the compaction pipeline run.
+   * The loop-stripped history is committed to durable state separately via
+   * the `compaction_completed` event, and the loop merges its own
+   * loop-native options (e.g. `force`) on top of these before invoking the
+   * pipeline.
    */
-  prepare: (rawHistory: Message[]) => {
-    options: CompactionArgs["options"];
+  prepare: () => {
+    options: ContextWindowCompactOptions | undefined;
   };
   /** Re-apply runtime injections and return the history to continue from. */
   reinject: () => Promise<Message[]>;
@@ -740,17 +751,23 @@ export class AgentLoop {
   ): Promise<Message[] | null> {
     await onEvent({ type: "context_compacting" });
     // Strip runtime injections so the compactor summarizes the raw persistent
-    // messages; the orchestrator then commits the stripped set to durable
-    // state and resolves the pipeline options.
+    // messages.
     const rawHistory = stripInjectionsForCompaction(history);
-    const { options } = compaction.prepare(rawHistory);
+    // Record the history-stripped marker right after stripping, before the
+    // pipeline runs.
+    await onEvent({ type: "history_stripped" });
+    const { options } = compaction.prepare();
     let result: CompactionResult;
     try {
       result = await runPipeline<CompactionArgs, CompactionResult>(
         "compaction",
         getMiddlewaresFor("compaction"),
         (args) => defaultCompactionTerminal(args, turnContext),
-        { messages: rawHistory, signal, options },
+        // The mid-loop budget gate is reached only when this turn decides to
+        // compact in place, so force the pipeline past its auto-threshold
+        // check. `force` is the loop's own decision, layered on top of the
+        // orchestrator-resolved options.
+        { messages: rawHistory, signal, options: { force: true, ...options } },
         turnContext,
         DEFAULT_TIMEOUTS.compaction,
       );
@@ -766,7 +783,7 @@ export class AgentLoop {
     // plugin consumers don't import the window manager; the loop ran the
     // pipeline, so it interprets the concrete result here.
     const compactResult = result as ContextWindowResult;
-    // `force: true` bypasses the cooldown/threshold gates, but early returns
+    // `force: true` bypasses the auto-threshold gate, but early returns
     // for "no eligible messages" / "insufficient messages" still leave
     // `summaryFailed` undefined. Only record an outcome when the summary LLM
     // actually ran.
@@ -777,13 +794,15 @@ export class AgentLoop {
         onEvent,
       );
     }
-    if (compactResult.compacted) {
-      await onEvent({
-        type: "compaction_applied",
-        result: compactResult,
-        basis: rawHistory,
-      });
-    }
+    // Emit unconditionally: the dispatcher commits the stripped `basis` as the
+    // durable message base whether or not the pipeline compacted (re-injection
+    // reads it), and runs the durable compaction commit only when
+    // `result.compacted`.
+    await onEvent({
+      type: "compaction_completed",
+      result: compactResult,
+      basis: rawHistory,
+    });
     if (compactResult.exhausted ?? false) {
       return null;
     }
@@ -810,8 +829,7 @@ export class AgentLoop {
     let history = [...messages];
     let producedVisibleTextThisRun = false;
     let toolUseTurns = 0;
-    let consecutiveErrorTurns = 0;
-    let emptyResponseRetries = 0;
+    let stopContinueRetries = 0;
     let lastLlmCallTime = 0;
     let exitReason: ExitReason | null = null;
     const rlog = requestId ? log.child({ requestId }) : log;
@@ -822,12 +840,11 @@ export class AgentLoop {
     const substitutionMap = new Map<string, string>();
     let streamingPending = "";
 
-    // Idempotency guard for `emitExit`. Used so the throw path in the
-    // empty-response branch can stamp its reason ("empty_response_exhausted")
-    // before throwing — the catch handler that observes the rethrow will
-    // then attempt to stamp "error" and harmlessly no-op, preserving the
-    // more specific reason. Also defends against accidental future
-    // double-emits if a new break site is added without checking this.
+    // Idempotency guard for `emitExit`: the first reason stamped wins. A break
+    // site that stamps a specific reason before unwinding into the catch
+    // handler keeps that reason instead of the generic "error", and the guard
+    // also defends against accidental double-emits if a new break site is
+    // added without checking this.
     let exitReasonEmitted = false;
     const emitExit = async (reason: AgentLoopExitReason): Promise<void> => {
       if (exitReasonEmitted) return;
@@ -1241,8 +1258,9 @@ export class AgentLoop {
         }
 
         // The model's "stop" moment: a response with no tool calls is about to
-        // yield to the user, so the loop decides whether to accept the turn or
-        // re-query it with a nudge (decision logic in the `emptyResponse` plugin).
+        // yield to the user. The `stop` hook (below) decides whether to accept
+        // the turn or re-query with a follow-up; `priorAssistantHadVisibleText`
+        // gates the ops log for the post-tool empty case.
         const hasVisibleText = response.content.some(
           (block) => block.type === "text" && block.text.trim().length > 0,
         );
@@ -1252,75 +1270,47 @@ export class AgentLoop {
         }
 
         if (toolUseBlocks.length === 0) {
-          const emptyResponseArgs: EmptyResponseArgs = {
+          // The model stopped requesting tools — the run's stop boundary. The
+          // `stop` hook decides whether to let the turn end or re-query with a
+          // follow-up turn. It receives the full history and, when it asks to
+          // continue, appends the follow-up turn itself.
+          const stopCtx: StopContext = {
+            conversationId: turnCtx.conversationId,
+            messages: [...history],
             responseContent: response.content,
-            toolUseTurns,
-            emptyResponseRetries,
-            maxEmptyResponseRetries: MAX_EMPTY_RESPONSE_RETRIES,
-            priorAssistantHadVisibleText,
             stopReason: response.stopReason,
+            decision: "stop",
+            logger: rlog,
           };
-          const emptyResponseCtx = resolveLoopTurnContext(
-            turnContext,
-            requestId,
-            toolUseTurns,
-          );
-          const emptyResponseDecision: EmptyResponseDecision =
-            await runPipeline(
-              "emptyResponse",
-              getMiddlewaresFor("emptyResponse"),
-              async (args) => defaultEmptyResponseTerminal(args),
-              emptyResponseArgs,
-              emptyResponseCtx,
-              DEFAULT_TIMEOUTS.emptyResponse,
-            );
+          const finalStopCtx = await runHook(HOOKS.STOP, stopCtx);
 
-          if (emptyResponseDecision.action === "nudge") {
-            // Fall back to the canonical nudge text if the plugin returned
-            // `action: "nudge"` but forgot `nudgeText`. Keeps a misbehaving
-            // plugin from silently breaking the loop invariant that the
-            // model sees a coherent prompt.
-            const nudgeText = emptyResponseDecision.nudgeText ?? NUDGE_TEXT;
-            emptyResponseRetries++;
-            rlog.warn(
-              { turn: toolUseTurns, retry: emptyResponseRetries },
-              "Model returned empty response after tool results — retrying",
-            );
-            history.push({
-              role: "user",
-              content: [{ type: "text", text: nudgeText }],
-            });
-            continue;
-          }
+          if (finalStopCtx.decision === "continue") {
+            // The loop owns the retry budget: a hook always asks to continue
+            // when a nudge is warranted, and the loop stops anyway once the
+            // budget is spent. This bounds the hook-driven re-query loop.
+            if (stopContinueRetries < MAX_STOP_CONTINUE_RETRIES) {
+              stopContinueRetries++;
+              rlog.warn(
+                { turn: toolUseTurns, retry: stopContinueRetries },
+                "Model returned empty response after tool results — retrying",
+              );
+              history = finalStopCtx.messages;
+              continue;
+            }
 
-          if (emptyResponseDecision.action === "error") {
-            rlog.error(
-              { turn: toolUseTurns, retries: emptyResponseRetries },
-              "emptyResponse pipeline requested error surface",
-            );
-            // Stamp the specific exit reason *before* throwing. The catch
-            // handler below will see the rethrown error and attempt to stamp
-            // "error" — guarded by `exitReasonEmitted`, that becomes a no-op
-            // and the more specific reason wins.
-            await emitExit("empty_response_exhausted");
-            throw new AssistantError(
-              "Model returned empty response after tool results",
-              ErrorCode.INTERNAL_ERROR,
-            );
-          }
-
-          // action === "accept" — fall through. Emit a dedicated log line for
-          // the specific "empty turn after tool results, retries exhausted"
-          // case so ops dashboards that grep on this line keep working.
-          if (
-            !hasVisibleText &&
-            toolUseTurns > 0 &&
-            !priorAssistantHadVisibleText
-          ) {
-            rlog.error(
-              { turn: toolUseTurns, retries: emptyResponseRetries },
-              "Model returned empty response after tool results — retries exhausted",
-            );
+            // Budget spent — accept the empty turn. Emit a dedicated log line
+            // for the post-tool empty case so ops dashboards that grep on it
+            // keep working.
+            if (
+              !hasVisibleText &&
+              toolUseTurns > 0 &&
+              !priorAssistantHadVisibleText
+            ) {
+              rlog.error(
+                { turn: toolUseTurns, retries: stopContinueRetries },
+                "Model returned empty response after tool results — retries exhausted",
+              );
+            }
           }
         }
 
@@ -1465,6 +1455,7 @@ export class AgentLoop {
           180_000;
 
         const resultBlocks: ContentBlock[] = [];
+        const additionalContextBlocks: ContentBlock[] = [];
         for (const block of rawResultBlocks) {
           if (block.type !== "tool_result") {
             resultBlocks.push(block);
@@ -1473,11 +1464,18 @@ export class AgentLoop {
           const postToolUseCtx: PostToolUseContext = {
             conversationId: turnCtx.conversationId,
             toolResponse: block as ToolResultContent,
+            messages: history,
             maxInputTokens: contextWindowTokens,
             logger: rlog,
           };
           const finalCtx = await runHook(HOOKS.POST_TOOL_USE, postToolUseCtx);
           resultBlocks.push(finalCtx.toolResponse);
+          if (finalCtx.additionalContext !== undefined) {
+            additionalContextBlocks.push({
+              type: "text",
+              text: finalCtx.additionalContext,
+            });
+          }
         }
 
         // Emit tool_result events AFTER truncation so downstream consumers
@@ -1530,54 +1528,15 @@ export class AgentLoop {
 
         toolUseTurns++;
 
-        // When any tool returned an error, nudge the LLM to retry with
-        // corrected parameters instead of ending its turn. Skip the nudge
-        // after MAX_CONSECUTIVE_ERROR_NUDGES consecutive error turns
-        // (the error is likely unrecoverable at that point). The nudge
-        // decision is delegated to the `toolError` plugin pipeline so user
-        // plugins can change the text, observe the event, or suppress it.
-        const hasToolError = toolResults.some(({ result }) => result.isError);
-        if (hasToolError) {
-          consecutiveErrorTurns++;
-        } else {
-          consecutiveErrorTurns = 0;
-        }
-        const toolErrorArgs: ToolErrorArgs = {
-          hasToolError,
-          consecutiveErrorTurns,
-          maxConsecutiveErrorNudges: MAX_CONSECUTIVE_ERROR_NUDGES,
-        };
-        const toolErrorCtx: TurnContext = resolveLoopTurnContext(
-          turnContext,
-          requestId,
-          toolUseTurns - 1,
-        );
-        const toolErrorDecision = await runPipeline<
-          ToolErrorArgs,
-          ToolErrorDecision
-        >(
-          "toolError",
-          getMiddlewaresFor("toolError"),
-          // Terminal: the canonical nudge decision. The default plugin's
-          // middleware is a passthrough (so later-registered user plugins
-          // aren't shadowed), so this terminal is what actually produces
-          // the decision when no user plugin overrides it. Wiring the
-          // decision here also ensures the nudge fires for direct
-          // AgentLoop callers (tests, benchmarks) that skip
-          // `bootstrapPlugins()` and therefore never register the default.
-          async (args) => defaultToolErrorTerminal(args),
-          toolErrorArgs,
-          toolErrorCtx,
-          DEFAULT_TIMEOUTS.toolError,
-        );
-        if (toolErrorDecision.action === "nudge") {
-          resultBlocks.push({
-            type: "text",
-            text: toolErrorDecision.nudgeText,
-          });
-        }
+        // Append any guidance a post-tool-use hook surfaced via
+        // `additionalContext` (e.g. tool-error retry coaching) as separate
+        // blocks. They join the provider-bound history below but were not part
+        // of the tool_result events emitted above, so the model sees the
+        // guidance while the client-facing and persisted tool output stay the
+        // tool's actual result.
+        resultBlocks.push(...additionalContextBlocks);
 
-        // Add tool results as a user message and continue the loop
+        // Add tool results as a user message and continue the loop.
         history.push({ role: "user", content: resultBlocks });
 
         // Invoke checkpoint callback after tool results are in history.
@@ -1675,11 +1634,9 @@ export class AgentLoop {
           Sentry.captureException(err);
         }
         onEvent({ type: "error", error: err });
-        // Catch-block fallback. If the rethrow came from the
-        // empty-response throw path above, `emitExit("error")` no-ops
-        // because `emitExit("empty_response_exhausted")` already ran
-        // before the throw. Otherwise, this is the genuine
-        // unhandled-error exit.
+        // Catch-block fallback. A break site that stamped a more specific
+        // reason before unwinding here keeps it; the guard makes this a no-op.
+        // Otherwise this is the genuine unhandled-error exit.
         await emitExit("error");
         break;
       }

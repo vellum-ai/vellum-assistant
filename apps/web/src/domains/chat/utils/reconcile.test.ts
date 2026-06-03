@@ -19,6 +19,7 @@ import {
   messageText,
   textBody,
   wireTextBody,
+  wireThinkingBody,
   wireTimestamp,
 } from "@/domains/chat/utils/message-test-helpers";
 
@@ -127,18 +128,13 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
       id: "a1",
       role: "assistant",
       timestamp: 1000,
-      textSegments: [
-        {
-          type: "text",
-          content: "This is the longer text already delivered by SSE.",
-        },
-      ],
+      textSegments: ["This is the longer text already delivered by SSE."],
     });
     const staleHistory = makeLocal({
       id: "a1",
       role: "assistant",
       timestamp: 1000,
-      textSegments: [{ type: "text", content: "This is" }],
+      textSegments: ["This is"],
     });
 
     const result = reconcileDisplayMessagesWithLatestHistory(
@@ -153,10 +149,7 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
     // text is never rolled back to the stale snapshot.
     expect(liveAssistantRowId(result, true)).toBe("a1");
     expect(result[0]!.textSegments).toEqual([
-      {
-        type: "text",
-        content: "This is the longer text already delivered by SSE.",
-      },
+      "This is the longer text already delivered by SSE.",
     ]);
   });
 
@@ -201,12 +194,7 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
       role: "assistant",
       isOptimistic: true,
       timestamp: 1010,
-      textSegments: [
-        {
-          type: "text",
-          content: "Stockholm plan: start with Gamla Stan",
-        },
-      ],
+      textSegments: ["Stockholm plan: start with Gamla Stan"],
       contentOrder: [{ type: "text", id: "0" }],
     });
     const completedAssistant = makeLocal({
@@ -214,11 +202,7 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
       role: "assistant",
       timestamp: 1020,
       textSegments: [
-        {
-          type: "text",
-          content:
-            "Stockholm plan: start with Gamla Stan, then spend the afternoon on Djurgarden.",
-        },
+        "Stockholm plan: start with Gamla Stan, then spend the afternoon on Djurgarden.",
       ],
       contentOrder: [{ type: "text", id: "0" }],
     });
@@ -239,11 +223,7 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
     // stays the live row — the merge layer never declares the turn done.
     expect(liveAssistantRowId(result, true)).toBe("a1");
     expect(result[1]!.textSegments).toEqual([
-      {
-        type: "text",
-        content:
-          "Stockholm plan: start with Gamla Stan, then spend the afternoon on Djurgarden.",
-      },
+      "Stockholm plan: start with Gamla Stan, then spend the afternoon on Djurgarden.",
     ]);
   });
 
@@ -297,7 +277,7 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
       timestamp: 1010,
       toolCalls: liveToolCalls,
       textSegments: [
-        { type: "text", content: "Good, that's exactly what we're here for." },
+        "Good, that's exactly what we're here for.",
       ],
       contentOrder: [
         { type: "text", id: "0" },
@@ -358,7 +338,7 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
       id: "assistant-anchor",
       mergedMessageIds: ["assistant-final"],
       role: "assistant",
-      textSegments: [{ type: "text", content: "Everything is set up." }],
+      textSegments: ["Everything is set up."],
       timestamp: 1010,
       toolCalls: [
         {
@@ -655,7 +635,7 @@ describe("reconcileMessages", () => {
           { type: "toolCall", id: "toolu_check_workspace" },
           { type: "text", id: "0" },
         ],
-        textSegments: [{ type: "text", content: "Everything is set up." }],
+        textSegments: ["Everything is set up."],
       }),
     ];
     const server: RuntimeMessage[] = [
@@ -818,7 +798,7 @@ describe("reconcileMessages", () => {
     ];
     const result = reconcileMessages(local, server);
     expect(result[1]!.textSegments).toEqual([
-      { type: "text", content: "Hello world" },
+      "Hello world",
     ]);
     expect(result[1]!.contentOrder).toEqual([{ type: "text", id: "0" }]);
   });
@@ -835,8 +815,8 @@ describe("reconcileMessages", () => {
       { type: "text", id: "1" },
     ];
     const localTextSegments = [
-      { type: "text", content: "Let me check..." },
-      { type: "text", content: "Done!" },
+      "Let me check...",
+      "Done!",
     ];
     const localToolCalls: ChatMessageToolCall[] = [
       {
@@ -891,7 +871,7 @@ describe("reconcileMessages", () => {
     ];
     const result = reconcileMessages(local, server);
     expect(result[1]!.contentOrder).toEqual(serverOrder);
-    expect(result[1]!.textSegments).toEqual([{ type: "text", content: "Hi!" }]);
+    expect(result[1]!.textSegments).toEqual(["Hi!"]);
     expect(result[1]!.toolCalls).toBeUndefined();
   });
 
@@ -936,7 +916,7 @@ describe("reconcileMessages — mid-stream sync-tag bubble-split regression", ()
         { type: "text", id: "0" },
         { type: "tool", id: "toolu_01ABC" },
       ],
-      textSegments: [{ type: "text", content: "Working on it..." }],
+      textSegments: ["Working on it..."],
       timestamp: 2000,
     });
     const local: DisplayMessage[] = [
@@ -1240,7 +1220,7 @@ describe("reconcileMessages — server attachment propagation", () => {
     const msg = result.find((m) => m.id === "m1");
     expect(messageText(msg!)).toBe("Check this file");
     expect(msg!.textSegments).toBeDefined();
-    expect(msg!.textSegments![0]!.content).toBe("Check this file");
+    expect(msg!.textSegments![0]).toBe("Check this file");
   });
 
   test("falls back to parsed attachments when server has no structured metadata", () => {
@@ -1567,6 +1547,74 @@ describe("reconcileMessages — timestamp ordering", () => {
     expect(messageText(result[0]!)).toBe("Early");
     expect(messageText(result[1]!)).toBe("No timestamp");
     expect(messageText(result[2]!)).toBe("Late");
+  });
+});
+
+describe("reconcileMessages — thinking blocks", () => {
+  test("heals a thinking block truncated by dropped SSE deltas", () => {
+    // GIVEN an assistant row whose thinking block lost its leading reasoning
+    // because deltas were dropped while the SSE stream was torn down (e.g. the
+    // tab was backgrounded and the stream reconnected mid-turn)
+    const local: DisplayMessage[] = [
+      makeLocal({ id: "u1", role: "user", ...textBody("Draft a tweet") }),
+      makeLocal({
+        id: "a1",
+        role: "assistant",
+        thinkingSegments: [") and so I'll present a few concrete options."],
+        contentOrder: [{ type: "thinking", id: "0" }],
+      }),
+    ];
+
+    // AND the server has persisted the complete reasoning for that block
+    const fullThinking =
+      "Let me check his voice guide and what's live this week (weighing options) and so I'll present a few concrete options.";
+    const server: RuntimeMessage[] = [
+      makeServerMessage({ id: "u1", role: "user", ...wireTextBody("Draft a tweet") }),
+      makeServerMessage({
+        id: "a1",
+        role: "assistant",
+        ...wireThinkingBody(fullThinking),
+      }),
+    ];
+
+    // WHEN reconciliation runs
+    const result = reconcileMessages(local, server);
+
+    // THEN the truncated block is healed from the server's fuller copy
+    expect(result).not.toBe(local);
+    expect(result[1]!.thinkingSegments).toEqual([fullThinking]);
+  });
+
+  test("keeps the locally-streamed thinking block while it is ahead of the server", () => {
+    // GIVEN the local row has streamed more reasoning than the server's
+    // periodic snapshot has persisted yet
+    const localThinking = "Reasoning that is already well underway locally";
+    const local: DisplayMessage[] = [
+      makeLocal({ id: "u1", role: "user", ...textBody("Hi") }),
+      makeLocal({
+        id: "a1",
+        role: "assistant",
+        thinkingSegments: [localThinking],
+        contentOrder: [{ type: "thinking", id: "0" }],
+      }),
+    ];
+
+    // AND the server snapshot still lags behind the live stream
+    const server: RuntimeMessage[] = [
+      makeServerMessage({ id: "u1", role: "user", ...wireTextBody("Hi") }),
+      makeServerMessage({
+        id: "a1",
+        role: "assistant",
+        ...wireThinkingBody("Reasoning that is already"),
+      }),
+    ];
+
+    // WHEN reconciliation runs
+    const result = reconcileMessages(local, server);
+
+    // THEN the richer local block is preserved with no rewind (no change)
+    expect(result).toBe(local);
+    expect(result[1]!.thinkingSegments).toEqual([localThinking]);
   });
 });
 

@@ -12,6 +12,7 @@ import {
   replacePlatformAssistants,
   runHatch,
   runRetire,
+  runWake,
   getGuardianAccessToken,
   resolveGatewayProxyTarget,
   readAllowedGatewayPorts,
@@ -46,6 +47,7 @@ export function localModePlugin(env: Record<string, string>): Plugin {
       server.middlewares.use(lockfileMiddleware(config.lockfilePaths));
       server.middlewares.use(hatchMiddleware(baseDir));
       server.middlewares.use(retireMiddleware(baseDir));
+      server.middlewares.use(wakeMiddleware(baseDir));
       server.middlewares.use(
         guardianTokenMiddleware(config.configDir, baseDir, env),
       );
@@ -295,6 +297,72 @@ function retireMiddleware(baseDir: string): Connect.NextHandleFunction {
       }
 
       runRetire(invocation, assistantId).then((result) => {
+        res.statusCode = result.ok ? 200 : result.status;
+        res.setHeader("Content-Type", "application/json");
+        res.end(
+          JSON.stringify(
+            result.ok ? { ok: true } : { ok: false, error: result.error },
+          ),
+        );
+      });
+    });
+  };
+}
+
+function wakeMiddleware(baseDir: string): Connect.NextHandleFunction {
+  return (req, res, next) => {
+    if (req.url !== "/assistant/__local/wake" && req.url !== "/__local/wake")
+      return next();
+
+    if (rejectUnlessLoopback(req, res)) return;
+
+    if (req.method !== "POST") {
+      res.statusCode = 405;
+      res.end();
+      return;
+    }
+
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    req.on("end", () => {
+      let assistantId: string | undefined;
+      if (chunks.length > 0) {
+        try {
+          const body = JSON.parse(Buffer.concat(chunks).toString()) as {
+            assistantId?: string;
+          };
+          assistantId = body.assistantId;
+        } catch {
+          res.statusCode = 400;
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ ok: false, error: "Invalid JSON body" }));
+          return;
+        }
+      }
+
+      if (!assistantId) {
+        res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ ok: false, error: "Missing assistantId" }));
+        return;
+      }
+
+      let invocation: CliInvocation;
+      try {
+        invocation = resolveDevCliInvocation(baseDir, import.meta.url);
+      } catch (err) {
+        res.statusCode = 500;
+        res.setHeader("Content-Type", "application/json");
+        res.end(
+          JSON.stringify({
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        );
+        return;
+      }
+
+      runWake(invocation, assistantId).then((result) => {
         res.statusCode = result.ok ? 200 : result.status;
         res.setHeader("Content-Type", "application/json");
         res.end(

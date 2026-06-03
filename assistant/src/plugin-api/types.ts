@@ -4,7 +4,11 @@
  * removing is breaking and gated on a major bump.
  */
 
-import type { Message, ToolResultContent } from "../providers/types.js";
+import type {
+  ContentBlock,
+  Message,
+  ToolResultContent,
+} from "../providers/types.js";
 
 export type {
   ToolContext,
@@ -48,6 +52,7 @@ export interface PluginLogger {
  *   - `shutdown` — {@link PluginShutdownContext}
  *   - `user-prompt-submit` — {@link UserPromptSubmitContext}
  *   - `post-tool-use` — {@link PostToolUseContext}
+ *   - `stop` — {@link StopContext}
  */
 export type PluginHookFn<TCtx = unknown> = (ctx: TCtx) => Promise<TCtx | void>;
 
@@ -123,6 +128,16 @@ export interface UserPromptSubmitContext {
   /** Conversation ID the user prompt was submitted on. */
   readonly conversationId: string;
   /**
+   * The text of the user prompt that triggered this turn — the resolved
+   * user message (after slash-command expansion), independent of any
+   * internal rewriting applied to the message that flows into the model.
+   * Mirrors the `prompt` field Claude Code / Codex pass to their
+   * `UserPromptSubmit` hooks, so hooks that key off the submitted text
+   * (e.g. title generation) read it directly rather than reconstructing
+   * it from the message arrays.
+   */
+  readonly prompt: string;
+  /**
    * The user's original message list, immutable for the hook. Plugins
    * may snapshot or compare against this but MUST NOT mutate it.
    */
@@ -157,8 +172,10 @@ export interface UserPromptSubmitContext {
  * Multiple plugins' hooks chain in registration order — each plugin's hook
  * sees the previous plugin's mutations. The default tool-result-truncate
  * plugin contributes a hook here that tail-drops oversized output to fit the
- * model's context window; user hooks can swap in a smarter strategy (e.g. a
- * summarizer) or observe results for side effects.
+ * model's context window; the default tool-error plugin sets
+ * {@link additionalContext} with retry coaching for failed results. User hooks
+ * can swap in a smarter strategy (e.g. a summarizer) or observe results for
+ * side effects.
  */
 export interface PostToolUseContext {
   /** Conversation ID the tool ran on. */
@@ -169,11 +186,101 @@ export interface PostToolUseContext {
    */
   toolResponse: ToolResultContent;
   /**
+   * Conversation history up to and including the assistant turn that issued
+   * this tool call. The current result is not in it yet — it lives in
+   * {@link toolResponse}. A hook reasoning about prior tool outcomes (e.g.
+   * how many times a tool has failed in a row) derives that from the history
+   * content rather than a precomputed counter, so the signal survives mid-run
+   * compaction rewriting the array. Read-only: hooks transform the result via
+   * {@link toolResponse}, not by mutating history.
+   */
+  readonly messages: ReadonlyArray<Message>;
+  /**
+   * Extra guidance for the model that is not part of the tool's output. A hook
+   * sets this to surface provider-only context — e.g. retry coaching for a
+   * failed result — and the daemon appends it to the provider-bound history as
+   * a separate block *after* emitting the tool_result, so it reaches the model
+   * without polluting the client-facing or persisted tool output. Mirrors
+   * Claude Code's PostToolUse `hookSpecificOutput.additionalContext` and the
+   * singular of Codex's `additional_contexts`. Unset means no extra context.
+   */
+  additionalContext?: string;
+  /**
    * The model's context-window size in tokens. Plugins derive their own
    * character budget from this (e.g. a share of the window) rather than
    * receiving a precomputed limit.
    */
   readonly maxInputTokens: number;
+  /**
+   * Logger scoped to the current turn. The same instance is shared by
+   * every hook in the chain, so plugins should tag their structured log
+   * fields (e.g. `{ plugin: "<name>" }`) for attribution.
+   */
+  readonly logger: PluginLogger;
+}
+
+// ─── Stop hook context ───────────────────────────────────────────────────────
+
+/**
+ * Binary outcome of the `stop` hook. The agent loop seeds it to `"stop"`
+ * and acts on the value the chain settles on:
+ *
+ * - `"stop"`     — let the turn end; the loop yields the assistant response
+ *                  to the user. This is the default.
+ * - `"continue"` — re-query the model. The hook is responsible for appending
+ *                  the follow-up turn it wants the model to see to
+ *                  {@link StopContext.messages} before returning.
+ *
+ * To abort with an error a hook should throw — the loop's error handler
+ * surfaces it. There is intentionally no error decision value.
+ */
+export type StopDecision = "continue" | "stop";
+
+/**
+ * Context passed to the `stop` hook. Fires when the model yields a response
+ * with no tool calls — the run's stop boundary, where the loop is about to
+ * hand the turn back to the user. The default empty-response plugin uses it
+ * to re-query the model when a turn came back empty or as a provider refusal.
+ *
+ * The hook decides the outcome by setting {@link decision}. When it sets
+ * `"continue"` it must also append the follow-up turn (e.g. a nudge `user`
+ * message) to {@link messages}; the loop threads those messages into the next
+ * iteration. {@link messages} is the full conversation history, carried back
+ * verbatim. A hook that needs to reason about just the current response cycle
+ * (e.g. whether an earlier turn already delivered visible text) derives that
+ * boundary from the history itself — the messages after the last genuine user
+ * prompt — rather than an index, since mid-run compaction can rewrite the
+ * array.
+ *
+ * Multiple plugins' hooks chain in registration order — each sees the
+ * previous hook's `decision` and `messages` mutations.
+ */
+export interface StopContext {
+  /** Conversation ID the run belongs to. */
+  readonly conversationId: string;
+  /**
+   * Full conversation history: the inbound conversation followed by every
+   * message produced this run. A hook that sets `decision` to `"continue"`
+   * appends its follow-up turn here; the loop carries the result into the
+   * next iteration.
+   */
+  messages: Message[];
+  /**
+   * Content blocks of the assistant turn that triggered the stop. Guaranteed
+   * to contain no `tool_use` blocks — the hook only fires at the boundary
+   * where the model stopped requesting tools.
+   */
+  readonly responseContent: ReadonlyArray<ContentBlock>;
+  /**
+   * Provider-reported stop reason for the assistant turn (e.g. `"refusal"`,
+   * `"end_turn"`). `null`/`undefined` when the provider didn't report one.
+   */
+  readonly stopReason: string | null | undefined;
+  /**
+   * Seeded to `"stop"`. A hook sets it to `"continue"` to force another loop
+   * iteration; later hooks in the chain may override it.
+   */
+  decision: StopDecision;
   /**
    * Logger scoped to the current turn. The same instance is shared by
    * every hook in the chain, so plugins should tag their structured log

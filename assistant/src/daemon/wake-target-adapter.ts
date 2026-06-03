@@ -140,7 +140,8 @@ function translateAgentEventToServerMessage(
     case "context_compacting":
     case "compaction_circuit_open":
     case "compaction_circuit_closed":
-    case "compaction_applied":
+    case "compaction_completed":
+    case "history_stripped":
     case "agent_loop_exit":
       return null;
     case "llm_call_started":
