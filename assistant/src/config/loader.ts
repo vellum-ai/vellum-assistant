@@ -789,22 +789,29 @@ export function loadConfig(): AssistantConfig {
         const { dataDir: _, ...rest } = config;
         const persistable: Record<string, unknown> = rest;
         // Keep the env-gated `acp.enabled` default off-disk so the per-release
-        // rollout gate survives both rollback AND restart. The default is
-        // effective in-memory (above), but persisting any `acp.enabled` value
-        // bakes it into config.json as durable user intent — the fill-only
+        // rollout gate survives both rollback AND restart, in EVERY flag state.
+        // The default is effective in-memory (above), but persisting any
+        // `acp.enabled` value into the first-launch seed bakes it into
+        // config.json as durable user intent — the fill-only
         // `fillContextDefaultsForMissingKeys` pass would then treat it as an
         // explicit choice forever and refuse to re-apply the env-gated default.
-        // Writing `acp.enabled: false` is just as wrong as writing `true`: on
-        // the next process start with VELLUM_ACP_ENABLED still on, the on-disk
-        // `false` shadows the gate and ACP stays off after the first restart.
-        // So we must OMIT the key entirely (delete it), not materialize the
-        // schema default. On a subsequent load the absent key lets the env gate
-        // re-apply (→ true when on, disabled when off), while a genuine
-        // user-set `acp.enabled` on disk still wins (fill-only never overrides
-        // a present key). The rest of the `acp` block (maxConcurrentSessions,
-        // agents) still persists at its schema default. Clone the subtree so we
-        // never mutate the in-memory effective `config.acp`.
-        if (contextDefaults.acp !== undefined && persistable.acp !== undefined) {
+        //
+        // This omission is UNCONDITIONAL — it does not depend on whether
+        // VELLUM_ACP_ENABLED is currently on (`contextDefaults.acp` present) or
+        // off (pre-rollout). Writing `acp.enabled: false` is just as wrong as
+        // writing `true`: a hosted assistant first-launched while the flag is
+        // OFF would otherwise materialize the schema default `false` to disk;
+        // when the flag later flips ON, that on-disk `false` shadows the gate
+        // and ACP can NEVER enable for that pre-rollout config. So we OMIT the
+        // key entirely (delete it) regardless of the flag's current state. On a
+        // subsequent load the absent key lets the env gate re-apply (→ true
+        // when on, schema default false when off), while a genuine user-set
+        // `acp.enabled` written by a real config edit still wins (fill-only
+        // never overrides a present key). The rest of the `acp` block
+        // (maxConcurrentSessions, agents) still persists at its schema default.
+        // Clone the subtree so we never mutate the in-memory effective
+        // `config.acp`.
+        if (persistable.acp !== undefined) {
           const { enabled: _enabled, ...acpWithoutEnabled } =
             persistable.acp as Record<string, unknown>;
           persistable.acp = acpWithoutEnabled;
