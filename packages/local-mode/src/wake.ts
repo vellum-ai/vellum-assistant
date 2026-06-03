@@ -2,7 +2,13 @@ import { spawn } from "node:child_process";
 
 import type { CliInvocation } from "./util";
 
-const WAKE_TIMEOUT_MS = 60_000;
+// `wake` cold-starts a stopped assistant, so it can legitimately run far
+// longer than a teardown like `retire`: the CLI waits up to 60s for the daemon
+// to answer (plus another 60s if it falls back to a source daemon) and up to
+// 30s for the gateway. The wrapper timeout is a safety net for a truly hung
+// process, so it must sit above those documented readiness windows — otherwise
+// a slow-but-succeeding wake gets killed and misreported as a timeout.
+const WAKE_TIMEOUT_MS = 180_000;
 
 export type WakeResult =
   | { ok: true }
@@ -42,7 +48,11 @@ export function runWake(
 
     const timeout = setTimeout(() => {
       child.kill("SIGTERM");
-      finish({ ok: false, status: 500, error: "Wake timed out after 60 seconds" });
+      finish({
+        ok: false,
+        status: 500,
+        error: `Wake timed out after ${WAKE_TIMEOUT_MS / 1000} seconds`,
+      });
     }, WAKE_TIMEOUT_MS);
 
     child.stdout.on("data", (data: Buffer) => {
