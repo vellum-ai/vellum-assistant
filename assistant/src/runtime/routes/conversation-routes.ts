@@ -46,7 +46,11 @@ import {
   getCannedFirstGreeting,
   isWakeUpGreeting,
 } from "../../daemon/first-greeting.js";
-import { renderHistoryContent } from "../../daemon/handlers/shared.js";
+import {
+  collectAttachmentRefs,
+  type HistoryAttachmentRef,
+  renderHistoryContent,
+} from "../../daemon/handlers/shared.js";
 import { HostAppControlProxy } from "../../daemon/host-app-control-proxy.js";
 import { HostCuProxy } from "../../daemon/host-cu-proxy.js";
 import {
@@ -142,6 +146,125 @@ const log = getLogger("conversation-routes");
 /** Matches the `<no_response/>` sentinel used by channel delivery suppression. */
 const NO_RESPONSE_INLINE_RE = /<no_response\s*\/?>/g;
 const ATTACHMENT_ENTRY_RE = /^attachment:(\d+)$/;
+
+/** Rewrites a rendered `contentOrder` to reflect attachment alignment. */
+type ContentOrderRewrite = (contentOrder: string[]) => string[];
+
+interface AlignedAttachments {
+  /** Hydrated rows, reordered to match the inline file-block order. */
+  attachments: RuntimeAttachmentMetadata[];
+  /**
+   * Resolves a content-walk attachment ref index to its hydrated DB row,
+   * mirroring the inline placement `rewriteContentOrder` encodes. Refs with no
+   * inline placement (unmatched ids, count mismatch, no DB rows) are absent, so
+   * `renderHistoryContent` emits no `attachment` block for them — the row still
+   * ships via the flat `attachments` array.
+   */
+  refIndexToAttachment: Map<number, RuntimeAttachmentMetadata>;
+  rewriteContentOrder: ContentOrderRewrite;
+}
+
+/**
+ * Align DB-hydrated attachment rows with the file-block refs `renderHistoryContent`
+ * captured. When a file block was persisted with `_attachmentId` (user-message
+ * uploads) we join on that id to position the chip inline; DB rows without a
+ * matching ref go to the tail as orphan chips, and unmatched refs drop their
+ * `attachment:N` entry. Assistant-authored file blocks carry no `_attachmentId`,
+ * so when no ids match we fall back to positional alignment if the ref and row
+ * counts agree; otherwise we strip the markers and let chips fall to the tail.
+ */
+function alignAttachments(
+  attachmentRefs: HistoryAttachmentRef[],
+  attachments: RuntimeAttachmentMetadata[],
+): AlignedAttachments {
+  const refIndexToAttachment = new Map<number, RuntimeAttachmentMetadata>();
+  const identity: ContentOrderRewrite = (contentOrder) => contentOrder;
+  const stripAttachmentEntries: ContentOrderRewrite = (contentOrder) =>
+    contentOrder.filter((entry) => !ATTACHMENT_ENTRY_RE.test(entry));
+
+  if (attachmentRefs.length === 0) {
+    return { attachments, refIndexToAttachment, rewriteContentOrder: identity };
+  }
+  if (attachments.length === 0) {
+    // Refs were captured but no DB rows came back — drop the contentOrder
+    // entries to avoid out-of-bounds renders.
+    return {
+      attachments,
+      refIndexToAttachment,
+      rewriteContentOrder: stripAttachmentEntries,
+    };
+  }
+
+  const byId = new Map<string, number>();
+  attachments.forEach((att, idx) => {
+    if (att.id) byId.set(att.id, idx);
+  });
+  const consumed = new Set<number>();
+  const orderedRowIdx: Array<number | null> = attachmentRefs.map((ref) => {
+    if (!ref.attachmentId) return null;
+    const idx = byId.get(ref.attachmentId);
+    if (idx === undefined || consumed.has(idx)) return null;
+    consumed.add(idx);
+    return idx;
+  });
+  const matchedRows = orderedRowIdx.filter(
+    (idx): idx is number => idx !== null,
+  );
+
+  if (matchedRows.length > 0) {
+    const orphanRows: number[] = [];
+    for (let i = 0; i < attachments.length; i++) {
+      if (!consumed.has(i)) orphanRows.push(i);
+    }
+    const reordered = [
+      ...matchedRows.map((i) => attachments[i]),
+      ...orphanRows.map((i) => attachments[i]),
+    ];
+    const refToNewIdx = new Map<number, number>();
+    let nextIdx = 0;
+    orderedRowIdx.forEach((rowIdx, refIdx) => {
+      if (rowIdx !== null) {
+        refToNewIdx.set(refIdx, nextIdx);
+        refIndexToAttachment.set(refIdx, reordered[nextIdx]);
+        nextIdx++;
+      }
+    });
+    const rewriteContentOrder: ContentOrderRewrite = (contentOrder) =>
+      contentOrder
+        .map((entry) => {
+          const match = entry.match(ATTACHMENT_ENTRY_RE);
+          if (!match) return entry;
+          const remapped = refToNewIdx.get(Number(match[1]));
+          return remapped !== undefined ? `attachment:${remapped}` : undefined;
+        })
+        .filter((e): e is string => e !== undefined);
+    return {
+      attachments: reordered,
+      refIndexToAttachment,
+      rewriteContentOrder,
+    };
+  }
+
+  if (attachmentRefs.length !== attachments.length) {
+    // No ref carried an attachmentId we could match and the counts disagree, so
+    // positional mapping can't be trusted — strip any attachment:N entries so
+    // the client doesn't position attachments inline against a misaligned array
+    // (they fall to the tail instead).
+    return {
+      attachments,
+      refIndexToAttachment,
+      rewriteContentOrder: stripAttachmentEntries,
+    };
+  }
+
+  // No ref matched an id but the counts agree (the assistant-authored case):
+  // the Nth marker maps to the Nth row positionally, so the original
+  // contentOrder is left untouched.
+  attachmentRefs.forEach((_ref, refIdx) => {
+    refIndexToAttachment.set(refIdx, attachments[refIdx]);
+  });
+  return { attachments, refIndexToAttachment, rewriteContentOrder: identity };
+}
 
 /** Feature flag gating the self-intro first message (see first-greeting.ts). */
 const SELF_INTRO_GREETING_FLAG = "self-intro-greeting" as const;
@@ -581,7 +704,10 @@ export function handleListMessages({
     mergeConsecutiveAssistantMessages(mergedMessages);
   const assistantSlackDisplayName = getAssistantName()?.trim() || undefined;
 
-  // Parse content blocks and extract text + tool calls
+  // Parse each row's stored content and per-message metadata. Rendering is
+  // deferred to the serializer pass below so it runs after attachment
+  // alignment, letting renderHistoryContent inline `attachment` blocks during
+  // its single content walk.
   const parsed = consolidatedMessages.map((msg) => {
     let content: unknown;
     try {
@@ -589,7 +715,6 @@ export function handleListMessages({
     } catch {
       content = msg.content;
     }
-    const rendered = renderHistoryContent(content);
 
     // Extract sentAt from metadata for display timestamps. When a message
     // was queued or its persistence was delayed (long assistant generation),
@@ -637,95 +762,36 @@ export function handleListMessages({
       },
     );
 
-    // Strip <no_response/> markers from assistant messages so web/API
-    // clients never see the raw sentinel. Only assistant messages produce
-    // this marker; user messages are left untouched.
-    if (msg.role === "assistant") {
-      const originalSegments = rendered.textSegments;
-      const keepIndices: number[] = [];
-      const filteredSegments: string[] = [];
-      for (let i = 0; i < originalSegments.length; i++) {
-        const cleaned = originalSegments[i]
-          .replace(NO_RESPONSE_INLINE_RE, "")
-          .trim();
-        if (cleaned.length > 0) {
-          keepIndices.push(i);
-          filteredSegments.push(cleaned);
-        }
-      }
-      // Remap contentOrder text:N indices to account for removed segments
-      const indexMap = new Map<number, number>();
-      keepIndices.forEach((oldIdx, newIdx) => indexMap.set(oldIdx, newIdx));
-      const filteredContentOrder = rendered.contentOrder
-        .map((entry) => {
-          const m = entry.match(/^text:(\d+)$/);
-          if (!m) return entry;
-          const newIdx = indexMap.get(Number(m[1]));
-          return newIdx !== undefined ? `text:${newIdx}` : undefined;
-        })
-        .filter((e): e is string => e !== undefined);
-
-      return {
-        role: msg.role,
-        text: rendered.text.replace(NO_RESPONSE_INLINE_RE, "").trim(),
-        timestamp: msg.createdAt,
-        sentAt,
-        toolCalls: rendered.toolCalls,
-        toolCallsBeforeText: rendered.toolCallsBeforeText,
-        textSegments: filteredSegments,
-        contentOrder: filteredContentOrder,
-        surfaces: rendered.surfaces,
-        attachmentRefs: rendered.attachments,
-        slackMessage,
-        ...(rendered.thinkingSegments.length > 0
-          ? { thinkingSegments: rendered.thinkingSegments }
-          : {}),
-        id: msg.id,
-        subagentNotification,
-      };
-    }
-
     return {
-      role: msg.role,
-      text: rendered.text,
-      timestamp: msg.createdAt,
-      sentAt,
-      toolCalls: rendered.toolCalls,
-      toolCallsBeforeText: rendered.toolCallsBeforeText,
-      textSegments: rendered.textSegments,
-      contentOrder: rendered.contentOrder,
-      surfaces: rendered.surfaces,
-      attachmentRefs: rendered.attachments,
-      slackMessage,
-      ...(rendered.thinkingSegments.length > 0
-        ? { thinkingSegments: rendered.thinkingSegments }
-        : {}),
       id: msg.id,
+      role: msg.role,
+      content,
+      createdAt: msg.createdAt,
+      sentAt,
       subagentNotification,
+      slackMessage,
     };
   });
 
   const messages: RuntimeMessagePayload[] = parsed.map((m) => {
     const mergedMessageIds = m.id ? (mergedIdMap.get(m.id) ?? []) : [];
+
+    // Hydrate the row's attachments from the DB. A metadata-only query avoids
+    // loading large base64 blobs for non-image attachments (documents, audio);
+    // full data is fetched only for images so the client can generate
+    // thumbnails for inline display on history restore. Merged messages
+    // (consecutive assistant merge) are queried too so their attachments
+    // aren't lost before DB compaction relinks them.
     let msgAttachments: RuntimeAttachmentMetadata[] = [];
     if (m.id) {
-      // Use metadata-only query first to avoid loading large base64
-      // blobs for non-image attachments (documents, audio). Then
-      // selectively fetch full data only for images so the client can
-      // generate thumbnails for inline display on history restore.
-      // Also query attachments for any messages that were merged into
-      // this one (consecutive assistant merge), so their attachments
-      // aren't lost before DB compaction relinks them.
-      const idsToQuery = [m.id, ...(mergedIdMap.get(m.id) ?? [])];
+      const idsToQuery = [m.id, ...mergedMessageIds];
       const linked = idsToQuery.flatMap((id) =>
         getAttachmentMetadataForMessage(id),
       );
       if (linked.length > 0) {
         msgAttachments = linked.map((a) => {
           if (a.mimeType.startsWith("image/")) {
-            const full = getAttachmentById(a.id, {
-              hydrateFileData: true,
-            });
+            const full = getAttachmentById(a.id, { hydrateFileData: true });
             return {
               id: a.id,
               filename: a.originalFilename,
@@ -752,110 +818,94 @@ export function handleListMessages({
       }
     }
 
-    // Align msgAttachments order with the file-block order captured by
-    // renderHistoryContent. When a file block was persisted with
-    // `_attachmentId` (user-message uploads), we join on that id to position
-    // the chip inline (the `attachment:N` entries in contentOrder index into
-    // msgAttachments). DB rows without a matching ref go to the tail as orphan
-    // chips; unmatched refs drop their contentOrder entry and trigger a remap.
-    // Assistant-authored file blocks carry no `_attachmentId`, so when no ids
-    // match we fall back to positional alignment if the ref and row counts
-    // agree; otherwise we strip the markers and let chips fall to the tail.
-    let alignedContentOrder = m.contentOrder;
-    if (
-      m.attachmentRefs.length > 0 &&
-      msgAttachments.length > 0 &&
-      m.contentOrder.length > 0
-    ) {
-      const byId = new Map<string, number>();
-      msgAttachments.forEach((att, idx) => {
-        if (att.id) byId.set(att.id, idx);
-      });
-      const consumed = new Set<number>();
-      const orderedRowIdx: Array<number | null> = m.attachmentRefs.map(
-        (ref) => {
-          if (!ref.attachmentId) return null;
-          const idx = byId.get(ref.attachmentId);
-          if (idx === undefined || consumed.has(idx)) return null;
-          consumed.add(idx);
-          return idx;
-        },
-      );
-      const matchedRows = orderedRowIdx.filter(
-        (idx): idx is number => idx !== null,
-      );
-      if (matchedRows.length > 0) {
-        const orphanRows: number[] = [];
-        for (let i = 0; i < msgAttachments.length; i++) {
-          if (!consumed.has(i)) orphanRows.push(i);
+    // Align the hydrated rows with the file-block refs, then render. Rendering
+    // after alignment lets renderHistoryContent inline each `attachment` block
+    // during its single content walk, so `contentBlocks` comes back ready to
+    // ship with no post-processing. The aligned reorder/rewrite keeps the
+    // legacy `attachments` array and `contentOrder` positions consistent.
+    const attachmentRefs = collectAttachmentRefs(m.content);
+    const aligned = alignAttachments(attachmentRefs, msgAttachments);
+    msgAttachments = aligned.attachments;
+    const attachmentBlocks = attachmentRefs.map(
+      (_ref, refIdx) => aligned.refIndexToAttachment.get(refIdx) ?? null,
+    );
+    const rendered = renderHistoryContent(m.content, attachmentBlocks);
+
+    // Strip <no_response/> markers from assistant messages so web/API clients
+    // never see the raw sentinel. Only assistant messages produce it; user
+    // messages are untouched. The filter is applied consistently to the flat
+    // text, the segments, the contentOrder text refs, and the text blocks of
+    // contentBlocks.
+    let text = rendered.text;
+    let textSegments = rendered.textSegments;
+    let contentOrder = rendered.contentOrder;
+    let contentBlocks = rendered.contentBlocks;
+    if (m.role === "assistant") {
+      const keepIndices: number[] = [];
+      const filteredSegments: string[] = [];
+      for (let i = 0; i < rendered.textSegments.length; i++) {
+        const cleaned = rendered.textSegments[i]
+          .replace(NO_RESPONSE_INLINE_RE, "")
+          .trim();
+        if (cleaned.length > 0) {
+          keepIndices.push(i);
+          filteredSegments.push(cleaned);
         }
-        msgAttachments = [
-          ...matchedRows.map((i) => msgAttachments[i]),
-          ...orphanRows.map((i) => msgAttachments[i]),
-        ];
-        const refToNewIdx = new Map<number, number>();
-        let nextIdx = 0;
-        orderedRowIdx.forEach((rowIdx, refIdx) => {
-          if (rowIdx !== null) {
-            refToNewIdx.set(refIdx, nextIdx);
-            nextIdx++;
-          }
-        });
-        alignedContentOrder = m.contentOrder
-          .map((entry) => {
-            const match = entry.match(ATTACHMENT_ENTRY_RE);
-            if (!match) return entry;
-            const remapped = refToNewIdx.get(Number(match[1]));
-            return remapped !== undefined
-              ? `attachment:${remapped}`
-              : undefined;
-          })
-          .filter((e): e is string => e !== undefined);
-      } else if (m.attachmentRefs.length !== msgAttachments.length) {
-        // No ref carried an attachmentId we could match and the counts
-        // disagree, so positional mapping can't be trusted — strip any
-        // attachment:N entries so the client doesn't position attachments
-        // inline against a misaligned array (they fall to the tail instead).
-        alignedContentOrder = m.contentOrder.filter(
-          (entry) => !ATTACHMENT_ENTRY_RE.test(entry),
-        );
       }
-      // Otherwise no ref matched an id but the counts agree (the
-      // assistant-authored case): the Nth marker maps to the Nth row
-      // positionally, so the original contentOrder is left untouched.
-    } else if (m.attachmentRefs.length > 0 && msgAttachments.length === 0) {
-      // Refs were captured but no DB rows came back — drop the
-      // contentOrder entries to avoid out-of-bounds renders.
-      alignedContentOrder = m.contentOrder.filter(
-        (entry) => !ATTACHMENT_ENTRY_RE.test(entry),
-      );
+      const indexMap = new Map<number, number>();
+      keepIndices.forEach((oldIdx, newIdx) => indexMap.set(oldIdx, newIdx));
+      contentOrder = rendered.contentOrder
+        .map((entry) => {
+          const tm = entry.match(/^text:(\d+)$/);
+          if (!tm) return entry;
+          const newIdx = indexMap.get(Number(tm[1]));
+          return newIdx !== undefined ? `text:${newIdx}` : undefined;
+        })
+        .filter((e): e is string => e !== undefined);
+      textSegments = filteredSegments;
+      text = rendered.text.replace(NO_RESPONSE_INLINE_RE, "").trim();
+      contentBlocks = rendered.contentBlocks
+        .map((block) =>
+          block.type === "text"
+            ? {
+                type: "text" as const,
+                text: block.text.replace(NO_RESPONSE_INLINE_RE, "").trim(),
+              }
+            : block,
+        )
+        .filter((block) => block.type !== "text" || block.text.length > 0);
     }
 
-    // Use sentAt (actual event time) for the display timestamp when
-    // available, falling back to createdAt (persistence time).
-    // Note: clients use this display timestamp as their pagination cursor
-    // after memory-pressure trimming, while server-side pagination filters
-    // on createdAt. The mismatch is benign — it may return slightly extra
-    // data on a page boundary but never loses messages.
-    const displayTimestamp = m.sentAt ?? m.timestamp;
+    const alignedContentOrder = aligned.rewriteContentOrder(contentOrder);
+
+    // Use sentAt (actual event time) for the display timestamp when available,
+    // falling back to createdAt (persistence time). Clients use this display
+    // timestamp as their pagination cursor after memory-pressure trimming,
+    // while server-side pagination filters on createdAt. The mismatch is
+    // benign — it may return slightly extra data on a page boundary but never
+    // loses messages.
+    const displayTimestamp = m.sentAt ?? m.createdAt;
     return {
       id: m.id ?? "",
       ...(mergedMessageIds.length > 0 ? { mergedMessageIds } : {}),
       role: m.role,
       // Flat plain-text body the legacy Swift client reads directly; see the
       // `content` field on ConversationMessageSchema for why this must stay.
-      content: m.text,
+      content: text,
       timestamp: new Date(displayTimestamp).toISOString(),
       attachments: msgAttachments,
-      ...(m.toolCalls.length > 0 ? { toolCalls: m.toolCalls } : {}),
-      ...(m.surfaces.length > 0 ? { surfaces: m.surfaces } : {}),
-      ...(m.textSegments.length > 0 ? { textSegments: m.textSegments } : {}),
-      ...(m.thinkingSegments?.length
-        ? { thinkingSegments: m.thinkingSegments }
+      ...(rendered.toolCalls.length > 0
+        ? { toolCalls: rendered.toolCalls }
+        : {}),
+      ...(rendered.surfaces.length > 0 ? { surfaces: rendered.surfaces } : {}),
+      ...(textSegments.length > 0 ? { textSegments } : {}),
+      ...(rendered.thinkingSegments.length > 0
+        ? { thinkingSegments: rendered.thinkingSegments }
         : {}),
       ...(alignedContentOrder.length > 0
         ? { contentOrder: alignedContentOrder }
         : {}),
+      ...(contentBlocks.length > 0 ? { contentBlocks } : {}),
       ...(m.subagentNotification
         ? { subagentNotification: m.subagentNotification }
         : {}),

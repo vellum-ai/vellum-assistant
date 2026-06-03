@@ -304,6 +304,8 @@ export {
   DictationRequestSchema,
 } from "./requests/dictation.js";
 export {
+  type ConversationContentBlock,
+  ConversationContentBlockSchema,
   type ConversationMessage,
   type ConversationMessageAttachment,
   ConversationMessageAttachmentSchema,
