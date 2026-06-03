@@ -22,6 +22,9 @@ const setSelectedAssistantIdMock = mock((_id: string) => {});
 const primeLocalGatewayConnectionMock = mock(async () => {
   if (mockPrimeError) throw mockPrimeError;
 });
+const primeLocalGatewayConnectionWithRepairMock = mock(async () => {
+  if (mockPrimeError) throw mockPrimeError;
+});
 const syncOnboardingUserMock = mock((_userId: string | null) => {});
 const clearOnboardingFlagsMock = mock(() => {});
 const clearOrganizationMock = mock(() => {});
@@ -68,6 +71,8 @@ mock.module("@/lib/local-mode", () => ({
   clearSelectedAssistant: () => {},
   setSelectedAssistantId: setSelectedAssistantIdMock,
   primeLocalGatewayConnection: primeLocalGatewayConnectionMock,
+  primeLocalGatewayConnectionWithRepair:
+    primeLocalGatewayConnectionWithRepairMock,
   syncPlatformAssistantsToLockfile: async () => {},
 }));
 
@@ -146,6 +151,7 @@ beforeEach(() => {
   mockPrimeError = null;
   setSelectedAssistantIdMock.mockClear();
   primeLocalGatewayConnectionMock.mockClear();
+  primeLocalGatewayConnectionWithRepairMock.mockClear();
   syncOnboardingUserMock.mockClear();
   clearOnboardingFlagsMock.mockClear();
   clearOrganizationMock.mockClear();
@@ -352,7 +358,7 @@ describe("connectLocalAssistant", () => {
     await useAuthStore.getState().connectLocalAssistant("local-a");
 
     expect(setSelectedAssistantIdMock).toHaveBeenCalledWith("local-a");
-    expect(primeLocalGatewayConnectionMock).toHaveBeenCalledTimes(1);
+    expect(primeLocalGatewayConnectionWithRepairMock).toHaveBeenCalledTimes(1);
     expect(useAuthStore.getState().isLoggedIn).toBe(true);
     expect(useAuthStore.getState().user?.id).toBe("gateway-local");
     // No platform assistants — the probe resolves synchronously.
