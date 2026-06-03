@@ -26,6 +26,7 @@ import {
   uninstallSkill,
   updateSkill,
 } from "../../daemon/handlers/skills.js";
+import { getCategories } from "../../skills/categories-cache.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -45,16 +46,7 @@ const slimSkillBase = {
   emoji: z.string().optional(),
   kind: z.enum(["bundled", "installed", "catalog"]),
   status: z.enum(["enabled", "disabled", "available"]),
-  category: z.enum([
-    "communication",
-    "productivity",
-    "development",
-    "media",
-    "automation",
-    "webSocial",
-    "knowledge",
-    "integration",
-  ]),
+  category: z.string(),
 };
 
 const slimSkillSchema = z.discriminatedUnion("origin", [
@@ -219,6 +211,33 @@ export const ROUTES: RouteDefinition[] = [
 
       const skills = listSkills();
       return { skills };
+    },
+  },
+  {
+    operationId: "listSkillCategories",
+    endpoint: "skills/categories",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "List skill categories",
+    description:
+      "Return all skill category definitions with labels, icons, and descriptions.",
+    tags: ["skills"],
+    responseBody: z.object({
+      categories: z.array(
+        z.object({
+          slug: z.string(),
+          label: z.string(),
+          description: z.string(),
+          icon: z.string(),
+        }),
+      ),
+    }),
+    handler: async () => {
+      const categories = await getCategories();
+      return { categories };
     },
   },
   {

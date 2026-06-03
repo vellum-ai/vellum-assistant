@@ -25,8 +25,8 @@ import type { SkillInfo } from "@/domains/intelligence/skills/types";
 import {
   buildGroups,
   buildTree,
-  CATEGORY_CONFIGS,
   CENTER_AVATAR_SIZE,
+  getCategoryConfig,
   type OrbitItem,
   type TreeNode,
 } from "@/domains/intelligence/components/constellation-layout";
@@ -73,7 +73,7 @@ export function ConstellationView({
       label: skill.name,
       icon: skill.icon,
       emoji: skill.emoji,
-      category: skill.category ?? "knowledge",
+      category: skill.category ?? "system",
       description: skill.description,
       kind: "skill" as const,
     }));
@@ -291,7 +291,7 @@ export function ConstellationView({
           >
             <NodePopover
               item={popoverItem}
-              color={CATEGORY_CONFIGS[popoverItem.category].color}
+              color={getCategoryConfig(popoverItem.category).color}
               onViewDetails={
                 onSelectSkill && popoverItem.kind === "skill"
                   ? handleViewDetails

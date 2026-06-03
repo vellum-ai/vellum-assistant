@@ -508,7 +508,7 @@ export function catalogSkillToSlim(cs: CatalogSkill): SlimSkillResponse {
     kind: "catalog",
     origin: "vellum",
     status: "available",
-    category: inferCategory(name, cs.description),
+    category: cs.metadata?.vellum?.category ?? inferCategory(name, cs.description),
   };
 }
 

@@ -31,7 +31,7 @@ import {
   isTextMimeType as isTextMime,
   MAX_INLINE_TEXT_SIZE,
 } from "../../runtime/routes/workspace-utils.js";
-import { getCatalog } from "../../skills/catalog-cache.js";
+import { getCachedCatalogSync, getCatalog } from "../../skills/catalog-cache.js";
 import type { SkillFileEntry } from "../../skills/catalog-files.js";
 import {
   catalogSkillToSlim,
@@ -285,6 +285,25 @@ function postInstallSkill(skillId: string): void {
   refreshSkillCapabilityMemories(getConfig());
 }
 
+// ─── Catalog category lookup ────────────────────────────────────────────────
+
+let _catalogCategoryMap: Map<string, string> | null = null;
+let _catalogCategoryRef: readonly CatalogSkill[] | null = null;
+
+function getCatalogCategoryMap(): Map<string, string> {
+  const catalog = getCachedCatalogSync();
+  if (_catalogCategoryMap && _catalogCategoryRef === catalog) {
+    return _catalogCategoryMap;
+  }
+  _catalogCategoryMap = new Map();
+  for (const s of catalog) {
+    const cat = s.metadata?.vellum?.category;
+    if (cat) _catalogCategoryMap.set(s.id, cat);
+  }
+  _catalogCategoryRef = catalog;
+  return _catalogCategoryMap;
+}
+
 // ─── Kind / origin / status derivation ───────────────────────────────────────
 
 /** Map the old `source` field to the new `kind` axis. */
@@ -328,7 +347,9 @@ function toSlimSkillResponse(
   const origin = deriveOrigin(kind, summary.directoryPath, installMeta);
   const status: SlimSkillResponse["status"] = state;
 
-  const category = inferCategory(summary.displayName, summary.description);
+  const category =
+    getCatalogCategoryMap().get(summary.id) ??
+    inferCategory(summary.displayName, summary.description);
   const base = {
     id: summary.id,
     name: summary.displayName,
@@ -1374,7 +1395,7 @@ export async function searchSkills(
         kind: "catalog" as const,
         origin: "vellum" as const,
         status: "available" as const,
-        category: inferCategory(s.displayName, s.description),
+        category: s.metadata?.vellum?.category ?? inferCategory(s.displayName, s.description),
       };
     });
 

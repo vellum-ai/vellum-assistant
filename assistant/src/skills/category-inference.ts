@@ -1,56 +1,56 @@
-/**
- * Skill category inference — ports the Swift `inferCategory` logic from
- * `ConstellationView.swift` to TypeScript for server-side use.
- *
- * Pure function with no side effects or external dependencies.
- */
-
 export type SkillCategory =
-  | "communication"
+  | "email"
+  | "calendar"
+  | "messaging"
+  | "browsing"
   | "productivity"
   | "development"
-  | "media"
-  | "automation"
-  | "webSocial"
-  | "knowledge"
-  | "integration";
+  | "voice"
+  | "commerce"
+  | "content"
+  | "health"
+  | "system"
+  | "integrations";
 
 const CATEGORY_KEYWORDS: [SkillCategory, string[]][] = [
   [
-    "communication",
+    "email",
+    ["email", "inbox", "mail", "mailgun", "resend", "agentmail"],
+  ],
+  [
+    "calendar",
+    ["calendar", "schedule", "meeting", "google calendar", "outlook calendar"],
+  ],
+  [
+    "messaging",
     [
-      "email",
       "message",
       "messaging",
       "chat",
+      "slack",
+      "telegram",
+      "discord",
+      "notification",
       "phone",
       "phone call",
       "voice call",
       "video call",
       "contact",
-      "notification",
       "followup",
-      "slack",
-      "telegram",
     ],
   ],
   [
+    "browsing",
+    ["browser", "computer use", "browse", "web page", "scrape"],
+  ],
+  [
     "productivity",
-    [
-      "task",
-      "calendar",
-      "reminder",
-      "schedule",
-      "document",
-      "playbook",
-      "notion",
-    ],
+    ["task", "reminder", "document", "playbook", "notion", "linear"],
   ],
   [
     "development",
     [
       "code",
-      "app builder",
       "github",
       "developer",
       "programming",
@@ -60,37 +60,71 @@ const CATEGORY_KEYWORDS: [SkillCategory, string[]][] = [
       "subagent",
       "api mapping",
       "cli discovery",
+      "app builder",
     ],
   ],
-  ["automation", ["browser", "computer use", "macos", "watcher", "automat"]],
   [
-    "media",
-    ["image", "screen", "media", "transcri", "video", "audio", "recording"],
+    "voice",
+    ["voice", "tts", "speech", "audio", "elevenlabs", "fish audio", "transcri"],
   ],
   [
-    "webSocial",
+    "commerce",
     [
+      "amazon",
+      "doordash",
+      "stripe",
+      "restaurant",
+      "shopping",
+      "payment",
+      "order",
+    ],
+  ],
+  [
+    "content",
+    [
+      "image",
+      "screen",
+      "media",
+      "video",
+      "recording",
+      "meme",
+      "influencer",
       "x.com",
       "twitter",
-      "public ingress",
-      "influencer",
-      "doordash",
-      "amazon",
-      "restaurant",
+      "social",
     ],
   ],
+  ["health", ["health", "oura", "fitness", "wellness"]],
   [
-    "knowledge",
+    "system",
     [
-      "knowledge",
-      "weather",
-      "start the day",
-      "skills catalog",
       "self upgrade",
+      "heartbeat",
+      "memory",
+      "migration",
+      "terminal",
+      "watcher",
+      "macos",
+      "automat",
+      "skills catalog",
+      "start the day",
+      "weather",
+      "knowledge",
       "briefing",
     ],
   ],
-  ["integration", ["oauth", "setup", "configure", "connect", "webhook"]],
+  [
+    "integrations",
+    [
+      "oauth",
+      "setup",
+      "configure",
+      "connect",
+      "webhook",
+      "sentry",
+      "github app",
+    ],
+  ],
 ];
 
 export function inferCategory(
@@ -107,5 +141,5 @@ export function inferCategory(
     }
   }
 
-  return "knowledge";
+  return "system";
 }
