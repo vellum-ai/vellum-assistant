@@ -139,7 +139,7 @@ describe("ensureCliInstalled", () => {
     expect(spawnCalls).toHaveLength(1);
     const [cmd, args, opts] = spawnCalls[0];
     expect(cmd).toBe(`${mockResourcesPath}/bun`);
-    expect(args).toEqual(["add", `@vellumai/cli@${PINNED_CLI_VERSION}`]);
+    expect(args).toEqual(["add", `vellum@${PINNED_CLI_VERSION}`]);
     expect(opts).toEqual({
       cwd: `${userDataPath}/cli/${PINNED_CLI_VERSION}`,
     });
