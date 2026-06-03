@@ -173,12 +173,13 @@ function syncUserScopedState(nextUserId: string | null): void {
 // matches `latestPlatformProbe`, so older probes no-op.
 let latestPlatformProbe = 0;
 
-// Settle promise for the most recently launched probe. Because re-probes keep
-// the last `"present"`/`"absent"` rather than reopening `"unknown"` (so reactive
-// consumers don't flicker), the displayed `platformSession` can be a prior
-// result while a fresh probe is still in flight. Imperative readers that must
-// not act on a not-yet-refreshed value (the onboarding route fork) await this
-// to read the fresh result without forcing reactive readers back to `"unknown"`.
+// Settle promise for the most recently launched probe, reassigned on every
+// launch. Because re-probes keep the last `"present"`/`"absent"` rather than
+// reopening `"unknown"` (so reactive consumers don't flicker), the displayed
+// `platformSession` can be a prior result while a fresh probe is still in
+// flight. Imperative readers that must not act on a not-yet-refreshed value
+// (the onboarding route fork) await `whenPlatformSessionSettled`, which chases
+// this reference so a probe that becomes latest mid-wait is awaited too.
 // Initialized resolved: before any probe runs the status is `"unknown"`, which
 // those callers already gate on separately.
 let platformProbeSettled: Promise<void> = Promise.resolve();
@@ -248,17 +249,30 @@ function probePlatformSession(
 }
 
 /**
- * Resolve once the most recently launched platform-session probe settles, or
- * immediately when none is in flight.
+ * Resolve once no platform-session probe is in flight, or immediately when none
+ * is running.
  *
  * Reactive consumers read `platformSession` directly and rely on re-probes
  * leaving the last `"present"`/`"absent"` in place (no flicker). Imperative
  * one-shot readers that must not branch on a stale value — the onboarding
  * hosting/welcome fork — await this instead, so they observe the fresh probe
  * result regardless of what the tri-state currently shows.
+ *
+ * A probe can become the latest *after* the wait begins (an app-resume refresh
+ * firing while we await the current probe). Awaiting a single captured promise
+ * would let the resolver proceed when that probe settles even though a newer
+ * one is still pending. Instead this chases `platformProbeSettled`: after each
+ * await it re-checks whether a newer probe replaced the reference and waits that
+ * one out too, returning only once the reference is unchanged across an await —
+ * i.e. no probe launched while waiting for the last one.
  */
-export function whenPlatformSessionSettled(): Promise<void> {
-  return platformProbeSettled;
+export async function whenPlatformSessionSettled(): Promise<void> {
+  let awaited = platformProbeSettled;
+  await awaited;
+  while (platformProbeSettled !== awaited) {
+    awaited = platformProbeSettled;
+    await awaited;
+  }
 }
 
 /**

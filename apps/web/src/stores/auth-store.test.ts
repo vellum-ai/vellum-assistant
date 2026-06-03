@@ -327,6 +327,48 @@ describe("platform session probe resolution", () => {
     await pending;
     expect(resolved.route).toBe(routes.onboarding.hosting);
   });
+
+  // A probe can become the latest *after* the resolver starts waiting (an
+  // app-resume refresh firing mid-wait). The resolver must chase that newer
+  // probe rather than proceeding when the one it first observed settles —
+  // otherwise it reads a stale status while the newest probe is still pending.
+  test("resolveLocalOnboardingRoute waits for a probe that becomes latest after the wait begins", async () => {
+    mockIsGatewayAuth = true;
+    mockIsLocalMode = false;
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    useAuthStore.setState({ platformSession: "absent" });
+
+    const gates: Array<() => void> = [];
+    getSessionGates = gates;
+
+    // Probe A is in flight; the displayed status is the stale "absent".
+    await useAuthStore.getState().refreshSession();
+    expect(gates.length).toBe(1);
+
+    const resolved: { route: string | null } = { route: null };
+    const pending = resolveLocalOnboardingRoute().then((route) => {
+      resolved.route = route;
+    });
+    // Let the resolver reach the settle wait so it observes probe A's promise.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(resolved.route).toBeNull();
+
+    // A second probe starts mid-wait and becomes the latest.
+    await useAuthStore.getState().refreshSession();
+    expect(gates.length).toBe(2);
+
+    // Probe A settles first, but it is now stale: it neither moves the status
+    // nor may it release the resolver while the newer probe B is pending.
+    gates[0]();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(useAuthStore.getState().platformSession).toBe("absent");
+    expect(resolved.route).toBeNull();
+
+    // Probe B confirms the session; only now does the resolver read "present".
+    gates[1]();
+    await pending;
+    expect(resolved.route).toBe(routes.onboarding.hosting);
+  });
 });
 
 describe("biometric session recovery", () => {
