@@ -137,7 +137,7 @@ describe("appendTextDelta", () => {
     expect(result[1]!.id).toBe("row-X");
     expect(text(result[1]!)).toBe("Hello");
     expect(liveAssistantRowId(result, true)).toBe("row-X");
-    expect(result[1]!.textSegments).toEqual([{ type: "text", content: "Hello" }]);
+    expect(result[1]!.textSegments).toEqual(["Hello"]);
   });
 
   it("folds a later LLM call's delta into the assistant tail, recording its id as an alias", () => {
@@ -150,7 +150,7 @@ describe("appendTextDelta", () => {
     // GIVEN the first LLM call has finalized into an assistant tail
     const call1Final = makeAssistantMsg({
       id: "row-A",
-      textSegments: [{ type: "text", content: "Hello" }],
+      textSegments: ["Hello"],
       contentOrder: [{ type: "text", id: "0" }],
     });
 
@@ -197,7 +197,7 @@ describe("appendTextDelta", () => {
     // GIVEN an anchor row that already owns "row-B" as a merged alias
     const anchor = makeAssistantMsg({
       id: "row-A",
-      textSegments: [{ type: "text", content: "Hello" }],
+      textSegments: ["Hello"],
       contentOrder: [{ type: "text", id: "0" }],
       mergedMessageIds: ["row-B"],
     });

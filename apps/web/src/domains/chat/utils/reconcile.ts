@@ -1,4 +1,4 @@
-import { mapServerSurfaces, prepareServerMessage, toDisplayRole } from "@/domains/chat/utils/map-runtime-message";
+import { mapServerSurfaces, prepareServerMessage } from "@/domains/chat/utils/map-runtime-message";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
 import { dedupeDisplayMessages, mergeLatestHistoryMessage, messagesEqual } from "@/domains/chat/utils/message-merge";
@@ -306,7 +306,7 @@ export function reconcileMessages(
         return [];
       }
 
-      const msg: DisplayMessage = { id: m.id, role: toDisplayRole(m.role) };
+      const msg: DisplayMessage = { id: m.id, role: m.role };
       if (m.mergedMessageIds?.length) msg.mergedMessageIds = m.mergedMessageIds;
       if (m.subagentNotification) msg.isSubagentNotification = true;
       if (prepared.slackMessage ?? localMsg?.slackMessage) {

@@ -125,8 +125,8 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
     const survivor = makeAssistant({
       id: "a-1",
       textSegments: [
-        { type: "text", content: "A0 " },
-        { type: "text", content: "A1 " },
+        "A0 ",
+        "A1 ",
       ],
       contentOrder: [
         { type: "text", id: "0" },
@@ -135,14 +135,14 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
     });
     const donor = makeAssistant({
       id: "a-2",
-      textSegments: [{ type: "text", content: "B0" }],
+      textSegments: ["B0"],
       contentOrder: [{ type: "text", id: "0" }],
     });
     const result = mergeAdjacentAssistantMessages([survivor, donor]);
     expect(result[0]!.textSegments).toEqual([
-      { type: "text", content: "A0 " },
-      { type: "text", content: "A1 " },
-      { type: "text", content: "B0" },
+      "A0 ",
+      "A1 ",
+      "B0",
     ]);
     expect(result[0]!.contentOrder).toEqual([
       { type: "text", id: "0" },
@@ -310,7 +310,7 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
   test("interleaved text + tool positional entries remap each by their own offset", () => {
     const survivor = makeAssistant({
       id: "a-1",
-      textSegments: [{ type: "text", content: "thinking..." }],
+      textSegments: ["thinking..."],
       toolCalls: [
         { id: "toolu_S", toolName: "bash", input: {}, status: "completed" },
       ],
@@ -322,8 +322,8 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
     const donor = makeAssistant({
       id: "a-2",
       textSegments: [
-        { type: "text", content: "done with bash" },
-        { type: "text", content: "now editing" },
+        "done with bash",
+        "now editing",
       ],
       toolCalls: [
         { id: "toolu_D", toolName: "edit", input: {}, status: "completed" },
@@ -391,7 +391,7 @@ describe("mergeAdjacentAssistantMessages · cross-page bug repro", () => {
       id: "page-old-anchor",
       timestamp: 1000,
       mergedMessageIds: Array.from({ length: 14 }, (_, i) => `row-A-${i}`),
-      textSegments: [{ type: "text", content: "[A] " }],
+      textSegments: ["[A] "],
       contentOrder: [{ type: "text", id: "0" }],
       toolCalls: [
         { id: "tool-A-1", toolName: "bash", input: {}, status: "completed" },
@@ -401,7 +401,7 @@ describe("mergeAdjacentAssistantMessages · cross-page bug repro", () => {
       id: "page-middle-anchor",
       timestamp: 1010,
       mergedMessageIds: Array.from({ length: 24 }, (_, i) => `row-B-${i}`),
-      textSegments: [{ type: "text", content: "[B] " }],
+      textSegments: ["[B] "],
       contentOrder: [{ type: "text", id: "0" }],
       toolCalls: [
         { id: "tool-B-1", toolName: "edit", input: {}, status: "completed" },
@@ -411,7 +411,7 @@ describe("mergeAdjacentAssistantMessages · cross-page bug repro", () => {
       id: "page-latest-anchor",
       timestamp: 1020,
       mergedMessageIds: Array.from({ length: 34 }, (_, i) => `row-C-${i}`),
-      textSegments: [{ type: "text", content: "[C]" }],
+      textSegments: ["[C]"],
       contentOrder: [{ type: "text", id: "0" }],
       toolCalls: [
         { id: "tool-C-1", toolName: "test", input: {}, status: "completed" },

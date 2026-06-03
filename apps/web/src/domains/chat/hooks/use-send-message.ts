@@ -515,7 +515,7 @@ export function useSendMessage({
         id: optimisticUserId,
         isOptimistic: true,
         role: "user",
-        textSegments: [{ type: "text", content }],
+        textSegments: [content],
         contentOrder: [{ type: "text", id: "0" }],
         timestamp: Date.now(),
         ...(attachments.length > 0 ? { attachments } : {}),

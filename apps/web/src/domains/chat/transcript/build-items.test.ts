@@ -386,7 +386,7 @@ describe("buildTranscriptItems", () => {
     // the flat content field — those rows are meaningful and must render.
     const segmentsOnly = makeMessage({role: "user",
       id: "s-segments-only",
-      textSegments: [{ type: "text", content: "Hello via segments" }],
+      textSegments: ["Hello via segments"],
     });
 
     const items = buildTranscriptItems({
@@ -520,7 +520,7 @@ describe("buildTranscriptItems", () => {
         { id: "tc-1", toolName: "bash", input: { command: "echo hi" }, status: "completed" },
       ],
       textSegments: [
-        { type: "text", content: "Pushed. Catalog regenerated." },
+        "Pushed. Catalog regenerated.",
       ],
       contentOrder: [
         { type: "toolCall", id: "tc-1" },

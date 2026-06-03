@@ -207,39 +207,6 @@ export function normalizeContentOrder(
   return result.length > 0 ? result : undefined;
 }
 
-/**
- * Normalize a textSegments array from the server. The server sends plain
- * strings, but the client expects objects with `{ type, content }`.
- */
-export function normalizeTextSegments(
-  raw: unknown[] | undefined,
-):
-  | Array<{ type: string; content: string; [key: string]: unknown }>
-  | undefined {
-  if (!raw || raw.length === 0) return undefined;
-  const result: Array<{
-    type: string;
-    content: string;
-    [key: string]: unknown;
-  }> = [];
-  for (const entry of raw) {
-    if (typeof entry === "string") {
-      result.push({ type: "text", content: entry });
-    } else if (entry && typeof entry === "object" && !Array.isArray(entry)) {
-      const obj = entry as Record<string, unknown>;
-      if (typeof obj.content === "string") {
-        const type = typeof obj.type === "string" ? obj.type : "text";
-        result.push({ ...obj, type, content: obj.content } as {
-          type: string;
-          content: string;
-          [key: string]: unknown;
-        });
-      }
-    }
-  }
-  return result.length > 0 ? result : undefined;
-}
-
 export type ChatHistoryResult =
   | { ok: true; messages: DisplayMessage[] }
   | { ok: false; status: number; error: string };
