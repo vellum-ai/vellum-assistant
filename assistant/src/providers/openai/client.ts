@@ -74,3 +74,50 @@ export async function validateOpenAIApiKey(
     return { valid: true };
   }
 }
+
+/**
+ * Probe an openai-compatible endpoint by listing models. Strict: only a
+ * successful response counts as reachable. Used by the provider-connection
+ * test route.
+ */
+export async function probeOpenAICompatibleEndpoint(opts: {
+  baseURL: string;
+  apiKey?: string;
+}): Promise<{ ok: true } | { ok: false; reason: string }> {
+  try {
+    const client = new OpenAI({
+      apiKey: opts.apiKey || "not-needed",
+      baseURL: opts.baseURL,
+      timeout: VALIDATION_TIMEOUT_MS,
+      maxRetries: 0,
+    });
+    await client.models.list();
+    return { ok: true };
+  } catch (error) {
+    if (error instanceof OpenAI.APIError) {
+      if (error.status === 401 || error.status === 403) {
+        return {
+          ok: false,
+          reason: "Authentication failed — check your API key.",
+        };
+      }
+      if (error.status === 404) {
+        // Endpoint reachable but no /v1/models — many openai-compatible servers
+        // still serve it; treat as a soft failure with a clear hint.
+        return {
+          ok: false,
+          reason: "Endpoint reachable but did not expose /v1/models.",
+        };
+      }
+      return {
+        ok: false,
+        reason: `Endpoint returned an error (${error.status}).`,
+      };
+    }
+    return {
+      ok: false,
+      reason:
+        "Could not reach the endpoint. Check the base URL and that the server is running.",
+    };
+  }
+}

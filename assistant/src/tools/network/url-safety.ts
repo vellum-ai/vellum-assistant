@@ -114,6 +114,26 @@ export function extractEmbeddedIPv4FromIPv6(hostname: string): string | null {
   return `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
 }
 
+function expandIPv6(host: string): string | null {
+  const normalized = host.split("%")[0];
+  if (normalized.includes(".")) return null; // embedded IPv4 handled by caller
+  const parts = normalized.split("::");
+  if (parts.length > 2) return null;
+  const head = parts[0] ? parts[0].split(":") : [];
+  const tail = parts.length === 2 && parts[1] ? parts[1].split(":") : [];
+  let groups: string[];
+  if (parts.length === 2) {
+    const missing = 8 - head.length - tail.length;
+    if (missing < 1) return null;
+    groups = [...head, ...new Array(missing).fill("0"), ...tail];
+  } else {
+    groups = head;
+  }
+  if (groups.length !== 8) return null;
+  if (!groups.every((g) => /^[0-9a-f]{1,4}$/.test(g))) return null;
+  return groups.map((g) => g.padStart(4, "0")).join(":");
+}
+
 export function isIPv6(hostname: string): boolean {
   if (extractEmbeddedIPv4FromIPv6(hostname)) return true;
 
@@ -172,6 +192,45 @@ export function isPrivateOrLocalHost(hostname: string): boolean {
   }
   if (isIPv6(host)) {
     return isPrivateIPv6(host);
+  }
+  return false;
+}
+
+/**
+ * Cloud-metadata and link-local hosts that must never be reachable, even when
+ * private/loopback networks are otherwise allowed (self-hosted daemons reaching
+ * local model servers). Covers the well-known cloud metadata hostname plus
+ * IPv4 (169.254.0.0/16) and IPv6 (fe80::/10) link-local ranges — the latter
+ * includes the 169.254.169.254 metadata IP used by AWS/GCP/Azure. It also
+ * covers the AWS EC2 Nitro IPv6 instance metadata endpoint (fd00:ec2::254) in
+ * any textual representation; general ULA (other fc00::/7 addresses) is not
+ * blocked here and remains allowed on self-hosted.
+ */
+export function isCloudMetadataOrLinkLocalHost(hostname: string): boolean {
+  const host = unwrapBracketedHostname(hostname)
+    .toLowerCase()
+    .replace(/\.$/, "");
+  if (host === "metadata.google.internal") return true;
+
+  const checkIPv4 = (ip: string): boolean => {
+    const [a, b] = ip.split(".").map((part) => Number(part));
+    return a === 169 && b === 254;
+  };
+
+  if (isIPv4(host)) return checkIPv4(host);
+  if (isIPv6(host)) {
+    // Embedded IPv4 (e.g. ::ffff:169.254.169.254) → check the IPv4 part.
+    const embedded = extractEmbeddedIPv4FromIPv6(host);
+    if (embedded) return checkIPv4(embedded);
+
+    const expanded = expandIPv6(host);
+    if (expanded) {
+      const firstGroup = Number.parseInt(expanded.slice(0, 4), 16);
+      // IPv6 link-local fe80::/10 (fe80–febf).
+      if (firstGroup >= 0xfe80 && firstGroup <= 0xfebf) return true;
+      // AWS EC2 Nitro IPv6 instance metadata endpoint.
+      if (expanded === "fd00:0ec2:0000:0000:0000:0000:0000:0254") return true;
+    }
   }
   return false;
 }

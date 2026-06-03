@@ -22,6 +22,8 @@ export interface OnboardingProvider {
   readonly docsUrl: string | null;
   /** Whether an API key is required before the user can continue. */
   readonly requiresKey: boolean;
+  /** Requires a custom endpoint base URL + model identifiers (openai-compatible). */
+  readonly requiresBaseUrl?: boolean;
 }
 
 export const ONBOARDING_PROVIDERS: readonly OnboardingProvider[] = [
@@ -72,7 +74,8 @@ export const ONBOARDING_PROVIDERS: readonly OnboardingProvider[] = [
     displayName: "OpenAI-compatible",
     apiKeyPlaceholder: "Your provider's API key",
     docsUrl: null,
-    requiresKey: true,
+    requiresKey: false,
+    requiresBaseUrl: true,
   },
 ];
 

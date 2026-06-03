@@ -11,6 +11,7 @@
 import { z } from "zod";
 
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
+import { getIsPlatform } from "../../config/env-registry.js";
 import { getConfigReadOnly } from "../../config/loader.js";
 import { getDb } from "../../memory/db-connection.js";
 import {
@@ -30,7 +31,10 @@ import {
   PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
   updateConnection,
 } from "../../providers/inference/connections.js";
+import { resolveAuth } from "../../providers/inference/resolve-auth.js";
+import { probeOpenAICompatibleEndpoint } from "../../providers/openai/client.js";
 import {
+  isCloudMetadataOrLinkLocalHost,
   isPrivateOrLocalHost,
   resolveHostAddresses,
   resolveRequestAddress,
@@ -75,8 +79,13 @@ function rejectDisabledOpenAICompatibleProvider(provider: string): void {
  * with a `base_url` pointing to their own server, which would redirect all
  * LLM calls (and the API key) to the attacker.
  *
- * Even for `openai-compatible`, the `base_url` must not point to private
- * networks or cloud metadata endpoints (SSRF protection).
+ * For `openai-compatible`, the `base_url` may point to loopback/private-LAN
+ * networks only on self-hosted daemons (`getIsPlatform()` is false) — this is
+ * required for local endpoints such as LM Studio, Ollama, and vLLM.
+ * Platform-hosted daemons keep the strict SSRF policy. Cloud-metadata and
+ * link-local endpoints (`metadata.google.internal`, 169.254.0.0/16, fe80::/10)
+ * are always blocked in every mode, including when the host or its resolved
+ * addresses point there, to prevent pivoting to cloud-metadata services.
  */
 async function parseCustomProviderFields(
   body: Record<string, unknown>,
@@ -120,9 +129,18 @@ async function parseCustomProviderFields(
         );
       }
 
-      // SSRF protection: reject private IPs, localhost, cloud metadata endpoints.
+      // SSRF protection. Cloud-metadata and link-local targets are always
+      // blocked. Private/loopback targets are blocked on platform-hosted
+      // daemons; self-hosted daemons allow them so local endpoints (LM Studio,
+      // Ollama, vLLM) can be reached.
       const hostname = parsed.hostname;
-      if (isPrivateOrLocalHost(hostname)) {
+      const allowPrivate = !getIsPlatform();
+      if (isCloudMetadataOrLinkLocalHost(hostname)) {
+        throw new BadRequestError(
+          `Invalid base_url: must not point to a cloud metadata or link-local address.`,
+        );
+      }
+      if (!allowPrivate && isPrivateOrLocalHost(hostname)) {
         throw new BadRequestError(
           `Invalid base_url: must not point to a private or local network address.`,
         );
@@ -132,11 +150,22 @@ async function parseCustomProviderFields(
       const resolved = await resolveRequestAddress(
         hostname,
         resolveHostAddresses,
-        /* allowPrivateNetwork */ false,
+        allowPrivate,
       );
       if (resolved.blockedAddress) {
         throw new BadRequestError(
           `Invalid base_url: hostname resolves to a private network address.`,
+        );
+      }
+
+      // DNS-rebind guard: block when a hostname resolves to a cloud-metadata or
+      // link-local address even though private targets are otherwise allowed.
+      if (
+        allowPrivate &&
+        resolved.addresses.some(isCloudMetadataOrLinkLocalHost)
+      ) {
+        throw new BadRequestError(
+          `Invalid base_url: hostname resolves to a cloud metadata or link-local address.`,
         );
       }
 
@@ -201,6 +230,56 @@ function handleGetConnection({ pathParams = {} }: RouteHandlerArgs) {
   return conn;
 }
 
+/**
+ * Probe a connection's endpoint to verify it is reachable and the credential
+ * works. Currently only openai-compatible connections are probed (via
+ * `models.list`); for every other provider we return `{ ok: true, skipped: true }`
+ * so callers can invoke this uniformly without special-casing — there is
+ * nothing to probe for managed/keyed first-party providers here.
+ */
+async function handleTestConnection({ pathParams = {} }: RouteHandlerArgs) {
+  const { name } = pathParams;
+  if (!name) throw new BadRequestError("name is required");
+
+  const conn = getConnection(getDb(), name);
+  if (!conn) throw new NotFoundError(`Connection "${name}" not found.`);
+  if (
+    conn.provider === "openai-compatible" &&
+    !openAICompatibleEndpointsEnabled()
+  ) {
+    throw new NotFoundError(`Connection "${name}" not found.`);
+  }
+
+  if (conn.provider !== "openai-compatible") {
+    return { ok: true as const, skipped: true as const };
+  }
+
+  const baseURL = conn.baseUrl ?? undefined;
+  if (!baseURL) {
+    return { ok: false as const, reason: "No base URL configured." };
+  }
+
+  const resolvedResult = await resolveAuth(conn.auth, conn.provider, {
+    baseUrl: conn.baseUrl,
+  });
+  if (!resolvedResult.ok) {
+    if (resolvedResult.error.code === "credential_not_found") {
+      return { ok: false as const, reason: "Stored credential not found." };
+    }
+    return { ok: false as const, reason: "Could not resolve credentials." };
+  }
+
+  // Derive the apiKey exactly as the adapter does: bearer from the resolved
+  // Authorization header, or empty for keyless connections.
+  const resolved = resolvedResult.resolved;
+  const apiKey =
+    resolved.kind === "header"
+      ? (resolved.headers.Authorization ?? "").replace(/^Bearer /, "")
+      : "";
+
+  return probeOpenAICompatibleEndpoint({ baseURL, apiKey });
+}
+
 async function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
   const name = body.name;
   const provider = body.provider;
@@ -234,7 +313,10 @@ async function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
     );
   }
 
-  const customFields = await parseCustomProviderFields(body, providerResult.data);
+  const customFields = await parseCustomProviderFields(
+    body,
+    providerResult.data,
+  );
 
   const result = createConnection(getDb(), {
     name,
@@ -458,6 +540,27 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: providerConnectionResponseSchema,
     additionalResponses: { "404": { description: "Connection not found" } },
     handler: handleGetConnection,
+  },
+  {
+    operationId: "inference_provider_connections_test",
+    endpoint: "inference/provider-connections/:name/test",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Test a provider connection",
+    description:
+      "Probe a connection's endpoint to verify it is reachable and the credential works. Only openai-compatible connections are probed (via models.list); other providers return { ok: true, skipped: true }.",
+    tags: ["inference"],
+    pathParams: [{ name: "name", description: "Connection name" }],
+    responseBody: z.object({
+      ok: z.boolean(),
+      reason: z.string().optional(),
+      skipped: z.boolean().optional(),
+    }),
+    additionalResponses: { "404": { description: "Connection not found" } },
+    handler: handleTestConnection,
   },
   {
     operationId: "inference_provider_connections_create",

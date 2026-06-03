@@ -15,7 +15,17 @@ import {
   peekPendingProviderKey,
   setPendingProviderKey,
 } from "@/domains/onboarding/provider-key";
+import { parseModelIds } from "@/utils/parse-model-ids";
 import { routes } from "@/utils/routes";
+
+function isValidHttpUrl(value: string): boolean {
+  try {
+    const u = new URL(value);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
 
 export function ApiKeyScreen() {
   const navigate = useNavigate();
@@ -28,16 +38,31 @@ export function ApiKeyScreen() {
   const [apiKey, setApiKey] = useState(
     () => peekPendingProviderKey()?.key ?? "",
   );
+  const [baseUrl, setBaseUrl] = useState(
+    () => peekPendingProviderKey()?.baseUrl ?? "",
+  );
+  const [modelsRaw, setModelsRaw] = useState(() =>
+    (peekPendingProviderKey()?.models ?? []).join(", "),
+  );
 
   const entry = onboardingProvider(provider) ?? DEFAULT_ONBOARDING_PROVIDER;
   const requiresKey = entry.requiresKey;
-  const canContinue = !requiresKey || apiKey.trim().length > 0;
+  const isCustom = entry.requiresBaseUrl ?? false;
+  const models = parseModelIds(modelsRaw);
+
+  const trimmedBaseUrl = baseUrl.trim();
+  const keyOk = !requiresKey || apiKey.trim().length > 0;
+  const baseUrlOk = !isCustom || isValidHttpUrl(trimmedBaseUrl);
+  const modelsOk = !isCustom || models.length > 0;
+  const canContinue = keyOk && baseUrlOk && modelsOk;
+  const showBaseUrlError = isCustom && trimmedBaseUrl.length > 0 && !baseUrlOk;
 
   const onContinue = () => {
     if (!canContinue) return;
     setPendingProviderKey({
       provider,
-      key: requiresKey ? apiKey.trim() : "",
+      key: requiresKey || isCustom ? apiKey.trim() : "",
+      ...(isCustom ? { baseUrl: baseUrl.trim(), models } : {}),
     });
     void navigate(
       hosting
@@ -82,6 +107,8 @@ export function ApiKeyScreen() {
                 if (match) {
                   setProvider(match.id);
                   setApiKey("");
+                  setBaseUrl("");
+                  setModelsRaw("");
                 }
               }}
               options={ONBOARDING_PROVIDERS.map((p) => ({
@@ -91,11 +118,50 @@ export function ApiKeyScreen() {
             />
           </div>
 
-          {requiresKey && (
+          {isCustom && (
+            <>
+              <div className="flex flex-col gap-1">
+                <label className="text-body-small-default text-[var(--content-tertiary)]">
+                  Base URL
+                </label>
+                <Input
+                  placeholder="https://api.example.com/v1"
+                  value={baseUrl}
+                  onChange={(e) => setBaseUrl(e.target.value)}
+                  fullWidth
+                />
+                {showBaseUrlError && (
+                  <p className="text-body-small-default text-[var(--content-tertiary)]">
+                    Enter a full http(s) URL, e.g. http://localhost:1234/v1
+                  </p>
+                )}
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-body-small-default text-[var(--content-tertiary)]">
+                  Models
+                </label>
+                <Input
+                  placeholder="model-1, model-2"
+                  value={modelsRaw}
+                  onChange={(e) => setModelsRaw(e.target.value)}
+                  fullWidth
+                />
+                <p className="text-body-small-default text-[var(--content-tertiary)]">
+                  Comma-separated model identifiers exposed by your endpoint.
+                </p>
+              </div>
+            </>
+          )}
+
+          {(requiresKey || isCustom) && (
             <div className="flex flex-col gap-3">
               <Input
                 type="password"
-                label={`${entry.displayName} API Key`}
+                label={
+                  isCustom && !requiresKey
+                    ? `${entry.displayName} API Key (optional)`
+                    : `${entry.displayName} API Key`
+                }
                 placeholder={entry.apiKeyPlaceholder ?? "Enter your API key"}
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}

@@ -105,8 +105,10 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
       useNativeWebSearch,
       streamTimeoutMs,
     }),
+  // Keyless openai-compatible endpoints (e.g. LM Studio) ignore the key; the
+  // placeholder satisfies the OpenAI SDK, which requires a non-empty key.
   "openai-compatible": ({ apiKey, model, streamTimeoutMs, baseURL }) =>
-    new OpenAIChatCompletionsProvider(apiKey, model, {
+    new OpenAIChatCompletionsProvider(apiKey || "not-needed", model, {
       providerName: "openai-compatible",
       providerLabel: "OpenAI-compatible",
       streamTimeoutMs,
@@ -162,8 +164,10 @@ export function buildProviderAdapter(
  * Build a Provider instance for a given connection + resolved auth.
  *
  * Returns null when the provider/auth combination is not usable
- * (e.g. `none` auth on a keyed provider). The caller decides whether to
- * log a warning or fall back to the global registry.
+ * (e.g. `none` auth on a keyed provider). `openai-compatible` is exempt:
+ * it may be keyless to support local endpoints (LM Studio, vLLM, Ollama's
+ * OpenAI API) that need no key. The caller decides whether to log a
+ * warning or fall back to the global registry.
  */
 export function createAdapterFromConnection(
   connection: ProviderConnection,
@@ -178,16 +182,26 @@ export function createAdapterFromConnection(
   const entry = PROVIDER_CATALOG.find((e) => e.id === provider);
   if (!entry) return null;
   const isKeyless = entry.setupMode === "keyless";
+  const isOpenAICompatible = provider === "openai-compatible";
 
-  // Keyed providers can't operate without a credential.
-  if (!isKeyless && resolvedAuth.kind === "none") return null;
+  // Keyed providers can't operate without a credential. openai-compatible is
+  // exempt because local endpoints (LM Studio, etc.) commonly need no key.
+  if (!isKeyless && !isOpenAICompatible && resolvedAuth.kind === "none") {
+    return null;
+  }
 
   const apiKey =
     resolvedAuth.kind === "header"
       ? (resolvedAuth.headers["Authorization"] ?? "").replace(/^Bearer /, "")
       : "";
+  // For non-header auth, `resolveAuth` drops the base URL, so pull it from the
+  // connection for openai-compatible (keyless endpoints still need their URL).
   const baseURL =
-    resolvedAuth.kind === "header" ? resolvedAuth.baseUrl : undefined;
+    resolvedAuth.kind === "header"
+      ? resolvedAuth.baseUrl
+      : isOpenAICompatible
+        ? (connection.baseUrl ?? undefined)
+        : undefined;
 
   const codexSubscription =
     connection.auth.type === "oauth_subscription" && provider === "openai";

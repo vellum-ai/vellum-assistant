@@ -133,6 +133,10 @@ export function HatchingScreen() {
   }, [hatchTraits]);
   const [phase, setPhase] = useState<HatchPhase>("initializing");
   const [error, setError] = useState<string | null>(null);
+  // Non-blocking notice when the openai-compatible endpoint probe fails. Unlike
+  // `error`, this does not replace the screen or halt onboarding — the flow
+  // proceeds and the user can fix the connection in Settings.
+  const [providerWarning, setProviderWarning] = useState<string | null>(null);
   const [platformHostedDisabled, setPlatformHostedDisabled] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [displayProgress, setDisplayProgress] = useState<number>(0);
@@ -142,6 +146,11 @@ export function HatchingScreen() {
   const segmentStartRef = useRef(0);
   const segmentStartTimeRef = useRef(0);
   const displayProgressRef = useRef(0);
+  // Set inside the hatch effect to the forward-navigation step. The provider
+  // warning's Continue button calls it to navigate when the failed-probe path
+  // held on the ready screen instead of auto-navigating. Null when no hatch
+  // effect is active or after navigation has been triggered.
+  const proceedRef = useRef<(() => void) | null>(null);
 
   const transitionPhase = useCallback((next: HatchPhase) => {
     segmentStartRef.current = displayProgressRef.current;
@@ -179,7 +188,45 @@ export function HatchingScreen() {
 
     const pinnedVersion = readSelectedVersion();
 
-    const handleHatchReady = () => {
+    const proceedToNextScreen = async () => {
+      await lifecycleService.checkAssistant();
+      if (cancelled) return;
+      if (isNativePlatform()) {
+        try {
+          setOnboardingCompleted(true);
+        } catch (err) {
+          captureError(err, { context: "hatching_mark_onboarding_completed_native" });
+        }
+        clearPrivacyConsent();
+        // Native flow skips the pre-chat screen, so there's no
+        // typed message to drive the auto-greet gate. Mark the
+        // lifecycle one-shot so the destination chat mount shows
+        // the loading gate until the server greeting arrives.
+        lifecycleService.markExpectingFirstMessage();
+        void navigate(`${routes.assistant}?onboarding=1`, {
+          replace: true,
+        });
+        return;
+      }
+      void navigate(
+        isReplay
+          ? `${routes.onboarding.prechat}?replay=1`
+          : routes.onboarding.prechat,
+        { replace: true },
+      );
+    };
+
+    // Exposed to the warning's Continue button: navigate forward once, then
+    // detach so rapid clicks can't navigate twice.
+    proceedRef.current = () => {
+      if (cancelled) return;
+      proceedRef.current = null;
+      void proceedToNextScreen();
+    };
+
+    // `holdForAck` keeps the user on the ready screen (no auto-navigate) so the
+    // provider warning stays visible until they click Continue.
+    const handleHatchReady = (holdForAck = false) => {
       try {
         writeSelectedVersion("");
       } catch (err) {
@@ -191,35 +238,10 @@ export function HatchingScreen() {
       segmentStartRef.current = 1;
       setPhase("ready");
       phaseRef.current = "ready";
+      if (holdForAck) return;
       navigateTimer = setTimeout(() => {
         if (cancelled) return;
-        void (async () => {
-          await lifecycleService.checkAssistant();
-          if (cancelled) return;
-          if (isNativePlatform()) {
-            try {
-              setOnboardingCompleted(true);
-            } catch (err) {
-              captureError(err, { context: "hatching_mark_onboarding_completed_native" });
-            }
-            clearPrivacyConsent();
-            // Native flow skips the pre-chat screen, so there's no
-            // typed message to drive the auto-greet gate. Mark the
-            // lifecycle one-shot so the destination chat mount shows
-            // the loading gate until the server greeting arrives.
-            lifecycleService.markExpectingFirstMessage();
-            void navigate(`${routes.assistant}?onboarding=1`, {
-              replace: true,
-            });
-            return;
-          }
-          void navigate(
-            isReplay
-              ? `${routes.onboarding.prechat}?replay=1`
-              : routes.onboarding.prechat,
-            { replace: true },
-          );
-        })();
+        void proceedToNextScreen();
       }, COMPLETION_NAVIGATE_DELAY_MS);
     };
 
@@ -297,15 +319,28 @@ export function HatchingScreen() {
           // Apply the model-provider key collected on the API-key step to the
           // freshly hatched assistant. Non-blocking on failure — onboarding
           // proceeds and the user can fix it in Settings.
+          let validationFailed = false;
           if (result.assistantId) {
             try {
-              await applyPendingProviderKey(result.assistantId);
+              const applyResult = await applyPendingProviderKey(
+                result.assistantId,
+              );
+              validationFailed = !!(
+                applyResult?.validation && !applyResult.validation.ok
+              );
+              if (validationFailed) {
+                setProviderWarning(
+                  `Your assistant is ready, but we couldn't verify your OpenAI-compatible endpoint: ${applyResult.validation?.reason ?? "the endpoint did not respond"}. You can update the connection in Settings.`,
+                );
+              }
             } catch (err) {
               captureError(err, { context: "onboarding_apply_provider_key" });
             }
           }
 
-          handleHatchReady();
+          // On a failed probe, hold on the ready screen so the warning stays
+          // visible; the user navigates forward via Continue.
+          handleHatchReady(validationFailed);
         } catch {
           localHatchPromise = null;
           if (cancelled) return;
@@ -395,7 +430,7 @@ export function HatchingScreen() {
             }
           }
 
-          handleHatchReady();
+          handleHatchReady(false);
           return;
         }
         if (next.kind === "error") {
@@ -417,6 +452,7 @@ export function HatchingScreen() {
 
     return () => {
       cancelled = true;
+      proceedRef.current = null;
       if (pollTimer) clearTimeout(pollTimer);
       if (navigateTimer) clearTimeout(navigateTimer);
       if (readyPollTimer) clearTimeout(readyPollTimer);
@@ -570,6 +606,23 @@ export function HatchingScreen() {
         <p className="mt-3 text-body-small-default text-[var(--content-tertiary)]">
           {PHASE_LABEL[phase]}
         </p>
+        {providerWarning && (
+          <div
+            role="alert"
+            className="mt-6 flex w-full max-w-sm flex-col gap-2 rounded-lg border border-[var(--border-warning)] bg-[var(--background-warning)] p-4 text-left text-body-small-default text-[var(--content-warning)]"
+          >
+            <p>{providerWarning}</p>
+            <Button
+              variant="primary"
+              size="regular"
+              fullWidth
+              className="mt-2 h-11 text-base"
+              onClick={() => proceedRef.current?.()}
+            >
+              Continue
+            </Button>
+          </div>
+        )}
       </div>
     </OnboardingLayout>
   );

@@ -37,6 +37,7 @@ import {
 import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
 import { useLabelKeySync } from "@/domains/settings/ai/use-label-key-sync";
 import { providerSupportsPlatformAuth } from "@/assistant/llm-model-catalog";
+import { parseModelIds } from "@/utils/parse-model-ids";
 
 // ---------------------------------------------------------------------------
 // Query keys
@@ -441,6 +442,18 @@ export function ProviderEditorContent({
 
       const labelValue = label.trim() || null;
 
+      // openai-compatible carries base_url + models on both create and update.
+      // Hoisted so the create and update inputs share one source of truth
+      // (empty object for other providers leaves both fields off the payload).
+      const openAICompatibleFields = isOpenAICompatible
+        ? {
+            base_url: baseUrl.trim() || null,
+            models: connectionModels.trim()
+              ? parseModelIds(connectionModels).map((id) => ({ id }))
+              : null,
+          }
+        : {};
+
       let saved: ProviderConnection;
       if (effectiveMode === "create") {
         // Create path — used by genuine create-mode opens AND by the
@@ -452,15 +465,7 @@ export function ProviderEditorContent({
           provider,
           auth,
           ...(labelValue !== null && { label: labelValue }),
-          ...(isOpenAICompatible && {
-            base_url: baseUrl.trim() || null,
-            models: connectionModels.trim()
-              ? connectionModels
-                  .split(",")
-                  .map((id) => ({ id: id.trim() }))
-                  .filter((m) => m.id)
-              : null,
-          }),
+          ...openAICompatibleFields,
         };
         const { data: created, response: createRes } = await inferenceProviderconnectionsPost({
           path: { assistant_id: assistantId },
@@ -479,15 +484,7 @@ export function ProviderEditorContent({
         const input: UpdateConnectionInput = {
           auth,
           label: labelValue,
-          ...(isOpenAICompatible && {
-            base_url: baseUrl.trim() || null,
-            models: connectionModels.trim()
-              ? connectionModels
-                  .split(",")
-                  .map((id) => ({ id: id.trim() }))
-                  .filter((m) => m.id)
-              : null,
-          }),
+          ...openAICompatibleFields,
         };
         const { data: updated, response: updateRes } = await inferenceProviderconnectionsByNamePatch({
           path: { assistant_id: assistantId, name: connection?.name ?? name.trim() },
