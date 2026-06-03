@@ -2,11 +2,37 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { asc, eq } from "drizzle-orm";
 
+const logEntries: Array<{
+  level: "debug" | "error" | "info" | "warn";
+  fields?: Record<string, unknown>;
+  message?: string;
+}> = [];
+
+function recordLog(
+  level: "debug" | "error" | "info" | "warn",
+  args: unknown[],
+): void {
+  const [first, second] = args;
+  const fields =
+    first && typeof first === "object" && !Array.isArray(first)
+      ? (first as Record<string, unknown>)
+      : undefined;
+  const message =
+    typeof second === "string"
+      ? second
+      : typeof first === "string"
+        ? first
+        : undefined;
+  logEntries.push({ level, fields, message });
+}
+
 mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
+  getLogger: () => ({
+    debug: (...args: unknown[]) => recordLog("debug", args),
+    error: (...args: unknown[]) => recordLog("error", args),
+    info: (...args: unknown[]) => recordLog("info", args),
+    warn: (...args: unknown[]) => recordLog("warn", args),
+  }),
 }));
 
 const deliveryCalls: Array<{
@@ -99,6 +125,7 @@ mock.module("../runtime/gateway-client.js", () => ({
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import * as deliveryCrud from "../memory/delivery-crud.js";
+import { getRetryableEvents } from "../memory/delivery-status.js";
 import { channelInboundEvents, messages } from "../memory/schema.js";
 import { sweepFailedEvents } from "../runtime/channel-retry-sweep.js";
 
@@ -181,11 +208,32 @@ function seedFailedEventWithActorRoleOnly(
   return inbound.eventId;
 }
 
+function parseStoredPayload(
+  rawPayload: string | null,
+): Record<string, unknown> | undefined {
+  if (!rawPayload) return undefined;
+  return JSON.parse(rawPayload) as Record<string, unknown>;
+}
+
+function findReplayLog(
+  eventId: string,
+  retryClass: "delivery_retry" | "processing_retry",
+): (typeof logEntries)[number] | undefined {
+  return logEntries.find(
+    (entry) =>
+      entry.level === "info" &&
+      entry.message === "Replaying Slack channel event" &&
+      entry.fields?.inboundEventId === eventId &&
+      entry.fields?.retryClass === retryClass,
+  );
+}
+
 describe("channel-retry-sweep", () => {
   beforeEach(() => {
     resetTables();
     deliveryCalls.length = 0;
     liveDeliveryCalls.length = 0;
+    logEntries.length = 0;
     deliverReplyViaCallbackImpl = async () => {};
     deliverChannelReplyImpl = async () => ({ ok: true });
   });
@@ -877,5 +925,212 @@ describe("channel-retry-sweep", () => {
       row?.rawPayload ? JSON.parse(row.rawPayload).replyMessageId : undefined,
     ).toBe("assistant-delivery-fallback");
     expect(row?.deliveryStatus).toBe("delivered");
+  });
+
+  test("Slack replay logs and dead-letter metadata distinguish regenerated replies from delivery-only retries", async () => {
+    const processingInbound = deliveryCrud.recordInbound(
+      "slack",
+      "C-RETRY-THREAD",
+      "slack-msg-processing-retry",
+    );
+    deliveryCrud.storePayload(processingInbound.eventId, {
+      content: "retry me",
+      sourceChannel: "slack",
+      interface: "slack",
+      externalChatId: "C-RETRY-THREAD",
+      replyCallbackUrl:
+        "https://example.test/deliver/slack?channel=C-RETRY-THREAD&threadTs=1700000000.000101",
+      trustCtx: {
+        trustClass: "unknown",
+        sourceChannel: "slack",
+        requesterChatId: "C-RETRY-THREAD",
+      },
+    });
+
+    const deliveryInbound = deliveryCrud.recordInbound(
+      "slack",
+      "D-RETRY-DM",
+      "slack-msg-delivery-retry",
+    );
+    deliveryCrud.storePayload(deliveryInbound.eventId, {
+      content: "already processed",
+      sourceChannel: "slack",
+      interface: "slack",
+      externalChatId: "D-RETRY-DM",
+      replyCallbackUrl:
+        "https://example.test/deliver/slack?channel=D-RETRY-DM&messageTs=1700000000.000202",
+      replyMessageId: "assistant-delivery-only",
+    });
+
+    const db = getDb();
+    db.update(channelInboundEvents)
+      .set({
+        processingStatus: "failed",
+        processingAttempts: 1,
+        retryAfter: Date.now() - 1,
+      })
+      .where(eq(channelInboundEvents.id, processingInbound.eventId))
+      .run();
+    db.update(channelInboundEvents)
+      .set({
+        processingStatus: "processed",
+        deliveryStatus: "failed",
+        retryAfter: Date.now() - 1,
+      })
+      .where(eq(channelInboundEvents.id, deliveryInbound.eventId))
+      .run();
+
+    deliverReplyViaCallbackImpl = async (...args: unknown[]) => {
+      const externalChatId = args[1];
+      if (
+        externalChatId === "C-RETRY-THREAD" ||
+        externalChatId === "D-RETRY-DM"
+      ) {
+        throw { status: 400, message: "invalid callback payload" };
+      }
+    };
+
+    await sweepFailedEvents(async (conversationId, _content, options) => {
+      options?.onEvent?.({
+        type: "message_complete",
+        conversationId,
+        messageId: "assistant-processing-retry",
+      });
+      db.insert(messages)
+        .values({
+          id: "user-processing-retry",
+          conversationId,
+          role: "user",
+          content: JSON.stringify([{ type: "text", text: "retry me" }]),
+          createdAt: Date.now(),
+        })
+        .run();
+      return { messageId: "user-processing-retry" };
+    });
+
+    const processingLog = findReplayLog(
+      processingInbound.eventId,
+      "processing_retry",
+    );
+    const deliveryLog = findReplayLog(
+      deliveryInbound.eventId,
+      "delivery_retry",
+    );
+    expect(processingLog?.fields).toMatchObject({
+      inboundEventId: processingInbound.eventId,
+      retryClass: "processing_retry",
+      externalChatId: "C-RETRY-THREAD",
+      replyCallbackUrl:
+        "https://example.test/deliver/slack?channel=C-RETRY-THREAD&threadTs=1700000000.000101",
+      threadTs: "1700000000.000101",
+      replayMode: "regenerate_reply",
+    });
+    expect(deliveryLog?.fields).toMatchObject({
+      inboundEventId: deliveryInbound.eventId,
+      retryClass: "delivery_retry",
+      externalChatId: "D-RETRY-DM",
+      replyCallbackUrl:
+        "https://example.test/deliver/slack?channel=D-RETRY-DM&messageTs=1700000000.000202",
+      messageTs: "1700000000.000202",
+      replayMode: "redeliver_existing_reply",
+    });
+
+    const processingRow = db
+      .select()
+      .from(channelInboundEvents)
+      .where(eq(channelInboundEvents.id, processingInbound.eventId))
+      .get();
+    const deliveryRow = db
+      .select()
+      .from(channelInboundEvents)
+      .where(eq(channelInboundEvents.id, deliveryInbound.eventId))
+      .get();
+    const processingFailure = parseStoredPayload(processingRow?.rawPayload ?? null)
+      ?.lastReplayFailure as Record<string, unknown> | undefined;
+    const deliveryFailure = parseStoredPayload(deliveryRow?.rawPayload ?? null)
+      ?.lastReplayFailure as Record<string, unknown> | undefined;
+
+    expect(processingRow?.processingStatus).toBe("processed");
+    expect(processingRow?.deliveryStatus).toBe("dead_letter");
+    expect(processingFailure).toMatchObject({
+      reason: "invalid callback payload",
+      stage: "callback_delivery",
+      retryClass: "processing_retry",
+      replayMode: "regenerate_reply",
+      externalChatId: "C-RETRY-THREAD",
+      threadTs: "1700000000.000101",
+    });
+    expect(deliveryRow?.processingStatus).toBe("processed");
+    expect(deliveryRow?.deliveryStatus).toBe("dead_letter");
+    expect(deliveryFailure).toMatchObject({
+      reason: "invalid callback payload",
+      stage: "callback_delivery",
+      retryClass: "delivery_retry",
+      replayMode: "redeliver_existing_reply",
+      externalChatId: "D-RETRY-DM",
+      messageTs: "1700000000.000202",
+    });
+  });
+
+  test("fatal Slack provider validation failures dead-letter without requeueing", async () => {
+    const inbound = deliveryCrud.recordInbound(
+      "slack",
+      "C-PROVIDER-VALIDATION",
+      "slack-msg-provider-validation",
+    );
+    deliveryCrud.storePayload(inbound.eventId, {
+      content: "retry me",
+      sourceChannel: "slack",
+      interface: "slack",
+      externalChatId: "C-PROVIDER-VALIDATION",
+      replyCallbackUrl:
+        "https://example.test/deliver/slack?channel=C-PROVIDER-VALIDATION&threadTs=1700000000.000303",
+      trustCtx: {
+        trustClass: "unknown",
+        sourceChannel: "slack",
+        requesterChatId: "C-PROVIDER-VALIDATION",
+      },
+    });
+
+    const db = getDb();
+    db.update(channelInboundEvents)
+      .set({
+        processingStatus: "failed",
+        processingAttempts: 1,
+        retryAfter: Date.now() - 1,
+      })
+      .where(eq(channelInboundEvents.id, inbound.eventId))
+      .run();
+
+    let processMessageCalls = 0;
+    await sweepFailedEvents(async () => {
+      processMessageCalls++;
+      throw { status: 400, message: "invalid trailing assistant turn" };
+    });
+
+    const row = db
+      .select()
+      .from(channelInboundEvents)
+      .where(eq(channelInboundEvents.id, inbound.eventId))
+      .get();
+    const replayFailure = parseStoredPayload(row?.rawPayload ?? null)
+      ?.lastReplayFailure as Record<string, unknown> | undefined;
+
+    expect(processMessageCalls).toBe(1);
+    expect(deliveryCalls).toHaveLength(0);
+    expect(row?.processingStatus).toBe("dead_letter");
+    expect(row?.retryAfter).toBeNull();
+    expect(
+      getRetryableEvents().some((event) => event.id === inbound.eventId),
+    ).toBe(false);
+    expect(row?.lastProcessingError).toContain("provider_validation");
+    expect(replayFailure).toMatchObject({
+      reason: "invalid trailing assistant turn",
+      stage: "provider_validation",
+      retryClass: "processing_retry",
+      replayMode: "regenerate_reply",
+      externalChatId: "C-PROVIDER-VALIDATION",
+      threadTs: "1700000000.000303",
+    });
   });
 });
