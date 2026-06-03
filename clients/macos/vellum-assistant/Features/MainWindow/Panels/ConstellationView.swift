@@ -1,69 +1,36 @@
 import SwiftUI
 import VellumAssistantShared
 
-// MARK: - Skill Category
+// MARK: - Category Visual Config
 
-enum SkillCategory: String, CaseIterable {
-    case communication
-    case productivity
-    case development
-    case media
-    case automation
-    case webSocial
-    case knowledge
-    case integration
+private struct CategoryVisualConfig {
+    let displayName: String
+    let color: Color
+    let icon: VIcon
+    let emoji: String
+}
 
-    var displayName: String {
-        switch self {
-        case .communication: return "Communication"
-        case .productivity: return "Productivity"
-        case .development: return "Development"
-        case .media: return "Media"
-        case .automation: return "Automation"
-        case .webSocial: return "Web & Social"
-        case .knowledge: return "Knowledge"
-        case .integration: return "Integration"
-        }
-    }
+private let defaultCategoryConfig = CategoryVisualConfig(
+    displayName: "Other", color: VColor.primaryBase, icon: .layoutGrid, emoji: "?"
+)
 
-    var color: Color {
-        switch self {
-        case .communication: return VColor.funPurple
-        case .productivity: return VColor.funTeal
-        case .development: return VColor.funRed
-        case .media: return VColor.funPink
-        case .automation: return VColor.funYellow
-        case .webSocial: return VColor.funCoral
-        case .knowledge: return VColor.funGreen
-        case .integration: return VColor.primaryBase
-        }
-    }
+private let categoryConfigs: [String: CategoryVisualConfig] = [
+    "email": CategoryVisualConfig(displayName: "Email", color: VColor.funPurple, icon: .mail, emoji: "\u{1F4E7}"),
+    "calendar": CategoryVisualConfig(displayName: "Calendar", color: VColor.funTeal, icon: .calendar, emoji: "\u{1F4C5}"),
+    "messaging": CategoryVisualConfig(displayName: "Messaging", color: VColor.funPurple, icon: .messageCircle, emoji: "\u{1F4AC}"),
+    "browsing": CategoryVisualConfig(displayName: "Browsing", color: VColor.funCoral, icon: .globe, emoji: "\u{1F310}"),
+    "productivity": CategoryVisualConfig(displayName: "Productivity", color: VColor.funTeal, icon: .zap, emoji: "\u{1F4CB}"),
+    "development": CategoryVisualConfig(displayName: "Development", color: VColor.funRed, icon: .wrench, emoji: "\u{1F528}"),
+    "voice": CategoryVisualConfig(displayName: "Voice", color: VColor.funPink, icon: .mic, emoji: "\u{1F3A4}"),
+    "commerce": CategoryVisualConfig(displayName: "Commerce", color: VColor.funYellow, icon: .shoppingCart, emoji: "\u{1F6D2}"),
+    "content": CategoryVisualConfig(displayName: "Content", color: VColor.funPink, icon: .palette, emoji: "\u{1F3A8}"),
+    "health": CategoryVisualConfig(displayName: "Health", color: VColor.funGreen, icon: .heart, emoji: "\u{2764}\u{FE0F}"),
+    "system": CategoryVisualConfig(displayName: "System", color: VColor.primaryBase, icon: .settings, emoji: "\u{2699}\u{FE0F}"),
+    "integrations": CategoryVisualConfig(displayName: "Integrations", color: VColor.primaryBase, icon: .link, emoji: "\u{1F517}"),
+]
 
-    var icon: VIcon {
-        switch self {
-        case .communication: return .messageCircle
-        case .productivity: return .listChecks
-        case .development: return .wrench
-        case .media: return .film
-        case .automation: return .zap
-        case .webSocial: return .globe
-        case .knowledge: return .bookOpen
-        case .integration: return .link
-        }
-    }
-
-    var emoji: String {
-        switch self {
-        case .communication: return "\u{1F4AC}"
-        case .productivity: return "\u{1F4CB}"
-        case .development: return "\u{1F528}"
-        case .media: return "\u{1F3AC}"
-        case .automation: return "\u{26A1}"
-        case .webSocial: return "\u{1F310}"
-        case .knowledge: return "\u{1F4DA}"
-        case .integration: return "\u{1F517}"
-        }
-    }
+private func categoryConfig(for slug: String) -> CategoryVisualConfig {
+    categoryConfigs[slug] ?? defaultCategoryConfig
 }
 
 // MARK: - Data Models
@@ -81,13 +48,13 @@ private struct OrbitItem: Identifiable {
     let color: Color
     let filePath: String?
     let description: String?
-    let category: SkillCategory?
+    let category: String
     let kind: OrbitItemKind
 
     init(
         id: String, label: String, icon: VIcon, emoji: String? = nil,
         color: Color, filePath: String? = nil, description: String? = nil,
-        category: SkillCategory? = nil, kind: OrbitItemKind = .skill
+        category: String = "system", kind: OrbitItemKind = .skill
     ) {
         self.id = id
         self.label = label
@@ -102,8 +69,8 @@ private struct OrbitItem: Identifiable {
 }
 
 private struct CategoryGroup: Identifiable {
-    var id: String { category.rawValue }
-    let category: SkillCategory
+    var id: String { category }
+    let category: String
     var items: [OrbitItem]
 }
 
@@ -115,30 +82,29 @@ private struct SubCategoryDef {
     let skillIds: Set<String>
 }
 
-private let subCategoryMap: [SkillCategory: [SubCategoryDef]] = [
-    .communication: [
-        SubCategoryDef(label: "Messaging", emoji: "\u{1F4AC}", skillIds: ["messaging", "agentmail", "email-setup"]),
-        SubCategoryDef(label: "Calling", emoji: "\u{1F4DE}", skillIds: ["phone-calls", "notifications"]),
+private let subCategoryMap: [String: [SubCategoryDef]] = [
+    "email": [
+        SubCategoryDef(label: "Sending", emoji: "\u{1F4E8}", skillIds: ["agentmail", "email-setup"]),
+        SubCategoryDef(label: "Reading", emoji: "\u{1F4EC}", skillIds: ["email-channel", "gmail"]),
+    ],
+    "messaging": [
+        SubCategoryDef(label: "Chat", emoji: "\u{1F4AC}", skillIds: ["messaging", "slack", "telegram"]),
+        SubCategoryDef(label: "Notifications", emoji: "\u{1F514}", skillIds: ["notifications"]),
         SubCategoryDef(label: "People", emoji: "\u{1F465}", skillIds: ["contacts", "followups"]),
     ],
-    .productivity: [
-        SubCategoryDef(label: "Planning", emoji: "\u{1F4C5}", skillIds: ["google-calendar", "schedule"]),
-        SubCategoryDef(label: "Work", emoji: "\u{1F4CB}", skillIds: ["document", "tasks", "playbooks"]),
-    ],
-    .development: [
+    "development": [
         SubCategoryDef(label: "Coding", emoji: "\u{1F4BB}", skillIds: ["typescript-eval", "frontend-design"]),
         SubCategoryDef(label: "Dev Tools", emoji: "\u{1F527}", skillIds: ["api-mapping", "cli-discover", "subagent", "app-builder"]),
     ],
-    .automation: [
+    "browsing": [
         SubCategoryDef(label: "Control", emoji: "\u{1F3AE}", skillIds: ["computer-use", "macos-automation", "browser"]),
         SubCategoryDef(label: "Triggers", emoji: "\u{23F0}", skillIds: ["watcher", "time-based-actions"]),
     ],
-    .webSocial: [
-        SubCategoryDef(label: "Social", emoji: "\u{1F4F1}", skillIds: ["influencer"]),
-        SubCategoryDef(label: "Services", emoji: "\u{1F6D2}", skillIds: ["amazon", "doordash", "restaurant-reservation"]),
+    "commerce": [
+        SubCategoryDef(label: "Shopping", emoji: "\u{1F6D2}", skillIds: ["amazon", "doordash", "restaurant-reservation"]),
     ],
-    .knowledge: [
-        SubCategoryDef(label: "Learning", emoji: "\u{1F9E0}", skillIds: ["knowledge-graph", "vellum-skills-catalog", "self-upgrade"]),
+    "system": [
+        SubCategoryDef(label: "Core", emoji: "\u{1F9E0}", skillIds: ["knowledge-graph", "vellum-skills-catalog", "self-upgrade"]),
         SubCategoryDef(label: "Daily", emoji: "\u{2600}\u{FE0F}", skillIds: ["start-the-day", "weather"]),
     ],
 ]
@@ -147,8 +113,8 @@ private let subCategoryMap: [SkillCategory: [SubCategoryDef]] = [
 
 private enum TreeNodeKind {
     case center
-    case category(SkillCategory)
-    case subCategory(label: String, emoji: String, category: SkillCategory)
+    case category(String)
+    case subCategory(label: String, emoji: String, category: String)
     case skill(OrbitItem)
 }
 
@@ -173,17 +139,19 @@ private struct EdgeLine: Identifiable {
 // MARK: - Category Node View
 
 private struct CategoryNodeView: View {
-    let category: SkillCategory
+    let category: String
     let size: CGFloat
 
     @State private var isHovered = false
 
+    private var cfg: CategoryVisualConfig { categoryConfig(for: category) }
+
     var body: some View {
         VStack(spacing: 4) {
-            VIconView(category.icon, size: 24)
-                .foregroundStyle(category.color)
+            VIconView(cfg.icon, size: 24)
+                .foregroundStyle(cfg.color)
 
-            Text(category.displayName)
+            Text(cfg.displayName)
                 .font(VFont.bodyMediumDefault)
                 .foregroundStyle(VColor.contentDefault)
                 .lineLimit(1)
@@ -194,16 +162,16 @@ private struct CategoryNodeView: View {
         .background(
             ZStack {
                 RoundedRectangle(cornerRadius: VRadius.xl).fill(VColor.surfaceOverlay)
-                RoundedRectangle(cornerRadius: VRadius.xl).fill(category.color.opacity(isHovered ? 0.25 : 0.14))
+                RoundedRectangle(cornerRadius: VRadius.xl).fill(cfg.color.opacity(isHovered ? 0.25 : 0.14))
             }
         )
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.xl)
-                .stroke(category.color.opacity(isHovered ? 0.85 : 0.55), lineWidth: isHovered ? 2.5 : 2)
+                .stroke(cfg.color.opacity(isHovered ? 0.85 : 0.55), lineWidth: isHovered ? 2.5 : 2)
         )
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
         .contentShape(RoundedRectangle(cornerRadius: VRadius.xl))
-        .nativeTooltip(category.displayName)
+        .nativeTooltip(cfg.displayName)
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.15)) {
                 isHovered = hovering
@@ -217,10 +185,12 @@ private struct CategoryNodeView: View {
 private struct SubCategoryNodeView: View {
     let label: String
     let emoji: String
-    let category: SkillCategory
+    let category: String
     let size: CGFloat
 
     @State private var isHovered = false
+
+    private var catColor: Color { categoryConfig(for: category).color }
 
     var body: some View {
         VStack(spacing: 2) {
@@ -238,13 +208,13 @@ private struct SubCategoryNodeView: View {
         .background(
             ZStack {
                 RoundedRectangle(cornerRadius: VRadius.lg).fill(VColor.surfaceOverlay)
-                RoundedRectangle(cornerRadius: VRadius.lg).fill(category.color.opacity(isHovered ? 0.20 : 0.10))
+                RoundedRectangle(cornerRadius: VRadius.lg).fill(catColor.opacity(isHovered ? 0.20 : 0.10))
             }
         )
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.lg)
                 .stroke(
-                    category.color.opacity(isHovered ? 0.70 : 0.40),
+                    catColor.opacity(isHovered ? 0.70 : 0.40),
                     style: StrokeStyle(lineWidth: isHovered ? 2 : 1.5, dash: [6, 4])
                 )
         )
@@ -527,7 +497,7 @@ private func buildTree(center: CGPoint, groups: [CategoryGroup], centerSize: CGF
     for (catIdx, group) in groups.enumerated() {
         let catAngle = -.pi / 2 + CGFloat(catIdx) * sectorAngle
 
-        let catId = "cat-\(group.category.rawValue)"
+        let catId = "cat-\(group.category)"
         let catPos = resolveOverlap(
             proposed: CGPoint(
                 x: center.x + centerToCatRadius * cos(catAngle),
@@ -548,10 +518,10 @@ private func buildTree(center: CGPoint, groups: [CategoryGroup], centerSize: CGF
         ))
 
         edges.append(EdgeLine(
-            id: "edge-center-\(group.category.rawValue)",
+            id: "edge-center-\(group.category)",
             fromId: "__center__",
             toId: catId,
-            color: group.category.color
+            color: categoryConfig(for: group.category).color
         ))
 
         if let subCats = subCategoryMap[group.category], !subCats.isEmpty {
@@ -573,7 +543,7 @@ private func buildTree(center: CGPoint, groups: [CategoryGroup], centerSize: CGF
                         items: group.items, parentId: catId, parentPos: catPos,
                         outwardAngle: catAngle, outwardDist: skillOutwardDist,
                         childSize: skillSize, gap: nodeGap, depth: 2,
-                        category: group.category, edgePrefix: group.category.rawValue,
+                        category: group.category, edgePrefix: group.category,
                         nodes: &nodes, edges: &edges
                     )
                     continue
@@ -596,7 +566,7 @@ private func buildTree(center: CGPoint, groups: [CategoryGroup], centerSize: CGF
                     subAngle = catAngle + t * subSpread * 2
                 }
 
-                let subCatId = "subcat-\(group.category.rawValue)-\(subIdx)"
+                let subCatId = "subcat-\(group.category)-\(subIdx)"
                 let subCatPos = resolveOverlap(
                     proposed: CGPoint(
                         x: catPos.x + catToSubCatRadius * cos(subAngle),
@@ -617,10 +587,10 @@ private func buildTree(center: CGPoint, groups: [CategoryGroup], centerSize: CGF
                 ))
 
                 edges.append(EdgeLine(
-                    id: "edge-\(group.category.rawValue)-sub-\(subIdx)",
+                    id: "edge-\(group.category)-sub-\(subIdx)",
                     fromId: catId,
                     toId: subCatId,
-                    color: group.category.color
+                    color: categoryConfig(for: group.category).color
                 ))
 
                 placeSkillCluster(
@@ -636,7 +606,7 @@ private func buildTree(center: CGPoint, groups: [CategoryGroup], centerSize: CGF
                 items: group.items, parentId: catId, parentPos: catPos,
                 outwardAngle: catAngle, outwardDist: skillOutwardDist,
                 childSize: skillSize, gap: nodeGap, depth: 2,
-                category: group.category, edgePrefix: group.category.rawValue,
+                category: group.category, edgePrefix: group.category,
                 nodes: &nodes, edges: &edges
             )
         }
@@ -653,7 +623,7 @@ private func placeSkillCluster(
     items: [OrbitItem], parentId: String, parentPos: CGPoint,
     outwardAngle: CGFloat, outwardDist: CGFloat,
     childSize: CGFloat, gap: CGFloat, depth: Int,
-    category: SkillCategory, edgePrefix: String,
+    category: String, edgePrefix: String,
     nodes: inout [TreeNode], edges: inout [EdgeLine]
 ) {
     guard !items.isEmpty else { return }
@@ -696,7 +666,7 @@ private func placeSkillCluster(
         ))
         edges.append(EdgeLine(
             id: "edge-\(edgePrefix)-skill-\(idx)",
-            fromId: parentId, toId: item.id, color: category.color
+            fromId: parentId, toId: item.id, color: categoryConfig(for: category).color
         ))
     }
 }
@@ -749,28 +719,33 @@ struct ConstellationView: View {
         workspaceFiles.filter { $0.exists }
     }
 
+    private static let categoryOrder = [
+        "email", "calendar", "messaging", "browsing", "productivity",
+        "development", "voice", "commerce", "content", "health",
+        "system", "integrations",
+    ]
+
     private var groups: [CategoryGroup] {
+        let systemCfg = categoryConfig(for: "system")
         let fileItems = existingFiles.enumerated().map { idx, node in
-            // Detect files by the backend-provided path, not the display
-            // label — labels are user-facing strings (e.g. "User Profile")
-            // that no longer necessarily match the filename.
             let path: String? = node.path.hasSuffix(".md") ? node.path : nil
             return OrbitItem(
-                id: "workspace-\(idx)", label: node.label, icon: SkillCategory.knowledge.icon,
-                emoji: nil, color: SkillCategory.knowledge.color, filePath: path,
-                description: nil, category: .knowledge, kind: .workspaceFile
+                id: "workspace-\(idx)", label: node.label, icon: systemCfg.icon,
+                emoji: nil, color: systemCfg.color, filePath: path,
+                description: nil, category: "system", kind: .workspaceFile
             )
         }
 
-        var buckets: [SkillCategory: [OrbitItem]] = [.knowledge: fileItems]
+        var buckets: [String: [OrbitItem]] = ["system": fileItems]
         for skill in skills {
-            let cat = SkillCategory(rawValue: skill.category) ?? .knowledge
+            let cat = skill.category
+            let cfg = categoryConfig(for: cat)
             let item = OrbitItem(
                 id: skill.id,
                 label: skill.name,
-                icon: cat.icon,
+                icon: cfg.icon,
                 emoji: skill.emoji,
-                color: cat.color,
+                color: cfg.color,
                 filePath: nil,
                 description: skill.description,
                 category: cat
@@ -779,10 +754,13 @@ struct ConstellationView: View {
         }
 
         var result: [CategoryGroup] = []
-        for cat in SkillCategory.allCases {
+        for cat in Self.categoryOrder {
             if let items = buckets[cat], !items.isEmpty {
                 result.append(CategoryGroup(category: cat, items: items))
             }
+        }
+        for (cat, items) in buckets where !Self.categoryOrder.contains(cat) && !items.isEmpty {
+            result.append(CategoryGroup(category: cat, items: items))
         }
 
         return result
