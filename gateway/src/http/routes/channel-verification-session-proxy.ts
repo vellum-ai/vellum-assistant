@@ -19,6 +19,7 @@ import { fetchImpl } from "../../fetch.js";
 import { getLogger } from "../../logger.js";
 import { isLoopbackAddress } from "../../util/is-loopback-address.js";
 import { VELAY_FORWARDED_HEADER } from "../../velay/bridge-utils.js";
+import { requestArrivedViaEdgeProxy } from "../edge-forwarded-header.js";
 
 const log = getLogger("channel-verification-session-proxy");
 
@@ -161,6 +162,20 @@ export function createChannelVerificationSessionProxyHandler(
         log.warn("Guardian init rejected — Velay-bridged request");
         return Response.json(
           { error: "Bootstrap endpoint is not accessible via tunnel" },
+          { status: 403 },
+        );
+      }
+
+      // Defense-in-depth: reject requests forwarded by the self-hosted nginx
+      // edge (e.g. the SPA reached over an ngrok tunnel). Every hop in that
+      // chain is loopback, so the raw peer IP would otherwise misclassify a
+      // remote caller as local. The edge sets this marker unconditionally and
+      // it cannot be spoofed or stripped by the client. Only the self-hosted
+      // edge sets it, so this is safe across all deploy modes.
+      if (requestArrivedViaEdgeProxy(req)) {
+        log.warn("Guardian init rejected — edge-proxy-forwarded request");
+        return Response.json(
+          { error: "Bootstrap endpoint is not accessible via the web edge" },
           { status: 403 },
         );
       }
@@ -417,10 +432,7 @@ export function createChannelVerificationSessionProxyHandler(
                 ? 403
                 : 401;
 
-          log.warn(
-            { error: result.error },
-            "Refresh token rotation failed",
-          );
+          log.warn({ error: result.error }, "Refresh token rotation failed");
           return Response.json({ error: result.error }, { status: statusCode });
         }
 
@@ -500,7 +512,10 @@ export function createChannelVerificationSessionProxyHandler(
           log.info("Guardian consumed secrets file removed");
         }
       } catch (err) {
-        log.error({ err }, "Failed to remove guardian-init lock/consumed files");
+        log.error(
+          { err },
+          "Failed to remove guardian-init lock/consumed files",
+        );
         return Response.json(
           { error: "Failed to remove lock file" },
           { status: 500 },

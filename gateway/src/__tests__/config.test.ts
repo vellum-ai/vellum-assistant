@@ -54,6 +54,26 @@ describe("config: hardcoded defaults", () => {
     }
   });
 
+  test("trustProxy is opt-in via GATEWAY_TRUST_PROXY", () => {
+    const saved = process.env.GATEWAY_TRUST_PROXY;
+    try {
+      process.env.GATEWAY_TRUST_PROXY = "true";
+      expect(loadConfig().trustProxy).toBe(true);
+
+      process.env.GATEWAY_TRUST_PROXY = "1";
+      expect(loadConfig().trustProxy).toBe(true);
+
+      process.env.GATEWAY_TRUST_PROXY = "false";
+      expect(loadConfig().trustProxy).toBe(false);
+
+      process.env.GATEWAY_TRUST_PROXY = "anything-else";
+      expect(loadConfig().trustProxy).toBe(false);
+    } finally {
+      if (saved !== undefined) process.env.GATEWAY_TRUST_PROXY = saved;
+      else delete process.env.GATEWAY_TRUST_PROXY;
+    }
+  });
+
   test("assistantRuntimeBaseUrl derives from RUNTIME_HTTP_PORT", () => {
     const saved = process.env.RUNTIME_HTTP_PORT;
     process.env.RUNTIME_HTTP_PORT = "9999";

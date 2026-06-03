@@ -45,7 +45,10 @@ mock.module("../db/assistant-db-proxy.js", () => ({
     if (!testAssistantDb) throw new Error("test assistant DB not initialized");
     const stmt = testAssistantDb.prepare(sql);
     const result = bind ? stmt.run(...bind) : stmt.run();
-    return { changes: result.changes, lastInsertRowid: Number(result.lastInsertRowid) };
+    return {
+      changes: result.changes,
+      lastInsertRowid: Number(result.lastInsertRowid),
+    };
   },
   async assistantDbExec(sql: string) {
     if (!testAssistantDb) throw new Error("test assistant DB not initialized");
@@ -167,7 +170,11 @@ afterEach(() => {
   fetchMock = mock(async () => new Response());
   delete process.env.GUARDIAN_BOOTSTRAP_SECRET;
   if (testAssistantDb) {
-    try { testAssistantDb.close(); } catch { /* best effort */ }
+    try {
+      testAssistantDb.close();
+    } catch {
+      /* best effort */
+    }
     testAssistantDb = null;
   }
   try {
@@ -272,6 +279,60 @@ describe("guardian/init bootstrap secret", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.accessToken).toBeTruthy();
+  });
+});
+
+describe("guardian/init edge-proxy guard", () => {
+  // The self-hosted nginx edge (SPA over an ngrok tunnel) sets this marker.
+  // Every hop in that chain is loopback, so clientIp is the legitimate-looking
+  // 127.0.0.1 — the marker is the unspoofable proof the request was forwarded
+  // by the edge and must be rejected, regardless of deploy mode.
+  const EDGE_HEADER = "x-vellum-edge-forwarded";
+
+  function makeEdgeForwardedRequest(secret?: string): Request {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      [EDGE_HEADER]: "1",
+    };
+    if (secret) headers["x-bootstrap-secret"] = secret;
+    return new Request("http://localhost:7830/v1/guardian/init", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ platform: "cli", deviceId: "test-device" }),
+    });
+  }
+
+  test("rejects an edge-forwarded request from a loopback peer in bare-metal mode", async () => {
+    delete process.env.GUARDIAN_BOOTSTRAP_SECRET;
+    const handler = createChannelVerificationSessionProxyHandler(makeConfig());
+    // clientIp is loopback (as it always is behind the edge) — without the
+    // marker this would mint a token (see "skips secret check" above).
+    const res = await handler.handleGuardianInit(
+      makeEdgeForwardedRequest(),
+      "127.0.0.1",
+    );
+
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toBe(
+      "Bootstrap endpoint is not accessible via the web edge",
+    );
+  });
+
+  test("rejects an edge-forwarded request even with a valid bootstrap secret", async () => {
+    process.env.GUARDIAN_BOOTSTRAP_SECRET = "test-secret-abc123";
+    const handler = createChannelVerificationSessionProxyHandler(makeConfig());
+    const res = await handler.handleGuardianInit(
+      makeEdgeForwardedRequest("test-secret-abc123"),
+      "127.0.0.1",
+    );
+
+    // Rejected before the secret is ever considered.
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toBe(
+      "Bootstrap endpoint is not accessible via the web edge",
+    );
   });
 });
 
@@ -542,10 +603,13 @@ describe("guardian/reset-bootstrap", () => {
     writeFileSync(consumedPath(), JSON.stringify([0]) + "\n", { mode: 0o600 });
     const handler = createChannelVerificationSessionProxyHandler(makeConfig());
 
-    const req = new Request("http://localhost:7830/v1/guardian/reset-bootstrap", {
-      method: "POST",
-      headers: { "x-bootstrap-secret": "some-secret" },
-    });
+    const req = new Request(
+      "http://localhost:7830/v1/guardian/reset-bootstrap",
+      {
+        method: "POST",
+        headers: { "x-bootstrap-secret": "some-secret" },
+      },
+    );
     const res = await handler.handleResetBootstrap("127.0.0.1", req);
     expect(res.status).toBe(200);
     expect(lockFileExists()).toBe(false);
@@ -657,12 +721,16 @@ describe("guardian/init bare-metal loopback gating", () => {
     delete process.env.GUARDIAN_BOOTSTRAP_SECRET;
     process.env.IS_PLATFORM = "true";
     try {
-      const handler = createChannelVerificationSessionProxyHandler(makeConfig());
+      const handler =
+        createChannelVerificationSessionProxyHandler(makeConfig());
       const res = await handler.handleGuardianInit(
         new Request("http://localhost:7830/v1/guardian/init", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ platform: "web", deviceId: "platform-abc123" }),
+          body: JSON.stringify({
+            platform: "web",
+            deviceId: "platform-abc123",
+          }),
         }),
         "::ffff:10.112.1.68",
       );
