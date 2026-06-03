@@ -168,27 +168,22 @@ function PreferencesMenuContent({
     <>
       <ThemeToggle className="px-2 pt-0" />
 
-      <MenuDivider />
-
       {showBillingRows ? (
-        <>
-          <CreditsCard
-            balance={
-              effectiveBalance !== null
-                ? formatWholeCredits(effectiveBalance)
-                : null
-            }
-            onAddCredits={() => {
-              onClose();
-              navigate(routes.settings.billing);
-            }}
-            onEarnCredits={() => {
-              onClose();
-              onEarnCredits();
-            }}
-          />
-          <MenuDivider />
-        </>
+        <CreditsCard
+          balance={
+            effectiveBalance !== null
+              ? formatWholeCredits(effectiveBalance)
+              : null
+          }
+          onAddCredits={() => {
+            onClose();
+            navigate(routes.settings.billing);
+          }}
+          onEarnCredits={() => {
+            onClose();
+            onEarnCredits();
+          }}
+        />
       ) : null}
 
       <PanelItem
@@ -253,14 +248,4 @@ function formatWholeCredits(value: string): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
-}
-
-function MenuDivider() {
-  return (
-    <div
-      aria-hidden="true"
-      className="my-1 h-px"
-      style={{ background: "var(--border-overlay)" }}
-    />
-  );
 }
