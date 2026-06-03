@@ -14220,6 +14220,86 @@ paths:
           required: true
           schema:
             type: string
+  /v1/internal/telemetry/auth-fallback:
+    post:
+      operationId: internal_telemetry_authfallback_post
+      summary: Record auth-fallback counts
+      description:
+        Receives aggregated legacy-loopback auth-fallback counts forwarded by the gateway and persists them for
+        telemetry reporting.
+      tags:
+        - internal
+        - telemetry
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      recorded:
+                        type: integer
+                        minimum: 0
+                        maximum: 9007199254740991
+                    required:
+                      - recorded
+                    additionalProperties: false
+                  - type: object
+                    properties:
+                      skipped:
+                        type: boolean
+                        const: true
+                        description: Counts dropped because usage data collection is disabled
+                    required:
+                      - skipped
+                    additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                window_start:
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+                window_end:
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+                counts:
+                  minItems: 1
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      guard:
+                        type: string
+                        minLength: 1
+                      path:
+                        type: string
+                        minLength: 1
+                      failure_kind:
+                        type: string
+                        minLength: 1
+                      count:
+                        type: integer
+                        exclusiveMinimum: 0
+                        maximum: 9007199254740991
+                    required:
+                      - guard
+                      - path
+                      - failure_kind
+                      - count
+                    additionalProperties: false
+              required:
+                - window_start
+                - window_end
+                - counts
+              additionalProperties: false
   /v1/internal/twilio/connect-action:
     post:
       operationId: internal_twilio_connectaction_post
