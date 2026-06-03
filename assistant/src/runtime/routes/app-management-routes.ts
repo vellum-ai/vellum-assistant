@@ -1,6 +1,6 @@
 /**
  * Route handlers for app CRUD, bundling, sharing, versioning,
- * gallery, and signing operations.
+ * and signing operations.
  */
 import { randomBytes } from "node:crypto";
 import {
@@ -12,7 +12,7 @@ import {
 } from "node:fs";
 import { stat, unlink } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 
 import { z } from "zod";
 
@@ -22,7 +22,6 @@ import { scanBundle } from "../../bundler/bundle-scanner.js";
 import type { SignatureJson } from "../../bundler/bundle-signer.js";
 import { verifyBundleSignature } from "../../bundler/signature-verifier.js";
 import { compareSemver } from "../../daemon/handlers/shared.js";
-import { defaultGallery } from "../../gallery/default-gallery.js";
 import {
   getAppDiff,
   getAppHistory,
@@ -270,47 +269,6 @@ function forkSharedApp(
   });
 
   return { success: true, appId: newApp.id, name: newApp.name };
-}
-
-async function installGalleryApp(
-  galleryAppId: string,
-): Promise<
-  | { success: true; appId: string; name: string }
-  | { success: false; error: string }
-> {
-  const galleryApp = defaultGallery.apps.find((a) => a.id === galleryAppId);
-  if (!galleryApp) {
-    return {
-      success: false,
-      error: `Gallery app not found: ${galleryAppId}`,
-    };
-  }
-
-  const app = createApp({
-    name: galleryApp.name,
-    description: galleryApp.description,
-    schemaJson: galleryApp.schemaJson,
-    htmlDefinition: galleryApp.htmlDefinition,
-    formatVersion: galleryApp.formatVersion,
-  });
-
-  if (galleryApp.formatVersion === 2 && galleryApp.sourceFiles) {
-    const appDir = getAppDirPath(app.id);
-    for (const [relPath, content] of Object.entries(galleryApp.sourceFiles)) {
-      const fullPath = join(appDir, relPath);
-      mkdirSync(dirname(fullPath), { recursive: true });
-      writeFileSync(fullPath, content, "utf-8");
-    }
-    const result = await compileApp(appDir);
-    if (!result.ok) {
-      log.warn(
-        { appId: app.id, errors: result.errors },
-        "Gallery app compilation had errors; falling back to htmlDefinition",
-      );
-    }
-  }
-
-  return { success: true, appId: app.id, name: app.name };
 }
 
 async function openBundle(filePath: string): Promise<Record<string, unknown>> {
@@ -592,22 +550,6 @@ function handleForkSharedApp({ body, headers }: RouteHandlerArgs) {
   }
   publishAppsChanged(getOriginClientId(headers));
   return result;
-}
-
-async function handleInstallGalleryApp({ body, headers }: RouteHandlerArgs) {
-  if (!body?.galleryAppId) {
-    throw new BadRequestError("galleryAppId is required");
-  }
-  const result = await installGalleryApp(body.galleryAppId as string);
-  if (!result.success) {
-    throw new BadRequestError(result.error);
-  }
-  publishAppsChanged(getOriginClientId(headers));
-  return result;
-}
-
-function handleListGallery() {
-  return { gallery: defaultGallery };
 }
 
 function handleSignBundle({ body }: RouteHandlerArgs) {
@@ -898,62 +840,6 @@ export const ROUTES: RouteDefinition[] = [
       success: z.literal(true),
       appId: z.string(),
       name: z.string(),
-    }),
-  },
-  {
-    operationId: "apps_gallery_install",
-    endpoint: "apps/gallery/install",
-    method: "POST",
-    policy: {
-      requiredScopes: ["settings.write"],
-      allowedPrincipalTypes: ACTOR_PRINCIPALS,
-    },
-    handler: handleInstallGalleryApp,
-    summary: "Install a gallery app",
-    description: "Install an app from the built-in gallery by its ID.",
-    tags: ["apps"],
-    requestBody: z.object({ galleryAppId: z.string() }),
-    responseBody: z.object({
-      success: z.literal(true),
-      appId: z.string(),
-      name: z.string(),
-    }),
-  },
-  {
-    operationId: "apps_gallery_list",
-    endpoint: "apps/gallery",
-    method: "GET",
-    policy: {
-      requiredScopes: ["settings.read"],
-      allowedPrincipalTypes: ACTOR_PRINCIPALS,
-    },
-    handler: handleListGallery,
-    summary: "List gallery apps",
-    description: "Return the built-in app gallery catalog.",
-    tags: ["apps"],
-    responseBody: z.object({
-      gallery: z.object({
-        version: z.number(),
-        updatedAt: z.string(),
-        categories: z.array(
-          z.object({
-            id: z.string(),
-            name: z.string(),
-            icon: z.string(),
-          }),
-        ),
-        apps: z.array(
-          z.object({
-            id: z.string(),
-            name: z.string(),
-            description: z.string(),
-            icon: z.string(),
-            category: z.string(),
-            version: z.string(),
-            featured: z.boolean().optional(),
-          }),
-        ),
-      }),
     }),
   },
   {

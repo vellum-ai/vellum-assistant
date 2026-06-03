@@ -417,6 +417,8 @@ When the app needs server-side persistence, custom API logic, or workspace file 
 
 For handler conventions, examples, key rules, and frontend usage patterns, see **[Custom Route Handlers](references/CUSTOM_ROUTES.md)**.
 
+For complete, copyable apps wiring this persistence pattern end-to-end (multi-file TSX frontend + `routes/*.ts` handler), see the **[example apps](references/examples/README.md)**: a [Focus Timer](references/examples/focus-timer.md) (append-only log), a [Habit Tracker](references/examples/habit-tracker.md) (full CRUD), and an [Expense Tracker](references/examples/expense-tracker.md) (create/read/delete + aggregation).
+
 #### Client-side state management
 
 `localStorage` and `sessionStorage` are available for ephemeral UI state (filters, view modes, collapsed state, preferences, form drafts). Use custom routes for persistent app records, `localStorage` for UI preferences.
