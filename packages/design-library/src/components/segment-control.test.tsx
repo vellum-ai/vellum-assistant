@@ -4,7 +4,7 @@
  * No DOM environment — mirroring `button.test.tsx`, we verify behavior through
  * two angles:
  *   1. `renderToStaticMarkup` — asserts the HTML the component emits, including
- *      the icon-only geometry that PR 1 enlarges to match the iOS mock.
+ *      the icon-only geometry (the original `rounded-md`/`px-[5px]` sizing).
  *   2. The pure `resolveSegmentSelection` helper that each segment's onClick
  *      delegates to — asserts the click→onChange decision without a renderer.
  */
@@ -50,7 +50,7 @@ function containerClassName(html: string): string {
 }
 
 describe("SegmentControl icon-only geometry", () => {
-  test("container uses the enlarged 10px radius", () => {
+  test("container keeps the base rounded-lg radius (no enlarged 10px radius)", () => {
     const html = renderToStaticMarkup(
       <SegmentControl
         items={iconItems}
@@ -60,10 +60,12 @@ describe("SegmentControl icon-only geometry", () => {
         ariaLabel="Theme"
       />,
     );
-    expect(containerClassName(html)).toContain("rounded-[10px]");
+    const container = containerClassName(html);
+    expect(container).toContain("rounded-lg");
+    expect(container).not.toContain("rounded-[10px]");
   });
 
-  test("each segment uses the enlarged radius (rounded-lg) and padding (px-2)", () => {
+  test("each segment uses the base radius (rounded-md) and padding (px-[5px])", () => {
     const html = renderToStaticMarkup(
       <SegmentControl
         items={iconItems}
@@ -76,8 +78,8 @@ describe("SegmentControl icon-only geometry", () => {
     const classes = radioClassNames(html);
     expect(classes).toHaveLength(iconItems.length);
     for (const cls of classes) {
-      expect(cls).toContain("rounded-lg");
-      expect(cls).toContain("px-2");
+      expect(cls).toContain("rounded-md");
+      expect(cls).toContain("px-[5px]");
     }
   });
 });

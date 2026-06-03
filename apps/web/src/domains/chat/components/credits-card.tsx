@@ -52,23 +52,16 @@ export function CreditsCard({
         </div>
       )}
 
-      <button
-        type="button"
+      <Button
+        variant="ghost"
+        fullWidth
+        tintColor="var(--content-secondary)"
         onClick={onEarnCredits}
-        className="flex items-center justify-center gap-2 transition-colors hover:opacity-80"
+        className="text-body-medium-lighter max-md:text-body-large-default"
       >
-        <Gift
-          className="h-3.5 w-3.5"
-          style={{ color: "var(--content-secondary)" }}
-          aria-hidden
-        />
-        <span
-          className="text-body-medium-lighter max-md:text-body-large-default"
-          style={{ color: "var(--content-secondary)" }}
-        >
-          Earn Credits
-        </span>
-      </button>
+        <Gift className="h-3.5 w-3.5" aria-hidden />
+        Earn Credits
+      </Button>
     </div>
   );
 }
