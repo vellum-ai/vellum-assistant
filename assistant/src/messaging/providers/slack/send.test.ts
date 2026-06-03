@@ -20,7 +20,12 @@ mock.module("./api.js", () => ({
   callSlackApiForm: async () => ({}),
   completeSlackUpload: async () => {},
   SlackApiError: class SlackApiError extends Error {
-    slackError?: string;
+    readonly slackError: string | undefined;
+
+    constructor(slackError: string | undefined) {
+      super(slackError ?? "unknown");
+      this.slackError = slackError;
+    }
   },
   uploadToSlackUrl: async () => {},
 }));
@@ -86,8 +91,7 @@ describe("sendSlackReply", () => {
   });
 
   test("falls back to chat.postMessage for retryable update-target failures when enabled", async () => {
-    const err = new SlackApiError("message not found");
-    err.slackError = "message_not_found";
+    const err = new SlackApiError("message_not_found");
 
     callSlackApiMock
       .mockImplementationOnce(async () => {
@@ -119,8 +123,7 @@ describe("sendSlackReply", () => {
   });
 
   test("keeps update failures strict when post fallback is not allowed", async () => {
-    const err = new SlackApiError("message not found");
-    err.slackError = "message_not_found";
+    const err = new SlackApiError("message_not_found");
     callSlackApiMock.mockImplementationOnce(async () => {
       throw err;
     });
@@ -141,10 +144,8 @@ describe("sendSlackReply", () => {
   });
 
   test("falls back to chat.postMessage when the no-block update retry hits message_not_found", async () => {
-    const invalidBlocksErr = new SlackApiError("invalid blocks");
-    invalidBlocksErr.slackError = "invalid_blocks";
-    const missingMessageErr = new SlackApiError("message not found");
-    missingMessageErr.slackError = "message_not_found";
+    const invalidBlocksErr = new SlackApiError("invalid_blocks");
+    const missingMessageErr = new SlackApiError("message_not_found");
 
     callSlackApiMock
       .mockImplementationOnce(async () => {
@@ -176,9 +177,6 @@ describe("sendSlackReply", () => {
       channel: "C123",
       text: "Fallback reply",
       thread_ts: "1700000000.000001",
-      blocks: [
-        { type: "section", text: { type: "mrkdwn", text: "Fallback reply" } },
-      ],
     });
   });
 });

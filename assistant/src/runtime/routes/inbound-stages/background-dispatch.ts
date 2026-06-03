@@ -42,7 +42,10 @@ import {
   getApprovalInfoByConversation,
   getChannelApprovalPrompt,
 } from "../../channel-approvals.js";
-import { deliverChannelReply } from "../../gateway-client.js";
+import {
+  deliverChannelReply,
+  trackSlackActiveThread,
+} from "../../gateway-client.js";
 import type {
   ApprovalCopyGenerator,
   MessageProcessor,
@@ -820,6 +823,49 @@ function setSlackThinkingStatus(
 // ---------------------------------------------------------------------------
 
 const PENDING_APPROVAL_POLL_INTERVAL_MS = 300;
+const SLACK_DIRECT_REPLY_THREAD_ACTIVATION_ATTEMPTS = 3;
+const SLACK_DIRECT_REPLY_THREAD_ACTIVATION_RETRY_MS = 100;
+
+async function activateSlackThreadAfterDirectReply(params: {
+  sourceChannel: ChannelId;
+  replyCallbackUrl: string;
+  chatId: string;
+}): Promise<void> {
+  if (params.sourceChannel !== "slack") return;
+
+  const channelId = extractChannelFromCallbackUrl(params.replyCallbackUrl);
+  const threadTs = extractThreadTsFromCallbackUrl(params.replyCallbackUrl);
+  if (!channelId || !threadTs) return;
+
+  let lastErr: unknown;
+  for (
+    let attempt = 1;
+    attempt <= SLACK_DIRECT_REPLY_THREAD_ACTIVATION_ATTEMPTS;
+    attempt++
+  ) {
+    try {
+      if (await trackSlackActiveThread(channelId, threadTs)) {
+        return;
+      }
+    } catch (err) {
+      lastErr = err;
+    }
+
+    if (attempt < SLACK_DIRECT_REPLY_THREAD_ACTIVATION_ATTEMPTS) {
+      await delay(SLACK_DIRECT_REPLY_THREAD_ACTIVATION_RETRY_MS);
+    }
+  }
+
+  log.warn(
+    {
+      chatId: params.chatId,
+      channelId,
+      threadTs,
+      err: lastErr,
+    },
+    "Failed to activate Slack thread after direct reply delivery",
+  );
+}
 
 function startPendingApprovalPromptWatcher(params: {
   conversationId: string;
@@ -979,6 +1025,11 @@ function startTrustedContactApprovalNotifier(params: {
               chatId: externalChatId,
               text: waitingText,
               assistantId: assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
+            });
+            await activateSlackThreadAfterDirectReply({
+              sourceChannel,
+              replyCallbackUrl,
+              chatId: externalChatId,
             });
           } catch (err) {
             log.warn(

@@ -203,6 +203,7 @@ export async function sendSlackReply(
           return { ok: true, ts: retryResult.ts ?? messageTs };
         } catch (retryErr) {
           if (shouldFallbackToPostAfterUpdateError(retryErr, options)) {
+            delete slackBody.blocks;
             log.warn(
               { err: retryErr, chatId, messageTs },
               "Slack chat.update retry without blocks failed; falling back to chat.postMessage",

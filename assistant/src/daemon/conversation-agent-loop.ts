@@ -270,28 +270,6 @@ function logSlackHistoryTailDiagnostics(args: {
   );
 }
 
-/**
- * Best-effort persistence of the history-stripped marker after an
- * injection-strip event (compaction / overflow recovery). The marker is a
- * durability hint, not turn-critical state — a transient SQLite write failure
- * (SQLITE_BUSY, disk-full, read-only FS) must not abort the turn. Logs a
- * warning and continues on failure, preserving the long-standing non-fatal
- * contract for this metadata write.
- */
-function markHistoryStrippedBestEffort(
-  conversationId: string,
-  strippedAt: number,
-  logger: ReturnType<typeof getLogger>,
-): void {
-  try {
-    setConversationHistoryStrippedAt(conversationId, strippedAt);
-  } catch (err) {
-    logger.warn(
-      { err },
-      "Failed to persist history-stripped marker after compaction strip (non-fatal)",
-    );
-  }
-}
 const DISK_PRESSURE_ERROR_CODE = "DISK_SPACE_CRITICAL" as const;
 const DISK_PRESSURE_ERROR_CATEGORY = "disk_pressure";
 
