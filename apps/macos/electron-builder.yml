@@ -8,6 +8,9 @@ extraResources:
 afterPack: ./scripts/afterPack.js
 mac:
   category: public.app-category.productivity
+  hardenedRuntime: true
+  entitlements: ./scripts/entitlements/app.plist
+  entitlementsInherit: ./scripts/entitlements/inherit.plist
   target:
     - target: dmg
       arch:

@@ -29,7 +29,7 @@ exports.default = async function afterPack(context) {
 
   console.log(`afterPack: codesigning bun binary with identity="${identity}"`);
   execSync(
-    `codesign --force --sign "${identity}" --entitlements "${entitlements}" "${bunPath}"`,
+    `codesign --force --options runtime --sign "${identity}" --entitlements "${entitlements}" "${bunPath}"`,
     { stdio: "inherit" }
   );
 };
