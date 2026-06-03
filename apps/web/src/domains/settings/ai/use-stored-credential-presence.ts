@@ -84,7 +84,7 @@ export function useStoredCredentialPresence({
 
   return {
     hasStoredCredential: query.data ?? false,
-    isLoading: query.isLoading && !!assistantId && enabled && isOrgReady,
+    isLoading: query.isLoading,
     queryKey,
   };
 }

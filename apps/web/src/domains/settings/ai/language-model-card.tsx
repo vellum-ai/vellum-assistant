@@ -59,13 +59,12 @@ export function LanguageModelCard() {
   const handleManagedProfileSave = useCallback(async () => {
     try {
       await configMutation.mutateAsync({ llm: { activeProfile: effectiveActiveProfile } });
-      setDraftActiveProfile(null);
       toast.success("Profile saved.");
     } catch (error) {
       toast.error("Failed to switch profile. Please try again.");
       captureError(error, { context: "settings-ai-language-model-save" });
     }
-  }, [effectiveActiveProfile, configMutation, setDraftActiveProfile]);
+  }, [effectiveActiveProfile, configMutation]);
 
   return (
     <>

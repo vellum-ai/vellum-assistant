@@ -39,16 +39,18 @@ export function WebSearchCard() {
   // Server values derived from daemon config, falling back to localStorage.
   // When the cache refreshes (after save + invalidation), these update
   // automatically.
-  const serverWebSearchMode = useMemo<ServiceMode>(() => {
-    if (!daemonConfig) return getLocalSetting(LS_WEB_SEARCH_MODE, "your-own") as ServiceMode;
+  const { serverWebSearchMode, serverWebSearchProvider } = useMemo(() => {
+    if (!daemonConfig) {
+      return {
+        serverWebSearchMode: getLocalSetting(LS_WEB_SEARCH_MODE, "your-own") as ServiceMode,
+        serverWebSearchProvider: getLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native"),
+      };
+    }
     const reconciled = reconcileFromDaemonConfig(daemonConfig);
-    return reconciled.webSearchMode ?? (getLocalSetting(LS_WEB_SEARCH_MODE, "your-own") as ServiceMode);
-  }, [daemonConfig]);
-
-  const serverWebSearchProvider = useMemo(() => {
-    if (!daemonConfig) return getLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native");
-    const reconciled = reconcileFromDaemonConfig(daemonConfig);
-    return reconciled.webSearchProvider ?? getLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native");
+    return {
+      serverWebSearchMode: (reconciled.webSearchMode ?? getLocalSetting(LS_WEB_SEARCH_MODE, "your-own")) as ServiceMode,
+      serverWebSearchProvider: reconciled.webSearchProvider ?? getLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native"),
+    };
   }, [daemonConfig]);
 
   const [saving, setSaving] = useState(false);
