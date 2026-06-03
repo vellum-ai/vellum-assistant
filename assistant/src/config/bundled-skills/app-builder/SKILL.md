@@ -45,6 +45,8 @@ All new apps use `formatVersion: 2` (multi-file TSX). Do NOT create root-level `
 
 ## Responsive baseline
 
+(`{baseDir}` resolves to this skill's directory at load time; read references with `host_file_read`.)
+
 Every app works phone (~360px) to desktop. Full mobile-first / desktop-first decision tree and universal baseline (16px form font, 44pt touch targets, `100dvh`, safe-area-inset padding) in `{baseDir}/references/RESPONSIVE.md` (read with `host_file_read`).
 
 The conversation `<turn_context>` block carries an `interface:` field.
@@ -169,7 +171,9 @@ This is the tiered core. The order is fixed: **plan → scaffold → dispatch wo
 
 **3b. Scaffold (parent).** `skill_load("app-builder")` then `app_create` ONCE with the 4-file self-contained scaffold (`src/index.html`, `src/main.tsx`, a placeholder `src/components/App.tsx`, an empty `src/styles.css`). Pass `auto_open: false`. The placeholders make the initial compile clean. See the `app_create` parameter rules below.
 
-**3c. Dispatch (`coder` workers @ balanced).** Spawn one `coder` subagent per partition row with `subagent_spawn({ label, role: "coder", override_profile: "balanced", objective })`, **in bounded waves of ≤3–4 at a time**. Each worker's objective carries its partition slice plus the verbatim §2 Visual direction and the §3 component-tree context for its files. Workers use `file_write` / `file_edit` ONLY — never `app_refresh` / `app_create` / `app_open`. Read ORCHESTRATION.md (a)–(c) for the verbatim spawn shape and the wave/collect (`subagent_read`) protocol.
+**3c. Dispatch (`coder` workers @ balanced).** Spawn one `coder` subagent per partition row with `subagent_spawn({ label, role: "coder", override_profile: "balanced", objective })`, in bounded waves: **3 workers per wave for partitions of ≥7 files, 4 for ≤6.** Each worker's objective carries its partition slice plus the verbatim §2 Visual direction and the §3 component-tree context for its files. Workers use `file_write` / `file_edit` ONLY — never `app_refresh` / `app_create` / `app_open`. Read ORCHESTRATION.md (a)–(c) for the verbatim spawn shape and the wave/collect (`subagent_read`) protocol.
+
+**If a worker fails or times out →** re-spawn that row once on a fresh worker; if it fails again, fold its files into the repair scope (Step 4).
 
 ⚠️ **Compile-once rule: only the parent calls `app_refresh`, exactly once, after every worker across every wave has finished. Workers NEVER compile** (no `app_refresh`, `app_create`, or `app_open`). A worker that compiles corrupts the shared build cache and races the others.
 
@@ -295,10 +299,9 @@ render(<App />, document.getElementById("app")!);`,
   }
 })
 
-// 3c — dispatch coder workers @ balanced in bounded waves (see ORCHESTRATION.md)
-subagent_spawn({ label: "W1 — shell & data", role: "coder", override_profile: "balanced", objective: "<App.tsx + styles.css + types.ts row + §2 verbatim; file_write only, do NOT app_refresh>" })
-subagent_spawn({ label: "W2 — header & form", role: "coder", override_profile: "balanced", objective: "..." })
-subagent_spawn({ label: "W3 — board & columns", role: "coder", override_profile: "balanced", objective: "..." })
+// 3c — dispatch coder workers @ balanced in bounded waves
+// → See {baseDir}/references/ORCHESTRATION.md §(b) for the verbatim worker
+//   subagent_spawn shape. Do NOT invent objectives from shorthand.
 // collect each via subagent_read on completion, then next wave
 
 // 3d / Step 4 — parent compiles ONCE after all workers finish
@@ -341,7 +344,7 @@ app_refresh(app_id)
 
 The reload is cheap and idempotent — call it every time.
 
-**On compile failure → repair subagent @ quality.** Spawn a single repair `coder` subagent on the **quality-optimized** profile via `subagent_spawn` + `override_profile` (fixing cross-file type and import errors is judgment work). Its objective carries the `app_refresh` errors verbatim, the PLAN.md path, and the failing files. The repair agent uses `file_edit` only and does NOT compile. After it reports done, the parent reloads and `app_refresh`es again. **Bound to ≤2 repair attempts**, then surface the remaining errors to the user. The verbatim repair spawn is in ORCHESTRATION.md (e).
+**On compile failure → repair subagent @ quality.** Spawn a single repair `coder` subagent on the **quality-optimized** profile via `subagent_spawn` + `override_profile` (fixing cross-file type and import errors is judgment work). Its objective carries the `app_refresh` errors verbatim, the PLAN.md path, and the failing files. The repair agent uses `file_edit` only and does NOT compile. After it reports done, the parent reloads and `app_refresh`es again. **Bound to ≤2 repair attempts.** After the 2nd repair attempt fails → call `app_open(app_id, open_mode: "preview")` to surface the last good state, THEN post a chat message listing the failing files and unresolved errors. The verbatim repair spawn is in ORCHESTRATION.md (e).
 
 In the single-tier fallback (no worker profiles available), the parent fixes errors inline with `file_edit` and recompiles, same ≤2 bound — no repair subagent.
 
@@ -355,8 +358,6 @@ app_open(app_id, open_mode: "preview")
 ```
 
 ⚠️ **Do not skip this step.** Without it, the user sees no Open button, only your text description. `app_open` with `open_mode: "preview"` is the canonical surfacing path — it fires after all file_writes complete, so the card shows final content, not the scaffold placeholder.
-
-⚠️ **This step assumes you passed `auto_open: false` to `app_create` in Step 3.** If you forgot, `app_create` has already surfaced a card showing the placeholder, and this step adds a second card. Result: two duplicate previews in chat. Always pass `auto_open: false` to `app_create`.
 
 ⚠️ **`skill_load` is mandatory before `app_open`.** Same auto-unload risk as Step 4. The reload is idempotent — call it every time.
 
@@ -408,66 +409,9 @@ assistant inference session close
 
 ---
 
-## SKILL COMPLETE WHEN
+## Conventions
 
-- [ ] **PLAN.md written** to `/workspace/data/apps/<slug>/PLAN.md` (planner @ quality, five sections, disjoint partition table)
-- [ ] **Scaffold created** — `app_create` called ONCE with the 4-file scaffold and `auto_open: false`
-- [ ] **All workers completed** — every partition row dispatched as a `coder` subagent @ balanced (`override_profile`) and collected via `subagent_read`; each wrote only its own files
-- [ ] **`app_refresh` ran ONCE** from the parent, after all workers finished, with no remaining compile errors (repair subagent @ quality used if needed, ≤2 attempts)
-- [ ] **`app_open(app_id, open_mode: "preview")` rendered the preview** — inline card with an Open button is in chat
-- [ ] **User told what was built** (brief feature list, 3-6 bullets)
-- [ ] Iterations reflected in the live app (`app_refresh` called once after all edits, fresh preview card if substantial)
-- [ ] Inference session closed if one was opened in Step 0
-
----
-
-## Interaction standards
-
-Every app must meet these baselines:
-
-- **Feedback for every action** — use `vellum.widgets.toast()` after creates, deletes, updates, and errors
-- **Confirmation for destructive actions** — use `window.vellum.confirm(title, message)` before deleting or resetting. Returns `Promise<boolean>`
-- **Form validation** — validate before submit, show errors inline, disable submit during async operations
-- **Loading states** — never show a blank screen while data loads. Use skeleton shimmer or spinners
-- **Keyboard navigation** — `Tab` between elements, `Enter` to submit, `Escape` to close/cancel. De-prioritized on mobile-first builds
-
----
-
-## Error handling
-
-- Wrap every `window.vellum.fetch()` call in `try/catch` with user-friendly feedback. Check `res.ok` before parsing the body
-- Never let a failed operation pass silently — always show a toast or inline error
-- Show a designed empty state (`.v-empty-state`) when there's no data
-- Show validation errors inline next to the relevant form field
-
----
-
-## App interaction hooks
-
-Proactively wire `window.vellum.sendAction()` so the assistant stays aware of meaningful user interactions. Two patterns:
-
-- **Reactive hooks** — trigger an assistant response. Use for selections that warrant explanation, level completions, form submissions
-- **Silent hooks** (`state_update`) — accumulate context without interrupting. Use for tab navigation, filter changes, score updates
-
-Wire hooks during the initial build, not after the user asks. Full examples and per-app-type guidance in `{baseDir}/references/INTERACTION_HOOKS.md` (read with `host_file_read`).
-
----
-
-## Actionable UI
-
-When the user wants to triage or bulk-act on items, render an interactive UI with selectable items and action buttons:
-
-1. Fetch data with relevant tools
-2. Render a `dynamic_page` with selectable items and action buttons
-3. User selects + clicks action → UI sends `surfaceAction` with action ID and selected IDs
-4. Execute tools, update UI with `ui_update`, show feedback via `widgets.toast()`
-5. Use `window.vellum.confirm()` for destructive actions
-
----
-
-## External links
-
-Use `vellum.openLink(url, metadata)` to make items clickable. Construct deep-link URLs when possible. Include `metadata.provider` and `metadata.type` for context.
+The interaction baselines every app must meet (feedback, confirmation, validation, loading/keyboard) plus error handling, app interaction hooks (`sendAction`), actionable UI, and external links live in `{baseDir}/references/CONVENTIONS.md` (read with `host_file_read`). Meet them on every build and iteration.
 
 ---
 
@@ -488,4 +432,18 @@ Read these with the **`host_file_read`** tool when relevant — NOT `file_read` 
 - `{baseDir}/references/WIDGETS.md` — widget classes, chart utilities, formatting helpers
 - `{baseDir}/references/CUSTOM_ROUTES.md` — server-side persistence and custom API routes
 - `{baseDir}/references/INTERACTION_HOOKS.md` — sendAction patterns, reactive vs silent
+- `{baseDir}/references/CONVENTIONS.md` — interaction baselines, error handling, hooks, actionable UI, external links
 - `{baseDir}/references/SLIDES.md` — presentation slide design
+
+---
+
+## SKILL COMPLETE WHEN
+
+- [ ] **PLAN.md written** to `/workspace/data/apps/<slug>/PLAN.md` (planner @ quality, five sections, disjoint partition table)
+- [ ] **Scaffold created** — `app_create` called ONCE with the 4-file scaffold and `auto_open: false`
+- [ ] **All workers completed** — every partition row dispatched as a `coder` subagent @ balanced (`override_profile`) and collected via `subagent_read`; each wrote only its own files
+- [ ] **`app_refresh` ran ONCE** from the parent, after all workers finished, with no remaining compile errors (repair subagent @ quality used if needed, ≤2 attempts)
+- [ ] **`app_open(app_id, open_mode: "preview")` rendered the preview** — inline card with an Open button is in chat
+- [ ] **User told what was built** — posted a feature-list message (3-6 bullets) AFTER the preview card rendered
+- [ ] Iterations reflected in the live app (`app_refresh` called once after all edits, fresh preview card if substantial)
+- [ ] Inference session closed if one was opened in Step 0
