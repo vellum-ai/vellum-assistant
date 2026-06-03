@@ -10,6 +10,7 @@ import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-st
 
 import { ByoServiceCard, SaveButton } from "@/domains/settings/ai/ai-shared-ui";
 import { useDaemonConfigQuery, useDaemonConfigMutation } from "@/domains/settings/ai/use-daemon-config";
+import { useDraftOverride } from "@/domains/settings/ai/use-draft-override";
 import { CallSiteOverridesModal } from "@/domains/settings/ai/call-site-overrides-modal";
 import { ManageProfilesModal } from "@/domains/settings/ai/manage-profiles-modal";
 import { ManageProvidersModal } from "@/domains/settings/ai/manage-providers-modal";
@@ -29,22 +30,7 @@ export function LanguageModelCard() {
   } = useDaemonConfigQuery();
   const configMutation = useDaemonConfigMutation();
 
-  // Draft active profile — ephemeral UI state for the unsaved dropdown
-  // selection. Resets to the server value when the server value changes
-  // (i.e. after a successful save + cache invalidation).
-  const [draftActiveProfile, setDraftActiveProfile] = useState<string | null>(null);
-  const [draftInitialized, setDraftInitialized] = useState(false);
-
-  // Derive the active profile to display: when the user hasn't touched
-  // the dropdown yet, use the server value; otherwise use the draft.
-  // After a successful save, `draftInitialized` resets so the dropdown
-  // re-syncs to the persisted value.
-  const effectiveActiveProfile = useMemo(() => {
-    if (!draftInitialized && activeProfile !== null) {
-      return activeProfile;
-    }
-    return draftActiveProfile ?? activeProfile;
-  }, [draftInitialized, draftActiveProfile, activeProfile]);
+  const [effectiveActiveProfile, setDraftActiveProfile] = useDraftOverride(activeProfile);
 
   // Modal toggles — ephemeral UI state, correct as useState
   const [manageProfilesOpen, setManageProfilesOpen] = useState(false);
@@ -73,8 +59,6 @@ export function LanguageModelCard() {
   const handleManagedProfileSave = useCallback(async () => {
     try {
       await configMutation.mutateAsync({ llm: { activeProfile: effectiveActiveProfile } });
-      setDraftInitialized(false);
-      setDraftActiveProfile(null);
       toast.success("Profile saved.");
     } catch (error) {
       toast.error("Failed to switch profile. Please try again.");
@@ -96,7 +80,6 @@ export function LanguageModelCard() {
             <Dropdown
               value={effectiveActiveProfile ?? ""}
               onChange={(val) => {
-                setDraftInitialized(true);
                 setDraftActiveProfile(val === "" ? null : val);
               }}
               placeholder="Select a default profile…"

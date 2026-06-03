@@ -331,7 +331,7 @@ async function handleDeleteProvider({
  * list endpoint. Mirrors `SerializedProviderSummary` from the provider
  * serializer (snake_case to match the HTTP API convention).
  */
-const oauthProviderSummarySchema = z.object({
+export const oauthProviderSummarySchema = z.object({
   provider_key: z.string(),
   display_name: z.string().nullable(),
   description: z.string().nullable(),
@@ -342,6 +342,19 @@ const oauthProviderSummarySchema = z.object({
   supports_managed_mode: z.boolean(),
   managed_service_is_paid: z.boolean(),
   feature_flag: z.string().nullable(),
+});
+
+/**
+ * Response for the single-provider detail endpoint. The `provider` field is the
+ * full serialized provider configuration — an open-ended, admin-defined object
+ * whose keys depend on the stored row (parsed JSON blobs, identity templates,
+ * and forwarded columns), so it is intentionally typed as an open record rather
+ * than a closed schema. `oauth_callback_url` is the ingress callback URL the
+ * web UI consumes (null when ingress is not configured).
+ */
+export const oauthProviderDetailSchema = z.object({
+  provider: z.record(z.string(), z.unknown()),
+  oauth_callback_url: z.string().nullable(),
 });
 
 export const ROUTES: RouteDefinition[] = [
@@ -380,6 +393,7 @@ export const ROUTES: RouteDefinition[] = [
     description: "Get a single OAuth provider by key.",
     tags: ["oauth"],
     handler: handleGetProvider,
+    responseBody: oauthProviderDetailSchema,
   },
   {
     operationId: "oauth_providers_post",

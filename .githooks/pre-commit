@@ -158,6 +158,12 @@ declare -a SAFE_LINE_PATTERNS=(
     "[Cc]lient[_-]?[Ss]ecret['\"]?:[[:space:]]*\{[[:space:]]*$"
     # Inline JSON-schema property definition (e.g. `client_secret: { type: "string" },`).
     "[Cc]lient[_-]?[Ss]ecret['\"]?:[[:space:]]*\{[[:space:]]*type:"
+    # TS: Zod schema field whose entire value is a quote-free `z.` builder chain
+    # (e.g. `client_secret: z.string()`, `private_key: z.string().optional()`).
+    # Anchored to end-of-line and restricted to identifier/dot/paren/digit chars,
+    # so a line embedding a quoted literal (e.g. `z.string().default("sk_live…")`)
+    # is NOT whitelisted and still hits the high-entropy secret patterns.
+    "([Cc]lient[_-]?[Ss]ecret|[Pp]rivate[_-]?[Kk]ey)['\"]?:[[:space:]]*z[a-zA-Z0-9_.()[:space:]]*[,;]?[[:space:]]*$"
     # YAML schema property declaration with no value on the same line — the
     # nested type definition follows on subsequent lines (e.g. OpenAPI specs:
     # `clientSecret:\n  type: string`). A real secret value would be on the
@@ -379,6 +385,11 @@ if [ "${1:-}" = "--self-test" ]; then
     UNSAFE_FUNC_CALL_SINGLE_QUOTE="const privateKey = loadPrivateKey('real_secret_key_value_12345')"
     # Type-annotated property (false positive to whitelist)
     SAFE_TYPED_PROP_SECRET='  requiresClientSecret: boolean;'
+    # Zod schema field whose value is a z. builder call (false positives to whitelist)
+    SAFE_ZOD_SCHEMA_SECRET='  client_secret: z.string().optional(),'
+    SAFE_ZOD_SCHEMA_PRIVATE_KEY='  private_key: z.string(),'
+    # Zod field name with a hardcoded string literal default — must NOT be whitelisted
+    UNSAFE_ZOD_SCHEMA_LITERAL='  client_secret: z.string().default("sk_live_12345678901234567890"),'
     # Variable-to-variable assignment (false positive to whitelist)
     SAFE_VAR_ASSIGN_SECRET='body.client_secret = clientSecret;'
     SAFE_VAR_NULLISH_SECRET='oauth2ClientSecret: clientSecret ?? undefined,'
@@ -620,6 +631,18 @@ if [ "${1:-}" = "--self-test" ]; then
     fi
     if matches_secret_pattern "$SAFE_FUNC_CALL_SECRET" && ! matches_safe_line_pattern "$SAFE_FUNC_CALL_SECRET"; then
         echo -e "${RED}Self-test failed:${NC} function-call clientSecret assignment false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_ZOD_SCHEMA_SECRET" && ! matches_safe_line_pattern "$SAFE_ZOD_SCHEMA_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} Zod client_secret schema field false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_ZOD_SCHEMA_PRIVATE_KEY" && ! matches_safe_line_pattern "$SAFE_ZOD_SCHEMA_PRIVATE_KEY"; then
+        echo -e "${RED}Self-test failed:${NC} Zod private_key schema field false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$UNSAFE_ZOD_SCHEMA_LITERAL" && matches_safe_line_pattern "$UNSAFE_ZOD_SCHEMA_LITERAL"; then
+        echo -e "${RED}Self-test failed:${NC} Zod schema field with hardcoded literal was incorrectly whitelisted"
         exit 1
     fi
     if matches_secret_pattern "$SAFE_FUNC_CALL_AWAIT" && ! matches_safe_line_pattern "$SAFE_FUNC_CALL_AWAIT"; then

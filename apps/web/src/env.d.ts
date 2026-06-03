@@ -20,6 +20,11 @@ interface ImportMetaEnv {
   readonly VITE_APP_VERSION?: string;
   /** When set, the app runs in platform (cloud-hosted) mode. Unset = local mode. */
   readonly VITE_PLATFORM_MODE?: string;
+  /**
+   * Override for the live-voice velay host (no scheme), e.g. `velay.dev.vellum.ai`.
+   * Defaults to `velay.vellum.ai` when unset. See `domains/chat/voice/live-voice/connection.ts`.
+   */
+  readonly VITE_VELAY_HOST?: string;
 }
 
 interface ImportMeta {

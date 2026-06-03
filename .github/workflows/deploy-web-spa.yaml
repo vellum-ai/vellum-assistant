@@ -66,6 +66,13 @@ jobs:
       #                              job's `environment:`)
       #   - VITE_STRIPE_PUBLISHABLE_KEY  per-environment secret; publishable keys
       #                              are public, so embedding them is expected
+      #   - VITE_VELAY_HOST          per-environment variable: the live-voice
+      #                              velay host (no scheme), e.g.
+      #                              `velay-dev.vellum.ai` on nonprod. Unset in
+      #                              prod, where the client defaults to
+      #                              `velay.vellum.ai`. Must match the velay the
+      #                              environment's assistant gateways tunnel to,
+      #                              or the live-voice WS upgrade 503s "offline".
       #   - VITE_APP_VERSION         commit SHA baked into the browser bundle
       #                              for Sentry event release tagging.
       #   - SENTRY_UPLOAD_SOURCE_MAPS  deploy-only opt-in for source-map upload
@@ -82,6 +89,7 @@ jobs:
           VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
           VITE_SENTRY_ENVIRONMENT: ${{ vars.VITE_SENTRY_ENVIRONMENT }}
           VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+          VITE_VELAY_HOST: ${{ vars.VITE_VELAY_HOST }}
           VITE_APP_VERSION: ${{ github.sha }}
           SENTRY_UPLOAD_SOURCE_MAPS: "true"
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}

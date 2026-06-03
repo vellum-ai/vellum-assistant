@@ -89,9 +89,12 @@ export function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
         await useAuthStore.getState().connectLocalAssistant(assistantId);
         navigate(returnTo || "/assistant");
       } catch (err) {
+        const target = localAssistants.find(
+          (assistant) => assistant.assistantId === assistantId,
+        );
         captureError(err, {
           context: "local-login.connect",
-          extra: { assistantId },
+          extra: { assistantId, gatewayPort: target?.resources?.gatewayPort },
         });
         setConnectError({
           message:
@@ -101,7 +104,7 @@ export function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
         setConnectingId(null);
       }
     },
-    [navigate, returnTo],
+    [navigate, returnTo, localAssistants],
   );
 
   const handlePlatformProvider = useCallback(

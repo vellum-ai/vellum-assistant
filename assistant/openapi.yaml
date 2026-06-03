@@ -16354,6 +16354,86 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  provider:
+                    anyOf:
+                      - type: object
+                        properties:
+                          provider_key:
+                            type: string
+                          display_name:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          description:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          dashboard_url:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          client_id_placeholder:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          requires_client_secret:
+                            type: boolean
+                          logo_url:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          supports_managed_mode:
+                            type: boolean
+                          managed_service_is_paid:
+                            type: boolean
+                          feature_flag:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                        required:
+                          - provider_key
+                          - display_name
+                          - description
+                          - dashboard_url
+                          - client_id_placeholder
+                          - requires_client_secret
+                          - logo_url
+                          - supports_managed_mode
+                          - managed_service_is_paid
+                          - feature_flag
+                        additionalProperties: false
+                      - type: "null"
+                  apps:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        provider_key:
+                          type: string
+                        client_id:
+                          type: string
+                        created_at:
+                          type: number
+                        updated_at:
+                          type: number
+                      required:
+                        - id
+                        - provider_key
+                        - client_id
+                        - created_at
+                        - updated_at
+                      additionalProperties: false
+                required:
+                  - provider
+                  - apps
+                additionalProperties: false
       parameters:
         - name: provider_key
           in: query
@@ -16370,6 +16450,52 @@ paths:
       responses:
         "201":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  app:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      provider_key:
+                        type: string
+                      client_id:
+                        type: string
+                      created_at:
+                        type: number
+                      updated_at:
+                        type: number
+                    required:
+                      - id
+                      - provider_key
+                      - client_id
+                      - created_at
+                      - updated_at
+                    additionalProperties: false
+                required:
+                  - app
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                provider_key:
+                  type: string
+                client_id:
+                  type: string
+                client_secret:
+                  type: string
+              required:
+                - provider_key
+                - client_id
+                - client_secret
+              additionalProperties: false
   /v1/oauth/apps/{appId}/connect:
     post:
       operationId: oauth_apps_by_appId_connect_post
@@ -16380,12 +16506,51 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      auth_url:
+                        type: string
+                      state:
+                        type: string
+                    required:
+                      - auth_url
+                      - state
+                    additionalProperties: false
+                  - type: object
+                    properties:
+                      ok:
+                        type: boolean
+                        const: true
+                    required:
+                      - ok
+                    additionalProperties: false
       parameters:
         - name: appId
           in: path
           required: true
           schema:
             type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                scopes:
+                  type: array
+                  items:
+                    type: string
+                callback_transport:
+                  type: string
+                  enum:
+                    - loopback
+                    - gateway
+              additionalProperties: false
   /v1/oauth/apps/{appId}/connections:
     get:
       operationId: oauth_apps_by_appId_connections_get
@@ -16396,6 +16561,54 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connections:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        provider_key:
+                          type: string
+                        account_info:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        granted_scopes:
+                          type: array
+                          items:
+                            type: string
+                        status:
+                          type: string
+                        has_refresh_token:
+                          type: boolean
+                        expires_at:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        created_at:
+                          type: number
+                        updated_at:
+                          type: number
+                      required:
+                        - id
+                        - provider_key
+                        - account_info
+                        - granted_scopes
+                        - status
+                        - has_refresh_token
+                        - expires_at
+                        - created_at
+                        - updated_at
+                      additionalProperties: false
+                required:
+                  - connections
+                additionalProperties: false
       parameters:
         - name: appId
           in: path
@@ -16412,6 +16625,16 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                  - ok
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -16428,6 +16651,34 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  app:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      provider_key:
+                        type: string
+                      client_id:
+                        type: string
+                      created_at:
+                        type: number
+                      updated_at:
+                        type: number
+                    required:
+                      - id
+                      - provider_key
+                      - client_id
+                      - created_at
+                      - updated_at
+                    additionalProperties: false
+                required:
+                  - app
+                additionalProperties: false
       parameters:
         - name: id
           in: query
@@ -16457,6 +16708,53 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  app:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      provider_key:
+                        type: string
+                      client_id:
+                        type: string
+                      created_at:
+                        type: number
+                      updated_at:
+                        type: number
+                    required:
+                      - id
+                      - provider_key
+                      - client_id
+                      - created_at
+                      - updated_at
+                    additionalProperties: false
+                required:
+                  - app
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                provider_key:
+                  type: string
+                client_id:
+                  type: string
+                client_secret:
+                  type: string
+                client_secret_credential_path:
+                  type: string
+              required:
+                - provider_key
+                - client_id
+              additionalProperties: false
   /v1/oauth/connection-changed:
     post:
       operationId: oauth_connectionchanged_post
@@ -16487,6 +16785,16 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                  - ok
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -16674,6 +16982,24 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  provider:
+                    type: object
+                    propertyNames:
+                      type: string
+                    additionalProperties: {}
+                  oauth_callback_url:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                required:
+                  - provider
+                  - oauth_callback_url
+                additionalProperties: false
       parameters:
         - name: providerKey
           in: path

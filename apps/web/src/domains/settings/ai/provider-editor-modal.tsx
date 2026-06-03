@@ -13,7 +13,6 @@ import {
   inferenceProviderconnectionsPost,
   secretsGet,
   secretsPost,
-  secretsReadPost,
 } from "@/generated/daemon/sdk.gen";
 import {
   ApiError,
@@ -23,6 +22,7 @@ import {
 import { shouldRetryDaemonError } from "@/utils/daemon-errors";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
+import { useStoredCredentialPresence } from "@/domains/settings/ai/use-stored-credential-presence";
 
 import { ChatgptOAuthSection } from "@/domains/settings/ai/chatgpt-oauth-section";
 import {
@@ -42,7 +42,6 @@ import { providerSupportsPlatformAuth } from "@/assistant/llm-model-catalog";
 // Query keys
 // ---------------------------------------------------------------------------
 
-const PROVIDER_CREDENTIAL_PRESENCE_QK = "provider-credential-presence" as const;
 const PROVIDER_CREDENTIALS_LIST_QK = "provider-credentials-list" as const;
 
 function parseCredentialRef(credRef: string): { service: string; field: string } | null {
@@ -199,47 +198,21 @@ export function ProviderEditorContent({
   const queryClient = useQueryClient();
   const isOrgReady = useIsOrgReady();
 
-  // --- Credential presence query (TanStack Query) ---
+  // --- Credential presence (shared hook) ---
   const parsedCredRef = useMemo(() => parseCredentialRef(credential), [credential]);
   const needsCredentialCheck = authType === "api_key" && parsedCredRef !== null;
 
-  const credentialPresenceKey = useMemo(
-    () => [PROVIDER_CREDENTIAL_PRESENCE_QK, assistantId, parsedCredRef?.service ?? "", parsedCredRef?.field ?? ""],
-    [assistantId, parsedCredRef],
-  );
-
-  const credentialPresenceQuery = useQuery({
+  const {
+    hasStoredCredential,
+    isLoading: isLoadingCredential,
     queryKey: credentialPresenceKey,
-    queryFn: async () => {
-      const { data, error, response } = await secretsReadPost({
-        path: { assistant_id: assistantId },
-        body: { type: "credential", name: `${parsedCredRef!.service}:${parsedCredRef!.field}` },
-        throwOnError: false,
-      });
-      assertHasResponse(response, error, "Failed to check stored credential");
-      if (!response.ok) {
-        throw new ApiError(
-          response.status,
-          extractErrorMessage(error, response, `Failed to check stored credential (HTTP ${response.status})`),
-        );
-      }
-      return data!.found;
-    },
-    enabled: !!assistantId && needsCredentialCheck && isOrgReady,
-    retry: shouldRetryDaemonError,
-    staleTime: 30_000,
+  } = useStoredCredentialPresence({
+    assistantId,
+    credentialKind: "credential",
+    credentialName: parsedCredRef ? `${parsedCredRef.service}:${parsedCredRef.field}` : "",
+    enabled: needsCredentialCheck,
+    errorContext: "settings-provider-editor-credential-presence",
   });
-
-  useEffect(() => {
-    if (!credentialPresenceQuery.error) return;
-    captureError(credentialPresenceQuery.error, {
-      context: "settings-provider-editor-credential-presence",
-      bestEffort: true,
-    });
-  }, [credentialPresenceQuery.error]);
-
-  const hasStoredCredential = credentialPresenceQuery.data ?? false;
-  const isLoadingCredential = credentialPresenceQuery.isLoading && needsCredentialCheck;
 
   // --- Available credentials list query (TanStack Query) ---
   const needsCredentialsList =

@@ -39,7 +39,7 @@ export function CreditsCard({
               aria-hidden
             />
             <span
-              className="text-title-medium"
+              className="text-body-large-default max-md:text-title-medium"
               style={{ color: "var(--content-default)" }}
             >
               {balance} credits
@@ -55,7 +55,7 @@ export function CreditsCard({
       <button
         type="button"
         onClick={onEarnCredits}
-        className="flex items-center gap-2 pl-1.5 transition-colors hover:opacity-80"
+        className="flex items-center justify-center gap-2 transition-colors hover:opacity-80"
       >
         <Gift
           className="h-3.5 w-3.5"
@@ -63,7 +63,7 @@ export function CreditsCard({
           aria-hidden
         />
         <span
-          className="text-body-large-default"
+          className="text-body-medium-lighter max-md:text-body-large-default"
           style={{ color: "var(--content-secondary)" }}
         >
           Earn Credits

@@ -130,6 +130,8 @@ private struct MockSkillsClient: SkillsClientProtocol {
     func fetchSkillFileContent(skillId: String, path: String) async -> SkillFileContentResponse? {
         await backing.awaitResponse(skillId: skillId, path: path)
     }
+
+    func fetchCategories() async -> [SkillCategoryDef] { [] }
 }
 
 // MARK: - SkillsClient HTTP tests

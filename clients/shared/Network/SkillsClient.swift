@@ -22,6 +22,7 @@ public protocol SkillsClientProtocol {
     func fetchSkillDetail(skillId: String) async -> SkillDetailHTTPResponse?
     func fetchSkillFiles(skillId: String) async -> SkillDetailFilesHTTPResponse?
     func fetchSkillFileContent(skillId: String, path: String) async -> SkillFileContentResponse?
+    func fetchCategories() async -> [SkillCategoryDef]
 }
 
 /// Gateway-backed implementation of ``SkillsClientProtocol``.
@@ -358,6 +359,21 @@ public struct SkillsClient: SkillsClientProtocol {
         }
         json["type"] = type
         return (try? JSONSerialization.data(withJSONObject: json)) ?? data
+    }
+
+    public func fetchCategories() async -> [SkillCategoryDef] {
+        do {
+            let response = try await GatewayHTTPClient.get(path: "skills/categories", timeout: 10)
+            guard response.isSuccess else {
+                log.error("fetchCategories failed (HTTP \(response.statusCode))")
+                return []
+            }
+            let decoded = try JSONDecoder().decode(SkillCategoriesResponse.self, from: response.data)
+            return decoded.categories
+        } catch {
+            log.error("fetchCategories error: \(error.localizedDescription)")
+            return []
+        }
     }
 
     private func extractErrorMessage(from data: Data) -> String? {
