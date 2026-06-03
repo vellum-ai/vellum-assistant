@@ -1,0 +1,14 @@
+appId: com.vellum.vellum-assistant-electron
+productName: Vellum
+directories:
+  output: dist
+extraResources:
+  - from: resources/bun
+    to: bun
+  # TODO(LUM-2192): Stage web renderer (apps/web/dist) for packaged builds.
+mac:
+  category: public.app-category.productivity
+  target:
+    - target: dmg
+      arch:
+        - arm64
