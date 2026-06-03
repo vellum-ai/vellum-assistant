@@ -44,26 +44,11 @@
  *     next event re-triggers the gap path.
  *
  * Reconnect handling:
- *   `clientSeq` resets to 1 on each new SSE subscription (the server
- *   creates a fresh counter map per subscriber). Callers must invoke
- *   `notifyReconnect()` on `sse.opened`. The consumer defers the
- *   actual reset until the first post-reconnect event arrives:
- *     - If the event carries `clientSeq` (new daemon): resets the
- *       seed flag, in-flight state, and gap tracker so the event
- *       re-seeds the cursor via `replaceLastSeenSeq`.
- *     - If the event uses raw `seq` (old daemon): no reset — `seq`
- *       is stable across connections and normal gap detection handles
- *       reconnect correctly (a jump means genuinely missed events).
- *
- *   Additionally, the seed event (first event from a newly created
- *   consumer) always uses `replaceLastSeenSeq` when `clientSeq` is
- *   present. This handles the case where SSE reconnected while this
- *   consumer was not mounted (e.g. user switched conversations) —
- *   `notifyReconnect()` was never called, but the server's counters
- *   still reset. `clientSeq` is inherently per-subscription, so the
- *   stored cursor from a prior subscription is stale. Raw `seq` keeps
- *   `setLastSeenSeq` (monotonic) on seed so that generation resets
- *   (daemon restart → seq drops) are detected on the next event.
+ *   The daemon's `seq` is a stable global counter that does not reset
+ *   when a client reconnects. Normal gap detection therefore handles
+ *   reconnect on its own: a jump in `seq` on the first post-reconnect
+ *   event means events were genuinely missed and triggers a reconcile.
+ *   No special reconnect signaling is required.
  */
 
 import { useStreamStore } from "@/domains/chat/stream-store";
@@ -89,7 +74,6 @@ export interface ConsumableEnvelope {
   message: AssistantEvent;
   conversationId?: string;
   seq?: number;
-  clientSeq?: number;
 }
 
 export interface SseEventConsumerDeps {
@@ -107,11 +91,6 @@ export interface SseEventConsumerDeps {
 
 export interface SseEventConsumer {
   handleSseEvent(envelope: ConsumableEnvelope): void;
-  /** Signal that an SSE reconnect occurred. The actual seq-tracking
-   *  reset is deferred until the first post-reconnect event — only
-   *  applied when `clientSeq` is present (resets per subscription).
-   *  With raw `seq` (old daemon), gap detection proceeds normally. */
-  notifyReconnect(): void;
 }
 
 export function createSseEventConsumer(
@@ -131,19 +110,7 @@ export function createSseEventConsumer(
   let reconcileInFlight = false;
   let latestGapSeq: { conversationId: string; seq: number } | null = null;
 
-  // Set on sse.opened — deferred until the first post-reconnect
-  // event so the reset only applies when clientSeq is present.
-  let pendingReconnect = false;
-
-  // Set when a reconnect is applied (clientSeq present). The first
-  // post-reconnect write uses `replaceLastSeenSeq` (unconditional)
-  // instead of `setLastSeenSeq` (monotonic, won't lower the cursor).
-  let pendingReseed = false;
-
   return {
-    notifyReconnect() {
-      pendingReconnect = true;
-    },
     handleSseEvent(envelope) {
       const event = envelope.message;
       const eventConversationId = envelope.conversationId;
@@ -167,25 +134,9 @@ export function createSseEventConsumer(
         return;
       }
 
-      // Prefer clientSeq (gap-free per subscriber) over raw seq
-      // (global, may have gaps from targeted events the web client
-      // never receives). Falls back to seq for older daemons that
-      // predate the clientSeq field.
-      const eventSeq = envelope.clientSeq ?? envelope.seq;
+      const eventSeq = envelope.seq;
       let gapDetected = false;
       if (seqGapEnabled && eventSeq != null && eventConversationId) {
-        // Deferred reconnect handling: clientSeq resets per
-        // subscription, so reseed. Raw seq is stable across
-        // connections — let normal gap detection handle it.
-        if (pendingReconnect) {
-          pendingReconnect = false;
-          if (envelope.clientSeq != null) {
-            seededSeqForConversation = false;
-            reconcileInFlight = false;
-            latestGapSeq = null;
-            pendingReseed = true;
-          }
-        }
         if (seededSeqForConversation) {
           const stored = getLastSeenSeq(eventConversationId) ?? 0;
           if (eventSeq < stored) {
@@ -243,16 +194,11 @@ export function createSseEventConsumer(
             }
           }
         } else {
+          // Seed the cursor on the first event without reconciling.
+          // The post-handler advance below writes it via the monotonic
+          // `setLastSeenSeq`, so a later backwards `seq` (daemon
+          // restart) is detected as a generation reset on the next event.
           seededSeqForConversation = true;
-          // clientSeq is per-subscription — the stored cursor might be
-          // from a prior subscription that no longer matches. Use
-          // unconditional replace so the seed always writes regardless
-          // of the stored value (handles reconnect while unmounted).
-          // Raw seq is stable: keep monotonic to preserve generation-
-          // reset detection on the next event.
-          if (envelope.clientSeq != null) {
-            pendingReseed = true;
-          }
         }
       }
 
@@ -269,12 +215,7 @@ export function createSseEventConsumer(
         eventConversationId &&
         !gapDetected
       ) {
-        if (pendingReseed) {
-          replaceLastSeenSeq(eventConversationId, eventSeq);
-          pendingReseed = false;
-        } else {
-          setLastSeenSeq(eventConversationId, eventSeq);
-        }
+        setLastSeenSeq(eventConversationId, eventSeq);
       }
     },
   };
