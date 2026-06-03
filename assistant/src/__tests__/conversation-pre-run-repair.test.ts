@@ -118,6 +118,51 @@ describe("pre-run history repair", () => {
     expect(stats.assistantToolResultsMigrated).toBe(1);
   });
 
+  test("merges a trailing assistant Slack tail before synthesizing the missing tool result", () => {
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "Slack user message" }],
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "tu_slack_tail",
+            name: "bash",
+            input: { cmd: "echo hidden" },
+          },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Assistant trailing text" }],
+      },
+    ];
+
+    const { messages: repaired, stats } = repairHistory(messages);
+
+    expect(repaired.map((message) => message.role)).toEqual([
+      "user",
+      "assistant",
+      "user",
+    ]);
+    expect(repaired[1].content.map((block) => block.type)).toEqual([
+      "tool_use",
+      "text",
+    ]);
+    expect(
+      repaired[2].content.some(
+        (block) =>
+          block.type === "tool_result" &&
+          block.tool_use_id === "tu_slack_tail",
+      ),
+    ).toBe(true);
+    expect(stats.consecutiveSameRoleMerged).toBe(1);
+    expect(stats.missingToolResultsInserted).toBe(1);
+  });
+
   test("consecutive same-role messages get merged", () => {
     const messages: Message[] = [
       {

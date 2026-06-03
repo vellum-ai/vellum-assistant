@@ -2695,6 +2695,154 @@ describe("session-agent-loop", () => {
       expect(callCount).toBe(2);
     });
 
+    test("repairs a trailing Slack assistant tail before the initial provider call", async () => {
+      const events: ServerMessage[] = [];
+      let callCount = 0;
+      const repairedDiagnostics = {
+        stats: {
+          assistantToolResultsMigrated: 0,
+          missingToolResultsInserted: 1,
+          orphanToolResultsDowngraded: 0,
+          consecutiveSameRoleMerged: 1,
+        },
+        actions: {
+          migratedAssistantToolResults: false,
+          insertedSyntheticToolResults: true,
+          repairedOrphanToolResults: false,
+          mergedSameRoleMessages: true,
+        },
+      };
+
+      repairHistoryMock.mockImplementation(() => ({
+        messages: [
+          {
+            role: "user" as const,
+            content: [{ type: "text", text: "Slack user message" }],
+          },
+          {
+            role: "assistant" as const,
+            content: [
+              {
+                type: "tool_use",
+                id: "tool-secret",
+                name: "bash",
+                input: { cmd: "echo hidden" },
+              },
+              {
+                type: "text",
+                text: "assistant trailing text should stay attached",
+              },
+            ] as ContentBlock[],
+          },
+          {
+            role: "user" as const,
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: "tool-secret",
+                content:
+                  "<synthesized_result>tool result missing from history</synthesized_result>",
+                is_error: true,
+              },
+            ] as ContentBlock[],
+          },
+        ],
+        stats: repairedDiagnostics.stats,
+        diagnostics: repairedDiagnostics,
+      }));
+      getHistoryRepairDiagnosticsMock.mockReturnValue(repairedDiagnostics);
+
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        await onEvent({ type: "llm_call_started" });
+        callCount++;
+        expect(messages.map((message) => message.role)).toEqual([
+          "user",
+          "assistant",
+          "user",
+        ]);
+        expect(messages[1].content.map((block) => block.type)).toEqual([
+          "tool_use",
+          "text",
+        ]);
+        expect(
+          messages[2].content.some(
+            (block) =>
+              block.type === "tool_result" &&
+              block.tool_use_id === "tool-secret",
+          ),
+        ).toBe(true);
+
+        onEvent({
+          type: "message_complete",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "fixed" }],
+          },
+        });
+        onEvent({
+          type: "usage",
+          inputTokens: 50,
+          outputTokens: 25,
+          model: "test-model",
+          providerDurationMs: 100,
+        });
+        return [
+          ...messages,
+          {
+            role: "assistant" as const,
+            content: [{ type: "text", text: "fixed" }] as ContentBlock[],
+          },
+        ];
+      };
+
+      const ctx = makeCtx({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Slack user message" }],
+          },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool_use",
+                id: "tool-secret",
+                name: "bash",
+                input: { cmd: "echo hidden" },
+              },
+            ],
+          },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "text",
+                text: "assistant trailing text should stay attached",
+              },
+            ],
+          },
+        ],
+        agentLoopRun,
+        channelCapabilities: {
+          channel: "slack",
+          dashboardCapable: false,
+          supportsDynamicUi: false,
+          supportsVoiceInput: false,
+          chatType: "im",
+        },
+        getTurnChannelContext: () => ({
+          userMessageChannel: "slack",
+          assistantMessageChannel: "slack",
+        }),
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+      expect(callCount).toBe(1);
+      expect(repairHistoryMock).toHaveBeenCalledTimes(1);
+      expect(deepRepairHistoryMock).not.toHaveBeenCalled();
+    });
+
     test("logs redacted Slack tail diagnostics for final-assistant ordering failures", async () => {
       const events: ServerMessage[] = [];
       let callCount = 0;
