@@ -1,7 +1,7 @@
 import { mapServerSurfaces, prepareServerMessage } from "@/domains/chat/utils/map-runtime-message";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
-import { dedupeDisplayMessages, mergeLatestHistoryMessage, messagesEqual } from "@/domains/chat/utils/message-merge";
+import { dedupeDisplayMessages, mergeLatestHistoryMessage, mergeThinkingSegments, messagesEqual } from "@/domains/chat/utils/message-merge";
 import { sortByTimestamp, sortedByTimestamp, timestampToMs } from "@/domains/chat/utils/message-sorting";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { RuntimeMessage } from "@/domains/chat/api/messages";
@@ -359,11 +359,14 @@ export function reconcileMessages(
         if (localMsg!.contentOrder) msg.contentOrder = localMsg!.contentOrder;
         if (localMsg!.textSegments) msg.textSegments = localMsg!.textSegments;
         if (localMsg!.surfaces) msg.surfaces = localMsg!.surfaces;
-        // Keep locally-accumulated thinking deltas in lockstep with the
-        // local contentOrder; fall back to the server snapshot when the
-        // local row never saw any thinking SSE events.
-        const localThinking = localMsg!.thinkingSegments ?? prepared.thinkingSegments;
-        if (localThinking) msg.thinkingSegments = localThinking;
+        // Keep locally-accumulated thinking deltas in lockstep with the local
+        // contentOrder, but heal each block from the server snapshot when the
+        // live stream missed deltas (e.g. dropped while the tab was hidden).
+        const thinking = mergeThinkingSegments(
+          localMsg!.thinkingSegments,
+          prepared.thinkingSegments,
+        );
+        if (thinking) msg.thinkingSegments = thinking;
       } else {
         // Prefer local surfaces (updated by SSE ui_surface_update events)
         // over server surfaces which may be stale.
@@ -395,9 +398,13 @@ export function reconcileMessages(
         }
         if (prepared.normalizedContentOrder) msg.contentOrder = prepared.normalizedContentOrder;
         if (prepared.normalizedSegments) msg.textSegments = prepared.normalizedSegments;
-        // Prefer locally-accumulated thinking deltas (richer, in-progress)
-        // over the server snapshot, which may lag the live stream.
-        const thinking = localMsg?.thinkingSegments ?? prepared.thinkingSegments;
+        // Prefer locally-accumulated thinking deltas (richer, in-progress) over
+        // the server snapshot, but heal each block from the server when the
+        // live stream missed deltas (e.g. dropped while the tab was hidden).
+        const thinking = mergeThinkingSegments(
+          localMsg?.thinkingSegments,
+          prepared.thinkingSegments,
+        );
         if (thinking) msg.thinkingSegments = thinking;
       }
 

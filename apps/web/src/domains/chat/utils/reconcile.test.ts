@@ -19,6 +19,7 @@ import {
   messageText,
   textBody,
   wireTextBody,
+  wireThinkingBody,
   wireTimestamp,
 } from "@/domains/chat/utils/message-test-helpers";
 
@@ -1546,6 +1547,74 @@ describe("reconcileMessages — timestamp ordering", () => {
     expect(messageText(result[0]!)).toBe("Early");
     expect(messageText(result[1]!)).toBe("No timestamp");
     expect(messageText(result[2]!)).toBe("Late");
+  });
+});
+
+describe("reconcileMessages — thinking blocks", () => {
+  test("heals a thinking block truncated by dropped SSE deltas", () => {
+    // GIVEN an assistant row whose thinking block lost its leading reasoning
+    // because deltas were dropped while the SSE stream was torn down (e.g. the
+    // tab was backgrounded and the stream reconnected mid-turn)
+    const local: DisplayMessage[] = [
+      makeLocal({ id: "u1", role: "user", ...textBody("Draft a tweet") }),
+      makeLocal({
+        id: "a1",
+        role: "assistant",
+        thinkingSegments: [") and so I'll present a few concrete options."],
+        contentOrder: [{ type: "thinking", id: "0" }],
+      }),
+    ];
+
+    // AND the server has persisted the complete reasoning for that block
+    const fullThinking =
+      "Let me check his voice guide and what's live this week (weighing options) and so I'll present a few concrete options.";
+    const server: RuntimeMessage[] = [
+      makeServerMessage({ id: "u1", role: "user", ...wireTextBody("Draft a tweet") }),
+      makeServerMessage({
+        id: "a1",
+        role: "assistant",
+        ...wireThinkingBody(fullThinking),
+      }),
+    ];
+
+    // WHEN reconciliation runs
+    const result = reconcileMessages(local, server);
+
+    // THEN the truncated block is healed from the server's fuller copy
+    expect(result).not.toBe(local);
+    expect(result[1]!.thinkingSegments).toEqual([fullThinking]);
+  });
+
+  test("keeps the locally-streamed thinking block while it is ahead of the server", () => {
+    // GIVEN the local row has streamed more reasoning than the server's
+    // periodic snapshot has persisted yet
+    const localThinking = "Reasoning that is already well underway locally";
+    const local: DisplayMessage[] = [
+      makeLocal({ id: "u1", role: "user", ...textBody("Hi") }),
+      makeLocal({
+        id: "a1",
+        role: "assistant",
+        thinkingSegments: [localThinking],
+        contentOrder: [{ type: "thinking", id: "0" }],
+      }),
+    ];
+
+    // AND the server snapshot still lags behind the live stream
+    const server: RuntimeMessage[] = [
+      makeServerMessage({ id: "u1", role: "user", ...wireTextBody("Hi") }),
+      makeServerMessage({
+        id: "a1",
+        role: "assistant",
+        ...wireThinkingBody("Reasoning that is already"),
+      }),
+    ];
+
+    // WHEN reconciliation runs
+    const result = reconcileMessages(local, server);
+
+    // THEN the richer local block is preserved with no rewind (no change)
+    expect(result).toBe(local);
+    expect(result[1]!.thinkingSegments).toEqual([localThinking]);
   });
 });
 
