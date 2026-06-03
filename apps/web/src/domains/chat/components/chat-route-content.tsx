@@ -231,6 +231,7 @@ export function ChatRouteContent({
   const assistantState = useAssistantLifecycleStore.use.assistantState();
   const assistantName = useAssistantIdentityStore.use.name();
   const chatPullToRefreshEnabled = useClientFeatureFlagStore.use.chatPullToRefreshEnabled();
+  const activitySummaryEnabled = useClientFeatureFlagStore.use.webActivitySummary();
   const deployToVercel = useAssistantFeatureFlagStore.use.deployToVercel();
   const doctorEnabled = useClientFeatureFlagStore.use.doctor();
 
@@ -1220,6 +1221,7 @@ export function ChatRouteContent({
     },
     onSubagentClick,
     onStopSubagent,
+    activitySummaryEnabled,
     renderOnboardingChoice: () => (
       <OnboardingChoiceCard
         onSelectSpecific={handleSelectSpecific}
