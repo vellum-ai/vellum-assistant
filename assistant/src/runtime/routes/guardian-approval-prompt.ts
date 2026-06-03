@@ -97,14 +97,13 @@ async function activateSlackThreadForApprovalPrompt(params: {
   sourceChannel: ChannelId;
   replyCallbackUrl: string;
   chatId: string;
-}): Promise<void> {
-  if (params.sourceChannel !== "slack") return;
+}): Promise<boolean> {
+  if (params.sourceChannel !== "slack") return true;
 
   const channelId = extractChannelFromCallbackUrl(params.replyCallbackUrl);
   const threadTs = extractThreadTsFromCallbackUrl(params.replyCallbackUrl);
-  if (!channelId || !threadTs) return;
+  if (!channelId || !threadTs) return true;
 
-  let lastErr: unknown;
   for (
     let attempt = 1;
     attempt <= SLACK_PROMPT_THREAD_ACTIVATION_ATTEMPTS;
@@ -112,10 +111,11 @@ async function activateSlackThreadForApprovalPrompt(params: {
   ) {
     try {
       if (await trackSlackActiveThread(channelId, threadTs)) {
-        return;
+        return true;
       }
-    } catch (err) {
-      lastErr = err;
+    } catch {
+      // Retry below. The caller decides whether to surface or defer the
+      // activation-only failure so we can avoid duplicate prompt delivery.
     }
 
     if (attempt < SLACK_PROMPT_THREAD_ACTIVATION_ATTEMPTS) {
@@ -123,16 +123,13 @@ async function activateSlackThreadForApprovalPrompt(params: {
     }
   }
 
-  log.warn(
-    {
-      chatId: params.chatId,
-      channelId,
-      threadTs,
-      err: lastErr,
-    },
-    "Failed to activate Slack thread after approval prompt delivery",
-  );
+  return false;
 }
+
+type ApprovalPromptDeliveryResult = {
+  delivered: boolean;
+  activationPending: boolean;
+};
 
 export interface DeliverGeneratedApprovalPromptParams {
   replyCallbackUrl: string;
@@ -153,7 +150,7 @@ export interface DeliverGeneratedApprovalPromptParams {
  */
 export async function deliverGeneratedApprovalPrompt(
   params: DeliverGeneratedApprovalPromptParams,
-): Promise<boolean> {
+): Promise<ApprovalPromptDeliveryResult> {
   const {
     replyCallbackUrl,
     chatId,
@@ -202,12 +199,18 @@ export async function deliverGeneratedApprovalPrompt(
       if (deliveryResult.ts) {
         trackApprovalPromptTs(sourceChannel, chatId, deliveryResult.ts);
       }
-      await activateSlackThreadForApprovalPrompt({
+      const threadActivated = await activateSlackThreadForApprovalPrompt({
         sourceChannel,
         replyCallbackUrl,
         chatId,
       });
-      return true;
+      if (!threadActivated) {
+        log.warn(
+          { chatId, sourceChannel },
+          "Delivered rich approval prompt but Slack thread activation is still pending",
+        );
+      }
+      return { delivered: true, activationPending: !threadActivated };
     } catch (err) {
       log.error(
         { err, chatId, sourceChannel },
@@ -234,18 +237,24 @@ export async function deliverGeneratedApprovalPrompt(
       if (fallbackResult.ts) {
         trackApprovalPromptTs(sourceChannel, chatId, fallbackResult.ts);
       }
-      await activateSlackThreadForApprovalPrompt({
+      const threadActivated = await activateSlackThreadForApprovalPrompt({
         sourceChannel,
         replyCallbackUrl,
         chatId,
       });
-      return true;
+      if (!threadActivated) {
+        log.warn(
+          { chatId, sourceChannel },
+          "Delivered fallback approval prompt but Slack thread activation is still pending",
+        );
+      }
+      return { delivered: true, activationPending: !threadActivated };
     } catch (err) {
       log.error(
         { err, chatId, sourceChannel },
         "Failed to deliver plain-text fallback approval prompt",
       );
-      return false;
+      return { delivered: false, activationPending: false };
     }
   }
 
@@ -267,17 +276,23 @@ export async function deliverGeneratedApprovalPrompt(
     if (plainResult.ts) {
       trackApprovalPromptTs(sourceChannel, chatId, plainResult.ts);
     }
-    await activateSlackThreadForApprovalPrompt({
+    const threadActivated = await activateSlackThreadForApprovalPrompt({
       sourceChannel,
       replyCallbackUrl,
       chatId,
     });
-    return true;
+    if (!threadActivated) {
+      log.warn(
+        { chatId, sourceChannel },
+        "Delivered approval prompt but Slack thread activation is still pending",
+      );
+    }
+    return { delivered: true, activationPending: !threadActivated };
   } catch (err) {
     log.error(
       { err, chatId, sourceChannel },
       "Failed to deliver plain-text approval prompt",
     );
-    return false;
+    return { delivered: false, activationPending: false };
   }
 }

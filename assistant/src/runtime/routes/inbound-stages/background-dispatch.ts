@@ -830,12 +830,12 @@ async function activateSlackThreadAfterDirectReply(params: {
   sourceChannel: ChannelId;
   replyCallbackUrl: string;
   chatId: string;
-}): Promise<void> {
-  if (params.sourceChannel !== "slack") return;
+}): Promise<boolean> {
+  if (params.sourceChannel !== "slack") return true;
 
   const channelId = extractChannelFromCallbackUrl(params.replyCallbackUrl);
   const threadTs = extractThreadTsFromCallbackUrl(params.replyCallbackUrl);
-  if (!channelId || !threadTs) return;
+  if (!channelId || !threadTs) return true;
 
   let lastErr: unknown;
   for (
@@ -845,7 +845,7 @@ async function activateSlackThreadAfterDirectReply(params: {
   ) {
     try {
       if (await trackSlackActiveThread(channelId, threadTs)) {
-        return;
+        return true;
       }
     } catch (err) {
       lastErr = err;
@@ -865,6 +865,7 @@ async function activateSlackThreadAfterDirectReply(params: {
     },
     "Failed to activate Slack thread after direct reply delivery",
   );
+  return false;
 }
 
 function startPendingApprovalPromptWatcher(params: {
@@ -906,6 +907,7 @@ function startPendingApprovalPromptWatcher(params: {
 
   let active = true;
   const deliveredRequestIds = new Set<string>();
+  const activationPendingRequestIds = new Set<string>();
 
   const poll = async (): Promise<void> => {
     while (active) {
@@ -913,9 +915,28 @@ function startPendingApprovalPromptWatcher(params: {
         const prompt = getChannelApprovalPrompt(conversationId);
         const pending = getApprovalInfoByConversation(conversationId);
         const info = pending[0];
+        const pendingRequestIds = new Set(pending.map((item) => item.requestId));
+        for (const requestId of activationPendingRequestIds) {
+          if (!pendingRequestIds.has(requestId)) {
+            activationPendingRequestIds.delete(requestId);
+          }
+        }
+
+        if (
+          info &&
+          activationPendingRequestIds.has(info.requestId) &&
+          (await activateSlackThreadAfterDirectReply({
+            sourceChannel,
+            replyCallbackUrl,
+            chatId: externalChatId,
+          }))
+        ) {
+          activationPendingRequestIds.delete(info.requestId);
+        }
+
         if (prompt && info && !deliveredRequestIds.has(info.requestId)) {
           deliveredRequestIds.add(info.requestId);
-          const delivered = await deliverGeneratedApprovalPrompt({
+          const result = await deliverGeneratedApprovalPrompt({
             replyCallbackUrl,
             chatId: externalChatId,
             sourceChannel,
@@ -929,10 +950,15 @@ function startPendingApprovalPromptWatcher(params: {
             },
             approvalCopyGenerator,
           });
-          if (!delivered) {
+          if (!result.delivered) {
             // Delivery can fail transiently (network or gateway outage).
             // Keep polling and retry prompt delivery for the same request.
             deliveredRequestIds.delete(info.requestId);
+            activationPendingRequestIds.delete(info.requestId);
+          } else if (result.activationPending) {
+            activationPendingRequestIds.add(info.requestId);
+          } else {
+            activationPendingRequestIds.delete(info.requestId);
           }
         }
       } catch (err) {
