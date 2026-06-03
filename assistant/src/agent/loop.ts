@@ -7,7 +7,10 @@ import {
   estimateToolsTokens,
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
-import type { ContextWindowResult } from "../context/window-manager.js";
+import type {
+  ContextWindowCompactOptions,
+  ContextWindowResult,
+} from "../context/window-manager.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type { PostToolUseContext, StopContext } from "../plugin-api/types.js";
@@ -477,12 +480,14 @@ export interface ResolvedSystemPrompt {
  */
 export interface MidLoopCompaction {
   /**
-   * Resolve the options for the compaction pipeline run. The loop-stripped
-   * history is committed to durable state separately via the
-   * `compaction_completed` event, so this hook only assembles options.
+   * Resolve the orchestrator-owned options for the compaction pipeline run.
+   * The loop-stripped history is committed to durable state separately via
+   * the `compaction_completed` event, and the loop merges its own
+   * loop-native options (e.g. `force`) on top of these before invoking the
+   * pipeline.
    */
   prepare: () => {
-    options: CompactionArgs["options"];
+    options: ContextWindowCompactOptions | undefined;
   };
   /** Re-apply runtime injections and return the history to continue from. */
   reinject: () => Promise<Message[]>;
@@ -763,8 +768,10 @@ export class AgentLoop {
         getMiddlewaresFor("compaction"),
         (args) => defaultCompactionTerminal(args, turnContext),
         // The mid-loop budget gate is reached only when this turn decides to
-        // compact in place, so force the pipeline past its auto-threshold check.
-        { messages: rawHistory, signal, force: true, options },
+        // compact in place, so force the pipeline past its auto-threshold
+        // check. `force` is the loop's own decision, layered on top of the
+        // orchestrator-resolved options.
+        { messages: rawHistory, signal, options: { force: true, ...options } },
         turnContext,
         DEFAULT_TIMEOUTS.compaction,
       );

@@ -276,14 +276,6 @@ export type CompactionArgs = {
   readonly messages: unknown;
   /** Abort signal forwarded to the compaction summary call. */
   readonly signal?: AbortSignal;
-  /**
-   * Skip the auto-threshold check and compact unconditionally. The agent
-   * loop's mid-loop budget gate sets this when it decides to compact in
-   * place; the terminal folds it into the `ContextWindowCompactOptions`
-   * forwarded to the manager. When present it takes precedence over any
-   * `force` inside {@link options}.
-   */
-  readonly force?: boolean;
   /** `ContextWindowCompactOptions` — options block forwarded verbatim. */
   readonly options?: unknown;
 };
