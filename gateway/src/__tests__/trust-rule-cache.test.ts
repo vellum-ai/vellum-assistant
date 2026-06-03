@@ -265,6 +265,87 @@ describe("findBaseRisk()", () => {
 });
 
 // ---------------------------------------------------------------------------
+// findBaseRisk() — user-rule vs seeded-default precedence
+// ---------------------------------------------------------------------------
+
+describe("findBaseRisk() precedence", () => {
+  test("user action: rule wins over a seeded literal at the same key", () => {
+    // Without same-key precedence the seeded literal `cmd sub` is found first
+    // and the user's `action:cmd sub` is silently ignored.
+    store.upsertDefault({
+      id: "default:cache_prec_t1:cmd-sub",
+      tool: "cache_prec_t1",
+      pattern: "cmd sub",
+      risk: "high",
+      description: "Seeded literal default",
+    });
+    store.create({
+      tool: "cache_prec_t1",
+      pattern: "action:cmd sub",
+      risk: "low",
+      description: "User-saved action rule",
+    });
+
+    initTrustRuleCache(store);
+
+    const result = getTrustRuleCache().findBaseRisk(
+      "cache_prec_t1",
+      "cmd sub extra",
+    );
+    expect(result).not.toBeNull();
+    expect(result!.pattern).toBe("action:cmd sub");
+    expect(result!.risk).toBe("low");
+  });
+
+  test("more specific seeded default is preserved over a broader user rule", () => {
+    // A broad `action:cmd` must NOT silently override a more specific seeded
+    // escalation (`cmd sub` = high). Specificity wins for seeded defaults.
+    store.upsertDefault({
+      id: "default:cache_prec_t2:cmd-sub",
+      tool: "cache_prec_t2",
+      pattern: "cmd sub",
+      risk: "high",
+      description: "Seeded specific default",
+    });
+    store.create({
+      tool: "cache_prec_t2",
+      pattern: "action:cmd",
+      risk: "low",
+      description: "Broad user rule",
+    });
+
+    initTrustRuleCache(store);
+
+    const result = getTrustRuleCache().findBaseRisk(
+      "cache_prec_t2",
+      "cmd sub extra",
+    );
+    expect(result).not.toBeNull();
+    expect(result!.pattern).toBe("cmd sub");
+    expect(result!.risk).toBe("high");
+  });
+
+  test("broader user rule applies to a subcommand without its own default", () => {
+    store.create({
+      tool: "cache_prec_t3",
+      pattern: "action:cmd",
+      risk: "low",
+      description: "Broad user rule",
+    });
+
+    initTrustRuleCache(store);
+
+    const result = getTrustRuleCache().findBaseRisk(
+      "cache_prec_t3",
+      "cmd other extra",
+    );
+    expect(result).not.toBeNull();
+    expect(result!.pattern).toBe("action:cmd");
+    expect(result!.risk).toBe("low");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // findToolOverride()
 // ---------------------------------------------------------------------------
 

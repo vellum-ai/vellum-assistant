@@ -563,6 +563,108 @@ describe("tool-name-prefixed patterns match (web/iOS save path)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Version-pinned skill patterns (classifier's own pinned allowlist options)
+// ---------------------------------------------------------------------------
+//
+// buildSkillLoadAllowlistOptions offers "this exact version" options that
+// persist as `skill_load:<id>@<versionHash>` / `skill_load_dynamic:<id>@<transitiveHash>`.
+// The classifier must probe the version-pinned candidate (not only the bare
+// skill id) or those self-generated options are silently ignored.
+
+describe("version-pinned skill patterns match", () => {
+  test("non-dynamic skill rule pinned by versionHash applies", async () => {
+    store.create({
+      tool: "skill_load",
+      pattern: "skill_load:pinned-skill@abc123",
+      risk: "high",
+      description: "User-blocked exact skill version",
+    });
+
+    initTrustRuleCache(store);
+
+    const classifier = new SkillLoadRiskClassifier();
+    const result = await classifier.classify({
+      toolName: "skill_load",
+      skillSelector: "pinned-skill",
+      resolvedMetadata: {
+        skillId: "pinned-skill",
+        selector: "pinned-skill",
+        versionHash: "abc123",
+        hasInlineExpansions: false,
+        isDynamic: false,
+      },
+    });
+
+    expect(result.riskLevel).toBe("high");
+    expect(result.reason).toBe("User-blocked exact skill version");
+    expect(result.matchType).toBe("user_rule");
+  });
+
+  test("dynamic skill rule pinned by transitiveHash applies", async () => {
+    store.create({
+      tool: "skill_load_dynamic",
+      pattern: "skill_load_dynamic:pinned-dynamic@trans789",
+      risk: "high",
+      description: "User-blocked exact dynamic skill version",
+    });
+
+    initTrustRuleCache(store);
+
+    const classifier = new SkillLoadRiskClassifier();
+    const result = await classifier.classify({
+      toolName: "skill_load",
+      skillSelector: "pinned-dynamic",
+      resolvedMetadata: {
+        skillId: "pinned-dynamic",
+        selector: "pinned-dynamic",
+        versionHash: "abc123",
+        transitiveHash: "trans789",
+        hasInlineExpansions: true,
+        isDynamic: true,
+      },
+    });
+
+    expect(result.riskLevel).toBe("high");
+    expect(result.reason).toBe("User-blocked exact dynamic skill version");
+    expect(result.matchType).toBe("user_rule");
+  });
+
+  test("version-pinned rule wins over an any-version rule for the same skill", async () => {
+    store.create({
+      tool: "skill_load",
+      pattern: "skill_load:dual-skill",
+      risk: "low",
+      description: "Any-version rule",
+    });
+    store.create({
+      tool: "skill_load",
+      pattern: "skill_load:dual-skill@h1",
+      risk: "high",
+      description: "Pinned-version rule",
+    });
+
+    initTrustRuleCache(store);
+
+    const classifier = new SkillLoadRiskClassifier();
+    const result = await classifier.classify({
+      toolName: "skill_load",
+      skillSelector: "dual-skill",
+      resolvedMetadata: {
+        skillId: "dual-skill",
+        selector: "dual-skill",
+        versionHash: "h1",
+        hasInlineExpansions: false,
+        isDynamic: false,
+      },
+    });
+
+    expect(result.riskLevel).toBe("high");
+    expect(result.reason).toBe("Pinned-version rule");
+    expect(result.matchType).toBe("user_rule");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Graceful fallback when cache is not initialized
 // ---------------------------------------------------------------------------
 

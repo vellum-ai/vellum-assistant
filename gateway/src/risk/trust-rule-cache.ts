@@ -40,21 +40,37 @@ class TrustRuleCache {
    * 3. Subcommand match: for multi-word commands (e.g. `git push`),
    *    try progressively shorter prefixes (`"git push"` then `"git"`)
    *
-   * Each lookup matches both the literal key and its `action:`-prefixed form.
-   * The rule editor persists generalized bash patterns with an `action:` prefix
+   * Each key is probed in both the literal and `action:`-prefixed dialect. The
+   * rule editor persists generalized bash patterns with an `action:` prefix
    * (e.g. `action:git push`, produced by `scopeOptionsToAllowlistOptions`),
    * while the keys passed here are the bare action key the classifier resolves
    * from the command. Without the prefix-aware lookup, every generalized bash
    * trust rule created from any client (web, macOS, iOS, CLI) would silently
    * fail to match, since the save path and the matcher use different dialects.
+   *
+   * At a given key a user-authored rule (either dialect) wins over a seeded
+   * registry default — otherwise a user-saved `action:git push` would be
+   * shadowed by the seeded literal `git push` it was meant to override. The
+   * most specific key still wins overall, so a more specific seeded default
+   * (e.g. `git push`) is preserved over a broader user rule (e.g. `action:git`);
+   * that broader rule still applies to subcommands without their own default.
    */
   findBaseRisk(tool: string, command: string): TrustRule | null {
     const toolMap = this.rules.get(tool);
     if (!toolMap) return null;
 
-    // Match a literal rule first, then its `action:`-prefixed generalized form.
-    const lookup = (key: string): TrustRule | undefined =>
-      toolMap.get(key) ?? toolMap.get(`action:${key}`);
+    const isUserRule = (rule: TrustRule | undefined): rule is TrustRule =>
+      !!rule && (rule.userModified || rule.origin === "user_defined");
+
+    // At each key, prefer a user-authored rule (literal or `action:`) over a
+    // seeded default; otherwise resolve the literal, then its `action:` sibling.
+    const lookup = (key: string): TrustRule | undefined => {
+      const literal = toolMap.get(key);
+      const action = toolMap.get(`action:${key}`);
+      if (isUserRule(literal)) return literal;
+      if (isUserRule(action)) return action;
+      return literal ?? action;
+    };
 
     // 1. Exact match
     const exact = lookup(command);
