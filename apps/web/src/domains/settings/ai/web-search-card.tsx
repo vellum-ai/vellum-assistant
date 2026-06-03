@@ -1,6 +1,7 @@
 import { Loader2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Input } from "@vellum/design-library/components/input";
 import { toast } from "@vellum/design-library/components/toast";
@@ -12,6 +13,13 @@ import {
 } from "@/assistant/generated/web-search-provider-catalog.gen";
 import { captureError } from "@/lib/sentry/capture-error";
 import { secretsReadPost } from "@/generated/daemon/sdk.gen";
+import {
+  ApiError,
+  assertHasResponse,
+  extractErrorMessage,
+} from "@/utils/api-errors";
+import { shouldRetryDaemonError } from "@/utils/daemon-errors";
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import {
   getLocalSetting,
   removeLocalSetting,
@@ -25,6 +33,19 @@ import { getWebSearchProviderKeyStorage, reconcileFromDaemonConfig } from "@/dom
 import { ServiceCard, SaveButton, ResetButton } from "@/domains/settings/ai/ai-shared-ui";
 import { useDaemonConfigQuery, useDaemonConfigMutation, useProvisionProviderKey } from "@/domains/settings/ai/use-daemon-config";
 
+// ---------------------------------------------------------------------------
+// Query key for the stored-credential presence check
+// ---------------------------------------------------------------------------
+
+const WEB_SEARCH_CREDENTIAL_QK = "web-search-credential" as const;
+
+function webSearchCredentialQueryKey(
+  assistantId: string | null | undefined,
+  provider: string,
+) {
+  return [WEB_SEARCH_CREDENTIAL_QK, assistantId ?? "", provider] as const;
+}
+
 export function WebSearchCard() {
   const {
     assistantId,
@@ -32,6 +53,8 @@ export function WebSearchCard() {
   } = useDaemonConfigQuery();
   const configMutation = useDaemonConfigMutation();
   const provisionProviderKey = useProvisionProviderKey();
+  const queryClient = useQueryClient();
+
   // Server values derived from daemon config, falling back to localStorage.
   // When the cache refreshes (after save + invalidation), these update
   // automatically.
@@ -48,6 +71,7 @@ export function WebSearchCard() {
   }, [daemonConfig]);
 
   // Draft overrides — null means the user hasn't changed the value yet.
+  const [saving, setSaving] = useState(false);
   const [draftWebSearchMode, setDraftWebSearchMode] = useState<ServiceMode | null>(null);
   const [draftWebSearchProvider, setDraftWebSearchProvider] = useState<string | null>(null);
 
@@ -56,17 +80,51 @@ export function WebSearchCard() {
   const webSearchProvider = draftWebSearchProvider ?? serverWebSearchProvider;
 
   const [webSearchApiKey, setWebSearchApiKey] = useState("");
-  const [webSearchHasStoredKey, setWebSearchHasStoredKey] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [secretReadRevision, setSecretReadRevision] = useState(0);
-  const secretScopeRef = useRef<{
-    assistantId: string | null;
-    provider: string | null;
-  }>({ assistantId: null, provider: null });
 
-  // Derived state
-  const needsApiKey =
-    WEB_SEARCH_BYOK_PROVIDER_IDS.has(webSearchProvider);
+  // --- Secret presence query (TanStack Query) ---
+  const isOrgReady = useIsOrgReady();
+  const requiresProviderCredential = WEB_SEARCH_BYOK_PROVIDER_IDS.has(webSearchProvider);
+
+  const credentialQueryKey = useMemo(
+    () => webSearchCredentialQueryKey(assistantId, webSearchProvider),
+    [assistantId, webSearchProvider],
+  );
+
+  const credentialQuery = useQuery({
+    queryKey: credentialQueryKey,
+    queryFn: async () => {
+      const { data, error, response } = await secretsReadPost({
+        path: { assistant_id: assistantId! },
+        body: { type: "api_key", name: webSearchProvider },
+        throwOnError: false,
+      });
+      assertHasResponse(response, error, "Failed to check stored key");
+      if (!response.ok) {
+        throw new ApiError(
+          response.status,
+          extractErrorMessage(error, response, `Failed to check stored key (HTTP ${response.status})`),
+        );
+      }
+      return data!.found;
+    },
+    enabled: !!assistantId && requiresProviderCredential && isOrgReady,
+    retry: shouldRetryDaemonError,
+    staleTime: 30_000,
+  });
+
+  // Defense-in-depth: if retries exhaust on an expected transient error,
+  // suppress the Sentry report rather than creating noise.
+  useEffect(() => {
+    if (!credentialQuery.error) return;
+    captureError(credentialQuery.error, {
+      context: "settings-ai-web-search-read-credential",
+      bestEffort: true,
+    });
+  }, [credentialQuery.error]);
+
+  const webSearchHasStoredKey = credentialQuery.data ?? false;
+
+  // --- Derived state ---
   const hasNewApiKey = webSearchApiKey.trim().length > 0;
   const effectiveProvider =
     webSearchMode === "managed" ? "inference-provider-native" : webSearchProvider;
@@ -75,7 +133,7 @@ export function WebSearchCard() {
     effectiveProvider !== serverWebSearchProvider;
   const needsKeyBeforeSave =
     webSearchMode === "your-own" &&
-    needsApiKey &&
+    requiresProviderCredential &&
     !webSearchHasStoredKey &&
     !hasNewApiKey;
   const saveDisabled =
@@ -85,52 +143,6 @@ export function WebSearchCard() {
     webSearchHasStoredKey,
   );
 
-  // Check if a stored key exists for the current provider
-  useEffect(() => {
-    let cancelled = false;
-    const previousScope = secretScopeRef.current;
-    const currentScope = {
-      assistantId: assistantId ?? null,
-      provider: webSearchProvider,
-    };
-    const scopeChanged =
-      previousScope.assistantId !== currentScope.assistantId ||
-      previousScope.provider !== currentScope.provider;
-    secretScopeRef.current = currentScope;
-
-    void (async () => {
-      await Promise.resolve();
-      if (cancelled) return;
-
-      if (!assistantId || !needsApiKey) {
-        setWebSearchHasStoredKey(false);
-        return;
-      }
-
-      if (scopeChanged) {
-        setWebSearchHasStoredKey(false);
-      }
-
-      try {
-        const { data: result } = await secretsReadPost({
-          path: { assistant_id: assistantId },
-          body: { type: "api_key", name: webSearchProvider },
-          throwOnError: true,
-        });
-        if (cancelled) return;
-        setWebSearchHasStoredKey(result.found);
-      } catch (error) {
-        if (cancelled) return;
-        setWebSearchHasStoredKey(false);
-        captureError(error, { context: "settings-ai-web-search-read-secret" });
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [assistantId, needsApiKey, webSearchProvider, secretReadRevision]);
-
   const handleSave = useCallback(async () => {
     setSaving(true);
     const trimmed = webSearchApiKey.trim();
@@ -138,7 +150,7 @@ export function WebSearchCard() {
       webSearchMode === "managed" ? "inference-provider-native" : webSearchProvider;
     const storageKey = getWebSearchProviderKeyStorage(providerToSave);
     const hasUserKey =
-      webSearchMode === "your-own" && needsApiKey && trimmed.length > 0;
+      webSearchMode === "your-own" && requiresProviderCredential && trimmed.length > 0;
     try {
       if (hasUserKey) {
         await provisionProviderKey(providerToSave, trimmed);
@@ -166,8 +178,13 @@ export function WebSearchCard() {
         if (storageKey) {
           setLocalSetting(storageKey, trimmed);
         }
-        setWebSearchHasStoredKey(true);
-        setSecretReadRevision((r) => r + 1);
+        // Optimistic update: mark key as stored immediately, then
+        // background-refetch confirms server state.
+        queryClient.setQueryData(
+          webSearchCredentialQueryKey(assistantId, providerToSave),
+          true,
+        );
+        void queryClient.invalidateQueries({ queryKey: credentialQueryKey });
         setWebSearchApiKey("");
       }
       toast.success("Web search settings saved.");
@@ -176,9 +193,12 @@ export function WebSearchCard() {
       toast.error("Saved, but local preferences could not be written.");
     }
   }, [
-    needsApiKey,
+    assistantId,
+    requiresProviderCredential,
     configMutation,
     provisionProviderKey,
+    queryClient,
+    credentialQueryKey,
     webSearchApiKey,
     webSearchMode,
     webSearchProvider,
@@ -189,7 +209,6 @@ export function WebSearchCard() {
     if (storageKey) {
       removeLocalSetting(storageKey);
     }
-    setWebSearchHasStoredKey(false);
     setWebSearchApiKey("");
     setDraftWebSearchProvider("inference-provider-native");
     setLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native");
@@ -228,7 +247,7 @@ export function WebSearchCard() {
             />
           </div>
 
-          {needsApiKey && (
+          {requiresProviderCredential && (
             <Input
               label="API Key"
               type="password"
@@ -242,7 +261,7 @@ export function WebSearchCard() {
           <div className="flex items-center gap-2">
             <SaveButton onClick={handleSave} disabled={saveDisabled} />
             {saving && <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />}
-            {needsApiKey && (
+            {requiresProviderCredential && (
               <ResetButton onClick={handleReset} filled />
             )}
           </div>

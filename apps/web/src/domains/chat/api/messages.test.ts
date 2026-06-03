@@ -240,13 +240,9 @@ describe("getChatHistory", () => {
             id: "msg-slack",
             role: "user",
             textSegments: [
-              { type: "text", content: "Slack reply" },
-              {
-                type: "text",
-                content: "[File attachment] file.pdf, type=application/pdf",
-              },
+              "Slack reply",
+              "[File attachment] file.pdf, type=application/pdf",
             ],
-            metadata: { source: "slack" },
             slackMessage,
             timestamp: "2026-05-15T12:34:56.000Z",
           },
@@ -265,7 +261,6 @@ describe("getChatHistory", () => {
     expect(result.messages[0]).toMatchObject({
       id: "msg-slack",
       role: "user",
-      metadata: { source: "slack" },
       slackMessage,
       timestamp: Date.parse("2026-05-15T12:34:56.000Z"),
     });

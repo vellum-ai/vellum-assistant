@@ -125,6 +125,14 @@ mock.module("./window-state", () => ({
 
 const { __resetForTesting, current, dispatchToMain, ensureVisible, hide, installMainWindow, isVisibleAndFocused, toggleVisibility } =
   await import("./main-window");
+const { resolveAllowedOrigin } = await import("./app-origin");
+
+// The IPC wrapper rejects any sender whose frame origin isn't the
+// app renderer's, so the handler must be invoked with a frame at the
+// allowed origin. Deriving it from the guard's own resolver keeps the
+// fake sender correct without hard-coding the dev or packaged origin.
+const { protocol: allowedProtocol, host: allowedHost } = resolveAllowedOrigin();
+const allowedEvent = { senderFrame: { origin: `${allowedProtocol}//${allowedHost}` } };
 
 const reset = (): void => {
   // Force a fresh module-scope window between tests by emitting `closed`
@@ -387,7 +395,7 @@ describe("installMainWindow", () => {
     const focusBefore = win.stub.focus.mock.calls.length;
 
     const handler = ipcHandlers.get("vellum:mainWindow:ensureVisible");
-    const promise = (handler as () => Promise<void>)();
+    const promise = (handler as (event: unknown) => Promise<void>)(allowedEvent);
     // ensureVisible on the existing-but-not-focused window returns
     // immediately (ALREADY_READY for the already-loaded window).
     await promise;

@@ -1,18 +1,21 @@
 /**
  * Message operations: history retrieval, polling, sending, and attachments.
  *
- * Includes `RuntimeMessage` / `RuntimeToolCall` types used for daemon
- * history payloads, content normalization helpers, and the `postChatMessage`
- * / `uploadChatAttachment` / `deleteQueuedMessage` write operations.
+ * The daemon's history-row wire contract (`RuntimeMessage` / `RuntimeToolCall`)
+ * is derived from the canonical `ConversationMessage` schema in
+ * `@vellumai/assistant-api`, alongside content normalization helpers and the
+ * `postChatMessage` / `uploadChatAttachment` / `deleteQueuedMessage` writes.
  */
 
 import { captureError } from "@/lib/sentry/capture-error";
-import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type {
-  DisplayMessage,
-  SlackRuntimeMessage,
-  Surface,
-} from "@/domains/chat/types/types";
+  ConversationMessage,
+  ConversationMessageAttachment,
+  ConversationMessageToolCall,
+  ConversationSubagentNotification,
+} from "@vellumai/assistant-api";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 import { client } from "@/generated/api/client.gen";
 import {
   messagesPost,
@@ -33,85 +36,38 @@ import { getEffectiveTimezone } from "@/utils/effective-timezone";
 const POLL_INTERVAL_MS = 1000;
 const POLL_TIMEOUT_MS = 120_000;
 
-/** Shape of a single tool call as returned by the daemon's history endpoint. */
-export interface RuntimeToolCall {
-  name: string;
-  input: Record<string, unknown>;
-  result?: string;
-  isError?: boolean;
-  /** Risk level classification at invocation time ("low" | "medium" | "high" | "unknown"). */
-  riskLevel?: string;
-  /** Human-readable reason for the risk classification. */
-  riskReason?: string;
-  /** Whether the tool was auto-approved (true) or required explicit user input (false). */
-  autoApproved?: boolean;
-  /** ID of the trust rule that matched this invocation (if any). */
-  matchedTrustRuleId?: string;
-  /** How the approval decision was reached. */
-  approvalMode?: string;
-  /** Why the approval decision was reached. */
-  approvalReason?: string;
-  /** Snapshot of the auto-approve threshold at execution time. */
-  riskThreshold?: string;
-  /** Unix ms timestamp when the tool call started. Persisted by the daemon; used for duration display. */
-  startedAt?: number;
-  /** Unix ms timestamp when the tool call completed. Persisted by the daemon; used for duration display. */
-  completedAt?: number;
-  /** Explicit confirmation decision persisted by the daemon ("approved" | "denied" | "timed_out"). */
-  confirmationDecision?: string;
-}
+/**
+ * A single tool call as returned by the daemon's history endpoint. Canonical
+ * wire contract — re-exported under the runtime-local name so the web derives
+ * from one source of truth instead of a hand-rolled copy that can drift.
+ */
+export type RuntimeToolCall = ConversationMessageToolCall;
 
 /** Attachment metadata returned by the daemon's message history endpoint. */
-export interface RuntimeAttachment {
-  id: string;
-  filename: string;
-  mimeType: string;
-  sizeBytes: number;
-  kind: string;
-  /** Base64-encoded file data. Only populated for images on history reload. */
-  data?: string;
-  thumbnailData?: string;
-  fileBacked?: boolean;
-}
+export type RuntimeAttachment = ConversationMessageAttachment;
 
-/** Subagent notification embedded in assistant history messages. */
-export interface RuntimeSubagentNotification {
-  subagentId: string;
-  label: string;
-  status: string;
-  error?: string;
-  conversationId?: string;
+/**
+ * Subagent notification as carried by the web. The wire shape
+ * (`ConversationSubagentNotification`) is enriched during history
+ * reconstruction with the client-derived id of the parent assistant message
+ * that spawned the subagent (see `history.ts`); those fields are not part of
+ * the wire contract.
+ */
+export interface RuntimeSubagentNotification
+  extends ConversationSubagentNotification {
   /** StableId of the parent assistant message that spawned this subagent. */
   parentMessageStableId?: string;
   /** Daemon UUID of the parent assistant message. Stable across reloads. */
   parentMessageId?: string;
 }
 
-export interface RuntimeMessage {
-  id: string;
-  /** Server message ids folded into this canonical history row. */
-  mergedMessageIds?: string[];
-  role: "user" | "assistant";
-  surfaces?: Surface[];
-  textSegments?: Array<{
-    type: string;
-    content: string;
-    [key: string]: unknown;
-  }>;
-  contentOrder?: Array<{ type: string; id: string }>;
-  metadata?: Record<string, unknown>;
-  slackMessage?: SlackRuntimeMessage;
-  toolCalls?: RuntimeToolCall[];
-  /** Structured attachment metadata from the daemon's history endpoint. */
-  attachments?: RuntimeAttachment[];
-  /** Server-provided timestamp as epoch milliseconds or an ISO string. */
-  timestamp?: number | string;
-  /** Reasoning segments from thinking-capable models. Each entry maps to
-   *  a `thinking:N` entry in `contentOrder`. */
-  thinkingSegments?: string[];
-  /** Subagent notification attached to this history message by the daemon. */
-  subagentNotification?: RuntimeSubagentNotification;
-}
+/**
+ * A consolidated conversation-history row as returned by the daemon's messages
+ * endpoint. Canonical wire contract from `@vellumai/assistant-api`; the
+ * display-ready shape (`DisplayMessage`) is produced by
+ * `mapRuntimeToDisplayMessage` / `prepareServerMessage`.
+ */
+export type RuntimeMessage = ConversationMessage;
 
 interface ListMessagesResponse {
   messages: RuntimeMessage[];

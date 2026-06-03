@@ -23,9 +23,13 @@ const makeSender = (): {
   };
 };
 const subscribeWith = (s: ReturnType<typeof makeSender>) =>
-  ipcOnListeners.get("vellum:deepLinks:subscribe")?.({ sender: s.sender });
+  ipcOnListeners
+    .get("vellum:deepLinks:subscribe")
+    ?.({ sender: s.sender, senderFrame: allowedSenderFrame });
 const unsubscribeWith = (s: ReturnType<typeof makeSender>) =>
-  ipcOnListeners.get("vellum:deepLinks:unsubscribe")?.({ sender: s.sender });
+  ipcOnListeners
+    .get("vellum:deepLinks:unsubscribe")
+    ?.({ sender: s.sender, senderFrame: allowedSenderFrame });
 const appListeners = new Map<string, Listener>();
 const appOnMock = mock((event: string, listener: Listener) => {
   appListeners.set(event, listener);
@@ -70,6 +74,16 @@ const {
   installDeepLinks,
   parseVellumUrl,
 } = await import("./deep-links");
+const { resolveAllowedOrigin } = await import("./app-origin");
+
+// The IPC wrappers reject any sender whose frame origin isn't the
+// build's renderer origin. These tests drive the registered handlers
+// directly, so they must present a frame at that origin; deriving it
+// from the guard's own resolver keeps the fake sender correct without
+// hard-coding either the dev or packaged origin here.
+const { protocol: allowedProtocol, host: allowedHost } = resolveAllowedOrigin();
+const allowedSenderFrame = { origin: `${allowedProtocol}//${allowedHost}` };
+const allowedEvent = { senderFrame: allowedSenderFrame };
 
 const makeWindow = (destroyed = false) => ({
   isDestroyed: () => destroyed,
@@ -247,21 +261,21 @@ describe("installDeepLinks", () => {
       (c) => c[0] === "vellum:deepLinks:drain",
     );
     expect(drainCall).toBeDefined();
-    const drainHandler = drainCall![1] as () => unknown;
+    const drainHandler = drainCall![1] as (event: unknown) => unknown;
 
-    expect(drainHandler()).toEqual([
+    expect(drainHandler(allowedEvent)).toEqual([
       { kind: "send", message: "one" },
       { kind: "openThread", threadId: "abc" },
     ]);
     // Second drain returns empty — buffer was cleared.
-    expect(drainHandler()).toEqual([]);
+    expect(drainHandler(allowedEvent)).toEqual([]);
   });
 
   test("with a subscriber present, live links broadcast but do NOT enter the buffer (no replay on renderer reload)", () => {
     installDeepLinks();
     const drainHandler = ipcHandleMock.mock.calls.find(
       (c) => c[0] === "vellum:deepLinks:drain",
-    )![1] as () => unknown[];
+    )![1] as (event: unknown) => unknown[];
 
     // Backlog before any subscriber.
     handleDeepLink("vellum://send?message=backlog");
@@ -269,7 +283,7 @@ describe("installDeepLinks", () => {
     // Renderer mounts: subscribes, drains.
     const s1 = makeSender();
     subscribeWith(s1);
-    expect(drainHandler()).toEqual([{ kind: "send", message: "backlog" }]);
+    expect(drainHandler(allowedEvent)).toEqual([{ kind: "send", message: "backlog" }]);
 
     // Live link arrives while subscribed — broadcasts only.
     handleDeepLink("vellum://thread/live");
@@ -279,18 +293,18 @@ describe("installDeepLinks", () => {
     unsubscribeWith(s1);
     const s2 = makeSender();
     subscribeWith(s2);
-    expect(drainHandler()).toEqual([]);
+    expect(drainHandler(allowedEvent)).toEqual([]);
   });
 
   test("logout-relogin: link arriving while unsubscribed lands in the buffer for the next subscriber", () => {
     installDeepLinks();
     const drainHandler = ipcHandleMock.mock.calls.find(
       (c) => c[0] === "vellum:deepLinks:drain",
-    )![1] as () => unknown[];
+    )![1] as (event: unknown) => unknown[];
 
     const s1 = makeSender();
     subscribeWith(s1);
-    expect(drainHandler()).toEqual([]);
+    expect(drainHandler(allowedEvent)).toEqual([]);
 
     unsubscribeWith(s1);
 
@@ -298,7 +312,7 @@ describe("installDeepLinks", () => {
 
     const s2 = makeSender();
     subscribeWith(s2);
-    expect(drainHandler()).toEqual([
+    expect(drainHandler(allowedEvent)).toEqual([
       { kind: "openThread", threadId: "post-logout" },
     ]);
   });
@@ -307,14 +321,14 @@ describe("installDeepLinks", () => {
     installDeepLinks();
     const drainHandler = ipcHandleMock.mock.calls.find(
       (c) => c[0] === "vellum:deepLinks:drain",
-    )![1] as () => unknown[];
+    )![1] as (event: unknown) => unknown[];
 
     const s = makeSender();
     unsubscribeWith(s);
     unsubscribeWith(s);
 
     handleDeepLink("vellum://send?message=should-buffer");
-    expect(drainHandler()).toEqual([
+    expect(drainHandler(allowedEvent)).toEqual([
       { kind: "send", message: "should-buffer" },
     ]);
   });
@@ -343,11 +357,11 @@ describe("installDeepLinks", () => {
     installDeepLinks();
     const drainHandler = ipcHandleMock.mock.calls.find(
       (c) => c[0] === "vellum:deepLinks:drain",
-    )![1] as () => unknown[];
+    )![1] as (event: unknown) => unknown[];
 
     const s = makeSender();
     subscribeWith(s);
-    expect(drainHandler()).toEqual([]);
+    expect(drainHandler(allowedEvent)).toEqual([]);
 
     // Simulate window close without React cleanup running — only
     // the webContents `destroyed` event fires.
@@ -355,7 +369,7 @@ describe("installDeepLinks", () => {
 
     // No subscribers now → next link is buffered.
     handleDeepLink("vellum://send?message=after-crash");
-    expect(drainHandler()).toEqual([
+    expect(drainHandler(allowedEvent)).toEqual([
       { kind: "send", message: "after-crash" },
     ]);
   });
@@ -468,7 +482,9 @@ describe("handleDeepLink — window activation", () => {
     }
     const drain = ipcHandleMock.mock.calls.find(
       (c) => c[0] === "vellum:deepLinks:drain",
-    )![1] as () => unknown[];
-    expect(drain()).toEqual([{ kind: "send", message: "delivered" }]);
+    )![1] as (event: unknown) => unknown[];
+    expect(drain(allowedEvent)).toEqual([
+      { kind: "send", message: "delivered" },
+    ]);
   });
 });
