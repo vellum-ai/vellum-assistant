@@ -225,6 +225,22 @@ export function createChannelVerificationSessionProxyHandler(
       // client that can reach the gateway (e.g. via ngrok) must not be
       // able to race the legitimate local user.
       if (!isManaged && expectedSecrets.length === 0) {
+        // A genuine local bootstrap caller connects directly over loopback and
+        // never sets X-Forwarded-For. Its presence means the request was
+        // relayed by a proxy — and when GATEWAY_TRUST_PROXY is enabled the
+        // `clientIp` below is derived from that (client-spoofable) header, so a
+        // remote caller could forge `X-Forwarded-For: 127.0.0.1` and pass the
+        // loopback check. Reject on the header's presence instead of trusting
+        // it. Mirrors the same guard on /v1/pair.
+        if (req.headers.get("x-forwarded-for")) {
+          log.warn(
+            "Guardian init rejected — X-Forwarded-For present in bare-metal mode",
+          );
+          return Response.json(
+            { error: "Bootstrap endpoint is local-only" },
+            { status: 403 },
+          );
+        }
         if (clientIp && !isLoopbackAddress(clientIp)) {
           log.warn(
             { clientIp },

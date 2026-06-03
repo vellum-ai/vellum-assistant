@@ -334,6 +334,33 @@ describe("guardian/init edge-proxy guard", () => {
       "Bootstrap endpoint is not accessible via the web edge",
     );
   });
+
+  // Regression: with GATEWAY_TRUST_PROXY enabled, the gateway resolves clientIp
+  // from the leftmost (client-spoofable) X-Forwarded-For entry. A remote caller
+  // forging `X-Forwarded-For: 127.0.0.1` would otherwise pass the bare-metal
+  // loopback check and reach the token-minting bootstrap path. The header's
+  // presence alone must be rejected in bare-metal mode.
+  test("rejects a spoofed X-Forwarded-For loopback in bare-metal mode", async () => {
+    delete process.env.GUARDIAN_BOOTSTRAP_SECRET;
+    const handler = createChannelVerificationSessionProxyHandler(makeConfig());
+    const res = await handler.handleGuardianInit(
+      new Request("http://localhost:7830/v1/guardian/init", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-forwarded-for": "127.0.0.1",
+        },
+        body: JSON.stringify({ platform: "cli", deviceId: "test-device" }),
+      }),
+      // clientIp as it would be resolved from the spoofed header when
+      // GATEWAY_TRUST_PROXY is on.
+      "127.0.0.1",
+    );
+
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toBe("Bootstrap endpoint is local-only");
+  });
 });
 
 describe("guardian/init one-time-use lockfile", () => {
