@@ -16,23 +16,6 @@ mac:
   hardenedRuntime: true
   entitlements: ./scripts/entitlements/app.plist
   entitlementsInherit: ./scripts/entitlements/inherit.plist
-  extendInfo:
-    UTExportedTypeDeclarations:
-      - UTTypeIdentifier: com.vellum.app-bundle
-        UTTypeConformsTo:
-          - public.data
-          - public.content
-        UTTypeDescription: Vellum App Bundle
-        UTTypeTagSpecification:
-          public.filename-extension:
-            - vellum
-          public.mime-type: application/x-vellum
-    CFBundleDocumentTypes:
-      - CFBundleTypeExtensions:
-          - vellum
-        CFBundleTypeRole: Viewer
-        LSItemContentTypes:
-          - com.vellum.app-bundle
   target:
     - target: dmg
       arch:
