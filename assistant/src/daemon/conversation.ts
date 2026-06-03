@@ -1066,7 +1066,6 @@ export class Conversation {
       this.abortController?.signal ?? undefined,
       {
         force: true,
-        lastCompactedAt: this.contextCompactedAt ?? undefined,
         conversationOriginChannel:
           getConversationOriginChannel(this.conversationId) ?? undefined,
         overrideProfile,

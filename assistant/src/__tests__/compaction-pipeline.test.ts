@@ -113,7 +113,7 @@ describe("compaction pipeline", () => {
     const args: CompactionArgs = {
       messages: [{ role: "user", content: "hi" }],
       signal: new AbortController().signal,
-      options: { lastCompactedAt: 42, precomputedEstimate: 1234 },
+      options: { precomputedEstimate: 1234 },
     };
 
     // No middleware registered — the runner invokes the terminal directly.

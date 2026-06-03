@@ -1092,7 +1092,6 @@ export async function runAgentLoopImpl(
       });
     }
     const compactionOptions = {
-      lastCompactedAt: ctx.contextCompactedAt ?? undefined,
       precomputedEstimate: compactCheck.estimatedTokens,
       conversationOriginChannel:
         getConversationOriginChannel(ctx.conversationId) ?? undefined,
@@ -1143,7 +1142,7 @@ export async function runAgentLoopImpl(
     }
     // Only track circuit-breaker state when a summary LLM call actually ran.
     // `summaryFailed` is `undefined` on early returns (compaction disabled,
-    // below threshold, cooldown active, no eligible messages, truncation-only
+    // below threshold, no eligible messages, truncation-only
     // path) — treating those as "successful" compactions would silently reset
     // the 3-strike counter and break the invariant.
     if (compacted && compacted.summaryFailed !== undefined) {
@@ -2105,7 +2104,6 @@ export async function runAgentLoopImpl(
         // resolves the pipeline options.
         return {
           options: {
-            lastCompactedAt: ctx.contextCompactedAt ?? undefined,
             targetInputTokensOverride:
               resolveCurrentContextBudget().preflightBudget,
             conversationOriginChannel:
@@ -2631,7 +2629,6 @@ export async function runAgentLoopImpl(
                 messages: ctx.messages,
                 signal: abortController.signal,
                 options: {
-                  lastCompactedAt: ctx.contextCompactedAt ?? undefined,
                   force: true,
                   minKeepRecentUserTurns: 0,
                   targetInputTokensOverride: correctedTarget,
@@ -2664,7 +2661,7 @@ export async function runAgentLoopImpl(
             }
           }
           // Only track when the summary LLM actually ran; `force: true`
-          // bypasses the cooldown but not the early-return paths.
+          // bypasses the auto-threshold gate but not the early-return paths.
           if (
             emergencyCompact &&
             emergencyCompact.summaryFailed !== undefined

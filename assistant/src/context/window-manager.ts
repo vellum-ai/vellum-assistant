@@ -90,7 +90,6 @@ export interface ShouldCompactResult {
 }
 
 export interface ContextWindowCompactOptions {
-  lastCompactedAt?: number;
   /** Skip the auto-threshold check (used for /compact and recovery). */
   force?: boolean;
   /**
