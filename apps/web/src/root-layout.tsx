@@ -18,6 +18,8 @@ import { useFeatureFlagBusSync } from "@/hooks/use-feature-flag-bus-sync";
 import { useClientFeatureFlagSync } from "@/hooks/use-client-feature-flag-sync";
 import { useAssistantFeatureFlagSync } from "@/hooks/use-assistant-feature-flag-sync";
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
+import { useDynamicFavicon } from "@/hooks/use-dynamic-favicon";
 import { TimezoneSync } from "@/components/timezone-sync";
 
 /**
@@ -81,6 +83,12 @@ export function RootLayout() {
   useFeatureFlagBusSync(assistantId, isAssistantActive);
   useNotificationIntentSync(assistantId);
   useDocumentEditorSync();
+
+  // Keep the browser favicon in sync with the assistant's avatar across
+  // every authenticated route (chat, settings, logs, etc.). Mounted here
+  // so the favicon persists when navigating between sibling layouts.
+  const avatar = useAssistantAvatar(assistantId);
+  useDynamicFavicon(avatar.customImageUrl, avatar.components, avatar.traits);
 
   useEventBusInit({ assistantId, isAssistantActive });
   // Inbound deep-link navigation + window activation. Mounted here
