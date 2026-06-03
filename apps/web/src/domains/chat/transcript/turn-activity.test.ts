@@ -170,6 +170,104 @@ describe("buildTurnActivity", () => {
     expect(activity.state).toBe("error");
   });
 
+  test("interleaved: trailing thinking group + isStreaming → that step loading, aggregate loading", () => {
+    const message = assistant({
+      thinkingSegments: ["reasoning..."],
+      toolCalls: [toolCall({ id: "call-a" })],
+      contentOrder: [
+        { type: "toolCall", id: "call-a" },
+        { type: "thinking", id: "0" },
+      ],
+    });
+
+    const streaming = buildTurnActivity(message, true);
+    expect(streaming.steps).toHaveLength(2);
+    expect(streaming.steps[0]!.kind).toBe("tool");
+    expect(streaming.steps[1]!.kind).toBe("thinking");
+    expect(streaming.steps[1]!.state).toBe("loading");
+    expect(streaming.state).toBe("loading");
+
+    // Non-streaming (history) keeps the trailing thinking step complete.
+    const settled = buildTurnActivity(message);
+    expect(settled.steps[1]!.state).toBe("complete");
+    expect(settled.state).toBe("complete");
+  });
+
+  test("interleaved: trailing tool group + isStreaming → no thinking step flipped (tool state governs)", () => {
+    const message = assistant({
+      thinkingSegments: ["reasoning..."],
+      toolCalls: [toolCall({ id: "call-a", status: "completed" })],
+      contentOrder: [
+        { type: "thinking", id: "0" },
+        { type: "toolCall", id: "call-a" },
+      ],
+    });
+
+    const activity = buildTurnActivity(message, true);
+    expect(activity.steps).toHaveLength(2);
+    expect(activity.steps[0]!.kind).toBe("thinking");
+    expect(activity.steps[0]!.state).toBe("complete");
+    expect(activity.steps[1]!.kind).toBe("tool");
+    // Last group is a tool group, so nothing is loading; tool state governs.
+    expect(activity.state).toBe("complete");
+  });
+
+  test("interleaved: non-trailing thinking group stays complete even when streaming", () => {
+    const message = assistant({
+      thinkingSegments: ["first", "second"],
+      toolCalls: [toolCall({ id: "call-a" })],
+      contentOrder: [
+        { type: "thinking", id: "0" },
+        { type: "toolCall", id: "call-a" },
+        { type: "thinking", id: "1" },
+      ],
+    });
+
+    const activity = buildTurnActivity(message, true);
+    expect(activity.steps).toHaveLength(3);
+    expect(activity.steps[0]!.kind).toBe("thinking");
+    expect(activity.steps[0]!.state).toBe("complete");
+    expect(activity.steps[2]!.kind).toBe("thinking");
+    expect(activity.steps[2]!.state).toBe("loading");
+  });
+
+  test("legacy: trailing thinking run + isStreaming → loading", () => {
+    const message = assistant({
+      thinkingSegments: ["reasoning..."],
+      textSegments: [],
+      // No interleaved tool calls in contentOrder → legacy branch.
+      contentOrder: [{ type: "thinking", id: "0" }],
+    });
+
+    const streaming = buildTurnActivity(message, true);
+    expect(streaming.steps).toHaveLength(1);
+    expect(streaming.steps[0]!.kind).toBe("thinking");
+    expect(streaming.steps[0]!.state).toBe("loading");
+    expect(streaming.state).toBe("loading");
+
+    const settled = buildTurnActivity(message);
+    expect(settled.steps[0]!.state).toBe("complete");
+    expect(settled.state).toBe("complete");
+  });
+
+  test("legacy: earlier thinking run stays complete when streaming", () => {
+    const message = assistant({
+      thinkingSegments: ["first", "second"],
+      textSegments: ["answer"],
+      // text between two thinking runs splits them; no interleaved tool calls.
+      contentOrder: [
+        { type: "thinking", id: "0" },
+        { type: "text", id: "0" },
+        { type: "thinking", id: "1" },
+      ],
+    });
+
+    const activity = buildTurnActivity(message, true);
+    expect(activity.steps).toHaveLength(2);
+    expect(activity.steps[0]!.state).toBe("complete");
+    expect(activity.steps[1]!.state).toBe("loading");
+  });
+
   test("non-assistant message → empty TurnActivity", () => {
     const message: DisplayMessage = {
       id: "u1",

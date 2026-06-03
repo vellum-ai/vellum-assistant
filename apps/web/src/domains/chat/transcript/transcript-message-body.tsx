@@ -557,7 +557,7 @@ export function TranscriptMessageBody({
   // cheap projection (no hook) — `buildTurnActivity` returns an empty activity
   // for non-assistant messages, so it's safe to compute unconditionally. The
   // card only renders below when the flag is on AND there's at least one step.
-  const activity = buildTurnActivity(message);
+  const activity = buildTurnActivity(message, isStreaming);
   const renderActivityCard =
     !isUser &&
     Boolean(activitySummaryEnabled) &&

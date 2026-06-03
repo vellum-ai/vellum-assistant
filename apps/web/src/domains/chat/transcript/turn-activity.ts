@@ -105,8 +105,18 @@ const EMPTY_TURN_ACTIVITY: TurnActivity = {
  *     plus a single trailing tool step from `message.toolCalls`.
  *
  * Returns an empty `TurnActivity` for non-assistant messages.
+ *
+ * `isStreaming` is true only for the turn that is actively streaming (set by
+ * `LatestTurnRow`). When true, the TRAILING thinking step — the live reasoning
+ * group the inline `ThinkingBlock` renders with `isStreaming` — is marked
+ * `loading` instead of `complete`, so the combined card shows a spinner rather
+ * than a terminal check while reasoning streams. The default `false` keeps
+ * history/non-streaming callers byte-identical.
  */
-export function buildTurnActivity(message: DisplayMessage): TurnActivity {
+export function buildTurnActivity(
+  message: DisplayMessage,
+  isStreaming = false,
+): TurnActivity {
   if (message.role !== "assistant") {
     return EMPTY_TURN_ACTIVITY;
   }
@@ -118,16 +128,21 @@ export function buildTurnActivity(message: DisplayMessage): TurnActivity {
   );
 
   if (hasInterleavedToolCalls) {
-    for (const group of groupMessageContent(message)) {
+    const groups = groupMessageContent(message);
+    for (let gi = 0; gi < groups.length; gi++) {
+      const group = groups[gi]!;
       if (group.type === "thinking") {
         const content = resolveThinkingContent(message, group.ids);
         if (!content) continue;
+        // Mirror the inline ThinkingBlock's `isStreaming && gi === last`: the
+        // trailing live reasoning group reads as loading, not complete.
+        const isTrailingLive = isStreaming && gi === groups.length - 1;
         steps.push({
           kind: "thinking",
           anchorId: activityAnchorId(message.id, "thinking", group.ids[0]!),
           title: "Thought process",
           info: "",
-          state: "complete",
+          state: isTrailingLive ? "loading" : "complete",
         });
       } else if (group.type === "toolCalls") {
         const calls = group.ids
@@ -139,9 +154,12 @@ export function buildTurnActivity(message: DisplayMessage): TurnActivity {
     }
   } else {
     // Legacy shape: emit thinking steps by buffering consecutive `thinking`
-    // ids, then one trailing tool step from `message.toolCalls`.
+    // ids, then one trailing tool step from `message.toolCalls`. The component
+    // flushes only the post-loop (trailing) run with `isStreaming`; earlier
+    // runs always flush as complete. Mirror that here so only the trailing
+    // live reasoning step reads as loading.
     let pendingThinkingIds: string[] = [];
-    const flushThinking = () => {
+    const flushThinking = (live: boolean) => {
       if (pendingThinkingIds.length === 0) return;
       const ids = pendingThinkingIds;
       pendingThinkingIds = [];
@@ -152,7 +170,7 @@ export function buildTurnActivity(message: DisplayMessage): TurnActivity {
         anchorId: activityAnchorId(message.id, "thinking", ids[0]!),
         title: "Thought process",
         info: "",
-        state: "complete",
+        state: live ? "loading" : "complete",
       });
     };
     for (const entry of message.contentOrder ?? []) {
@@ -160,9 +178,9 @@ export function buildTurnActivity(message: DisplayMessage): TurnActivity {
         pendingThinkingIds.push(entry.id);
         continue;
       }
-      flushThinking();
+      flushThinking(false);
     }
-    flushThinking();
+    flushThinking(isStreaming);
 
     const step = buildToolActivityStep(message, message.toolCalls ?? []);
     if (step) steps.push(step);
