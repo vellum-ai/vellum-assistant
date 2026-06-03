@@ -26,7 +26,7 @@ import {
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import { client } from "@/generated/api/client.gen";
 import { captureError } from "@/lib/sentry/capture-error";
-import { useAuthStore } from "@/stores/auth-store";
+import { useIsAuthenticated } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
@@ -220,7 +220,7 @@ export function GeneralPage() {
   const accountDeletion = useAssistantFeatureFlagStore.use.accountDeletion();
   const multiPlatformAssistant = useAssistantFeatureFlagStore.use.multiPlatformAssistant();
   const settingsSleepPolicy = useAssistantFeatureFlagStore.use.settingsSleepPolicy();
-  const isLoggedIn = useAuthStore.use.isLoggedIn();
+  const isAuthenticated = useIsAuthenticated();
   const navigate = useNavigate();
   const platformGate = usePlatformGate();
   const infraGate = usePlatformGate({ platformHostedOnly: true });
@@ -272,7 +272,7 @@ export function GeneralPage() {
         />
       </DetailCard>
 
-      {isLoggedIn && platformGate === "full" && <ProfileCard assistant={platformAssistant} />}
+      {isAuthenticated && platformGate === "full" && <ProfileCard assistant={platformAssistant} />}
 
       {infraGate === "full" && assistant && (
         <ResizeCard

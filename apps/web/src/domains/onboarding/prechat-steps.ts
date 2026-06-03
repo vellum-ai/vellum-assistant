@@ -16,7 +16,7 @@ import {
   ONBOARDING_FUNNEL_STEPS,
   type OnboardingFunnelStep,
 } from "@/domains/onboarding/funnel-events";
-import type { PlatformSessionStatus } from "@/stores/auth-store";
+import type { PlatformSessionStatus } from "@/stores/session-status";
 
 export type PreChatStepId =
   | "name"

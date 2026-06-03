@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from "react";
 
 import { setDockBadge, setDockSignedIn } from "@/runtime/dock";
-import { useAuthStore } from "@/stores/auth-store";
+import { useIsAuthenticated } from "@/stores/auth-store";
 import type { Conversation } from "@/types/conversation-types";
 import { contributesToUnreadCount } from "@/utils/conversation-predicates";
 
@@ -27,7 +27,7 @@ import { contributesToUnreadCount } from "@/utils/conversation-predicates";
  * a stale count on the Dock.)
  */
 export function useElectronDockSync(conversations: Conversation[]): void {
-  const isLoggedIn = useAuthStore.use.isLoggedIn();
+  const isAuthenticated = useIsAuthenticated();
 
   const unreadCount = useMemo(
     () =>
@@ -43,6 +43,6 @@ export function useElectronDockSync(conversations: Conversation[]): void {
   }, [unreadCount]);
 
   useEffect(() => {
-    void setDockSignedIn(isLoggedIn);
-  }, [isLoggedIn]);
+    void setDockSignedIn(isAuthenticated);
+  }, [isAuthenticated]);
 }

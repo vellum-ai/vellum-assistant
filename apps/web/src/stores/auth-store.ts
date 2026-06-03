@@ -15,6 +15,13 @@ import { create } from "zustand";
 
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import { createSelectors } from "@/utils/create-selectors";
+import {
+  isAuthenticated,
+  isSessionSettled,
+  hasLivePlatformSession,
+  type PlatformSessionStatus,
+  type SessionStatus,
+} from "@/stores/session-status";
 
 import {
   getSession,
@@ -80,27 +87,8 @@ function toAuthUser(raw: RawSessionUser | null): AuthUser | null {
   };
 }
 
-/**
- * Platform-session liveness as a single tri-state.
- *
- * - `"unknown"`: the probe has not settled yet. The local gateway path sets
- *   `isLoading: false` before `getSession()` returns, so there is a window
- *   where logged-in status is known but session liveness is not. Imperative
- *   consumers (the onboarding fork) must wait this out before deciding;
- *   reactive consumers treat it as "no session" but a cached platform
- *   assistant can stand in as a liveness hint.
- * - `"absent"`: the probe settled with no live platform session.
- * - `"present"`: the probe settled with a live platform session.
- *
- * Encoding it as one value makes "false that really means unknown"
- * unrepresentable, which is the ambiguity that let missing-session readers
- * silently treat the pre-settle window as a confirmed negative.
- */
-export type PlatformSessionStatus = "unknown" | "absent" | "present";
-
 interface AuthState {
-  isLoggedIn: boolean;
-  isLoading: boolean;
+  sessionStatus: SessionStatus;
   user: AuthUser | null;
   platformSession: PlatformSessionStatus;
 }
@@ -135,6 +123,31 @@ const GATEWAY_LOCAL_USER: AuthUser = {
   firstName: "Local",
   lastName: "User",
 };
+
+/**
+ * Named state transitions — the store declares *which session it is entering*
+ * instead of re-listing the same field combinations at every call site. Each
+ * returns the patch for `set()`, so the actions read as a state machine.
+ *
+ * `platformSession` is left untouched by transitions that don't know it yet
+ * (a follow-up probe settles it); transitions that do know it set it inline.
+ */
+const authenticatedPlatformUser = (user: AuthUser | null): Partial<AuthState> => ({
+  sessionStatus: "authenticated",
+  user,
+  platformSession: "present",
+});
+
+const authenticatedLocalUser = (): Partial<AuthState> => ({
+  sessionStatus: "authenticated",
+  user: GATEWAY_LOCAL_USER,
+});
+
+const sessionEnded = (): Partial<AuthState> => ({
+  sessionStatus: "unauthenticated",
+  user: null,
+  platformSession: "absent",
+});
 
 function syncOrganizationState(nextUserId: string | null): void {
   if (!nextUserId || (previousUserId && previousUserId !== nextUserId)) {
@@ -244,8 +257,7 @@ function probePlatformSessionIfReachable(
 }
 
 const useAuthStoreBase = create<AuthStore>()((set) => ({
-  isLoggedIn: false,
-  isLoading: true,
+  sessionStatus: "initializing",
   user: null,
   platformSession: "unknown",
 
@@ -253,9 +265,11 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
     if (isGatewayAuthEnabled()) {
       try {
         await primeLocalGatewayConnection();
-        set({ isLoggedIn: true, isLoading: false, user: GATEWAY_LOCAL_USER });
+        set(authenticatedLocalUser());
       } catch {
-        set({ isLoggedIn: false, isLoading: false, user: null });
+        // Gateway prime failed: settle to unauthenticated but leave
+        // `platformSession` for the follow-up probe to resolve.
+        set({ sessionStatus: "unauthenticated", user: null });
       }
       probePlatformSessionIfReachable(set);
       return;
@@ -276,23 +290,23 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
               if (apiAssistants.ok) {
                 await syncPlatformAssistantsToLockfile(apiAssistants.data);
                 if (getPlatformAssistants().length === 0 && getLocalAssistants().length === 0) {
-                  set({ isLoggedIn: true, isLoading: false, user, platformSession: "present" });
+                  set(authenticatedPlatformUser(user));
                   return;
                 }
               }
             } catch {
               // Sync failed — continue with cached data
             }
-            set({ isLoggedIn: true, isLoading: false, user, platformSession: "present" });
+            set(authenticatedPlatformUser(user));
             return;
           }
         } catch {
           // Session check failed — fall through to unauthenticated
         }
-        set({ isLoggedIn: false, isLoading: false, user: null, platformSession: "absent" });
+        set(sessionEnded());
         return;
       }
-      set({ isLoggedIn: true, isLoading: false, user: GATEWAY_LOCAL_USER });
+      set(authenticatedLocalUser());
       if (!suppressPlatformProbe) {
         probePlatformSession(set, { setUserOnSuccess: true });
       } else {
@@ -307,7 +321,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       if (result.ok && result.data.user) {
         const user = toAuthUser(result.data.user);
         syncUserScopedState(user?.id ?? null);
-        set({ isLoggedIn: true, isLoading: false, user, platformSession: "present" });
+        set(authenticatedPlatformUser(user));
         return;
       }
     } catch (err) {
@@ -326,7 +340,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
           if (retryResult.ok && retryResult.data.user) {
             const user = toAuthUser(retryResult.data.user);
             syncUserScopedState(user?.id ?? null);
-            set({ isLoggedIn: true, isLoading: false, user, platformSession: "present" });
+            set(authenticatedPlatformUser(user));
             return;
           }
         }
@@ -336,7 +350,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
     }
 
     syncUserScopedState(null);
-    set({ isLoggedIn: false, isLoading: false, user: null, platformSession: "absent" });
+    set(sessionEnded());
   },
 
   /**
@@ -356,7 +370,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
   connectLocalAssistant: async (assistantId: string) => {
     setSelectedAssistantId(assistantId);
     await primeLocalGatewayConnectionWithRepair();
-    set({ isLoggedIn: true, isLoading: false, user: GATEWAY_LOCAL_USER });
+    set(authenticatedLocalUser());
     probePlatformSessionIfReachable(set);
   },
 
@@ -364,9 +378,9 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
     if (isGatewayAuthMode()) {
       try {
         await ensureGatewayToken(getLocalTokenUrl());
-        set({ isLoggedIn: true });
+        set({ sessionStatus: "authenticated" });
       } catch {
-        set({ isLoggedIn: false, user: null, platformSession: "absent" });
+        set(sessionEnded());
         return false;
       }
       probePlatformSessionIfReachable(set, { clearOnFailure: true });
@@ -378,14 +392,14 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       if (result.ok && result.data.user) {
         const user = toAuthUser(result.data.user);
         syncUserScopedState(user?.id ?? null);
-        set({ isLoggedIn: true, user, platformSession: "present" });
+        set(authenticatedPlatformUser(user));
         return true;
       }
     } catch (err) {
       console.warn("auth.refreshSession failed", err);
     }
     syncUserScopedState(null);
-    set({ isLoggedIn: false, user: null, platformSession: "absent" });
+    set(sessionEnded());
     return false;
   },
 
@@ -396,12 +410,12 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       clearOnboardingFlags();
       clearOrganization();
       clearUserScopedStorage();
-      // Clear lifecycle state BEFORE flipping `isLoggedIn` so the
-      // assistant sync hooks don't observe a stale assistant id in
-      // their first re-render. The `respondToInputs` `!isLoggedIn`
+      // Clear lifecycle state BEFORE `sessionStatus` leaves `authenticated`
+      // so the assistant sync hooks don't observe a stale assistant id in
+      // their first re-render. The `respondToInputs` not-authenticated
       // branch is the safety net for token-expiry-style flips.
       lifecycleService.resetForLogout();
-      set({ isLoggedIn: false, user: null, platformSession: "absent" });
+      set(sessionEnded());
       broadcastAuthChange();
       return;
     }
@@ -418,13 +432,32 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       clearOrganization();
       clearUserScopedStorage();
       lifecycleService.resetForLogout();
-      set({ isLoggedIn: false, user: null, platformSession: "absent" });
+      set(sessionEnded());
       broadcastAuthChange();
     }
   },
 }));
 
 export const useAuthStore = createSelectors(useAuthStoreBase);
+
+/**
+ * Semantic read hooks — the reactive public API for components.
+ *
+ * Each subscribes to one atomic field and answers a single domain question, so
+ * components never re-encode the enum (`sessionStatus === "authenticated"`,
+ * `platformSession === "present"`) and never juggle a pair of booleans. They
+ * compose the pure `session-status` predicates over the atomic selectors
+ * generated by `createSelectors`, keeping Zustand's `Object.is` snapshot
+ * equality stable.
+ */
+export const useIsAuthenticated = (): boolean =>
+  isAuthenticated(useAuthStore.use.sessionStatus());
+
+export const useIsSessionInitializing = (): boolean =>
+  !isSessionSettled(useAuthStore.use.sessionStatus());
+
+export const useHasPlatformSession = (): boolean =>
+  hasLivePlatformSession(useAuthStore.use.platformSession());
 
 /**
  * Subscribe to app-resume signals on the layout-scoped event bus and to

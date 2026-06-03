@@ -54,8 +54,9 @@ export function PlatformLoopbackPage() {
     document.cookie = `sessionid=${sessionToken}; path=/; samesite=lax; max-age=1209600`;
 
     void (async () => {
-      // Re-run session init now that the cookie is set — this updates
-      // isLoggedIn so the auth middleware lets navigation through.
+      // Re-run session init now that the cookie is set — this moves
+      // sessionStatus to "authenticated" so the auth middleware lets
+      // navigation through.
       await useAuthStore.getState().initSession();
 
       try {

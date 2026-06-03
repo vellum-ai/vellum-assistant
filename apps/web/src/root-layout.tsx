@@ -7,7 +7,11 @@ import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useVisibleViewport } from "@/hooks/use-visible-viewport";
 import { useAssistantLifecycle } from "@/assistant/use-lifecycle";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
-import { useAuthStore } from "@/stores/auth-store";
+import {
+  useAuthStore,
+  useIsSessionInitializing,
+  useHasPlatformSession,
+} from "@/stores/auth-store";
 import { useEnvironmentStore } from "@/stores/environment-store";
 import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
 import { useDocumentEditorSync } from "@/hooks/use-document-editor-sync";
@@ -57,14 +61,13 @@ export function RootLayout() {
   const visibleViewport = useVisibleViewport();
 
   const navigate = useNavigate();
-  const isLoggedIn = useAuthStore.use.isLoggedIn();
-  const authLoading = useAuthStore.use.isLoading();
-  const hasPlatformSession = useAuthStore.use.platformSession() === "present";
+  const sessionStatus = useAuthStore.use.sessionStatus();
+  const isSessionInitializing = useIsSessionInitializing();
+  const hasPlatformSession = useHasPlatformSession();
   const isNonProduction = useEnvironmentStore.use.isNonProduction();
-  useClientFeatureFlagSync(hasPlatformSession && !authLoading);
+  useClientFeatureFlagSync(hasPlatformSession && !isSessionInitializing);
   useAssistantLifecycle({
-    isLoggedIn,
-    isLoading: authLoading,
+    sessionStatus,
     isRetired: false,
     isNonProduction,
     hasPlatformSession,

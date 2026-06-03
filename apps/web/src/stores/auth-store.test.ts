@@ -129,8 +129,7 @@ const { useAuthStore } = await import("@/stores/auth-store");
 
 function resetAuthStore(): void {
   useAuthStore.setState({
-    isLoggedIn: false,
-    isLoading: true,
+    sessionStatus: "initializing",
     user: null,
     platformSession: "unknown",
   });
@@ -170,8 +169,7 @@ describe("auth store onboarding flag reconciliation", () => {
     await useAuthStore.getState().initSession();
 
     expect(syncOnboardingUserMock).toHaveBeenCalledWith("user-1");
-    expect(useAuthStore.getState().isLoggedIn).toBe(true);
-    expect(useAuthStore.getState().isLoading).toBe(false);
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
   });
 
   test("refreshSession reconciles onboarding flags for a changed user", async () => {
@@ -188,7 +186,7 @@ describe("auth store onboarding flag reconciliation", () => {
 
     expect(logoutMock).toHaveBeenCalled();
     expect(clearOnboardingFlagsMock).toHaveBeenCalled();
-    expect(useAuthStore.getState().isLoggedIn).toBe(false);
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
   });
 });
 
@@ -211,23 +209,23 @@ describe("session cleanup on logout", () => {
     expect(clearUserScopedStorageMock).toHaveBeenCalled();
   });
 
-  test("logout clears assistant lifecycle synchronously, before flipping isLoggedIn", async () => {
+  test("logout clears assistant lifecycle synchronously, before leaving authenticated", async () => {
     // The lifecycle reset must happen before the auth state flips,
     // otherwise sync hooks like `useAssistantResourceSync` get one
     // re-render with the previous user's assistant id and fire
     // requests that 401. The order is verified by recording the
-    // sequence of side effects vs the `isLoggedIn` flip.
-    let isLoggedInAtResetTime = useAuthStore.getState().isLoggedIn;
+    // session status seen at reset time vs the final transition.
+    let statusAtResetTime = useAuthStore.getState().sessionStatus;
     lifecycleResetForLogoutMock.mockImplementationOnce(() => {
-      isLoggedInAtResetTime = useAuthStore.getState().isLoggedIn;
+      statusAtResetTime = useAuthStore.getState().sessionStatus;
     });
-    useAuthStore.setState({ isLoggedIn: true });
+    useAuthStore.setState({ sessionStatus: "authenticated" });
 
     await useAuthStore.getState().logout();
 
     expect(lifecycleResetForLogoutMock).toHaveBeenCalledTimes(1);
-    expect(isLoggedInAtResetTime).toBe(true);
-    expect(useAuthStore.getState().isLoggedIn).toBe(false);
+    expect(statusAtResetTime).toBe("authenticated");
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
   });
 });
 
@@ -303,7 +301,7 @@ describe("biometric session recovery", () => {
     expect(installSessionCookiesMock).toHaveBeenCalledWith(
       "recovered-session-token",
     );
-    expect(useAuthStore.getState().isLoggedIn).toBe(true);
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
     expect(useAuthStore.getState().user?.id).toBe("user-1");
   });
 
@@ -314,7 +312,7 @@ describe("biometric session recovery", () => {
     await useAuthStore.getState().initSession();
 
     expect(retrieveBiometricTokenMock).not.toHaveBeenCalled();
-    expect(useAuthStore.getState().isLoggedIn).toBe(false);
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
   });
 
   test("initSession skips biometric recovery when biometrics disabled", async () => {
@@ -325,7 +323,7 @@ describe("biometric session recovery", () => {
     await useAuthStore.getState().initSession();
 
     expect(retrieveBiometricTokenMock).not.toHaveBeenCalled();
-    expect(useAuthStore.getState().isLoggedIn).toBe(false);
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
   });
 
   test("initSession falls through to unauthenticated when biometric token is expired", async () => {
@@ -337,7 +335,7 @@ describe("biometric session recovery", () => {
     await useAuthStore.getState().initSession();
 
     expect(installSessionCookiesMock).toHaveBeenCalledWith("expired-token");
-    expect(useAuthStore.getState().isLoggedIn).toBe(false);
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
     expect(useAuthStore.getState().user).toBeNull();
   });
 });
@@ -351,7 +349,7 @@ describe("connectLocalAssistant", () => {
 
     expect(setSelectedAssistantIdMock).toHaveBeenCalledWith("local-a");
     expect(primeLocalGatewayConnectionWithRepairMock).toHaveBeenCalledTimes(1);
-    expect(useAuthStore.getState().isLoggedIn).toBe(true);
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
     expect(useAuthStore.getState().user?.id).toBe("gateway-local");
     // No platform assistants — nothing to probe, so the status settles
     // directly to "absent" rather than staying "unknown".
@@ -367,6 +365,6 @@ describe("connectLocalAssistant", () => {
     ).rejects.toThrow("Guardian token not found");
 
     expect(setSelectedAssistantIdMock).toHaveBeenCalledWith("local-a");
-    expect(useAuthStore.getState().isLoggedIn).toBe(false);
+    expect(useAuthStore.getState().sessionStatus).not.toBe("authenticated");
   });
 });

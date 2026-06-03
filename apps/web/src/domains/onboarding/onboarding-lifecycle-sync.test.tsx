@@ -13,7 +13,7 @@ import {
   STORAGE_KEY,
 } from "@/domains/onboarding/prechat";
 import { routes } from "@/utils/routes";
-import type { PlatformSessionStatus } from "@/stores/auth-store";
+import type { PlatformSessionStatus } from "@/stores/session-status";
 
 let searchParams = new URLSearchParams();
 const navigateMock = mock(() => {});
@@ -208,11 +208,12 @@ mock.module("@/stores/auth-store", () => ({
         firstName: "Alice",
         lastName: "",
       }),
-      isLoggedIn: () => true,
-      isLoading: () => false,
+      sessionStatus: () => "authenticated",
       platformSession: () => platformSessionValue,
     },
   },
+  useIsAuthenticated: () => true,
+  useIsSessionInitializing: () => false,
 }));
 
 type EmulatedQueryOptions = {

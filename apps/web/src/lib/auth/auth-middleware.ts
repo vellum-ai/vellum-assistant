@@ -15,6 +15,7 @@ import {
 } from "react-router";
 
 import { useAuthStore, type AuthUser } from "@/stores/auth-store";
+import { isAuthenticated, isSessionSettled } from "@/stores/session-status";
 import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
 import { isLocalMode, hasAssistants } from "@/lib/local-mode";
 import { resolveLocalOnboardingRoute } from "@/utils/local-onboarding-route";
@@ -23,14 +24,14 @@ import { whenStoreState } from "@/utils/when-store-state";
 export const authUserContext = createRouterContext<AuthUser | null>(null);
 
 export const authMiddleware: MiddlewareFunction = async ({ request, context }, next) => {
-  const { isLoggedIn, isLoading, user } = useAuthStore.getState();
+  const { sessionStatus, user } = useAuthStore.getState();
 
-  if (isLoading) {
-    await whenStoreState(useAuthStore, (state) => !state.isLoading);
+  if (!isSessionSettled(sessionStatus)) {
+    await whenStoreState(useAuthStore, (state) => isSessionSettled(state.sessionStatus));
     return authMiddleware({ request, context } as Parameters<MiddlewareFunction>[0], next);
   }
 
-  if (!isLoggedIn || !user) {
+  if (!isAuthenticated(sessionStatus) || !user) {
     if (isGatewayAuthMode()) {
       return next();
     }

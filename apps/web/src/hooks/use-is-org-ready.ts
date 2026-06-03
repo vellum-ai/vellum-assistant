@@ -1,4 +1,4 @@
-import { useAuthStore } from "@/stores/auth-store";
+import { useHasPlatformSession } from "@/stores/auth-store";
 import { useOrganizationStore } from "@/stores/organization-store";
 
 /**
@@ -8,6 +8,6 @@ import { useOrganizationStore } from "@/stores/organization-store";
  */
 export function useIsOrgReady(): boolean {
   const currentOrgId = useOrganizationStore.use.currentOrganizationId();
-  const hasPlatformSession = useAuthStore.use.platformSession() === "present";
+  const hasPlatformSession = useHasPlatformSession();
   return !hasPlatformSession || currentOrgId != null;
 }

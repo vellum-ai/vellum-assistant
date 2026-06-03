@@ -14,6 +14,7 @@
  * ordering and none can reintroduce the race by reading the status early.
  */
 import { useAuthStore } from "@/stores/auth-store";
+import { hasLivePlatformSession } from "@/stores/session-status";
 import { routes } from "@/utils/routes";
 import { whenStoreState } from "@/utils/when-store-state";
 
@@ -31,7 +32,7 @@ export async function resolveLocalOnboardingRoute(): Promise<string> {
     (state) => state.platformSession !== "unknown",
     { timeoutMs: PLATFORM_SESSION_PROBE_TIMEOUT_MS },
   );
-  return useAuthStore.getState().platformSession === "present"
+  return hasLivePlatformSession(useAuthStore.getState().platformSession)
     ? routes.onboarding.hosting
     : routes.onboarding.welcome;
 }

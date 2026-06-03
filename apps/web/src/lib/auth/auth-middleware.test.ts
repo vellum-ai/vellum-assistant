@@ -49,8 +49,7 @@ afterEach(() => {
 describe("authMiddleware — local-mode onboarding fork", () => {
   test("waits for the platform-session probe before choosing hosting vs welcome", async () => {
     useAuthStore.setState({
-      isLoggedIn: true,
-      isLoading: false,
+      sessionStatus: "authenticated",
       user: fakeUser,
       platformSession: "unknown",
     });
@@ -76,8 +75,7 @@ describe("authMiddleware — local-mode onboarding fork", () => {
 
   test("routes to welcome once resolved with no platform session", async () => {
     useAuthStore.setState({
-      isLoggedIn: true,
-      isLoading: false,
+      sessionStatus: "authenticated",
       user: fakeUser,
       platformSession: "absent",
     });
@@ -89,8 +87,7 @@ describe("authMiddleware — local-mode onboarding fork", () => {
 
   test("routes to hosting when a resolved platform session exists", async () => {
     useAuthStore.setState({
-      isLoggedIn: true,
-      isLoading: false,
+      sessionStatus: "authenticated",
       user: fakeUser,
       platformSession: "present",
     });
