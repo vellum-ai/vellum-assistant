@@ -310,6 +310,26 @@ describe("ProviderCreateForm submit sequence", () => {
     });
   });
 
+  test("defaultAuthType='api_key' seeds the API Key path (Save as New clone)", () => {
+    render(
+      <ModalWrapper>
+        <ProviderCreateForm
+          assistantId={ASSISTANT_ID}
+          existingNames={[]}
+          defaultProviderType="anthropic"
+          defaultAuthType="api_key"
+          onCreated={() => {}}
+          onCancel={() => {}}
+        />
+      </ModalWrapper>,
+    );
+
+    // The API Key field only renders for api_key auth, so its presence
+    // confirms the form initialized on the "bring your own credential" path
+    // (instead of the managed-capable provider's default `platform`).
+    expect(getInputByPlaceholder("Enter your API key")).toBeDefined();
+  });
+
   test("clicking Cancel invokes onCancel", () => {
     let cancelled = false;
     render(

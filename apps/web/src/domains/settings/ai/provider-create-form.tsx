@@ -55,6 +55,13 @@ export interface ProviderCreateFormProps {
   chatgptSubscriptionEnabled?: boolean;
   /** Pre-selected provider type (e.g. when cloning a managed connection). */
   defaultProviderType?: ConnectionProvider;
+  /**
+   * Pre-selected auth type. When omitted, managed-capable providers default
+   * to `platform` (and ollama to `none`). The Save-as-New clone flow passes
+   * `api_key` here so cloning a managed connection seeds the "bring your own
+   * credential" path rather than another managed-proxy connection.
+   */
+  defaultAuthType?: AuthType;
   onCreated: (connection: ProviderConnection) => void;
   onCancel: () => void;
   /** "modal" wraps the form in Modal chrome; "inline" drops it for embedding. */
@@ -67,6 +74,7 @@ export function ProviderCreateForm({
   openAICompatibleEndpointsEnabled = false,
   chatgptSubscriptionEnabled = false,
   defaultProviderType,
+  defaultAuthType,
   onCreated,
   onCancel,
   variant = "modal",
@@ -76,8 +84,10 @@ export function ProviderCreateForm({
   const [label, setLabel] = useState("");
   const [name, setName] = useState("");
   const [provider, setProvider] = useState<ConnectionProvider>(initialProvider);
-  const [authType, setAuthType] = useState<AuthType>(() =>
-    initialProvider === "ollama" ? "none" : "platform",
+  const [authType, setAuthType] = useState<AuthType>(
+    () =>
+      defaultAuthType ??
+      (initialProvider === "ollama" ? "none" : "platform"),
   );
   const [credential, setCredential] = useState(() =>
     initialProvider === "ollama" ? "" : `credential/${initialProvider}/api_key`,

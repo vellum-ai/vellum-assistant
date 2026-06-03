@@ -84,6 +84,13 @@ export function ProviderEditorContent({
     "create" | "edit" | "managed-edit"
   >(mode);
 
+  // Auth type to seed the create form with when entering create mode via the
+  // Save as New clone flow. `undefined` for a genuine "create" open so the
+  // form keeps its own default (platform for managed-capable providers).
+  const [createAuthTypeSeed, setCreateAuthTypeSeed] = useState<
+    AuthType | undefined
+  >(undefined);
+
   // True when the editor is opened for a Vellum-managed connection. Locks
   // the auth-related inputs (Auth Type, API Key, Credential Reference) but
   // leaves Display Name + Status editable. Keyed off `effectiveMode` so
@@ -207,25 +214,7 @@ export function ProviderEditorContent({
   // common path for cloning off a managed connection).
   function handleSaveAsNew() {
     setEffectiveMode("create");
-    // Clear the Key so the user picks a new unique name. Reset the dirty
-    // flag so subsequent Label edits auto-derive the Key, matching the
-    // create-mode default UX.
-    setName("");
-    resetDirty();
-    if (provider === "ollama") {
-      setAuthType("none");
-      setCredential("");
-    } else {
-      setAuthType("api_key");
-      setCredential(`credential/${provider}/api_key`);
-    }
-    setApiKeyValue("");
-    setBaseUrl("");
-    setConnectionModels("");
-    setError(null);
-    // TQ credential queries auto-refetch: credential ref change above
-    // triggers a new presence query key, and the credentials list query
-    // stays enabled (effectiveMode is now "create").
+    setCreateAuthTypeSeed(provider === "ollama" ? "none" : "api_key");
   }
 
   const nameError = (() => {
@@ -377,6 +366,7 @@ export function ProviderEditorContent({
         openAICompatibleEndpointsEnabled={openAICompatibleEndpointsEnabled}
         chatgptSubscriptionEnabled={chatgptSubscriptionEnabled}
         defaultProviderType={provider}
+        defaultAuthType={createAuthTypeSeed}
         onCreated={onSave}
         onCancel={onCancel}
       />
