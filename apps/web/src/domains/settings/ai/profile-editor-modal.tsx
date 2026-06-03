@@ -1,49 +1,25 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@vellum/design-library/components/button";
-import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Input, Textarea } from "@vellum/design-library/components/input";
 import { Modal } from "@vellum/design-library/components/modal";
 import { Tag } from "@vellum/design-library/components/tag";
 import { Toggle } from "@vellum/design-library/components/toggle";
 import { Typography } from "@vellum/design-library/components/typography";
 
-import {
-  getModelsForProvider,
-  MODELS_BY_PROVIDER,
-  PROVIDER_DISPLAY_NAMES as INFERENCE_PROVIDER_DISPLAY_NAMES,
-} from "@/assistant/llm-model-catalog";
+import { getModelsForProvider } from "@/assistant/llm-model-catalog";
 
-import type { ProfileEntry, ProfileWithName } from "@/domains/settings/ai/ai-types";
+import type { ProfileEntry, ProfileStatus, ProfileWithName } from "@/domains/settings/ai/ai-types";
+import { OPENAI_COMPATIBLE_PROVIDER } from "@/domains/settings/ai/ai-types";
 import {
   ProfileAdvancedParams,
   THINKING_LEVEL_INHERIT,
 } from "@/domains/settings/ai/profile-advanced-params";
+import { ProfileEditorProviderSection } from "@/domains/settings/ai/profile-editor-provider-section";
 import { resolveProfileParamVisibility } from "@/domains/settings/ai/profile-param-visibility";
-import { type ConnectionModel, type ProviderConnection } from "@/domains/settings/ai/provider-connections-client";
+import { AUTO_PROFILE_NAME } from "@/domains/settings/ai/profile-pickers";
+import type { ProviderConnection } from "@/domains/settings/ai/provider-connections-client";
 import { useLabelKeySync } from "@/domains/settings/ai/use-label-key-sync";
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const ALL_PROVIDERS = Object.keys(MODELS_BY_PROVIDER) as (keyof typeof MODELS_BY_PROVIDER)[];
-const OPENAI_COMPATIBLE_PROVIDER = "openai-compatible";
-
-const CODEX_SUBSCRIPTION_MODEL_IDS = new Set([
-  "gpt-5.5",
-  "gpt-5.4",
-  "gpt-5.4-mini",
-  "gpt-5.3-codex",
-]);
-
-
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-export type ProfileStatus = "active" | "disabled";
 
 export interface ProfileEditorModalProps {
   isOpen: boolean;
@@ -157,7 +133,7 @@ function ProfileEditorModalInner({
 }: ProfileEditorModalInnerProps) {
   const [effectiveMode, setEffectiveMode] = useState<"create" | "edit" | "view">(mode);
   const isReadOnly = effectiveMode === "view";
-  const isAutoProfile = profileName === "auto";
+  const isAutoProfile = profileName === AUTO_PROFILE_NAME;
 
   // Managed profiles open the editor in view mode (mode === "view") so they
   // can't be reshaped (provider, model, advanced params) — those are
@@ -241,18 +217,8 @@ function ProfileEditorModalInner({
     [provider, model],
   );
 
-  const allProvidersForPicker = useMemo(
-    () =>
-      openAICompatibleEndpointsEnabled
-        ? ALL_PROVIDERS
-        : ALL_PROVIDERS.filter((p) => p !== OPENAI_COMPATIBLE_PROVIDER),
-    [openAICompatibleEndpointsEnabled],
-  );
-
-  // Derived: connections matching the currently selected provider. During
-  // pre-load (`connections === undefined`) there's nothing to pick — the
-  // Connection sub-dropdown stays hidden until the fetch resolves. Mirrors
-  // macOS `availableConnectionsForProvider` filter.
+  // Connections matching the currently selected provider. Also used by
+  // the save handler for binding resolution.
   const availableConnectionsForProvider = useMemo(
     () =>
       provider
@@ -266,68 +232,11 @@ function ProfileEditorModalInner({
     [provider, connections, openAICompatibleEndpointsEnabled],
   );
 
-  // Derived: providers to show in the Provider dropdown. Filter to only
-  // providers with at least one connection — picking a provider with
-  // zero connections binds a profile to a route the daemon can't
-  // dispatch through, leaving the user stuck. The currently-bound `provider`
-  // is always kept in the list so editing/viewing a stale profile (whose
-  // connection was deleted after the binding was saved) still renders
-  // a sensible trigger.
-  const visibleProviders = useMemo(() => {
-    const providerSet = new Set<string>();
-    for (const c of connections ?? []) {
-      if (
-        openAICompatibleEndpointsEnabled ||
-        c.provider !== OPENAI_COMPATIBLE_PROVIDER
-      ) {
-        providerSet.add(c.provider);
-      }
-    }
-    if (
-      provider &&
-      (openAICompatibleEndpointsEnabled ||
-        provider !== OPENAI_COMPATIBLE_PROVIDER)
-    ) {
-      providerSet.add(provider);
-    }
-    return allProvidersForPicker.filter((p) => providerSet.has(p));
-  }, [
-    allProvidersForPicker,
-    connections,
-    openAICompatibleEndpointsEnabled,
-    provider,
-  ]);
-
-  // Pre-load fallback: when `connections` is `undefined` the parent has not
-  // yet resolved its `listConnections` fetch (or never wires the prop at
-  // all). Fall back to the full catalog so the trigger isn't empty during
-  // that gap. An EMPTY-but-loaded `connections === []` is distinct: the
-  // caller confirmed zero connections, so the filter runs and yields empty
-  // — the empty-state hint below fires and steers the user to Providers
-  // instead of letting them save a profile bound to a non-dispatchable
-  // provider. Mirrors the macOS `availableProviderIds` filter.
-  const providerOptionsSource =
-    connections === undefined ? allProvidersForPicker : visibleProviders;
-
-  // Derived: saved binding no longer points at any known connection. Either
-  // the connection was deleted out from under the profile. We surface a
-  // warning AND auto-clear the binding on save so the user can re-pick
-  // rather than silently re-persisting a broken binding. Mirrors macOS "Not
-  // found" badge — and goes one step further by ensuring the stale value
-  // doesn't survive an opens-and-saves round-trip.
+  // Saved binding no longer points at any known connection. The save handler
+  // auto-clears it; the provider section surfaces a warning to the user.
   const connectionNotFound =
     providerConnection !== "" &&
     !availableConnectionsForProvider.some((c) => c.name === providerConnection);
-
-  // Show the Connection field whenever there's something meaningful to show:
-  //  - matching connections to pick from, OR
-  //  - a non-empty saved binding (so the user can see + clear stale state).
-  // Otherwise hide — there's nothing for the user to act on. Provider must
-  // be selected; without it we can't filter or label.
-  const showConnectionField =
-    provider !== "" &&
-    (availableConnectionsForProvider.length > 0 ||
-      providerConnection !== "");
 
   const { handleLabelChange, handleKeyChange, resetDirty } =
     useLabelKeySync(effectiveMode, setLabel, setKey);
@@ -338,7 +247,6 @@ function ProfileEditorModalInner({
   }, [profileName, mode, resetDirty]);
 
   function handleProviderChange(newProvider: string) {
-    // Guard: re-selecting the same provider is a no-op — don't clear fields
     if (newProvider === provider) return;
     setProvider(newProvider);
     setModel("");
@@ -371,19 +279,25 @@ function ProfileEditorModalInner({
     // For providers with per-connection models (openai-compatible), clear the
     // selected model when switching connections if it's not in the new list.
     if (provider && getModelsForProvider(provider).length === 0 && model) {
-      const conn = availableConnectionsForProvider.find((c) => c.name === newConnection);
-      const connModelIds = new Set((conn?.models ?? []).map((m) => m.id));
-      if (newConnection === "" || !connModelIds.has(model)) {
-        setModel("");
+      if (newConnection === "") {
+        // "Any connection" — merge models from all connections and keep the
+        // model if it exists in the merged set.
+        const allModelIds = new Set(
+          availableConnectionsForProvider.flatMap((c) => (c.models ?? []).map((m) => m.id)),
+        );
+        if (!allModelIds.has(model)) setModel("");
+      } else {
+        const conn = availableConnectionsForProvider.find((c) => c.name === newConnection);
+        const connModelIds = new Set((conn?.models ?? []).map((m) => m.id));
+        if (!connModelIds.has(model)) setModel("");
       }
     }
   }
 
   function handleModelChange(newModel: string) {
-    // Guard: re-selecting the same model is a no-op — don't clear token overrides
     if (newModel === model) return;
     setModel(newModel);
-    // Reset token sliders when model changes — different models have different limits
+    // Reset token sliders when model changes
     setMaxTokens(null);
     setContextWindowMaxInputTokens(null);
   }
@@ -533,74 +447,6 @@ function ProfileEditorModalInner({
         ? "Edit Profile"
         : (initialValues?.label ?? profileName ?? "Profile");
 
-  // For openai-compatible providers the static catalog is empty — use models
-  // from the selected connection instead. When no specific connection is
-  // selected, merge models from all available openai-compatible connections.
-  const availableModels: readonly { id: string; displayName: string }[] = useMemo(() => {
-    if (!provider) return [];
-    if (
-      provider === OPENAI_COMPATIBLE_PROVIDER &&
-      !openAICompatibleEndpointsEnabled
-    ) {
-      return [];
-    }
-    const catalogModels = getModelsForProvider(provider);
-    if (catalogModels.length > 0) {
-      const selectedConn = providerConnection
-        ? availableConnectionsForProvider.find((c) => c.name === providerConnection)
-        : undefined;
-      if (selectedConn?.auth.type === "oauth_subscription") {
-        return catalogModels.filter((m) => CODEX_SUBSCRIPTION_MODEL_IDS.has(m.id));
-      }
-      if (
-        !providerConnection &&
-        availableConnectionsForProvider.length > 0 &&
-        availableConnectionsForProvider.every((c) => c.auth.type === "oauth_subscription")
-      ) {
-        return catalogModels.filter((m) => CODEX_SUBSCRIPTION_MODEL_IDS.has(m.id));
-      }
-      return catalogModels;
-    }
-    // Static catalog is empty (openai-compatible) — derive from connections.
-    const connectionModelsToCatalog = (models: ConnectionModel[] | null | undefined) =>
-      (models ?? []).map((m) => ({
-        id: m.id,
-        displayName: m.displayName ?? m.id,
-      }));
-    if (providerConnection) {
-      const conn = availableConnectionsForProvider.find((c) => c.name === providerConnection);
-      return conn ? connectionModelsToCatalog(conn.models) : [];
-    }
-    // No specific connection: merge models from all available connections,
-    // deduplicating by id.
-    const seen = new Set<string>();
-    const merged: { id: string; displayName: string }[] = [];
-    for (const conn of availableConnectionsForProvider) {
-      for (const m of conn.models ?? []) {
-        if (!seen.has(m.id)) {
-          seen.add(m.id);
-          merged.push({ id: m.id, displayName: m.displayName ?? m.id });
-        }
-      }
-    }
-    return merged;
-  }, [
-    provider,
-    openAICompatibleEndpointsEnabled,
-    providerConnection,
-    availableConnectionsForProvider,
-  ]);
-
-  useEffect(() => {
-    if (
-      model &&
-      availableModels.length > 0 &&
-      !availableModels.some((m) => m.id === model)
-    ) {
-      setModel("");
-    }
-  }, [model, availableModels]);
-
   return (
     <Modal.Content size="md">
       <Modal.Header>
@@ -692,148 +538,23 @@ function ProfileEditorModalInner({
             </div>
           )}
 
-          {/* Provider, Connection, Model, and advanced params are hidden for
-              the "auto" meta-profile which has no provider/model of its own. */}
-          {!isAutoProfile && <>
-          {/* Provider — required. The old "None (inherits defaults)" option
-              was removed because the inherit pathway encouraged accidental
-              fallbacks to the global default model, defeating the point of
-              named profiles. The picker is filtered to providers with at
-              least one connection (see `visibleProviders` above) so
-              users can't bind a profile to a route the daemon can't
-              dispatch through. */}
-          <div className="space-y-1">
-            <div className="flex items-center justify-between gap-2">
-              <label
-                id="profile-editor-provider-label"
-                className="block text-body-small-default text-[var(--content-tertiary)]"
-              >
-                Provider
-              </label>
-              {providerMissing ? (
-                <span className="rounded-full bg-[var(--surface-warning-subtle)] px-2 py-0.5 text-body-small-default text-[var(--content-warning)]">
-                  Pick a provider
-                </span>
-              ) : null}
-            </div>
-            <Dropdown
-              value={provider}
-              onChange={handleProviderChange}
-              disabled={isReadOnly}
-              placeholder="Select a provider…"
-              aria-labelledby="profile-editor-provider-label"
-              options={providerOptionsSource.map((p) => ({
-                value: p,
-                label: INFERENCE_PROVIDER_DISPLAY_NAMES[p] ?? p,
-              }))}
+          {/* Provider, Connection, Model — hidden for the "auto" meta-profile
+              which has no provider/model of its own. */}
+          {!isAutoProfile && (
+            <ProfileEditorProviderSection
+              provider={provider}
+              model={model}
+              providerConnection={providerConnection}
+              onProviderChange={handleProviderChange}
+              onModelChange={handleModelChange}
+              onConnectionChange={handleConnectionChange}
+              connections={connections}
+              openAICompatibleEndpointsEnabled={openAICompatibleEndpointsEnabled}
+              isReadOnly={isReadOnly}
+              availableConnectionsForProvider={availableConnectionsForProvider}
+              connectionNotFound={connectionNotFound}
             />
-            {providerOptionsSource.length === 0 && !isReadOnly ? (
-              <Typography
-                variant="body-small-default"
-                as="p"
-                className="text-[var(--content-tertiary)]"
-              >
-                No provider connections. Open Providers to add one.
-              </Typography>
-            ) : null}
-          </div>
-
-          {/* Connection — visible when (a) connections match the
-              selected provider, OR (b) a non-empty saved binding exists
-              (even if stale, so the user can see + clear it). Hidden
-              otherwise. Provider must be selected. */}
-          {showConnectionField && (
-            <div className="space-y-1">
-              <label className="block text-body-small-default text-[var(--content-tertiary)]">
-                Connection{" "}
-                <span className="text-[var(--content-disabled)]">(optional)</span>
-              </label>
-              <Dropdown
-                value={providerConnection}
-                onChange={handleConnectionChange}
-                disabled={isReadOnly}
-                options={[
-                  ...(availableConnectionsForProvider.length > 1
-                    ? [
-                        {
-                          value: "",
-                          label: `Any ${
-                            INFERENCE_PROVIDER_DISPLAY_NAMES[provider] ?? provider
-                          } connection`,
-                        },
-                      ]
-                    : []),
-                  ...availableConnectionsForProvider.map((c) => ({
-                    value: c.name,
-                    label:
-                      c.label && c.label.trim() !== "" ? c.label : c.name,
-                  })),
-                  // Include the stale binding as an explicit (disabled-look)
-                  // option so the trigger renders its name. The accompanying
-                  // warning below explains the state. On save, stale bindings
-                  // are auto-cleared regardless.
-                  ...(connectionNotFound
-                    ? [
-                        {
-                          value: providerConnection,
-                          label: `${providerConnection} (not found)`,
-                        },
-                      ]
-                    : []),
-                ]}
-              />
-              {connectionNotFound && !isReadOnly ? (
-                <Typography
-                  variant="body-small-default"
-                  as="p"
-                  className="text-(--system-negative-strong)"
-                >
-                  Connection &ldquo;{providerConnection}&rdquo; not found.
-                  Will be cleared on save unless you pick another.
-                </Typography>
-              ) : null}
-            </div>
           )}
-
-          {/* Model — required once a provider is selected. The picker only
-              renders enabled after a provider is chosen, and `providerWithoutModel`
-              blocks save until a model is picked. */}
-          <div className="space-y-1">
-            <label className="block text-body-small-default text-[var(--content-tertiary)]">
-              Model
-            </label>
-            <Dropdown
-              value={model}
-              onChange={handleModelChange}
-              disabled={isReadOnly || !provider}
-              options={[
-                {
-                  value: "",
-                  label: !provider
-                    ? "Select a provider first"
-                    : provider === "openai-compatible" && availableModels.length === 0
-                      ? "Configure models on connection"
-                      : "Select a model",
-                },
-                ...availableModels.map((m) => ({
-                  value: m.id,
-                  label: m.displayName,
-                })),
-              ]}
-            />
-            {providerWithoutModel && !isReadOnly ? (
-              <Typography
-                variant="body-small-default"
-                as="p"
-                className="text-(--system-negative-strong)"
-              >
-                {provider === "openai-compatible" && availableModels.length === 0
-                  ? "No models available. Configure models on the provider connection first."
-                  : "Select a model."}
-              </Typography>
-            ) : null}
-          </div>
-          </>}
 
           {/* Advanced params — hidden for the auto meta-profile */}
           {!isAutoProfile && (

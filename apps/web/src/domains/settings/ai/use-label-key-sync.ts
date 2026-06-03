@@ -42,5 +42,5 @@ export function useLabelKeySync(
     keyDirtyRef.current = false;
   }, []);
 
-  return { keyDirtyRef, handleLabelChange, handleKeyChange, resetDirty };
+  return { handleLabelChange, handleKeyChange, resetDirty };
 }
