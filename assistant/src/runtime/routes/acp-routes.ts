@@ -177,7 +177,9 @@ function deleteSession({ pathParams }: RouteHandlerArgs) {
     const state = getAcpSessionManager().getStatus(id);
     if (
       !Array.isArray(state) &&
-      (state.status === "running" || state.status === "initializing")
+      (state.status === "running" ||
+        state.status === "initializing" ||
+        state.status === "idle")
     ) {
       throw new ConflictError(
         `ACP session "${id}" is still ${state.status}. Cancel or close it before deleting.`,

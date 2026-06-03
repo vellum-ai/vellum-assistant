@@ -34,6 +34,15 @@ export const AcpConfigSchema = z
       .describe(
         "Maximum number of ACP agent sessions that can run simultaneously",
       ),
+    idleTimeoutMs: z
+      .number()
+      .int()
+      .positive()
+      .default(15 * 60 * 1000)
+      .describe(
+        "How long an idle ACP session (process alive, awaiting a follow-up " +
+          "prompt) is kept before it is reclaimed and its process killed",
+      ),
     agents: z
       .record(z.string(), AcpAgentConfigSchema)
       .default({})
