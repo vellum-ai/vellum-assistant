@@ -7,6 +7,7 @@ import {
   assistantsActivateCreate,
   assistantsBackupsCreate,
   assistantsBackupsRestoreCreate,
+  assistantsBackupsRetrieve,
   assistantsHatchCreate,
   assistantsList,
   assistantsRestartDetailCreate,
@@ -314,80 +315,114 @@ interface DaemonSnapshot {
   encrypted: boolean;
 }
 
+function parseDaemonBackups(
+  data: unknown,
+): AssistantBackup[] {
+  const raw =
+    data && typeof data === "object" && !Array.isArray(data)
+      ? (data as Record<string, unknown>)
+      : {};
+
+  const body = raw as {
+    local?: { snapshots?: DaemonSnapshot[] };
+    offsite?: Array<{ snapshots?: DaemonSnapshot[] }>;
+  };
+
+  const snapshots: AssistantBackup[] = [];
+
+  const localSnapshots = body.local?.snapshots;
+  if (Array.isArray(localSnapshots)) {
+    for (const s of localSnapshots) {
+      snapshots.push({
+        snapshot_name: s.filename,
+        pvc: "",
+        created_at: s.created_at,
+        ready_to_use: true,
+        backup_type: "scheduled",
+        path: s.path,
+      });
+    }
+  }
+
+  if (Array.isArray(body.offsite)) {
+    for (const dest of body.offsite) {
+      if (Array.isArray(dest.snapshots)) {
+        for (const s of dest.snapshots) {
+          snapshots.push({
+            snapshot_name: s.filename,
+            pvc: "",
+            created_at: s.created_at,
+            ready_to_use: !s.encrypted,
+            backup_type: "scheduled",
+            path: s.path,
+          });
+        }
+      }
+    }
+  }
+
+  return snapshots;
+}
+
+function parsePlatformBackups(
+  data: unknown,
+): AssistantBackup[] {
+  const raw =
+    data && typeof data === "object" && !Array.isArray(data)
+      ? (data as Record<string, unknown>)
+      : {};
+
+  if (Array.isArray(raw.backups)) {
+    return raw.backups as AssistantBackup[];
+  }
+
+  return [];
+}
+
 export async function listAssistantBackups(
   assistantId: string,
 ): Promise<ListBackupsResult> {
-  const { data, error, response } = await backupsGet({
+  const daemonResult = await backupsGet({
     path: { assistant_id: assistantId },
     throwOnError: false,
   });
 
-  assertHasResponse(response, error, "Failed to list assistant backups.");
+  assertHasResponse(
+    daemonResult.response,
+    daemonResult.error,
+    "Failed to list assistant backups.",
+  );
 
-  if (response.ok) {
-    const raw =
-      data && typeof data === "object" && !Array.isArray(data)
-        ? (data as Record<string, unknown>)
-        : {};
-
-    // Platform format: { backups: BackupItem[] }. Returned when the
-    // daemon SDK request falls through to Django (no self-hosted
-    // ingress to rewrite the URL to the gateway).
-    if (Array.isArray(raw.backups)) {
-      return {
-        ok: true,
-        status: response.status,
-        data: raw.backups as AssistantBackup[],
-      };
-    }
-
-    // Daemon/gateway format: { local: { snapshots }, offsite: [{ snapshots }] }
-    const body = raw as {
-      local?: { snapshots?: DaemonSnapshot[] };
-      offsite?: Array<{ snapshots?: DaemonSnapshot[] }>;
+  if (!daemonResult.response.ok) {
+    return {
+      ok: false,
+      status: daemonResult.response.status,
+      error: toErrorObject(daemonResult.error, daemonResult.response),
     };
-
-    const snapshots: AssistantBackup[] = [];
-
-    const localSnapshots = body.local?.snapshots;
-    if (Array.isArray(localSnapshots)) {
-      for (const s of localSnapshots) {
-        snapshots.push({
-          snapshot_name: s.filename,
-          pvc: "",
-          created_at: s.created_at,
-          ready_to_use: true,
-          backup_type: "scheduled",
-          path: s.path,
-        });
-      }
-    }
-
-    if (Array.isArray(body.offsite)) {
-      for (const dest of body.offsite) {
-        if (Array.isArray(dest.snapshots)) {
-          for (const s of dest.snapshots) {
-            snapshots.push({
-              snapshot_name: s.filename,
-              pvc: "",
-              created_at: s.created_at,
-              ready_to_use: !s.encrypted,
-              backup_type: "scheduled",
-              path: s.path,
-            });
-          }
-        }
-      }
-    }
-
-    return { ok: true, status: response.status, data: snapshots };
   }
 
-  return {
-    ok: false,
-    status: response.status,
-    error: toErrorObject(error, response),
-  };
+  const daemonSnapshots = parseDaemonBackups(daemonResult.data);
+
+  // For platform-hosted assistants the K8s PVC backups are managed by
+  // the platform (vembda), not the daemon. Fetch them in parallel when
+  // no self-hosted ingress is configured.
+  if (!getSelfHostedIngressUrl()) {
+    const platformResult = await assistantsBackupsRetrieve({
+      path: { assistant_id: assistantId },
+      throwOnError: false,
+    });
+
+    if (platformResult.response?.ok) {
+      const platformSnapshots = parsePlatformBackups(platformResult.data);
+      return {
+        ok: true,
+        status: daemonResult.response.status,
+        data: [...platformSnapshots, ...daemonSnapshots],
+      };
+    }
+  }
+
+  return { ok: true, status: daemonResult.response.status, data: daemonSnapshots };
 }
 
 export type CreateBackupResult =
