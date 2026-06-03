@@ -304,7 +304,9 @@ async function maybeHydratePlatformAssistantName(
 
 const SPA_BASE = "/assistant/";
 const DEFAULT_NGINX_PORT = 3000;
-const DEFAULT_NGINX_HELPER_PORT = 3010;
+const NGINX_CACHE_NO_STORE = "no-store";
+const NGINX_CACHE_HASHED_ASSETS = "public, max-age=31536000, immutable";
+const NGINX_CACHE_PUBLIC_FILES = "public, max-age=3600";
 
 /**
  * Locate the pre-built @vellumai/web dist directory.
@@ -351,58 +353,33 @@ function nginxQuote(value: string): string {
   return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 
-function startNginxHelperServer(port: number): ReturnType<typeof Bun.serve> {
-  const platformUrl = getPlatformUrl();
-  const webUrl = getWebUrl();
-  const configJson = JSON.stringify({ webUrl, platformUrl });
-  const loopbackServerShim = {
-    requestIP: () => ({ address: "127.0.0.1" }),
-  };
+function normalizeGatewayUrl(raw: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error(`Invalid gateway URL: ${raw}`);
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(
+      `Gateway URL must use http or https, got ${parsed.protocol}`,
+    );
+  }
 
-  return Bun.serve({
-    port,
-    hostname: "127.0.0.1",
-    idleTimeout: 0,
-    fetch: async (req) => {
-      const url = new URL(req.url);
-      const { pathname } = url;
-
-      // Loopback auth: the platform redirects here after login with
-      // ?state=...&session_token=... — forward into the SPA.
-      if (pathname === "/callback") {
-        return Response.redirect(
-          `/account/platform-callback${url.search}`,
-          302,
-        );
-      }
-
-      if (pathname === "/assistant/__config" || pathname === "/__config") {
-        return new Response(configJson, {
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-
-      const localResponse = await handleLocalEndpoints(
-        req,
-        url,
-        loopbackServerShim,
-      );
-      if (localResponse) return localResponse;
-
-      return new Response("Not Found", { status: 404 });
-    },
-  });
+  // The self-hosted nginx edge proxies route namespaces to the gateway root.
+  // Runtime URLs are expected to be gateway origins, so discard path/query/hash
+  // here rather than creating surprising nginx proxy_pass URI rewriting.
+  return parsed.origin;
 }
 
 function buildNginxConfig(opts: {
   distDir: string;
-  helperPort: number;
+  gatewayUrl: string;
   listenPort: number;
 }): string {
   const distDir = opts.distDir.replace(/\/+$/, "");
   const distRoot = nginxQuote(distDir);
-  const assetsAlias = nginxQuote(`${distDir}/assets/`);
-  const helper = `http://127.0.0.1:${opts.helperPort}`;
+  const gateway = normalizeGatewayUrl(opts.gatewayUrl);
 
   return `
 worker_processes 1;
@@ -441,7 +418,6 @@ http {
     listen 127.0.0.1:${opts.listenPort};
     server_name localhost 127.0.0.1;
     client_max_body_size 512m;
-    add_header Cache-Control "no-store" always;
     root ${distRoot};
 
     location = / {
@@ -452,80 +428,80 @@ http {
       return 301 /assistant/;
     }
 
-    location = /callback {
-      proxy_pass ${helper};
-      proxy_set_header Host $host;
-    }
-
-    location = /assistant/__config {
-      proxy_pass ${helper};
-      proxy_set_header Host $host;
-    }
-
-    location /assistant/__local/ {
-      proxy_pass ${helper};
+    location = /healthz {
+      proxy_pass ${gateway};
       proxy_http_version 1.1;
-      proxy_request_buffering off;
-      proxy_buffering off;
-      proxy_set_header Host $host;
+      proxy_set_header Host $proxy_host;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Host $host;
+      proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    location /assistant/__gateway/ {
-      proxy_pass ${helper};
+    location /v1/ {
+      proxy_pass ${gateway};
       proxy_http_version 1.1;
       proxy_request_buffering off;
       proxy_buffering off;
       proxy_read_timeout 1h;
-      proxy_set_header Host $host;
+      proxy_set_header Host $proxy_host;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Host $host;
+      proxy_set_header X-Forwarded-Proto $scheme;
       proxy_set_header Upgrade $http_upgrade;
       proxy_set_header Connection $connection_upgrade;
     }
 
     location = /account {
+      add_header Cache-Control "${NGINX_CACHE_NO_STORE}" always;
       try_files /index.html =404;
     }
 
     location /account/ {
+      add_header Cache-Control "${NGINX_CACHE_NO_STORE}" always;
+      try_files /index.html =404;
+    }
+
+    location = /logout {
+      add_header Cache-Control "${NGINX_CACHE_NO_STORE}" always;
       try_files /index.html =404;
     }
 
     location = /assistant/ {
+      add_header Cache-Control "${NGINX_CACHE_NO_STORE}" always;
       try_files /index.html =404;
     }
 
     location = /assistant/index.html {
+      add_header Cache-Control "${NGINX_CACHE_NO_STORE}" always;
       try_files /index.html =404;
     }
 
-    location = /assistant/favicon.svg {
-      try_files /favicon.svg =404;
+    location ^~ /assistant/assets/ {
+      rewrite ^/assistant/(.*)$ /$1 break;
+      add_header Cache-Control "${NGINX_CACHE_HASHED_ASSETS}" always;
+      try_files $uri =404;
     }
 
-    location = /assistant/vellum-logo.svg {
-      try_files /vellum-logo.svg =404;
+    location ^~ /assistant/ {
+      rewrite ^/assistant/?(.*)$ /$1 break;
+      add_header Cache-Control "${NGINX_CACHE_PUBLIC_FILES}" always;
+      try_files $uri $uri/ @assistant_spa;
     }
 
-    location = /assistant/vellum-logo-white.svg {
-      try_files /vellum-logo-white.svg =404;
-    }
-
-    location = /assistant/login-background-characters.svg {
-      try_files /login-background-characters.svg =404;
-    }
-
-    location /assistant/assets/ {
-      alias ${assetsAlias};
-    }
-
-    location /assistant/ {
+    location @assistant_spa {
+      add_header Cache-Control "${NGINX_CACHE_NO_STORE}" always;
       try_files /index.html =404;
+    }
+
+    location / {
+      return 404;
     }
   }
 }
 `;
 }
 
-async function runNginxWebInterface(): Promise<void> {
+async function runNginxWebInterface(runtimeUrl: string): Promise<void> {
   const distDir = findWebDistDir();
   if (!distDir) {
     console.error(
@@ -538,18 +514,13 @@ async function runNginxWebInterface(): Promise<void> {
   }
 
   const listenPort = parsePortEnv("VELLUM_WEB_NGINX_PORT", DEFAULT_NGINX_PORT);
-  const helperPort = parsePortEnv(
-    "VELLUM_WEB_HELPER_PORT",
-    DEFAULT_NGINX_HELPER_PORT,
-  );
   const nginxBin = process.env.NGINX_BIN || "nginx";
 
-  const helper = startNginxHelperServer(helperPort);
   const prefix = mkdtempSync(path.join(tmpdir(), "vellum-web-nginx-"));
   const confPath = path.join(prefix, "nginx.conf");
   writeFileSync(
     confPath,
-    buildNginxConfig({ distDir, helperPort, listenPort }),
+    buildNginxConfig({ distDir, gatewayUrl: runtimeUrl, listenPort }),
   );
 
   const child = spawn(
@@ -561,7 +532,6 @@ async function runNginxWebInterface(): Promise<void> {
   let childStarted = false;
 
   const shutdown = (): void => {
-    helper.stop();
     if (childStarted && child.exitCode === null) {
       child.kill();
     }
@@ -573,11 +543,10 @@ async function runNginxWebInterface(): Promise<void> {
     console.log(
       `Vellum nginx web interface: http://127.0.0.1:${listenPort}${SPA_BASE}`,
     );
-    console.log(`Local helper: http://127.0.0.1:${helperPort}`);
+    console.log(`Gateway upstream: ${normalizeGatewayUrl(runtimeUrl)}`);
   });
 
   child.on("error", (err) => {
-    helper.stop();
     console.error(
       `${ANSI.bold}--interface web --nginx${ANSI.reset}: failed to start ${nginxBin}: ${err.message}`,
     );
@@ -589,7 +558,6 @@ async function runNginxWebInterface(): Promise<void> {
 
   await new Promise<void>((resolve, reject) => {
     child.on("exit", (code) => {
-      helper.stop();
       if (code !== 0) {
         reject(new Error(`nginx exited with code ${code}`));
         return;
@@ -1064,7 +1032,7 @@ export async function client(): Promise<void> {
 
   if (interfaceId === WEB_INTERFACE_ID) {
     if (nginx) {
-      await runNginxWebInterface();
+      await runNginxWebInterface(runtimeUrl);
       return;
     }
     await runWebInterface();
