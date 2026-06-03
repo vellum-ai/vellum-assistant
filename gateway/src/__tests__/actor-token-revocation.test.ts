@@ -150,3 +150,36 @@ describe("runtime proxy enforcement", () => {
     expect(res.status).toBe(401);
   });
 });
+
+describe("m0004 token-hash index migration", () => {
+  function rawDb() {
+    return (
+      getGatewayDb() as unknown as { $client: import("bun:sqlite").Database }
+    ).$client;
+  }
+  function indexSql(): string {
+    const row = rawDb()
+      .prepare(
+        "SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_actor_tokens_hash'",
+      )
+      .get() as { sql: string } | null;
+    return row?.sql ?? "";
+  }
+
+  test("recreates a pre-existing partial index as unfiltered", async () => {
+    // Simulate an upgraded gateway: replace the index with the OLD partial form.
+    rawDb().exec("DROP INDEX IF EXISTS idx_actor_tokens_hash");
+    rawDb().exec(
+      "CREATE INDEX idx_actor_tokens_hash ON actor_token_records (token_hash) WHERE status = 'active'",
+    );
+    expect(indexSql().toLowerCase()).toContain("where");
+
+    const m0004 =
+      await import("../db/data-migrations/m0004-actor-token-hash-index-unfiltered.js");
+    expect(m0004.up()).toBe("done");
+
+    // The index now exists and no longer filters on status.
+    expect(indexSql()).not.toBe("");
+    expect(indexSql().toLowerCase()).not.toContain("where");
+  });
+});
