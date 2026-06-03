@@ -45,7 +45,6 @@ const makeEnvelope = (override: {
   message: AssistantEvent;
   conversationId?: string;
   seq?: number;
-  clientSeq?: number;
 }) => override;
 
 const makeDeps = (override: {
@@ -497,221 +496,18 @@ describe("sse-event-consumer — seq-gap detection", () => {
     expect(handleStreamEvent).toHaveBeenCalledTimes(1);
   });
 
-  test("prefers clientSeq over seq for gap detection", () => {
-    const { deps } = makeDeps();
-    const consumer = createSseEventConsumer(deps);
-
-    // Seed with clientSeq=1 (seq=5 — simulating targeted events
-    // consuming seq numbers 1-4 that this subscriber never received).
-    consumer.handleSseEvent(
-      makeEnvelope({
-        conversationId: "conv-1",
-        seq: 5,
-        clientSeq: 1,
-        message: { type: "assistant_text_delta", text: "a" },
-      }),
-    );
-    // Cursor should be seeded at clientSeq=1, not seq=5.
-    expect(seqStore.get("conv-1")).toBe(1);
-
-    // Next event: clientSeq=2 (contiguous), seq=10 (gap from subscriber's
-    // perspective but irrelevant since clientSeq is used).
-    consumer.handleSseEvent(
-      makeEnvelope({
-        conversationId: "conv-1",
-        seq: 10,
-        clientSeq: 2,
-        message: { type: "assistant_text_delta", text: "b" },
-      }),
-    );
-    // No gap detected — clientSeq 2 follows 1 contiguously.
-    expect(seqStore.get("conv-1")).toBe(2);
-  });
-
-  test("falls back to seq when clientSeq is absent (old daemon)", () => {
-    const { deps } = makeDeps();
-    const consumer = createSseEventConsumer(deps);
-
-    // Seed with seq only (no clientSeq — old daemon).
-    consumer.handleSseEvent(
-      makeEnvelope({
-        conversationId: "conv-1",
-        seq: 1,
-        message: { type: "assistant_text_delta", text: "a" },
-      }),
-    );
-
-    // Contiguous seq=2 advances cursor normally.
-    consumer.handleSseEvent(
-      makeEnvelope({
-        conversationId: "conv-1",
-        seq: 2,
-        message: { type: "assistant_text_delta", text: "b" },
-      }),
-    );
-    expect(seqStore.get("conv-1")).toBe(2);
-  });
-
-  test("clientSeq gap triggers reconcile even when seq is contiguous", () => {
-    const { deps, reconcileActive } = makeDeps();
-    const consumer = createSseEventConsumer(deps);
-
-    // Seed.
-    consumer.handleSseEvent(
-      makeEnvelope({
-        conversationId: "conv-1",
-        seq: 1,
-        clientSeq: 1,
-        message: { type: "assistant_text_delta", text: "a" },
-      }),
-    );
-
-    // clientSeq jumps from 1 to 3 (gap), even though we don't care about seq.
-    consumer.handleSseEvent(
-      makeEnvelope({
-        conversationId: "conv-1",
-        seq: 2,
-        clientSeq: 3,
-        message: { type: "assistant_text_delta", text: "b" },
-      }),
-    );
-
-    expect(reconcileActive).toHaveBeenCalledTimes(1);
-  });
-
-  test("notifyReconnect prevents false generation reset when clientSeq resets to 1", () => {
-    const { deps, reconcileActive } = makeDeps();
-    const consumer = createSseEventConsumer(deps);
-
-    // Establish cursor at clientSeq=10 (simulating a long-lived connection).
-    consumer.handleSseEvent(
-      makeEnvelope({
-        conversationId: "conv-1",
-        clientSeq: 10,
-        seq: 50,
-        message: { type: "assistant_text_delta", text: "a" },
-      }),
-    );
-    expect(seqStore.get("conv-1")).toBe(10);
-
-    // SSE reconnects — server creates fresh clientSeq counter.
-    consumer.notifyReconnect();
-
-    // First post-reconnect event: clientSeq=1. Without notifyReconnect,
-    // this would trigger the generation-reset path (1 < 10). With it,
-    // the event re-seeds the cursor instead.
-    consumer.handleSseEvent(
-      makeEnvelope({
-        conversationId: "conv-1",
-        clientSeq: 1,
-        seq: 51,
-        message: { type: "assistant_text_delta", text: "b" },
-      }),
-    );
-
-    // No reconcile fired — the event was treated as a seed, not a reset.
-    expect(reconcileActive).not.toHaveBeenCalled();
-    // Cursor re-seeded but NOT yet advanced (seed event doesn't write).
-    // The NEXT contiguous event will advance it.
-    consumer.handleSseEvent(
-      makeEnvelope({
-        conversationId: "conv-1",
-        clientSeq: 2,
-        seq: 52,
-        message: { type: "assistant_text_delta", text: "c" },
-      }),
-    );
-    expect(seqStore.get("conv-1")).toBe(2);
-    expect(reconcileActive).not.toHaveBeenCalled();
-  });
-
-  test("notifyReconnect preserves raw-seq gap detection when clientSeq absent (old daemon)", () => {
-    const { deps, reconcileActive } = makeDeps();
-    const consumer = createSseEventConsumer(deps);
-
-    // Establish cursor at seq=10 (no clientSeq — old daemon).
-    consumer.handleSseEvent(
-      makeEnvelope({
-        conversationId: "conv-1",
-        seq: 10,
-        message: { type: "assistant_text_delta", text: "a" },
-      }),
-    );
-    expect(seqStore.get("conv-1")).toBe(10);
-
-    // SSE reconnects.
-    consumer.notifyReconnect();
-
-    // First post-reconnect event: seq=13 (events 11, 12 lost). No
-    // clientSeq on the envelope. With raw seq, the seq space is stable
-    // across connections — the gap is real and should be detected.
-    consumer.handleSseEvent(
-      makeEnvelope({
-        conversationId: "conv-1",
-        seq: 13,
-        message: { type: "assistant_text_delta", text: "b" },
-      }),
-    );
-
-    // Gap detected (13 > 10 + 1) — reconcile should fire.
-    expect(reconcileActive).toHaveBeenCalledTimes(1);
-  });
-
-  test("new consumer reseeds clientSeq cursor even without notifyReconnect (reconnect while unmounted)", () => {
+  test("new consumer detects a generation reset against a stale stored cursor", () => {
     const { deps, reconcileActive } = makeDeps();
 
-    // Simulate a previous consumer having established cursor at
-    // clientSeq=10 before being destroyed (conversation switch).
+    // GIVEN a previous consumer stored cursor at seq=10
     seqStore.set("conv-1", 10);
 
-    // New consumer — SSE reconnected while the old consumer was
-    // unmounted, so notifyReconnect() was never called. The server's
-    // clientSeq counters have reset to 1.
+    // AND a new consumer mounts after the daemon restarted (seq reset)
     const consumer = createSseEventConsumer(deps);
     deps.activeConversationIdRef.current = "conv-1";
 
-    // First event (seed): clientSeq=1. Without the fix, the monotonic
-    // setLastSeenSeq(1) is rejected (1 <= 10) and the cursor stays
-    // stale. With the fix, the seed uses replaceLastSeenSeq.
-    consumer.handleSseEvent(
-      makeEnvelope({
-        conversationId: "conv-1",
-        seq: 1,
-        clientSeq: 1,
-        message: { type: "assistant_text_delta", text: "a" },
-      }),
-    );
-
-    // Cursor should be reseeded to 1.
-    expect(seqStore.get("conv-1")).toBe(1);
-
-    // Second event contiguous — should NOT trigger generation reset.
-    consumer.handleSseEvent(
-      makeEnvelope({
-        conversationId: "conv-1",
-        seq: 2,
-        clientSeq: 2,
-        message: { type: "assistant_text_delta", text: "b" },
-      }),
-    );
-
-    expect(seqStore.get("conv-1")).toBe(2);
-    // No reconcile — both events are contiguous after reseed.
-    expect(reconcileActive).not.toHaveBeenCalled();
-  });
-
-  test("new consumer preserves raw-seq generation-reset detection on seed (no clientSeq)", () => {
-    const { deps, reconcileActive } = makeDeps();
-
-    // Previous consumer stored cursor at raw seq=10.
-    seqStore.set("conv-1", 10);
-
-    // New consumer — daemon restarted, seq reset to 1.
-    const consumer = createSseEventConsumer(deps);
-    deps.activeConversationIdRef.current = "conv-1";
-
-    // Seed event with raw seq=5 (no clientSeq). The monotonic
-    // setLastSeenSeq(5) is rejected (5 <= 10) — cursor stays at 10.
+    // AND the seed event seq=5 is rejected by the monotonic write
+    // (5 <= 10) so the stale cursor stays at 10
     consumer.handleSseEvent(
       makeEnvelope({
         conversationId: "conv-1",
@@ -719,11 +515,9 @@ describe("sse-event-consumer — seq-gap detection", () => {
         message: { type: "assistant_text_delta", text: "a" },
       }),
     );
-
-    // Cursor should stay at 10 (monotonic rejected the lower value).
     expect(seqStore.get("conv-1")).toBe(10);
 
-    // Second event seq=6 < stored 10 → generation reset detected.
+    // WHEN the next event arrives with seq=6 (< stored 10)
     consumer.handleSseEvent(
       makeEnvelope({
         conversationId: "conv-1",
@@ -732,9 +526,9 @@ describe("sse-event-consumer — seq-gap detection", () => {
       }),
     );
 
-    // Generation reset fires reconcile.
+    // THEN a generation reset fires a reconcile
     expect(reconcileActive).toHaveBeenCalledTimes(1);
-    // Cursor replaced to 6 by the generation-reset path.
+    // AND the cursor is replaced to 6 by the generation-reset path
     expect(seqStore.get("conv-1")).toBe(6);
   });
 });

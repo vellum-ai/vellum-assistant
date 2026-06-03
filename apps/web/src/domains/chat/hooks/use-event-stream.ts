@@ -288,7 +288,6 @@ export function useEventStream({
   });
 
   useBusSubscription("sse.opened", (payload) => {
-    consumer?.notifyReconnect();
     reconcileHandler?.handleSseOpened(payload);
   });
 
