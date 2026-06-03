@@ -210,12 +210,14 @@ beforeEach(() => {
   _resetAdapterVersionCacheForTests();
   config.setConfig({ agents: DEFAULT_TEST_AGENTS });
   which.setWhich((cmd) => `/usr/local/bin/${cmd}`);
-  // Default: vault has a claude token so the preflight in `prepareAgentEnv`
-  // succeeds for tests that don't care about env injection. Env-injection
-  // tests below clear/override this explicitly.
+  // Default: vault has both a claude token and an OpenAI/Codex key so the
+  // preflight in `prepareAgentEnv` succeeds for tests that don't care about
+  // env injection (including codex-acp spawns). Env-injection tests below
+  // clear/override this explicitly.
   vaultStore.clear();
   metadataStore.clear();
   vaultStore.set("acp/claude_oauth_token", "default-test-token");
+  vaultStore.set("acp/openai_api_key", "default-test-openai-key");
 });
 
 // ---------------------------------------------------------------------------
