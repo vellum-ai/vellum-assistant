@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { ONBOARDING_FUNNEL_STEPS } from "@/domains/onboarding/funnel-events";
 import {
+  isPlatformFunnelAvailable,
   nextStep,
   prevStep,
   resolveNativeSteps,
@@ -48,25 +49,20 @@ describe("resolveWebSteps", () => {
     ).toEqual(["name", "taskTone", "tools"]);
   });
 
-  test("local mode without a session still offers google for a cached assistant", () => {
-    // canOfferGoogleStep stays true when a platform assistant id is cached
-    // (e.g. a prior managed session), so a local user who picks a Google tool
-    // reaches the connect step even though prior-assistants is gated off. Back
-    // from google therefore lands on tools, never on the gated step.
-    const steps = resolveWebSteps({
-      ...CONTROL,
-      canOfferPriorAssistants: false,
-      hasGoogleTool: true,
-      canOfferGoogleStep: true,
-      showIOSAppStep: false,
-    });
-    expect(steps.map((s) => s.id)).toEqual([
-      "name",
-      "taskTone",
-      "tools",
-      "google",
-    ]);
-    expect(prevStep(steps, "google")).toBe("tools");
+  test("platform-gated steps move together when the funnel is unavailable", () => {
+    // canOfferPriorAssistants and canOfferGoogleStep share one gate (a live
+    // platform session). A local user with no session — even one carrying a
+    // stale cached platform assistant id — reaches neither step, so picking a
+    // Google tool no longer surfaces the connect screen.
+    expect(
+      ids({
+        ...CONTROL,
+        canOfferPriorAssistants: false,
+        canOfferGoogleStep: false,
+        hasGoogleTool: true,
+        showIOSAppStep: false,
+      }),
+    ).toEqual(["name", "taskTone", "tools"]);
   });
 
   test("local mode with a platform session keeps prior-assistants", () => {
@@ -95,15 +91,16 @@ describe("resolveWebSteps", () => {
   });
 
   test("pared-down funnel: name then google only", () => {
-    expect(
-      ids({
-        paredDown: true,
-        canOfferPriorAssistants: true,
-        canOfferGoogleStep: true,
-        hasGoogleTool: false,
-        showIOSAppStep: true,
-      }),
-    ).toEqual(["name", "google"]);
+    const steps = resolveWebSteps({
+      paredDown: true,
+      canOfferPriorAssistants: true,
+      canOfferGoogleStep: true,
+      hasGoogleTool: false,
+      showIOSAppStep: true,
+    });
+    expect(steps.map((s) => s.id)).toEqual(["name", "google"]);
+    // Back from google skips every gated control step and lands on name.
+    expect(prevStep(steps, "google")).toBe("name");
   });
 
   test("pared-down funnel offers google without a tool selection", () => {
@@ -184,8 +181,8 @@ describe("nextStep / prevStep", () => {
   });
 
   test("back never reveals a gated step: skips disabled prior-assistants", () => {
-    // No platform session → prior-assistants is gated out, so back from google
-    // lands on tools, never on the disabled prior-assistants step.
+    // `prevStep` walks to the previous *enabled* step, so a disabled step is
+    // never a back target regardless of which capability gated it off.
     const steps = resolveWebSteps({ ...CONTROL, canOfferPriorAssistants: false });
     expect(prevStep(steps, "google")).toBe("tools");
   });
@@ -204,5 +201,78 @@ describe("nextStep / prevStep", () => {
     const steps = resolveWebSteps({ ...CONTROL, hasGoogleTool: false });
     expect(nextStep(steps, "google")).toBeNull();
     expect(prevStep(steps, "google")).toBeNull();
+  });
+});
+
+describe("isPlatformFunnelAvailable", () => {
+  test("platform mode is always available, regardless of session state", () => {
+    for (const hasPlatformSession of [false, true]) {
+      for (const platformSessionResolved of [false, true]) {
+        for (const hasCachedPlatformAssistant of [false, true]) {
+          expect(
+            isPlatformFunnelAvailable({
+              localMode: false,
+              hasPlatformSession,
+              platformSessionResolved,
+              hasCachedPlatformAssistant,
+            }),
+          ).toBe(true);
+        }
+      }
+    }
+  });
+
+  test("local mode with a live platform session is available", () => {
+    expect(
+      isPlatformFunnelAvailable({
+        localMode: true,
+        hasPlatformSession: true,
+        platformSessionResolved: true,
+        hasCachedPlatformAssistant: false,
+      }),
+    ).toBe(true);
+  });
+
+  test("local mode, probe resolved to no session: a cached id is not enough", () => {
+    // Once the probe has settled, a stale `cloud === "vellum"` lockfile entry
+    // can outlive the session, so the funnel must not light up on cached state
+    // alone — that is the LUM-2180 bug. Only a live session reaches the steps.
+    expect(
+      isPlatformFunnelAvailable({
+        localMode: true,
+        hasPlatformSession: false,
+        platformSessionResolved: true,
+        hasCachedPlatformAssistant: true,
+      }),
+    ).toBe(false);
+  });
+
+  test("local mode, probe in flight with a cached id: funnel stays available", () => {
+    // The local gateway path sets `isLoading: false` before the session probe
+    // settles. While it is unresolved, a cached platform assistant is a strong
+    // signal a session exists, so a returning user keeps their platform steps
+    // instead of being raced past them on a slow probe.
+    expect(
+      isPlatformFunnelAvailable({
+        localMode: true,
+        hasPlatformSession: false,
+        platformSessionResolved: false,
+        hasCachedPlatformAssistant: true,
+      }),
+    ).toBe(true);
+  });
+
+  test("local mode, probe in flight with no cached id: funnel unavailable", () => {
+    // No cached platform assistant means there is no reason to expect a
+    // session, so a fresh local user is never optimistically shown the funnel
+    // while the probe is pending.
+    expect(
+      isPlatformFunnelAvailable({
+        localMode: true,
+        hasPlatformSession: false,
+        platformSessionResolved: false,
+        hasCachedPlatformAssistant: false,
+      }),
+    ).toBe(false);
   });
 });

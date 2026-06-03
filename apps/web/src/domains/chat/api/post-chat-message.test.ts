@@ -73,7 +73,7 @@ describe("postChatMessage onboarding payload", () => {
 
   function getRequestBody(): Record<string, unknown> {
     const messageRequests = capturedRequests.filter((request) =>
-      request.url.includes("/messages/"),
+      request.url.includes("/messages"),
     );
     expect(messageRequests).toHaveLength(1);
     const rawBody = messageRequests[0]!.body;
@@ -245,7 +245,7 @@ describe("postChatMessage wire-field bilingual cutover", () => {
   });
 
   function getMessageBody(): Record<string, unknown> {
-    const requests = capturedRequests.filter((r) => r.url.includes("/messages/"));
+    const requests = capturedRequests.filter((r) => r.url.includes("/messages"));
     expect(requests).toHaveLength(1);
     return JSON.parse(requests[0]!.body) as Record<string, unknown>;
   }
@@ -363,7 +363,7 @@ describe("postChatMessage server-minted conversation flow", () => {
   });
 
   function getMessageBody(): Record<string, unknown> {
-    const requests = capturedRequests.filter((r) => r.url.includes("/messages/"));
+    const requests = capturedRequests.filter((r) => r.url.includes("/messages"));
     expect(requests).toHaveLength(1);
     return JSON.parse(requests[0]!.body) as Record<string, unknown>;
   }
@@ -502,7 +502,7 @@ describe("postChatMessage clientTimezone payload", () => {
   });
 
   function getMessageBody(): Record<string, unknown> {
-    const requests = capturedRequests.filter((r) => r.url.includes("/messages/"));
+    const requests = capturedRequests.filter((r) => r.url.includes("/messages"));
     expect(requests).toHaveLength(1);
     return JSON.parse(requests[0]!.body) as Record<string, unknown>;
   }

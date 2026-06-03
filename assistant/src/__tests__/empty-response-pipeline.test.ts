@@ -66,7 +66,6 @@ function makeArgs(
 ): EmptyResponseArgs {
   return {
     responseContent: [],
-    toolUseBlocksLength: 0,
     toolUseTurns: 1,
     emptyResponseRetries: 0,
     maxEmptyResponseRetries: 1,
@@ -112,7 +111,6 @@ describe("emptyResponse pipeline — default decisions", () => {
     const decision = await runEmpty(
       makeArgs({
         responseContent: [emptyTextBlock],
-        toolUseBlocksLength: 0,
         toolUseTurns: 2,
         emptyResponseRetries: 0,
         priorAssistantHadVisibleText: false,
@@ -126,23 +124,6 @@ describe("emptyResponse pipeline — default decisions", () => {
     const decision = await runEmpty(
       makeArgs({
         responseContent: [{ type: "text", text: "here is a summary" }],
-      }),
-    );
-    expect(decision.action).toBe("accept");
-  });
-
-  test("turn contains tool_use blocks → accept (not empty)", async () => {
-    const decision = await runEmpty(
-      makeArgs({
-        responseContent: [
-          {
-            type: "tool_use",
-            id: "tu-1",
-            name: "read",
-            input: { path: "/tmp/x" },
-          } as ContentBlock,
-        ],
-        toolUseBlocksLength: 1,
       }),
     );
     expect(decision.action).toBe("accept");
@@ -199,7 +180,6 @@ describe("emptyResponse pipeline — default decisions", () => {
       makeArgs({
         stopReason: "refusal",
         responseContent: [],
-        toolUseBlocksLength: 0,
         toolUseTurns: 0,
         emptyResponseRetries: 0,
         priorAssistantHadVisibleText: false,
@@ -223,7 +203,6 @@ describe("emptyResponse pipeline — default decisions", () => {
             signature: "sig",
           } as ContentBlock,
         ],
-        toolUseBlocksLength: 0,
         toolUseTurns: 0,
       }),
     );
@@ -239,27 +218,6 @@ describe("emptyResponse pipeline — default decisions", () => {
       makeArgs({
         stopReason: "refusal",
         responseContent: [{ type: "text", text: "partial answer" }],
-      }),
-    );
-    expect(decision.action).toBe("accept");
-  });
-
-  test("stopReason='refusal' but tool_use blocks present → accept", async () => {
-    // A refusal with tool_use blocks is unusual (the model wouldn't normally
-    // issue tools after a classifier hit) but we still shouldn't nudge —
-    // the loop will execute the tools and the model will get another shot.
-    const decision = await runEmpty(
-      makeArgs({
-        stopReason: "refusal",
-        responseContent: [
-          {
-            type: "tool_use",
-            id: "tu-1",
-            name: "read",
-            input: { path: "/tmp/x" },
-          } as ContentBlock,
-        ],
-        toolUseBlocksLength: 1,
       }),
     );
     expect(decision.action).toBe("accept");
@@ -290,7 +248,6 @@ describe("emptyResponse pipeline — default decisions", () => {
       makeArgs({
         stopReason: "refusal",
         responseContent: [],
-        toolUseBlocksLength: 0,
         toolUseTurns: 2, // would trip the post-tool branch too
         priorAssistantHadVisibleText: false,
       }),

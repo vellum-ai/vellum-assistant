@@ -5,6 +5,11 @@ import { ProviderError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
 import { stripOrphanedSurrogatesDeep } from "../../util/unicode.js";
+import {
+  isPlaceholderSentinelText,
+  PLACEHOLDER_BLOCKS_OMITTED,
+  PLACEHOLDER_EMPTY_TURN,
+} from "../placeholder-sentinels.js";
 import { createStreamTimeout } from "../stream-timeout.js";
 import type {
   ContentBlock,
@@ -160,33 +165,6 @@ function sanitizeToolId(id: string): string {
 
 const SYNTHETIC_RESULT =
   "<synthesized_result>tool result missing from history</synthesized_result>";
-
-// Null-byte prefix makes these placeholders impossible to produce via normal
-// model output or user input, preventing false positives in isPlaceholder().
-export const PLACEHOLDER_EMPTY_TURN =
-  "\x00__PLACEHOLDER__[empty assistant turn]";
-export const PLACEHOLDER_BLOCKS_OMITTED =
-  "\x00__PLACEHOLDER__[internal blocks omitted]";
-
-// Compared against the payload with any leading `\x00` stripped, so the check
-// matches both the prefixed sentinel we emit and any bare variant that lost
-// the null byte in transit (e.g. the model echoing the text back without
-// reproducing the control character).
-const PLACEHOLDER_SENTINEL_BARE: ReadonlySet<string> = new Set([
-  PLACEHOLDER_EMPTY_TURN.slice(1),
-  PLACEHOLDER_BLOCKS_OMITTED.slice(1),
-]);
-
-/**
- * True when the text is one of the provider's internal alternation-preserving
- * sentinels, with or without the null-byte prefix. These must never be
- * persisted or rendered to users — they exist only in outbound Anthropic API
- * request bodies.
- */
-export function isPlaceholderSentinelText(text: string): boolean {
-  const normalized = text.startsWith("\x00") ? text.slice(1) : text;
-  return PLACEHOLDER_SENTINEL_BARE.has(normalized);
-}
 
 /**
  * Synthetic placeholder injected as user-message content when Anthropic API

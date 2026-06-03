@@ -5,10 +5,11 @@ import { Button } from "@vellum/design-library/components/button";
 import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Typography } from "@vellum/design-library/components/typography";
 import { toast } from "@vellum/design-library/components/toast";
+import { captureError } from "@/lib/sentry/capture-error";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 import { ByoServiceCard, SaveButton } from "@/domains/settings/ai/ai-shared-ui";
-import { useDaemonConfig } from "@/domains/settings/ai/use-daemon-config";
+import { useDaemonConfigQuery, useDaemonConfigMutation } from "@/domains/settings/ai/use-daemon-config";
 import { CallSiteOverridesModal } from "@/domains/settings/ai/call-site-overrides-modal";
 import { ManageProfilesModal } from "@/domains/settings/ai/manage-profiles-modal";
 import { ManageProvidersModal } from "@/domains/settings/ai/manage-providers-modal";
@@ -22,12 +23,11 @@ import {
 export function LanguageModelCard() {
   const {
     assistantId,
-    profiles,
-    profileOrder,
+    orderedProfiles,
     activeProfile,
     callSites,
-    patchDaemonConfig,
-  } = useDaemonConfig();
+  } = useDaemonConfigQuery();
+  const configMutation = useDaemonConfigMutation();
 
   // Draft active profile — ephemeral UI state for the unsaved dropdown
   // selection. Resets to the server value when the server value changes
@@ -47,25 +47,10 @@ export function LanguageModelCard() {
     return draftActiveProfile ?? activeProfile;
   }, [draftInitialized, draftActiveProfile, activeProfile]);
 
-  // Saving state for the "save profile" button
-  const [managedProfileSaving, setManagedProfileSaving] = useState(false);
-
   // Modal toggles — ephemeral UI state, correct as useState
   const [manageProfilesOpen, setManageProfilesOpen] = useState(false);
   const [overridesOpen, setOverridesOpen] = useState(false);
   const [manageProvidersOpen, setManageProvidersOpen] = useState(false);
-
-  // Derived state — computed from query cache slices
-  const orderedProfiles = useMemo(() => {
-    const ordered = profileOrder
-      .filter((name) => name in profiles)
-      .map((name) => ({ name, ...profiles[name]! }));
-    const inOrder = new Set(profileOrder);
-    const extras = Object.entries(profiles)
-      .filter(([name]) => !inOrder.has(name))
-      .map(([name, entry]) => ({ name, ...entry }));
-    return [...ordered, ...extras];
-  }, [profiles, profileOrder]);
 
   const queryComplexityRoutingEnabled =
     useAssistantFeatureFlagStore.use.queryComplexityRouting();
@@ -87,24 +72,16 @@ export function LanguageModelCard() {
   const isProfileDirty = effectiveActiveProfile !== activeProfile;
 
   const handleManagedProfileSave = useCallback(async () => {
-    if (!assistantId) {
-      toast.error("Assistant not ready. Please try again.");
-      return;
-    }
-    setManagedProfileSaving(true);
     try {
-      await patchDaemonConfig({ llm: { activeProfile: effectiveActiveProfile } });
-      // Cache invalidation happens automatically via patchConfigMutation.onSettled.
-      // Reset draft state so it re-syncs from the new cache value.
+      await configMutation.mutateAsync({ llm: { activeProfile: effectiveActiveProfile } });
       setDraftInitialized(false);
       setDraftActiveProfile(null);
       toast.success("Profile saved.");
-    } catch {
+    } catch (error) {
       toast.error("Failed to switch profile. Please try again.");
-    } finally {
-      setManagedProfileSaving(false);
+      captureError(error, { context: "settings-ai-language-model-save" });
     }
-  }, [effectiveActiveProfile, assistantId, patchDaemonConfig]);
+  }, [effectiveActiveProfile, configMutation]);
 
   return (
     <>
@@ -176,8 +153,8 @@ export function LanguageModelCard() {
 
           {isProfileDirty && (
             <div className="flex items-center gap-2">
-              <SaveButton onClick={handleManagedProfileSave} disabled={managedProfileSaving} />
-              {managedProfileSaving && (
+              <SaveButton onClick={handleManagedProfileSave} disabled={configMutation.isPending} />
+              {configMutation.isPending && (
                 <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />
               )}
             </div>

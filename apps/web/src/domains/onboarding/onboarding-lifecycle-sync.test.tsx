@@ -68,6 +68,7 @@ let iosAppDownloaded = true;
 let macOsAppDownloaded = true;
 let isLocalModeValue = false;
 let hasPlatformSessionValue = false;
+let platformSessionResolvedValue = true;
 let fetchOnboardingRecipeImpl: () => Promise<TestOnboardingRecipe | null> =
   async () => null;
 const fetchOnboardingRecipeMock = mock(() => fetchOnboardingRecipeImpl());
@@ -210,6 +211,7 @@ mock.module("@/stores/auth-store", () => ({
       isLoggedIn: () => true,
       isLoading: () => false,
       hasPlatformSession: () => hasPlatformSessionValue,
+      platformSessionResolved: () => platformSessionResolvedValue,
     },
   },
 }));
@@ -348,6 +350,7 @@ beforeEach(() => {
   macOsAppDownloaded = true;
   isLocalModeValue = false;
   hasPlatformSessionValue = false;
+  platformSessionResolvedValue = true;
   fetchOnboardingRecipeImpl = async () => null;
   sessionStorage.clear();
   localStorage.clear();

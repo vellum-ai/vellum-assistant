@@ -86,6 +86,7 @@ interface SlimSkillBase {
   id: string;
   name: string;
   description: string;
+  icon?: string;
   emoji?: string;
   kind: "bundled" | "installed" | "catalog";
   status: "enabled" | "disabled" | "available";
@@ -157,6 +158,7 @@ interface SkillDetailBase {
   id: string;
   name: string;
   description: string;
+  icon?: string;
   emoji?: string;
   kind: "bundled" | "installed" | "catalog";
   status: "enabled" | "disabled" | "available";

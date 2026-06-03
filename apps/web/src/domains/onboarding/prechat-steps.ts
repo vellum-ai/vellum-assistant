@@ -51,6 +51,36 @@ export interface WebStepCapabilities {
 }
 
 /**
+ * Whether the platform-backed onboarding funnel is reachable. The
+ * prior-assistants import and the Google connect step both talk to the platform
+ * with platform auth, so they require a *live* platform session.
+ *
+ * The local gateway path sets `isLoading: false` before its `getSession()`
+ * probe settles, so `hasPlatformSession === false` is ambiguous until
+ * `platformSessionResolved` flips true: it can mean "no session" or "not yet
+ * known". While the probe is still in flight, a cached platform assistant is a
+ * strong signal a session exists (the lockfile is only populated while
+ * authenticated), so the funnel stays available rather than hiding steps a
+ * returning user should see.
+ *
+ * Once the probe has resolved, a cached id alone is no longer trusted:
+ * `cloud === "vellum"` lockfile entries persist in local storage and outlive
+ * the session (logout/expiry doesn't prune them), so trusting one post-probe
+ * would surface these steps with no authenticated channel to complete them —
+ * e.g. attaching Google OAuth to a stale, possibly-invalid assistant id.
+ */
+export function isPlatformFunnelAvailable(args: {
+  localMode: boolean;
+  hasPlatformSession: boolean;
+  platformSessionResolved: boolean;
+  hasCachedPlatformAssistant: boolean;
+}): boolean {
+  if (!args.localMode) return true;
+  if (args.hasPlatformSession) return true;
+  return !args.platformSessionResolved && args.hasCachedPlatformAssistant;
+}
+
+/**
  * Resolve the ordered, enabled web steps. The pared-down funnel variant is the
  * same flow with most steps gated off, not a separate code path.
  */

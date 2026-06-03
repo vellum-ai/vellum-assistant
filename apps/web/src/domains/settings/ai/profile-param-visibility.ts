@@ -80,16 +80,6 @@ function modelSupportsThinking(provider: string, modelId: string): boolean {
   return false;
 }
 
-/**
- * Permissive client-side fallback for the vision-capability check.
- * The runtime value from `useActiveProfileModel` is the source of truth —
- * this only runs when that value is `undefined`.
- */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function modelSupportsVision(provider: string, modelId: string): boolean {
-  return true;
-}
-
 function supportsEffort(provider: string, modelId: string, supportsThinking: boolean): boolean {
   if (provider === "anthropic") {
     return !modelId.includes("haiku") && supportsThinking;

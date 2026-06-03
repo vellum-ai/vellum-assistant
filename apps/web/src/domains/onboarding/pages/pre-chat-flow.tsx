@@ -35,6 +35,7 @@ import {
 } from "@/domains/onboarding/prechat";
 import { buildPreChatContext } from "@/domains/onboarding/prechat-context";
 import {
+  isPlatformFunnelAvailable,
   nextStep,
   prevStep,
   resolveNativeSteps,
@@ -158,6 +159,7 @@ export function PreChatFlow() {
   }, [isNative, currentStep, persistNativeStep]);
 
   const hasPlatformSession = useAuthStore.use.hasPlatformSession();
+  const platformSessionResolved = useAuthStore.use.platformSessionResolved();
   const [selectedTools, setSelectedTools] = useState<Set<string>>(
     () => new Set(),
   );
@@ -197,14 +199,21 @@ export function PreChatFlow() {
   const recipe = fetchedRecipe ?? null;
   const googleAssistantId =
     activeAssistant?.id ?? activeAssistantId ?? localPlatformAssistantId;
-  const canOfferGoogleStep =
-    !localMode || hasPlatformSession || localPlatformAssistantId !== null;
-  // Prior-assistants import belongs to the platform-backed onboarding funnel.
-  // In pure local mode there is no platform account behind onboarding, so the
-  // step falls out; when a platform session exists (managed mode, including
-  // Electron) the full funnel runs. Local mode is gated by capability here
-  // rather than special-cased downstream.
-  const canOfferPriorAssistants = !localMode || hasPlatformSession;
+  // The prior-assistants import and the Google connect step are both
+  // platform-backed: they require a live platform session, not merely a cached
+  // platform assistant id (which can outlive the session). Both fall out in
+  // pure local mode and run when a platform session exists (managed mode,
+  // including Electron) — gated by capability here, not special-cased
+  // downstream. While the session probe is still in flight a cached id keeps
+  // the funnel up so a returning user isn't raced past their steps.
+  const platformFunnelAvailable = isPlatformFunnelAvailable({
+    localMode,
+    hasPlatformSession,
+    platformSessionResolved,
+    hasCachedPlatformAssistant: localPlatformAssistantId !== null,
+  });
+  const canOfferGoogleStep = platformFunnelAvailable;
+  const canOfferPriorAssistants = platformFunnelAvailable;
 
   const navigateToChatAfterLifecycleRefresh = useCallback(async () => {
     await lifecycleService.checkAssistant();

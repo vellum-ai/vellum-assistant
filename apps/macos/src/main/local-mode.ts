@@ -1,6 +1,7 @@
-import { app, ipcMain } from "electron";
+import { app } from "electron";
 import { existsSync } from "node:fs";
 import path from "node:path";
+import { z } from "zod";
 
 import {
   getGuardianAccessToken,
@@ -12,8 +13,10 @@ import {
   runRetire,
   upsertLockfileAssistant,
   type CliInvocation,
+  type LockfileWriteResult,
   type TokenResult,
 } from "@vellumai/local-mode";
+import { handle } from "./ipc";
 
 import {
   ensureCliInstalled,
@@ -50,10 +53,6 @@ interface RetireResult {
   ok: boolean;
   error?: string;
 }
-
-type LockfileWriteResult =
-  | { ok: true; lockfile: Record<string, unknown> }
-  | { ok: false; error: string };
 
 /**
  * Resolve how to invoke the CLI. Precedence:
@@ -116,11 +115,17 @@ async function retire(assistantId: string): Promise<RetireResult> {
   return result.ok ? { ok: true } : { ok: false, error: result.error };
 }
 
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object"
-    ? (value as Record<string, unknown>)
-    : {};
-}
+// A persisted assistant entry as it crosses the IPC boundary. The
+// package's lockfile parser owns the real field-level contract; here we
+// only assert the renderer sent an object, so unknown/forward-compat
+// fields pass through untouched.
+const assistantRecord = z.record(z.string(), z.unknown());
+
+// `retire` and `guardianToken` both take a single assistant id and keep a
+// never-reject contract: a missing id resolves with a structured error the
+// renderer renders, rather than rejecting the invoke. The id is therefore
+// optional on the wire and validated in the body.
+const assistantIdArgs = z.tuple([z.string().optional()]);
 
 let installed = false;
 
@@ -135,15 +140,15 @@ export const installLocalMode = (): void => {
   const lockfilePaths = resolveLockfilePaths(process.env);
   const configDir = resolveConfigDir(process.env);
 
-  ipcMain.handle("vellum:localMode:hatch", (_event, species: unknown) => {
-    const requested =
-      typeof species === "string" && species.length > 0
-        ? species
-        : DEFAULT_SPECIES;
-    return hatch(requested);
-  });
+  // `species` is optional on the wire so an empty/omitted request
+  // falls back to the default rather than being rejected.
+  handle(
+    "vellum:localMode:hatch",
+    z.tuple([z.string().optional()]),
+    ([species]) => hatch(species && species.length > 0 ? species : DEFAULT_SPECIES),
+  );
 
-  ipcMain.handle("vellum:localMode:readLockfile", () => {
+  handle("vellum:localMode:readLockfile", z.tuple([]), () => {
     const result = getLockfileData(lockfilePaths);
     if (result.ok) return result.data;
     throw new Error(
@@ -151,13 +156,14 @@ export const installLocalMode = (): void => {
     );
   });
 
-  ipcMain.handle(
+  handle(
     "vellum:localMode:saveLockfileAssistant",
-    (_event, assistant: unknown, activeAssistant: unknown): LockfileWriteResult => {
+    z.tuple([assistantRecord, z.string().optional()]),
+    ([assistant, activeAssistant]): LockfileWriteResult => {
       const result = upsertLockfileAssistant(
         lockfilePaths,
-        asRecord(assistant),
-        typeof activeAssistant === "string" ? activeAssistant : undefined,
+        assistant,
+        activeAssistant,
       );
       return result.ok
         ? { ok: true, lockfile: result.lockfile }
@@ -165,12 +171,10 @@ export const installLocalMode = (): void => {
     },
   );
 
-  ipcMain.handle(
+  handle(
     "vellum:localMode:replacePlatformAssistants",
-    (_event, platformAssistants: unknown): LockfileWriteResult => {
-      const list = Array.isArray(platformAssistants)
-        ? platformAssistants.map(asRecord)
-        : [];
+    z.tuple([z.array(assistantRecord)]),
+    ([list]): LockfileWriteResult => {
       const result = replacePlatformAssistants(lockfilePaths, list);
       return result.ok
         ? { ok: true, lockfile: result.lockfile }
@@ -178,17 +182,16 @@ export const installLocalMode = (): void => {
     },
   );
 
-  ipcMain.handle("vellum:localMode:retire", (_event, assistantId: unknown) => {
-    if (typeof assistantId !== "string" || assistantId.length === 0) {
-      return { ok: false, error: "Missing assistantId" };
-    }
+  handle("vellum:localMode:retire", assistantIdArgs, ([assistantId]) => {
+    if (!assistantId) return { ok: false, error: "Missing assistantId" };
     return retire(assistantId);
   });
 
-  ipcMain.handle(
+  handle(
     "vellum:localMode:guardianToken",
-    async (_event, assistantId: unknown): Promise<TokenResult> => {
-      if (typeof assistantId !== "string" || assistantId.length === 0) {
+    assistantIdArgs,
+    async ([assistantId]): Promise<TokenResult> => {
+      if (!assistantId) {
         return { ok: false, status: 400, error: "Missing assistantId" };
       }
       let invocation: CliInvocation;
@@ -197,8 +200,6 @@ export const installLocalMode = (): void => {
       } catch (err) {
         return { ok: false, status: 500, error: (err as Error).message };
       }
-      // The IPC channel is reachable only from our own renderer, so the
-      // loopback gate the dev middleware enforces is implicit here.
       return getGuardianAccessToken(assistantId, configDir, invocation, true);
     },
   );

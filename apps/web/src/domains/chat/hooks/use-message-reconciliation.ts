@@ -266,10 +266,6 @@ export function useMessageReconciliation({
         });
         Sentry.captureMessage("sse_poll_reconciled_rescue", {
           level: "warning",
-          // platform and messagesAddedBucket are tags (not extras)
-          // so they aggregate in Discover. Bucketed (not raw count)
-          // to keep tag cardinality bounded.
-          // https://docs.sentry.io/concepts/key-terms/key-terms/#tags
           tags: {
             context: "sse_terminal",
             platform: resolvePlatformTag(),

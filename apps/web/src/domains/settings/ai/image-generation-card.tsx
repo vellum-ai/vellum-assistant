@@ -1,10 +1,13 @@
 import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { useQueryClient } from "@tanstack/react-query";
+
 import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Input } from "@vellum/design-library/components/input";
 import { toast } from "@vellum/design-library/components/toast";
 import { captureError } from "@/lib/sentry/capture-error";
+import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
 import {
   removeLocalSetting,
   setLocalSetting,
@@ -21,18 +24,15 @@ import {
 } from "@/domains/settings/ai/ai-types";
 import { reconcileFromDaemonConfig } from "@/domains/settings/ai/ai-utils";
 import { ServiceCard, SaveButton, ResetButton } from "@/domains/settings/ai/ai-shared-ui";
-import { useDaemonConfig } from "@/domains/settings/ai/use-daemon-config";
+import { useAssistantId, useDaemonConfigQuery, useDaemonConfigMutation, useProvisionProviderKey } from "@/domains/settings/ai/use-daemon-config";
+import { modelImagegenPut } from "@/generated/daemon/sdk.gen";
 
 export function ImageGenerationCard() {
-  const {
-    config: daemonConfig,
-    invalidateConfig,
-    provisionProviderKey,
-    patchDaemonConfig,
-    setImageGenModelOnDaemon,
-  } = useDaemonConfig();
-
-  const [saving, setSaving] = useState(false);
+  const { config: daemonConfig } = useDaemonConfigQuery();
+  const { resolveAssistantId } = useAssistantId();
+  const queryClient = useQueryClient();
+  const configMutation = useDaemonConfigMutation();
+  const provisionProviderKey = useProvisionProviderKey();
   const [imageGenMode, setImageGenMode] = useState<ServiceMode>(
     () => getLocalSetting(LS_IMAGE_GEN_MODE, "your-own") as ServiceMode,
   );
@@ -40,6 +40,7 @@ export function ImageGenerationCard() {
     getLocalSetting(LS_IMAGE_GEN_MODEL, "gemini-3.1-flash-image-preview"),
   );
   const [imageGenApiKey, setImageGenApiKey] = useState("");
+  const [saving, setSaving] = useState(false);
 
   // Hydrate from daemon config on first load
   const initialized = useRef(false);
@@ -54,24 +55,38 @@ export function ImageGenerationCard() {
     setSaving(true);
     const trimmed = imageGenApiKey.trim();
     const hasUserKey = imageGenMode === "your-own" && trimmed.length > 0;
-    let remoteSaved = false;
     try {
       if (hasUserKey) {
         await provisionProviderKey("gemini", trimmed);
       }
-      await patchDaemonConfig({
+      await configMutation.mutateAsync({
         services: { "image-generation": { mode: imageGenMode } },
+      }).catch((error) => {
+        toast.error("Failed to update assistant configuration. Please try again.");
+        captureError(error, { context: "patch_daemon_config" });
+        throw error;
       });
-      await setImageGenModelOnDaemon(imageGenModel);
-      remoteSaved = true;
-      invalidateConfig();
+      const resolvedId = await resolveAssistantId();
+      try {
+        await modelImagegenPut({
+          path: { assistant_id: resolvedId },
+          body: { modelId: imageGenModel },
+          throwOnError: true,
+        });
+      } catch (error) {
+        toast.error("Failed to update image generation model. Please try again.");
+        captureError(error, { context: "set_image_gen_model" });
+        throw error;
+      } finally {
+        void queryClient.invalidateQueries({
+          queryKey: assistantDaemonConfigQueryKey(resolvedId),
+        });
+      }
     } catch {
-      // Errors already surfaced via toast + captureError inside the callees.
-    }
-    if (!remoteSaved) {
       setSaving(false);
       return;
     }
+    setSaving(false);
     try {
       setLocalSetting(LS_IMAGE_GEN_MODE, imageGenMode);
       setLocalSetting(LS_IMAGE_GEN_MODEL, imageGenModel);
@@ -83,17 +98,15 @@ export function ImageGenerationCard() {
     } catch (err) {
       captureError(err, { context: "settings-ai-image-gen-persist-local" });
       toast.error("Saved, but local preferences could not be written.");
-    } finally {
-      setSaving(false);
     }
   }, [
     imageGenApiKey,
     imageGenMode,
     imageGenModel,
-    patchDaemonConfig,
+    configMutation,
     provisionProviderKey,
-    invalidateConfig,
-    setImageGenModelOnDaemon,
+    resolveAssistantId,
+    queryClient,
   ]);
 
   const handleReset = useCallback(() => {

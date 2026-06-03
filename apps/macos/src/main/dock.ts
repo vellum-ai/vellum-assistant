@@ -1,5 +1,7 @@
-import { app, ipcMain } from "electron";
+import { app } from "electron";
+import { z } from "zod";
 
+import { handle } from "./ipc";
 import {
   current as currentMainWindow,
   onMainWindowVisibilityChange,
@@ -157,11 +159,11 @@ export const installDock = (): void => {
   if (installed) return;
   installed = true;
 
-  // Renderer publishes the unread count whenever it changes. Coerce to
-  // a finite non-negative integer so a renderer bug can't crash main.
-  ipcMain.handle("vellum:dock:setBadge", (_event, count: unknown) => {
-    const n = typeof count === "number" && Number.isFinite(count) ? count : 0;
-    state.badgeCount = Math.max(0, Math.floor(n));
+  // Renderer publishes the unread count whenever it changes. The schema
+  // guarantees a finite number (`z.number()` rejects NaN/Infinity), so
+  // the only remaining clamp is to a non-negative integer for display.
+  handle("vellum:dock:setBadge", z.tuple([z.number()]), ([count]) => {
+    state.badgeCount = Math.max(0, Math.floor(count));
     applyBadge();
   });
 
@@ -174,13 +176,12 @@ export const installDock = (): void => {
   // that destroys the renderer's JS context (hard navigate) can leave
   // a stale count on the Dock — the renderer never gets to publish
   // `setDockBadge(0)` because the layout unmounts first.
-  ipcMain.handle("vellum:dock:setSignedIn", (_event, signedIn: unknown) => {
-    const next = Boolean(signedIn);
-    if (state.signedIn && !next) {
+  handle("vellum:dock:setSignedIn", z.tuple([z.boolean()]), ([signedIn]) => {
+    if (state.signedIn && !signedIn) {
       state.badgeCount = 0;
       applyBadge();
     }
-    state.signedIn = next;
+    state.signedIn = signedIn;
     scheduleRefresh();
   });
 

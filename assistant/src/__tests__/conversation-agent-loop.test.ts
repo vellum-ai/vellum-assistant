@@ -554,6 +554,7 @@ import {
   applyCompactionResult,
   runAgentLoopImpl,
 } from "../daemon/conversation-agent-loop.js";
+import { stripInjectionsForCompaction } from "../daemon/conversation-runtime-assembly.js";
 
 // ── Test helpers ─────────────────────────────────────────────────────
 
@@ -579,7 +580,11 @@ async function simulateInlineCompaction(
   compactionCircuit: CompactionCircuit,
 ): Promise<Message[] | null> {
   await onEvent({ type: "context_compacting" });
-  const { rawHistory, options } = compaction.prepare(history);
+  // The agent loop strips runtime injections before calling prepare (the strip
+  // is identity-stubbed in this suite); prepare commits the stripped history to
+  // durable state and returns only the pipeline options.
+  const rawHistory = stripInjectionsForCompaction(history);
+  const { options } = compaction.prepare(rawHistory);
   let result: CompactionResult;
   try {
     result = await runPipeline<CompactionArgs, CompactionResult>(

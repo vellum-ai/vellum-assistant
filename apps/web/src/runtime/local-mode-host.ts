@@ -1,3 +1,10 @@
+import type {
+  Lockfile,
+  LockfileAssistant,
+  LocalAssistantResources,
+  LockfileWriteResult,
+} from "@vellumai/local-mode/contract";
+
 import { isElectron } from "@/runtime/is-electron";
 
 /**
@@ -13,10 +20,10 @@ import { isElectron } from "@/runtime/is-electron";
  * named functions and stays host-agnostic, mirroring the per-capability
  * `runtime/` wrapper rule in `apps/web/docs/ELECTRON.md`.
  *
- * Both branches return the same wire contract (the types below), so callers
- * never observe which host they're on. The seam owns these contract types so
- * `lib/` can depend on `runtime/` without `runtime/` reaching back into
- * `lib/`.
+ * Both branches return the same wire contract, so callers never observe which
+ * host they're on. The contract types are owned by `@vellumai/local-mode` —
+ * the package every host produces them from — and re-exported here so `lib/`
+ * can keep importing them from `runtime/` without reaching back into `lib/`.
  *
  * Unlike the host-only wrappers (`dock.ts`, `native-biometric.ts`), these
  * functions are NOT no-ops off Electron — the web/dev branch is a real
@@ -31,35 +38,18 @@ import { isElectron } from "@/runtime/is-electron";
  * URL stays byte-identical everywhere.
  */
 
-export interface LocalAssistantResources {
-  gatewayPort: number;
-  daemonPort: number;
-}
-
-export interface LockfileAssistant {
-  assistantId: string;
-  name?: string;
-  cloud: string;
-  runtimeUrl: string;
-  species?: string;
-  hatchedAt?: string;
-  resources?: LocalAssistantResources;
-}
-
-export interface Lockfile {
-  assistants: LockfileAssistant[];
-  activeAssistant: string | null;
-}
+export type {
+  Lockfile,
+  LockfileAssistant,
+  LocalAssistantResources,
+  LockfileWriteResult,
+};
 
 export interface LocalHatchResult {
   ok: boolean;
   assistantId?: string;
   error?: string;
 }
-
-export type LockfileWriteResult =
-  | { ok: true; lockfile: Lockfile }
-  | { ok: false; error: string };
 
 export interface LocalRetireResult {
   ok: boolean;
@@ -98,7 +88,7 @@ export async function hatchLocalAssistant(
  */
 export async function loadLockfileHost(): Promise<Lockfile> {
   if (isElectron()) {
-    return (await window.vellum!.localMode.readLockfile()) as unknown as Lockfile;
+    return window.vellum!.localMode.readLockfile();
   }
 
   const res = await fetch("/assistant/__local/lockfile");
@@ -119,7 +109,7 @@ export async function saveLockfileAssistantHost(
     return window.vellum!.localMode.saveLockfileAssistant(
       assistant,
       activeAssistant,
-    ) as Promise<LockfileWriteResult>;
+    );
   }
 
   const res = await fetch("/assistant/__local/lockfile", {
@@ -141,7 +131,7 @@ export async function replacePlatformAssistantsHost(
   if (isElectron()) {
     return window.vellum!.localMode.replacePlatformAssistants(
       platformAssistants,
-    ) as Promise<LockfileWriteResult>;
+    );
   }
 
   const res = await fetch("/assistant/__local/lockfile", {

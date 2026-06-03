@@ -9,8 +9,9 @@ import { Modal } from "@vellum/design-library/components/modal";
 import { Tag } from "@vellum/design-library/components/tag";
 import { Typography } from "@vellum/design-library/components/typography";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { captureError } from "@/lib/sentry/capture-error";
 
-import type { DaemonConfig, ProfileEntry } from "@/domains/settings/ai/ai-types";
+import type { CallSiteOverrideDraft, DaemonConfig, DaemonConfigPatch, ProfileEntry, ProfileWithName } from "@/domains/settings/ai/ai-types";
 import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal";
 import {
   AUTO_PROFILE_NAME,
@@ -18,30 +19,12 @@ import {
 } from "@/domains/settings/ai/profile-pickers";
 import { inferenceProviderconnectionsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import { filterFlaggedConnections } from "@/domains/settings/ai/provider-connections-client";
-import { useDaemonConfig, useDaemonConfigMutation } from "@/domains/settings/ai/use-daemon-config";
+import { useDaemonConfigQuery, useDaemonConfigMutation } from "@/domains/settings/ai/use-daemon-config";
 import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-export interface Profile {
-  name: string;
-  source?: "managed" | "user";
-  status?: "active" | "disabled";
-  label?: string | null;
-  description?: string | null;
-  provider?: string | null;
-  provider_connection?: string | null;
-  model?: string | null;
-  maxTokens?: number;
-  effort?: string;
-  speed?: string;
-  verbosity?: string;
-  temperature?: number | null;
-  thinking?: { enabled?: boolean; streamThinking?: boolean; level?: string };
-  contextWindow?: { maxInputTokens?: number };
-}
 
 interface BlockedDeleteState {
   name: string;
@@ -57,30 +40,6 @@ interface ManageProfilesModalProps {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function profileEntryToProfile(name: string, entry: ProfileEntry): Profile {
-  return {
-    name,
-    source: entry.source,
-    status: entry.status ?? "active",
-    label: entry.label ?? undefined,
-    description: entry.description ?? undefined,
-    provider: entry.provider ?? undefined,
-    provider_connection: entry.provider_connection ?? undefined,
-    model: entry.model ?? undefined,
-    maxTokens: entry.maxTokens,
-    effort: entry.effort,
-    speed: entry.speed,
-    verbosity: entry.verbosity,
-    temperature: entry.temperature,
-    thinking: entry.thinking,
-    contextWindow: entry.contextWindow,
-  };
-}
-
-// ---------------------------------------------------------------------------
 // ManageProfilesModal
 // ---------------------------------------------------------------------------
 
@@ -92,14 +51,15 @@ export function ManageProfilesModal({
   const {
     profiles,
     profileOrder,
+    orderedProfiles,
     activeProfile,
     callSites,
-  } = useDaemonConfig();
+  } = useDaemonConfigQuery();
   const configMutation = useDaemonConfigMutation();
 
   const openAICompatibleEndpoints = useAssistantFeatureFlagStore.use.openAICompatibleEndpoints();
   const [editorOpen, setEditorOpen] = useState(false);
-  const [editingProfile, setEditingProfile] = useState<Profile | null>(null);
+  const [editingProfile, setEditingProfile] = useState<ProfileWithName | null>(null);
 
   // Provider connections — shared TanStack Query cache with ManageProvidersModal.
   const { data: connectionsData } = useQuery({
@@ -158,6 +118,7 @@ export function ManageProfilesModal({
       try {
         await configMutation.mutateAsync({ llm: llmPatch });
       } catch (recreateErr) {
+        captureError(recreateErr, { context: "settings-ai-profile-edit-recreate" });
         // Best-effort rollback: restore old entry so the profile isn't lost
         if (oldEntry != null) {
           await configMutation.mutateAsync({ llm: { profiles: { [name]: oldEntry } } }).catch(() => {
@@ -186,6 +147,7 @@ export function ManageProfilesModal({
           <ManageProfilesModalInner
             profiles={profiles}
             profileOrder={profileOrder}
+            orderedProfiles={orderedProfiles}
             activeProfile={activeProfile}
             assistantId={assistantId}
             callSiteOverrides={callSites}
@@ -212,7 +174,6 @@ export function ManageProfilesModal({
         }
         profileName={editingProfile?.name}
         initialValues={editingProfile ?? undefined}
-        assistantId={assistantId}
         existingNames={existingNames}
         connections={connections}
         openAICompatibleEndpointsEnabled={openAICompatibleEndpoints}
@@ -233,17 +194,19 @@ export function ManageProfilesModal({
 interface ManageProfilesModalInnerProps {
   profiles: Record<string, ProfileEntry>;
   profileOrder: string[];
+  orderedProfiles: ProfileWithName[];
   activeProfile: string | null;
   assistantId: string;
   callSiteOverrides: Record<string, { profile?: string | null } | null | undefined>;
   onClose: () => void;
-  onEditClick: (profile: Profile) => void;
+  onEditClick: (profile: ProfileWithName) => void;
   onNewClick: () => void;
 }
 
 function ManageProfilesModalInner({
   profiles,
   profileOrder,
+  orderedProfiles,
   activeProfile,
   assistantId,
   callSiteOverrides,
@@ -277,22 +240,12 @@ function ManageProfilesModalInner({
   const queryComplexityRouting = useAssistantFeatureFlagStore.use.queryComplexityRouting();
 
   // Build ordered profile list
-  const allOrderedProfiles: Profile[] = useMemo(() => {
-    const ordered = profileOrder
-      .filter((name) => name in profiles)
-      .map((name) => profileEntryToProfile(name, profiles[name]!));
-    const inOrder = new Set(profileOrder);
-    const extras = Object.entries(profiles)
-      .filter(([name]) => !inOrder.has(name))
-      .map(([name, entry]) => profileEntryToProfile(name, entry));
-    return gateAutoProfile(
-      [...ordered, ...extras],
-      queryComplexityRouting,
-    );
-  }, [profiles, profileOrder, queryComplexityRouting]);
+  const allOrderedProfiles: ProfileWithName[] = useMemo(() => {
+    return gateAutoProfile(orderedProfiles, queryComplexityRouting);
+  }, [orderedProfiles, queryComplexityRouting]);
 
   async function handleStatusToggle(
-    profile: Profile,
+    profile: ProfileWithName,
     active: boolean,
   ): Promise<boolean> {
     if (togglingNames.has(profile.name)) return false;
@@ -334,7 +287,8 @@ function ManageProfilesModalInner({
         llm: { profiles: { [profile.name]: { status: wireStatus } } },
       });
       return true;
-    } catch {
+    } catch (error) {
+      captureError(error, { context: "settings-ai-profile-toggle" });
       // Rollback only the toggled field to avoid overwriting concurrent cache updates
       queryClient.setQueryData<DaemonConfig>(queryKey, (old) => {
         if (!old?.llm?.profiles?.[profile.name]) return old;
@@ -374,7 +328,8 @@ function ManageProfilesModalInner({
       await configMutation.mutateAsync({
         llm: { profiles: { [name]: null }, profileOrder: newOrder },
       });
-    } catch {
+    } catch (error) {
+      captureError(error, { context: "settings-ai-profile-delete" });
       setDeleteErrors((prev) => ({
         ...prev,
         [name]: "Failed to delete profile. Please try again.",
@@ -411,24 +366,25 @@ function ManageProfilesModalInner({
     setBlockedDeleteSaving(true);
     setBlockedDeleteError(null);
 
-    const patches: Record<string, unknown> = {};
+    const llmPatch: NonNullable<DaemonConfigPatch["llm"]> = {};
 
     if (blockedDelete.isActive) {
-      patches.activeProfile = blockedDeleteReplacement;
+      llmPatch.activeProfile = blockedDeleteReplacement;
     }
 
     if (blockedDelete.callSiteIds.length > 0) {
-      const callSitePatch: Record<string, unknown> = {};
+      const callSitePatch: Record<string, CallSiteOverrideDraft | null> = {};
       for (const id of blockedDelete.callSiteIds) {
         callSitePatch[id] = { profile: blockedDeleteReplacement };
       }
-      patches.callSites = callSitePatch;
+      llmPatch.callSites = callSitePatch;
     }
 
-    if (Object.keys(patches).length > 0) {
+    if (Object.keys(llmPatch).length > 0) {
       try {
-        await configMutation.mutateAsync({ llm: patches });
-      } catch {
+        await configMutation.mutateAsync({ llm: llmPatch });
+      } catch (error) {
+        captureError(error, { context: "settings-ai-profile-reassign-delete" });
         setBlockedDeleteError("Failed to reassign references. Please try again.");
         setBlockedDeleteSaving(false);
         return;
@@ -472,7 +428,8 @@ function ManageProfilesModalInner({
     try {
       await configMutation.mutateAsync({ llm: { profileOrder: newOrder } });
       lastConfirmedOrderRef.current = newOrder;
-    } catch {
+    } catch (error) {
+      captureError(error, { context: "settings-ai-profile-reorder" });
       // Rollback to last confirmed server state
       queryClient.setQueryData<DaemonConfig>(queryKey, (old) => {
         if (!old?.llm) return old;
@@ -746,7 +703,7 @@ function BlockedDeleteModal({
   onConfirm,
 }: {
   blocked: BlockedDeleteState | null;
-  availableReplacements: Profile[];
+  availableReplacements: ProfileWithName[];
   replacement: string;
   onReplacementChange: (value: string) => void;
   error: string | null;

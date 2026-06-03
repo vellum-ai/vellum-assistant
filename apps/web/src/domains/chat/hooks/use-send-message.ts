@@ -28,7 +28,7 @@ import {
   reconcileMessages,
 } from "@/domains/chat/utils/reconcile";
 import { isAsyncChatScopeCurrent } from "@/domains/chat/utils/conversation-scope";
-import { resolveEditChatDraftConversationId } from "@/domains/chat/utils/edit-chat-session";
+import { resolveEditChatDraftConversationId } from "@/utils/edit-chat-session";
 import { type DiskPressureChatBlockReason, getDiskPressureChatBlockMessage } from "@/assistant/disk-pressure";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useStreamStore } from "@/domains/chat/stream-store";

@@ -5,7 +5,8 @@
   "license": "MIT",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./contract": "./src/lockfile-contract.ts"
   },
   "scripts": {
     "typecheck": "bunx tsc --noEmit",

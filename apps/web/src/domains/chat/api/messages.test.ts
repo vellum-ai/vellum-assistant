@@ -10,6 +10,7 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { client } from "@/generated/api/client.gen";
+import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { getChatHistory, normalizeContentOrder, normalizeTextSegments, postChatMessage } from "@/domains/chat/api/messages";
 import { messageText } from "@/domains/chat/utils/message-test-helpers";
 
@@ -19,7 +20,7 @@ import { messageText } from "@/domains/chat/utils/message-test-helpers";
 
 let capturedBody: Record<string, unknown> | null = null;
 let nextPostResult: { data: unknown; error: unknown; response: Response };
-const originalPost = client.post;
+const originalPost = daemonClient.post;
 const originalGet = client.get;
 
 beforeEach(() => {
@@ -29,16 +30,16 @@ beforeEach(() => {
     error: null,
     response: new Response(null, { status: 200 }),
   };
-  client.post = mock(
+  daemonClient.post = mock(
     async (options: { body?: Record<string, unknown> }) => {
       capturedBody = options.body ?? null;
       return nextPostResult;
     },
-  ) as typeof client.post;
+  ) as typeof daemonClient.post;
 });
 
 afterEach(() => {
-  client.post = originalPost;
+  daemonClient.post = originalPost;
   client.get = originalGet;
 });
 
