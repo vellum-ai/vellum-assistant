@@ -414,14 +414,20 @@ export function listSkills(): SlimSkillResponse[] {
  * Installed skills take precedence when deduplicating by ID.
  */
 async function listSkillsWithCatalog(): Promise<SlimSkillResponse[]> {
-  const installed = listSkills();
-  const installedIds = new Set(installed.map((s) => s.id));
-
+  // Warm the catalog cache before converting installed skills so
+  // getCatalogCategoryMap() in toSlimSkillResponse() sees real categories
+  // instead of falling back to "system" on a cold cache.
   let catalogSkills: CatalogSkill[];
   try {
     catalogSkills = await getCatalog();
   } catch {
-    // If catalog fetch fails, return installed-only
+    catalogSkills = [];
+  }
+
+  const installed = listSkills();
+  const installedIds = new Set(installed.map((s) => s.id));
+
+  if (catalogSkills.length === 0) {
     return installed;
   }
 
