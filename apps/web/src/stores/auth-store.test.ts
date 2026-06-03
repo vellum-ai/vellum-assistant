@@ -126,6 +126,10 @@ mock.module("@/assistant/api", () => ({
 }));
 
 const { useAuthStore } = await import("@/stores/auth-store");
+const { resolveLocalOnboardingRoute } = await import(
+  "@/utils/local-onboarding-route"
+);
+const { routes } = await import("@/utils/routes");
 
 function resetAuthStore(): void {
   useAuthStore.setState({
@@ -285,6 +289,43 @@ describe("platform session probe resolution", () => {
     gates[1]();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(useAuthStore.getState().platformSession).toBe("present");
+  });
+
+  // The onboarding route fork reads platform-session liveness imperatively. A
+  // re-probe leaves the prior "absent" displayed while it confirms in the
+  // background (no flicker for reactive consumers), so the resolver must wait
+  // for that probe rather than routing on the stale value — otherwise a
+  // returning platform user lands on the new-user welcome flow instead of the
+  // hosting picker.
+  test("resolveLocalOnboardingRoute waits for an in-flight probe instead of routing on a stale status", async () => {
+    mockIsGatewayAuth = true;
+    mockIsLocalMode = false;
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    useAuthStore.setState({ platformSession: "absent" });
+
+    const gates: Array<() => void> = [];
+    getSessionGates = gates;
+
+    // Launch the confirming probe; it stays in flight, so the displayed status
+    // is still the stale "absent".
+    await useAuthStore.getState().refreshSession();
+    expect(useAuthStore.getState().platformSession).toBe("absent");
+
+    const resolved: { route: string | null } = { route: null };
+    const pending = resolveLocalOnboardingRoute().then((route) => {
+      resolved.route = route;
+    });
+
+    // While the probe is in flight the resolver must block rather than picking
+    // welcome from the stale "absent".
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(resolved.route).toBeNull();
+
+    // Once the probe confirms the session, the resolver reads the fresh
+    // "present" and routes to hosting.
+    gates[0]();
+    await pending;
+    expect(resolved.route).toBe(routes.onboarding.hosting);
   });
 });
 

@@ -173,6 +173,16 @@ function syncUserScopedState(nextUserId: string | null): void {
 // matches `latestPlatformProbe`, so older probes no-op.
 let latestPlatformProbe = 0;
 
+// Settle promise for the most recently launched probe. Because re-probes keep
+// the last `"present"`/`"absent"` rather than reopening `"unknown"` (so reactive
+// consumers don't flicker), the displayed `platformSession` can be a prior
+// result while a fresh probe is still in flight. Imperative readers that must
+// not act on a not-yet-refreshed value (the onboarding route fork) await this
+// to read the fresh result without forcing reactive readers back to `"unknown"`.
+// Initialized resolved: before any probe runs the status is `"unknown"`, which
+// those callers already gate on separately.
+let platformProbeSettled: Promise<void> = Promise.resolve();
+
 /**
  * Run the fire-and-forget platform-session probe used by the local gateway
  * auth paths, which return control before the session is known.
@@ -201,7 +211,7 @@ function probePlatformSession(
 ): void {
   const probeId = ++latestPlatformProbe;
   const isStale = (): boolean => probeId !== latestPlatformProbe;
-  getSession()
+  platformProbeSettled = getSession()
     .then((result) => {
       if (isStale()) return;
       if (result.ok && result.data.user) {
@@ -235,6 +245,20 @@ function probePlatformSession(
           : {},
       );
     });
+}
+
+/**
+ * Resolve once the most recently launched platform-session probe settles, or
+ * immediately when none is in flight.
+ *
+ * Reactive consumers read `platformSession` directly and rely on re-probes
+ * leaving the last `"present"`/`"absent"` in place (no flicker). Imperative
+ * one-shot readers that must not branch on a stale value — the onboarding
+ * hosting/welcome fork — await this instead, so they observe the fresh probe
+ * result regardless of what the tri-state currently shows.
+ */
+export function whenPlatformSessionSettled(): Promise<void> {
+  return platformProbeSettled;
 }
 
 /**
