@@ -381,6 +381,184 @@ describe("platform-managed config defaults", () => {
 });
 
 /**
+ * Platform-gated `acp.enabled` default. ACP is enabled by default only when
+ * BOTH IS_PLATFORM and VELLUM_ACP_ENABLED are truthy, so the feature can be
+ * flipped on per release for hosted assistants without affecting local or
+ * self-hosted users. The fill-only pass means an explicit user `acp.enabled`
+ * on disk always wins, and the existing `services` block is unaffected.
+ */
+describe("platform-gated acp.enabled default", () => {
+  const originalIsPlatform = process.env.IS_PLATFORM;
+  const originalAcpEnabled = process.env.VELLUM_ACP_ENABLED;
+
+  beforeEach(() => {
+    resetWorkspace();
+    setStorePathForTesting(join(WORKSPACE_DIR, "keys.enc"));
+    invalidateConfigCache();
+  });
+
+  afterEach(() => {
+    setStorePathForTesting(null);
+    invalidateConfigCache();
+    if (originalIsPlatform === undefined) {
+      delete process.env.IS_PLATFORM;
+    } else {
+      process.env.IS_PLATFORM = originalIsPlatform;
+    }
+    if (originalAcpEnabled === undefined) {
+      delete process.env.VELLUM_ACP_ENABLED;
+    } else {
+      process.env.VELLUM_ACP_ENABLED = originalAcpEnabled;
+    }
+  });
+
+  test("IS_PLATFORM=true and VELLUM_ACP_ENABLED=true → acp.enabled is true", () => {
+    process.env.IS_PLATFORM = "true";
+    process.env.VELLUM_ACP_ENABLED = "true";
+
+    const config = loadConfig();
+
+    expect(config.acp.enabled).toBe(true);
+  });
+
+  test("IS_PLATFORM=true but VELLUM_ACP_ENABLED unset → acp.enabled is false", () => {
+    process.env.IS_PLATFORM = "true";
+    delete process.env.VELLUM_ACP_ENABLED;
+
+    const config = loadConfig();
+
+    expect(config.acp.enabled).toBe(false);
+  });
+
+  test("VELLUM_ACP_ENABLED=true but IS_PLATFORM=false → acp.enabled is false", () => {
+    process.env.IS_PLATFORM = "false";
+    process.env.VELLUM_ACP_ENABLED = "true";
+
+    const config = loadConfig();
+
+    expect(config.acp.enabled).toBe(false);
+  });
+
+  test("both flags set but config explicitly disables acp → user choice wins", () => {
+    process.env.IS_PLATFORM = "true";
+    process.env.VELLUM_ACP_ENABLED = "true";
+
+    writeFileSync(
+      CONFIG_PATH,
+      JSON.stringify({ acp: { enabled: false } }, null, 2) + "\n",
+    );
+
+    const config = loadConfig();
+
+    expect(config.acp.enabled).toBe(false);
+  });
+
+  test("both flags set → enabling acp does not disturb the managed services block", () => {
+    process.env.IS_PLATFORM = "true";
+    process.env.VELLUM_ACP_ENABLED = "true";
+
+    const config = loadConfig();
+
+    expect(config.acp.enabled).toBe(true);
+    for (const svc of MANAGED_SERVICES) {
+      expect(
+        (config.services as unknown as Record<string, { mode: string }>)[svc]!
+          .mode,
+      ).toBe("managed");
+    }
+  });
+
+  test("both flags set, no config file → acp.enabled is effective in-memory but the key is OMITTED from disk", () => {
+    process.env.IS_PLATFORM = "true";
+    process.env.VELLUM_ACP_ENABLED = "true";
+
+    // First launch with the rollout flag on: the env-gated default makes ACP
+    // effective in-memory.
+    const config = loadConfig();
+    expect(config.acp.enabled).toBe(true);
+
+    // ...but the persisted config.json must NOT contain `acp.enabled` at all —
+    // not `true` (durable user intent that survives rollback) and not `false`
+    // (durable user intent that survives a RESTART, shadowing the gate). The
+    // key is omitted entirely so the env-gated default re-applies on every
+    // load. The rest of the `acp` block still persists at its schema default so
+    // config.json remains discoverable/editable.
+    expect(existsSync(CONFIG_PATH)).toBe(true);
+    const written = readConfig() as { acp?: Record<string, unknown> };
+    expect(written.acp).toBeDefined();
+    expect(Object.prototype.hasOwnProperty.call(written.acp!, "enabled")).toBe(
+      false,
+    );
+
+    // Roll back the release: flip VELLUM_ACP_ENABLED off and reload against the
+    // now-existing config.json. Because disk never recorded `enabled`, ACP
+    // rolls back cleanly to disabled — the gate survived the rollback.
+    process.env.VELLUM_ACP_ENABLED = "false";
+    invalidateConfigCache();
+    const rolledBack = loadConfig();
+    expect(rolledBack.acp.enabled).toBe(false);
+  });
+
+  test("flag OFF (pre-rollout), no config file → acp.enabled is OMITTED from disk, and a later load with the flag ON enables ACP", () => {
+    // Pre-rollout first launch: VELLUM_ACP_ENABLED is off, so the env-gated
+    // default leaves ACP disabled in-memory. The persisted first-launch seed
+    // must STILL omit `acp.enabled` entirely — writing the schema default
+    // `false` would bake durable user intent onto disk, and once the rollout
+    // flag later flips on, that on-disk `false` would shadow the gate and ACP
+    // could NEVER enable for this pre-rollout hosted assistant.
+    process.env.IS_PLATFORM = "true";
+    delete process.env.VELLUM_ACP_ENABLED;
+
+    const config = loadConfig();
+    expect(config.acp.enabled).toBe(false);
+
+    // config.json was seeded, but `acp.enabled` is not on disk — even though
+    // the flag was off when it was written. The rest of the `acp` block still
+    // persists so the file stays discoverable/editable.
+    expect(existsSync(CONFIG_PATH)).toBe(true);
+    const written = readConfig() as { acp?: Record<string, unknown> };
+    expect(written.acp).toBeDefined();
+    expect(Object.prototype.hasOwnProperty.call(written.acp!, "enabled")).toBe(
+      false,
+    );
+
+    // The rollout flag flips on later. Reload against the now-existing
+    // pre-rollout config.json: because disk never recorded `enabled`, the
+    // env-gated default re-applies and ACP enables cleanly.
+    process.env.VELLUM_ACP_ENABLED = "true";
+    invalidateConfigCache();
+    const flipped = loadConfig();
+    expect(flipped.acp.enabled).toBe(true);
+  });
+
+  test("both flags set, restart with config file present and flag still on → env-gated default re-applies (acp.enabled true survives restart)", () => {
+    process.env.IS_PLATFORM = "true";
+    process.env.VELLUM_ACP_ENABLED = "true";
+
+    // First launch: writes config.json with `acp.enabled` omitted.
+    const first = loadConfig();
+    expect(first.acp.enabled).toBe(true);
+    expect(existsSync(CONFIG_PATH)).toBe(true);
+
+    // Restart: config.json now exists (no acp.enabled key) and the rollout flag
+    // is still on. The fill-only pass sees no on-disk `acp.enabled`, so the
+    // env-gated default re-applies → ACP stays enabled across the restart.
+    // (Regression guard for the bug where writing `acp.enabled: false` on first
+    // launch left ACP disabled after the first restart.)
+    invalidateConfigCache();
+    const restarted = loadConfig();
+    expect(restarted.acp.enabled).toBe(true);
+
+    // Same restart but with the flag now off → disabled, because nothing on disk
+    // forces it on.
+    process.env.VELLUM_ACP_ENABLED = "false";
+    invalidateConfigCache();
+    const flagOff = loadConfig();
+    expect(flagOff.acp.enabled).toBe(false);
+  });
+});
+
+/**
  * Regression guard for the `handleGetConfig` route handler in
  * `assistant/src/runtime/routes/conversation-query-routes.ts`. That handler
  * returns the raw on-disk JSON to clients (macOS, web, CLI) via
