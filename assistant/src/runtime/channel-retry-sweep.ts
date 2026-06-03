@@ -29,7 +29,12 @@ import {
   markRetryableFailure,
   recordDeliveryFailure,
   recordProcessingFailure,
+  type ReplayFailureContext,
 } from "../memory/delivery-status.js";
+import {
+  extractMessageTsFromCallbackUrl,
+  extractThreadTsFromCallbackUrl,
+} from "../memory/slack-thread-store.js";
 import { getLogger } from "../util/logger.js";
 import {
   deliverReplyViaCallback,
@@ -43,6 +48,65 @@ import { resolveRoutingStateFromRuntime } from "./trust-context-resolver.js";
 const log = getLogger("runtime-http");
 const DISK_PRESSURE_REMOTE_BLOCK_REPLY =
   "Storage is critically low, so remote messages are ignored until the guardian frees enough space. Please try again later.";
+type RetryClass = "processing_retry" | "delivery_retry";
+type ReplayMode = "regenerate_reply" | "redeliver_existing_reply";
+
+function asOptionalString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : undefined;
+}
+
+function buildSlackReplayContext(
+  sourceChannel: string,
+  payload: Record<string, unknown>,
+  retryClass: RetryClass,
+  replayMode: ReplayMode,
+  stage: ReplayFailureContext["stage"],
+): ReplayFailureContext | undefined {
+  if (sourceChannel !== "slack") return undefined;
+
+  const replyCallbackUrl = asOptionalString(payload.replyCallbackUrl);
+  const slackThreadTs = extractThreadTsFromCallbackUrl(replyCallbackUrl);
+  const slackMessageTs = extractMessageTsFromCallbackUrl(replyCallbackUrl);
+
+  return {
+    sourceChannel,
+    retryClass,
+    replayMode,
+    stage,
+    externalChatId: asOptionalString(payload.externalChatId),
+    replyCallbackUrl,
+    ...(slackThreadTs ? { slackThreadTs } : {}),
+    ...(slackMessageTs ? { slackMessageTs } : {}),
+  };
+}
+
+function slackReplayLogFields(
+  inboundEventId: string,
+  context: ReplayFailureContext,
+): Record<string, unknown> {
+  return {
+    inboundEventId,
+    retryClass: context.retryClass,
+    externalChatId: context.externalChatId,
+    replyCallbackUrl: context.replyCallbackUrl,
+    threadTs: context.slackThreadTs,
+    messageTs: context.slackMessageTs,
+    replayMode: context.replayMode,
+  };
+}
+
+function logSlackReplayAttempt(
+  inboundEventId: string,
+  context: ReplayFailureContext | undefined,
+): void {
+  if (!context) return;
+  log.info(
+    slackReplayLogFields(inboundEventId, context),
+    "Replaying Slack channel event",
+  );
+}
 
 function parseTrustRuntimeContext(value: unknown): TrustContext | undefined {
   if (!value || typeof value !== "object") return undefined;
@@ -153,6 +217,13 @@ export async function sweepFailedEvents(
       parseInterfaceId(payload.interface) ??
       parseInterfaceId(payload.sourceChannel) ??
       "web";
+    const slackProcessingReplayContext = buildSlackReplayContext(
+      sourceChannel,
+      payload,
+      "processing_retry",
+      "regenerate_reply",
+      "reply_generation",
+    );
     const sourceMetadata = payload.sourceMetadata as
       | Record<string, unknown>
       | undefined;
@@ -174,6 +245,7 @@ export async function sweepFailedEvents(
       markRetryableFailure(
         event.id,
         "Unparseable guardian context in stored payload — refusing to process without trust classification",
+        slackProcessingReplayContext,
       );
       continue;
     }
@@ -297,6 +369,7 @@ export async function sweepFailedEvents(
     };
 
     let userMessageId: string | undefined;
+    logSlackReplayAttempt(event.id, slackProcessingReplayContext);
     try {
       const result = await processMessage(event.conversationId, content, {
         attachmentIds,
@@ -326,16 +399,32 @@ export async function sweepFailedEvents(
         "Successfully replayed failed channel event",
       );
     } catch (err) {
-      log.error({ err, eventId: event.id }, "Retry failed for channel event");
+      log.error(
+        {
+          err,
+          eventId: event.id,
+          ...(slackProcessingReplayContext
+            ? slackReplayLogFields(event.id, slackProcessingReplayContext)
+            : {}),
+        },
+        "Retry failed for channel event",
+      );
       if (slackDmTextDelivery) {
         await slackDmTextDelivery.waitForPendingDeliveries();
       }
-      recordProcessingFailure(event.id, err);
+      recordProcessingFailure(event.id, err, slackProcessingReplayContext);
       continue;
     }
 
     if (replyCallbackUrl) {
       if (externalChatId) {
+        const slackProcessingDeliveryContext: ReplayFailureContext | undefined =
+          slackProcessingReplayContext
+            ? {
+                ...slackProcessingReplayContext,
+                stage: "callback_delivery",
+              }
+            : undefined;
         try {
           if (slackDmTextDelivery) {
             await slackDmTextDelivery.waitForPendingDeliveries();
@@ -369,10 +458,16 @@ export async function sweepFailedEvents(
           markDeliveryDelivered(event.id);
         } catch (err) {
           log.error(
-            { err, eventId: event.id },
+            {
+              err,
+              eventId: event.id,
+              ...(slackProcessingDeliveryContext
+                ? slackReplayLogFields(event.id, slackProcessingDeliveryContext)
+                : {}),
+            },
             "Retry delivery failed for channel event",
           );
-          recordDeliveryFailure(event.id, err);
+          recordDeliveryFailure(event.id, err, slackProcessingDeliveryContext);
         }
       }
     }
@@ -398,6 +493,13 @@ export async function sweepFailedEvents(
       continue;
     }
 
+    const slackDeliveryReplayContext = buildSlackReplayContext(
+      parseChannelId(payload.sourceChannel) ?? "",
+      payload,
+      "delivery_retry",
+      "redeliver_existing_reply",
+      "callback_delivery",
+    );
     const replyCallbackUrl =
       typeof payload.replyCallbackUrl === "string"
         ? payload.replyCallbackUrl
@@ -416,6 +518,7 @@ export async function sweepFailedEvents(
       recordDeliveryFailure(
         event.id,
         new Error("Stored payload is missing delivery callback details"),
+        slackDeliveryReplayContext,
       );
       continue;
     }
@@ -432,10 +535,12 @@ export async function sweepFailedEvents(
       recordDeliveryFailure(
         event.id,
         new Error("Stored payload is missing assistant reply message id"),
+        slackDeliveryReplayContext,
       );
       continue;
     }
 
+    logSlackReplayAttempt(event.id, slackDeliveryReplayContext);
     try {
       await deliverReplyViaCallback(
         event.conversationId,
@@ -452,10 +557,16 @@ export async function sweepFailedEvents(
       markDeliveryDelivered(event.id);
     } catch (err) {
       log.error(
-        { err, eventId: event.id },
+        {
+          err,
+          eventId: event.id,
+          ...(slackDeliveryReplayContext
+            ? slackReplayLogFields(event.id, slackDeliveryReplayContext)
+            : {}),
+        },
         "Retry delivery failed for processed channel event",
       );
-      recordDeliveryFailure(event.id, err);
+      recordDeliveryFailure(event.id, err, slackDeliveryReplayContext);
     }
   }
 }
