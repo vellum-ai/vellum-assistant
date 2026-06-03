@@ -26,8 +26,8 @@ import {
   findLatestUserAnchorKey,
   PINNED_THRESHOLD_PX,
   SHOW_SCROLL_BUTTON_THRESHOLD_PX,
-  type TranscriptHandle,
-} from "@/domains/chat/transcript/use-transcript-scroll";
+} from "@/domains/chat/transcript/transcript-scroll-utils";
+import type { TranscriptHandle } from "@/domains/chat/transcript/transcript";
 
 import { textBody } from "@/domains/chat/utils/message-test-helpers";
 // ---------------------------------------------------------------------------

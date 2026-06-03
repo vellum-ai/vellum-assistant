@@ -18,6 +18,7 @@ import { useFeatureFlagBusSync } from "@/hooks/use-feature-flag-bus-sync";
 import { useClientFeatureFlagSync } from "@/hooks/use-client-feature-flag-sync";
 import { useAssistantFeatureFlagSync } from "@/hooks/use-assistant-feature-flag-sync";
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { TimezoneSync } from "@/components/timezone-sync";
 
 /**
  * Threshold (in px) below which a `innerHeight − visualViewport.height` delta
@@ -134,6 +135,10 @@ export function RootLayout() {
 
       {/* Portal target for mobile overlays that use `position: fixed`. */}
       <div id="viewport-overlays" />
+
+      {/* Headless: keeps daemon config.ui.detectedTimezone fresh on
+          focus/zone change. No-ops until an assistant id resolves. */}
+      <TimezoneSync />
     </div>
   );
 }

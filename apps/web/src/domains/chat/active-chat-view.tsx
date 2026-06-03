@@ -33,6 +33,7 @@ import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import type { TranscriptHandle } from "@/domains/chat/transcript/transcript";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
+import type { UIContext } from "@/domains/chat/turn-selectors";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 
 import { peekPendingPreChatContext } from "@/domains/onboarding/prechat";
@@ -152,6 +153,10 @@ export function ActiveChatView() {
   // Threaded down to ChatRouteContent and bound on the `<Transcript />`
   // instance there. Also read by useChatDebugRegistration for scroll state.
   const transcriptRef = useRef<TranscriptHandle | null>(null);
+  // Written by ChatRouteContent every render with the exact `UIContext` it
+  // renders from; read by useChatDebugRegistration so the debug snapshot
+  // reflects on-screen state rather than a separate recomputation.
+  const uiContextRef = useRef<UIContext | null>(null);
 
   // -------------------------------------------------------------------------
   // Onboarding orchestrator — owns onboarding refs, flags, and effects.
@@ -343,6 +348,7 @@ export function ActiveChatView() {
     sanitizedMessagesRef,
     transcriptItemsRef,
     transcriptRef,
+    uiContextRef,
     reconcileActiveConversation,
   });
 
@@ -443,6 +449,7 @@ export function ActiveChatView() {
     sanitizedMessagesRef,
     transcriptItemsRef,
     transcriptRef,
+    uiContextRef,
 
     // Onboarding
     onboardingTasksEmpty,

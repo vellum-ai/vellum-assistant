@@ -75,7 +75,7 @@ describe("fetchLatestHistoryPage URL construction", () => {
 
     expect(captured).toHaveLength(1);
     const url = new URL(captured[0]!.url, "http://localhost");
-    expect(url.pathname).toBe("/v1/assistants/asst-1/messages/");
+    expect(url.pathname).toBe("/v1/assistants/asst-1/messages");
     expect(url.searchParams.get("conversationId")).toBe("K");
     expect(url.searchParams.get("conversationKey")).toBeNull();
     expect(url.searchParams.get("page")).toBe("latest");
@@ -110,7 +110,7 @@ describe("fetchOlderHistoryPage URL construction", () => {
 
     expect(captured).toHaveLength(1);
     const url = new URL(captured[0]!.url, "http://localhost");
-    expect(url.pathname).toBe("/v1/assistants/asst-1/messages/");
+    expect(url.pathname).toBe("/v1/assistants/asst-1/messages");
     expect(url.searchParams.get("conversationId")).toBe("K");
     expect(url.searchParams.get("conversationKey")).toBeNull();
     expect(url.searchParams.get("beforeTimestamp")).toBe("1700000000000");
@@ -171,7 +171,9 @@ describe("response parsing", () => {
 
   test("older-page response is parsed the same way", async () => {
     nextResponse = makeJsonResponse({
-      messages: [{ id: "m0", role: "user", ...textBody("earlier"), timestamp: 0 }],
+      messages: [
+        { id: "m0", role: "user", ...textBody("earlier"), timestamp: 0 },
+      ],
       hasMore: false,
       oldestTimestamp: 0,
       oldestMessageId: "m0",
@@ -339,10 +341,7 @@ describe("subagent notification extraction", () => {
 
 describe("error handling", () => {
   test("fetchLatestHistoryPage rejects with ApiError on non-2xx response", async () => {
-    nextResponse = makeJsonResponse(
-      { detail: "boom" },
-      { status: 500 },
-    );
+    nextResponse = makeJsonResponse({ detail: "boom" }, { status: 500 });
 
     await expect(fetchLatestHistoryPage("asst-1", "K")).rejects.toBeInstanceOf(
       ApiError,
@@ -350,10 +349,7 @@ describe("error handling", () => {
   });
 
   test("fetchOlderHistoryPage rejects with ApiError on non-2xx response", async () => {
-    nextResponse = makeJsonResponse(
-      { detail: "not found" },
-      { status: 404 },
-    );
+    nextResponse = makeJsonResponse({ detail: "not found" }, { status: 404 });
 
     let caught: unknown = null;
     try {

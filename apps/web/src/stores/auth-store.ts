@@ -83,6 +83,14 @@ interface AuthState {
   isLoading: boolean;
   user: AuthUser | null;
   hasPlatformSession: boolean;
+  /**
+   * Whether the platform-session probe has settled. The local gateway path
+   * sets `isLoading: false` before probing `getSession()`, so `false` here
+   * means "unknown", not "no session" — consumers that gate on a missing
+   * session must wait for this to flip true before treating the absence as
+   * confirmed.
+   */
+  platformSessionResolved: boolean;
 }
 
 interface AuthActions {
@@ -122,11 +130,74 @@ function syncUserScopedState(nextUserId: string | null): void {
   syncOrganizationState(nextUserId);
 }
 
+// Monotonic id stamped on each platform-session probe. Probes can overlap
+// (an app-resume refresh firing while the initial probe is still in flight),
+// and a stale completion must not mutate session state — most importantly it
+// must not flip `platformSessionResolved` back to `true` while a newer probe
+// is still pending, which would resurface the very race this state guards.
+// Only the latest probe's id matches `latestPlatformProbe`, so older probes
+// no-op.
+let latestPlatformProbe = 0;
+
+/**
+ * Run the fire-and-forget platform-session probe used by the local gateway
+ * auth paths, which return control before the session is known.
+ *
+ * `platformSessionResolved` is reset to `false` up front and flipped back to
+ * `true` only once the probe settles, so a *re-run* probe (app-resume refresh,
+ * return from a provider callback) re-enters the "unknown" state instead of
+ * leaving a stale `true` from the previous probe. Consumers that treat a
+ * missing session as confirmed must wait for this flip; until then a cached
+ * platform assistant stands in as a liveness signal.
+ *
+ * Overlapping probes are resolved latest-wins: each call captures a probe id
+ * and only the newest probe is allowed to settle state, so a slower earlier
+ * probe cannot retire the "unknown" window a later probe just opened.
+ *
+ * `setUserOnSuccess` adopts the probed user as the active user (the
+ * no-platform-assistant local path, which starts as the placeholder local
+ * user). `clearOnFailure` drives `hasPlatformSession` to `false` on a negative
+ * result (the refresh path, which must retract a session that has ended);
+ * init paths leave a prior optimistic value untouched.
+ */
+function probePlatformSession(
+  set: (partial: Partial<AuthState>) => void,
+  options: { setUserOnSuccess?: boolean; clearOnFailure?: boolean } = {},
+): void {
+  const probeId = ++latestPlatformProbe;
+  const isStale = (): boolean => probeId !== latestPlatformProbe;
+  set({ platformSessionResolved: false });
+  getSession()
+    .then((result) => {
+      if (isStale()) return;
+      if (result.ok && result.data.user) {
+        const next: Partial<AuthState> = { hasPlatformSession: true };
+        if (options.setUserOnSuccess) {
+          next.user = toAuthUser(result.data.user);
+        }
+        set(next);
+      } else if (options.clearOnFailure) {
+        set({ hasPlatformSession: false });
+      }
+    })
+    .catch(() => {
+      if (isStale()) return;
+      if (options.clearOnFailure) {
+        set({ hasPlatformSession: false });
+      }
+    })
+    .finally(() => {
+      if (isStale()) return;
+      set({ platformSessionResolved: true });
+    });
+}
+
 const useAuthStoreBase = create<AuthStore>()((set) => ({
   isLoggedIn: false,
   isLoading: true,
   user: null,
   hasPlatformSession: false,
+  platformSessionResolved: false,
 
   initSession: async () => {
     if (isGatewayAuthEnabled()) {
@@ -137,13 +208,9 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
         set({ isLoggedIn: false, isLoading: false, user: null });
       }
       if (!isLocalMode() || getPlatformAssistants().length > 0) {
-        getSession()
-          .then((result) => {
-            if (result.ok && result.data.user) {
-              set({ hasPlatformSession: true });
-            }
-          })
-          .catch(() => {});
+        probePlatformSession(set);
+      } else {
+        set({ platformSessionResolved: true });
       }
       return;
     }
@@ -163,32 +230,27 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
               if (apiAssistants.ok) {
                 await syncPlatformAssistantsToLockfile(apiAssistants.data);
                 if (getPlatformAssistants().length === 0 && getLocalAssistants().length === 0) {
-                  set({ isLoggedIn: true, isLoading: false, user, hasPlatformSession: true });
+                  set({ isLoggedIn: true, isLoading: false, user, hasPlatformSession: true, platformSessionResolved: true });
                   return;
                 }
               }
             } catch {
               // Sync failed — continue with cached data
             }
-            set({ isLoggedIn: true, isLoading: false, user, hasPlatformSession: true });
+            set({ isLoggedIn: true, isLoading: false, user, hasPlatformSession: true, platformSessionResolved: true });
             return;
           }
         } catch {
           // Session check failed — fall through to unauthenticated
         }
-        set({ isLoggedIn: false, isLoading: false, user: null });
+        set({ isLoggedIn: false, isLoading: false, user: null, platformSessionResolved: true });
         return;
       }
       set({ isLoggedIn: true, isLoading: false, user: GATEWAY_LOCAL_USER });
       if (!suppressPlatformProbe) {
-        getSession()
-          .then((result) => {
-            if (result.ok && result.data.user) {
-              const user = toAuthUser(result.data.user);
-              set({ hasPlatformSession: true, user });
-            }
-          })
-          .catch(() => {});
+        probePlatformSession(set, { setUserOnSuccess: true });
+      } else {
+        set({ platformSessionResolved: true });
       }
       suppressPlatformProbe = false;
       return;
@@ -199,7 +261,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       if (result.ok && result.data.user) {
         const user = toAuthUser(result.data.user);
         syncUserScopedState(user?.id ?? null);
-        set({ isLoggedIn: true, isLoading: false, user, hasPlatformSession: true });
+        set({ isLoggedIn: true, isLoading: false, user, hasPlatformSession: true, platformSessionResolved: true });
         return;
       }
     } catch (err) {
@@ -218,7 +280,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
           if (retryResult.ok && retryResult.data.user) {
             const user = toAuthUser(retryResult.data.user);
             syncUserScopedState(user?.id ?? null);
-            set({ isLoggedIn: true, isLoading: false, user, hasPlatformSession: true });
+            set({ isLoggedIn: true, isLoading: false, user, hasPlatformSession: true, platformSessionResolved: true });
             return;
           }
         }
@@ -228,7 +290,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
     }
 
     syncUserScopedState(null);
-    set({ isLoggedIn: false, isLoading: false, user: null });
+    set({ isLoggedIn: false, isLoading: false, user: null, platformSessionResolved: true });
   },
 
   refreshSession: async () => {
@@ -241,11 +303,9 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
         return false;
       }
       if (!isLocalMode() || getPlatformAssistants().length > 0) {
-        getSession()
-          .then((result) => {
-            set({ hasPlatformSession: !!(result.ok && result.data.user) });
-          })
-          .catch(() => set({ hasPlatformSession: false }));
+        probePlatformSession(set, { clearOnFailure: true });
+      } else {
+        set({ platformSessionResolved: true });
       }
       return true;
     }
@@ -255,14 +315,14 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       if (result.ok && result.data.user) {
         const user = toAuthUser(result.data.user);
         syncUserScopedState(user?.id ?? null);
-        set({ isLoggedIn: true, user, hasPlatformSession: true });
+        set({ isLoggedIn: true, user, hasPlatformSession: true, platformSessionResolved: true });
         return true;
       }
     } catch (err) {
       console.warn("auth.refreshSession failed", err);
     }
     syncUserScopedState(null);
-    set({ isLoggedIn: false, user: null, hasPlatformSession: false });
+    set({ isLoggedIn: false, user: null, hasPlatformSession: false, platformSessionResolved: true });
     return false;
   },
 
@@ -278,7 +338,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       // their first re-render. The `respondToInputs` `!isLoggedIn`
       // branch is the safety net for token-expiry-style flips.
       lifecycleService.resetForLogout();
-      set({ isLoggedIn: false, user: null, hasPlatformSession: false });
+      set({ isLoggedIn: false, user: null, hasPlatformSession: false, platformSessionResolved: true });
       broadcastAuthChange();
       return;
     }
@@ -295,7 +355,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       clearOrganization();
       clearUserScopedStorage();
       lifecycleService.resetForLogout();
-      set({ isLoggedIn: false, user: null, hasPlatformSession: false });
+      set({ isLoggedIn: false, user: null, hasPlatformSession: false, platformSessionResolved: true });
       broadcastAuthChange();
     }
   },

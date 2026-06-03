@@ -62,7 +62,6 @@ export interface DisplayMessage {
   surfaces?: Surface[];
   textSegments?: Array<{ type: string; content: string; [key: string]: unknown }>;
   contentOrder?: Array<{ type: string; id: string }>;
-  metadata?: Record<string, unknown>;
   slackMessage?: SlackRuntimeMessage;
   toolCalls?: ChatMessageToolCall[];
   /** Attachments rendered inside the message bubble. For user messages these

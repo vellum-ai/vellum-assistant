@@ -282,6 +282,126 @@ References:
 - [TkDodo — Working with Zustand](https://tkdodo.eu/blog/working-with-zustand) — React Query maintainer's guidance on the boundary between server state (RQ) and client/infrastructure state (Zustand)
 - [Zustand — Reading/writing state outside components](https://zustand.docs.pmnd.rs/guides/reading-and-writing-state-outside-components)
 
+### When to use `useState`
+
+Not all state needs Zustand or React Query. Use plain `useState` when:
+
+- The state is **ephemeral and page-local** — dialog open/close, drawer
+  visibility, which tab is selected, inline form values.
+- There is a **single consumer** — only the component that owns the
+  state reads it. No sibling or distant component needs access.
+- The state **doesn't survive navigation** — losing it on unmount is
+  correct behavior, not a bug.
+
+If any of these stop being true — a second component needs to read the
+state, or it must persist across route changes — promote to a Zustand
+store.
+
+`useState` is the lightest primitive. Using Zustand or React Query when
+`useState` suffices adds ceremony without value.
+
+References:
+- [React — `useState`](https://react.dev/reference/react/useState)
+- [Zustand — When to use Zustand vs useState](https://zustand.docs.pmnd.rs/getting-started/introduction)
+
+### Optimistic updates in mutations
+
+TanStack Query supports two patterns for optimistic UI during mutations.
+Choose based on whether the mutation's optimistic state needs to be
+visible outside the mutating component.
+
+**"Via the UI"** — derive optimistic display from the mutation's own
+reactive state (`isPending`, `variables`). No cache manipulation, no
+manual rollback. Use this when the mutation and query live in the
+**same component**.
+
+```ts
+const deleteMutation = useMutation({
+  mutationFn: (id: string) => deleteContact(id),
+  onSettled: () => invalidateContacts(),
+});
+
+// Derive — don't imperatively set:
+const deletingId = deleteMutation.isPending ? deleteMutation.variables : null;
+const visibleContacts = contacts.filter((c) => c.id !== deletingId);
+```
+
+Rollback is automatic — when the mutation fails, `isPending` becomes
+`false` and the derivation stops.
+
+**"Via the Cache"** — write to the query cache in `onMutate`, roll back
+in `onError`, invalidate in `onSettled`. Use this when optimistic state
+must be visible to **multiple unrelated components** that read from the
+same query cache.
+
+**Always `cancelQueries` first** — an in-flight refetch (e.g. from
+another mutation's `onSettled` invalidation or `refetchOnWindowFocus`)
+can resolve after your optimistic write and overwrite it with stale
+server data. `cancelQueries` aborts those requests so they can't
+interfere.
+
+**Roll back only the changed field, not the full snapshot** — if
+concurrent mutations are possible (e.g. toggling profile A while
+profile B is being edited), restoring a full-config snapshot from
+`onMutate` would silently revert the other mutation's successful
+optimistic update. Instead, capture only the specific field(s) you're
+about to change, and in `onError` use an updater function to patch
+only those fields back. This keeps the rest of the cache intact.
+
+```ts
+const mutation = useMutation({
+  mutationFn: (vars: { id: string; isActive: boolean }) =>
+    patchItem(vars),
+  onMutate: async (vars) => {
+    await queryClient.cancelQueries({ queryKey });
+    // Snapshot only the field we're changing
+    const previousIsActive = queryClient.getQueryData<Item>(queryKey)?.isActive;
+    // Optimistic update via updater function (always reads latest cache)
+    queryClient.setQueryData<Item>(queryKey, (old) =>
+      old ? { ...old, isActive: vars.isActive } : old,
+    );
+    return { previousIsActive };
+  },
+  onError: (_err, _vars, ctx) => {
+    // Roll back only the changed field — concurrent updates to other
+    // fields stay intact
+    queryClient.setQueryData<Item>(queryKey, (old) =>
+      old ? { ...old, isActive: ctx?.previousIsActive } : old,
+    );
+  },
+  onSettled: () => queryClient.invalidateQueries({ queryKey }),
+});
+```
+
+When using "Via the Cache" and `onMutate` performs side effects beyond
+`setQueryData` (e.g. `setState` calls), snapshot and restore those in
+`onError` too — TanStack only manages cache rollback automatically.
+
+References:
+- [TanStack — Optimistic Updates](https://tanstack.com/query/v5/docs/framework/react/guides/optimistic-updates)
+- [TkDodo — Concurrent Optimistic Updates](https://tkdodo.eu/blog/concurrent-optimistic-updates-in-react-query)
+
+### Deriving state from mutations
+
+Prefer deriving display values from mutation state over maintaining
+parallel `useState`. If `useMutation` already tracks the value (error
+message, pending variables, success result), read it from the mutation
+instead of duplicating it in a `useState`.
+
+```ts
+// Avoid — duplicates mutation error state
+const [error, setError] = useState<string | null>(null);
+const mutation = useMutation({
+  mutationFn: doThing,
+  onError: (err) => setError(err.message),
+});
+
+// Prefer — derive from mutation
+const mutation = useMutation({ mutationFn: doThing });
+const errorMessage = mutation.error?.message ?? null;
+// Clear with mutation.reset() instead of setError(null)
+```
+
 ### Org-readiness gating for daemon queries
 
 Platform-mode daemon requests require the `Vellum-Organization-Id`

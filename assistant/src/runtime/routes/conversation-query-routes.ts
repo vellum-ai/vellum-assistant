@@ -1171,6 +1171,8 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Deep-merge a partial JSON object into the settings.json configuration.",
     tags: ["config"],
+    requestBody: z.record(z.string(), z.unknown()),
+    responseBody: z.object({ ok: z.boolean() }),
     handler: handlePatchConfig,
   },
   {

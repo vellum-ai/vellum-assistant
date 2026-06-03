@@ -503,6 +503,7 @@ export function catalogSkillToSlim(cs: CatalogSkill): SlimSkillResponse {
     id: cs.id,
     name,
     description: cs.description,
+    icon: cs.icon ?? cs.metadata?.icon,
     emoji: cs.emoji ?? cs.metadata?.emoji,
     kind: "catalog",
     origin: "vellum",

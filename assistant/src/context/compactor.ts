@@ -21,7 +21,6 @@
 import { optimizeImageForTransport } from "../agent/image-optimize.js";
 import type { CompactionConfig } from "../config/schemas/compaction.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import { stripInjectionsForCompaction } from "../daemon/conversation-runtime-assembly.js";
 import { filterMessagesForUntrustedActor } from "../daemon/message-provenance.js";
 import {
   getAttachmentContent,
@@ -42,6 +41,7 @@ import {
   type TrustClass,
 } from "../runtime/actor-trust-resolver.js";
 import { getLogger } from "../util/logger.js";
+import { stripInjectionsForCompaction } from "./strip-injections.js";
 import { estimatePromptTokens } from "./token-estimator.js";
 
 const log = getLogger("compactor");

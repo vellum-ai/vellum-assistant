@@ -186,10 +186,30 @@ pass additional indexed tags via `tags` and unindexed metadata via `extra`.
 Toast/UI display stays at the call site — `captureError` never shows
 user-facing UI.
 
+For **best-effort background fetches** (imperative daemon calls that fire
+optimistically and have natural retry surfaces like SSE reconnect or
+navigation), pass `bestEffort: true`. This additionally filters expected
+daemon transient errors (503 startup, 502 bad-gateway, 401 auth-race,
+400 org-header-not-ready) while still reporting unexpected errors (500,
+data-integrity, programming errors) to Sentry:
+
+```ts
+captureError(err, { context: "useActiveConversation.refreshRow", bestEffort: true });
+```
+
 **Do not use bare `Sentry.captureException`.** The only exceptions are
 framework-level integration points that need raw Sentry scope
 manipulation: `RouteErrorBoundary`, `RouterProvider.onError`, and
 `LazyBoundary`.
+
+**No bare `catch` blocks that discard errors.** Every `catch` must
+either report the error (toast + `captureError`) or re-throw it. A
+`catch { return; }` that silently swallows failures is a bug — the user
+gets no feedback and Sentry gets no telemetry. When a multi-step async
+function has per-step error handling, the outer catch may be silent only
+if every inner step already reports its own errors before re-throwing.
+
+Reference: [TanStack Query — Handling Mutation Errors](https://tanstack.com/query/latest/docs/framework/react/guides/mutations#mutation-side-effects)
 
 ---
 

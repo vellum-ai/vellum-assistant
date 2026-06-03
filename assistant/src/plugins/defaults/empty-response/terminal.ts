@@ -8,26 +8,26 @@
  *
  * 1. `"nudge"`  — fired in two distinct shapes:
  *                 (a) **Post-tool empty.** The turn produced no visible text,
- *                     no tool calls, follows at least one prior tool-use turn,
- *                     no earlier turn in this run() has already delivered
- *                     visible text, AND the retry counter is below
- *                     `maxEmptyResponseRetries`. Uses `NUDGE_TEXT`.
+ *                     follows at least one prior tool-use turn, no earlier turn
+ *                     in this run() has already delivered visible text, AND the
+ *                     retry counter is below `maxEmptyResponseRetries`. Uses
+ *                     `NUDGE_TEXT`.
  *                 (b) **Refusal stop.** The provider returned
- *                     `stopReason === "refusal"` with no visible text and no
- *                     tool calls (Anthropic's safety classifier). Nudges even
- *                     on turn 0 / before any tool use, because a refusal on
- *                     the first model call of the run is a hard guarantee
- *                     that no organic text exists yet — without intervening
- *                     we'd persist an empty assistant bubble to the user.
- *                     Uses the refusal-specific `REFUSAL_NUDGE_TEXT`. The
- *                     retry cap still applies; after `maxEmptyResponseRetries`
- *                     refusals in a row the terminal falls through to accept.
+ *                     `stopReason === "refusal"` with no visible text
+ *                     (Anthropic's safety classifier). Nudges even on turn 0 /
+ *                     before any tool use, because a refusal on the first model
+ *                     call of the run is a hard guarantee that no organic text
+ *                     exists yet — without intervening we'd persist an empty
+ *                     assistant bubble to the user. Uses the refusal-specific
+ *                     `REFUSAL_NUDGE_TEXT`. The retry cap still applies; after
+ *                     `maxEmptyResponseRetries` refusals in a row the terminal
+ *                     falls through to accept.
  *                 The loop appends the chosen `nudgeText` as a `user` turn
  *                 and re-queries the model.
  * 2. `"accept"` — every other case. The turn either legitimately ended
- *                 (model said its piece earlier), is still in progress
- *                 (tool calls pending), or exhausted its retry budget. The
- *                 loop pushes the assistant message and continues normally.
+ *                 (model said its piece earlier) or exhausted its retry
+ *                 budget. The loop pushes the assistant message and continues
+ *                 normally.
  *
  * The default never returns `"error"` — that action is an escape hatch for
  * downstream plugins (e.g. a circuit breaker) that want to surface an
@@ -47,7 +47,7 @@ import type { EmptyResponseArgs, EmptyResponseResult } from "../../types.js";
  * Wire-compat note: this is shown to the LLM, not the user. Edits here
  * affect model behavior but not end-user UX directly.
  */
-const NUDGE_TEXT =
+export const NUDGE_TEXT =
   "<system_notice>Your previous response was empty. You must respond to the user with a summary of what you found or did. Do not use any tools — just respond with text.</system_notice>";
 
 /**
@@ -80,14 +80,10 @@ export function defaultEmptyResponseTerminal(
   // Refusal stop with zero usable content — the provider's safety
   // classifier zeroed the response. Nudge regardless of toolUseTurns or
   // priorAssistantHadVisibleText: a `"refusal"` stop with no visible
-  // text and no tool calls IS the failure mode this branch exists to
-  // catch (otherwise we persist an empty assistant bubble to the user).
-  // Still respect the retry cap so a persistent classifier doesn't
-  // burn turns indefinitely.
-  const isRefusal =
-    args.stopReason === "refusal" &&
-    !hasVisibleText &&
-    args.toolUseBlocksLength === 0;
+  // text IS the failure mode this branch exists to catch (otherwise we
+  // persist an empty assistant bubble to the user). Still respect the
+  // retry cap so a persistent classifier doesn't burn turns indefinitely.
+  const isRefusal = args.stopReason === "refusal" && !hasVisibleText;
 
   if (isRefusal && args.emptyResponseRetries < args.maxEmptyResponseRetries) {
     return { action: "nudge", nudgeText: REFUSAL_NUDGE_TEXT };
@@ -95,7 +91,6 @@ export function defaultEmptyResponseTerminal(
 
   const isEmptyTurn =
     !hasVisibleText &&
-    args.toolUseBlocksLength === 0 &&
     args.toolUseTurns > 0 &&
     !args.priorAssistantHadVisibleText;
 

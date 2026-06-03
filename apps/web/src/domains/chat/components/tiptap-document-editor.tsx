@@ -7,7 +7,7 @@
  * - Text selection tracking with character offset conversion
  */
 
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Extension } from "@tiptap/core";
 import { BubbleMenu } from "@tiptap/react/menus";
 import { EditorContent, useEditor } from "@tiptap/react";
@@ -392,10 +392,10 @@ export function TiptapDocumentEditor({
   className,
 }: TiptapDocumentEditorProps) {
   const onContentChangeRef = useRef(onContentChange);
-  onContentChangeRef.current = onContentChange;
+  useLayoutEffect(() => { onContentChangeRef.current = onContentChange; });
 
   const onTextSelectRef = useRef(onTextSelect);
-  onTextSelectRef.current = onTextSelect;
+  useLayoutEffect(() => { onTextSelectRef.current = onTextSelect; });
 
   const editor = useEditor({
     extensions: [

@@ -9,14 +9,41 @@ describe("isTransientNetworkError", () => {
     );
   });
 
+  test("matches 'Failed to fetch' with hostname suffix (Sentry enrichment)", () => {
+    expect(
+      isTransientNetworkError(
+        new TypeError("Failed to fetch (www.vellum.ai)"),
+      ),
+    ).toBe(true);
+    expect(
+      isTransientNetworkError(
+        new TypeError("Failed to fetch (example.com)"),
+      ),
+    ).toBe(true);
+  });
+
   test("matches older Safari 'Load failed'", () => {
     expect(isTransientNetworkError(new TypeError("Load failed"))).toBe(true);
+  });
+
+  test("matches 'Load failed' with hostname suffix", () => {
+    expect(
+      isTransientNetworkError(new TypeError("Load failed (example.com)")),
+    ).toBe(true);
   });
 
   test("matches Firefox 'NetworkError when attempting to fetch resource'", () => {
     expect(
       isTransientNetworkError(
         new TypeError("NetworkError when attempting to fetch resource"),
+      ),
+    ).toBe(true);
+  });
+
+  test("matches Firefox variant with trailing dot", () => {
+    expect(
+      isTransientNetworkError(
+        new TypeError("NetworkError when attempting to fetch resource."),
       ),
     ).toBe(true);
   });
@@ -37,11 +64,24 @@ describe("isTransientNetworkError", () => {
     expect(isTransientNetworkError("Failed to fetch")).toBe(false);
   });
 
-  test("rejects substring matches (not exact)", () => {
+  test("rejects dynamic import failures (not transient network errors)", () => {
     expect(
       isTransientNetworkError(
         new TypeError("Failed to fetch dynamically imported module"),
       ),
+    ).toBe(false);
+    expect(
+      isTransientNetworkError(
+        new TypeError(
+          "Failed to fetch dynamically imported module: https://example.com/chunk.js",
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  test("rejects fetch-like messages that aren't network errors", () => {
+    expect(
+      isTransientNetworkError(new TypeError("Failed to fetch user profile")),
     ).toBe(false);
   });
 });
