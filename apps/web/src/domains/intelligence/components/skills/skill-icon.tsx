@@ -16,7 +16,7 @@ export function SkillIcon({ skill, className, fallback = "\u{1F9E9}" }: SkillIco
       <img
         src={`/assistant/skills/${skill.id}/${skill.icon}`}
         alt=""
-        className={className}
+        className={`${className} object-contain`}
         onError={() => setImgError(true)}
       />
     );
