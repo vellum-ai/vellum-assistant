@@ -1446,6 +1446,7 @@ export class AgentLoop {
           180_000;
 
         const resultBlocks: ContentBlock[] = [];
+        const additionalContextBlocks: ContentBlock[] = [];
         for (const block of rawResultBlocks) {
           if (block.type !== "tool_result") {
             resultBlocks.push(block);
@@ -1460,6 +1461,12 @@ export class AgentLoop {
           };
           const finalCtx = await runHook(HOOKS.POST_TOOL_USE, postToolUseCtx);
           resultBlocks.push(finalCtx.toolResponse);
+          if (finalCtx.additionalContext !== undefined) {
+            additionalContextBlocks.push({
+              type: "text",
+              text: finalCtx.additionalContext,
+            });
+          }
         }
 
         // Emit tool_result events AFTER truncation so downstream consumers
@@ -1512,9 +1519,15 @@ export class AgentLoop {
 
         toolUseTurns++;
 
-        // Add tool results as a user message and continue the loop. The
-        // post-tool-use hook above coaches any failed result in place, so the
-        // model sees retry guidance attached to the error it must act on.
+        // Append any guidance a post-tool-use hook surfaced via
+        // `additionalContext` (e.g. tool-error retry coaching) as separate
+        // blocks. They join the provider-bound history below but were not part
+        // of the tool_result events emitted above, so the model sees the
+        // guidance while the client-facing and persisted tool output stay the
+        // tool's actual result.
+        resultBlocks.push(...additionalContextBlocks);
+
+        // Add tool results as a user message and continue the loop.
         history.push({ role: "user", content: resultBlocks });
 
         // Invoke checkpoint callback after tool results are in history.

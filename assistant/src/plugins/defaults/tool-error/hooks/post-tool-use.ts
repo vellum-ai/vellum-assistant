@@ -1,8 +1,16 @@
 /**
- * Default `post-tool-use` hook: when a tool result carries `is_error`, append a
- * system-notice that coaches the model to either retry with corrected
- * parameters (for recoverable errors) or report the failure to the user (for
- * unrecoverable ones).
+ * Default `post-tool-use` hook: when a tool result carries `is_error`, set
+ * `additionalContext` with a system-notice that coaches the model to either
+ * retry with corrected parameters (for recoverable errors) or report the
+ * failure to the user (for unrecoverable ones).
+ *
+ * The coaching is delivered via `additionalContext`, not by mutating the tool
+ * result's `content`. The loop appends it to the provider-bound history as a
+ * separate block after the tool_result event is emitted, so the model sees the
+ * guidance while the client-facing and persisted tool output stay the tool's
+ * actual result. This mirrors how Claude Code (`additionalContext`) and Codex
+ * (`additional_contexts`) surface PostToolUse feedback as separate context
+ * rather than rewriting the tool response.
  *
  * The coaching is bounded per tool: once a single tool has failed
  * `MAX_CONSECUTIVE_ERROR_NUDGES` times in a row the notice is dropped — the
@@ -12,12 +20,6 @@
  * tool name, plus the current one) rather than a loop-held counter, so the
  * guard survives mid-run compaction rewriting the history array. A successful
  * result for the tool resets its streak.
- *
- * The notice is appended to the failing result's own `content`, so the coaching
- * travels with the error the model needs to act on. Defaults register before
- * any user plugin and this hook is registered after tool-result-truncate, so it
- * runs once the result is already size-bounded — the appended notice is never
- * truncated away.
  */
 
 import type { PluginHookFn, PostToolUseContext } from "@vellumai/plugin-api";
@@ -29,8 +31,8 @@ import type { Message } from "../../../../providers/types.js";
  * and plugins that wrap the default can match it without duplicating the
  * string.
  *
- * Wire-compat note: this is shown to the model, not the user. Edits here affect
- * retry behavior but not end-user UX directly.
+ * This is shown to the model as provider-only context, not the user. Edits
+ * here affect retry behavior but not end-user UX directly.
  */
 export const TOOL_ERROR_NUDGE_TEXT =
   "<system_notice>This tool call returned an error. If the error looks recoverable (e.g. missing or invalid parameters), fix the parameters and retry. If the error is clearly unrecoverable (e.g. a service is down, a resource does not exist, or a permission is permanently denied), report it to the user.</system_notice>";
@@ -110,7 +112,7 @@ const postToolUse: PluginHookFn<PostToolUseContext> = async (ctx) => {
     return;
   }
 
-  ctx.toolResponse.content = `${ctx.toolResponse.content}\n\n${TOOL_ERROR_NUDGE_TEXT}`;
+  ctx.additionalContext = TOOL_ERROR_NUDGE_TEXT;
 };
 
 export default postToolUse;

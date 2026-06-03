@@ -1577,10 +1577,11 @@ describe("AgentLoop", () => {
     expect(textBlock!.text).toBe("Normal response with no placeholders.");
   });
 
-  // Tool error retry nudge — when a tool returns isError: true, the coaching
-  // notice is appended into that tool result's content, nudging the LLM to
-  // retry instead of ending the turn.
-  test("appends retry nudge into the tool result when a tool returns an error", async () => {
+  // Tool error retry coaching — when a tool returns isError: true, the coaching
+  // notice is appended as a separate text block in the tool-result user message
+  // (not into the tool_result content), nudging the LLM to retry instead of
+  // ending the turn while keeping the tool's actual output clean.
+  test("appends retry coaching as a separate block when a tool returns an error", async () => {
     const { provider, calls } = createMockProvider([
       // First turn: LLM calls a tool that errors
       toolUseResponse("t1", "read_file", { path: "/missing.txt" }),
@@ -1615,31 +1616,39 @@ describe("AgentLoop", () => {
     // Provider should have been called 3 times (error -> retry -> final text)
     expect(calls).toHaveLength(3);
 
-    // The second call's messages should contain the retry nudge system_notice
+    // The second call's messages should carry the retry coaching as a separate
+    // text block, with the tool_result's own content left untouched.
     const secondCallMessages = calls[1].messages;
     const toolResultMessage = secondCallMessages[secondCallMessages.length - 1];
     expect(toolResultMessage.role).toBe("user");
 
     const retryNudge = toolResultMessage.content.find(
-      (b): b is Extract<ContentBlock, { type: "tool_result" }> =>
-        b.type === "tool_result" && b.content.includes("looks recoverable"),
+      (b): b is Extract<ContentBlock, { type: "text" }> =>
+        b.type === "text" && b.text.includes("looks recoverable"),
     );
     expect(retryNudge).toBeDefined();
 
-    // The third call should NOT have the retry nudge (successful tool result)
+    // The errored tool_result itself stays the tool's actual output.
+    const erroredToolResult = toolResultMessage.content.find(
+      (b): b is Extract<ContentBlock, { type: "tool_result" }> =>
+        b.type === "tool_result",
+    );
+    expect(erroredToolResult?.content).not.toContain("looks recoverable");
+
+    // The third call should NOT have the retry coaching (successful tool result)
     const thirdCallMessages = calls[2].messages;
     const thirdToolResultMessage =
       thirdCallMessages[thirdCallMessages.length - 1];
     const noRetryNudge = thirdToolResultMessage.content.find(
-      (b): b is Extract<ContentBlock, { type: "tool_result" }> =>
-        b.type === "tool_result" && b.content.includes("looks recoverable"),
+      (b): b is Extract<ContentBlock, { type: "text" }> =>
+        b.type === "text" && b.text.includes("looks recoverable"),
     );
     expect(noRetryNudge).toBeUndefined();
   });
 
   // Retry coaching stops after a tool fails 3 times in a row — past that the
-  // error is likely unrecoverable and further nudging only burns tokens.
-  test("stops appending retry nudge after 3 consecutive failures of a tool", async () => {
+  // error is likely unrecoverable and further coaching only burns tokens.
+  test("stops appending retry coaching after 3 consecutive failures of a tool", async () => {
     const { provider, calls } = createMockProvider([
       // 4 consecutive error turns, then final text
       toolUseResponse("t1", "read_file", { path: "/a" }),
@@ -1664,21 +1673,21 @@ describe("AgentLoop", () => {
 
     expect(calls).toHaveLength(5);
 
-    // Helper to check if a call's last user message has the retry nudge
+    // Helper to check if a call's last user message has the retry coaching
+    // (a separate text block, not part of the tool_result content).
     const hasRetryNudge = (callIndex: number): boolean => {
       const msgs = calls[callIndex].messages;
       const lastMsg = msgs[msgs.length - 1];
       return lastMsg.content.some(
-        (b) =>
-          b.type === "tool_result" && b.content.includes("looks recoverable"),
+        (b) => b.type === "text" && b.text.includes("looks recoverable"),
       );
     };
 
-    // Turns 1-3 should have the nudge
+    // Turns 1-3 should have the coaching
     expect(hasRetryNudge(1)).toBe(true);
     expect(hasRetryNudge(2)).toBe(true);
     expect(hasRetryNudge(3)).toBe(true);
-    // Turn 4 should NOT have the nudge (exceeded limit)
+    // Turn 4 should NOT have the coaching (exceeded limit)
     expect(hasRetryNudge(4)).toBe(false);
   });
 

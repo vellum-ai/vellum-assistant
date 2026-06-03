@@ -2,15 +2,16 @@
  * Tests for the default `tool-error` plugin's `post-tool-use` hook.
  *
  * Covers:
- * - The hook appends the canonical coaching notice to a tool result that
- *   carries `is_error`, and is a no-op for a successful result.
+ * - The hook surfaces the canonical coaching notice via `additionalContext`
+ *   (leaving the tool result's `content` untouched) when the result carries
+ *   `is_error`, and is a no-op for a successful result.
  * - The consecutive-failure guard is derived from the conversation history per
  *   tool name: coaching fires on the 1st through Nth back-to-back failure of a
  *   tool and is dropped once that tool exceeds the cap. A success in between
  *   resets the streak, and failures of a different tool don't count.
  * - End-to-end through `runHook` + the registry: registering the default
  *   plugin makes the hook fire, and the default runs ahead of a later
- *   user hook so the user observes the already-coached response.
+ *   user hook so the user observes the already-set `additionalContext`.
  */
 
 import { beforeEach, describe, expect, test } from "bun:test";
@@ -103,10 +104,8 @@ function historyWithConsecutiveErrors(
   return { messages, currentToolUseId };
 }
 
-const coached = (base: string): string => `${base}\n\n${TOOL_ERROR_NUDGE_TEXT}`;
-
 describe("tool-error post-tool-use hook — direct", () => {
-  test("appends the canonical coaching notice to a first error", async () => {
+  test("surfaces the canonical coaching notice via additionalContext on a first error", async () => {
     // GIVEN an error result whose tool has not failed before.
     const { messages, currentToolUseId } = historyWithConsecutiveErrors(
       "search",
@@ -117,8 +116,10 @@ describe("tool-error post-tool-use hook — direct", () => {
     // WHEN the hook runs.
     await postToolUse(ctx);
 
-    // THEN the coaching notice is appended to the failing result's content.
-    expect(ctx.toolResponse.content).toBe(coached(BASE_CONTENT));
+    // THEN the coaching notice is surfaced via additionalContext, and the tool
+    // result's own content is left untouched.
+    expect(ctx.additionalContext).toBe(TOOL_ERROR_NUDGE_TEXT);
+    expect(ctx.toolResponse.content).toBe(BASE_CONTENT);
   });
 
   test("is a no-op for a successful result", async () => {
@@ -137,7 +138,8 @@ describe("tool-error post-tool-use hook — direct", () => {
     // WHEN the hook runs.
     await postToolUse(ctx);
 
-    // THEN the content is left untouched.
+    // THEN no coaching is surfaced and the content is left untouched.
+    expect(ctx.additionalContext).toBeUndefined();
     expect(ctx.toolResponse.content).toBe(BASE_CONTENT);
   });
 
@@ -155,7 +157,7 @@ describe("tool-error post-tool-use hook — direct", () => {
       await postToolUse(ctx);
 
       // THEN it still coaches the retry.
-      expect(ctx.toolResponse.content).toBe(coached(BASE_CONTENT));
+      expect(ctx.additionalContext).toBe(TOOL_ERROR_NUDGE_TEXT);
     }
   });
 
@@ -171,7 +173,9 @@ describe("tool-error post-tool-use hook — direct", () => {
     // WHEN the hook runs.
     await postToolUse(ctx);
 
-    // THEN the result is left untouched (the error is likely unrecoverable).
+    // THEN no coaching is surfaced (the error is likely unrecoverable) and the
+    // result is left untouched.
+    expect(ctx.additionalContext).toBeUndefined();
     expect(ctx.toolResponse.content).toBe(BASE_CONTENT);
   });
 
@@ -195,7 +199,7 @@ describe("tool-error post-tool-use hook — direct", () => {
     await postToolUse(ctx);
 
     // THEN coaching still fires — the success reset the streak below the cap.
-    expect(ctx.toolResponse.content).toBe(coached(BASE_CONTENT));
+    expect(ctx.additionalContext).toBe(TOOL_ERROR_NUDGE_TEXT);
   });
 
   test("counts failures per tool name, not globally", async () => {
@@ -217,7 +221,7 @@ describe("tool-error post-tool-use hook — direct", () => {
     await postToolUse(ctx);
 
     // THEN "search" is coached on its first failure.
-    expect(ctx.toolResponse.content).toBe(coached(BASE_CONTENT));
+    expect(ctx.additionalContext).toBe(TOOL_ERROR_NUDGE_TEXT);
   });
 });
 
@@ -240,20 +244,20 @@ describe("tool-error post-tool-use hook — via runHook", () => {
       makeCtx(errorResponse(currentToolUseId), messages),
     );
 
-    // THEN the tool response carries the coaching notice.
-    expect(result.toolResponse.content).toBe(coached(BASE_CONTENT));
+    // THEN the coaching notice is surfaced via additionalContext.
+    expect(result.additionalContext).toBe(TOOL_ERROR_NUDGE_TEXT);
   });
 
   test("default hook runs before a later-registered user hook", async () => {
     // GIVEN the default plugin is registered first, then a user plugin whose
-    // hook records the content it observes.
-    let observed: string | null = null;
+    // hook records the additionalContext it observes.
+    let observed: string | undefined;
     registerPlugin(defaultToolErrorPlugin);
     registerPlugin({
       manifest: { name: "observer-plugin", version: "0.0.1" },
       hooks: {
         "post-tool-use": async (ctx: PostToolUseContext) => {
-          observed = ctx.toolResponse.content;
+          observed = ctx.additionalContext;
         },
       },
     });
@@ -268,7 +272,7 @@ describe("tool-error post-tool-use hook — via runHook", () => {
       makeCtx(errorResponse(currentToolUseId), messages),
     );
 
-    // THEN the user hook saw the already-coached content.
-    expect(observed as string | null).toBe(coached(BASE_CONTENT));
+    // THEN the user hook saw the already-set additionalContext.
+    expect(observed).toBe(TOOL_ERROR_NUDGE_TEXT);
   });
 });

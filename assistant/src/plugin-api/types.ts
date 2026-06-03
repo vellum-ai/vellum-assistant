@@ -162,9 +162,10 @@ export interface UserPromptSubmitContext {
  * Multiple plugins' hooks chain in registration order — each plugin's hook
  * sees the previous plugin's mutations. The default tool-result-truncate
  * plugin contributes a hook here that tail-drops oversized output to fit the
- * model's context window; the default tool-error plugin appends retry coaching
- * to failed results. User hooks can swap in a smarter strategy (e.g. a
- * summarizer) or observe results for side effects.
+ * model's context window; the default tool-error plugin sets
+ * {@link additionalContext} with retry coaching for failed results. User hooks
+ * can swap in a smarter strategy (e.g. a summarizer) or observe results for
+ * side effects.
  */
 export interface PostToolUseContext {
   /** Conversation ID the tool ran on. */
@@ -184,6 +185,16 @@ export interface PostToolUseContext {
    * {@link toolResponse}, not by mutating history.
    */
   readonly messages: ReadonlyArray<Message>;
+  /**
+   * Extra guidance for the model that is not part of the tool's output. A hook
+   * sets this to surface provider-only context — e.g. retry coaching for a
+   * failed result — and the daemon appends it to the provider-bound history as
+   * a separate block *after* emitting the tool_result, so it reaches the model
+   * without polluting the client-facing or persisted tool output. Mirrors
+   * Claude Code's PostToolUse `hookSpecificOutput.additionalContext` and the
+   * singular of Codex's `additional_contexts`. Unset means no extra context.
+   */
+  additionalContext?: string;
   /**
    * The model's context-window size in tokens. Plugins derive their own
    * character budget from this (e.g. a share of the window) rather than
