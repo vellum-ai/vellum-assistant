@@ -7,10 +7,7 @@ import {
   estimateToolsTokens,
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
-import type {
-  ContextWindowCompactOptions,
-  ContextWindowResult,
-} from "../context/window-manager.js";
+import type { ContextWindowResult } from "../context/window-manager.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type { PostToolUseContext, StopContext } from "../plugin-api/types.js";
@@ -464,27 +461,17 @@ export interface ResolvedSystemPrompt {
 }
 
 /**
- * Orchestrator-supplied hooks the loop invokes when the mid-loop budget gate
+ * Orchestrator-supplied hook the loop invokes when the mid-loop budget gate
  * trips and inline compaction runs. The loop owns the trigger, the
  * `compaction` pipeline call, the result interpretation (circuit-breaker
- * bookkeeping + the exhaustion decision), and the inline continue; these hooks
- * bridge the injection state the loop is intentionally blind to. Durable
+ * bookkeeping + the exhaustion decision), and the inline continue; this hook
+ * bridges the injection state the loop is intentionally blind to. Durable
  * persistence is signalled out-of-band via the `history_stripped` (marker)
  * and `compaction_completed` (basis commit + successful summary) {@link
  * AgentEvent}s; re-injection ({@link reinject}) remains orchestrator-supplied
  * for now and is expected to move into the loop in a future change.
  */
 export interface MidLoopCompaction {
-  /**
-   * Resolve the orchestrator-owned options for the compaction pipeline run.
-   * The loop-stripped history is committed to durable state separately via
-   * the `compaction_completed` event, and the loop merges its own
-   * loop-native options (e.g. `force`) on top of these before invoking the
-   * pipeline.
-   */
-  prepare: () => {
-    options: ContextWindowCompactOptions | undefined;
-  };
   /** Re-apply runtime injections and return the history to continue from. */
   reinject: () => Promise<Message[]>;
 }
@@ -748,6 +735,7 @@ export class AgentLoop {
     compaction: MidLoopCompaction,
     signal: AbortSignal | undefined,
     onEvent: (event: AgentEvent) => void | Promise<void>,
+    overrideProfile: string | null,
   ): Promise<Message[] | null> {
     await onEvent({ type: "context_compacting" });
     // Strip runtime injections so the compactor summarizes the raw persistent
@@ -756,7 +744,6 @@ export class AgentLoop {
     // Record the history-stripped marker right after stripping, before the
     // pipeline runs.
     await onEvent({ type: "history_stripped" });
-    const { options } = compaction.prepare();
     let result: CompactionResult;
     try {
       result = await runPipeline<CompactionArgs, CompactionResult>(
@@ -764,19 +751,18 @@ export class AgentLoop {
         getMiddlewaresFor("compaction"),
         (args) => defaultCompactionTerminal(args, turnContext),
         // The mid-loop budget gate is reached only when this turn decides to
-        // compact in place, so force the pipeline past its auto-threshold
-        // check. `force` is the loop's own decision; `actorTrustClass` comes
-        // from the turn context (the actor whose turn triggered compaction) so
-        // the compactor's image manifest excludes guardian-only attachments
-        // for untrusted actors. Both layer on top of the orchestrator-resolved
-        // options.
+        // compact in place, so `force` the pipeline past its auto-threshold
+        // check. `actorTrustClass` comes from the turn context (the actor whose
+        // turn triggered compaction) so the compactor's image manifest excludes
+        // guardian-only attachments for untrusted actors. `overrideProfile` is
+        // the turn's resolved inference-profile override for the summary call.
         {
           messages: rawHistory,
           signal,
           options: {
             force: true,
             actorTrustClass: turnContext.trust.trustClass,
-            ...options,
+            overrideProfile,
           },
         },
         turnContext,
@@ -844,6 +830,12 @@ export class AgentLoop {
     let lastLlmCallTime = 0;
     let exitReason: ExitReason | null = null;
     const rlog = requestId ? log.child({ requestId }) : log;
+
+    // Resolve the inference-profile override that applies right now. The
+    // optional resolver lets a turn observe a confirmed mid-turn profile switch
+    // before the next model call; absent a resolver the turn-start value holds.
+    const resolveEffectiveOverrideProfile = (): string | undefined =>
+      resolveOverrideProfile ? resolveOverrideProfile() : overrideProfile;
 
     // Per-run substitution map for sensitive output placeholders.
     // Bindings are accumulated from tool results; placeholders are
@@ -976,12 +968,8 @@ export class AgentLoop {
         // `activeProfile` and any call-site named profile. Threading it on
         // every send (rather than once at construction) keeps subagents that
         // share an `AgentLoop` instance but ought to inherit a different
-        // profile correct — and matches how `callSite` is plumbed. The
-        // optional resolver lets a turn observe an explicitly confirmed
-        // profile-session switch before the next model call.
-        const effectiveOverrideProfile = resolveOverrideProfile
-          ? resolveOverrideProfile()
-          : overrideProfile;
+        // profile correct — and matches how `callSite` is plumbed.
+        const effectiveOverrideProfile = resolveEffectiveOverrideProfile();
         if (effectiveOverrideProfile) {
           providerConfig.overrideProfile = effectiveOverrideProfile;
         }
@@ -1603,6 +1591,7 @@ export class AgentLoop {
                 compaction,
                 signal,
                 onEvent,
+                resolveEffectiveOverrideProfile() ?? null,
               );
               if (compacted) {
                 history = compacted;
