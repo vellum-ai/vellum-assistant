@@ -77,8 +77,15 @@ export async function writeHomeFeedItemForSignal(
   // against `summary` in the row. Leave undefined when absent; renderers
   // fall back to `summary`.
   const resolvedTitle = payloadTitle?.trim() || undefined;
+  // Prefer conversationSeedMessage over body for the home feed: the seed
+  // message is richer and may contain structured markdown (lists, headers,
+  // bold) that the detail panel renders. The popup-oriented `body` is
+  // intentionally short (≤ 2 sentences) and loses formatting.
   const resolvedSummary =
-    renderedCopy?.body?.trim() || payloadBody?.trim() || "";
+    renderedCopy?.conversationSeedMessage?.trim() ||
+    renderedCopy?.body?.trim() ||
+    payloadBody?.trim() ||
+    "";
   if (!resolvedSummary) {
     log.warn(
       { signalId: signal.signalId, sourceEventName: signal.sourceEventName },
