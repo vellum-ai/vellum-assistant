@@ -39,7 +39,7 @@ export function CreditsCard({
               aria-hidden
             />
             <span
-              className="text-title-medium"
+              className="text-body-large-default max-md:text-title-medium"
               style={{ color: "var(--content-default)" }}
             >
               {balance} credits
