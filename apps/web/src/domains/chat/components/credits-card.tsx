@@ -45,7 +45,18 @@ export function CreditsCard({
               {balance} credits
             </span>
           </div>
-          <Button variant="primary" size="regular" onClick={onAddCredits}>
+          {/*
+           * Compact on desktop (size="compact"); the mobile mock keeps the
+           * larger regular button, so override the compact dimensions back to
+           * regular at max-md. (Button `size` is a prop, not a responsive
+           * class, so the breakpoint swap lives in className.)
+           */}
+          <Button
+            variant="primary"
+            size="compact"
+            onClick={onAddCredits}
+            className="max-md:h-8 max-md:rounded-md max-md:px-2.5 max-md:text-body-medium-default"
+          >
             <Plus className="h-3 w-3" aria-hidden />
             Add
           </Button>
