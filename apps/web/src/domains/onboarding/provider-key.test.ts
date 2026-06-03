@@ -12,6 +12,8 @@ type QueuedResponse = {
   status: number;
   /** Daemon error envelope surfaced by the generated client on `result.error`. */
   error?: unknown;
+  /** Parsed JSON body surfaced by the generated client on `result.data`. */
+  data?: unknown;
 };
 
 const calls: ClientCall[] = [];
@@ -55,8 +57,8 @@ const postMock = mock(
       path: args.path,
       body: args.body,
     });
-    const { ok, status, error } = nextResponse(args.url);
-    return { response: { ok, status }, error };
+    const { ok, status, error, data } = nextResponse(args.url);
+    return { response: { ok, status }, error, data };
   },
 );
 
@@ -75,6 +77,9 @@ const CONNECTIONS_URL =
   "/v1/assistants/{assistant_id}/inference/provider-connections";
 const FLAG_URL =
   "/v1/assistants/asst-1/feature-flags/openai-compatible-endpoints";
+// Probe route: connection name === provider id (openai-compatible).
+const TEST_URL =
+  "/v1/assistants/asst-1/inference/provider-connections/openai-compatible/test";
 
 beforeEach(() => {
   sessionStorage.clear();
@@ -143,6 +148,8 @@ describe("pending provider key", () => {
 
 describe("applyPendingProviderKey", () => {
   test("openai-compatible enables the flag before creating the connection", async () => {
+    responseQueues[TEST_URL] = [{ ok: true, status: 200, data: { ok: true } }];
+
     setPendingProviderKey({
       provider: "openai-compatible",
       key: "",
@@ -150,7 +157,7 @@ describe("applyPendingProviderKey", () => {
       models: ["model-a"],
     });
 
-    await applyPendingProviderKey("asst-1");
+    const result = await applyPendingProviderKey("asst-1");
 
     // Flag PATCH must precede the connection POST.
     const flagIdx = calls.findIndex(
@@ -169,12 +176,36 @@ describe("applyPendingProviderKey", () => {
     expect(connectionBody.provider).toBe("openai-compatible");
     expect(connectionBody.base_url).toBe("http://localhost:1234/v1");
     expect(connectionBody.models).toEqual([{ id: "model-a" }]);
+
+    // The probe runs after the connection POST and its result is surfaced.
+    const testIdx = calls.findIndex(
+      (c) => c.method === "post" && c.url === TEST_URL,
+    );
+    expect(testIdx).toBeGreaterThan(connectionIdx);
+    expect(result.validation).toEqual({ ok: true, reason: undefined });
   });
 
-  test("non-openai-compatible provider issues no flag PATCH and a single POST", async () => {
+  test("openai-compatible surfaces a failing probe as validation", async () => {
+    responseQueues[TEST_URL] = [
+      { ok: true, status: 200, data: { ok: false, reason: "bad endpoint" } },
+    ];
+
+    setPendingProviderKey({
+      provider: "openai-compatible",
+      key: "",
+      baseUrl: "http://localhost:1234/v1",
+      models: ["model-a"],
+    });
+
+    const result = await applyPendingProviderKey("asst-1");
+
+    expect(result.validation).toEqual({ ok: false, reason: "bad endpoint" });
+  });
+
+  test("non-openai-compatible provider issues no flag PATCH, a single POST, no probe, and no validation", async () => {
     setPendingProviderKey({ provider: "anthropic", key: "sk-ant-test" });
 
-    await applyPendingProviderKey("asst-1");
+    const result = await applyPendingProviderKey("asst-1");
 
     expect(patchMock).not.toHaveBeenCalled();
 
@@ -186,6 +217,10 @@ describe("applyPendingProviderKey", () => {
     expect(body.provider).toBe("anthropic");
     expect(body.base_url).toBeUndefined();
     expect(body.models).toBeUndefined();
+
+    // No probe for keyed non-openai-compatible providers.
+    expect(calls.some((c) => c.url === TEST_URL)).toBe(false);
+    expect(result.validation).toBeUndefined();
   });
 
   test("openai-compatible retries the connection POST on the flag-disabled 400 then succeeds", async () => {

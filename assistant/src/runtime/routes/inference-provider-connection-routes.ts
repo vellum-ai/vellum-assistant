@@ -31,6 +31,8 @@ import {
   PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
   updateConnection,
 } from "../../providers/inference/connections.js";
+import { resolveAuth } from "../../providers/inference/resolve-auth.js";
+import { probeOpenAICompatibleEndpoint } from "../../providers/openai/client.js";
 import {
   isCloudMetadataOrLinkLocalHost,
   isPrivateOrLocalHost,
@@ -226,6 +228,56 @@ function handleGetConnection({ pathParams = {} }: RouteHandlerArgs) {
   }
 
   return conn;
+}
+
+/**
+ * Probe a connection's endpoint to verify it is reachable and the credential
+ * works. Currently only openai-compatible connections are probed (via
+ * `models.list`); for every other provider we return `{ ok: true, skipped: true }`
+ * so callers can invoke this uniformly without special-casing — there is
+ * nothing to probe for managed/keyed first-party providers here.
+ */
+async function handleTestConnection({ pathParams = {} }: RouteHandlerArgs) {
+  const { name } = pathParams;
+  if (!name) throw new BadRequestError("name is required");
+
+  const conn = getConnection(getDb(), name);
+  if (!conn) throw new NotFoundError(`Connection "${name}" not found.`);
+  if (
+    conn.provider === "openai-compatible" &&
+    !openAICompatibleEndpointsEnabled()
+  ) {
+    throw new NotFoundError(`Connection "${name}" not found.`);
+  }
+
+  if (conn.provider !== "openai-compatible") {
+    return { ok: true as const, skipped: true as const };
+  }
+
+  const baseURL = conn.baseUrl ?? undefined;
+  if (!baseURL) {
+    return { ok: false as const, reason: "No base URL configured." };
+  }
+
+  const resolvedResult = await resolveAuth(conn.auth, conn.provider, {
+    baseUrl: conn.baseUrl,
+  });
+  if (!resolvedResult.ok) {
+    if (resolvedResult.error.code === "credential_not_found") {
+      return { ok: false as const, reason: "Stored credential not found." };
+    }
+    return { ok: false as const, reason: "Could not resolve credentials." };
+  }
+
+  // Derive the apiKey exactly as the adapter does: bearer from the resolved
+  // Authorization header, or empty for keyless connections.
+  const resolved = resolvedResult.resolved;
+  const apiKey =
+    resolved.kind === "header"
+      ? (resolved.headers.Authorization ?? "").replace(/^Bearer /, "")
+      : "";
+
+  return probeOpenAICompatibleEndpoint({ baseURL, apiKey });
 }
 
 async function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
@@ -488,6 +540,27 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: providerConnectionResponseSchema,
     additionalResponses: { "404": { description: "Connection not found" } },
     handler: handleGetConnection,
+  },
+  {
+    operationId: "inference_provider_connections_test",
+    endpoint: "inference/provider-connections/:name/test",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Test a provider connection",
+    description:
+      "Probe a connection's endpoint to verify it is reachable and the credential works. Only openai-compatible connections are probed (via models.list); other providers return { ok: true, skipped: true }.",
+    tags: ["inference"],
+    pathParams: [{ name: "name", description: "Connection name" }],
+    responseBody: z.object({
+      ok: z.boolean(),
+      reason: z.string().optional(),
+      skipped: z.boolean().optional(),
+    }),
+    additionalResponses: { "404": { description: "Connection not found" } },
+    handler: handleTestConnection,
   },
   {
     operationId: "inference_provider_connections_create",
