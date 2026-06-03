@@ -66,12 +66,24 @@ export function WebSearchCard() {
   const [webSearchApiKey, setWebSearchApiKey] = useState("");
 
   // --- Saved state derived from daemon config ---
+  // Optimistic override bridges the gap between a successful save and the
+  // async daemon config refetch. Without it, savedWebSearch* would reflect
+  // stale config during the refetch window, making configChanged=true and
+  // briefly re-enabling the save button.
+  const [savedOverride, setSavedOverride] = useState<{
+    mode: ServiceMode;
+    provider: string;
+  } | null>(null);
   const reconciled = useMemo(
     () => (daemonConfig ? reconcileFromDaemonConfig(daemonConfig) : null),
     [daemonConfig],
   );
-  const savedWebSearchMode = reconciled?.webSearchMode ?? webSearchMode;
-  const savedWebSearchProvider = reconciled?.webSearchProvider ?? webSearchProvider;
+  // Clear override once daemon config catches up.
+  useEffect(() => {
+    if (reconciled) setSavedOverride(null);
+  }, [reconciled]);
+  const savedWebSearchMode = savedOverride?.mode ?? reconciled?.webSearchMode ?? webSearchMode;
+  const savedWebSearchProvider = savedOverride?.provider ?? reconciled?.webSearchProvider ?? webSearchProvider;
 
   // Seed form state from daemon config on first load. Subsequent config
   // refetches (after save) do not overwrite in-progress edits.
@@ -165,6 +177,9 @@ export function WebSearchCard() {
       });
       remoteSaved = true;
       invalidateConfig();
+      // Optimistically mark these values as "saved" so configChanged stays
+      // false while the async config refetch is in flight.
+      setSavedOverride({ mode: webSearchMode, provider: providerToSave });
     } catch {
       // Errors already surfaced via toast + captureError inside the callees.
     }
