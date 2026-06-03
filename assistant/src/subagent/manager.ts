@@ -697,7 +697,7 @@ export class SubagentManager {
   async sendMessage(
     subagentId: string,
     content: string,
-  ): Promise<"sent" | "empty" | "not_found" | "terminal"> {
+  ): Promise<"sent" | "empty" | "not_found" | "terminal" | "queued"> {
     const trimmed = content?.trim();
     if (!trimmed) return "empty";
 
@@ -705,6 +705,13 @@ export class SubagentManager {
     if (!managed) return "not_found";
     if (TERMINAL_STATUSES.has(managed.state.status) || !managed.conversation)
       return "terminal";
+    // A `pending` subagent has been spawned but is still queued behind the
+    // concurrency cap — its agent loop has NOT been started. The scheduler's
+    // startRun() owns the `pending` → `running` transition. Processing a
+    // message here would call runAgentLoop directly, bypassing the cap (and
+    // could run a follow-up before the original objective). Reject until the
+    // scheduler starts it.
+    if (managed.state.status === "pending") return "queued";
 
     // If the conversation is busy, queue the message; otherwise process immediately.
     const result = managed.conversation.enqueueMessage({ content: trimmed });

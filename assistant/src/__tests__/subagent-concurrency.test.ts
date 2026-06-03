@@ -23,6 +23,7 @@ interface FakeManaged {
     dispose: () => void;
     persistUserMessage: () => { id: string; deduplicated: boolean };
     runAgentLoop: () => Promise<void>;
+    enqueueMessage: () => { queued: boolean; rejected: boolean };
     usageStats: {
       inputTokens: number;
       outputTokens: number;
@@ -42,6 +43,12 @@ interface ManagerInternals {
   runningCount: number;
   startRun: (subagentId: string, objective: string) => void;
   stopSweep: () => void;
+}
+
+interface RunTracking {
+  release: () => void;
+  /** Number of times runAgentLoop was invoked on this subagent's conversation. */
+  runCount: () => number;
 }
 
 function asInternals(manager: SubagentManager): ManagerInternals {
@@ -70,22 +77,24 @@ function makeState(id: string): SubagentState {
  * promise, letting the test control exactly when each "running" subagent
  * completes. Returns a `release` fn that resolves the loop.
  */
-function injectControllable(
-  manager: SubagentManager,
-  id: string,
-): { release: () => void } {
+function injectControllable(manager: SubagentManager, id: string): RunTracking {
   const internals = asInternals(manager);
   let resolveLoop!: () => void;
   const loopGate = new Promise<void>((r) => {
     resolveLoop = r;
   });
+  let runCount = 0;
 
   const managed: FakeManaged = {
     conversation: {
       abort: () => {},
       dispose: () => {},
       persistUserMessage: () => ({ id: "msg", deduplicated: false }),
-      runAgentLoop: () => loopGate,
+      runAgentLoop: () => {
+        runCount++;
+        return loopGate;
+      },
+      enqueueMessage: () => ({ queued: false, rejected: false }),
       usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     },
     state: makeState(id),
@@ -98,7 +107,7 @@ function injectControllable(
   }
   internals.parentToChildren.get("parent-1")!.add(id);
 
-  return { release: resolveLoop };
+  return { release: resolveLoop, runCount: () => runCount };
 }
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -179,6 +188,47 @@ describe("SubagentManager concurrency cap", () => {
       expect(manager.getState(id)!.status).toBe("running");
     }
 
+    internals.stopSweep();
+  });
+
+  test("messaging a pending/queued subagent does not start its run or bypass the cap", async () => {
+    const manager = new SubagentManager();
+    const internals = asInternals(manager);
+    const cap = SUBAGENT_LIMITS.maxConcurrentRunning;
+
+    // Fill the cap with running subagents, then queue one more.
+    const runningIds = Array.from({ length: cap }, (_, i) => `run-${i}`);
+    for (const id of runningIds) injectControllable(manager, id);
+    const queuedTracking = injectControllable(manager, "queued-1");
+
+    for (const id of runningIds) {
+      internals.startRun(
+        id,
+        internals.subagents.get(id)!.state.config.objective,
+      );
+    }
+    internals.runQueue.push("queued-1");
+    await flush();
+
+    // Precondition: queued-1 is pending and the cap is full.
+    expect(manager.getState("queued-1")!.status).toBe("pending");
+    expect(internals.runningCount).toBe(cap);
+    expect(queuedTracking.runCount()).toBe(0);
+
+    // Message the pending subagent — must be rejected as "queued" and must NOT
+    // kick off its agent loop out-of-band.
+    const result = await manager.sendMessage("queued-1", "hurry up");
+    expect(result).toBe("queued");
+    await flush();
+
+    // The cap held: still exactly `cap` running, queued-1 still pending, and
+    // its run loop never fired.
+    expect(internals.runningCount).toBe(cap);
+    expect(manager.getState("queued-1")!.status).toBe("pending");
+    expect(queuedTracking.runCount()).toBe(0);
+    expect(internals.runQueue).toContain("queued-1");
+
+    // Once a running slot frees, the scheduler (not the message) starts it.
     internals.stopSweep();
   });
 });

@@ -42,6 +42,13 @@ export async function executeSubagentMessage(
     };
   }
 
+  if (result === "queued") {
+    return {
+      content: `Subagent "${subagentId}" is queued behind the concurrency cap and not yet running. Try again once it starts.`,
+      isError: true,
+    };
+  }
+
   if (result !== "sent") {
     return {
       content: `Could not send message to subagent "${subagentId}". It may not exist or be in a terminal state.`,
