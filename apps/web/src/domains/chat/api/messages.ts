@@ -18,11 +18,15 @@ import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { client } from "@/generated/api/client.gen";
 import {
+  messagesGet,
   messagesPost,
   messagesQueuedByIdSteerPost,
   messagesQueuedByIdDelete,
 } from "@/generated/daemon/sdk.gen";
-import type { MessagesPostData } from "@/generated/daemon/types.gen";
+import type {
+  MessagesGetResponse,
+  MessagesPostData,
+} from "@/generated/daemon/types.gen";
 import { assertHasResponse, extractErrorMessage } from "@/utils/api-errors";
 import {
   normalizePreChatOnboardingContext,
@@ -69,8 +73,23 @@ export interface RuntimeSubagentNotification
  */
 export type RuntimeMessage = ConversationMessage;
 
-interface ListMessagesResponse {
-  messages: RuntimeMessage[];
+/**
+ * Coerce the daemon messages endpoint's `Array<unknown>` rows into the
+ * canonical `RuntimeMessage` shape. The route declares message items as
+ * `unknown` on the wire, so consumers narrow defensively here rather than
+ * trusting the element type.
+ */
+function extractRuntimeMessages(
+  data: MessagesGetResponse | undefined,
+): RuntimeMessage[] {
+  const raw = Array.isArray(data?.messages) ? data.messages : [];
+  return raw.filter(
+    (m): m is RuntimeMessage =>
+      !!m &&
+      typeof m === "object" &&
+      typeof (m as RuntimeMessage).id === "string" &&
+      typeof (m as RuntimeMessage).role === "string",
+  );
 }
 
 export async function pollForResponse(
@@ -81,11 +100,7 @@ export async function pollForResponse(
   const deadline = Date.now() + POLL_TIMEOUT_MS;
 
   while (Date.now() < deadline) {
-    const { data, error, response } = await client.get<
-      ListMessagesResponse,
-      unknown
-    >({
-      url: "/v1/assistants/{assistant_id}/messages/",
+    const { data, error, response } = await messagesGet({
       path: { assistant_id: assistantId },
       query: { conversationId },
       throwOnError: false,
@@ -101,7 +116,7 @@ export async function pollForResponse(
       throw new Error(msg);
     }
 
-    const messages = Array.isArray(data?.messages) ? data.messages : [];
+    const messages = extractRuntimeMessages(data);
 
     // Only consider assistant messages that appear after our sent user
     // message in the list, establishing a causal boundary so delayed
@@ -249,11 +264,7 @@ export async function getChatHistory(
   conversationId: string,
 ): Promise<ChatHistoryResult> {
   try {
-    const { data, error, response } = await client.get<
-      ListMessagesResponse,
-      unknown
-    >({
-      url: "/v1/assistants/{assistant_id}/messages/",
+    const { data, error, response } = await messagesGet({
       path: { assistant_id: assistantId },
       query: { conversationId },
       throwOnError: false,
@@ -273,7 +284,7 @@ export async function getChatHistory(
       };
     }
 
-    const messages = (Array.isArray(data?.messages) ? data.messages : [])
+    const messages = extractRuntimeMessages(data)
       .filter((m) => m.role === "user" || m.role === "assistant")
       .map(mapRuntimeToDisplayMessage);
 
@@ -296,11 +307,7 @@ export async function fetchConversationMessages(
   assistantId: string,
   conversationId: string,
 ): Promise<RuntimeMessage[]> {
-  const { data, error, response } = await client.get<
-    ListMessagesResponse,
-    unknown
-  >({
-    url: "/v1/assistants/{assistant_id}/messages/",
+  const { data, error, response } = await messagesGet({
     path: { assistant_id: assistantId },
     query: { conversationId },
     throwOnError: false,
@@ -311,7 +318,7 @@ export async function fetchConversationMessages(
       `Failed to fetch conversation messages (HTTP ${response.status})`,
     );
   }
-  return Array.isArray(data?.messages) ? data.messages : [];
+  return extractRuntimeMessages(data);
 }
 
 export type PostMessageResult =
