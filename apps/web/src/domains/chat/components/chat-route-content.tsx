@@ -1267,6 +1267,7 @@ export function ChatRouteContent({
     onVoiceError: setVoiceError,
     onVoiceBeforeStart: handleVoiceBeforeStart,
     onStopGenerating: handleStopGenerating,
+    canStopGenerating,
     assistantId,
     conversationId: activeConversation?.conversationId,
     modelSupportsVision: activeModelSupportsVision,
