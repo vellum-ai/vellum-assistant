@@ -25,9 +25,11 @@ import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 import {
-  getSlackLinkUrl,
-  type Surface,
-} from "@/domains/chat/types/types";
+  groupContentBlocks,
+  resolveContentBlocks,
+  type DisplayContentGroup,
+} from "@/domains/chat/utils/display-content-blocks";
+import { getSlackLinkUrl } from "@/domains/chat/types/types";
 import { isPointerCoarse } from "@/utils/pointer";
 import {
   EMPTY_SUBAGENT_ENTRIES,
@@ -347,28 +349,20 @@ export function TranscriptMessageBody({
   onStopSubagent,
   isStreaming = false,
 }: TranscriptMessageBodyProps) {
-  const hasInterleavedToolCalls = message.contentOrder?.some(
-    (e) => e.type === "toolCall" || e.type === "tool",
-  );
   const isSlackMessage = Boolean(message.slackMessage);
   const isUser = message.role === "user";
   const hasAttachments = Boolean(message.attachments?.length);
   // Flat plain-text body derived from the ordered text segments. Used for the
-  // copy action and as the render fallback when `contentOrder` carries no text
+  // copy action and as the render fallback when the body carries no text
   // groups (e.g. a tool_use lands before the first assistant_text_delta).
   const messageText = segmentsToPlainText(message.textSegments);
 
-  // Join the reasoning segments referenced by a run of `thinking`
-  // content-order ids into a single markdown string (mirrors macOS, which
-  // joins adjacent reasoning indices with newlines).
-  const resolveThinkingContent = (ids: string[]): string =>
-    ids
-      .map((id) => {
-        const idx = parseInt(id, 10);
-        return !isNaN(idx) ? message.thinkingSegments?.[idx] : undefined;
-      })
-      .filter((s): s is string => Boolean(s))
-      .join("\n");
+  // Single ordered body source: the wire `contentBlocks` projection on history
+  // rows, or blocks derived from the positional arrays on live SSE rows.
+  // Collapsed into render groups (adjacent tool calls / reasoning merged) that
+  // both render branches walk.
+  const groups = groupContentBlocks(resolveContentBlocks(message));
+  const hasInterleavedToolCalls = groups.some((g) => g.type === "toolCalls");
 
   // `textBubbleClass` applies only to the assistant text path: it carries the
   // text bubble per segment inside `segmentClass`'s assistant branch. User
@@ -442,22 +436,6 @@ export function TranscriptMessageBody({
     if (!isPointerCoarse()) return;
     setRevealed((v) => !v);
   }, [slackMessageUrl]);
-
-  // Resolve a surface from a contentOrder id. Surfaces are stored directly
-  // on the message's surfaces[] array. The streaming path uses the UUID
-  // directly; the server contentOrder uses index-based IDs ("0", "1").
-  const resolveSurface = (id: string): Surface | undefined => {
-    if (!message.surfaces) return undefined;
-    // Direct surfaceId match
-    const direct = message.surfaces.find((s) => s.surfaceId === id);
-    if (direct) return direct;
-    // Index-based fallback (server contentOrder uses "0", "1", etc.)
-    const idx = parseInt(id, 10);
-    if (!isNaN(idx) && idx < message.surfaces.length) {
-      return message.surfaces[idx];
-    }
-    return undefined;
-  };
 
   // UI surface tools are rendered by the inline surface widget, not as
   // tool call chips — unless they have a pending confirmation attached,
@@ -634,152 +612,98 @@ export function TranscriptMessageBody({
     );
   };
 
-  if (hasInterleavedToolCalls && message.contentOrder) {
-    // Group consecutive entries: merge adjacent toolCall/tool entries into a
-    // single group (mirrors macOS `groupContentBlocks`).
-    type ContentGroup =
-      | { type: "text"; id: string }
-      | { type: "toolCalls"; ids: string[] }
-      | { type: "thinking"; ids: string[] }
-      | { type: "surface"; id: string };
-
-    const groups: ContentGroup[] = [];
-    for (const entry of message.contentOrder) {
-      if (entry.type === "toolCall" || entry.type === "tool") {
-        const lastGroup = groups[groups.length - 1];
-        if (lastGroup?.type === "toolCalls") {
-          lastGroup.ids.push(entry.id);
-        } else {
-          groups.push({ type: "toolCalls", ids: [entry.id] });
-        }
-      } else if (entry.type === "thinking") {
-        // Merge consecutive thinking entries into one block (mirrors macOS
-        // `groupContentBlocks`, which joins adjacent reasoning indices).
-        const lastGroup = groups[groups.length - 1];
-        if (lastGroup?.type === "thinking") {
-          lastGroup.ids.push(entry.id);
-        } else {
-          groups.push({ type: "thinking", ids: [entry.id] });
-        }
-      } else if (entry.type === "text") {
-        groups.push({ type: "text", id: entry.id });
-      } else if (entry.type === "surface") {
-        groups.push({ type: "surface", id: entry.id });
+  // Render a single content group to a node. Shared by both render branches:
+  // the interleaved branch renders the groups in order (tool cards inline);
+  // the legacy branch renders only the text/reasoning/surface groups here and
+  // hoists every tool call into one card at the top.
+  const renderGroupNode = (
+    group: DisplayContentGroup,
+    gi: number,
+  ): ReactNode => {
+    if (group.type === "toolCalls") {
+      const toolCalls = group.toolCalls.filter((tc) => !isSuppressedUiTool(tc));
+      if (toolCalls.length === 0) {
+        return null;
       }
+      // A group whose only tool calls are subagent spawns renders exclusively
+      // through the inline subagent cards below. The unified progress card
+      // would have no renderable steps (spawns are filtered out of its body)
+      // and would surface just the leading-thinking preamble — redundant noise,
+      // since that text already renders as its own message text group.
+      const hasRenderableToolCall = toolCalls.some(
+        (tc) => !isSubagentSpawnCall(tc),
+      );
+      return (
+        <Fragment key={`tc-${gi}`}>
+          {hasRenderableToolCall && (
+            <ToolCallProgressCard
+              toolCalls={toolCalls}
+              expandedToolCallIds={expandedToolCallIds}
+              onExpandChange={handleExpandChange}
+              expandedCardIds={expandedCardIds}
+              autoExpand={shouldAutoExpandToolCallGroup({
+                isCurrentGroup: gi === groups.length - 1,
+                isStreaming,
+                toolCalls,
+              })}
+              onOpenRuleEditor={onOpenRuleEditor}
+              isSubmittingConfirmation={isSubmittingConfirmation}
+              onConfirmationSubmit={onConfirmationSubmit}
+              onAllowAndCreateRule={onAllowAndCreateRule}
+              pendingConfirmationToolCallId={pendingConfirmationToolCallId}
+              unknownNudgeToolCallIds={unknownNudgeToolCallIds}
+              onDismissUnknownNudge={onDismissUnknownNudge}
+              leadingThinkingText={getLeadingThinkingText(groups, gi)}
+            />
+          )}
+          {renderInlineSubagentCards(toolCalls)}
+        </Fragment>
+      );
     }
-
-    const resolveToolCall = (id: string): ChatMessageToolCall | undefined => {
-      const tc = message.toolCalls?.find((t) => t.id === id);
-      if (tc) {
-        return tc;
+    if (group.type === "thinking") {
+      if (!group.thinking) {
+        return null;
       }
-      const idx = parseInt(id, 10);
-      if (!isNaN(idx) && message.toolCalls && idx < message.toolCalls.length) {
-        return message.toolCalls[idx];
+      return (
+        <ThinkingBlock
+          key={`thinking-${gi}`}
+          content={group.thinking}
+          isStreaming={isStreaming && gi === groups.length - 1}
+          expansionKey={`${message.id}-th${group.index}`}
+          expandedThinkingKeys={expandedThinkingKeys}
+        />
+      );
+    }
+    if (group.type === "text") {
+      if (!group.text) {
+        return null;
       }
-      return undefined;
-    };
+      return renderTextWithInlineSurfaces(group.text, `text-${gi}`);
+    }
+    // group.type === "surface"
+    return (
+      <div key={`surface-${gi}`} className="w-full">
+        <SurfaceRouter
+          surface={group.surface}
+          onAction={onSurfaceAction}
+          onOpenApp={onOpenApp}
+          onOpenDocument={onOpenDocument}
+          assistantId={assistantId}
+          toolCalls={message.toolCalls}
+        />
+      </div>
+    );
+  };
 
+  if (hasInterleavedToolCalls) {
     // Each entry carries its group `type` alongside the rendered node so the
     // user branch can place text inside the bubble and tool-call/surface
     // elements outside it (only text/markdown belongs in the user bubble). For
     // assistants the order is preserved by rendering all nodes in sequence.
-    const interleavedGroupEntries = groups.map((group, gi): {
-      type: ContentGroup["type"];
-      node: ReactNode;
-    } => {
-      const node = ((): ReactNode => {
-            if (group.type === "toolCalls") {
-              const toolCalls = group.ids
-                .map(resolveToolCall)
-                .filter((tc): tc is ChatMessageToolCall => tc != null && !isSuppressedUiTool(tc));
-              if (toolCalls.length === 0) {
-                return null;
-              }
-              // A group whose only tool calls are subagent spawns renders
-              // exclusively through the inline subagent cards below. The
-              // unified progress card would have no renderable steps (spawns
-              // are filtered out of its body) and would surface just the
-              // leading-thinking preamble — redundant noise, since that text
-              // already renders as its own message text group.
-              const hasRenderableToolCall = toolCalls.some(
-                (tc) => !isSubagentSpawnCall(tc),
-              );
-              return (
-                <Fragment key={`tc-${gi}`}>
-                  {hasRenderableToolCall && (
-                    <ToolCallProgressCard
-                      toolCalls={toolCalls}
-                      expandedToolCallIds={expandedToolCallIds}
-                      onExpandChange={handleExpandChange}
-                      expandedCardIds={expandedCardIds}
-                      autoExpand={shouldAutoExpandToolCallGroup({
-                        isCurrentGroup: gi === groups.length - 1,
-                        isStreaming,
-                        toolCalls,
-                      })}
-                      onOpenRuleEditor={onOpenRuleEditor}
-                      isSubmittingConfirmation={isSubmittingConfirmation}
-                      onConfirmationSubmit={onConfirmationSubmit}
-                      onAllowAndCreateRule={onAllowAndCreateRule}
-                      pendingConfirmationToolCallId={pendingConfirmationToolCallId}
-                      unknownNudgeToolCallIds={unknownNudgeToolCallIds}
-                      onDismissUnknownNudge={onDismissUnknownNudge}
-                      leadingThinkingText={getLeadingThinkingText(message, gi)}
-                    />
-                  )}
-                  {renderInlineSubagentCards(toolCalls)}
-                </Fragment>
-              );
-            }
-            if (group.type === "thinking") {
-              const thinkingContent = resolveThinkingContent(group.ids);
-              if (!thinkingContent) {
-                return null;
-              }
-              return (
-                <ThinkingBlock
-                  key={`thinking-${gi}`}
-                  content={thinkingContent}
-                  isStreaming={isStreaming && gi === groups.length - 1}
-                  expansionKey={`${message.id}-th${group.ids[0] ?? "0"}`}
-                  expandedThinkingKeys={expandedThinkingKeys}
-                />
-              );
-            }
-            if (group.type === "text") {
-              const textSegments = message.textSegments ?? [];
-              const numericIdx = parseInt(group.id, 10);
-              const text = !isNaN(numericIdx)
-                ? textSegments[numericIdx]
-                : undefined;
-              if (!text) {
-                return null;
-              }
-              return renderTextWithInlineSurfaces(text, `text-${gi}`);
-            }
-            if (group.type === "surface") {
-              const surface = resolveSurface(group.id);
-              if (!surface) {
-                return null;
-              }
-              return (
-                <div key={`surface-${gi}`} className="w-full">
-                  <SurfaceRouter
-                    surface={surface}
-                    onAction={onSurfaceAction}
-                    onOpenApp={onOpenApp}
-                    onOpenDocument={onOpenDocument}
-                    assistantId={assistantId}
-                    toolCalls={message.toolCalls}
-                  />
-                </div>
-              );
-            }
-            return null;
-      })();
-      return { type: group.type, node };
-    });
+    const interleavedGroupEntries = groups.map((group, gi) => ({
+      type: group.type,
+      node: renderGroupNode(group, gi),
+    }));
 
     // Order-preserving flat list for the assistant branch.
     const interleavedGroupElements = interleavedGroupEntries.map((e) => e.node);
@@ -791,10 +715,9 @@ export function TranscriptMessageBody({
         ? renderTextWithInlineSurfaces(messageText, "fallback")
         : null;
 
-    // For the user branch: walk the entries in canonical order, tagging text
-    // (and the fallback) as bubble content and tool-call/surface groups as
-    // non-text so `renderUserContent` can split the bubble around them while
-    // preserving `contentOrder`.
+    // For the user branch: tag text (and the fallback) as bubble content and
+    // tool-call/surface groups as non-text so `renderUserContent` can split the
+    // bubble around them while preserving order.
     const interleavedUserItems: Array<{
       kind: "text" | "nonText";
       node: ReactNode;
@@ -850,95 +773,23 @@ export function TranscriptMessageBody({
     );
   }
 
-  // Legacy path: no interleaved tool calls in contentOrder. Render all tool
-  // calls first, then text content. Each element is tagged "text" or
-  // "surface" so the user branch can keep text in the bubble and render
-  // surfaces outside it.
+  // Legacy path: no interleaved tool calls in the body. Every tool call renders
+  // in one card at the top (below); the text/reasoning/surface groups render
+  // here in order. Each entry is tagged so the user branch can keep text in the
+  // bubble and render surfaces outside it.
   const contentEntries: Array<{
-    type: "text" | "surface" | "thinking";
+    type: DisplayContentGroup["type"];
     node: ReactNode;
-  }> = [];
-  if (message.contentOrder && message.contentOrder.length > 0) {
-    const textSegmentsArr = message.textSegments ?? [];
-    // Buffer consecutive `thinking` ids so a run of reasoning renders as a
-    // single block (matching the interleaved path and macOS grouping). The
-    // buffer is flushed before any non-thinking entry and once more after the
-    // loop. A trailing block reads as still-streaming only while the row is
-    // actually live; a completed turn that ends in reasoning (history reload,
-    // message_complete, cancellation) renders as a finished "Thought process".
-    let pendingThinkingIds: string[] = [];
-    const flushThinking = (isStreaming: boolean) => {
-      if (pendingThinkingIds.length === 0) {
-        return;
-      }
-      const ids = pendingThinkingIds;
-      pendingThinkingIds = [];
-      const thinkingContent = resolveThinkingContent(ids);
-      if (!thinkingContent) {
-        return;
-      }
-      contentEntries.push({
-        type: "thinking",
-        node: (
-          <ThinkingBlock
-            key={`thinking-${ids[0]}`}
-            content={thinkingContent}
-            isStreaming={isStreaming}
-            expansionKey={`${message.id}-th${ids[0]}`}
-            expandedThinkingKeys={expandedThinkingKeys}
-          />
-        ),
-      });
-    };
-    for (const entry of message.contentOrder) {
-      if (entry.type === "thinking") {
-        pendingThinkingIds.push(entry.id);
-        continue;
-      }
-      flushThinking(false);
-      if (entry.type === "text") {
-        const segIndex = parseInt(entry.id, 10);
-        const seg = !isNaN(segIndex) ? textSegmentsArr[segIndex] : undefined;
-        const segText = seg ?? entry.id;
-        contentEntries.push({
-          type: "text",
-          node: renderTextWithInlineSurfaces(segText, `text-${entry.id}`),
-        });
-      } else if (entry.type === "surface") {
-        const surface = resolveSurface(entry.id);
-        if (surface) {
-          contentEntries.push({
-            type: "surface",
-            node: (
-              <div key={`surface-${entry.id}`} className="w-full">
-                <SurfaceRouter
-                  surface={surface}
-                  onAction={onSurfaceAction}
-                  onOpenApp={onOpenApp}
-                  onOpenDocument={onOpenDocument}
-                  assistantId={assistantId}
-                  toolCalls={message.toolCalls}
-                />
-              </div>
-            ),
-          });
-        }
-      }
-    }
-    // Trailing reasoning reads as still-streaming only while the row is live.
-    flushThinking(isStreaming);
-    if (contentEntries.length === 0 && messageText) {
-      contentEntries.push({
-        type: "text",
-        node: renderTextWithInlineSurfaces(messageText, "fallback"),
-      });
-    }
-  } else {
+  }> = groups.map((group, gi) => ({
+    type: group.type,
+    node: renderGroupNode(group, gi),
+  }));
+  // Fallback: nothing in the body resolved to a renderable group, but derived
+  // text exists (e.g. a row carrying only flat text) — render it as a bubble.
+  if (contentEntries.length === 0 && messageText) {
     contentEntries.push({
       type: "text",
-      node: messageText
-        ? renderTextWithInlineSurfaces(messageText, "content")
-        : null,
+      node: renderTextWithInlineSurfaces(messageText, "fallback"),
     });
   }
   // Order-preserving flat list for the assistant branch.
@@ -986,7 +837,7 @@ export function TranscriptMessageBody({
               pendingConfirmationToolCallId={pendingConfirmationToolCallId}
               unknownNudgeToolCallIds={unknownNudgeToolCallIds}
               onDismissUnknownNudge={onDismissUnknownNudge}
-              leadingThinkingText={getLegacyLeadingThinkingText(message)}
+              leadingThinkingText={getLegacyLeadingThinkingText(groups)}
             />
             {renderInlineSubagentCards(legacyToolCalls)}
           </>
@@ -1019,13 +870,16 @@ export function TranscriptMessageBody({
             )}
           </>
         )}
-        {/* Render surfaces attached to this message that aren't in contentOrder */}
+        {/* Render surfaces attached to this message that aren't in the body */}
         {(() => {
           if (!message.surfaces || message.surfaces.length === 0) return null;
           const renderedSurfaceIds = new Set(
-            message.contentOrder
-              ?.filter((e) => e.type === "surface")
-              .map((e) => e.id) ?? [],
+            groups
+              .filter(
+                (g): g is Extract<DisplayContentGroup, { type: "surface" }> =>
+                  g.type === "surface",
+              )
+              .map((g) => g.surface.surfaceId),
           );
           const unrendered = message.surfaces.filter(
             (s) => !renderedSurfaceIds.has(s.surfaceId),
