@@ -134,13 +134,18 @@ export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
       const serverOrder = (llm.profileOrder as string[] | undefined) ?? [];
       const serverProfiles =
         (llm.profiles as Record<string, unknown> | undefined) ?? {};
-      // Dedupe against the union of order + map entries (an entry can exist in
-      // the map without being in the order), then append only if absent.
+      // Abort if the name already exists on the server (union of order + map —
+      // an entry can exist in the map without being in the order). This is a
+      // create flow, and config PATCHes deep-merge profile entries, so writing
+      // `profiles[name]` for an existing key would silently overwrite that
+      // profile's provider/model rather than reporting the duplicate. Throwing
+      // surfaces the error in the modal and leaves the existing profile intact.
+      // (The modal also dedupes client-side; this guards races and stale state.)
       const existsOnServer =
         serverOrder.includes(name) || name in serverProfiles;
-      const profileOrderPatch = existsOnServer
-        ? undefined
-        : [...serverOrder, name];
+      if (existsOnServer) {
+        throw new Error(`A profile with the key "${name}" already exists.`);
+      }
 
       await client.patch({
         url: `/v1/assistants/{assistant_id}/config`,
@@ -148,7 +153,7 @@ export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
         body: {
           llm: {
             profiles: { [name]: entry },
-            ...(profileOrderPatch ? { profileOrder: profileOrderPatch } : {}),
+            profileOrder: [...serverOrder, name],
           },
         },
         headers: { "Content-Type": "application/json" },

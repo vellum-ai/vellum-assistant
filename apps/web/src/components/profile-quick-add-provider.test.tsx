@@ -185,9 +185,10 @@ describe("ProfileQuickAddProvider", () => {
     expect(patchBody.profileOrder).toEqual(["smart", "creative", NEW_PROFILE_NAME]);
   });
 
-  test("the save path dedupes against fresh server state — no profileOrder reset when the name already exists on the server", async () => {
-    // The new name already exists on the server (in the map). The PATCH must
-    // omit profileOrder entirely rather than re-appending or resetting it.
+  test("the save path ABORTS when the name already exists on fresh server state — never overwrites an existing profile", async () => {
+    // The new name already exists on the server (in the map), e.g. created by
+    // another client while the modal was open. A create must NOT deep-merge over
+    // it (config PATCHes merge profile entries) — it must abort with no PATCH.
     clientGet.mockImplementationOnce(async () => ({
       data: {
         llm: {
@@ -201,13 +202,15 @@ describe("ProfileQuickAddProvider", () => {
     await waitFor(() => screen.getByTestId("modal-save-btn"));
     fireEvent.click(screen.getByTestId("modal-save-btn"));
 
+    // The reload ran, but the duplicate is rejected: no PATCH, no success, and
+    // the modal stays open so the inline error is visible.
     await waitFor(() => {
-      expect(clientPatch).toHaveBeenCalledTimes(1);
+      expect(clientGet).toHaveBeenCalledTimes(1);
     });
-    const patchBody = (clientPatch.mock.calls[0]![0] as { body: { llm: Record<string, unknown> } }).body.llm;
-    expect("profileOrder" in patchBody).toBe(false);
-    // The profile entry is still written (the create/overwrite of llm.profiles).
-    expect((patchBody.profiles as Record<string, unknown>)[NEW_PROFILE_NAME]).toBeTruthy();
+    expect(clientPatch).not.toHaveBeenCalled();
+    expect(toastSuccess).not.toHaveBeenCalled();
+    expect(onCreated).not.toHaveBeenCalled();
+    expect(screen.getByTestId("modal-save-btn")).toBeTruthy();
   });
 
   test("a failed config reload ABORTS the save — no PATCH, no success toast, modal stays open", async () => {
