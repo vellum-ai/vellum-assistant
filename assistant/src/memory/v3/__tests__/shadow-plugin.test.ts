@@ -68,6 +68,7 @@ const orchestrateSpy = mock(async () => ({
 let treeLoads = 0;
 let coreLoads = 0;
 let needleBuilds = 0;
+let configL2Concurrency = 16;
 
 // Shared in-memory DB so writes are observable from the test. We hold the raw
 // sqlite handle alongside the drizzle wrapper so the test can both read rows
@@ -105,7 +106,12 @@ mock.module("../../../config/assistant-feature-flags.js", () => ({
 
 mock.module("../../../config/loader.js", () => ({
   getConfig: () => ({
-    memory: { v3: { workingSet: { maxPages: 150, evictWindow: 5 } } },
+    memory: {
+      v3: {
+        workingSet: { maxPages: 150, evictWindow: 5 },
+        l2Concurrency: configL2Concurrency,
+      },
+    },
   }),
 }));
 
@@ -235,6 +241,7 @@ beforeEach(() => {
   treeLoads = 0;
   coreLoads = 0;
   needleBuilds = 0;
+  configL2Concurrency = 16;
   testDb = makeDb();
   resetShadowLanesForTests();
 });
@@ -287,6 +294,18 @@ describe("memory-v3 shadow plugin", () => {
     expect(turn.conversationId).toBe("conv-1");
     expect(turn.turnNumber).toBe(0);
     expect(turn.currentMessage).toBe("hello world");
+  });
+
+  test("orchestrate receives the configured L2 concurrency", async () => {
+    shadowEnabled = true;
+    configL2Concurrency = 9;
+    await runShadowObservation("conv-1", 0);
+    const deps = (
+      orchestrateSpy.mock.calls as unknown as unknown[][]
+    )[0]![1] as {
+      l2Concurrency?: number;
+    };
+    expect(deps.l2Concurrency).toBe(9);
   });
 
   test("both flags OFF → produce returns null, no orchestrate, no writes", async () => {

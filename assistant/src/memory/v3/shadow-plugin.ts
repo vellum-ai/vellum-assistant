@@ -280,13 +280,15 @@ async function observeTurn(
     const turn = buildShadowTurn(conversationId, turnIndex);
     if (!turn) return null;
 
-    const lanes = await getLanes(getConfig());
+    const cfg = getConfig();
+    const lanes = await getLanes(cfg);
     const result = await orchestrate(turn, {
       tree: lanes.tree,
       core: lanes.core,
       needle: lanes.needle,
       workingSet: lanes.workingSet,
       pageSummary,
+      l2Concurrency: cfg.memory.v3.l2Concurrency,
     });
 
     const rows = attributeSelections(lanes.tree, lanes.core, result);
