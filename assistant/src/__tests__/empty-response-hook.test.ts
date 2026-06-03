@@ -7,9 +7,9 @@
  *   visible text → stop; prior turn already delivered visible text → stop;
  *   first model call with no prior turn → stop; provider refusal → continue
  *   (with the refusal-specific nudge text); refusal-but-recovered → stop.
- * - The hook scopes its prior-turn signals to `messages.slice(runStartIndex)`,
- *   so visible text from the inbound conversation (before this run) does not
- *   suppress the nudge.
+ * - The hook scopes its prior-turn signals to the current response cycle (the
+ *   messages after the last genuine user prompt), so visible text from the
+ *   inbound conversation does not suppress the nudge.
  * - When the hook continues, it appends the nudge as a `user` message to
  *   `messages`.
  * - End-to-end through `runHook` + the registry: registering the default
@@ -62,11 +62,15 @@ const priorVisibleTextTurn: Message = {
   content: [{ type: "text", text: "here is what I found earlier" }],
 };
 
+/** A genuine user prompt — the boundary that opens a new response cycle. */
+function userPrompt(text: string): Message {
+  return { role: "user", content: [{ type: "text", text }] };
+}
+
 function makeCtx(overrides: Partial<StopContext> = {}): StopContext {
   return {
     conversationId: "conv-stop",
     messages: [],
-    runStartIndex: 0,
     responseContent: [],
     stopReason: null,
     decision: "stop",
@@ -117,7 +121,7 @@ describe("empty-response stop hook — default decisions", () => {
     // with a side-effect tool and returned empty. Nudging would force a
     // verbatim re-send of text the user already saw.
     const ctx = makeCtx({
-      messages: [priorVisibleTextTurn, priorToolUseTurn],
+      messages: [userPrompt("do X"), priorVisibleTextTurn, priorToolUseTurn],
       responseContent: [],
     });
 
@@ -128,21 +132,24 @@ describe("empty-response stop hook — default decisions", () => {
     expect(ctx.decision).toBe("stop");
   });
 
-  test("prior visible text before runStartIndex is ignored → continue", async () => {
+  test("visible text before the last user prompt is ignored → continue", async () => {
     // GIVEN the inbound conversation already contains an assistant turn with
-    // visible text, followed by this run's tool-use turn, then an empty turn.
-    // runStartIndex marks where this run begins, so the earlier visible text
+    // visible text, but it precedes this run's user prompt. The current cycle
+    // (after that prompt) holds only a tool-use turn, so the earlier text
     // belongs to the prior conversation and must not suppress the nudge.
     const ctx = makeCtx({
-      messages: [priorVisibleTextTurn, priorToolUseTurn],
-      runStartIndex: 1,
+      messages: [
+        priorVisibleTextTurn,
+        userPrompt("do the next thing"),
+        priorToolUseTurn,
+      ],
       responseContent: [],
     });
 
     // WHEN the hook runs.
     await stop(ctx);
 
-    // THEN it continues — the run scope sees only the tool-use turn, not the
+    // THEN it continues — the cycle scope sees only the tool-use turn, not the
     // inbound conversation's visible text.
     expect(ctx.decision).toBe("continue");
     expect(ctx.messages.at(-1)).toEqual({

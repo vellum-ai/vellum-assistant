@@ -800,10 +800,6 @@ export class AgentLoop {
       mutableLatestUserMessage,
     } = options ?? {};
     let history = [...messages];
-    // Boundary between the inbound conversation and messages this run() appends.
-    // The `stop` hook receives the run-scoped tail so it can reason about what
-    // this run has produced without prior conversation turns polluting the signal.
-    const runStartIndex = history.length;
     let producedVisibleTextThisRun = false;
     let toolUseTurns = 0;
     let consecutiveErrorTurns = 0;
@@ -1250,13 +1246,11 @@ export class AgentLoop {
         if (toolUseBlocks.length === 0) {
           // The model stopped requesting tools — the run's stop boundary. The
           // `stop` hook decides whether to let the turn end or re-query with a
-          // follow-up turn. It receives the full history (with `runStartIndex`
-          // marking where this run began) and, when it asks to continue,
-          // appends the follow-up turn itself.
+          // follow-up turn. It receives the full history and, when it asks to
+          // continue, appends the follow-up turn itself.
           const stopCtx: StopContext = {
             conversationId: turnCtx.conversationId,
             messages: [...history],
-            runStartIndex,
             responseContent: response.content,
             stopReason: response.stopReason,
             decision: "stop",

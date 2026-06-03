@@ -213,11 +213,12 @@ export type StopDecision = "continue" | "stop";
  * The hook decides the outcome by setting {@link decision}. When it sets
  * `"continue"` it must also append the follow-up turn (e.g. a nudge `user`
  * message) to {@link messages}; the loop threads those messages into the next
- * iteration. {@link messages} is the full conversation history; the loop
- * carries it back verbatim. {@link runStartIndex} marks where the current
- * `run()` begins, so a hook can scope its reasoning to this run (e.g. whether
- * an earlier turn already delivered visible text) without prior conversation
- * turns polluting the signal.
+ * iteration. {@link messages} is the full conversation history, carried back
+ * verbatim. A hook that needs to reason about just the current response cycle
+ * (e.g. whether an earlier turn already delivered visible text) derives that
+ * boundary from the history itself — the messages after the last genuine user
+ * prompt — rather than an index, since mid-run compaction can rewrite the
+ * array.
  *
  * Multiple plugins' hooks chain in registration order — each sees the
  * previous hook's `decision` and `messages` mutations.
@@ -232,13 +233,6 @@ export interface StopContext {
    * next iteration.
    */
   messages: Message[];
-  /**
-   * Index into {@link messages} where the current `run()` begins. Messages
-   * before it belong to the inbound conversation; messages from it onward
-   * were produced this run. Lets a hook scope its reasoning to the current
-   * run via `messages.slice(runStartIndex)`.
-   */
-  readonly runStartIndex: number;
   /**
    * Content blocks of the assistant turn that triggered the stop. Guaranteed
    * to contain no `tool_use` blocks — the hook only fires at the boundary
