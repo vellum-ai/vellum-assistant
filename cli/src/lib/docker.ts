@@ -14,7 +14,6 @@ import cliPkg from "../../package.json";
 
 import {
   findAssistantByName,
-  loadAllAssistants,
   saveAssistantEntry,
   setActiveAssistant,
 } from "./assistant-config";
@@ -479,18 +478,16 @@ export async function retireDocker(name: string): Promise<void> {
     }
   }
 
-  // Stop Colima VM if no other Docker instances remain (macOS only).
-  const hasOtherDockerInstances = loadAllAssistants().some(
-    (a) => a.cloud === "docker" && a.assistantId !== name,
-  );
-  if (!hasOtherDockerInstances && platform() !== "linux") {
-    try {
-      await exec("colima", ["stop"]);
-      console.log("\ud83d\uded1 Colima VM stopped (no remaining Docker instances).");
-    } catch {
-      // Colima may not be running or not installed
-    }
-  }
+  // Future: consider stopping Colima VM when no Docker instances remain.
+  // Considerations:
+  // - Use loadAllAssistantsAcrossEnvs() instead of loadAllAssistants() to
+  //   avoid stopping Colima while another VELLUM_ENVIRONMENT still has a
+  //   running Docker instance.
+  // - Track whether Vellum started Colima (vs. the user already had it
+  //   running for non-Vellum workloads) \u2014 e.g. via a dedicated Colima
+  //   profile (`colima start --profile vellum`) or a sentinel file.
+  // - Only stop if both conditions are met: no cross-env Docker instances
+  //   AND Vellum owns the Colima lifecycle.
 
   console.log(`\u2705 Docker instance retired.`);
 }
