@@ -1,8 +1,12 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
   buildPreChatInitialMessage,
+  consumePendingPreChatContext,
   DEFAULT_PRECHAT_INITIAL_MESSAGE,
+  peekPendingPreChatContext,
+  type PreChatOnboardingContext,
+  setPendingPreChatContext,
 } from "@/domains/onboarding/prechat";
 
 describe("buildPreChatInitialMessage", () => {
@@ -34,5 +38,47 @@ describe("buildPreChatInitialMessage", () => {
     expect(
       buildPreChatInitialMessage({ assistantName: "  ", userName: "  " }),
     ).toBe(DEFAULT_PRECHAT_INITIAL_MESSAGE);
+  });
+});
+
+describe("firstTask handoff through sessionStorage", () => {
+  beforeEach(() => {
+    sessionStorage.clear();
+  });
+
+  function contextWithFirstTask(): PreChatOnboardingContext {
+    return {
+      tools: ["gmail"],
+      tasks: ["inbox"],
+      tone: "grounded",
+      firstTask: "inbox-cleanup",
+    };
+  }
+
+  test("survives a set -> peek round-trip without consuming it", () => {
+    setPendingPreChatContext(contextWithFirstTask());
+
+    const peeked = peekPendingPreChatContext();
+    expect(peeked?.firstTask).toBe("inbox-cleanup");
+
+    // Peek is non-destructive: a second peek still sees the value.
+    expect(peekPendingPreChatContext()?.firstTask).toBe("inbox-cleanup");
+  });
+
+  test("survives a set -> consume read", () => {
+    setPendingPreChatContext(contextWithFirstTask());
+
+    const consumed = consumePendingPreChatContext();
+    expect(consumed?.firstTask).toBe("inbox-cleanup");
+
+    // Consume is destructive: the value is gone afterwards.
+    expect(consumePendingPreChatContext()).toBeNull();
+  });
+
+  test("absence of firstTask round-trips as undefined", () => {
+    const { firstTask: _omit, ...withoutFirstTask } = contextWithFirstTask();
+    setPendingPreChatContext(withoutFirstTask);
+
+    expect(consumePendingPreChatContext()?.firstTask).toBeUndefined();
   });
 });

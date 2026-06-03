@@ -54,6 +54,13 @@ export interface PreChatOnboardingContext {
   bootstrapTemplate?: string;
   /** Skills to eagerly load. */
   skills?: string[];
+  /**
+   * Chosen first task id for the post-pre-chat activation hook (e.g.
+   * "inbox-cleanup"). Set by chooseFirstTask() in finish() when the
+   * activation-flow experiment flag is on. Absent for users not in the
+   * experiment. Consumed by the in-chat inbox-cleanup offer card.
+   */
+  firstTask?: string;
 }
 
 export const DEFAULT_PRECHAT_INITIAL_MESSAGE = "Wake up, my friend!";
@@ -260,6 +267,9 @@ function isPreChatOnboardingContext(
   if (candidate.skills !== undefined) {
     if (!Array.isArray(candidate.skills)) return false;
     if (!candidate.skills.every((s) => typeof s === "string")) return false;
+  }
+  if (candidate.firstTask !== undefined && typeof candidate.firstTask !== "string") {
+    return false;
   }
   return true;
 }
