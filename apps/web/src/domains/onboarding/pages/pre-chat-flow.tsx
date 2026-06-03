@@ -11,6 +11,7 @@ import { useNavigate, useSearchParams } from "react-router";
 import { useIsIOSWeb } from "@/runtime/platform-detection";
 import { readIOSAppDownloaded } from "@/hooks/use-ios-app-nudge";
 import { fetchOnboardingRecipe } from "@/domains/onboarding/recipe-client.js";
+import { chooseFirstTask } from "@/domains/onboarding/choose-first-task.js";
 import {
   emitOnboardingFunnelStepCompleted,
   onboardingFunnelVariantFromCondensedFlag,
@@ -102,6 +103,8 @@ export function PreChatFlow() {
     useClientFeatureFlagStore.use.prechatOnboardingCondensedFlow();
   const selfIntroGreetingEnabled =
     useClientFeatureFlagStore.use.selfIntroGreeting();
+  const activationFlowEnabled =
+    useClientFeatureFlagStore.use.experimentActivationFlow20260603();
   const preferredFunnelVariant =
     onboardingFunnelVariantFromCondensedFlag(condensedPrechatFlag);
   const webFunnelVariant =
@@ -328,6 +331,10 @@ export function PreChatFlow() {
       googleScopes,
       connectedScopes: args?.connectedScopes,
     });
+
+    if (activationFlowEnabled) {
+      context.firstTask = chooseFirstTask(context);
+    }
 
     setPendingPreChatContext(context);
     const trimmedAssistant = assistantName.trim();
