@@ -26,6 +26,17 @@ mock.module("../../assistant-event-hub.js", () => ({
   broadcastMessage: () => {},
 }));
 
+// Capture sync invalidations so we can assert that conversation-metadata
+// writes notify other clients. Module-scope so the hoisted factory closes
+// over it.
+const syncInvalidations: Array<{ tags: string[]; originClientId?: string }> =
+  [];
+mock.module("../../sync/sync-publisher.js", () => ({
+  publishSyncInvalidation: (tags: string[], originClientId?: string) => {
+    syncInvalidations.push({ tags, originClientId });
+  },
+}));
+
 import { getConversation } from "../../../memory/conversation-crud.js";
 import { getDb } from "../../../memory/db-connection.js";
 import { initializeDb } from "../../../memory/db-init.js";
@@ -330,6 +341,7 @@ describe("POST /v1/conversations/inference-profile-session/close (inference_prof
 describe("PUT /v1/conversations/:id/incognito", () => {
   beforeEach(() => {
     clearConversations();
+    syncInvalidations.length = 0;
   });
 
   test("updates factor_in_memories on an incognito conversation", async () => {
@@ -356,6 +368,25 @@ describe("PUT /v1/conversations/:id/incognito", () => {
     expect(getConversation(convId)!.factorInMemories).toBe(1);
   });
 
+  test("publishes a metadata sync invalidation, suppressing the requester", async () => {
+    const convId = crypto.randomUUID();
+    seedConversation(convId, { incognito: true });
+
+    await incognitoHandler({
+      pathParams: { id: convId },
+      body: { factorInMemories: false },
+      headers: { "x-vellum-client-id": "tab-1" },
+    });
+
+    // Other clients are told to refetch this conversation's metadata; the tag
+    // references the conversation, and the requester is suppressed by id.
+    expect(syncInvalidations).toHaveLength(1);
+    expect(syncInvalidations[0]!.tags.some((t) => t.includes(convId))).toBe(
+      true,
+    );
+    expect(syncInvalidations[0]!.originClientId).toBe("tab-1");
+  });
+
   test("rejects a non-incognito conversation with 409", async () => {
     const convId = crypto.randomUUID();
     seedConversation(convId, { incognito: false });
@@ -366,8 +397,9 @@ describe("PUT /v1/conversations/:id/incognito", () => {
         body: { factorInMemories: false },
       }),
     ).rejects.toMatchObject({ statusCode: 409 });
-    // Unchanged.
+    // Unchanged, and no invalidation published for a rejected write.
     expect(getConversation(convId)!.factorInMemories).toBe(1);
+    expect(syncInvalidations).toHaveLength(0);
   });
 
   test("returns 404 for an unknown conversation", async () => {

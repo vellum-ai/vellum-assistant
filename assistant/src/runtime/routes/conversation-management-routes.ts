@@ -56,6 +56,7 @@ import { buildConversationDetailResponse } from "../services/conversation-serial
 import {
   publishConversationListAndMetadataChanged,
   publishConversationListChanged,
+  publishConversationMemoryModeChanged,
   publishConversationTitleChanged,
 } from "../sync/resource-sync-events.js";
 import { conversationSummarySchema } from "./conversation-list-routes.js";
@@ -215,6 +216,7 @@ async function handleSetInferenceProfile({
 async function handleSetIncognitoFactorInMemories({
   pathParams = {},
   body = {},
+  headers,
 }: RouteHandlerArgs) {
   if (typeof body.factorInMemories !== "boolean") {
     throw new BadRequestError("factorInMemories must be a boolean");
@@ -232,6 +234,15 @@ async function handleSetIncognitoFactorInMemories({
   }
 
   setConversationFactorInMemories(pathParams.id!, factorInMemories);
+
+  // Notify other clients so a second tab / native client refetches this
+  // conversation's metadata instead of showing a stale memory mode. The
+  // requester is suppressed via its origin client id (it already updated
+  // optimistically).
+  publishConversationMemoryModeChanged(
+    pathParams.id!,
+    headers?.["x-vellum-client-id"]?.trim() || undefined,
+  );
 
   return { incognito: true, factorInMemories };
 }

@@ -89,9 +89,13 @@ export function IncognitoMemoryToggle({ assistantId, conversationId }: Props) {
       const previous = checked;
       setChecked(next);
       try {
+        // Assistant-scoped path: the runtime-proxy interceptor only forwards
+        // `/v1/assistants/{id}/conversations/...` to the gateway (self-hosted
+        // and managed alike). A bare `/v1/conversations/...` is not proxied,
+        // so the PUT would fail and the toggle would roll back.
         await client.put({
-          url: `/v1/conversations/{conversation_id}/incognito`,
-          path: { conversation_id: conversationId },
+          url: `/v1/assistants/{assistant_id}/conversations/{conversation_id}/incognito`,
+          path: { assistant_id: assistantId, conversation_id: conversationId },
           body: { factorInMemories: next },
           headers: { "Content-Type": "application/json" },
           throwOnError: true,

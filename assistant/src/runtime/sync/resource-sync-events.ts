@@ -145,6 +145,24 @@ export function publishConversationListAndMetadataChanged(
   void publishSyncInvalidation(tags, originClientId);
 }
 
+/**
+ * Toggling an incognito conversation's `factorInMemories` opt-in is a
+ * content-only change to a single existing row — it does not add, remove, or
+ * reorder list entries. Emit just the per-conversation metadata tag so other
+ * clients GET-and-patch that row (picking up the new memory mode) without
+ * draining the paginated list. The requester is suppressed via originClientId
+ * since it already applied the change optimistically.
+ */
+export function publishConversationMemoryModeChanged(
+  conversationId: string,
+  originClientId?: string,
+): void {
+  void publishSyncInvalidation(
+    [conversationMetadataSyncTag(conversationId)],
+    originClientId,
+  );
+}
+
 export function publishConversationTitleChanged(
   conversationId: string,
   title: string,
