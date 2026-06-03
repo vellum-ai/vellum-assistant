@@ -1,7 +1,7 @@
 import {
   ArrowDownToLine,
   CheckCircle,
-  ChevronDown,
+  Filter,
   Globe,
   LayoutGrid,
   Loader2,
@@ -17,10 +17,7 @@ import {
   useState,
 } from "react";
 
-import { Input, Popover } from "@vellum/design-library";
-import {
-  MobileSidebarTrigger,
-} from "@/components/mobile-sidebar-drawer";
+import { Button, Input, Popover } from "@vellum/design-library";
 import type { SkillFilter } from "@/domains/intelligence/skills/types";
 
 interface FilterOption {
@@ -44,15 +41,12 @@ const ORIGIN_FILTERS: FilterOption[] = [
   { value: "custom", label: "Custom", icon: User },
 ];
 
-const FILTERS: FilterOption[] = [...STATUS_FILTERS, ...ORIGIN_FILTERS];
-
 interface FilterBarProps {
   search: string;
   onSearchChange: Dispatch<SetStateAction<string>>;
   filter: SkillFilter;
   onFilterChange: (f: SkillFilter) => void;
   isSearching: boolean;
-  onOpenDrawer: () => void;
 }
 
 export function FilterBar({
@@ -61,7 +55,6 @@ export function FilterBar({
   filter,
   onFilterChange,
   isSearching,
-  onOpenDrawer,
 }: FilterBarProps) {
   const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
     onSearchChange(e.target.value);
@@ -69,13 +62,12 @@ export function FilterBar({
 
   return (
     <div className="flex items-center gap-3">
-      <MobileSidebarTrigger onClick={onOpenDrawer} />
       <Input
         type="search"
         value={search}
         onChange={handleChange}
-        placeholder="Search Skills"
-        aria-label="Search Skills"
+        placeholder="Search skills"
+        aria-label="Search skills"
         leftIcon={<Search className="h-4 w-4" aria-hidden />}
         rightIcon={
           isSearching ? (
@@ -100,32 +92,18 @@ function FilterDropdown({
 }) {
   const [open, setOpen] = useState(false);
 
-  const current = FILTERS.find((f) => f.value === value) ?? ALL_FILTER;
-  const CurrentIcon = current.icon;
-
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger asChild>
-        <button
+        <Button
           type="button"
+          variant="outlined"
+          iconOnly={<Filter aria-hidden />}
+          aria-label="Filter skills"
           aria-haspopup="listbox"
           aria-expanded={open}
-          className="inline-flex w-40 items-center justify-between gap-2 rounded-lg border bg-[var(--surface-active)] px-3 py-2 text-body-medium-lighter transition-colors hover:bg-[var(--surface-hover)]"
-          style={{
-            borderColor: "var(--border-base)",
-            color: "var(--content-default)",
-          }}
-        >
-          <span className="flex items-center gap-2 truncate">
-            <CurrentIcon className="h-4 w-4" aria-hidden />
-            <span className="truncate">{current.label}</span>
-          </span>
-          <ChevronDown
-            className="h-4 w-4"
-            style={{ color: "var(--content-tertiary)" }}
-            aria-hidden
-          />
-        </button>
+          tintColor="var(--primary-base)"
+        />
       </Popover.Trigger>
       <Popover.Content
         align="end"
