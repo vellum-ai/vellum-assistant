@@ -75,6 +75,21 @@ export function WebSearchCard() {
   const [draftWebSearchMode, setDraftWebSearchMode] = useState<ServiceMode | null>(null);
   const [draftWebSearchProvider, setDraftWebSearchProvider] = useState<string | null>(null);
 
+  // Auto-clear drafts once the server value catches up after save.
+  // Avoids a UI flicker where the mode toggle briefly reverts to the
+  // stale server value during the cache refetch window.
+  useEffect(() => {
+    if (draftWebSearchMode !== null && serverWebSearchMode === draftWebSearchMode) {
+      setDraftWebSearchMode(null);
+    }
+  }, [serverWebSearchMode, draftWebSearchMode]);
+
+  useEffect(() => {
+    if (draftWebSearchProvider !== null && serverWebSearchProvider === draftWebSearchProvider) {
+      setDraftWebSearchProvider(null);
+    }
+  }, [serverWebSearchProvider, draftWebSearchProvider]);
+
   // Effective values: user draft takes precedence over server.
   const webSearchMode = draftWebSearchMode ?? serverWebSearchMode;
   const webSearchProvider = draftWebSearchProvider ?? serverWebSearchProvider;
@@ -172,8 +187,6 @@ export function WebSearchCard() {
     try {
       setLocalSetting(LS_WEB_SEARCH_MODE, webSearchMode);
       setLocalSetting(LS_WEB_SEARCH_PROVIDER, providerToSave);
-      setDraftWebSearchMode(null);
-      setDraftWebSearchProvider(null);
       if (hasUserKey) {
         if (storageKey) {
           setLocalSetting(storageKey, trimmed);

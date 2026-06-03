@@ -1,5 +1,5 @@
 import { Loader2 } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -43,6 +43,14 @@ export function ImageGenerationCard() {
 
   // Draft override — null means the user hasn't changed the value yet.
   const [draftImageGenMode, setDraftImageGenMode] = useState<ServiceMode | null>(null);
+
+  // Auto-clear draft once the server value catches up after save.
+  useEffect(() => {
+    if (draftImageGenMode !== null && serverImageGenMode === draftImageGenMode) {
+      setDraftImageGenMode(null);
+    }
+  }, [serverImageGenMode, draftImageGenMode]);
+
   const imageGenMode = draftImageGenMode ?? serverImageGenMode;
 
   const [imageGenModel, setImageGenModel] = useState(() =>
@@ -90,7 +98,6 @@ export function ImageGenerationCard() {
     try {
       setLocalSetting(LS_IMAGE_GEN_MODE, imageGenMode);
       setLocalSetting(LS_IMAGE_GEN_MODEL, imageGenModel);
-      setDraftImageGenMode(null);
       if (hasUserKey) {
         setLocalSetting(LS_IMAGE_GEN_CREDENTIAL, trimmed);
         setImageGenApiKey("");
