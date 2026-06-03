@@ -3,12 +3,15 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
   getActiveAssistant,
   getLocalAssistants,
+  getLockfile,
   getPlatformAssistants,
   isLocalAssistant,
   isPlatformAssistant,
 } from "@/lib/local-mode";
 import type { Lockfile, LockfileAssistant } from "@/runtime/local-mode-host";
 import { useLockfileStore } from "@/stores/lockfile-store";
+
+const LOCKFILE_STORAGE_KEY = "vellum:local:lockfile";
 
 const localA: LockfileAssistant = {
   assistantId: "local-a",
@@ -33,6 +36,7 @@ function setLockfile(lockfile: Lockfile): void {
 
 afterEach(() => {
   useLockfileStore.setState({ lockfile: null });
+  localStorage.removeItem(LOCKFILE_STORAGE_KEY);
 });
 
 describe("assistant classification", () => {
@@ -77,5 +81,30 @@ describe("getActiveAssistant", () => {
   test("does not bind to the first entry when a later one is active", () => {
     setLockfile({ assistants: [localA, localB], activeAssistant: "local-b" });
     expect(getActiveAssistant()).not.toBe(localA);
+  });
+});
+
+describe("getLockfile persisted-storage read", () => {
+  test("validates the persisted lockfile, salvaging usable entries", () => {
+    localStorage.setItem(
+      LOCKFILE_STORAGE_KEY,
+      JSON.stringify({
+        activeAssistant: "local-a",
+        assistants: [
+          { assistantId: "local-a", cloud: "local" },
+          { cloud: "local" },
+        ],
+      }),
+    );
+    const lockfile = getLockfile();
+    expect(lockfile.activeAssistant).toBe("local-a");
+    expect(lockfile.assistants).toEqual([
+      { assistantId: "local-a", cloud: "local" },
+    ]);
+  });
+
+  test("falls back to an empty lockfile when the stored value is not JSON", () => {
+    localStorage.setItem(LOCKFILE_STORAGE_KEY, "{not json");
+    expect(getLockfile()).toEqual({ assistants: [], activeAssistant: null });
   });
 });

@@ -14,6 +14,7 @@ import { useLockfileStore } from "@/stores/lockfile-store";
 import {
   fetchGuardianTokenHost,
   loadLockfileHost,
+  parseLockfile,
   replacePlatformAssistantsHost,
   retireLocalAssistantHost,
   saveLockfileAssistantHost,
@@ -87,11 +88,12 @@ export function getLockfile(): Lockfile {
   const stored = getLocalSetting(LOCKFILE_STORAGE_KEY, "");
   if (stored) {
     try {
-      const parsed = JSON.parse(stored) as Lockfile;
+      const parsed = parseLockfile(JSON.parse(stored));
       setCachedLockfile(parsed);
       return parsed;
     } catch {
-      // Corrupted storage -- fall through to empty lockfile.
+      // Unparseable JSON -- fall through to empty lockfile. (A structurally
+      // invalid lockfile does not throw: parseLockfile salvages what it can.)
     }
   }
 

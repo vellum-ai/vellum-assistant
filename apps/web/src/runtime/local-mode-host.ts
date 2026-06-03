@@ -1,3 +1,4 @@
+import { parseLockfile } from "@vellumai/local-mode/contract";
 import type {
   Lockfile,
   LockfileAssistant,
@@ -44,6 +45,11 @@ export type {
   LocalAssistantResources,
   LockfileWriteResult,
 };
+
+// The contract's validating parser, re-exported so `lib/` can run persisted
+// (localStorage) lockfile reads through the same total validation the hosts
+// apply to on-disk reads, without importing the package directly.
+export { parseLockfile };
 
 export interface LocalHatchResult {
   ok: boolean;
