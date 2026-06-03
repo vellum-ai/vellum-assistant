@@ -59,9 +59,17 @@ const stop: PluginHookFn<StopContext> = async (ctx) => {
 
   if (countUserTurns(ctx.messages) !== SECOND_PASS_USER_TURN) return;
 
-  // Fire-and-forget: the service owns the replaceability gate, provider
-  // resolution, persistence, and the resulting broadcast.
-  queueRegenerateConversationTitle({ conversationId: ctx.conversationId });
+  const { conversationId } = ctx;
+  // Deferred to a later macrotask so the just-completed turn lands first. The
+  // hook fires at the stop boundary, before the loop appends the turn's
+  // assistant reply to history and emits `message_complete` (which persists
+  // it). The service regenerates from the most recent stored messages, so it
+  // must run after the reply is persisted to reflect it. The service is itself
+  // fire-and-forget and re-checks replaceability, owning provider resolution,
+  // persistence, and the resulting broadcast.
+  setTimeout(() => {
+    queueRegenerateConversationTitle({ conversationId });
+  }, 0);
 };
 
 export default stop;

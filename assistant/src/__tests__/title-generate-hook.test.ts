@@ -197,8 +197,9 @@ describe("title-generate stop hook", () => {
     // GIVEN a turn ending with three genuine user prompts in history
     const ctx = makeStopCtx({ messages: historyWithUserTurns(3) });
 
-    // WHEN the stop hook runs
+    // WHEN the stop hook runs and its deferred work flushes
     await stop(ctx);
+    await flushMacrotasks();
 
     // THEN the second-pass regeneration is triggered with just the
     // conversation id — provider resolution and emit are owned by the service.
@@ -209,12 +210,28 @@ describe("title-generate stop hook", () => {
     expect(call).not.toHaveProperty("signal");
   });
 
+  test("defers the regeneration so the completed turn is persisted first", async () => {
+    // GIVEN a turn ending on the third user turn
+    const ctx = makeStopCtx({ messages: historyWithUserTurns(3) });
+
+    // WHEN the hook resolves
+    await stop(ctx);
+
+    // THEN the regeneration has not fired yet — it is deferred to a later
+    // macrotask so the turn's assistant reply lands first, AND it fires once
+    // the macrotask queue is flushed.
+    expect(queueRegenerateConversationTitleMock).toHaveBeenCalledTimes(0);
+    await flushMacrotasks();
+    expect(queueRegenerateConversationTitleMock).toHaveBeenCalledTimes(1);
+  });
+
   test("does not regenerate before the third user turn", async () => {
     // GIVEN a turn ending with only two genuine user prompts
     const ctx = makeStopCtx({ messages: historyWithUserTurns(2) });
 
-    // WHEN the stop hook runs
+    // WHEN the stop hook runs and any deferred work flushes
     await stop(ctx);
+    await flushMacrotasks();
 
     // THEN no regeneration fires — the conversation lacks enough context yet
     expect(queueRegenerateConversationTitleMock).toHaveBeenCalledTimes(0);
@@ -224,8 +241,9 @@ describe("title-generate stop hook", () => {
     // GIVEN a turn ending with four genuine user prompts
     const ctx = makeStopCtx({ messages: historyWithUserTurns(4) });
 
-    // WHEN the stop hook runs
+    // WHEN the stop hook runs and any deferred work flushes
     await stop(ctx);
+    await flushMacrotasks();
 
     // THEN no regeneration fires — the single second pass already passed
     expect(queueRegenerateConversationTitleMock).toHaveBeenCalledTimes(0);
@@ -244,8 +262,9 @@ describe("title-generate stop hook", () => {
     ];
     const ctx = makeStopCtx({ messages });
 
-    // WHEN the stop hook runs
+    // WHEN the stop hook runs and its deferred work flushes
     await stop(ctx);
+    await flushMacrotasks();
 
     // THEN the tool-result message is not counted as a turn, so the third
     // genuine prompt still triggers the regeneration
@@ -259,8 +278,9 @@ describe("title-generate stop hook", () => {
       decision: "continue",
     });
 
-    // WHEN the stop hook runs
+    // WHEN the stop hook runs and any deferred work flushes
     await stop(ctx);
+    await flushMacrotasks();
 
     // THEN it defers to the eventual terminal stop rather than re-titling now
     expect(queueRegenerateConversationTitleMock).toHaveBeenCalledTimes(0);
@@ -271,8 +291,9 @@ describe("title-generate stop hook", () => {
     skipAutoRetitling = true;
     const ctx = makeStopCtx({ messages: historyWithUserTurns(3) });
 
-    // WHEN the stop hook runs on the third user turn
+    // WHEN the stop hook runs on the third user turn and any work flushes
     await stop(ctx);
+    await flushMacrotasks();
 
     // THEN no regeneration fires
     expect(queueRegenerateConversationTitleMock).toHaveBeenCalledTimes(0);
@@ -287,6 +308,7 @@ describe("title-generate stop hook", () => {
       HOOKS.STOP,
       makeStopCtx({ messages: historyWithUserTurns(3) }),
     );
+    await flushMacrotasks();
 
     // THEN the second-pass regeneration is triggered
     expect(queueRegenerateConversationTitleMock).toHaveBeenCalledTimes(1);
