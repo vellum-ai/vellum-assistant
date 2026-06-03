@@ -1,3 +1,10 @@
+# Pinned Node toolchain image used solely as a source for the `node` binary
+# copied into the runner stage. Version must match .nvmrc (22.22.2); the
+# trixie-slim variant matches the runner's Debian release so the copied
+# binary's glibc/libstdc++ ABI lines up. Pinned to the multi-arch index
+# digest per the Dockerfile FROM pinning convention.
+FROM node:22.22.2-trixie-slim@sha256:55931e785da6feb47a9ed9ee54093b7710f3cbab9962708e5c4c9b5318c66451 AS node
+
 # Use debian as base image
 FROM debian:trixie-slim@sha256:4ffb3a1511099754cddc70eb1b12e50ffdb67619aa0ab6c13fcd800a78ef7c7a AS builder
 
@@ -132,6 +139,13 @@ RUN apt-get update && apt-get install -y \
 # Copy bun binary from builder instead of re-installing
 COPY --from=builder /root/.bun/bin/bun /usr/local/bin/bun
 RUN ln -sf /usr/local/bin/bun /usr/local/bin/bunx
+
+# Copy the pinned `node` binary (version matching .nvmrc) onto PATH. The
+# @agentclientprotocol/claude-agent-acp adapter installed below ships a bin
+# with a `#!/usr/bin/env node` shebang, so spawning the default Claude ACP
+# agent at runtime needs a real `node` -- bun does NOT register itself as
+# `node`. trixie-slim already provides the libstdc++/libgcc this needs.
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
 
 # Install assistant CLI launcher backed by the bundled assistant package
 RUN printf '#!/usr/bin/env sh\nexec bun run /app/assistant/src/index.ts "$@"\n' > /usr/local/bin/assistant && \
