@@ -1110,6 +1110,48 @@ describe("TranscriptMessageBody", () => {
     expect(renderedAnchorIds(container)).toEqual([]);
   });
 
+  test("legacy spawn-only turn renders no tool activity anchor (no empty wrapper)", () => {
+    // GIVEN a legacy turn (no tool entries in contentOrder) whose toolCalls are
+    // ALL subagent spawns. The tool card filters the spawns out and renders
+    // nothing, so the anchored flex wrapper must NOT render — otherwise it
+    // leaves a stray empty `gap-2` gap before the inline subagent cards/text.
+    const message: DisplayMessage = {
+      id: "m-legacy-spawn-only",
+      role: "assistant",
+      textSegments: ["the answer"],
+      contentOrder: [{ type: "text", id: "0" }],
+      toolCalls: [
+        {
+          id: "tc-spawn-1",
+          toolName: "subagent_spawn",
+          input: {},
+          status: "completed",
+        },
+        {
+          id: "tc-spawn-2",
+          toolName: "subagent_spawn",
+          input: {},
+          status: "completed",
+        },
+      ],
+      timestamp: 1_000,
+    };
+
+    const { container } = render(
+      <TranscriptMessageBody
+        message={message}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    // No tool step is projected, and no anchored tool wrapper is rendered.
+    expect(projectedAnchorIds(message)).toEqual([]);
+    expect(renderedAnchorIds(container)).toEqual([]);
+  });
+
   test("a suppressed ui_show group produces no activity anchor", () => {
     const message: DisplayMessage = {
       id: "m-ui-show",

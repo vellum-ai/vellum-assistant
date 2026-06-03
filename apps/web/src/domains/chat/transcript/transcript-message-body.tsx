@@ -1017,38 +1017,43 @@ export function TranscriptMessageBody({
       >
         {legacyToolCalls.length > 0 && (
           <>
-            <div
-              className="w-full scroll-mt-24"
-              data-activity-anchor={
-                firstRenderableLegacyToolCall
-                  ? activityAnchorId(
-                      message.id,
-                      "tool",
-                      firstRenderableLegacyToolCall.id,
-                    )
-                  : undefined
-              }
-            >
-              <ToolCallProgressCard
-                toolCalls={legacyToolCalls}
-                expandedToolCallIds={expandedToolCallIds}
-                onExpandChange={handleExpandChange}
-                expandedCardIds={expandedCardIds}
-                autoExpand={shouldAutoExpandToolCallGroup({
-                  isCurrentGroup: !hasVisibleLegacyContent,
-                  isStreaming,
-                  toolCalls: legacyToolCalls,
-                })}
-                onOpenRuleEditor={onOpenRuleEditor}
-                isSubmittingConfirmation={isSubmittingConfirmation}
-                onConfirmationSubmit={onConfirmationSubmit}
-                onAllowAndCreateRule={onAllowAndCreateRule}
-                pendingConfirmationToolCallId={pendingConfirmationToolCallId}
-                unknownNudgeToolCallIds={unknownNudgeToolCallIds}
-                onDismissUnknownNudge={onDismissUnknownNudge}
-                leadingThinkingText={getLegacyLeadingThinkingText(message)}
-              />
-            </div>
+            {/* Anchor the tool card only when a renderable (non-spawn) tool
+                call exists. A spawn-only legacy turn has no renderable step —
+                `ToolCallProgressCard` filters the spawns out and renders
+                nothing — so wrapping it in the anchored flex child would emit
+                a stray empty `gap-2` gap before the inline subagent cards.
+                Mirrors the interleaved branch, which only renders its wrapper
+                when a renderable tool call is present. */}
+            {firstRenderableLegacyToolCall && (
+              <div
+                className="w-full scroll-mt-24"
+                data-activity-anchor={activityAnchorId(
+                  message.id,
+                  "tool",
+                  firstRenderableLegacyToolCall.id,
+                )}
+              >
+                <ToolCallProgressCard
+                  toolCalls={legacyToolCalls}
+                  expandedToolCallIds={expandedToolCallIds}
+                  onExpandChange={handleExpandChange}
+                  expandedCardIds={expandedCardIds}
+                  autoExpand={shouldAutoExpandToolCallGroup({
+                    isCurrentGroup: !hasVisibleLegacyContent,
+                    isStreaming,
+                    toolCalls: legacyToolCalls,
+                  })}
+                  onOpenRuleEditor={onOpenRuleEditor}
+                  isSubmittingConfirmation={isSubmittingConfirmation}
+                  onConfirmationSubmit={onConfirmationSubmit}
+                  onAllowAndCreateRule={onAllowAndCreateRule}
+                  pendingConfirmationToolCallId={pendingConfirmationToolCallId}
+                  unknownNudgeToolCallIds={unknownNudgeToolCallIds}
+                  onDismissUnknownNudge={onDismissUnknownNudge}
+                  leadingThinkingText={getLegacyLeadingThinkingText(message)}
+                />
+              </div>
+            )}
             {renderInlineSubagentCards(legacyToolCalls)}
           </>
         )}
