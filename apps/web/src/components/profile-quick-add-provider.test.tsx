@@ -49,7 +49,11 @@ mock.module("@/domains/settings/ai/profile-editor-modal", () => ({
           "button",
           {
             "data-testid": "modal-save-btn",
-            onClick: () => void onSave(NEW_PROFILE_NAME, { label: "Fast & Cheap" }),
+            // Mirror the real modal: it awaits onSave inside try/catch and stays
+            // open (showing saveError) on rejection. Swallow here so a failing
+            // save surfaces via assertions, not an unhandled rejection.
+            onClick: () =>
+              void onSave(NEW_PROFILE_NAME, { label: "Fast & Cheap" }).catch(() => {}),
           },
           "Save",
         )
@@ -204,5 +208,27 @@ describe("ProfileQuickAddProvider", () => {
     expect("profileOrder" in patchBody).toBe(false);
     // The profile entry is still written (the create/overwrite of llm.profiles).
     expect((patchBody.profiles as Record<string, unknown>)[NEW_PROFILE_NAME]).toBeTruthy();
+  });
+
+  test("a failed config reload ABORTS the save — no PATCH, no success toast, modal stays open", async () => {
+    // The fresh config read fails (throwOnError: true rejects). The save must
+    // abort rather than fall back to empty server state and reset profileOrder.
+    clientGet.mockImplementationOnce(async () => {
+      throw new Error("config read failed");
+    });
+
+    renderProvider(["smart"]);
+    await waitFor(() => screen.getByTestId("modal-save-btn"));
+    fireEvent.click(screen.getByTestId("modal-save-btn"));
+
+    // The reload was attempted, but the PATCH never runs and nothing is reported
+    // as a success; the modal remains open so the inline error is visible.
+    await waitFor(() => {
+      expect(clientGet).toHaveBeenCalledTimes(1);
+    });
+    expect(clientPatch).not.toHaveBeenCalled();
+    expect(toastSuccess).not.toHaveBeenCalled();
+    expect(onCreated).not.toHaveBeenCalled();
+    expect(screen.getByTestId("modal-save-btn")).toBeTruthy();
   });
 });

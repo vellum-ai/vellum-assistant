@@ -117,10 +117,16 @@ export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
     async (name: string, entry: ProfileEntry) => {
       if (!assistantId) return;
 
-      const configResult = await client.get<Record<string, unknown>, unknown>({
+      // throwOnError: true so a failed reload ABORTS the save. With a swallowed
+      // error the empty fallbacks below would treat the server config as empty
+      // and the PATCH would reset `profileOrder` (and could overwrite an
+      // existing key) on a merely transient read failure. Letting it throw
+      // propagates to the modal's save handler, which surfaces the error inline
+      // and keeps the modal open — no PATCH, no success toast.
+      const configResult = await client.get<Record<string, unknown>, unknown, true>({
         url: `/v1/assistants/{assistant_id}/config`,
         path: { assistant_id: assistantId },
-        throwOnError: false,
+        throwOnError: true,
       });
       const llm =
         (configResult.data as { llm?: Record<string, unknown> } | undefined)
