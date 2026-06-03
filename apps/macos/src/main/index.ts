@@ -233,8 +233,6 @@ const installSettingsIpc = (): void => {
 app
   .whenReady()
   .then(async () => {
-    // Install tray, dock, and menu before the potentially slow CLI
-    // install so the user sees the app in the menu bar immediately.
     installPermissionHandler();
     installSettingsIpc();
     installLocalMode();
@@ -249,10 +247,6 @@ app
     });
 
     if (!isDev) {
-      // The renderer is served from the installed @vellumai/web package.
-      // Install just the web package (pre-built static assets) to unblock the
-      // UI as fast as possible — the full vellum meta-package installs lazily
-      // when local-mode needs the CLI/daemon/gateway.
       await ensureWebInstalled();
       registerAppProtocol();
     }

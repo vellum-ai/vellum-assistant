@@ -102,14 +102,7 @@ export function _resetInstallLock(): void {
   cliInstallPromise = null;
 }
 
-/**
- * Install the `@vellumai/web` renderer package if it isn't already present.
- *
- * This is the fast path — the web package is just pre-built static assets,
- * so it installs quickly and unblocks the UI. The full meta-package
- * (`vellum`) is installed lazily by `ensureCliInstalled` when local-mode
- * needs the CLI, daemon, or gateway.
- */
+/** Install just the web renderer package — fast path to unblock the UI. */
 export async function ensureWebInstalled(): Promise<void> {
   if (isWebInstalled()) return;
 
