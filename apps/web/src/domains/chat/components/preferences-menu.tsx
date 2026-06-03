@@ -93,7 +93,7 @@ export function PreferencesMenu({
       {isMobile ? (
         <BottomSheet.Root open={isOpen} onOpenChange={setIsOpen}>
           <BottomSheet.Trigger asChild>{trigger}</BottomSheet.Trigger>
-          <BottomSheet.Content>
+          <BottomSheet.Content className="max-h-[85dvh]">
             <BottomSheet.Header className="sr-only">
               <BottomSheet.Title>Preferences</BottomSheet.Title>
             </BottomSheet.Header>
