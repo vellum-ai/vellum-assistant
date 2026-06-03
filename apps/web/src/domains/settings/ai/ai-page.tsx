@@ -1,12 +1,6 @@
 import { ExternalLink, Info } from "lucide-react";
 import { useEffect } from "react";
 
-import { useQuery } from "@tanstack/react-query";
-
-import {
-  assistantsListOptions,
-} from "@/generated/api/@tanstack/react-query.gen";
-
 import { LanguageModelCard } from "@/domains/settings/ai/language-model-card";
 import { WebSearchCard } from "@/domains/settings/ai/web-search-card";
 import { EmailServiceCard } from "@/domains/settings/ai/email-service-card";
@@ -19,9 +13,6 @@ import { SpeechToTextCard } from "@/domains/settings/ai/speech-to-text-card";
 // ---------------------------------------------------------------------------
 
 export function AiPage() {
-  const { data: assistantList } = useQuery(assistantsListOptions());
-  const assistantId = assistantList?.results?.[0]?.id;
-
   // Scroll to hash target on mount (e.g. deep links to #email).
   useEffect(() => {
     const hash = window.location.hash.slice(1);
@@ -53,7 +44,7 @@ export function AiPage() {
 
       <LanguageModelCard />
       <WebSearchCard />
-      <EmailServiceCard assistantId={assistantId} assistantHandle={assistantList?.results?.[0]?.handle} />
+      <EmailServiceCard />
       <ImageGenerationCard />
       <TextToSpeechCard />
       <SpeechToTextCard />
