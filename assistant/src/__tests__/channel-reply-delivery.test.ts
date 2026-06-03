@@ -730,6 +730,129 @@ describe("channel-reply-delivery", () => {
     ]);
   });
 
+  it("records attachment-only delivery progress before a Slack activation retry", async () => {
+    slackThreadActivationShouldSucceed = false;
+    const deliveredCounts: number[] = [];
+    const attachments: RuntimeAttachmentMetadata[] = [
+      {
+        id: "attachment-only-1",
+        filename: "report.txt",
+        mimeType: "text/plain",
+        sizeBytes: 42,
+        kind: "file",
+      },
+    ];
+
+    await expect(
+      deliverRenderedReplyViaCallback({
+        callbackUrl:
+          "http://gateway/deliver/slack?channel=C123THREAD&threadTs=1700000000.000001",
+        chatId: "C123THREAD",
+        textSegments: [],
+        attachments,
+        onSegmentDelivered: (count) => deliveredCounts.push(count),
+      }),
+    ).rejects.toThrow(
+      "Slack active thread activation failed after reply delivery",
+    );
+
+    expect(deliveryCalls).toHaveLength(1);
+    expect(deliveryCalls[0].payload.attachments).toEqual(attachments);
+    expect(deliveredCounts).toEqual([1]);
+
+    deliveryCalls.length = 0;
+    deliveredCounts.length = 0;
+    slackThreadActivationShouldSucceed = true;
+
+    await deliverRenderedReplyViaCallback({
+      callbackUrl:
+        "http://gateway/deliver/slack?channel=C123THREAD&threadTs=1700000000.000001",
+      chatId: "C123THREAD",
+      textSegments: [],
+      attachments,
+      startFromSegment: 1,
+      onSegmentDelivered: (count) => deliveredCounts.push(count),
+    });
+
+    expect(deliveryCalls).toHaveLength(0);
+    expect(deliveredCounts).toEqual([]);
+    expect(slackThreadActivationCalls).toEqual([
+      {
+        channelId: "C123THREAD",
+        threadTs: "1700000000.000001",
+        ttlMs: undefined,
+      },
+      {
+        channelId: "C123THREAD",
+        threadTs: "1700000000.000001",
+        ttlMs: undefined,
+      },
+    ]);
+  });
+
+  it("does not re-send attachments after the final text segment already delivered them", async () => {
+    slackThreadActivationShouldSucceed = false;
+    const deliveredCounts: number[] = [];
+    const attachments: RuntimeAttachmentMetadata[] = [
+      {
+        id: "attachment-final-1",
+        filename: "summary.txt",
+        mimeType: "text/plain",
+        sizeBytes: 64,
+        kind: "file",
+      },
+    ];
+
+    await expect(
+      deliverRenderedReplyViaCallback({
+        callbackUrl:
+          "http://gateway/deliver/slack?channel=C123THREAD&threadTs=1700000000.000001",
+        chatId: "C123THREAD",
+        textSegments: ["Final segment."],
+        attachments,
+        interSegmentDelayMs: 0,
+        onSegmentDelivered: (count) => deliveredCounts.push(count),
+      }),
+    ).rejects.toThrow(
+      "Slack active thread activation failed after reply delivery",
+    );
+
+    expect(deliveryCalls).toHaveLength(1);
+    expect(deliveryCalls[0].payload.text).toBe("Final segment.");
+    expect(deliveryCalls[0].payload.attachments).toEqual(attachments);
+    expect(deliveredCounts).toEqual([2]);
+
+    deliveryCalls.length = 0;
+    deliveredCounts.length = 0;
+    slackThreadActivationShouldSucceed = true;
+
+    await deliverRenderedReplyViaCallback({
+      callbackUrl:
+        "http://gateway/deliver/slack?channel=C123THREAD&threadTs=1700000000.000001",
+      chatId: "C123THREAD",
+      textSegments: ["Final segment."],
+      attachments,
+      interSegmentDelayMs: 0,
+      startFromSegment: 2,
+      onSegmentDelivered: (count) => deliveredCounts.push(count),
+    });
+
+    expect(deliveryCalls).toHaveLength(0);
+    expect(deliveredCounts).toEqual([]);
+    expect(slackThreadActivationCalls).toEqual([
+      {
+        channelId: "C123THREAD",
+        threadTs: "1700000000.000001",
+        ttlMs: undefined,
+      },
+      {
+        channelId: "C123THREAD",
+        threadTs: "1700000000.000001",
+        ttlMs: undefined,
+      },
+    ]);
+  });
+
   it("records delivered segment progress before a thrown Slack activation IPC failure is retried", async () => {
     slackThreadActivationError = new Error(
       "Simulated Slack activation IPC failure",
