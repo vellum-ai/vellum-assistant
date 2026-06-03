@@ -30,7 +30,7 @@ export interface ChatDebugEventsApi {
   /** Last 1 000 parsed SSE events (most-recent last). */
   getEvents: () => SseDebugEventEntry[];
   /** Global seq cursor tracked by gap detection / reconnect resume. */
-  getReconnectCursor: () => number | null;
+  getSeqCursor: () => number | null;
   /**
    * Force the live SSE connection to disconnect and reconnect, optionally
    * staying down for `timeoutMs` (default 0) so the reconnection and
@@ -48,6 +48,6 @@ export interface ChatDebugEventsApi {
 export const eventsDebugApi: ChatDebugEventsApi = {
   getClients: getSseClients,
   getEvents: getSseEvents,
-  getReconnectCursor,
+  getSeqCursor: getReconnectCursor,
   reconnectClient: (timeoutMs) => requestSseReconnect(timeoutMs),
 };
