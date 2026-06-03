@@ -19,6 +19,7 @@ import {
   extractErrorMessage,
 } from "@/utils/api-errors";
 import { shouldRetryDaemonError } from "@/utils/daemon-errors";
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import {
   getLocalSetting,
   removeLocalSetting,
@@ -96,6 +97,7 @@ export function WebSearchCard() {
   }, [daemonConfig]);
 
   // --- Secret presence query (TanStack Query) ---
+  const isOrgReady = useIsOrgReady();
   const requiresProviderCredential = WEB_SEARCH_BYOK_PROVIDER_IDS.has(webSearchProvider);
 
   const credentialQueryKey = useMemo(
@@ -120,7 +122,7 @@ export function WebSearchCard() {
       }
       return data!.found;
     },
-    enabled: !!assistantId && requiresProviderCredential,
+    enabled: !!assistantId && requiresProviderCredential && isOrgReady,
     retry: shouldRetryDaemonError,
     staleTime: 30_000,
   });
