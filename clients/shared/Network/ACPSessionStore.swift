@@ -382,7 +382,10 @@ open class ACPSessionStore {
     /// the session is still live, so it stays in the list.
     public static func isTerminal(_ status: ACPSessionState.Status) -> Bool {
         switch status {
-        case .completed, .failed, .cancelled:
+        // `idle` is terminal-for-affordances: the prompt finished and no work
+        // is in flight, so the user may clear/delete the row even though the
+        // daemon keeps the process warm for a possible follow-up prompt.
+        case .completed, .failed, .cancelled, .idle:
             return true
         case .initializing, .running, .unknown:
             return false

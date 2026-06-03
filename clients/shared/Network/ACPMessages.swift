@@ -46,6 +46,12 @@ public struct ACPSessionState: Codable, Equatable, Identifiable, Sendable {
     public enum Status: String, Codable, Equatable, Sendable {
         case initializing
         case running
+        /// A prompt finished but the agent process is still alive, ready to
+        /// accept a follow-up prompt. The completed task already has a terminal
+        /// history row; the live session lingers until reused, idle-timed-out,
+        /// or explicitly closed. For client clear/delete affordances this is
+        /// treated as terminal-equivalent (see ``ACPSessionStore.isTerminal``).
+        case idle
         case completed
         case failed
         case cancelled

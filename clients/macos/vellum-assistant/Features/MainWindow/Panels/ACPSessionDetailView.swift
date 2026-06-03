@@ -163,7 +163,8 @@ struct ACPSessionDetailView: View {
     var isCancelable: Bool {
         switch session.state.status {
         case .running, .initializing: return true
-        case .completed, .failed, .cancelled, .unknown: return false
+        // `idle` has no prompt in flight, so there is nothing to cancel.
+        case .idle, .completed, .failed, .cancelled, .unknown: return false
         }
     }
 
@@ -218,10 +219,10 @@ struct ACPSessionDetailView: View {
 
     private func statusTone(_ status: ACPSessionState.Status) -> VBadge.Tone {
         switch status {
-        case .running, .initializing: return .accent
-        case .completed:              return .positive
-        case .failed:                 return .danger
-        case .cancelled, .unknown:    return .neutral
+        case .running, .initializing:   return .accent
+        case .completed:                return .positive
+        case .failed:                   return .danger
+        case .idle, .cancelled, .unknown: return .neutral
         }
     }
 

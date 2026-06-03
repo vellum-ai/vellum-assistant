@@ -69,7 +69,9 @@ public enum ACPSpawnStatusIndicator: Equatable {
         switch status {
         case .running, .initializing:
             return .pulsing
-        case .completed:
+        // `idle` means the prompt finished (a terminal history row exists) and
+        // the process is merely kept warm — present it as a completed run.
+        case .completed, .idle:
             return .icon(glyph: .check, role: .positive)
         case .failed:
             return .icon(glyph: .xmark, role: .negative)
