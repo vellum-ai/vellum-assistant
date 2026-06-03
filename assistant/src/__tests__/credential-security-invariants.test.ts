@@ -198,6 +198,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "oauth/credential-token-resolver.ts", // centralized access-token key resolution for OAuth and manual-token providers
       "oauth/connection-resolver.ts", // resolve OAuthConnection from oauth-store (access_token lookup)
       "runtime/routes/secret-routes.ts", // HTTP secret management routes (set/delete secrets)
+      "runtime/routes/acp-routes.ts", // write-only ACP credential-link control-plane route (stores BYO acp/* creds; never reads secret plaintext back)
       "runtime/routes/migration-routes.ts", // migration import credential restore
       "daemon/conversation-messaging.ts", // credential storage during session messaging
       "runtime/routes/settings-routes.ts", // settings routes OAuth credential lookup (client_secret)

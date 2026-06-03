@@ -30,7 +30,13 @@ import {
 } from "../tools/credentials/metadata-store.js";
 import type { AcpAgentConfig } from "./types.js";
 
-const ACP_SPAWN_TOOL = "acp_spawn";
+/**
+ * Tool name the agent-spawn path presents to the credential broker. The
+ * in-pod credential-link route (`runtime/routes/acp-routes.ts`) writes this
+ * into each linked credential's `allowedTools` so the broker authorizes the
+ * read here. Exported so the two sides can never drift.
+ */
+export const ACP_SPAWN_TOOL = "acp_spawn";
 
 /**
  * Ensure the `acp/claude_oauth_token` credential has metadata that allows

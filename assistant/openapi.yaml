@@ -132,6 +132,55 @@ paths:
               required:
                 - instruction
               additionalProperties: false
+  /v1/acp/credentials/link:
+    post:
+      operationId: acp_credentials_link_post
+      summary: Link a per-user ACP/dev credential
+      description:
+        "Write a BYO ACP credential (Claude OAuth token, Anthropic/OpenAI API key, or git token) into the pod's
+        secure store for the agent spawn path to read. Write-only: the value is never returned in the response and never
+        sent centrally. Stored under acp/<field> with an acp_spawn-only policy."
+      tags:
+        - acp
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  field:
+                    type: string
+                  linked:
+                    type: boolean
+                required:
+                  - field
+                  - linked
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                field:
+                  type: string
+                  enum:
+                    - claude_oauth_token
+                    - anthropic_api_key
+                    - openai_api_key
+                    - git_token
+                  description: Which ACP credential to link
+                value:
+                  type: string
+                  minLength: 1
+                  description: Secret value to store (write-only)
+              required:
+                - field
+                - value
+              additionalProperties: false
   /v1/acp/sessions:
     delete:
       operationId: acp_sessions_delete
