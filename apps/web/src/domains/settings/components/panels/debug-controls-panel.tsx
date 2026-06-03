@@ -9,7 +9,10 @@ import { AssistantBackups } from "@/domains/settings/components/assistant-backup
 import { RestartAssistant } from "@/domains/settings/components/restart-assistant";
 import { RecoveryModeControls } from "@/domains/settings/components/recovery-mode-controls";
 import { type Assistant, getAssistant } from "@/assistant/api";
-import { usePlatformGate } from "@/hooks/use-platform-gate";
+import {
+  useActiveAssistantIsPlatformHosted,
+  usePlatformGate,
+} from "@/hooks/use-platform-gate";
 import { useAuthStore } from "@/stores/auth-store";
 import { captureError } from "@/lib/sentry/capture-error";
 import { clearOnboardingFlags } from "@/utils/onboarding-cleanup";
@@ -24,6 +27,7 @@ export function DebugControlsPanel() {
   const navigate = useNavigate();
   const user = useAuthStore.use.user();
   const backupsGate = usePlatformGate({ platformHostedOnly: true });
+  const isPlatformHosted = useActiveAssistantIsPlatformHosted();
   const showInternalControls = isInternalUser(user?.email ?? null, user?.isStaff ?? false);
 
   const [assistant, setAssistant] = useState<Assistant | null>(null);
@@ -92,7 +96,7 @@ export function DebugControlsPanel() {
               Log in to the Vellum platform to manage backups.
             </Notice>
           )}
-          {backupsGate === "full" && (
+          {backupsGate === "full" && isPlatformHosted && (
             <div className="rounded-lg border border-[var(--border-base)] px-4 py-3 dark:border-[var(--border-base)]">
               <h3 className="mb-3 text-body-medium-default text-[var(--content-default)]">
                 Backups
