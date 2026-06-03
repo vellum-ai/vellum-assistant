@@ -35,11 +35,10 @@ export function LanguageModelCard() {
   const [draftActiveProfile, setDraftActiveProfile] = useState<string | null>(null);
   const [draftInitialized, setDraftInitialized] = useState(false);
 
-  // Sync draft to server value when server value arrives or changes.
-  // This replaces the old `initialized` ref + one-shot useEffect pattern
-  // with a controlled derivation: when the cache has data and the draft
-  // hasn't been touched yet, seed it; when the cache refreshes after a
-  // save, re-sync so the dropdown reflects the persisted value.
+  // Derive the active profile to display: when the user hasn't touched
+  // the dropdown yet, use the server value; otherwise use the draft.
+  // After a successful save, `draftInitialized` resets so the dropdown
+  // re-syncs to the persisted value.
   const effectiveActiveProfile = useMemo(() => {
     if (!draftInitialized && activeProfile !== null) {
       return activeProfile;

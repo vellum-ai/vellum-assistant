@@ -1,5 +1,5 @@
 import { Loader2 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -33,23 +33,23 @@ export function ImageGenerationCard() {
   const queryClient = useQueryClient();
   const configMutation = useDaemonConfigMutation();
   const provisionProviderKey = useProvisionProviderKey();
-  const [imageGenMode, setImageGenMode] = useState<ServiceMode>(
-    () => getLocalSetting(LS_IMAGE_GEN_MODE, "your-own") as ServiceMode,
-  );
+  // Server value derived from daemon config, falling back to localStorage.
+  // Updates automatically when the cache refreshes.
+  const serverImageGenMode = useMemo<ServiceMode>(() => {
+    if (!daemonConfig) return getLocalSetting(LS_IMAGE_GEN_MODE, "your-own") as ServiceMode;
+    const reconciled = reconcileFromDaemonConfig(daemonConfig);
+    return reconciled.imageGenMode ?? (getLocalSetting(LS_IMAGE_GEN_MODE, "your-own") as ServiceMode);
+  }, [daemonConfig]);
+
+  // Draft override — null means the user hasn't changed the value yet.
+  const [draftImageGenMode, setDraftImageGenMode] = useState<ServiceMode | null>(null);
+  const imageGenMode = draftImageGenMode ?? serverImageGenMode;
+
   const [imageGenModel, setImageGenModel] = useState(() =>
     getLocalSetting(LS_IMAGE_GEN_MODEL, "gemini-3.1-flash-image-preview"),
   );
   const [imageGenApiKey, setImageGenApiKey] = useState("");
   const [saving, setSaving] = useState(false);
-
-  // Hydrate from daemon config on first load
-  const initialized = useRef(false);
-  useEffect(() => {
-    if (!daemonConfig || initialized.current) return;
-    initialized.current = true;
-    const reconciled = reconcileFromDaemonConfig(daemonConfig);
-    if (reconciled.imageGenMode) setImageGenMode(reconciled.imageGenMode);
-  }, [daemonConfig]);
 
   const handleSave = useCallback(async () => {
     setSaving(true);
@@ -90,6 +90,7 @@ export function ImageGenerationCard() {
     try {
       setLocalSetting(LS_IMAGE_GEN_MODE, imageGenMode);
       setLocalSetting(LS_IMAGE_GEN_MODEL, imageGenModel);
+      setDraftImageGenMode(null);
       if (hasUserKey) {
         setLocalSetting(LS_IMAGE_GEN_CREDENTIAL, trimmed);
         setImageGenApiKey("");
@@ -121,7 +122,7 @@ export function ImageGenerationCard() {
       title="Image Generation"
       subtitle="Configure which model your assistant uses to generate images"
       mode={imageGenMode}
-      onModeChange={(m) => setImageGenMode(m)}
+      onModeChange={(m) => setDraftImageGenMode(m)}
     >
       {imageGenMode === "managed" ? (
         <div className="space-y-3">

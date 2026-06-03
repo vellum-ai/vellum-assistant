@@ -1,5 +1,5 @@
 import { Loader2 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Input } from "@vellum/design-library/components/input";
@@ -32,14 +32,29 @@ export function WebSearchCard() {
   } = useDaemonConfigQuery();
   const configMutation = useDaemonConfigMutation();
   const provisionProviderKey = useProvisionProviderKey();
-  const [webSearchMode, setWebSearchMode] = useState<ServiceMode>(
-    () => getLocalSetting(LS_WEB_SEARCH_MODE, "your-own") as ServiceMode,
-  );
-  const [webSearchProvider, setWebSearchProvider] = useState(() =>
-    getLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native"),
-  );
-  const [savedWebSearchMode, setSavedWebSearchMode] = useState(webSearchMode);
-  const [savedWebSearchProvider, setSavedWebSearchProvider] = useState(webSearchProvider);
+  // Server values derived from daemon config, falling back to localStorage.
+  // When the cache refreshes (after save + invalidation), these update
+  // automatically.
+  const serverWebSearchMode = useMemo<ServiceMode>(() => {
+    if (!daemonConfig) return getLocalSetting(LS_WEB_SEARCH_MODE, "your-own") as ServiceMode;
+    const reconciled = reconcileFromDaemonConfig(daemonConfig);
+    return reconciled.webSearchMode ?? (getLocalSetting(LS_WEB_SEARCH_MODE, "your-own") as ServiceMode);
+  }, [daemonConfig]);
+
+  const serverWebSearchProvider = useMemo(() => {
+    if (!daemonConfig) return getLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native");
+    const reconciled = reconcileFromDaemonConfig(daemonConfig);
+    return reconciled.webSearchProvider ?? getLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native");
+  }, [daemonConfig]);
+
+  // Draft overrides — null means the user hasn't changed the value yet.
+  const [draftWebSearchMode, setDraftWebSearchMode] = useState<ServiceMode | null>(null);
+  const [draftWebSearchProvider, setDraftWebSearchProvider] = useState<string | null>(null);
+
+  // Effective values: user draft takes precedence over server.
+  const webSearchMode = draftWebSearchMode ?? serverWebSearchMode;
+  const webSearchProvider = draftWebSearchProvider ?? serverWebSearchProvider;
+
   const [webSearchApiKey, setWebSearchApiKey] = useState("");
   const [webSearchHasStoredKey, setWebSearchHasStoredKey] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -49,22 +64,6 @@ export function WebSearchCard() {
     provider: string | null;
   }>({ assistantId: null, provider: null });
 
-  // Hydrate from daemon config on first load
-  const initialized = useRef(false);
-  useEffect(() => {
-    if (!daemonConfig || initialized.current) return;
-    initialized.current = true;
-    const reconciled = reconcileFromDaemonConfig(daemonConfig);
-    if (reconciled.webSearchMode) {
-      setWebSearchMode(reconciled.webSearchMode);
-      setSavedWebSearchMode(reconciled.webSearchMode);
-    }
-    if (reconciled.webSearchProvider) {
-      setWebSearchProvider(reconciled.webSearchProvider);
-      setSavedWebSearchProvider(reconciled.webSearchProvider);
-    }
-  }, [daemonConfig]);
-
   // Derived state
   const needsApiKey =
     WEB_SEARCH_BYOK_PROVIDER_IDS.has(webSearchProvider);
@@ -72,8 +71,8 @@ export function WebSearchCard() {
   const effectiveProvider =
     webSearchMode === "managed" ? "inference-provider-native" : webSearchProvider;
   const configChanged =
-    webSearchMode !== savedWebSearchMode ||
-    effectiveProvider !== savedWebSearchProvider;
+    webSearchMode !== serverWebSearchMode ||
+    effectiveProvider !== serverWebSearchProvider;
   const needsKeyBeforeSave =
     webSearchMode === "your-own" &&
     needsApiKey &&
@@ -161,9 +160,8 @@ export function WebSearchCard() {
     try {
       setLocalSetting(LS_WEB_SEARCH_MODE, webSearchMode);
       setLocalSetting(LS_WEB_SEARCH_PROVIDER, providerToSave);
-      setWebSearchProvider(providerToSave);
-      setSavedWebSearchMode(webSearchMode);
-      setSavedWebSearchProvider(providerToSave);
+      setDraftWebSearchMode(null);
+      setDraftWebSearchProvider(null);
       if (hasUserKey) {
         if (storageKey) {
           setLocalSetting(storageKey, trimmed);
@@ -193,7 +191,7 @@ export function WebSearchCard() {
     }
     setWebSearchHasStoredKey(false);
     setWebSearchApiKey("");
-    setWebSearchProvider("inference-provider-native");
+    setDraftWebSearchProvider("inference-provider-native");
     setLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native");
   }, [webSearchProvider]);
 
@@ -202,7 +200,7 @@ export function WebSearchCard() {
       title="Web Search"
       subtitle="Configure how your assistant should search the web"
       mode={webSearchMode}
-      onModeChange={(m) => setWebSearchMode(m)}
+      onModeChange={(m) => setDraftWebSearchMode(m)}
     >
       {webSearchMode === "managed" ? (
         <div className="space-y-3">
@@ -222,7 +220,7 @@ export function WebSearchCard() {
             </label>
             <Dropdown
               value={webSearchProvider}
-              onChange={setWebSearchProvider}
+              onChange={setDraftWebSearchProvider}
               options={WEB_SEARCH_PROVIDER_IDS.map((p) => ({
                 value: p,
                 label: WEB_SEARCH_PROVIDER_DISPLAY_NAMES[p] ?? p,
