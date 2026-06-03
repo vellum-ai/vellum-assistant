@@ -272,7 +272,7 @@ const handleClick = useCallback(() => {
 }, []);
 
 // Middleware — outside React
-const { isLoggedIn } = useAuthStore.getState();
+const { sessionStatus } = useAuthStore.getState();
 ```
 
 Zustand's `set()` is synchronous — `.getState()` after an action
