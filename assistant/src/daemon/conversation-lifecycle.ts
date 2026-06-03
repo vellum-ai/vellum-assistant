@@ -418,10 +418,23 @@ export function abortConversation(
 // ── dispose ──────────────────────────────────────────────────────────
 
 export function disposeConversation(ctx: DisposeContext): void {
+  // Incognito conversations must never produce memories. Disposal runs an
+  // end-of-conversation extraction sweep (graph_extract, retrospective,
+  // auto-analysis) — skip it entirely for incognito conversations, including
+  // the eviction triggered when factorInMemories is toggled. Fail closed: if
+  // the lookup throws during teardown, treat the conversation as incognito so
+  // the guarantee holds (the periodic triggers cover the normal path).
+  let isIncognito = true;
+  try {
+    isIncognito = getConversation(ctx.conversationId)?.incognito === 1;
+  } catch {
+    // Best-effort — default to skipping extraction on lookup failure.
+  }
+
   // Trigger graph extraction for end-of-conversation sweep.
   // Only extract from guardian conversations to preserve the memory trust
   // boundary — untrusted content must not influence future memory retrieval.
-  if (!isUntrustedTrustClass(ctx.trustContext?.trustClass)) {
+  if (!isIncognito && !isUntrustedTrustClass(ctx.trustContext?.trustClass)) {
     // Recursion guard: skip graph_extract for auto-analysis conversations.
     // The analysis agent writes memory directly via tools, so extracting
     // from its reflective musings would double-write into the memory graph.
