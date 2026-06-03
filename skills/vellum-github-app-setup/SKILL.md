@@ -8,6 +8,7 @@ metadata:
   author: vellum-ai
   version: "1.0"
   vellum:
+    category: "development"
     display-name: "GitHub App Setup"
 ---
 

@@ -6,6 +6,7 @@ metadata:
   icon: assets/icon.svg
   emoji: "📅"
   vellum:
+    category: "calendar"
     display-name: "Outlook Calendar"
     user-invocable: true
 ---

@@ -5,6 +5,7 @@ compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🔔"
   vellum:
+    category: "messaging"
     display-name: "Notifications"
 ---
 
@@ -28,12 +29,12 @@ assistant notifications send --title "..." --message "..." --urgent
 
 ### Command Reference
 
-| Flag                  | Required | Description                                  |
-| --------------------- | -------- | -------------------------------------------- |
-| `--message <message>` | Yes      | Notification body. Markdown (GFM) renders in the detail panel; the OS banner shows plain text. |
+| Flag                  | Required        | Description                                                                                                                                          |
+| --------------------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--message <message>` | Yes             | Notification body. Markdown (GFM) renders in the detail panel; the OS banner shows plain text.                                                       |
 | `--title <title>`     | Yes in practice | Short headline (≤ 8 words). Omitting it triggers a body-truncation fallback that shows up as a duplicate of `--message` — always write a real title. |
-| `--urgent`            | No       | Mark as needing attention now/soon           |
-| `--json`              | No       | Output machine-readable JSON                 |
+| `--urgent`            | No              | Mark as needing attention now/soon                                                                                                                   |
+| `--json`              | No              | Output machine-readable JSON                                                                                                                         |
 
 ### Title
 
@@ -97,18 +98,18 @@ Reads from the user's home feed (`~/.vellum/workspace/data/home-feed.json`) — 
 
 ### Filters
 
-| Flag | Purpose |
-| --- | --- |
-| `--all` | Include dismissed items (default: excluded — assistant cares about outstanding work) |
-| `--status <s>` | Filter by status (`new` / `seen` / `acted_on` / `dismissed`); repeatable. Overrides the `--all` default. |
-| `--before <iso>` / `--after <iso>` | ISO-8601 createdAt bounds (strict; `=` is excluded). |
-| `--urgency <u>` | Filter by urgency (`low` / `medium` / `high` / `critical`); repeatable. |
-| `--category <c>` | Filter by category (`security` / `scheduling` / `background` / `email` / `system`); repeatable. |
-| `--conversation-id <id>` | Only items tied to this conversation. |
-| `--from-assistant` | Only items the assistant herself emitted. |
-| `--noteworthy` | Only items flagged as noteworthy. |
-| `--limit <n>` | Default 20, max 200. |
-| `--offset <n>` | Pagination offset. Combine with `--limit` to walk older pages. |
+| Flag                               | Purpose                                                                                                  |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `--all`                            | Include dismissed items (default: excluded — assistant cares about outstanding work)                     |
+| `--status <s>`                     | Filter by status (`new` / `seen` / `acted_on` / `dismissed`); repeatable. Overrides the `--all` default. |
+| `--before <iso>` / `--after <iso>` | ISO-8601 createdAt bounds (strict; `=` is excluded).                                                     |
+| `--urgency <u>`                    | Filter by urgency (`low` / `medium` / `high` / `critical`); repeatable.                                  |
+| `--category <c>`                   | Filter by category (`security` / `scheduling` / `background` / `email` / `system`); repeatable.          |
+| `--conversation-id <id>`           | Only items tied to this conversation.                                                                    |
+| `--from-assistant`                 | Only items the assistant herself emitted.                                                                |
+| `--noteworthy`                     | Only items flagged as noteworthy.                                                                        |
+| `--limit <n>`                      | Default 20, max 200.                                                                                     |
+| `--offset <n>`                     | Pagination offset. Combine with `--limit` to walk older pages.                                           |
 
 ### Examples
 
@@ -134,7 +135,9 @@ assistant notifications list --limit 20 --offset 20 --json
 ```json
 {
   "ok": true,
-  "items": [ /* FeedItem records: id, title?, summary, status, urgency?, category?, conversationId?, createdAt, ... */ ],
+  "items": [
+    /* FeedItem records: id, title?, summary, status, urgency?, category?, conversationId?, createdAt, ... */
+  ],
   "total": 12,
   "returned": 3,
   "hasMore": true,
@@ -160,34 +163,45 @@ assistant notifications list --json | jq '.items[] | {id, title, summary}'
 
 ### Command Reference
 
-| Flag                | Required | Description                                                                                       |
-| ------------------- | -------- | ------------------------------------------------------------------------------------------------- |
-| `--id <id>`         | Yes      | Feed item id (`notif:<uuid>`) or bare uuid                                                        |
-| `--message <text>`  | No*      | New body — updates the home-feed summary AND the delivered channel message where supported       |
-| `--title <text>`    | No*      | New short headline (≤ 8 words)                                                                    |
-| `--urgency <level>` | No*      | Change urgency (`low`/`medium`/`high`/`critical`). **Feed-only** — does not re-push channel messages |
-| `--status <state>`  | No*      | Lifecycle transition (`new`/`seen`/`acted_on`/`dismissed`). **Feed-only**                         |
-| `--json`            | No       | Machine-readable JSON                                                                             |
+| Flag                | Required | Description                                                                                          |
+| ------------------- | -------- | ---------------------------------------------------------------------------------------------------- |
+| `--id <id>`         | Yes      | Feed item id (`notif:<uuid>`) or bare uuid                                                           |
+| `--message <text>`  | No\*     | New body — updates the home-feed summary AND the delivered channel message where supported           |
+| `--title <text>`    | No\*     | New short headline (≤ 8 words)                                                                       |
+| `--urgency <level>` | No\*     | Change urgency (`low`/`medium`/`high`/`critical`). **Feed-only** — does not re-push channel messages |
+| `--status <state>`  | No\*     | Lifecycle transition (`new`/`seen`/`acted_on`/`dismissed`). **Feed-only**                            |
+| `--json`            | No       | Machine-readable JSON                                                                                |
 
-*At least one of `--message`, `--title`, `--urgency`, or `--status` must be supplied.
+\*At least one of `--message`, `--title`, `--urgency`, or `--status` must be supplied.
 
 ### Channel behavior
 
-| Channel | Edit behavior |
-| --- | --- |
-| Home feed (macOS/iOS inbox) | Always updated when the item exists. |
-| Slack | Updated in-place via `chat.update` when the original delivery captured a Slack `ts`. Deliveries older than this feature returned `messageId: null` and report `outcome: "unsupported"`. |
-| Push, email, SMS | Cannot be edited — reported as `outcome: "unsupported"` in the result. |
+| Channel                     | Edit behavior                                                                                                                                                                           |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Home feed (macOS/iOS inbox) | Always updated when the item exists.                                                                                                                                                    |
+| Slack                       | Updated in-place via `chat.update` when the original delivery captured a Slack `ts`. Deliveries older than this feature returned `messageId: null` and report `outcome: "unsupported"`. |
+| Push, email, SMS            | Cannot be edited — reported as `outcome: "unsupported"` in the result.                                                                                                                  |
 
 ### Response shape
 
 ```json
 {
   "ok": true,
-  "feedItem": { "id": "notif:...", "title": "...", "summary": "...", "status": "new", "urgency": "low" },
+  "feedItem": {
+    "id": "notif:...",
+    "title": "...",
+    "summary": "...",
+    "status": "new",
+    "urgency": "low"
+  },
   "channels": [
     { "channel": "slack", "deliveryId": "...", "outcome": "updated" },
-    { "channel": "platform", "deliveryId": "...", "outcome": "unsupported", "reason": "platform adapter does not support in-place edits" }
+    {
+      "channel": "platform",
+      "deliveryId": "...",
+      "outcome": "unsupported",
+      "reason": "platform adapter does not support in-place edits"
+    }
   ]
 }
 ```

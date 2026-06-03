@@ -10,6 +10,7 @@
         "icon": "assets/icon.svg",
         "emoji": "🛒",
         "vellum": {
+          "category": "commerce",
           "display-name": "Amazon",
           "includes": [
             "vellum-browser-use"
@@ -17,7 +18,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-02T16:56:28.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "api-mapping",
@@ -27,11 +28,12 @@
         "icon": "assets/icon.svg",
         "emoji": "🗺️",
         "vellum": {
+          "category": "development",
           "display-name": "API Mapping"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-02T16:58:51.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "assistant-migration",
@@ -40,6 +42,7 @@
       "metadata": {
         "emoji": "🧳",
         "vellum": {
+          "category": "system",
           "display-name": "Assistant Migration",
           "includes": [
             "chatgpt-import"
@@ -57,7 +60,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-29T12:58:30.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "chatgpt-import",
@@ -66,11 +69,12 @@
       "metadata": {
         "emoji": "📥",
         "vellum": {
+          "category": "system",
           "display-name": "ChatGPT Import"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-19T14:29:07.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "cli-discover",
@@ -79,11 +83,12 @@
       "metadata": {
         "emoji": "🔍",
         "vellum": {
+          "category": "development",
           "display-name": "CLI Discovery"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-03-17T07:13:56.000Z"
+      "updatedAt": "2026-06-03T03:01:09.000Z"
     },
     {
       "id": "conversation-launcher",
@@ -92,11 +97,12 @@
       "metadata": {
         "emoji": "🧭",
         "vellum": {
+          "category": "productivity",
           "display-name": "Conversation Launcher"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-18T14:09:07.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "deploy-fullstack-vercel",
@@ -105,11 +111,12 @@
       "metadata": {
         "emoji": "🚀",
         "vellum": {
+          "category": "development",
           "display-name": "Deploy Fullstack to Vercel"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-12T18:56:19.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "discord-app-setup",
@@ -119,11 +126,12 @@
         "icon": "assets/icon.svg",
         "emoji": "🎮",
         "vellum": {
+          "category": "messaging",
           "display-name": "Discord App Setup"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-02T16:56:28.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "doordash",
@@ -133,11 +141,12 @@
         "icon": "assets/icon.svg",
         "emoji": "🍕",
         "vellum": {
+          "category": "commerce",
           "display-name": "DoorDash"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-02T16:56:28.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "elevenlabs-voice",
@@ -147,11 +156,12 @@
         "icon": "assets/icon.svg",
         "emoji": "🗣️",
         "vellum": {
+          "category": "voice",
           "display-name": "ElevenLabs Voice"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-02T16:56:28.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "email-setup",
@@ -160,11 +170,12 @@
       "metadata": {
         "emoji": "📧",
         "vellum": {
+          "category": "email",
           "display-name": "Email Setup"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-01T15:44:38.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "fish-audio",
@@ -173,11 +184,12 @@
       "metadata": {
         "emoji": "🎙️",
         "vellum": {
+          "category": "voice",
           "display-name": "Fish Audio TTS"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-11T21:51:53.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "frontend-design",
@@ -187,11 +199,12 @@
         "icon": "assets/icon.svg",
         "emoji": "🎨",
         "vellum": {
+          "category": "development",
           "display-name": "Frontend Design"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-02T16:56:28.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "geo-writing",
@@ -200,6 +213,7 @@
       "metadata": {
         "emoji": "✍️",
         "vellum": {
+          "category": "content",
           "display-name": "GEO Article Writer",
           "activation-hints": [
             "GEO content writing, SEO article optimization",
@@ -208,7 +222,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-22T13:03:09.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "gmail",
@@ -218,12 +232,13 @@
         "icon": "assets/icon.svg",
         "emoji": "📨",
         "vellum": {
+          "category": "email",
           "display-name": "Gmail",
           "user-invocable": "true"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-02T17:01:40.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "google-calendar",
@@ -233,12 +248,13 @@
         "icon": "assets/icon.svg",
         "emoji": "📅",
         "vellum": {
+          "category": "calendar",
           "display-name": "Google Calendar",
           "user-invocable": "true"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-02T16:56:28.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "guardian-verify-setup",
@@ -247,6 +263,7 @@
       "metadata": {
         "emoji": "🔐",
         "vellum": {
+          "category": "integrations",
           "display-name": "Guardian Verify Setup",
           "activation-hints": [
             "Any guardian verification intent -> load this skill exclusively",
@@ -259,7 +276,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-03-20T14:49:53.000Z"
+      "updatedAt": "2026-06-03T03:01:09.000Z"
     },
     {
       "id": "headless-claude-code",
@@ -268,11 +285,12 @@
       "metadata": {
         "emoji": "🖥️",
         "vellum": {
+          "category": "development",
           "display-name": "Headless Claude Code"
         }
       },
       "compatibility": "Any environment running Claude Code headlessly",
-      "updatedAt": "2026-04-24T00:58:01.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "inbox-cleanup",
@@ -282,6 +300,7 @@
         "icon": "assets/icon.svg",
         "emoji": "📭",
         "vellum": {
+          "category": "email",
           "display-name": "Inbox Cleanup",
           "activation-hints": [
             "When the user asks to clean up, organize, or triage their email inbox",
@@ -295,7 +314,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-02T16:58:51.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "inbox-management",
@@ -305,6 +324,7 @@
         "icon": "assets/icon.svg",
         "emoji": "📬",
         "vellum": {
+          "category": "email",
           "display-name": "Inbox Management",
           "includes": [
             "gmail"
@@ -323,7 +343,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-02T16:58:51.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "influencer",
@@ -332,6 +352,7 @@
       "metadata": {
         "emoji": "🔍",
         "vellum": {
+          "category": "browsing",
           "display-name": "Influencer Research",
           "includes": [
             "vellum-browser-use"
@@ -339,7 +360,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-19T19:26:17.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "linear-app-setup",
@@ -349,12 +370,13 @@
         "icon": "assets/icon.svg",
         "emoji": "🔷",
         "vellum": {
+          "category": "development",
           "display-name": "Linear App Setup",
           "user-invocable": "true"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-02T16:56:28.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "llm-cost-optimizer",
@@ -363,10 +385,11 @@
       "metadata": {
         "emoji": "💸",
         "vellum": {
+          "category": "development",
           "display-name": "LLM Cost Optimizer"
         }
       },
-      "updatedAt": "2026-05-28T21:37:15.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "macos-automation",
@@ -376,6 +399,7 @@
         "icon": "assets/icon.svg",
         "emoji": "🍎",
         "vellum": {
+          "category": "system",
           "display-name": "macOS Automation",
           "activation-hints": [
             "Interacting with native macOS apps (Messages, Contacts, Calendar, Mail, Reminders, Music, Finder, etc.) via osascript"
@@ -386,7 +410,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-02T16:58:51.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "mailgun-setup",
@@ -396,12 +420,13 @@
         "icon": "assets/icon.svg",
         "emoji": "📬",
         "vellum": {
+          "category": "email",
           "display-name": "Mailgun Email Setup",
           "user-invocable": "true"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-02T16:56:28.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "mcp-setup",
@@ -410,11 +435,12 @@
       "metadata": {
         "emoji": "🔌",
         "vellum": {
+          "category": "integrations",
           "display-name": "MCP Setup"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-17T15:39:38.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "meet-join",
@@ -424,11 +450,12 @@
         "icon": "assets/icon.svg",
         "emoji": "📹",
         "vellum": {
+          "category": "voice",
           "display-name": "Meet Join",
           "feature-flag": "meet"
         }
       },
-      "updatedAt": "2026-06-02T16:56:28.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "meme-generator",
@@ -439,6 +466,7 @@
         "author": "vellum-ai",
         "version": "0.1",
         "vellum": {
+          "category": "content",
           "display-name": "Meme Generator",
           "activation-hints": [
             "User asks to create or generate a meme",
@@ -453,7 +481,7 @@
         }
       },
       "compatibility": "Requires curl and python3. Works on macOS and Linux.",
-      "updatedAt": "2026-04-22T23:07:38.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "notifications",
@@ -462,11 +490,12 @@
       "metadata": {
         "emoji": "🔔",
         "vellum": {
+          "category": "messaging",
           "display-name": "Notifications"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-28T21:40:34.000Z"
+      "updatedAt": "2026-06-03T03:01:09.000Z"
     },
     {
       "id": "notion",
@@ -476,11 +505,12 @@
         "icon": "assets/icon.svg",
         "emoji": "📝",
         "vellum": {
+          "category": "productivity",
           "display-name": "Notion"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-02T16:56:28.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "oura",
@@ -489,6 +519,7 @@
       "metadata": {
         "emoji": "💍",
         "vellum": {
+          "category": "health",
           "display-name": "Oura Ring",
           "includes": [
             "oura-setup"
@@ -496,7 +527,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-03T18:09:26.000Z"
+      "updatedAt": "2026-06-03T03:01:09.000Z"
     },
     {
       "id": "oura-setup",
@@ -505,11 +536,12 @@
       "metadata": {
         "emoji": "💍",
         "vellum": {
+          "category": "health",
           "display-name": "Oura Ring Setup"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-15T00:52:02.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "outlook",
@@ -519,12 +551,13 @@
         "icon": "assets/icon.svg",
         "emoji": "📧",
         "vellum": {
+          "category": "email",
           "display-name": "Outlook",
           "user-invocable": "true"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-02T16:56:28.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "outlook-calendar",
@@ -534,12 +567,13 @@
         "icon": "assets/icon.svg",
         "emoji": "📅",
         "vellum": {
+          "category": "calendar",
           "display-name": "Outlook Calendar",
           "user-invocable": "true"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-02T16:56:28.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "public-ingress",
@@ -548,6 +582,7 @@
       "metadata": {
         "emoji": "🌍",
         "vellum": {
+          "category": "system",
           "display-name": "Public Ingress",
           "activation-hints": [
             "Local assistant needs a public webhook or OAuth callback URL",
@@ -559,7 +594,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-01T16:51:15.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "resend-setup",
@@ -568,12 +603,13 @@
       "metadata": {
         "emoji": "📤",
         "vellum": {
+          "category": "email",
           "display-name": "Resend Email Setup",
           "user-invocable": "true"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-12T18:56:19.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "restaurant-reservation",
@@ -582,6 +618,7 @@
       "metadata": {
         "emoji": "🍽️",
         "vellum": {
+          "category": "commerce",
           "display-name": "Restaurant Reservation Booking",
           "includes": [
             "vellum-browser-use"
@@ -589,7 +626,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-19T19:26:17.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "screen-recording",
@@ -598,11 +635,12 @@
       "metadata": {
         "emoji": "🎬",
         "vellum": {
+          "category": "content",
           "display-name": "Screen Recording"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-03-17T07:13:56.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "self-upgrade",
@@ -611,11 +649,12 @@
       "metadata": {
         "emoji": "⬆️",
         "vellum": {
+          "category": "system",
           "display-name": "Self Upgrade"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-03-16T22:11:34.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "sentry-app-setup",
@@ -625,12 +664,13 @@
         "icon": "assets/icon.svg",
         "emoji": "🔺",
         "vellum": {
+          "category": "development",
           "display-name": "Sentry App Setup",
           "user-invocable": "true"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-02T16:56:28.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "slack",
@@ -640,11 +680,12 @@
         "icon": "assets/icon.svg",
         "emoji": "💬",
         "vellum": {
+          "category": "messaging",
           "display-name": "Slack"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-02T16:56:28.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "slack-app-setup",
@@ -653,6 +694,7 @@
       "metadata": {
         "emoji": "💬",
         "vellum": {
+          "category": "messaging",
           "display-name": "Slack App Setup",
           "includes": [
             "guardian-verify-setup"
@@ -660,7 +702,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-22T21:04:56.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "start-the-day",
@@ -670,11 +712,12 @@
         "icon": "assets/icon.svg",
         "emoji": "🌅",
         "vellum": {
+          "category": "productivity",
           "display-name": "Start the Day"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-02T16:58:51.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "stripe-app-setup",
@@ -684,12 +727,13 @@
         "icon": "assets/icon.svg",
         "emoji": "💳",
         "vellum": {
+          "category": "commerce",
           "display-name": "Stripe App Setup",
           "user-invocable": "true"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-02T16:56:28.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "stripe-link-wallet",
@@ -699,11 +743,12 @@
         "icon": "assets/icon.svg",
         "emoji": "💳",
         "vellum": {
+          "category": "commerce",
           "display-name": "Stripe Link Wallet"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-02T16:56:28.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "tasks",
@@ -713,6 +758,7 @@
         "icon": "assets/icon.svg",
         "emoji": "✅",
         "vellum": {
+          "category": "productivity",
           "display-name": "Tasks",
           "activation-hints": [
             "User wants to add, check, or manage items on their to-do list or task queue",
@@ -724,7 +770,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-02T16:56:28.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "telegram-setup",
@@ -734,6 +780,7 @@
         "icon": "assets/icon.svg",
         "emoji": "🤖",
         "vellum": {
+          "category": "messaging",
           "display-name": "Telegram Setup",
           "activation-hints": [
             "Telegram bot setup, webhook configuration, or BotFather token",
@@ -745,7 +792,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-02T16:56:28.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "time-based-actions",
@@ -754,11 +801,12 @@
       "metadata": {
         "emoji": "⏰",
         "vellum": {
+          "category": "productivity",
           "display-name": "Time-Based Actions"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-23T14:19:18.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "twilio-setup",
@@ -768,6 +816,7 @@
         "icon": "assets/icon.svg",
         "emoji": "📱",
         "vellum": {
+          "category": "integrations",
           "display-name": "Twilio Setup",
           "includes": [
             "public-ingress"
@@ -775,7 +824,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-02T16:56:28.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "typescript-eval",
@@ -784,11 +833,12 @@
       "metadata": {
         "emoji": "🧪",
         "vellum": {
+          "category": "development",
           "display-name": "TypeScript Evaluation"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-03-15T16:39:46.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "vellum-avatar",
@@ -797,11 +847,12 @@
       "metadata": {
         "emoji": "🎨",
         "vellum": {
+          "category": "content",
           "display-name": "Avatar"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-23T22:43:45.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "vellum-browser-use",
@@ -810,6 +861,7 @@
       "metadata": {
         "emoji": "🌐",
         "vellum": {
+          "category": "browsing",
           "display-name": "Browser",
           "activation-hints": [
             "Load first if you need to browse the web (navigating, clicking, extracting web content) via `assistant browser` commands"
@@ -817,7 +869,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-09T11:42:34.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "vellum-conversation-management",
@@ -826,11 +878,12 @@
       "metadata": {
         "emoji": "💬",
         "vellum": {
+          "category": "productivity",
           "display-name": "Conversations"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-22T21:04:08.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "vellum-github-app-setup",
@@ -842,11 +895,12 @@
         "author": "vellum-ai",
         "version": "1.0",
         "vellum": {
+          "category": "development",
           "display-name": "GitHub App Setup"
         }
       },
       "compatibility": "Designed for Vellum personal assistants. Requires Python 3, bun, and the assistant credentials CLI.",
-      "updatedAt": "2026-06-02T16:56:28.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "vellum-heartbeat",
@@ -855,6 +909,7 @@
       "metadata": {
         "emoji": "💓",
         "vellum": {
+          "category": "system",
           "display-name": "Heartbeat",
           "activation-hints": [
             "Set up a heartbeat, periodic checklist, background health check, or recurring background task"
@@ -865,7 +920,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-22T20:45:04.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "vellum-memory-v2-migration",
@@ -874,6 +929,7 @@
       "metadata": {
         "emoji": "🧠",
         "vellum": {
+          "category": "system",
           "display-name": "Memory v2 Migration",
           "user-invocable": "true",
           "activation-hints": [
@@ -887,7 +943,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-10T15:35:07.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "vellum-oauth-integrations",
@@ -896,11 +952,12 @@
       "metadata": {
         "emoji": "🔌",
         "vellum": {
+          "category": "integrations",
           "display-name": "Vellum OAuth Integrations"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-27T18:02:41.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "vellum-self-knowledge",
@@ -909,6 +966,7 @@
       "metadata": {
         "emoji": "🪞",
         "vellum": {
+          "category": "system",
           "display-name": "Vellum Self-Knowledge",
           "activation-hints": [
             "When the user asks what model the assistant is running on",
@@ -922,7 +980,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-11T07:04:24.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "vellum-skills-catalog",
@@ -931,6 +989,7 @@
       "metadata": {
         "emoji": "🧩",
         "vellum": {
+          "category": "system",
           "display-name": "Skills Catalog",
           "activation-hints": [
             "what can you do",
@@ -946,7 +1005,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-22T22:15:21.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "vellum-sounds",
@@ -955,11 +1014,12 @@
       "metadata": {
         "emoji": "🔊",
         "vellum": {
+          "category": "content",
           "display-name": "Sounds"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-13T05:03:23.000Z"
+      "updatedAt": "2026-06-03T03:05:10.000Z"
     },
     {
       "id": "vellum-terminal-sessions",
@@ -970,6 +1030,7 @@
         "author": "vellum-ai",
         "version": "0.2",
         "vellum": {
+          "category": "system",
           "display-name": "Terminal Sessions",
           "activation-hints": [
             "User asks about their running terminal sessions or processes",
@@ -985,7 +1046,7 @@
         }
       },
       "compatibility": "Sandbox mode works without any host dependencies. Host mode requires tmux installed on the user's machine. Works on macOS and Linux.",
-      "updatedAt": "2026-04-24T00:05:44.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "vercel-token-setup",
@@ -995,6 +1056,7 @@
         "icon": "assets/icon.svg",
         "emoji": "▲",
         "vellum": {
+          "category": "development",
           "display-name": "Vercel Token Setup",
           "includes": [
             "vellum-browser-use"
@@ -1002,7 +1064,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-02T16:56:28.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "voice-setup",
@@ -1012,6 +1074,7 @@
         "icon": "assets/icon.svg",
         "emoji": "🎙️",
         "vellum": {
+          "category": "voice",
           "display-name": "Voice Setup",
           "includes": [
             "elevenlabs-voice"
@@ -1026,7 +1089,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-02T16:56:28.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "watch-together",
@@ -1035,11 +1098,12 @@
       "metadata": {
         "emoji": "📺",
         "vellum": {
+          "category": "content",
           "display-name": "Watch Together",
           "emoji": "📺"
         }
       },
-      "updatedAt": "2026-05-14T15:15:31.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "watcher",
@@ -1048,11 +1112,12 @@
       "metadata": {
         "emoji": "👀",
         "vellum": {
+          "category": "productivity",
           "display-name": "Watcher"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-19T19:12:37.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     },
     {
       "id": "weather",
@@ -1060,9 +1125,12 @@
       "description": "Get current weather conditions and forecasts for any location",
       "metadata": {
         "icon": "assets/icon.svg",
-        "emoji": "🌤️"
+        "emoji": "🌤️",
+        "vellum": {
+          "category": "productivity"
+        }
       },
-      "updatedAt": "2026-06-02T16:56:28.000Z"
+      "updatedAt": "2026-06-03T02:57:53.000Z"
     }
   ]
 }

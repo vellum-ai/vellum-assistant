@@ -5,6 +5,7 @@ compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🔍"
   vellum:
+    category: "browsing"
     display-name: "Influencer Research"
     includes: ["vellum-browser-use"]
 ---

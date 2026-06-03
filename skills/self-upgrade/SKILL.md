@@ -5,6 +5,7 @@ compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "⬆️"
   vellum:
+    category: "system"
     display-name: "Self Upgrade"
 ---
 

@@ -185,7 +185,8 @@ function parseArgs(argv: string[]): ParsedArgs {
       case "--volume": {
         const raw = next();
         const n = Number(raw);
-        if (!Number.isFinite(n)) fail(`--volume must be a number (got "${raw}")`);
+        if (!Number.isFinite(n))
+          fail(`--volume must be a number (got "${raw}")`);
         out.volume = Math.max(0, Math.min(1, n));
         break;
       }
@@ -204,7 +205,11 @@ function parseArgs(argv: string[]): ParsedArgs {
         break;
       case "--sound": {
         const raw = next();
-        setPoolOp(out, { kind: "sound", value: raw === "null" ? null : raw }, arg);
+        setPoolOp(
+          out,
+          { kind: "sound", value: raw === "null" ? null : raw },
+          arg,
+        );
         break;
       }
       case "--sounds": {
@@ -276,7 +281,8 @@ function readConfig(path: string): SoundsConfig {
             sounds?: unknown;
             sound?: unknown;
           };
-          if (typeof e.enabled === "boolean") base.events[key].enabled = e.enabled;
+          if (typeof e.enabled === "boolean")
+            base.events[key].enabled = e.enabled;
           // Match the Swift decoder (SoundsConfig.swift): prefer the new
           // `sounds` array; fall back to the legacy single `sound` string;
           // otherwise leave the pool empty. Filter out non-string / empty

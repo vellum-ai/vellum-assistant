@@ -6,6 +6,7 @@ metadata:
   icon: assets/icon.svg
   emoji: "🎮"
   vellum:
+    category: "messaging"
     display-name: "Discord App Setup"
 ---
 

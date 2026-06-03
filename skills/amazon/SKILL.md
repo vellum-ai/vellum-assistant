@@ -6,6 +6,7 @@ metadata:
   icon: assets/icon.svg
   emoji: "🛒"
   vellum:
+    category: "commerce"
     display-name: "Amazon"
     includes: ["vellum-browser-use"]
 ---

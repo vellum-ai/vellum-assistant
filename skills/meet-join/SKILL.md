@@ -5,6 +5,7 @@ metadata:
   icon: assets/icon.svg
   emoji: "📹"
   vellum:
+    category: "voice"
     display-name: "Meet Join"
     feature-flag: meet
 ---
