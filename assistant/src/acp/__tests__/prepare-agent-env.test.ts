@@ -116,6 +116,10 @@ function seedVaultToken(token: string): void {
   vaultStore.set("acp/claude_oauth_token", token);
 }
 
+function seedVaultOpenAiKey(key: string): void {
+  vaultStore.set("acp/openai_api_key", key);
+}
+
 describe("prepareAgentEnv — claude-agent-acp gating", () => {
   test("injects CLAUDE_CODE_OAUTH_TOKEN from the vault via the broker when agent.env has no override", async () => {
     seedVaultToken("vault-AAA");
@@ -234,16 +238,110 @@ describe("prepareAgentEnv — claude-agent-acp gating", () => {
   });
 });
 
-describe("prepareAgentEnv — non-claude commands", () => {
-  test("returns the config unchanged for codex-acp (no required env vars today)", async () => {
+describe("prepareAgentEnv — codex-acp gating", () => {
+  test("injects OPENAI_API_KEY + CODEX_API_KEY from the vault via the broker when agent.env has no override", async () => {
+    seedVaultOpenAiKey("vault-openai-AAA");
+
     const prepared = await prepareAgentEnv({
       command: "codex-acp",
       args: [],
     });
 
-    expect(prepared.env).toEqual({});
+    expect(prepared.env?.OPENAI_API_KEY).toBe("vault-openai-AAA");
+    expect(prepared.env?.CODEX_API_KEY).toBe("vault-openai-AAA");
   });
 
+  test("auto-registers acp/openai_api_key metadata with acp_spawn when none exists", async () => {
+    seedVaultOpenAiKey("vault-openai-auto-meta");
+
+    await prepareAgentEnv({ command: "codex-acp", args: [] });
+
+    const meta = metadataStore.get("acp/openai_api_key");
+    expect(meta).toBeDefined();
+    expect(meta!.allowedTools).toContain("acp_spawn");
+  });
+
+  test("respects explicit tool policy that excludes acp_spawn", async () => {
+    metadataStore.set("acp/openai_api_key", { allowedTools: ["other_tool"] });
+    seedVaultOpenAiKey("vault-openai-restricted");
+
+    await expect(
+      prepareAgentEnv({ command: "codex-acp", args: [] }),
+    ).rejects.toThrow("OPENAI_API_KEY");
+
+    const meta = metadataStore.get("acp/openai_api_key");
+    expect(meta!.allowedTools).toEqual(["other_tool"]);
+  });
+
+  test("accepts OPENAI_API_KEY from agent.env (config.json override) with no vault entry", async () => {
+    const prepared = await prepareAgentEnv({
+      command: "codex-acp",
+      args: [],
+      env: { OPENAI_API_KEY: "config-openai-BBB" },
+    });
+
+    expect(prepared.env?.OPENAI_API_KEY).toBe("config-openai-BBB");
+  });
+
+  test("accepts CODEX_API_KEY from agent.env (config.json override) with no vault entry", async () => {
+    const prepared = await prepareAgentEnv({
+      command: "codex-acp",
+      args: [],
+      env: { CODEX_API_KEY: "config-codex-BBB" },
+    });
+
+    expect(prepared.env?.CODEX_API_KEY).toBe("config-codex-BBB");
+  });
+
+  test("agent.env override wins over the vault entry (precedence pin)", async () => {
+    seedVaultOpenAiKey("vault-openai-CCC");
+
+    const prepared = await prepareAgentEnv({
+      command: "codex-acp",
+      args: [],
+      env: { OPENAI_API_KEY: "config-openai-DDD" },
+    });
+
+    // Override satisfies the requirement; the vault is not consulted, so
+    // CODEX_API_KEY is left untouched.
+    expect(prepared.env?.OPENAI_API_KEY).toBe("config-openai-DDD");
+    expect(prepared.env?.CODEX_API_KEY).toBeUndefined();
+  });
+
+  test("throws FailedDependencyError when no key is provided from either route", async () => {
+    await expect(
+      prepareAgentEnv({ command: "codex-acp", args: [] }),
+    ).rejects.toThrow("codex-acp requires an OpenAI/Codex API key");
+  });
+
+  test("gates on the resolved command BASENAME (alias to /custom/path/codex-acp still gets the key)", async () => {
+    seedVaultOpenAiKey("vault-openai-FFF");
+
+    const prepared = await prepareAgentEnv({
+      command: "/opt/bin/codex-acp",
+      args: [],
+    });
+
+    expect(prepared.env?.OPENAI_API_KEY).toBe("vault-openai-FFF");
+    expect(prepared.env?.CODEX_API_KEY).toBe("vault-openai-FFF");
+  });
+
+  test("does not affect claude-agent-acp spawns (claude unaffected)", async () => {
+    seedVaultToken("vault-claude-only");
+    seedVaultOpenAiKey("vault-openai-unused");
+
+    const prepared = await prepareAgentEnv({
+      command: "claude-agent-acp",
+      args: [],
+    });
+
+    expect(prepared.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe("vault-claude-only");
+    expect(prepared.env?.OPENAI_API_KEY).toBeUndefined();
+    expect(prepared.env?.CODEX_API_KEY).toBeUndefined();
+  });
+});
+
+describe("prepareAgentEnv — non-claude commands", () => {
   test("returns the config unchanged for an unrecognized command basename", async () => {
     seedVaultToken("vault-HHH");
 

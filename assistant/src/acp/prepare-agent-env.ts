@@ -33,8 +33,8 @@ import type { AcpAgentConfig } from "./types.js";
 const ACP_SPAWN_TOOL = "acp_spawn";
 
 /**
- * Ensure the `acp/claude_oauth_token` credential has metadata that allows
- * the `acp_spawn` tool to read it, but only for legacy/unmanaged cases:
+ * Ensure the `acp/<field>` credential has metadata that allows the
+ * `acp_spawn` tool to read it, but only for legacy/unmanaged cases:
  *
  * - No metadata at all → create with `allowedTools: ["acp_spawn"]`.
  * - Metadata exists with an empty `allowedTools` → default provisioning
@@ -43,19 +43,18 @@ const ACP_SPAWN_TOOL = "acp_spawn";
  *   by the user/admin. Respect it even if `acp_spawn` is absent — the
  *   broker will deny the read and the preflight will throw.
  */
-function ensureAcpTokenPolicy(): void {
-  const meta = getCredentialMetadata("acp", "claude_oauth_token");
+function ensureAcpTokenPolicy(field: string, usageDescription: string): void {
+  const meta = getCredentialMetadata("acp", field);
   if (!meta) {
-    upsertCredentialMetadata("acp", "claude_oauth_token", {
+    upsertCredentialMetadata("acp", field, {
       allowedTools: [ACP_SPAWN_TOOL],
-      usageDescription:
-        "Claude OAuth token for ACP agent authentication",
+      usageDescription,
     });
     return;
   }
   const tools = meta.allowedTools ?? [];
   if (tools.length === 0) {
-    upsertCredentialMetadata("acp", "claude_oauth_token", {
+    upsertCredentialMetadata("acp", field, {
       allowedTools: [ACP_SPAWN_TOOL],
     });
   }
@@ -84,6 +83,12 @@ function ensureAcpTokenPolicy(): void {
  * before spawning. The "fail-fast" throw is symmetric with the existing
  * `binary_not_found` preflight in `resolveAcpAgent` and strictly better
  * than a `warn` + zombie subprocess 10 seconds later.
+ *
+ * For `codex-acp` the same two-route resolution applies to the user's
+ * OpenAI/Codex API key, injected as both `OPENAI_API_KEY` and
+ * `CODEX_API_KEY` (the codex CLI accepts either). The config.json override
+ * may set either var; an override under one satisfies the requirement and
+ * the vault is not consulted. The vault field is `acp/openai_api_key`.
  */
 export async function prepareAgentEnv(
   agentConfig: AcpAgentConfig,
@@ -96,7 +101,10 @@ export async function prepareAgentEnv(
 
   if (commandBasename === "claude-agent-acp") {
     if (!env.CLAUDE_CODE_OAUTH_TOKEN) {
-      ensureAcpTokenPolicy();
+      ensureAcpTokenPolicy(
+        "claude_oauth_token",
+        "Claude OAuth token for ACP agent authentication",
+      );
       await credentialBroker.serverUse<void>({
         service: "acp",
         field: "claude_oauth_token",
@@ -110,6 +118,35 @@ export async function prepareAgentEnv(
       throw new FailedDependencyError(
         "claude-agent-acp requires CLAUDE_CODE_OAUTH_TOKEN. " +
           "Run: assistant credentials set --service acp --field claude_oauth_token <token> " +
+          "(or set it under acp.agents.<id>.env in config.json).",
+      );
+    }
+  }
+
+  if (commandBasename === "codex-acp") {
+    // The codex-acp adapter shells out to the `codex` CLI, which accepts the
+    // user's OpenAI/Codex API key via either CODEX_API_KEY or OPENAI_API_KEY.
+    // A config.json env override (under either var) wins over the vault, so
+    // explicit per-workspace/rotated keys are never silently clobbered.
+    if (!env.OPENAI_API_KEY && !env.CODEX_API_KEY) {
+      ensureAcpTokenPolicy(
+        "openai_api_key",
+        "OpenAI/Codex API key for codex-acp agent authentication",
+      );
+      await credentialBroker.serverUse<void>({
+        service: "acp",
+        field: "openai_api_key",
+        toolName: ACP_SPAWN_TOOL,
+        execute: async (key) => {
+          env.OPENAI_API_KEY = key;
+          env.CODEX_API_KEY = key;
+        },
+      });
+    }
+    if (!env.OPENAI_API_KEY && !env.CODEX_API_KEY) {
+      throw new FailedDependencyError(
+        "codex-acp requires an OpenAI/Codex API key (OPENAI_API_KEY or CODEX_API_KEY). " +
+          "Run: assistant credentials set --service acp --field openai_api_key <key> " +
           "(or set it under acp.agents.<id>.env in config.json).",
       );
     }
