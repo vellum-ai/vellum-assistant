@@ -23,7 +23,23 @@ export interface AcpSessionState {
   acpSessionId: string;
   /** Conversation that spawned this session. */
   parentConversationId: string;
-  status: "initializing" | "running" | "completed" | "failed" | "cancelled";
+  /**
+   * Session lifecycle status.
+   *
+   * - `initializing` / `running`: a prompt is in flight.
+   * - `idle`: the previous prompt finished and the process is still alive,
+   *   ready to accept a follow-up prompt (multi-turn continuity). A terminal
+   *   `acp_session_history` row already reflects the completed task; the live
+   *   session lingers until reused, idle-timed-out, or explicitly closed.
+   * - `completed` / `failed` / `cancelled`: terminal — the process is gone.
+   */
+  status:
+    | "initializing"
+    | "running"
+    | "idle"
+    | "completed"
+    | "failed"
+    | "cancelled";
   startedAt: number;
   completedAt?: number;
   error?: string;

@@ -24,6 +24,11 @@ const log = getLogger("acp:session-manager");
 const MAX_BUFFER_EVENTS = 200;
 /** Maximum aggregate JSON size of a session's ring buffer, in bytes. */
 const MAX_BUFFER_BYTES = 256 * 1024;
+/**
+ * Default idle timeout, used when the manager is constructed without one
+ * (e.g. tests). The production value comes from `acp.idleTimeoutMs`.
+ */
+const DEFAULT_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 
 interface BufferedAcpUpdate {
   /** The wire-shaped update — exactly what was forwarded to clients. */
@@ -44,6 +49,31 @@ interface SessionEntry {
   /** The adapter binary that was spawned. Used to gate resume hints to
    *  the only adapter (claude-agent-acp) whose CLI accepts `--resume`. */
   command: string;
+  /**
+   * Timer that reclaims this session once it has sat `idle` (process alive,
+   * no in-flight prompt) past the configured idle timeout. Armed when a
+   * prompt completes and the session transitions to `idle`; cleared when a
+   * follow-up prompt starts or the session is torn down.
+   */
+  idleTimer: ReturnType<typeof setTimeout> | null;
+  /**
+   * Whether a terminal `acp_session_history` row has already been written
+   * for this session's last completed task. Set when a prompt completes and
+   * the session goes idle (the row reflects that completed task). Prevents a
+   * later close/idle-reap from re-persisting and clobbering the durable
+   * outcome with a `cancelled` status.
+   */
+  historyPersisted: boolean;
+  /**
+   * Zero-based index of the current prompt turn. The session and its ACP
+   * protocol id are reused across turns when an idle session is steered, but
+   * each turn must get its own `acp_session_history` row — otherwise the
+   * `id`-keyed insert silently no-ops (`onConflictDoNothing`) on the second
+   * turn and drops its event log / stop reason. `historyRowId()` derives a
+   * per-turn primary key from this; turn 0 keeps the bare `acpSessionId` so
+   * the first turn's row id (and all existing behavior) is unchanged.
+   */
+  turnIndex: number;
 }
 
 export class AcpSessionManager {
@@ -56,7 +86,13 @@ export class AcpSessionManager {
    */
   private eventBuffers = new Map<string, BufferedAcpUpdate[]>();
 
-  constructor(private readonly maxConcurrent: number) {
+  private readonly idleTimeoutMs: number;
+
+  constructor(
+    private readonly maxConcurrent: number,
+    idleTimeoutMs: number = DEFAULT_IDLE_TIMEOUT_MS,
+  ) {
+    this.idleTimeoutMs = idleTimeoutMs;
     this.cleanupStaleRunningRows();
   }
 
@@ -169,6 +205,9 @@ export class AcpSessionManager {
       parentConversationId,
       cwd,
       command: agentConfig.command,
+      idleTimer: null,
+      historyPersisted: false,
+      turnIndex: 0,
     };
 
     this.sessions.set(acpSessionId, entry);
@@ -219,6 +258,11 @@ export class AcpSessionManager {
   /**
    * Sends a follow-up instruction to an existing session.
    *
+   * Works against a `running` session (cancels its in-flight prompt first)
+   * or an `idle` session left alive after a previous prompt completed — the
+   * latter is the multi-turn continuity path: the adapter process and ACP
+   * session are reused so the follow-up builds on the same context.
+   *
    * Cancels any in-flight prompt first, then fires the new prompt in the
    * background with completion/error event handlers (matching spawn's pattern).
    */
@@ -228,11 +272,14 @@ export class AcpSessionManager {
       throw new Error(`ACP session "${acpSessionId}" not found`);
     }
 
-    if (entry.state.status !== "running") {
+    if (entry.state.status !== "running" && entry.state.status !== "idle") {
       throw new Error(
-        `ACP session "${acpSessionId}" is not running (status: ${entry.state.status})`,
+        `ACP session "${acpSessionId}" is not reusable (status: ${entry.state.status})`,
       );
     }
+
+    // Disarm the idle reaper — the session is being reused.
+    this.clearIdleTimer(entry);
 
     // Cancel any in-flight prompt before starting a new one.
     // Clear currentPrompt BEFORE awaiting cancel so the old prompt's
@@ -249,6 +296,20 @@ export class AcpSessionManager {
       }
     }
 
+    // Reset per-turn streaming state so this follow-up's events are buffered
+    // and (on completion) persisted fresh, not appended to the prior task's
+    // already-persisted log.
+    entry.clientHandler.resetTurn();
+    this.eventBuffers.set(acpSessionId, []);
+    entry.historyPersisted = false;
+    // Advance the turn so this reused turn persists to its own history row
+    // instead of no-op-conflicting against the prior turn's row.
+    entry.turnIndex += 1;
+    entry.state.status = "running";
+    entry.state.completedAt = undefined;
+    entry.state.stopReason = undefined;
+    entry.state.error = undefined;
+
     // Fire new prompt in the background with event handlers
     entry.currentPrompt = this.firePromptInBackground(
       acpSessionId,
@@ -256,6 +317,28 @@ export class AcpSessionManager {
       entry.state.acpSessionId,
       instruction,
     );
+  }
+
+  /**
+   * Returns the live (non-terminal: running or idle) session attached to a
+   * conversation, if any. Used to reattach a follow-up prompt to an existing
+   * session for multi-turn continuity (PR E2). Returns the most recently
+   * started match when several are live for the same conversation.
+   */
+  getLiveSessionForConversation(
+    parentConversationId: string,
+  ): AcpSessionState | null {
+    let best: AcpSessionState | null = null;
+    for (const entry of this.sessions.values()) {
+      if (entry.parentConversationId !== parentConversationId) continue;
+      if (entry.state.status !== "running" && entry.state.status !== "idle") {
+        continue;
+      }
+      if (!best || entry.state.startedAt > best.startedAt) {
+        best = entry.state;
+      }
+    }
+    return best;
   }
 
   /**
@@ -271,6 +354,24 @@ export class AcpSessionManager {
     if (!entry) {
       throw new Error(`ACP session "${acpSessionId}" not found`);
     }
+
+    // An `idle` session has no in-flight prompt, so there is no catch handler
+    // to persist + tear it down. Cancelling it must therefore drive the
+    // close/teardown path directly — otherwise the adapter process, idle
+    // timer, and session-map entry leak until the daemon restarts. Its
+    // completed task already wrote a terminal history row, so `close()` skips
+    // re-persisting (and won't clobber the durable `completed` row).
+    if (entry.state.status === "idle") {
+      await entry.process.cancel(entry.state.acpSessionId).catch((err) => {
+        log.warn(
+          { acpSessionId, err },
+          "Failed to send ACP cancel before tearing down idle session",
+        );
+      });
+      this.close(acpSessionId);
+      return;
+    }
+
     await entry.process.cancel(entry.state.acpSessionId);
     entry.state.status = "cancelled";
     entry.state.completedAt = Date.now();
@@ -284,6 +385,10 @@ export class AcpSessionManager {
    * session is still in a non-terminal state, mark it cancelled so the
    * persisted row reflects reality. The in-flight prompt's then/catch
    * handler will short-circuit after teardown removes the entry.
+   *
+   * An `idle` session is a special case: its last task already wrote a
+   * terminal `completed` row, so we skip re-persisting (which would only
+   * be a no-op `onConflictDoNothing`) and just tear down the live process.
    */
   close(acpSessionId: string): void {
     const entry = this.sessions.get(acpSessionId);
@@ -297,7 +402,11 @@ export class AcpSessionManager {
       entry.state.status = "cancelled";
       entry.state.completedAt = Date.now();
     }
-    this.persistTerminal(acpSessionId, entry);
+    // Skip re-persisting when the idle session's completed task was already
+    // written to history; otherwise persist the buffered log + terminal row.
+    if (!entry.historyPersisted) {
+      this.persistTerminal(acpSessionId, entry);
+    }
     this.teardownSession(acpSessionId, entry);
   }
 
@@ -305,6 +414,7 @@ export class AcpSessionManager {
    * Denies pending ACP permissions, kills the process, and removes the session.
    */
   private teardownSession(acpSessionId: string, entry: SessionEntry): void {
+    this.clearIdleTimer(entry);
     for (const requestId of entry.clientHandler.pendingRequestIds) {
       const interaction = pendingInteractions.resolve(requestId, "cancelled");
       if (interaction?.directResolve) {
@@ -316,6 +426,40 @@ export class AcpSessionManager {
     // Free the buffer in case persistTerminal hasn't already (e.g. close()
     // before terminal transition).
     this.eventBuffers.delete(acpSessionId);
+  }
+
+  /**
+   * Arms the idle-timeout reaper for a session that just went `idle`. When it
+   * fires the session is closed (process killed, slot freed) unless a
+   * follow-up prompt reused it first. `unref()` so the timer never keeps the
+   * process alive on shutdown.
+   */
+  private armIdleTimer(acpSessionId: string, entry: SessionEntry): void {
+    this.clearIdleTimer(entry);
+    const timer = setTimeout(() => {
+      const current = this.sessions.get(acpSessionId);
+      // Only reap if it's still the same idle session (not reused/closed).
+      if (!current || current !== entry || current.state.status !== "idle") {
+        return;
+      }
+      log.info(
+        { acpSessionId, idleTimeoutMs: this.idleTimeoutMs },
+        "Reclaiming idle ACP session after timeout",
+      );
+      // History was already persisted on completion; close() tears down
+      // without re-persisting.
+      this.close(acpSessionId);
+    }, this.idleTimeoutMs);
+    timer.unref?.();
+    entry.idleTimer = timer;
+  }
+
+  /** Clears a session's idle-timeout reaper if one is armed. */
+  private clearIdleTimer(entry: SessionEntry): void {
+    if (entry.idleTimer) {
+      clearTimeout(entry.idleTimer);
+      entry.idleTimer = null;
+    }
   }
 
   /**
@@ -367,6 +511,20 @@ export class AcpSessionManager {
   }
 
   /**
+   * Derives the `acp_session_history` primary key for a given turn. Turn 0
+   * (the spawn prompt) keeps the bare `acpSessionId` so first-turn rows — and
+   * the in-memory→DB id merge in the sessions list — are unchanged. Reused
+   * turns (via `steer()` on an idle session) get a `<acpSessionId>:<turn>`
+   * suffix so each turn persists to its own row instead of silently
+   * conflicting against the first turn's already-written row.
+   */
+  private historyRowId(acpSessionId: string, turnIndex: number): string {
+    // First turn (turnIndex 0, or unset on manually-built entries) keeps the
+    // bare session id; only reused turns get a `:<n>` suffix.
+    return turnIndex ? `${acpSessionId}:${turnIndex}` : acpSessionId;
+  }
+
+  /**
    * Persists the session's final state + buffered event log to
    * `acp_session_history`, then frees the buffer entry. Best-effort: a DB
    * failure is logged but does not propagate, since the session has already
@@ -381,7 +539,7 @@ export class AcpSessionManager {
       getDb()
         .insert(acpSessionHistory)
         .values({
-          id: acpSessionId,
+          id: this.historyRowId(acpSessionId, entry.turnIndex),
           agentId: entry.state.agentId,
           acpSessionId: entry.state.acpSessionId,
           parentConversationId: entry.parentConversationId,
@@ -423,8 +581,14 @@ export class AcpSessionManager {
         // current prompt (not stale from a previous steer), and the status
         // hasn't been set to "cancelled" already.
         if (current && current.currentPrompt === promptPromise) {
-          if (current.state.status !== "cancelled") {
-            current.state.status = "completed";
+          // A concurrent cancel()/close() may have flipped the status to a
+          // terminal state. Only `cancelled` here means the prompt was
+          // explicitly aborted — preserve it and tear down (the abort path
+          // owns persistence). Otherwise the task finished cleanly: persist
+          // a terminal history row but keep the session alive as `idle` so a
+          // follow-up prompt can reuse the same process and context.
+          const wasCancelled = current.state.status === "cancelled";
+          if (!wasCancelled) {
             current.state.completedAt = Date.now();
             current.state.stopReason = response.stopReason;
           }
@@ -439,13 +603,21 @@ export class AcpSessionManager {
             stopReason: response.stopReason,
           });
 
-          // Persist the terminal row + buffered event log before tearing
-          // down (teardown deletes the buffer entry).
-          this.persistTerminal(acpSessionId, current);
-
-          // Free the session slot, deny any pending permissions, and
-          // kill the agent process.
-          this.teardownSession(acpSessionId, current);
+          if (wasCancelled) {
+            // Persist the cancelled terminal row + buffered event log, then
+            // tear the session down (cancel is not a reuse path).
+            this.persistTerminal(acpSessionId, current);
+            this.teardownSession(acpSessionId, current);
+          } else {
+            // Persist the completed task to history (the durable record),
+            // then transition to `idle` and arm the reaper. The process and
+            // ACP session stay alive for a follow-up `steer()`.
+            current.state.status = "completed";
+            this.persistTerminal(acpSessionId, current);
+            current.historyPersisted = true;
+            current.state.status = "idle";
+            this.armIdleTimer(acpSessionId, current);
+          }
 
           // Notify parent session so the LLM sees the agent's output
           const agentLabel = current.state.agentId;

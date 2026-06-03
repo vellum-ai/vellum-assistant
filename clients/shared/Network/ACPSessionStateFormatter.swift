@@ -26,6 +26,7 @@ public enum ACPSessionStateFormatter {
         switch status {
         case .initializing: return "Starting"
         case .running: return "Running"
+        case .idle: return "Idle"
         case .completed: return "Completed"
         case .failed: return "Failed"
         case .cancelled: return "Cancelled"
@@ -40,7 +41,9 @@ public enum ACPSessionStateFormatter {
         case .running, .initializing: return VColor.primaryActive
         case .completed: return VColor.systemPositiveStrong
         case .failed, .cancelled: return VColor.systemNegativeStrong
-        case .unknown: return VColor.contentTertiary
+        // Idle is finished-but-warm: no work in flight, so it reads as a quiet
+        // neutral row rather than the live accent.
+        case .idle, .unknown: return VColor.contentTertiary
         }
     }
 

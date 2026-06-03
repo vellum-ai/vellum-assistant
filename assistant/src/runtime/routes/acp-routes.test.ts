@@ -60,6 +60,12 @@ interface CapturedSpawn {
 
 const capturedSpawns: CapturedSpawn[] = [];
 
+// Records ids passed to manager.close() so the idle delete/bulk-clear tests
+// can assert the session was actually torn down. close() also evicts the
+// in-memory state, mirroring the real teardown (so a subsequent getStatus no
+// longer surfaces the session, matching the real map removal).
+const closedSessionIds: string[] = [];
+
 mock.module("../../acp/index.js", () => ({
   getAcpSessionManager: () => ({
     getStatus: (id?: string) => {
@@ -69,6 +75,12 @@ mock.module("../../acp/index.js", () => ({
       const state = inMemoryStates.get(id);
       if (!state) throw new Error(`ACP session "${id}" not found`);
       return state;
+    },
+    close: (id: string) => {
+      const state = inMemoryStates.get(id);
+      if (!state) throw new Error(`ACP session "${id}" not found`);
+      closedSessionIds.push(id);
+      inMemoryStates.delete(id);
     },
     spawn: async (
       agent: string,
@@ -187,6 +199,7 @@ beforeEach(() => {
   config.setConfig({});
   which.setWhich((cmd) => `/usr/local/bin/${cmd}`);
   capturedSpawns.length = 0;
+  closedSessionIds.length = 0;
   vaultStore.clear();
   metadataStore.clear();
 });
@@ -520,6 +533,45 @@ describe("DELETE /v1/acp/sessions?status=completed", () => {
     );
     expect(listRows()).toHaveLength(1);
   });
+
+  test("closes in-memory idle sessions whose rows are cleared; leaves running untouched", async () => {
+    // An idle session has already written a terminal `completed` row.
+    seedHistoryRow("sess-idle", "completed", 1000);
+    inMemoryStates.set("sess-idle", {
+      id: "sess-idle",
+      agentId: "claude",
+      acpSessionId: "proto-idle",
+      parentConversationId: "conv-1",
+      status: "idle",
+      startedAt: 1000,
+    });
+    // A running session — its (running) row is not terminal, must survive.
+    seedHistoryRow("sess-running", "running", 2000);
+    inMemoryStates.set("sess-running", {
+      id: "sess-running",
+      agentId: "claude",
+      acpSessionId: "proto-running",
+      parentConversationId: "conv-1",
+      status: "running",
+      startedAt: 2000,
+    });
+
+    const handler = getBulkDeleteHandler();
+    const result = (await handler({
+      queryParams: { status: "completed" },
+    })) as { deleted: number };
+
+    // The idle session was closed (torn down) before its row was cleared, so
+    // it won't reappear on the next /acp/sessions refresh.
+    expect(closedSessionIds).toEqual(["sess-idle"]);
+    expect(inMemoryStates.has("sess-idle")).toBe(false);
+    // The running session was NOT closed.
+    expect(inMemoryStates.has("sess-running")).toBe(true);
+
+    // Only the idle session's terminal row was deleted; the running row stays.
+    expect(result.deleted).toBe(1);
+    expect(listRows().map((r) => r.id)).toEqual(["sess-running"]);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -620,6 +672,36 @@ describe("DELETE /v1/acp/sessions/:id", () => {
       pathParams: { id: "does-not-exist" },
     })) as { deleted: boolean };
     expect(result.deleted).toBe(false);
+  });
+
+  test("closes a live idle session, then deletes its row (no 409)", async () => {
+    inMemoryStates.set("sess-idle", {
+      id: "sess-idle",
+      agentId: "claude",
+      acpSessionId: "proto-idle",
+      parentConversationId: "conv-1",
+      status: "idle",
+      startedAt: 1_700_000_000_000,
+      completedAt: 1_700_000_001_000,
+    });
+    insertHistoryRow({ id: "sess-idle", status: "completed" });
+
+    const handler = getDeleteSessionHandler();
+    const result = (await handler({
+      pathParams: { id: "sess-idle" },
+    })) as { deleted: boolean };
+
+    // The idle session was closed (teardown) before the row delete.
+    expect(closedSessionIds).toEqual(["sess-idle"]);
+    expect(inMemoryStates.has("sess-idle")).toBe(false);
+    // The row was removed and success returned — no 409.
+    expect(result.deleted).toBe(true);
+    const remaining = getDb()
+      .select()
+      .from(acpSessionHistory)
+      .where(eq(acpSessionHistory.id, "sess-idle"))
+      .all();
+    expect(remaining).toHaveLength(0);
   });
 
   test("deletes a cancelled in-memory session whose row is in history", async () => {

@@ -266,6 +266,32 @@ function bulkDeleteSessions({ queryParams }: RouteHandlerArgs) {
       "status query param is required and must be 'completed'",
     );
   }
+
+  // Close any in-memory `idle` session before clearing its persisted row.
+  // An idle session is terminal-for-affordances on the client (its last task
+  // already wrote a `completed` row), but its adapter process, idle timer, and
+  // map entry are still live. Without closing it here the bulk-clear would wipe
+  // the DB row only for the session to reappear on the next `/acp/sessions`
+  // refresh (the merge re-surfaces the live idle entry) until the idle timeout.
+  // `close()` reuses the cycle-1 idle teardown: it skips re-persisting the
+  // already-written `completed` row, so the subsequent DB delete still removes
+  // it. Active (running/initializing) sessions are left untouched — their rows
+  // aren't terminal, so the bulk delete skips them too.
+  const manager = getAcpSessionManager();
+  const states = manager.getStatus() as AcpSessionState[];
+  for (const state of states) {
+    if (state.status === "idle") {
+      try {
+        manager.close(state.id);
+      } catch (err) {
+        log.warn(
+          { acpSessionId: state.id, err },
+          "Failed to close idle ACP session during bulk-clear",
+        );
+      }
+    }
+  }
+
   getDb()
     .delete(acpSessionHistory)
     .where(inArray(acpSessionHistory.status, TERMINAL_SESSION_STATUSES))
@@ -278,15 +304,27 @@ function bulkDeleteSessions({ queryParams }: RouteHandlerArgs) {
 function deleteSession({ pathParams }: RouteHandlerArgs) {
   const id = pathParams?.id as string;
 
+  const manager = getAcpSessionManager();
   try {
-    const state = getAcpSessionManager().getStatus(id);
-    if (
-      !Array.isArray(state) &&
-      (state.status === "running" || state.status === "initializing")
-    ) {
-      throw new ConflictError(
-        `ACP session "${id}" is still ${state.status}. Cancel or close it before deleting.`,
-      );
+    const state = manager.getStatus(id);
+    if (!Array.isArray(state)) {
+      if (state.status === "running" || state.status === "initializing") {
+        // A genuinely active session (prompt in flight) must not be deleted —
+        // tearing it down would orphan the running prompt. The caller must
+        // cancel/close it first.
+        throw new ConflictError(
+          `ACP session "${id}" is still ${state.status}. Cancel or close it before deleting.`,
+        );
+      }
+      if (state.status === "idle") {
+        // An idle session is terminal-for-affordances on the client, but its
+        // adapter process, idle timer, and map entry are still live. Close it
+        // (cycle-1 idle teardown: kill process, clear timer, drop the map
+        // entry, skip re-persisting the already-written `completed` row) before
+        // removing its history row, so the delete is consistent — no 409, and
+        // it does not reappear on the next `/acp/sessions` refresh.
+        manager.close(id);
+      }
     }
   } catch (err) {
     if (err instanceof ConflictError) throw err;
@@ -482,8 +520,10 @@ export const ROUTES: RouteDefinition[] = [
     handler: deleteSession,
     summary: "Delete ACP session from history",
     description:
-      "Remove a persisted ACP session row. Rejects with 409 when the " +
-      "session is still active in memory; idempotent for unknown ids.",
+      "Remove a persisted ACP session row. Closes (tears down) a live " +
+      "`idle` session first so the delete is consistent. Rejects with 409 " +
+      "only when the session is still running/initializing in memory; " +
+      "idempotent for unknown ids.",
     tags: ["acp"],
     responseBody: z.object({
       deleted: z.boolean(),

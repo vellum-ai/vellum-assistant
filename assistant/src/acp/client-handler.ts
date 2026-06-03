@@ -59,6 +59,15 @@ export class VellumAcpClientHandler implements Client {
     return this.accumulatedText;
   }
 
+  /**
+   * Clears accumulated per-turn state so a reused (idle → running) session's
+   * follow-up prompt starts with a fresh response buffer instead of
+   * inheriting the previous turn's text.
+   */
+  resetTurn(): void {
+    this.accumulatedText = "";
+  }
+
   constructor(
     private readonly acpSessionId: string,
     private readonly sendToVellum: (msg: ServerMessage) => void,

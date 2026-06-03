@@ -13,7 +13,10 @@ let manager: AcpSessionManager | null = null;
 export function getAcpSessionManager(): AcpSessionManager {
   if (!manager) {
     const config = getConfig();
-    manager = new AcpSessionManager(config.acp.maxConcurrentSessions);
+    manager = new AcpSessionManager(
+      config.acp.maxConcurrentSessions,
+      config.acp.idleTimeoutMs,
+    );
   }
   return manager;
 }
