@@ -1,5 +1,5 @@
 
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 
 import type { GlobalSearchResponse } from "@/domains/chat/api/global-search";
 import { searchGlobal } from "@/domains/chat/api/global-search";
@@ -53,7 +53,7 @@ export function useCommandPalette({
   const [searchResults, setSearchResults] = useState<GlobalSearchResponse | null>(null);
 
   const itemCountGetterRef = useRef<() => number>(() => 0);
-  useEffect(() => {
+  useLayoutEffect(() => {
     itemCountGetterRef.current = typeof itemCountProp === "function" ? itemCountProp : () => itemCountProp;
   });
 

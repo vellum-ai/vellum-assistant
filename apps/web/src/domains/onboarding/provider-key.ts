@@ -1,3 +1,7 @@
+import {
+  inferenceProviderconnectionsPost,
+  secretsPost,
+} from "@/generated/daemon/sdk.gen";
 import { client } from "@/generated/api/client.gen";
 import type { OnboardingProviderId } from "@/domains/onboarding/provider-catalog";
 import { extractErrorMessage } from "@/utils/api-errors";
@@ -65,7 +69,7 @@ export function consumePendingProviderKey(): PendingProviderKey | null {
   return value;
 }
 
-// Daemon wrappers via the generated client. Duplicated minimally here rather
+// Daemon wrappers via the generated SDK. Duplicated minimally here rather
 // than importing domains/settings/ai/provider-connections-client (cross-domain
 // imports are ESLint-gated in apps/web).
 
@@ -93,15 +97,14 @@ async function writeApiKeySecret(
   provider: OnboardingProviderId,
   value: string,
 ): Promise<void> {
-  const result = await client.post({
-    url: "/v1/assistants/{assistant_id}/secrets/",
+  const { response } = await secretsPost({
     path: { assistant_id: assistantId },
     body: { type: "api_key", name: provider, value },
-    headers: { "Content-Type": "application/json" },
+    throwOnError: false,
   });
-  if (!result.response?.ok) {
+  if (!response?.ok) {
     throw Object.assign(new Error("Failed to write provider secret"), {
-      status: result.response?.status,
+      status: response?.status,
     });
   }
 }
@@ -133,8 +136,8 @@ async function createProviderConnection(
   models?: string[],
 ): Promise<void> {
   const auth = hasKey
-    ? { type: "api_key", credential: `credential/${provider}/api_key` }
-    : { type: "none" };
+    ? { type: "api_key" as const, credential: `credential/${provider}/api_key` }
+    : { type: "none" as const };
   const body = {
     name: provider,
     provider,
@@ -153,11 +156,10 @@ async function createProviderConnection(
   // base_url) and all non-openai-compatible providers surface immediately.
   const maxAttempts = provider === "openai-compatible" ? 5 : 1;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const result = await client.post({
-      url: "/v1/assistants/{assistant_id}/inference/provider-connections",
+    const result = await inferenceProviderconnectionsPost({
       path: { assistant_id: assistantId },
       body,
-      headers: { "Content-Type": "application/json" },
+      throwOnError: false,
     });
     if (result.response?.ok) return;
     if (isFlagDisabledError(result) && attempt < maxAttempts) {

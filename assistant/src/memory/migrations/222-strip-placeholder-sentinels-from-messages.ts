@@ -1,15 +1,16 @@
-import { isPlaceholderSentinelText } from "../../providers/anthropic/client.js";
+import { isPlaceholderSentinelText } from "../../providers/placeholder-sentinels.js";
 import type { DrizzleDb } from "../db-connection.js";
 import { getSqliteFrom } from "../db-connection.js";
 import { withCrashRecovery } from "./validate-migration-state.js";
 
 /**
- * Strip Anthropic provider placeholder sentinel text blocks from persisted
- * assistant messages.
+ * Strip provider placeholder sentinel text blocks from persisted assistant
+ * messages.
  *
  * PLACEHOLDER_EMPTY_TURN and PLACEHOLDER_BLOCKS_OMITTED are injected into
- * outbound Anthropic request bodies to preserve role alternation when an
- * assistant turn would otherwise be empty. They are never supposed to be
+ * outbound provider request bodies (Anthropic role alternation, OpenAI-
+ * compatible "content or tool_calls" constraint) when an assistant turn would
+ * otherwise be empty. They are never supposed to be
  * persisted, but a leak path caused them to be stored in the messages table
  * where they render in chat bubbles as bold "PLACEHOLDER[...]" (markdown
  * interprets the double-underscore surround as bold).

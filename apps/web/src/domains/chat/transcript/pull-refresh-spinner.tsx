@@ -1,10 +1,8 @@
 
 import { useEffect, useState } from "react";
 
-import {
-  PULL_THRESHOLD_PX,
-  type PullPhase,
-} from "@/domains/chat/transcript/use-pull-to-refresh";
+import { PULL_THRESHOLD_PX } from "@/domains/chat/transcript/pull-to-refresh-utils";
+import type { PullPhase } from "@/domains/chat/transcript/use-pull-to-refresh";
 
 interface PullRefreshSpinnerProps {
   /** Visual height of the spinner element in px. Drives the

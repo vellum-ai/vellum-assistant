@@ -5,7 +5,7 @@ import {
   getEditChatConversationId,
   resolveEditChatDraftConversationId,
   setEditChatConversationId,
-} from "@/domains/chat/utils/edit-chat-session";
+} from "@/utils/edit-chat-session";
 
 const ASSISTANT = "assistant-1";
 const APP = "app-1";

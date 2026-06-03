@@ -18,8 +18,15 @@ import {
   type ListConversationStartersResult,
 } from "@/domains/chat/utils/conversation-starters";
 
-const POLL_INTERVAL_MS = 3000;
 const STALE_TIME_MS = 60_000;
+const POLL_INTERVAL_MS = 3_000;
+
+function shouldPoll(
+  status: ConversationStartersStatus | undefined,
+): number | false {
+  if (status === "generating" || status === "refreshing") return POLL_INTERVAL_MS;
+  return false;
+}
 
 export interface UseConversationStartersResult {
   starters: ConversationStarter[];
@@ -36,16 +43,6 @@ const IDLE_RESULT: UseConversationStartersResult = {
   isLoading: false,
   refetch: NOOP_REFETCH,
 };
-
-/** Polling decision (exposed for unit testing). */
-export function shouldPoll(
-  status: ConversationStartersStatus | undefined,
-): number | false {
-  if (status === "generating" || status === "refreshing") {
-    return POLL_INTERVAL_MS;
-  }
-  return false;
-}
 
 export function useConversationStarters(
   assistantId: string | null | undefined,

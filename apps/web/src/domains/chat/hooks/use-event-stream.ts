@@ -153,7 +153,8 @@ export function useEventStream({
   // let the user retry forever. `useMemo` would also work but is
   // misleading here — there's no dep that could legitimately change.
   const burstLimiterRef = useRef<ReachabilityBurstLimiter | null>(null);
-  if (!burstLimiterRef.current) {
+  /* eslint-disable react-hooks/refs -- lazy-init (runs once) */
+  if (burstLimiterRef.current == null) {
     burstLimiterRef.current = createReachabilityBurstLimiter({
       onReady: () => useTurnStore.getState().resetTurn(),
       onClearError: () => useChatSessionStore.getState().setError(null),
@@ -161,6 +162,7 @@ export function useEventStream({
       onReset: () => reachabilityResetRef.current(),
     });
   }
+  /* eslint-enable react-hooks/refs */
 
   // --------------------------------------------------------------------------
   // Stream context lifecycle — setup / teardown of the stream-store
@@ -233,6 +235,8 @@ export function useEventStream({
     ) {
       return null;
     }
+    // Refs read inside closures that run at event-dispatch time, not during render.
+    // eslint-disable-next-line react-hooks/refs
     return createSseEventConsumer({
       activeConversationIdRef: activeConversationIdLatestRef,
       handleStreamEvent: (event, epoch) =>
@@ -259,6 +263,8 @@ export function useEventStream({
     ) {
       return null;
     }
+    // Refs read inside closures that run at event-dispatch time, not during render.
+    // eslint-disable-next-line react-hooks/refs
     return createReconcileOnReopen({
       assistantId,
       conversationId: activeConversationId,

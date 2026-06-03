@@ -22,6 +22,7 @@ import {
   fetchOAuthProviders,
   type OAuthProviderSummary,
 } from "@/domains/settings/api/oauth-providers";
+import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { captureError } from "@/lib/sentry/capture-error";
 import { routes } from "@/utils/routes";
 
@@ -50,6 +51,7 @@ function connectionForProvider(
 function IntegrationsPanelInner() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const platformGate = usePlatformGate();
 
   const [assistant, setAssistant] = useState<Assistant | null>(null);
   const [assistantLoading, setAssistantLoading] = useState(true);
@@ -110,7 +112,7 @@ function IntegrationsPanelInner() {
     ...assistantsOauthConnectionsListOptions({
       path: { assistant_id: assistant?.id ?? "" },
     }),
-    enabled: !!assistant,
+    enabled: !!assistant && platformGate === "full",
   });
 
   // Handle OAuth callback query params.
@@ -343,6 +345,7 @@ function IntegrationsPanelInner() {
                   connections,
                   provider.provider_key,
                 )}
+                platformGate={platformGate}
                 onConfigure={() =>
                   setSelectedProviderKey(provider.provider_key)
                 }
@@ -361,6 +364,7 @@ function IntegrationsPanelInner() {
           }
           description={selectedProvider.description}
           logoUrl={selectedProvider.logo_url}
+          platformGate={platformGate}
           onClose={() => setSelectedProviderKey(null)}
         />
       )}

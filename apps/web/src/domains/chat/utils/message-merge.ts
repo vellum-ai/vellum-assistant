@@ -16,7 +16,6 @@ export function messagesEqual(a: DisplayMessage[], b: DisplayMessage[]): boolean
       JSON.stringify(am.textSegments) !== JSON.stringify(bm.textSegments) ||
       JSON.stringify(am.contentOrder) !== JSON.stringify(bm.contentOrder) ||
       JSON.stringify(am.thinkingSegments) !== JSON.stringify(bm.thinkingSegments) ||
-      JSON.stringify(am.metadata) !== JSON.stringify(bm.metadata) ||
       JSON.stringify(am.slackMessage) !== JSON.stringify(bm.slackMessage) ||
       JSON.stringify(am.toolCalls) !== JSON.stringify(bm.toolCalls) ||
       JSON.stringify(am.attachments) !== JSON.stringify(bm.attachments)
@@ -33,7 +32,6 @@ export function messagesEqual(a: DisplayMessage[], b: DisplayMessage[]): boolean
       "textSegments",
       "contentOrder",
       "thinkingSegments",
-      "metadata",
       "slackMessage",
       "toolCalls",
       "attachments",
@@ -227,13 +225,6 @@ export function mergeDuplicateMessages(
   );
   if (attachments) merged.attachments = attachments;
 
-  if (current.metadata || incoming.metadata) {
-    merged.metadata = {
-      ...(current.metadata ?? {}),
-      ...(incoming.metadata ?? {}),
-      ...(preferred.metadata ?? {}),
-    };
-  }
   if (current.slackMessage || incoming.slackMessage) {
     merged.slackMessage = incoming.slackMessage ?? current.slackMessage;
   }
@@ -326,12 +317,6 @@ export function mergeLatestHistoryMessage(
   );
   if (thinkingSegments) merged.thinkingSegments = thinkingSegments;
 
-  if (current.metadata || incoming.metadata) {
-    merged.metadata = {
-      ...(current.metadata ?? {}),
-      ...(incoming.metadata ?? {}),
-    };
-  }
   if (current.slackMessage || incoming.slackMessage) {
     merged.slackMessage = incoming.slackMessage ?? current.slackMessage;
   }

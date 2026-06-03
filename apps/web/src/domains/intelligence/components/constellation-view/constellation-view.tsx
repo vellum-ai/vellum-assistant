@@ -71,6 +71,7 @@ export function ConstellationView({
     const items: OrbitItem[] = skills.map((skill) => ({
       id: skill.id,
       label: skill.name,
+      icon: skill.icon,
       emoji: skill.emoji,
       category: skill.category ?? "knowledge",
       description: skill.description,

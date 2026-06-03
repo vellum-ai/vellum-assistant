@@ -28,11 +28,9 @@ import { routes } from "@/utils/routes";
 import {
   organizationsNotificationsAcknowledgeCreateMutation,
   organizationsNotificationsListOptions,
-  organizationsNotificationsListQueryKey,
   organizationsNotificationsPauseRulesCreateMutation,
   organizationsNotificationsPauseRulesDestroyMutation,
   organizationsNotificationsSnoozeCreateMutation,
-  organizationsNotificationsSummaryRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type {
   NotificationList,
@@ -41,6 +39,7 @@ import type {
 import {
   SNOOZE_OPTIONS,
   formatRelativeDate,
+  invalidateNotificationQueries,
   isSnoozed,
 } from "@/domains/settings/utils/notification";
 
@@ -62,14 +61,7 @@ function SnoozeMenu({
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
 
-  const invalidate = () => {
-    queryClient.invalidateQueries({
-      queryKey: organizationsNotificationsListQueryKey(),
-    });
-    queryClient.invalidateQueries({
-      queryKey: organizationsNotificationsSummaryRetrieveQueryKey(),
-    });
-  };
+  const invalidate = () => invalidateNotificationQueries(queryClient);
 
   const handleSnooze = async (hours: number) => {
     const now = new Date();
@@ -181,14 +173,7 @@ function PauseAlertsContent({
   );
   const [reason, setReason] = useState("");
 
-  const invalidate = () => {
-    queryClient.invalidateQueries({
-      queryKey: organizationsNotificationsListQueryKey(),
-    });
-    queryClient.invalidateQueries({
-      queryKey: organizationsNotificationsSummaryRetrieveQueryKey(),
-    });
-  };
+  const invalidate = () => invalidateNotificationQueries(queryClient);
 
   const handleCreate = async () => {
     const now = new Date();
@@ -515,14 +500,10 @@ export function NotificationsPage() {
   const [ackingIds, setAckingIds] = useState<Set<string>>(new Set());
   const [markingAll, setMarkingAll] = useState(false);
 
-  const invalidateLists = useCallback(() => {
-    queryClient.invalidateQueries({
-      queryKey: organizationsNotificationsListQueryKey(),
-    });
-    queryClient.invalidateQueries({
-      queryKey: organizationsNotificationsSummaryRetrieveQueryKey(),
-    });
-  }, [queryClient]);
+  const invalidateLists = useCallback(
+    () => invalidateNotificationQueries(queryClient),
+    [queryClient],
+  );
 
   const handleAck = async (id: string, acknowledged: boolean) => {
     setAckingIds((prev) => new Set(prev).add(id));

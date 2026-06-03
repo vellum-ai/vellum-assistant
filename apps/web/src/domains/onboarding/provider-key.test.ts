@@ -37,6 +37,15 @@ function nextResponse(url: string): QueuedResponse {
   return queued ?? { ok: true, status: 200 };
 }
 
+// Canonical daemon-SDK URLs. The generated SDK functions are invoked with
+// `path`/`body` (no `url`), so the SDK mocks attribute their calls to these
+// stable URL constants to keep assertions URL-keyed across both clients.
+const CONNECTIONS_URL =
+  "/v1/assistants/{assistant_id}/inference/provider-connections";
+const SECRETS_URL = "/v1/assistants/{assistant_id}/secrets";
+
+// Raw client (gateway routes with no typed SDK function): the feature-flag
+// PATCH and the connection test POST.
 const patchMock = mock(
   async (args: { url: string; body?: Record<string, unknown> }) => {
     calls.push({ method: "patch", url: args.url, body: args.body });
@@ -66,6 +75,41 @@ mock.module("@/generated/api/client.gen", () => ({
   client: { patch: patchMock, post: postMock },
 }));
 
+// Generated daemon SDK: `secretsPost` (writeApiKeySecret) and
+// `inferenceProviderconnectionsPost` (createProviderConnection). Both return
+// heyapi-style results (`{ response, data, error }`).
+const secretsPostMock = mock(
+  async (args: {
+    path?: Record<string, unknown>;
+    body?: Record<string, unknown>;
+  }) => {
+    calls.push({ method: "post", url: SECRETS_URL, path: args.path, body: args.body });
+    const { ok, status, error, data } = nextResponse(SECRETS_URL);
+    return { response: { ok, status }, error, data };
+  },
+);
+
+const inferenceProviderconnectionsPostMock = mock(
+  async (args: {
+    path?: Record<string, unknown>;
+    body?: Record<string, unknown>;
+  }) => {
+    calls.push({
+      method: "post",
+      url: CONNECTIONS_URL,
+      path: args.path,
+      body: args.body,
+    });
+    const { ok, status, error, data } = nextResponse(CONNECTIONS_URL);
+    return { response: { ok, status }, error, data };
+  },
+);
+
+mock.module("@/generated/daemon/sdk.gen", () => ({
+  secretsPost: secretsPostMock,
+  inferenceProviderconnectionsPost: inferenceProviderconnectionsPostMock,
+}));
+
 const {
   applyPendingProviderKey,
   consumePendingProviderKey,
@@ -73,8 +117,6 @@ const {
   setPendingProviderKey,
 } = await import("@/domains/onboarding/provider-key");
 
-const CONNECTIONS_URL =
-  "/v1/assistants/{assistant_id}/inference/provider-connections";
 const FLAG_URL =
   "/v1/assistants/asst-1/feature-flags/openai-compatible-endpoints";
 // Probe route: connection name === provider id (openai-compatible).
@@ -87,6 +129,8 @@ beforeEach(() => {
   for (const key of Object.keys(responseQueues)) delete responseQueues[key];
   patchMock.mockClear();
   postMock.mockClear();
+  secretsPostMock.mockClear();
+  inferenceProviderconnectionsPostMock.mockClear();
 });
 
 describe("pending provider key", () => {
@@ -208,6 +252,9 @@ describe("applyPendingProviderKey", () => {
     const result = await applyPendingProviderKey("asst-1");
 
     expect(patchMock).not.toHaveBeenCalled();
+
+    // A keyed provider writes its secret via the daemon SDK before creating.
+    expect(secretsPostMock).toHaveBeenCalledTimes(1);
 
     const connectionCalls = calls.filter(
       (c) => c.method === "post" && c.url === CONNECTIONS_URL,

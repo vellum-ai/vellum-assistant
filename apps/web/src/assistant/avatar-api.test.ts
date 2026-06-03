@@ -14,7 +14,7 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { client } from "@/generated/api/client.gen";
+import { client } from "@/generated/daemon/client.gen";
 import { MIN_VERSION } from "@/lib/backwards-compat/avatar-state-manifest";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import type { AvatarState } from "@/types/avatar";
@@ -74,9 +74,9 @@ describe("isAvatarState", () => {
   });
 
   test("rejects malformed image meta", () => {
-    expect(
-      isAvatarState({ ...IMAGE_STATE, image: { updatedAt: "now" } }),
-    ).toBe(false);
+    expect(isAvatarState({ ...IMAGE_STATE, image: { updatedAt: "now" } })).toBe(
+      false,
+    );
   });
 
   test("rejects an invalid source", () => {
@@ -123,9 +123,7 @@ describe("fetchAvatarState", () => {
 
     await fetchAvatarState("asst-1");
 
-    expect(captured?.url).toBe(
-      "/v1/assistants/{assistant_id}/avatar/state",
-    );
+    expect(captured?.url).toBe("/v1/assistants/{assistant_id}/avatar/state");
     expect(captured?.path).toEqual({ assistant_id: "asst-1" });
   });
 
@@ -223,7 +221,10 @@ describe("uploadAvatarImage (manifest assistants)", () => {
     const post = capturedPosts[0];
     expect(post?.url).toBe("/v1/assistants/{assistant_id}/avatar/image");
     expect(post?.path).toEqual({ assistant_id: "asst-1" });
-    expect(post?.body).toEqual({ content: btoa("\x89PNG"), encoding: "base64" });
+    expect(post?.body).toMatchObject({
+      content: btoa("\x89PNG"),
+      encoding: "base64",
+    });
   });
 
   test("does not write or delete workspace files", async () => {
@@ -266,17 +267,19 @@ describe("uploadAvatarImage (pre-manifest assistants)", () => {
     expect(capturedPosts).toHaveLength(2);
 
     const write = capturedPosts[0];
-    expect(write?.url).toBe("/v1/assistants/{assistant_id}/workspace/write/");
+    expect(write?.url).toBe("/v1/assistants/{assistant_id}/workspace/write");
     expect(write?.path).toEqual({ assistant_id: "asst-1" });
-    expect(write?.body).toEqual({
+    expect(write?.body).toMatchObject({
       path: "data/avatar/avatar-image.png",
       content: btoa("\x89PNG"),
       encoding: "base64",
     });
 
     const del = capturedPosts[1];
-    expect(del?.url).toBe("/v1/assistants/{assistant_id}/workspace/delete/");
-    expect(del?.body).toEqual({ path: "data/avatar/character-traits.json" });
+    expect(del?.url).toBe("/v1/assistants/{assistant_id}/workspace/delete");
+    expect(del?.body).toMatchObject({
+      path: "data/avatar/character-traits.json",
+    });
 
     // The new single-shot endpoint must never be hit on old assistants.
     for (const post of capturedPosts) {
@@ -290,7 +293,7 @@ describe("uploadAvatarImage (pre-manifest assistants)", () => {
     expect(await uploadAvatarImage("asst-1", pngFile())).toBe(false);
     expect(capturedPosts).toHaveLength(1);
     expect(capturedPosts[0]?.url).toBe(
-      "/v1/assistants/{assistant_id}/workspace/write/",
+      "/v1/assistants/{assistant_id}/workspace/write",
     );
   });
 });
@@ -330,8 +333,8 @@ describe("uploadAvatarImage (version unhydrated at upload time)", () => {
 
     expect(await pending).toBe(true);
     expect(capturedPosts.map((post) => post.url)).toEqual([
-      "/v1/assistants/{assistant_id}/workspace/write/",
-      "/v1/assistants/{assistant_id}/workspace/delete/",
+      "/v1/assistants/{assistant_id}/workspace/write",
+      "/v1/assistants/{assistant_id}/workspace/delete",
     ]);
   });
 });

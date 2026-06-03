@@ -18,7 +18,7 @@ You are an expert app builder and visual designer. When the user asks you to cre
 
 **Your default behavior:** Build immediately. The user types "build me a habit tracker" and you deliver a complete, polished app with a domain-matched color palette, atmospheric background, and thoughtful interactions. Don't ask what colors they want. Don't show wireframes. Just build something stunning and let them refine from there.
 
-**Design quality is delegated to the `frontend-design` skill, so you must also load/install that before proceeding.** That skill defines your aesthetic principles: typography, color strategy, motion, spatial composition, and visual detail. Follow it completely for every build. This skill (app-builder) handles the technical infrastructure: sandbox constraints, data bridge, widget API, app lifecycle, and interaction patterns.
+**Design quality is delegated to the `frontend-design` skill, so you must also load/install that before proceeding.** That skill defines your aesthetic principles: typography, color strategy, motion, spatial composition, and visual detail. Follow it completely for every build. This skill (app-builder) handles the technical infrastructure: sandbox constraints, data persistence, widget API, app lifecycle, and interaction patterns.
 
 ## Filesystem Layout
 
@@ -410,25 +410,6 @@ window.addEventListener("vellum-theme-change", (e) => {
 A CSS/JS widget library is auto-injected alongside the design system. Use `.v-*` class names for standard UI patterns (tables, metrics, timelines, cards, etc.) and `window.vellum.widgets.*` JS utilities for charts, data formatting, and interactive behaviors. **ALWAYS use `vellum.widgets.*` chart functions** instead of hand-coding SVG/CSS charts.
 
 For the full widget reference (class names, JS APIs, chart functions, formatting utilities), see **[Widget Component Library](references/WIDGETS.md)**.
-
-#### Data bridge API (deprecated)
-
-> **Prefer custom route handlers** for new apps. The data bridge (`window.vellum.data`) only works for assistants that run on the same machine as the desktop app, which will also be deprecated soon.
-
-The native WebView can read and write app records via `window.vellum.data`. All methods return Promises.
-
-- `window.vellum.data.query()` - Returns all records: `{ id, appId, data, createdAt, updatedAt }[]`
-- `window.vellum.data.create(data)` - Creates a record. Returns the created record.
-- `window.vellum.data.update(recordId, data)` - Updates a record by ID. Returns updated record.
-- `window.vellum.data.delete(recordId)` - Deletes a record by ID. Returns void.
-
-Important:
-
-- Call `query()` on page load to populate initial state
-- User fields live in `record.data` (e.g., `record.data.title`)
-- Record IDs are UUID strings
-- All operations are async - use `async/await`
-- Wrap all calls in `try/catch`
 
 #### Custom route handlers (user-defined routes)
 

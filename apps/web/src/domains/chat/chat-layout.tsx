@@ -256,21 +256,21 @@ export function ChatLayout() {
   const assistantVersion = useAssistantIdentityStore.use.version();
 
   // --- History tracking for back/forward nav ---
-  const historyIndexRef = useRef(0);
-  const maxHistoryIndexRef = useRef(0);
+  // These are state (not refs) because they influence rendering
+  // (canGoBack / canGoForward gate button enabled states).
+  const [historyIndex, setHistoryIndex] = useState(0);
+  const [maxHistoryIndex, setMaxHistoryIndex] = useState(0);
+  const [prevLocation, setPrevLocation] = useState(location);
 
-  const prevLocationRef = useRef(location);
-  if (prevLocationRef.current !== location) {
-    historyIndexRef.current = window.history.state?.idx ?? 0;
-    maxHistoryIndexRef.current = Math.max(
-      maxHistoryIndexRef.current,
-      historyIndexRef.current,
-    );
-    prevLocationRef.current = location;
+  if (prevLocation !== location) {
+    const idx = (window.history.state?.idx as number) ?? 0;
+    setPrevLocation(location);
+    setHistoryIndex(idx);
+    setMaxHistoryIndex((prev) => Math.max(prev, idx));
   }
 
-  const canGoBack = historyIndexRef.current > 0;
-  const canGoForward = historyIndexRef.current < maxHistoryIndexRef.current;
+  const canGoBack = historyIndex > 0;
+  const canGoForward = historyIndex < maxHistoryIndex;
 
   const handleStartNewConversation = useCallback(() => {
     haptic.light();
@@ -549,6 +549,20 @@ export function ChatLayout() {
 
   const isLibraryActive = location.pathname.startsWith("/assistant/library");
 
+  // Only highlight a conversation row in the sidebar when the user is
+  // actually viewing it. On non-conversation routes (Identity, Library,
+  // Home, etc.) no conversation row should appear active. The store value
+  // is intentionally left intact — many other consumers (SSE streams,
+  // attention tracking, message reconciliation) rely on it persisting
+  // across route changes.
+  const isOnConversationRoute =
+    location.pathname === routes.assistant ||
+    location.pathname === `${routes.assistant}/` ||
+    location.pathname.startsWith("/assistant/conversations/");
+  const sidebarActiveConversationId = isOnConversationRoute
+    ? (activeConversationId ?? undefined)
+    : undefined;
+
   // Sidebar pinned-app open. The viewer panel only renders under ChatPage
   // (mounted at `/assistant` index + `/assistant/conversations/:id`), so a
   // pinned-app click from home / library / identity / inspector etc. would
@@ -597,7 +611,7 @@ export function ChatLayout() {
         onWidthChange={args.onWidthChange}
         conversations={conversations}
         conversationGroups={conversationGroups}
-        activeConversationId={activeConversationId ?? undefined}
+        activeConversationId={sidebarActiveConversationId}
         processingConversationIds={processingConversationIds}
         attentionConversationIds={attentionConversationIds}
         onSelectConversation={handleSelectConversation}
@@ -637,7 +651,7 @@ export function ChatLayout() {
       assistantVersion,
       conversations,
       conversationGroups,
-      activeConversationId,
+      sidebarActiveConversationId,
       processingConversationIds,
       attentionConversationIds,
       handleSelectConversation,

@@ -6,10 +6,11 @@
 // the UI loads the most recent page on open and pages older history in on
 // demand as the user scrolls up.
 
-// Side-effect import — configures the HeyAPI client (CSRF cookie + active
-// organization header) exactly the same way `./api.ts` does.
-
-import { client } from "@/generated/api/client.gen";
+import { messagesGet } from "@/generated/daemon/sdk.gen";
+import type {
+  MessagesGetData,
+  MessagesGetResponse,
+} from "@/generated/daemon/types.gen";
 import {
   ApiError,
   assertHasResponse,
@@ -31,17 +32,12 @@ export type { PaginatedHistoryResult };
 const DEFAULT_LATEST_LIMIT = 50;
 const DEFAULT_OLDER_LIMIT = 50;
 
-interface PaginatedHistoryResponseBody {
-  messages?: unknown;
-  hasMore?: unknown;
-  oldestTimestamp?: unknown;
-  oldestMessageId?: unknown;
-}
+type HistoryQuery = NonNullable<MessagesGetData["query"]>;
 
 function parsePaginatedResponse(
-  body: PaginatedHistoryResponseBody,
+  body: MessagesGetResponse | undefined,
 ): PaginatedHistoryResult {
-  const rawMessages = Array.isArray(body.messages) ? body.messages : [];
+  const rawMessages = Array.isArray(body?.messages) ? body.messages : [];
   const validMessages = rawMessages.filter(
     (m): m is RuntimeMessage =>
       !!m &&
@@ -75,16 +71,9 @@ function parsePaginatedResponse(
     }
   }
 
-  const hasMore = typeof body.hasMore === "boolean" ? body.hasMore : false;
-  const oldestTimestamp =
-    typeof body.oldestTimestamp === "number" &&
-    Number.isFinite(body.oldestTimestamp)
-      ? body.oldestTimestamp
-      : null;
-  const oldestMessageId =
-    typeof body.oldestMessageId === "string" && body.oldestMessageId.length > 0
-      ? body.oldestMessageId
-      : null;
+  const hasMore = body?.hasMore ?? false;
+  const oldestTimestamp = body?.oldestTimestamp ?? null;
+  const oldestMessageId = body?.oldestMessageId || null;
 
   return {
     messages,
@@ -97,13 +86,9 @@ function parsePaginatedResponse(
 
 async function fetchPaginatedHistory(
   assistantId: string,
-  query: Record<string, string>,
+  query: HistoryQuery,
 ): Promise<PaginatedHistoryResult> {
-  const { data, error, response } = await client.get<
-    PaginatedHistoryResponseBody,
-    unknown
-  >({
-    url: "/v1/assistants/{assistant_id}/messages/",
+  const { data, error, response } = await messagesGet({
     path: { assistant_id: assistantId },
     query,
     throwOnError: false,
@@ -124,7 +109,7 @@ async function fetchPaginatedHistory(
     throw new ApiError(response.status, message);
   }
 
-  const result = parsePaginatedResponse(data ?? {});
+  const result = parsePaginatedResponse(data);
   recordDiagnostic("history_page_fetch", {
     assistantId,
     query,
@@ -151,7 +136,7 @@ export async function fetchLatestHistoryPage(
   return fetchPaginatedHistory(assistantId, {
     conversationId,
     page: "latest",
-    limit: String(limit),
+    limit,
   });
 }
 
@@ -169,7 +154,7 @@ export async function fetchOlderHistoryPage(
 ): Promise<PaginatedHistoryResult> {
   return fetchPaginatedHistory(assistantId, {
     conversationId,
-    beforeTimestamp: String(beforeTimestamp),
-    limit: String(limit),
+    beforeTimestamp,
+    limit,
   });
 }

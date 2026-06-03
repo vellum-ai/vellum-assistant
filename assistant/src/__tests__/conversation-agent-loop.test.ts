@@ -554,6 +554,7 @@ import {
   applyCompactionResult,
   runAgentLoopImpl,
 } from "../daemon/conversation-agent-loop.js";
+import { stripInjectionsForCompaction } from "../daemon/conversation-runtime-assembly.js";
 
 // ── Test helpers ─────────────────────────────────────────────────────
 
@@ -579,7 +580,11 @@ async function simulateInlineCompaction(
   compactionCircuit: CompactionCircuit,
 ): Promise<Message[] | null> {
   await onEvent({ type: "context_compacting" });
-  const { rawHistory, options } = compaction.prepare(history);
+  // The agent loop strips runtime injections before calling prepare (the strip
+  // is identity-stubbed in this suite); prepare commits the stripped history to
+  // durable state and returns only the pipeline options.
+  const rawHistory = stripInjectionsForCompaction(history);
+  const { options } = compaction.prepare(rawHistory);
   let result: CompactionResult;
   try {
     result = await runPipeline<CompactionArgs, CompactionResult>(
@@ -960,7 +965,7 @@ describe("session-agent-loop", () => {
   });
 
   describe("proactive artifact trigger", () => {
-    test("suppresses proactive app build when the foreground turn used app tools", async () => {
+    test("does not start proactive artifact jobs after foreground user turns", async () => {
       mockConversationRow = {
         ...mockConversationRow,
         id: "test-conv",
@@ -1037,11 +1042,7 @@ describe("session-agent-loop", () => {
       );
       await new Promise((resolve) => setTimeout(resolve, 0));
 
-      expect(runProactiveArtifactJobMock).toHaveBeenCalledTimes(1);
-      expect(runProactiveArtifactJobMock.mock.calls[0]?.[0]).toMatchObject({
-        conversationId: "test-conv",
-        suppressAppBuild: true,
-      });
+      expect(runProactiveArtifactJobMock).toHaveBeenCalledTimes(0);
     });
   });
 

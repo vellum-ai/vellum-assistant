@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useLayoutEffect, useRef } from "react";
 
 import * as Sentry from "@sentry/react";
 
@@ -124,7 +124,9 @@ export function useMessageReconciliation({
   latestPageOldestTimestamp,
 }: UseMessageReconciliationArgs): UseMessageReconciliationReturn {
   const initialPageOldestTsRef = useRef<number | null>(latestPageOldestTimestamp);
-  initialPageOldestTsRef.current = latestPageOldestTimestamp;
+  useLayoutEffect(() => {
+    initialPageOldestTsRef.current = latestPageOldestTimestamp;
+  }, [latestPageOldestTimestamp]);
   const setMessages = useChatSessionStore.use.setMessages();
   const reconcileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -264,10 +266,6 @@ export function useMessageReconciliation({
         });
         Sentry.captureMessage("sse_poll_reconciled_rescue", {
           level: "warning",
-          // platform and messagesAddedBucket are tags (not extras)
-          // so they aggregate in Discover. Bucketed (not raw count)
-          // to keep tag cardinality bounded.
-          // https://docs.sentry.io/concepts/key-terms/key-terms/#tags
           tags: {
             context: "sse_terminal",
             platform: resolvePlatformTag(),

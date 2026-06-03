@@ -7,21 +7,20 @@ import {
   runtimeMessagePlainText,
 } from "@/domains/chat/utils/map-runtime-message";
 
-import { messageText, textBody } from "@/domains/chat/utils/message-test-helpers";
+import {
+  makeServerMessage,
+  messageText,
+  wireTextBody,
+} from "@/domains/chat/utils/message-test-helpers";
 function makeMessage(overrides: Partial<RuntimeMessage>): RuntimeMessage {
-  return {
-    id: "msg-1",
-    role: "assistant",
-    ...textBody(""),
-    ...overrides,
-  };
+  return makeServerMessage({ id: "msg-1", role: "assistant", ...overrides });
 }
 
 describe("prepareServerMessage", () => {
   test("returns unchanged segments when no attachment markers appear", () => {
     const m = makeMessage({
-      textSegments: [{ type: "text", content: "hello world" }],
-      contentOrder: [{ type: "text", id: "0" }],
+      textSegments: ["hello world"],
+      contentOrder: ["text:0"],
     });
 
     const prepared = prepareServerMessage(m);
@@ -35,13 +34,9 @@ describe("prepareServerMessage", () => {
   test("strips attachment summary appended to the only segment", () => {
     const m = makeMessage({
       textSegments: [
-        {
-          type: "text",
-          content:
-            "here you go\n[File attachment] file.pdf, type=application/pdf",
-        },
+        "here you go\n[File attachment] file.pdf, type=application/pdf",
       ],
-      contentOrder: [{ type: "text", id: "0" }],
+      contentOrder: ["text:0"],
     });
 
     const prepared = prepareServerMessage(m);
@@ -60,18 +55,10 @@ describe("prepareServerMessage", () => {
     // line visible in segment[1].
     const m = makeMessage({
       textSegments: [
-        { type: "text", content: "preamble" },
-        {
-          type: "text",
-          content:
-            "after-tool\n[File attachment] file.pdf, type=application/pdf",
-        },
+        "preamble",
+        "after-tool\n[File attachment] file.pdf, type=application/pdf",
       ],
-      contentOrder: [
-        { type: "text", id: "0" },
-        { type: "tool", id: "0" },
-        { type: "text", id: "1" },
-      ],
+      contentOrder: ["text:0", "tool:0", "text:1"],
     });
 
     const prepared = prepareServerMessage(m);
@@ -89,18 +76,10 @@ describe("prepareServerMessage", () => {
     // between, then a longer narrative ends with the attachment summary.
     const m = makeMessage({
       textSegments: [
-        { type: "text", content: "Connected as user@example.com" },
-        {
-          type: "text",
-          content:
-            "Here is the analysis.\n[File attachment] data.csv, type=text/csv",
-        },
+        "Connected as user@example.com",
+        "Here is the analysis.\n[File attachment] data.csv, type=text/csv",
       ],
-      contentOrder: [
-        { type: "text", id: "0" },
-        { type: "surface", id: "0" },
-        { type: "text", id: "1" },
-      ],
+      contentOrder: ["text:0", "surface:0", "text:1"],
     });
 
     const prepared = prepareServerMessage(m);
@@ -120,16 +99,10 @@ describe("prepareServerMessage", () => {
     // entire content is the `[File attachment]` summary block.
     const m = makeMessage({
       textSegments: [
-        { type: "text", content: "look at this" },
-        {
-          type: "text",
-          content: "[File attachment] x.pdf, type=application/pdf",
-        },
+        "look at this",
+        "[File attachment] x.pdf, type=application/pdf",
       ],
-      contentOrder: [
-        { type: "text", id: "0" },
-        { type: "text", id: "1" },
-      ],
+      contentOrder: ["text:0", "text:1"],
     });
 
     const prepared = prepareServerMessage(m);
@@ -148,18 +121,10 @@ describe("mapRuntimeToDisplayMessage", () => {
       id: "msg-2",
       role: "assistant",
       textSegments: [
-        { type: "text", content: "intro" },
-        {
-          type: "text",
-          content:
-            "tail\n[File attachment] sheet.csv, type=text/csv, size=1.0 KB",
-        },
+        "intro",
+        "tail\n[File attachment] sheet.csv, type=text/csv, size=1.0 KB",
       ],
-      contentOrder: [
-        { type: "text", id: "0" },
-        { type: "tool", id: "0" },
-        { type: "text", id: "1" },
-      ],
+      contentOrder: ["text:0", "tool:0", "text:1"],
     });
 
     const display = mapRuntimeToDisplayMessage(m);
@@ -181,13 +146,9 @@ describe("mapRuntimeToDisplayMessage", () => {
     const m = makeMessage({
       id: "msg-think",
       role: "assistant",
-      textSegments: [{ type: "text", content: "the answer" }],
+      textSegments: ["the answer"],
       thinkingSegments: ["let me reason", "and conclude"],
-      contentOrder: [
-        { type: "thinking", id: "0" },
-        { type: "thinking", id: "1" },
-        { type: "text", id: "0" },
-      ],
+      contentOrder: ["thinking:0", "thinking:1", "text:0"],
     });
 
     // WHEN it is mapped into a display message
@@ -207,19 +168,15 @@ describe("mapRuntimeToDisplayMessage", () => {
     const m = makeMessage({
       id: "msg-slack",
       role: "user",
-      ...textBody("Slack reply"),
-      metadata: { source: "slack" },
+      ...wireTextBody("Slack reply"),
       slackMessage: {
         channelId: "C123ABCDEF",
         channelName: "triage",
         channelTs: "1710000000.000200",
         threadTs: "1710000000.000100",
         sender: {
-          id: "U123",
           displayName: "Ada Lovelace",
-          username: "ada",
-          avatarUrl: "https://example.com/avatar.png",
-          isBot: false,
+          externalUserId: "U123",
         },
         messageLink: {
           appUrl:
@@ -242,8 +199,7 @@ describe("mapRuntimeToDisplayMessage", () => {
     expect(display).toMatchObject({
       id: "msg-slack",
       role: "user",
-      ...textBody("Slack reply"),
-      metadata: { source: "slack" },
+      textSegments: [{ type: "text", content: "Slack reply" }],
       slackMessage: m.slackMessage,
       timestamp: Date.parse("2026-05-15T12:34:56.000Z"),
     });

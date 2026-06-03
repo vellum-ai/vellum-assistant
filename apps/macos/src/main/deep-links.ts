@@ -1,10 +1,7 @@
-import {
-  BrowserWindow,
-  app,
-  ipcMain,
-  type WebContents,
-} from "electron";
+import { BrowserWindow, app, type WebContents } from "electron";
+import { z } from "zod";
 
+import { handle, on } from "./ipc";
 import { ensureVisible as ensureMainWindowVisible } from "./main-window";
 
 /**
@@ -205,25 +202,25 @@ export const installDeepLinks = (): void => {
   // buffer. The next link's `handleDeepLink` decision (buffer vs
   // broadcast-only) is governed by `subscriberCount`, not by
   // whether drain has been called.
-  ipcMain.handle("vellum:deepLinks:drain", (): DeepLink[] => {
+  handle("vellum:deepLinks:drain", z.tuple([]), (): DeepLink[] => {
     return pending.splice(0, pending.length);
   });
 
   // Subscriber tracking — see the `subscribers` comment above for
-  // the model. `ipcMain.on` (fire-and-forget) is sufficient — these
+  // the model. The fire-and-forget `on` channel is sufficient — these
   // are accounting messages, no return value expected. The preload
   // sends them inside `onLink` registration / cleanup; the
   // `destroyed` listener is the defense-in-depth for the cases
   // where the React effect cleanup doesn't run before the
   // webContents is torn down.
-  ipcMain.on("vellum:deepLinks:subscribe", (event) => {
+  on("vellum:deepLinks:subscribe", z.tuple([]), (_args, event) => {
     if (subscribers.has(event.sender)) return;
     subscribers.add(event.sender);
     event.sender.once("destroyed", () => {
       subscribers.delete(event.sender);
     });
   });
-  ipcMain.on("vellum:deepLinks:unsubscribe", (event) => {
+  on("vellum:deepLinks:unsubscribe", z.tuple([]), (_args, event) => {
     subscribers.delete(event.sender);
   });
 };
