@@ -331,7 +331,7 @@ async function handleDeleteProvider({
  * list endpoint. Mirrors `SerializedProviderSummary` from the provider
  * serializer (snake_case to match the HTTP API convention).
  */
-const oauthProviderSummarySchema = z.object({
+export const oauthProviderSummarySchema = z.object({
   provider_key: z.string(),
   display_name: z.string().nullable(),
   description: z.string().nullable(),
