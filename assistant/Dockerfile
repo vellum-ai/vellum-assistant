@@ -231,6 +231,11 @@ RUN printf '%s\n' \
 # Ensure the CES bootstrap socket volume is writable by the non-root CES user.
 RUN mkdir -p /run/ces-bootstrap && chmod 777 /run/ces-bootstrap
 
+# Bake the Claude Code ACP adapter into the image so resolve-agent.ts finds it
+# on PATH at runtime. Installed as the runtime `assistant` user so it lands in
+# BUN_INSTALL (/home/assistant/.bun/bin), which is already on PATH.
+USER assistant
+RUN bun install -g @agentclientprotocol/claude-agent-acp@0.40.0
 USER root
 
 EXPOSE 3001
