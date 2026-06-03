@@ -13456,6 +13456,40 @@ paths:
               required:
                 - auth
               additionalProperties: false
+  /v1/inference/provider-connections/{name}/test:
+    post:
+      operationId: inference_providerconnections_by_name_test_post
+      summary: Test a provider connection
+      description:
+        "Probe a connection's endpoint to verify it is reachable and the credential works. Only openai-compatible
+        connections are probed (via models.list); other providers return { ok: true, skipped: true }."
+      tags:
+        - inference
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  reason:
+                    type: string
+                  skipped:
+                    type: boolean
+                required:
+                  - ok
+                additionalProperties: false
+        "404":
+          description: Connection not found
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/inference/send:
     post:
       operationId: inference_send_post
