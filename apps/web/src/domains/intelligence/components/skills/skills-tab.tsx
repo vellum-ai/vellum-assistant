@@ -19,9 +19,6 @@ import { useCallback, useMemo, useState } from "react";
 import { Button, Card, ConfirmDialog } from "@vellum/design-library";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { getLocalBool, setLocalBool } from "@/utils/local-settings";
-import {
-  MobileSidebarDrawer,
-} from "@/components/mobile-sidebar-drawer";
 import { CategorySidebar } from "@/domains/intelligence/components/skills/category-sidebar";
 import { FilterBar } from "@/domains/intelligence/components/skills/skill-filters";
 import { SkillDetail } from "@/domains/intelligence/components/skills/skill-detail";
@@ -65,7 +62,6 @@ export function SkillsTab({ assistantId, initialSkillId }: SkillsTabProps) {
   const [installingSkillId, setInstallingSkillId] = useState<string | null>(null);
   const [removingSkillId, setRemovingSkillId] = useState<string | null>(null);
   const [skillPendingRemoval, setSkillPendingRemoval] = useState<SkillInfo | null>(null);
-  const [drawerOpen, setDrawerOpen] = useState(false);
   const [tipDismissed, setTipDismissed] = useState(() =>
     getLocalBool(TIP_STORAGE_KEY, false),
   );
@@ -227,7 +223,6 @@ export function SkillsTab({ assistantId, initialSkillId }: SkillsTabProps) {
         filter={filter}
         onFilterChange={setFilter}
         isSearching={isSearching}
-        onOpenDrawer={() => setDrawerOpen(true)}
       />
 
       <div className="flex min-h-0 flex-1 gap-6">
@@ -241,24 +236,6 @@ export function SkillsTab({ assistantId, initialSkillId }: SkillsTabProps) {
             categories={categories}
           />
         </aside>
-
-        <MobileSidebarDrawer
-          open={drawerOpen}
-          onClose={() => setDrawerOpen(false)}
-          title="Categories"
-        >
-          <CategorySidebar
-            selected={category}
-            onSelect={(c) => {
-              setCategory(c);
-              setDrawerOpen(false);
-            }}
-            counts={counts}
-            totalCount={totalCount}
-            showCounts={!isSearching}
-            categories={categories}
-          />
-        </MobileSidebarDrawer>
 
         <div className="min-w-0 flex-1 overflow-y-auto">
           {skillsQuery.isLoading ? (
