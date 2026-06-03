@@ -8,14 +8,24 @@ export type HatchResult =
   | { ok: true; assistantId: string }
   | { ok: false; status: number; error: string };
 
+export interface RunHatchOptions {
+  remote?: string;
+}
+
 export function runHatch(
   invocation: CliInvocation,
   species: string,
+  options?: RunHatchOptions,
 ): Promise<HatchResult> {
   return new Promise((resolve) => {
+    const args = [...invocation.baseArgs, "hatch", species];
+    if (options?.remote) {
+      args.push("--remote", options.remote);
+    }
+
     const child = spawn(
       invocation.command,
-      [...invocation.baseArgs, "hatch", species],
+      args,
       { stdio: ["ignore", "pipe", "pipe"] },
     );
 
