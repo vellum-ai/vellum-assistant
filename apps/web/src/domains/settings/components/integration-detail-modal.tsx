@@ -212,6 +212,8 @@ export function IntegrationDetailModal({
     async (
       baselineSignatures: ReadonlyMap<string, string>,
     ): Promise<boolean> => {
+      if (!managedAvailable) return false;
+
       for (let attempt = 0; attempt < 8; attempt += 1) {
         if (attempt > 0) {
           await wait(750);
@@ -242,7 +244,7 @@ export function IntegrationDetailModal({
 
       return false;
     },
-    [assistantId, connectionsQueryKey, providerKey, queryClient],
+    [assistantId, connectionsQueryKey, managedAvailable, providerKey, queryClient],
   );
 
   useEffect(() => {
@@ -423,6 +425,8 @@ export function IntegrationDetailModal({
   });
 
   const handleConnect = useCallback(() => {
+    if (!managedAvailable) return;
+
     const requestId = crypto.randomUUID();
 
     if (isNative) {
@@ -594,6 +598,7 @@ export function IntegrationDetailModal({
     waitForProviderConnection,
     startOAuth,
     isNative,
+    managedAvailable,
   ]);
 
   const handleDisconnect = (connection: OAuthConnection) => {
