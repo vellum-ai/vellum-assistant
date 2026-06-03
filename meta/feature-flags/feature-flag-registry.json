@@ -456,6 +456,14 @@
       "label": "Self-intro first message",
       "description": "On the first conversation, send a natural self-introduction (e.g. \"Hi Vela, I'm alex. Nice to meet you.\") on the user's behalf and route it through real LLM inference, instead of serving the canned first greeting. Names come from the onboarding context; falls back to the canned greeting when no name is known. Exposed to clients so pre-hatch onboarding can compute the source-of-truth initial message, and to the assistant so older clients can still be gated server-side. See assistant/src/daemon/first-greeting.ts (buildSelfIntroMessage).",
       "defaultEnabled": false
+    },
+    {
+      "id": "web-activity-summary",
+      "scope": "client",
+      "key": "web-activity-summary",
+      "label": "Combined per-turn progress card",
+      "description": "Render a single combined progress card at the top of each assistant turn that carousels through all tool/thinking steps; step pills scroll to and highlight the inline card. Task-progress surfaces attach beneath it, always expanded.",
+      "defaultEnabled": false
     }
   ]
 }
