@@ -18,11 +18,12 @@
  * loop: this hook always asks to continue when a nudge is warranted, and the
  * loop stops anyway once the run's nudge budget is spent.
  *
- * Both prior-turn signals are derived from `ctx.messages`, which the loop scopes
- * to the current `run()`. A prior assistant turn this run implies a completed
- * tool-use iteration (an empty turn nudges-and-continues without pushing an
- * assistant message), so "a prior assistant turn exists" is the run-scoped
- * equivalent of "this is not the first model call".
+ * Both prior-turn signals are derived from the run-scoped slice of the history
+ * (`ctx.messages.slice(ctx.runStartIndex)`), so prior conversation turns don't
+ * pollute them. A prior assistant turn this run implies a completed tool-use
+ * iteration (an empty turn nudges-and-continues without pushing an assistant
+ * message), so "a prior assistant turn exists" is the run-scoped equivalent of
+ * "this is not the first model call".
  *
  * Defaults register before any user plugin, so this hook runs at the front of
  * the `stop` chain — later hooks see (and may override) its decision.
@@ -77,7 +78,8 @@ const stop: PluginHookFn<StopContext> = async (ctx) => {
     return;
   }
 
-  const priorAssistantTurns = ctx.messages.filter(isAssistantTurn);
+  const runMessages = ctx.messages.slice(ctx.runStartIndex);
+  const priorAssistantTurns = runMessages.filter(isAssistantTurn);
   const hadPriorAssistantTurn = priorAssistantTurns.length > 0;
   const priorAssistantHadVisibleText = priorAssistantTurns.some((message) =>
     hasVisibleText(message.content),

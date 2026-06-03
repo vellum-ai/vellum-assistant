@@ -7,8 +7,11 @@
  *   visible text → stop; prior turn already delivered visible text → stop;
  *   first model call with no prior turn → stop; provider refusal → continue
  *   (with the refusal-specific nudge text); refusal-but-recovered → stop.
- * - When the hook continues, it appends the nudge as a `user` message to the
- *   run-scoped `messages`.
+ * - The hook scopes its prior-turn signals to `messages.slice(runStartIndex)`,
+ *   so visible text from the inbound conversation (before this run) does not
+ *   suppress the nudge.
+ * - When the hook continues, it appends the nudge as a `user` message to
+ *   `messages`.
  * - End-to-end through `runHook` + the registry: registering the default
  *   plugin makes the hook fire, and a later-registered user hook chains after
  *   it and can read/override the decision.
@@ -63,6 +66,7 @@ function makeCtx(overrides: Partial<StopContext> = {}): StopContext {
   return {
     conversationId: "conv-stop",
     messages: [],
+    runStartIndex: 0,
     responseContent: [],
     stopReason: null,
     decision: "stop",
@@ -122,6 +126,29 @@ describe("empty-response stop hook — default decisions", () => {
 
     // THEN the decision stays at stop.
     expect(ctx.decision).toBe("stop");
+  });
+
+  test("prior visible text before runStartIndex is ignored → continue", async () => {
+    // GIVEN the inbound conversation already contains an assistant turn with
+    // visible text, followed by this run's tool-use turn, then an empty turn.
+    // runStartIndex marks where this run begins, so the earlier visible text
+    // belongs to the prior conversation and must not suppress the nudge.
+    const ctx = makeCtx({
+      messages: [priorVisibleTextTurn, priorToolUseTurn],
+      runStartIndex: 1,
+      responseContent: [],
+    });
+
+    // WHEN the hook runs.
+    await stop(ctx);
+
+    // THEN it continues — the run scope sees only the tool-use turn, not the
+    // inbound conversation's visible text.
+    expect(ctx.decision).toBe("continue");
+    expect(ctx.messages.at(-1)).toEqual({
+      role: "user",
+      content: [{ type: "text", text: NUDGE_TEXT }],
+    });
   });
 
   test("first model call with no prior turn → stop", async () => {

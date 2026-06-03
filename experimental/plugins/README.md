@@ -251,9 +251,10 @@ import type { StopContext } from "@vellumai/plugin-api";
 // In-place mutation style (return void):
 export default async function stop(ctx: StopContext): Promise<void> {
   // ctx.conversationId  — ID of the conversation the run belongs to
-  // ctx.messages        — run-scoped message list (excludes the inbound
-  //                       conversation); append a follow-up turn here when
-  //                       continuing
+  // ctx.messages        — full conversation history; append a follow-up turn
+  //                       here when continuing
+  // ctx.runStartIndex   — index in ctx.messages where this run began; slice
+  //                       from it to reason about just the current run
   // ctx.responseContent — content blocks of the stopping turn (no tool_use)
   // ctx.stopReason      — provider stop reason (e.g. "refusal", "end_turn")
   // ctx.decision        — seeded "stop"; set "continue" to re-query the model

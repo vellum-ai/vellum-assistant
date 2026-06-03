@@ -432,11 +432,6 @@ first.
 | `post-tool-use`      | Once per tool result, before it joins the provider-bound history. | `PostToolUseContext`      |
 | `stop`               | Once per run when the model yields a turn with no tool calls.     | `StopContext`             |
 
-The default `history-repair` plugin runs its repair pass in
-`user-prompt-submit`; the default `tool-result-truncate` plugin tail-drops
-oversized tool output in `post-tool-use`; the default `empty-response`
-plugin decides whether to nudge the model or let the turn end in `stop`.
-
 ## Pipeline reference
 
 Every pipeline slot and its purpose. Type details live in
