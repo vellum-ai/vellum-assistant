@@ -326,6 +326,7 @@ function buildPluginTurnContext(
     turnIndex: ctx.turnCount,
     trust,
     contextWindowManager: ctx.contextWindowManager,
+    callSite: ctx.currentCallSite,
   };
 }
 
@@ -359,6 +360,14 @@ export interface AgentLoopConversationContext {
   processing: boolean;
   abortController: AbortController | null;
   currentRequestId?: string;
+  /**
+   * The {@link LLMCallSite} of the in-flight turn, set at turn start from
+   * `options?.callSite ?? "mainAgent"`. Read by {@link buildPluginTurnContext}
+   * so pipeline/injector plugins can tell the main reply apart from
+   * background agent-loop work (compaction, subagents, …) on this same
+   * conversation. Per-turn mutable, mirroring {@link currentRequestId}.
+   */
+  currentCallSite?: LLMCallSite;
 
   readonly agentLoop: AgentLoop;
   readonly provider: Provider;
@@ -583,6 +592,9 @@ export async function runAgentLoopImpl(
   // `resolveCallSiteConfig`, picking up any user overrides under
   // `llm.callSites.mainAgent` (falling back to `llm.default` when absent).
   const turnCallSite: LLMCallSite = options?.callSite ?? "mainAgent";
+  // Expose the turn's call site to plugin pipeline/injector contexts (read by
+  // buildPluginTurnContext) so plugins can scope behaviour to the main reply.
+  ctx.currentCallSite = turnCallSite;
 
   // Read the conversation row once for both the override-profile derivation
   // below and the title-replaceability check at turn start. Later reads in
