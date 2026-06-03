@@ -9,6 +9,7 @@ import { Modal } from "@vellum/design-library/components/modal";
 import { Tag } from "@vellum/design-library/components/tag";
 import { Typography } from "@vellum/design-library/components/typography";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { captureError } from "@/lib/sentry/capture-error";
 
 import type { CallSiteOverrideDraft, DaemonConfig, DaemonConfigPatch, ProfileEntry, ProfileWithName } from "@/domains/settings/ai/ai-types";
 import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal";
@@ -117,6 +118,7 @@ export function ManageProfilesModal({
       try {
         await configMutation.mutateAsync({ llm: llmPatch });
       } catch (recreateErr) {
+        captureError(recreateErr, { context: "settings-ai-profile-edit-recreate" });
         // Best-effort rollback: restore old entry so the profile isn't lost
         if (oldEntry != null) {
           await configMutation.mutateAsync({ llm: { profiles: { [name]: oldEntry } } }).catch(() => {
@@ -285,7 +287,8 @@ function ManageProfilesModalInner({
         llm: { profiles: { [profile.name]: { status: wireStatus } } },
       });
       return true;
-    } catch {
+    } catch (error) {
+      captureError(error, { context: "settings-ai-profile-toggle" });
       // Rollback only the toggled field to avoid overwriting concurrent cache updates
       queryClient.setQueryData<DaemonConfig>(queryKey, (old) => {
         if (!old?.llm?.profiles?.[profile.name]) return old;
@@ -325,7 +328,8 @@ function ManageProfilesModalInner({
       await configMutation.mutateAsync({
         llm: { profiles: { [name]: null }, profileOrder: newOrder },
       });
-    } catch {
+    } catch (error) {
+      captureError(error, { context: "settings-ai-profile-delete" });
       setDeleteErrors((prev) => ({
         ...prev,
         [name]: "Failed to delete profile. Please try again.",
@@ -379,7 +383,8 @@ function ManageProfilesModalInner({
     if (Object.keys(llmPatch).length > 0) {
       try {
         await configMutation.mutateAsync({ llm: llmPatch });
-      } catch {
+      } catch (error) {
+        captureError(error, { context: "settings-ai-profile-reassign-delete" });
         setBlockedDeleteError("Failed to reassign references. Please try again.");
         setBlockedDeleteSaving(false);
         return;
@@ -423,7 +428,8 @@ function ManageProfilesModalInner({
     try {
       await configMutation.mutateAsync({ llm: { profileOrder: newOrder } });
       lastConfirmedOrderRef.current = newOrder;
-    } catch {
+    } catch (error) {
+      captureError(error, { context: "settings-ai-profile-reorder" });
       // Rollback to last confirmed server state
       queryClient.setQueryData<DaemonConfig>(queryKey, (old) => {
         if (!old?.llm) return old;

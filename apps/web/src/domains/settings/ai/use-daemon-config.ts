@@ -2,6 +2,7 @@
  * Daemon config hooks — query, mutation, and domain-specific helpers.
  *
  * Architecture:
+ * - `useAssistantId` — shared hook for assistant ID + lazy resolver.
  * - `useDaemonConfigQuery` — read-only hook returning the config + derived slices.
  * - `useDaemonConfigMutation` — TanStack mutation wrapping `configPatch`.
  * - `useProvisionProviderKey` — standalone hook for provisioning API keys.
@@ -26,6 +27,34 @@ import { assertProvisionSuccess, buildOrderedProfiles } from "@/domains/settings
 import type { CallSiteOverrideDraft, DaemonConfig, DaemonConfigPatch, ProfileEntry } from "@/domains/settings/ai/ai-types";
 
 // ---------------------------------------------------------------------------
+// useAssistantId — shared assistant ID + lazy resolver
+// ---------------------------------------------------------------------------
+
+/**
+ * Shared hook for the active assistant's ID and a lazy resolver.
+ *
+ * The settings page renders outside `ActiveAssistantGate`, so `assistantId`
+ * may be `undefined` while the assistant list is loading. `resolveAssistantId`
+ * returns the cached value when available, or fetches the list and resolves
+ * it as a fallback — so callers never need to gate on the list being loaded.
+ */
+export function useAssistantId() {
+  const queryClient = useQueryClient();
+  const { data: assistantList } = useQuery(assistantsListOptions());
+  const assistantId = assistantList?.results?.[0]?.id;
+
+  const resolveAssistantId = useCallback(async (): Promise<string> => {
+    if (assistantId) return assistantId;
+    const list = await queryClient.fetchQuery(assistantsListOptions());
+    const resolved = list.results?.[0]?.id;
+    if (!resolved) throw new Error("No assistant found");
+    return resolved;
+  }, [assistantId, queryClient]);
+
+  return { assistantId, resolveAssistantId };
+}
+
+// ---------------------------------------------------------------------------
 // useDaemonConfigQuery — read-only config + derived slices
 // ---------------------------------------------------------------------------
 
@@ -38,11 +67,9 @@ import type { CallSiteOverrideDraft, DaemonConfig, DaemonConfigPatch, ProfileEnt
  */
 export function useDaemonConfigQuery() {
   const queryClient = useQueryClient();
-  const { data: assistantList } = useQuery(assistantsListOptions());
-  const assistantId = assistantList?.results?.[0]?.id;
-  const assistantHandle = assistantList?.results?.[0]?.handle;
+  const { assistantId, resolveAssistantId } = useAssistantId();
 
-  const configQuery = useQuery({
+  const { data: config } = useQuery({
     queryKey: assistantDaemonConfigQueryKey(assistantId),
     queryFn: async () => {
       const { data } = await configGet({
@@ -59,8 +86,6 @@ export function useDaemonConfigQuery() {
     staleTime: 30_000,
     refetchOnWindowFocus: false,
   });
-
-  const config = configQuery.data;
 
   const profiles: Record<string, ProfileEntry> = useMemo(
     () => config?.llm?.profiles ?? {},
@@ -83,14 +108,6 @@ export function useDaemonConfigQuery() {
     [profiles, profileOrder],
   );
 
-  const resolveAssistantId = useCallback(async (): Promise<string> => {
-    if (assistantId) return assistantId;
-    const list = await queryClient.fetchQuery(assistantsListOptions());
-    const resolved = list.results?.[0]?.id;
-    if (!resolved) throw new Error("No assistant found");
-    return resolved;
-  }, [assistantId, queryClient]);
-
   const invalidateConfig = useCallback(() => {
     void queryClient.invalidateQueries({
       queryKey: assistantDaemonConfigQueryKey(assistantId),
@@ -99,9 +116,7 @@ export function useDaemonConfigQuery() {
 
   return {
     assistantId,
-    assistantHandle,
     config,
-    configQuery,
     profiles,
     profileOrder,
     orderedProfiles,
@@ -120,21 +135,12 @@ export function useDaemonConfigQuery() {
  * Mutation hook for daemon config patches.
  *
  * Wraps `configPatch` in a `useMutation` with automatic cache invalidation
- * on settle. Resolves the assistant ID lazily via `fetchQuery` so callers
- * don't need to gate on the assistant list being loaded.
+ * on settle. Resolves the assistant ID lazily via `useAssistantId` so
+ * callers don't need to gate on the assistant list being loaded.
  */
 export function useDaemonConfigMutation() {
   const queryClient = useQueryClient();
-  const { data: assistantList } = useQuery(assistantsListOptions());
-  const assistantId = assistantList?.results?.[0]?.id;
-
-  const resolveAssistantId = useCallback(async (): Promise<string> => {
-    if (assistantId) return assistantId;
-    const list = await queryClient.fetchQuery(assistantsListOptions());
-    const resolved = list.results?.[0]?.id;
-    if (!resolved) throw new Error("No assistant found");
-    return resolved;
-  }, [assistantId, queryClient]);
+  const { assistantId, resolveAssistantId } = useAssistantId();
 
   return useMutation({
     mutationFn: async (body: DaemonConfigPatch) => {
@@ -163,27 +169,15 @@ export function useDaemonConfigMutation() {
  *
  * Used by web-search-card and image-generation-card to store BYOK
  * credentials. Returns a stable callback; resolves the assistant ID
- * lazily if it hasn't loaded yet.
+ * lazily via `useAssistantId` if it hasn't loaded yet.
  */
 export function useProvisionProviderKey() {
-  const queryClient = useQueryClient();
-  const { data: assistantList } = useQuery(assistantsListOptions());
-  const assistantId = assistantList?.results?.[0]?.id;
-
-  const resolveAssistantId = useCallback(async (): Promise<string | null> => {
-    if (assistantId) return assistantId;
-    const list = await queryClient.fetchQuery(assistantsListOptions());
-    return list.results?.[0]?.id ?? null;
-  }, [assistantId, queryClient]);
+  const { resolveAssistantId } = useAssistantId();
 
   return useCallback(
     async (providerName: string, key: string): Promise<void> => {
       try {
         const resolvedId = await resolveAssistantId();
-        if (!resolvedId) {
-          toast.error("No assistant found. Please hatch an assistant first.");
-          throw new Error("No assistant found");
-        }
         const { data } = await secretsPost({
           path: { assistant_id: resolvedId },
           body: { value: key, type: "api_key", name: providerName },

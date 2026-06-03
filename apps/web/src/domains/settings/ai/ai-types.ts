@@ -70,8 +70,8 @@ export interface DaemonConfig {
  * every level partial and allows `null` at record-entry positions where
  * deletion is meaningful (individual profiles, individual call-site overrides).
  *
- * Replaces the previous `Record<string, unknown>` body, catching typos like
- * `{ llm: { activeProfiIe: "..." } }` at compile time.
+ * Catches typos like `{ llm: { activeProfiIe: "..." } }` at compile time
+ * instead of silently sending malformed patches.
  */
 export type DaemonConfigPatch = {
   services?: {

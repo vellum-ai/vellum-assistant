@@ -72,10 +72,6 @@ export function LanguageModelCard() {
   const isProfileDirty = effectiveActiveProfile !== activeProfile;
 
   const handleManagedProfileSave = useCallback(async () => {
-    if (!assistantId) {
-      toast.error("Assistant not ready. Please try again.");
-      return;
-    }
     try {
       await configMutation.mutateAsync({ llm: { activeProfile: effectiveActiveProfile } });
       setDraftInitialized(false);
@@ -85,7 +81,7 @@ export function LanguageModelCard() {
       toast.error("Failed to switch profile. Please try again.");
       captureError(error, { context: "settings-ai-language-model-save" });
     }
-  }, [effectiveActiveProfile, assistantId, configMutation]);
+  }, [effectiveActiveProfile, configMutation]);
 
   return (
     <>
