@@ -28,7 +28,11 @@ import { useAuthStore } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
-import { isLocalMode } from "@/lib/local-mode";
+import {
+  isLocalMode,
+  isLocalAssistant,
+  getSelectedAssistant,
+} from "@/lib/local-mode";
 import {
   applyThemePreference,
   readStoredThemePreference,
@@ -218,6 +222,8 @@ export function GeneralPage() {
   const infraGate = usePlatformGate({ platformHostedOnly: true });
 
   const platformAssistant = assistant?.is_local && !isLocalMode() ? null : assistant;
+  const canRetireLocally =
+    isLocalMode() && !!assistant && isLocalAssistant(getSelectedAssistant()!);
 
   useEffect(() => {
     if (!assistant || window.location.hash !== "#storage-resources") {
@@ -328,13 +334,24 @@ export function GeneralPage() {
 
       {multiPlatformAssistant && <AssistantPicker />}
 
-      {platformAssistant && (
+      {(platformGate === "full" || canRetireLocally) && platformAssistant && (
         <DetailCard
           variant="danger"
           title="Retire Assistant"
           subtitle="Permanently retire this assistant and delete all associated data."
         >
           <RetireAssistant assistantId={platformAssistant.id} />
+        </DetailCard>
+      )}
+      {platformGate === "disabled" && !canRetireLocally && (
+        <DetailCard
+          variant="danger"
+          title="Retire Assistant"
+          subtitle="Permanently retire this assistant and delete all associated data."
+        >
+          <Notice tone="info">
+            Log in to the Vellum platform to retire this assistant.
+          </Notice>
         </DetailCard>
       )}
 
