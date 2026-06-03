@@ -120,7 +120,12 @@ describe("repairHistory", () => {
     const { messages: repaired, stats } = repairHistory(messages);
 
     expect(stats.missingToolResultsInserted).toBe(1);
-    expect(repaired).toHaveLength(4);
+    expect(stats.consecutiveSameRoleMerged).toBe(1);
+    expect(repaired).toHaveLength(3);
+    expect(repaired[1].content).toEqual([
+      { type: "tool_use", id: "tu_1", name: "bash", input: { cmd: "ls" } },
+      { type: "text", text: "Oops" },
+    ]);
     expect(repaired[2].role).toBe("user");
     expect(repaired[2].content[0].type).toBe("tool_result");
   });
@@ -314,20 +319,17 @@ describe("repairHistory", () => {
     expect(stats.assistantToolResultsMigrated).toBe(1);
     expect(stats.missingToolResultsInserted).toBe(0);
 
-    // assistant message should have tool_use only
+    // assistant message keeps the trailing text attached before the
+    // migrated tool_result user message is synthesized.
     expect(repaired[1].content).toEqual([
       { type: "tool_use", id: "tu_1", name: "bash", input: { cmd: "ls" } },
+      { type: "text", text: "Here are the files." },
     ]);
 
     // injected user message should carry the original result, not a synthetic error
     expect(repaired[2].role).toBe("user");
     expect(repaired[2].content).toEqual([
       { type: "tool_result", tool_use_id: "tu_1", content: "file1\nfile2" },
-    ]);
-
-    // original second assistant message follows
-    expect(repaired[3].content).toEqual([
-      { type: "text", text: "Here are the files." },
     ]);
   });
 
@@ -971,7 +973,7 @@ describe("repairHistory", () => {
         assistantToolResultsMigrated: 1,
         missingToolResultsInserted: 1,
         orphanToolResultsDowngraded: 0,
-        consecutiveSameRoleMerged: 1,
+        consecutiveSameRoleMerged: 2,
       },
       actions: {
         migratedAssistantToolResults: true,
