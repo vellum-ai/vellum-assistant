@@ -9,6 +9,7 @@ import { Input } from "@vellum/design-library/components/input";
 import { toast } from "@vellum/design-library/components/toast";
 import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
 import { ttsProvidersGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { synthesizeTTS } from "@/lib/tts-synthesize";
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
 
@@ -29,12 +30,13 @@ export function TextToSpeechCard() {
   const { data: assistantList } = useQuery(assistantsListOptions());
   const assistantId = assistantList?.results?.[0]?.id;
   const assistantName = assistantList?.results?.[0]?.name ?? "your assistant";
+  const isOrgReady = useIsOrgReady();
 
   const { data: catalogData } = useQuery({
     ...ttsProvidersGetOptions({
       path: { assistant_id: assistantId! },
     }),
-    enabled: !!assistantId,
+    enabled: !!assistantId && isOrgReady,
     staleTime: Infinity,
   });
   const providers = catalogData?.providers ?? TTS_PROVIDERS;
