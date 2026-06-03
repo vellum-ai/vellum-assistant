@@ -100,11 +100,11 @@ export function IntelligenceLayout() {
               className={cn(
                 "relative -mb-px inline-flex cursor-pointer items-center gap-1.5 border-b-2 border-transparent bg-transparent px-2.5 py-[7px]",
                 "text-body-medium-default whitespace-nowrap",
-                "text-[var(--content-tertiary)] transition-colors",
+                "text-[var(--content-secondary)] transition-colors",
                 "outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-0",
                 "hover:bg-[var(--surface-hover)] hover:text-[var(--content-default)]",
                 isActive &&
-                  "border-[var(--primary-base)] text-[var(--content-default)]",
+                  "border-[var(--border-active)] text-[var(--primary-active)]",
                 isActive && "hover:bg-transparent",
               )}
             >
