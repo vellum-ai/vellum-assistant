@@ -160,6 +160,39 @@ describe("runtime proxy enforcement", () => {
   });
 });
 
+describe("/auth/token revocation", () => {
+  function makeLoopbackServer() {
+    return {
+      requestIP: () => ({ address: "127.0.0.1", family: "IPv4", port: 5000 }),
+    } as unknown as import("bun").Server<unknown>;
+  }
+
+  test("rejects re-minting a token from a revoked source token", async () => {
+    const { handleCreateToken } = await import("../http/routes/auth-token.js");
+    const jwt = mintToken({
+      aud: "vellum-gateway",
+      sub: ACTOR_SUB,
+      scope_profile: "actor_client_v1",
+      policy_epoch: CURRENT_POLICY_EPOCH,
+      ttlSeconds: 3600,
+    });
+    insertTokenRecord(jwt, "revoked");
+
+    const res = await handleCreateToken(
+      new Request("http://127.0.0.1:7830/auth/token", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${jwt}`,
+          origin: "http://localhost:3000",
+        },
+      }),
+      makeLoopbackServer(),
+    );
+
+    expect(res.status).toBe(401);
+  });
+});
+
 describe("m0004 token-hash index migration", () => {
   function rawDb() {
     return (
