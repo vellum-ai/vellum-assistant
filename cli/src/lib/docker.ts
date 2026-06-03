@@ -14,6 +14,7 @@ import cliPkg from "../../package.json";
 
 import {
   findAssistantByName,
+  loadAllAssistants,
   saveAssistantEntry,
   setActiveAssistant,
 } from "./assistant-config";
@@ -475,6 +476,19 @@ export async function retireDocker(name: string): Promise<void> {
       await exec("docker", ["volume", "rm", vol]);
     } catch {
       // volume may not exist
+    }
+  }
+
+  // Stop Colima VM if no other Docker instances remain (macOS only).
+  const hasOtherDockerInstances = loadAllAssistants().some(
+    (a) => a.cloud === "docker" && a.assistantId !== name,
+  );
+  if (!hasOtherDockerInstances && platform() !== "linux") {
+    try {
+      await exec("colima", ["stop"]);
+      console.log("\ud83d\uded1 Colima VM stopped (no remaining Docker instances).");
+    } catch {
+      // Colima may not be running or not installed
     }
   }
 
