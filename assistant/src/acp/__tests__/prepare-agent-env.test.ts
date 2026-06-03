@@ -375,6 +375,45 @@ describe("prepareAgentEnv — codex-acp gating", () => {
     expect(prepared.env?.CODEX_API_KEY).toBe("ambient-codex-XYZ");
   });
 
+  test("PLATFORM + ambient process.env.OPENAI_API_KEY only (no agent.env, no vault) → THROWS; operator key is NOT passed through", async () => {
+    // On platform-hosted pods the daemon's ambient OPENAI_API_KEY is an
+    // OPERATOR/PROVIDER key, NOT the agent user's credential. The ambient
+    // fallback is local-only, so on platform this key must be ignored: with no
+    // agent.env override and no user vault cred, the missing-key branch fires
+    // and we fail fast rather than leaking the operator key into the spawn.
+    process.env.IS_PLATFORM = "true";
+    process.env.OPENAI_API_KEY = "operator-ambient-key";
+
+    await expect(
+      prepareAgentEnv({ command: "codex-acp", args: [] }),
+    ).rejects.toThrow("codex-acp requires an OpenAI/Codex API key");
+  });
+
+  test("PLATFORM + ambient process.env.CODEX_API_KEY only → THROWS; operator key is NOT passed through", async () => {
+    process.env.IS_PLATFORM = "true";
+    process.env.CODEX_API_KEY = "operator-ambient-codex-key";
+
+    await expect(
+      prepareAgentEnv({ command: "codex-acp", args: [] }),
+    ).rejects.toThrow("codex-acp requires an OpenAI/Codex API key");
+  });
+
+  test("PLATFORM + ambient key but vault cred present → vault wins; ambient operator key ignored", async () => {
+    // The user's vault BYO cred is always allowed on platform; the ambient
+    // operator key must never be the resolved source.
+    process.env.IS_PLATFORM = "true";
+    process.env.OPENAI_API_KEY = "operator-ambient-key";
+    seedVaultOpenAiKey("vault-user-key");
+
+    const prepared = await prepareAgentEnv({
+      command: "codex-acp",
+      args: [],
+    });
+
+    expect(prepared.env?.OPENAI_API_KEY).toBe("vault-user-key");
+    expect(prepared.env?.CODEX_API_KEY).toBe("vault-user-key");
+  });
+
   test("vault wins over ambient process.env (precedence pin)", async () => {
     process.env.OPENAI_API_KEY = "ambient-loser";
     seedVaultOpenAiKey("vault-winner");

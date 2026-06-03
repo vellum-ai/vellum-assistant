@@ -94,19 +94,30 @@ function ensureAcpTokenPolicy(field: string, usageDescription: string): void {
  * may set either var; an override under one satisfies the requirement and
  * the vault is not consulted. The vault field is `acp/openai_api_key`.
  *
- * codex-acp adds a THIRD, lowest-precedence route: the daemon's ambient
- * `process.env.OPENAI_API_KEY` / `process.env.CODEX_API_KEY`. The full
- * precedence is: agent.env override → vault `acp/openai_api_key` → ambient
- * `process.env`. The ambient fallback exists for backward compatibility
- * with existing local users who `export OPENAI_API_KEY`/`CODEX_API_KEY` at
- * the daemon level: the sibling PR (F1) strips the daemon's ambient env
- * from the spawned agent subprocess, so an ambient key only reaches the
- * codex adapter if this helper reads it and re-injects it into the returned
- * `env` (which survives F1's strip). Whichever source wins, BOTH
- * `OPENAI_API_KEY` and `CODEX_API_KEY` are injected.
+ * codex-acp adds a THIRD, lowest-precedence, LOCAL-ONLY route: the daemon's
+ * ambient `process.env.OPENAI_API_KEY` / `process.env.CODEX_API_KEY`. The
+ * full precedence is:
+ *   1. agent.env override (OPENAI_API_KEY/CODEX_API_KEY) — always allowed
+ *      (user config).
+ *   2. vault `acp/openai_api_key` — always allowed (user BYO cred).
+ *   3. ambient `process.env` OPENAI_API_KEY/CODEX_API_KEY — ONLY when
+ *      `getIsPlatform()` is false (local). On platform-hosted pods the
+ *      daemon's ambient key is an OPERATOR/PROVIDER key (provider env
+ *      fallback / operator broker key), NOT the agent user's credential.
+ *      Passing it to the agent-driven session would leak the operator key
+ *      AND mask a missing/broker-denied user credential, so on platform the
+ *      ambient route is skipped entirely.
+ * The ambient fallback exists for backward compatibility with existing local
+ * users who `export OPENAI_API_KEY`/`CODEX_API_KEY` at the daemon level: the
+ * sibling PR (F1) strips the daemon's ambient env from the spawned agent
+ * subprocess, so an ambient key only reaches the codex adapter if this helper
+ * reads it and re-injects it into the returned `env` (which survives F1's
+ * strip). Whichever source wins, BOTH `OPENAI_API_KEY` and `CODEX_API_KEY`
+ * are injected.
  *
- * If NO codex credential resolves from any of those three routes, the
- * missing-key handling is PLATFORM-SCOPED:
+ * If NO codex credential resolves from the allowed routes (on platform: only
+ * agent.env + vault; on local: agent.env + vault + ambient), the missing-key
+ * handling is PLATFORM-SCOPED:
  *   - Platform-hosted (`getIsPlatform()` true): THROW `FailedDependencyError`.
  *     Hosted pods have no interactive terminal, so the `codex login`
  *     (ChatGPT OAuth) flow is unavailable and an API key is mandatory.
@@ -169,9 +180,17 @@ export async function prepareAgentEnv(
         },
       });
     }
-    if (!env.OPENAI_API_KEY && !env.CODEX_API_KEY) {
-      // Lowest-precedence fallback: the daemon's ambient process.env. Sibling
-      // PR F1 strips the daemon's ambient env from the spawned subprocess, so
+    if (!env.OPENAI_API_KEY && !env.CODEX_API_KEY && !getIsPlatform()) {
+      // Lowest-precedence fallback: the daemon's ambient process.env. This is
+      // LOCAL-ONLY (non-platform). On platform-hosted pods the daemon's
+      // ambient OPENAI_API_KEY/CODEX_API_KEY is an OPERATOR/PROVIDER key (the
+      // provider env fallback / operator broker key), NOT the agent user's
+      // credential. Passing it through would (a) leak an operator key to the
+      // agent-driven codex-acp session and (b) mask a missing/broker-denied
+      // user credential. So on platform we resolve ONLY from agent.env +
+      // vault `acp/openai_api_key` (the user's BYO cred) and never consult
+      // ambient env. Local dev keeps the ambient fallback: sibling PR F1
+      // strips the daemon's ambient env from the spawned subprocess, so we
       // re-inject it here to preserve existing local users who exported the
       // key at the daemon level. Inject BOTH var names from whichever ambient
       // var is set so the codex CLI sees a consistent credential.
