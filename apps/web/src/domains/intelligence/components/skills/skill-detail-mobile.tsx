@@ -1,0 +1,307 @@
+import {
+  ArrowDownToLine,
+  ArrowLeft,
+  ChevronDown,
+  FileText,
+  Folder,
+  Loader2,
+  Trash2,
+} from "lucide-react";
+
+import { Button, Card, Menu } from "@vellum/design-library";
+import { SkillOriginBadge } from "./skill-origin-badge";
+import { SkillFileContent } from "./skill-file-content";
+import { useSkillDetailFiles } from "@/domains/intelligence/skills/use-skill-detail-files";
+import {
+  isAvailableSkill,
+  isRemovableSkill,
+  type SkillFileEntry,
+  type SkillInfo,
+} from "@/domains/intelligence/skills/types";
+
+interface SkillDetailMobileProps {
+  assistantId: string;
+  skill: SkillInfo;
+  onBack: () => void;
+  onInstall?: () => void;
+  onRemove?: () => void;
+  isInstalling?: boolean;
+  isRemoving?: boolean;
+}
+
+/**
+ * Single-column phone layout for viewing a skill's details.
+ *
+ * Mirrors the desktop `SkillDetail` data/behavior (via the shared
+ * `useSkillDetailFiles` hook) but lays out top-to-bottom: a circular action bar,
+ * a header block with the full (non-clamped) description, and a content card
+ * whose header hosts an inline file dropdown. The card-header right slot is an
+ * intentional placeholder for the Preview/Source segment control added later.
+ */
+export function SkillDetailMobile({
+  assistantId,
+  skill,
+  onBack,
+  onInstall,
+  onRemove,
+  isInstalling = false,
+  isRemoving = false,
+}: SkillDetailMobileProps) {
+  const available = isAvailableSkill(skill);
+  const removable = isRemovableSkill(skill);
+
+  const {
+    fileEntries,
+    setSelectedPath,
+    activePath,
+    activeFile,
+    isFilesLoading,
+    fileContent,
+    isBinary,
+    isContentLoading,
+  } = useSkillDetailFiles(assistantId, skill.id);
+
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-3 bg-[var(--surface-overlay)]">
+      {/* Action bar */}
+      <div className="flex items-center justify-between">
+        <Button
+          variant="ghost"
+          iconOnly={<ArrowLeft aria-hidden />}
+          expandOnMobile
+          aria-label="Back to skills"
+          onClick={onBack}
+          className="max-md:bg-[var(--surface-active)]"
+        />
+        <span
+          className="min-w-0 flex-1 truncate px-2 text-center text-body-medium-default"
+          style={{ color: "var(--content-secondary)" }}
+        >
+          {skill.name}
+        </span>
+        <RightAction
+          available={available}
+          removable={removable}
+          isInstalling={isInstalling}
+          isRemoving={isRemoving}
+          onInstall={onInstall}
+          onRemove={onRemove}
+        />
+      </div>
+
+      {/* Header block */}
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between gap-2">
+          <h2
+            className="min-w-0 truncate text-title-medium"
+            style={{ color: "var(--content-emphasised)" }}
+          >
+            {skill.name}
+          </h2>
+          <SkillOriginBadge origin={skill.origin} />
+        </div>
+        <p
+          className="text-body-medium-lighter"
+          style={{ color: "var(--content-tertiary)" }}
+        >
+          {skill.description}
+        </p>
+      </div>
+
+      {/* Content card */}
+      <Card.Root asChild noPadding>
+        <div
+          className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border bg-[var(--surface-lift)]"
+          style={{ borderColor: "var(--border-hover)" }}
+        >
+          <div
+            className="flex items-center justify-between gap-2 border-b px-3 py-2"
+            style={{ borderColor: "var(--border-hover)" }}
+          >
+            <FileDropdown
+              fileEntries={fileEntries}
+              activePath={activePath}
+              activeName={activeFile?.name ?? null}
+              onSelect={setSelectedPath}
+            />
+            {/* Placeholder for the Preview/Source segment control (later PR). */}
+            <div />
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-hidden">
+            {isFilesLoading || isContentLoading ? (
+              <div className="flex h-full items-center justify-center">
+                <Loader2
+                  className="h-6 w-6 animate-spin"
+                  style={{ color: "var(--content-tertiary)" }}
+                />
+              </div>
+            ) : activeFile ? (
+              <SkillFileContent
+                fileName={activeFile.name}
+                content={fileContent}
+                isBinary={isBinary}
+              />
+            ) : (
+              <p
+                className="flex h-full items-center justify-center text-body-medium-lighter"
+                style={{ color: "var(--content-tertiary)" }}
+              >
+                Select a file to view its contents.
+              </p>
+            )}
+          </div>
+        </div>
+      </Card.Root>
+    </div>
+  );
+}
+
+function RightAction({
+  available,
+  removable,
+  isInstalling,
+  isRemoving,
+  onInstall,
+  onRemove,
+}: {
+  available: boolean;
+  removable: boolean;
+  isInstalling: boolean;
+  isRemoving: boolean;
+  onInstall?: () => void;
+  onRemove?: () => void;
+}) {
+  if (isInstalling || isRemoving) {
+    return (
+      <Button
+        variant="ghost"
+        iconOnly={<Loader2 className="animate-spin" aria-hidden />}
+        expandOnMobile
+        disabled
+        aria-label="Pending"
+        className="max-md:bg-[var(--surface-active)]"
+      />
+    );
+  }
+
+  if (available) {
+    return (
+      <Button
+        variant="ghost"
+        iconOnly={<ArrowDownToLine aria-hidden />}
+        expandOnMobile
+        aria-label="Install skill"
+        onClick={onInstall}
+        disabled={!onInstall}
+        className="max-md:bg-[var(--surface-active)]"
+      />
+    );
+  }
+
+  if (removable) {
+    return (
+      <Button
+        variant="dangerGhost"
+        iconOnly={<Trash2 aria-hidden />}
+        expandOnMobile
+        aria-label="Remove skill"
+        onClick={onRemove}
+        disabled={!onRemove}
+        className="max-md:rounded-full max-md:bg-[var(--system-negative-weak)]"
+      />
+    );
+  }
+
+  // Bundled: not available and not removable.
+  return (
+    <Button
+      variant="dangerGhost"
+      iconOnly={<Trash2 aria-hidden />}
+      expandOnMobile
+      disabled
+      title="Bundled skills cannot be removed"
+      aria-label="Bundled skill cannot be removed"
+      className="max-md:rounded-full max-md:bg-[var(--system-negative-weak)]"
+    />
+  );
+}
+
+function isDirectoryEntry(mimeType: string | null | undefined): boolean {
+  return (mimeType ?? "").endsWith("/directory");
+}
+
+function FileDropdown({
+  fileEntries,
+  activePath,
+  activeName,
+  onSelect,
+}: {
+  fileEntries: SkillFileEntry[];
+  activePath: string | null;
+  activeName: string | null;
+  onSelect: (path: string) => void;
+}) {
+  const label = activeName ?? "Select a file";
+
+  if (fileEntries.length === 0) {
+    return (
+      <span
+        className="flex min-w-0 items-center gap-2 text-body-medium-default"
+        style={{ color: "var(--content-emphasised)" }}
+      >
+        <FileGlyph />
+        <span className="truncate">{label}</span>
+      </span>
+    );
+  }
+
+  return (
+    <Menu.Root>
+      <Menu.Trigger>
+        <button
+          type="button"
+          className="flex min-w-0 items-center gap-2 rounded-md text-body-medium-default"
+          style={{ color: "var(--content-emphasised)" }}
+        >
+          <FileGlyph />
+          <span className="truncate">{label}</span>
+          <ChevronDown
+            className="h-4 w-4 shrink-0"
+            style={{ color: "var(--content-tertiary)" }}
+            aria-hidden
+          />
+        </button>
+      </Menu.Trigger>
+      <Menu.Content align="start">
+        {fileEntries.map((entry) => {
+          const isDirectory = isDirectoryEntry(entry.mimeType);
+          return (
+            <Menu.Item
+              key={entry.path}
+              onSelect={() => onSelect(entry.path)}
+              leftIcon={isDirectory ? <Folder /> : <FileText />}
+              aria-current={entry.path === activePath ? "true" : undefined}
+            >
+              {entry.name}
+            </Menu.Item>
+          );
+        })}
+      </Menu.Content>
+    </Menu.Root>
+  );
+}
+
+function FileGlyph() {
+  return (
+    <span
+      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[var(--surface-base)]"
+      aria-hidden
+    >
+      <FileText
+        className="h-4 w-4"
+        style={{ color: "var(--content-secondary)" }}
+      />
+    </span>
+  );
+}

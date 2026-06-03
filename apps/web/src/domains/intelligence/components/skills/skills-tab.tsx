@@ -18,10 +18,12 @@ import { useCallback, useMemo, useState } from "react";
 
 import { Button, Card, ConfirmDialog } from "@vellum/design-library";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import { getLocalBool, setLocalBool } from "@/utils/local-settings";
 import { CategorySidebar } from "@/domains/intelligence/components/skills/category-sidebar";
 import { FilterBar } from "@/domains/intelligence/components/skills/skill-filters";
 import { SkillDetail } from "@/domains/intelligence/components/skills/skill-detail";
+import { SkillDetailMobile } from "@/domains/intelligence/components/skills/skill-detail-mobile";
 import { SkillRow } from "@/domains/intelligence/components/skills/skill-row";
 import {
   skillsGetOptions,
@@ -53,6 +55,7 @@ const TIP_STORAGE_KEY = "vellum:skills:tipDismissed";
 
 export function SkillsTab({ assistantId, initialSkillId }: SkillsTabProps) {
   const queryClient = useQueryClient();
+  const isMobile = useIsMobile();
 
   const [searchValue, setSearchValue] = useState("");
   const debouncedSearch = useDebouncedValue(searchValue.trim(), SEARCH_DEBOUNCE_MS);
@@ -195,17 +198,23 @@ export function SkillsTab({ assistantId, initialSkillId }: SkillsTabProps) {
   );
 
   if (selectedSkill) {
+    const detailProps = {
+      assistantId,
+      skill: selectedSkill,
+      onBack: () => setSelectedSkillId(null),
+      onInstall: () => handleInstall(selectedSkill),
+      onRemove: () => handleRemove(selectedSkill),
+      isInstalling:
+        installingSkillId === (selectedSkill.slug ?? selectedSkill.id),
+      isRemoving: removingSkillId === selectedSkill.id,
+    };
     return (
       <>
-        <SkillDetail
-          assistantId={assistantId}
-          skill={selectedSkill}
-          onBack={() => setSelectedSkillId(null)}
-          onInstall={() => handleInstall(selectedSkill)}
-          onRemove={() => handleRemove(selectedSkill)}
-          isInstalling={installingSkillId === (selectedSkill.slug ?? selectedSkill.id)}
-          isRemoving={removingSkillId === selectedSkill.id}
-        />
+        {isMobile ? (
+          <SkillDetailMobile {...detailProps} />
+        ) : (
+          <SkillDetail {...detailProps} />
+        )}
         {removalDialog}
       </>
     );
