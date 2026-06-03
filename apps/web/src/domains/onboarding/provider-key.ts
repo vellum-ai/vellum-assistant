@@ -190,7 +190,7 @@ async function testProviderConnection(
     if (!result.response?.ok) {
       return {
         ok: false,
-        reason: "Could not reach the daemon to test the connection.",
+        reason: "Could not reach your assistant to run the connection test.",
       };
     }
     const body = (result.data ?? {}) as {
@@ -202,7 +202,7 @@ async function testProviderConnection(
   } catch {
     return {
       ok: false,
-      reason: "Could not reach the daemon to test the connection.",
+      reason: "Could not reach your assistant to run the connection test.",
     };
   }
 }
