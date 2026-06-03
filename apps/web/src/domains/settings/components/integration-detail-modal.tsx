@@ -12,6 +12,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 
 import { Card } from "@vellum/design-library/components/card";
 import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
+import { Notice } from "@vellum/design-library/components/notice";
 import { toast } from "@vellum/design-library/components/toast";
 import { Button } from "@vellum/design-library/components/button";
 import { Input } from "@vellum/design-library/components/input";
@@ -49,6 +50,7 @@ import {
   getOAuthCompleteStoragePayload,
 } from "@/lib/auth/oauth-popup";
 
+import type { PlatformGateState } from "@/hooks/use-platform-gate";
 import { extractErrorMessage } from "@/utils/api-errors";
 
 function wait(ms: number): Promise<void> {
@@ -101,6 +103,7 @@ interface IntegrationDetailModalProps {
   displayName: string;
   description: string | null;
   logoUrl: string | null;
+  platformGate: PlatformGateState;
   onClose: () => void;
 }
 
@@ -116,11 +119,15 @@ export function IntegrationDetailModal({
   displayName,
   description,
   logoUrl,
+  platformGate,
   onClose,
 }: IntegrationDetailModalProps) {
   const queryClient = useQueryClient();
   const isNative = useIsNativePlatform();
-  const [activeTab, setActiveTab] = useState<ModalTab>("managed");
+  const managedAvailable = platformGate === "full";
+  const [activeTab, setActiveTab] = useState<ModalTab>(
+    managedAvailable ? "managed" : "your-own",
+  );
   const [pendingDisconnectId, setPendingDisconnectId] = useState<string | null>(
     null,
   );
@@ -376,11 +383,12 @@ export function IntegrationDetailModal({
     };
   }, []);
 
-  const { data: allConnections, isLoading: connectionsLoading } = useQuery(
-    assistantsOauthConnectionsListOptions({
+  const { data: allConnections, isLoading: connectionsLoading } = useQuery({
+    ...assistantsOauthConnectionsListOptions({
       path: { assistant_id: assistantId },
     }),
-  );
+    enabled: managedAvailable,
+  });
 
   const providerConnections: OAuthConnection[] = (allConnections ?? []).filter(
     (c) => c.provider === providerKey && c.connected,
@@ -646,40 +654,48 @@ export function IntegrationDetailModal({
         </div>
 
         <div className="space-y-4 px-5 py-4">
-          <div
-            role="tablist"
-            aria-label="OAuth mode"
-            className="flex w-full rounded-md border border-[var(--border-base)] bg-[var(--surface-base)] p-0.5 dark:border-[var(--border-base)] dark:bg-[var(--surface-base)]/40"
-          >
-            <TabButton
-              active={activeTab === "managed"}
-              onClick={() => setActiveTab("managed")}
+          {platformGate !== "gated" && (
+            <div
+              role="tablist"
+              aria-label="OAuth mode"
+              className="flex w-full rounded-md border border-[var(--border-base)] bg-[var(--surface-base)] p-0.5 dark:border-[var(--border-base)] dark:bg-[var(--surface-base)]/40"
             >
-              Managed
-            </TabButton>
-            <TabButton
-              active={activeTab === "your-own"}
-              onClick={() => setActiveTab("your-own")}
-            >
-              Your Own
-            </TabButton>
-          </div>
+              <TabButton
+                active={activeTab === "managed"}
+                onClick={() => setActiveTab("managed")}
+              >
+                Managed
+              </TabButton>
+              <TabButton
+                active={activeTab === "your-own"}
+                onClick={() => setActiveTab("your-own")}
+              >
+                Your Own
+              </TabButton>
+            </div>
+          )}
 
-          {activeTab === "managed" ? (
-            <ManagedTab
-              displayName={displayName}
-              providerKey={providerKey}
-              logoUrl={logoUrl}
-              connections={providerConnections}
-              connectionsLoading={connectionsLoading}
-              startPending={startOAuth.isPending}
-              oauthInProgress={oauthInProgress}
-              disconnectingId={
-                disconnectOAuth.isPending ? pendingDisconnectId : null
-              }
-              onConnect={handleConnect}
-              onDisconnect={handleDisconnect}
-            />
+          {activeTab === "managed" && platformGate !== "gated" ? (
+            platformGate === "disabled" ? (
+              <Notice tone="info">
+                Log in to the Vellum platform to manage OAuth connections.
+              </Notice>
+            ) : (
+              <ManagedTab
+                displayName={displayName}
+                providerKey={providerKey}
+                logoUrl={logoUrl}
+                connections={providerConnections}
+                connectionsLoading={connectionsLoading}
+                startPending={startOAuth.isPending}
+                oauthInProgress={oauthInProgress}
+                disconnectingId={
+                  disconnectOAuth.isPending ? pendingDisconnectId : null
+                }
+                onConnect={handleConnect}
+                onDisconnect={handleDisconnect}
+              />
+            )
           ) : (
             <YourOwnTab
               assistantId={assistantId}
