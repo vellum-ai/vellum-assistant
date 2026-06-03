@@ -58,7 +58,9 @@ const ToolDetailPanel = lazy(() =>
   })),
 );
 import { OnboardingChoiceCard } from "@/domains/chat/components/onboarding-choice-card";
+import { InboxCleanupOfferCard } from "@/domains/chat/components/inbox-cleanup-offer-card";
 import { useOnboardingChoice } from "@/domains/chat/hooks/use-onboarding-choice";
+import { useInboxCleanupOffer } from "@/domains/chat/hooks/use-inbox-cleanup-offer";
 import { useEditMessage } from "@/domains/chat/hooks/use-edit-message";
 import { conversationsByIdUndoPost, subagentsByIdAbortPost } from "@/generated/daemon/sdk.gen";
 import { useIsNativePlatform } from "@/runtime/native-auth";
@@ -177,6 +179,11 @@ export interface ChatRouteContentProps {
   onboardingTasksEmpty: boolean;
   didOnboarding: boolean;
   onboardingConversationId: string | null;
+  /** Chosen first task from the pre-chat context (derived in ActiveChatView,
+   *  which owns the onboarding-domain reads). */
+  firstTask: string | null;
+  /** Whether the activation-flow experiment flag is enabled. */
+  activationFlowEnabled: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -219,6 +226,8 @@ export function ChatRouteContent({
   onboardingTasksEmpty,
   didOnboarding,
   onboardingConversationId,
+  firstTask,
+  activationFlowEnabled,
 }: ChatRouteContentProps) {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
@@ -435,6 +444,21 @@ export function ChatRouteContent({
     didOnboarding,
     messages,
     onboardingTasksEmpty,
+    activeConversationId,
+    onboardingConversationId,
+    sendMessage,
+  });
+
+  const {
+    showInboxOffer,
+    handleAccept: handleInboxAccept,
+    handleDecline: handleInboxDecline,
+    accepting: inboxAccepting,
+  } = useInboxCleanupOffer({
+    didOnboarding,
+    firstTask,
+    activationFlowEnabled,
+    messages,
     activeConversationId,
     onboardingConversationId,
     sendMessage,
@@ -731,6 +755,7 @@ export function ChatRouteContent({
         autoRoutedProfileLabel,
         errorNotice: null,
         showOnboardingChoice,
+        showInboxOffer,
       }),
     [
       sanitizedMessages,
@@ -742,6 +767,7 @@ export function ChatRouteContent({
       thinkingLabel,
       autoRoutedProfileLabel,
       showOnboardingChoice,
+      showInboxOffer,
     ],
   );
 
@@ -1178,6 +1204,13 @@ export function ChatRouteContent({
       <OnboardingChoiceCard
         onSelectSpecific={handleSelectSpecific}
         onSubmitTasks={handleSubmitTasks}
+      />
+    ),
+    renderInboxOffer: () => (
+      <InboxCleanupOfferCard
+        onAccept={handleInboxAccept}
+        onDecline={handleInboxDecline}
+        busy={inboxAccepting}
       />
     ),
   };

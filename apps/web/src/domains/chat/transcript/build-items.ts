@@ -31,6 +31,7 @@ export interface BuildTranscriptItemsInput {
   autoRoutedProfileLabel?: string | null;
   errorNotice: string | null;
   showOnboardingChoice?: boolean;
+  showInboxOffer?: boolean;
 }
 
 /**
@@ -148,6 +149,13 @@ export function buildTranscriptItems(
     items.push({
       kind: "onboardingChoice",
       key: "onboarding-choice",
+    });
+  }
+
+  if (input.showInboxOffer) {
+    items.push({
+      kind: "inboxOffer",
+      key: "inbox-offer",
     });
   }
 

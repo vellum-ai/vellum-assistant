@@ -33,6 +33,9 @@ export interface UseOnboardingOrchestratorResult {
   didOnboarding: boolean;
   /** Whether the user skipped task selection during prechat. */
   onboardingTasksEmpty: boolean;
+  /** The activation-flow first task chosen during prechat (e.g. "inbox-cleanup"),
+   *  captured at mount before the pending context is consumed on first send. */
+  firstTask: string | null;
   /** The draft conversation created for the onboarding flow. */
   onboardingConversationId: string | null;
   /** Shared with `useSendMessage` — pre-chat context for the first send. */
@@ -49,6 +52,7 @@ export function useOnboardingOrchestrator(): UseOnboardingOrchestratorResult {
   const onboardingDraftConversationIdRef = useRef<string | null>(null);
   const [didOnboarding, setDidOnboarding] = useState(false);
   const [onboardingTasksEmpty, setOnboardingTasksEmpty] = useState(false);
+  const [firstTask, setFirstTask] = useState<string | null>(null);
   const [onboardingConversationId, setOnboardingConversationId] = useState<string | null>(null);
 
   // Consume the `?onboarding=1` signal left by `/onboarding/hatching` when
@@ -75,9 +79,12 @@ export function useOnboardingOrchestrator(): UseOnboardingOrchestratorResult {
     try {
       const raw = globalThis.sessionStorage?.getItem("onboarding.prechat.pendingContext");
       if (!raw) return;
-      const ctx = JSON.parse(raw) as { tasks?: string[] };
+      const ctx = JSON.parse(raw) as { tasks?: string[]; firstTask?: string };
       if (Array.isArray(ctx.tasks) && ctx.tasks.length === 0) {
         setOnboardingTasksEmpty(true);
+      }
+      if (typeof ctx.firstTask === "string") {
+        setFirstTask(ctx.firstTask);
       }
     } catch {
       // Storage or parse failure — ignore.
@@ -87,6 +94,7 @@ export function useOnboardingOrchestrator(): UseOnboardingOrchestratorResult {
   return {
     didOnboarding,
     onboardingTasksEmpty,
+    firstTask,
     onboardingConversationId,
     pendingOnboardingContextRef,
     onboardingDraftConversationIdRef,
