@@ -131,6 +131,102 @@ describe("findBaseRisk()", () => {
     expect(result!.risk).toBe("high");
   });
 
+  test("action: rule matches the bare resolved action key", () => {
+    // The rule editor persists generalized bash patterns with an `action:`
+    // prefix; the classifier resolves the command to the bare action key.
+    store.create({
+      tool: "cache_action_t1",
+      pattern: "action:cache-action-prog avatar set",
+      risk: "medium",
+      description: "assistant avatar set",
+    });
+
+    initTrustRuleCache(store);
+    const cache = getTrustRuleCache();
+
+    // Classifier resolves `... avatar set --image "..."` to this bare key.
+    const result = cache.findBaseRisk(
+      "cache_action_t1",
+      "cache-action-prog avatar set",
+    );
+    expect(result).not.toBeNull();
+    expect(result!.pattern).toBe("action:cache-action-prog avatar set");
+    expect(result!.risk).toBe("medium");
+  });
+
+  test("action: rule matches via subcommand fallback", () => {
+    store.create({
+      tool: "cache_action_t2",
+      pattern: "action:cache-action-sub",
+      risk: "high",
+      description: "Any cache-action-sub command",
+    });
+
+    initTrustRuleCache(store);
+    const cache = getTrustRuleCache();
+
+    // Deeper resolved key falls back to the broader `action:` rule.
+    const result = cache.findBaseRisk(
+      "cache_action_t2",
+      "cache-action-sub avatar set",
+    );
+    expect(result).not.toBeNull();
+    expect(result!.pattern).toBe("action:cache-action-sub");
+    expect(result!.risk).toBe("high");
+  });
+
+  test("literal rule takes precedence over action: rule at the same level", () => {
+    store.create({
+      tool: "cache_action_t3",
+      pattern: "cache-action-lit deploy",
+      risk: "low",
+      description: "Literal",
+    });
+    store.create({
+      tool: "cache_action_t3",
+      pattern: "action:cache-action-lit deploy",
+      risk: "high",
+      description: "Action",
+    });
+
+    initTrustRuleCache(store);
+    const cache = getTrustRuleCache();
+
+    const result = cache.findBaseRisk(
+      "cache_action_t3",
+      "cache-action-lit deploy",
+    );
+    expect(result).not.toBeNull();
+    expect(result!.pattern).toBe("cache-action-lit deploy");
+    expect(result!.risk).toBe("low");
+  });
+
+  test("longer action: prefix wins over shorter action: prefix", () => {
+    store.create({
+      tool: "cache_action_t4",
+      pattern: "action:cache-action-depth",
+      risk: "low",
+      description: "Broad",
+    });
+    store.create({
+      tool: "cache_action_t4",
+      pattern: "action:cache-action-depth avatar set",
+      risk: "medium",
+      description: "Specific",
+    });
+
+    initTrustRuleCache(store);
+    const cache = getTrustRuleCache();
+
+    const result = cache.findBaseRisk(
+      "cache_action_t4",
+      "cache-action-depth avatar set",
+    );
+    expect(result).not.toBeNull();
+    expect(result!.pattern).toBe("action:cache-action-depth avatar set");
+    expect(result!.risk).toBe("medium");
+  });
+
   test("returns null when no match found", () => {
     store.create({
       tool: "cache_t6",

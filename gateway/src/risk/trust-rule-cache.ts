@@ -1,7 +1,4 @@
-import {
-  TrustRuleStore,
-  type TrustRule,
-} from "../db/trust-rule-store.js";
+import { TrustRuleStore, type TrustRule } from "../db/trust-rule-store.js";
 
 // ---------------------------------------------------------------------------
 // Cache class
@@ -42,19 +39,31 @@ class TrustRuleCache {
    *    (e.g. `/usr/bin/rm` -> `rm`) and retry exact match
    * 3. Subcommand match: for multi-word commands (e.g. `git push`),
    *    try progressively shorter prefixes (`"git push"` then `"git"`)
+   *
+   * Each lookup matches both the literal key and its `action:`-prefixed form.
+   * The rule editor persists generalized bash patterns with an `action:` prefix
+   * (e.g. `action:git push`, produced by `scopeOptionsToAllowlistOptions`),
+   * while the keys passed here are the bare action key the classifier resolves
+   * from the command. Without the prefix-aware lookup, every generalized bash
+   * trust rule created from any client (web, macOS, iOS, CLI) would silently
+   * fail to match, since the save path and the matcher use different dialects.
    */
   findBaseRisk(tool: string, command: string): TrustRule | null {
     const toolMap = this.rules.get(tool);
     if (!toolMap) return null;
 
+    // Match a literal rule first, then its `action:`-prefixed generalized form.
+    const lookup = (key: string): TrustRule | undefined =>
+      toolMap.get(key) ?? toolMap.get(`action:${key}`);
+
     // 1. Exact match
-    const exact = toolMap.get(command);
+    const exact = lookup(command);
     if (exact) return exact;
 
     // 2. Path-stripped match: /usr/bin/rm -> rm
     const stripped = this.stripPath(command);
     if (stripped !== command) {
-      const strippedMatch = toolMap.get(stripped);
+      const strippedMatch = lookup(stripped);
       if (strippedMatch) return strippedMatch;
     }
 
@@ -64,7 +73,7 @@ class TrustRuleCache {
     const parts = resolvedCommand.split(/\s+/);
     for (let i = parts.length - 1; i >= 1; i--) {
       const subcommand = parts.slice(0, i).join(" ");
-      const match = toolMap.get(subcommand);
+      const match = lookup(subcommand);
       if (match) return match;
     }
 
