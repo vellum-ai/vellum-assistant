@@ -188,6 +188,15 @@ function ProfileEditorModalInner({
     initialValues?.provider_connection ?? "",
   );
   const [status, setStatus] = useState<ProfileStatus>(initialValues?.status ?? "active");
+  // Connections created inline this session, before the parent's `connections`
+  // prop has refetched. Unioned into the available-connections set so a
+  // just-created binding is treated as valid immediately — otherwise
+  // `connectionNotFound` would stay true during the parent refetch window and
+  // `handleSave` would persist an empty `provider_connection` (the binding the
+  // user just created + selected would be silently dropped).
+  const [locallyCreatedConnections, setLocallyCreatedConnections] = useState<
+    ProviderConnection[]
+  >([]);
   // True when in view mode and the user has touched either of the two
   // fields that view mode permits editing (label, status). Drives the
   // view-mode Save button's enabled state and the partial-update save path.
@@ -244,19 +253,33 @@ function ProfileEditorModalInner({
     [provider, model],
   );
 
+  // Parent-supplied connections unioned with any created inline this session
+  // (deduped by name, prop wins). Drives the Connection sub-dropdown and the
+  // save handler's binding resolution so an inline-created connection counts
+  // as valid before the parent refetch lands.
+  const effectiveConnections = useMemo(() => {
+    const base = connections ?? [];
+    if (locallyCreatedConnections.length === 0) return base;
+    const known = new Set(base.map((c) => c.name));
+    return [
+      ...base,
+      ...locallyCreatedConnections.filter((c) => !known.has(c.name)),
+    ];
+  }, [connections, locallyCreatedConnections]);
+
   // Connections matching the currently selected provider. Also used by
   // the save handler for binding resolution.
   const availableConnectionsForProvider = useMemo(
     () =>
       provider
-        ? (connections ?? []).filter(
+        ? effectiveConnections.filter(
             (c) =>
               c.provider === provider &&
               (openAICompatibleEndpointsEnabled ||
                 c.provider !== OPENAI_COMPATIBLE_PROVIDER),
           )
         : [],
-    [provider, connections, openAICompatibleEndpointsEnabled],
+    [provider, effectiveConnections, openAICompatibleEndpointsEnabled],
   );
 
   // Saved binding no longer points at any known connection. The save handler
@@ -283,6 +306,7 @@ function ProfileEditorModalInner({
     setCreatingProvider(false);
     setAdvancedExpanded(false);
     setNewProviderNote(false);
+    setLocallyCreatedConnections([]);
   }, [profileName, mode, resetDirty]);
 
   function handleProviderChange(newProvider: string) {
@@ -292,7 +316,7 @@ function ProfileEditorModalInner({
     // Auto-select connection: if exactly one connection exists for the new
     // provider, select it automatically. If multiple exist, clear so the user
     // must pick. If zero, clear.
-    const connectionsForProvider = (connections ?? []).filter(
+    const connectionsForProvider = effectiveConnections.filter(
       (c) => c.provider === newProvider,
     );
     setProviderConnection(
@@ -370,6 +394,13 @@ function ProfileEditorModalInner({
   // provider + connection, collapse the sub-form, surface the helper note,
   // and invalidate the connections query so the dropdown picks up the row.
   function handleProviderCreated(connection: ProviderConnection) {
+    // Optimistically register the new connection locally so the binding is
+    // valid immediately (the parent `connections` refetch below is async).
+    setLocallyCreatedConnections((prev) =>
+      prev.some((c) => c.name === connection.name)
+        ? prev
+        : [...prev, connection],
+    );
     setProvider(connection.provider);
     setProviderConnection(connection.name);
     setModel("");
@@ -643,7 +674,7 @@ function ProfileEditorModalInner({
   const createModeProviderOptions = useMemo(() => {
     const seen = new Set<string>();
     const opts: { value: string; label: string }[] = [];
-    for (const c of connections ?? []) {
+    for (const c of effectiveConnections) {
       if (
         !openAICompatibleEndpointsEnabled &&
         c.provider === OPENAI_COMPATIBLE_PROVIDER
@@ -663,7 +694,7 @@ function ProfileEditorModalInner({
       label: "+ Create new provider",
     });
     return opts;
-  }, [connections, openAICompatibleEndpointsEnabled]);
+  }, [effectiveConnections, openAICompatibleEndpointsEnabled]);
 
   const createProviderSection = (
     <div className="space-y-4">
@@ -711,7 +742,7 @@ function ProfileEditorModalInner({
         <ProviderCreateForm
           variant="inline"
           assistantId={assistantId}
-          existingNames={(connections ?? []).map((c) => c.name)}
+          existingNames={effectiveConnections.map((c) => c.name)}
           openAICompatibleEndpointsEnabled={openAICompatibleEndpointsEnabled}
           chatgptSubscriptionEnabled={chatgptSubscriptionEnabled}
           defaultProviderType={
@@ -728,7 +759,7 @@ function ProfileEditorModalInner({
           onProviderChange={handleProviderChange}
           onModelChange={handleModelChange}
           onConnectionChange={handleConnectionChange}
-          connections={connections}
+          connections={effectiveConnections}
           openAICompatibleEndpointsEnabled={openAICompatibleEndpointsEnabled}
           isReadOnly={isReadOnly}
           availableConnectionsForProvider={availableConnectionsForProvider}

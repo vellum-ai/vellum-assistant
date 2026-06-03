@@ -1,58 +1,63 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  dedupeKey,
   deriveProfileDefaults,
   deriveProviderDefaults,
-  slugify,
 } from "@/domains/settings/ai/profile-prefill";
 
-describe("slugify", () => {
-  test("collapses dots into hyphens", () => {
-    expect(slugify("Claude Opus 4.7")).toBe("claude-opus-4-7");
-  });
+// `slugify` and `dedupeKey` are module-private — they have no non-test
+// consumers, so they're exercised here through the public `derive*` helpers
+// that compose them (the `key` field is the slugified + deduped result).
 
-  test("collapses multiple spaces into a single hyphen", () => {
-    expect(slugify("GPT   5   Mini")).toBe("gpt-5-mini");
+describe("deriveProfileDefaults — slug derivation (slugify)", () => {
+  test("collapses dots and spaces into single hyphens", () => {
+    expect(deriveProfileDefaults("Claude Opus 4.7", []).key).toBe(
+      "claude-opus-4-7",
+    );
+    expect(deriveProfileDefaults("GPT   5   Mini", []).key).toBe("gpt-5-mini");
   });
 
   test("collapses symbols and consecutive separators", () => {
-    expect(slugify("Hello, World!!")).toBe("hello-world");
-    expect(slugify("a---b___c")).toBe("a-b-c");
+    expect(deriveProfileDefaults("Hello, World!!", []).key).toBe("hello-world");
+    expect(deriveProfileDefaults("a---b___c", []).key).toBe("a-b-c");
   });
 
   test("strips leading and trailing separators", () => {
-    expect(slugify("  Spaces  ")).toBe("spaces");
-    expect(slugify("--anthropic--")).toBe("anthropic");
+    expect(deriveProfileDefaults("  Spaces  ", []).key).toBe("spaces");
+    expect(deriveProfileDefaults("--anthropic--", []).key).toBe("anthropic");
   });
 
-  test("handles empty string", () => {
-    expect(slugify("")).toBe("");
-  });
-
-  test("handles a string with no alphanumerics", () => {
-    expect(slugify("!!!")).toBe("");
+  test("yields an empty key when there are no alphanumerics", () => {
+    expect(deriveProfileDefaults("!!!", []).key).toBe("");
   });
 });
 
-describe("dedupeKey", () => {
-  test("returns the base when there is no collision", () => {
-    expect(dedupeKey("anthropic", [])).toBe("anthropic");
-    expect(dedupeKey("anthropic", ["openai"])).toBe("anthropic");
-  });
-
-  test("appends -2 on the first collision", () => {
-    expect(dedupeKey("anthropic", ["anthropic"])).toBe("anthropic-2");
-  });
-
-  test("walks the suffix until unique", () => {
-    expect(dedupeKey("anthropic", ["anthropic", "anthropic-2"])).toBe(
-      "anthropic-3",
+describe("deriveProfileDefaults — collision handling (dedupeKey)", () => {
+  test("returns the base slug when there is no collision", () => {
+    expect(deriveProfileDefaults("Anthropic", []).key).toBe("anthropic");
+    expect(deriveProfileDefaults("Anthropic", ["openai"]).key).toBe(
+      "anthropic",
     );
   });
 
-  test("compares case-insensitively", () => {
-    expect(dedupeKey("Anthropic", ["anthropic"])).toBe("Anthropic-2");
+  test("appends -2 on the first collision", () => {
+    expect(deriveProfileDefaults("Anthropic", ["anthropic"]).key).toBe(
+      "anthropic-2",
+    );
+  });
+
+  test("walks the suffix until unique", () => {
+    expect(
+      deriveProfileDefaults("Anthropic", ["anthropic", "anthropic-2"]).key,
+    ).toBe("anthropic-3");
+  });
+
+  test("compares collisions case-insensitively", () => {
+    // Slug is already lowercase, so seed an upper-case existing name to prove
+    // the comparison ignores case.
+    expect(deriveProfileDefaults("Anthropic", ["ANTHROPIC"]).key).toBe(
+      "anthropic-2",
+    );
   });
 });
 

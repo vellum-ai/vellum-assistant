@@ -6,7 +6,7 @@ import { toKebabCase } from "@/domains/settings/ai/slugify";
  * run of non-alphanumeric characters into a single `-`, and strip leading and
  * trailing separators. e.g. "Claude Opus 4.7" -> "claude-opus-4-7".
  */
-export function slugify(input: string): string {
+function slugify(input: string): string {
   return toKebabCase(input);
 }
 
@@ -15,7 +15,7 @@ export function slugify(input: string): string {
  * numeric suffix (`-2`, `-3`, ...) until the result is unique. Comparison is
  * case-insensitive.
  */
-export function dedupeKey(base: string, existing: string[]): string {
+function dedupeKey(base: string, existing: string[]): string {
   const taken = new Set(existing.map((name) => name.toLowerCase()));
   if (!taken.has(base.toLowerCase())) {
     return base;
