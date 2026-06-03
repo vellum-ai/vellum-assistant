@@ -120,6 +120,7 @@ export function LibraryDetailPage() {
       onEdit={handleEdit}
       onShare={handleShare}
       isSharing={isSharing}
+      enableFullscreen
     />
   );
 }
