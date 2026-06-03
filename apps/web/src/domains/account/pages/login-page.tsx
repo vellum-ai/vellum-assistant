@@ -66,6 +66,33 @@ function DarkLoginShell({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * Connect-failure text for the self-hosted login: a negative-toned headline
+ * with the underlying error detail beneath it. Renders nothing without a
+ * headline so callers can mount it unconditionally.
+ */
+function ConnectErrorMessage({
+  message,
+  detail,
+}: {
+  message: string | null;
+  detail: string | null;
+}) {
+  if (!message) return null;
+  return (
+    <>
+      <p className="text-body-small-default text-center text-[var(--system-negative-strong)]">
+        {message}
+      </p>
+      {detail && (
+        <p className="text-body-small-default text-center text-[var(--content-secondary)] break-words">
+          {detail}
+        </p>
+      )}
+    </>
+  );
+}
+
 const AUTH_ERROR_MESSAGES: Record<string, string> = {
   signup_closed:
     "Sign-ups are currently closed. Visit vellum.ai/community to request access.",
@@ -451,14 +478,10 @@ function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
           </h1>
           {connectError ? (
             <>
-              <p className="text-body-small-default text-center text-[var(--system-negative-strong)]">
-                {connectError}
-              </p>
-              {connectErrorDetail && (
-                <p className="text-body-small-default text-center text-[var(--content-secondary)] break-words">
-                  {connectErrorDetail}
-                </p>
-              )}
+              <ConnectErrorMessage
+                message={connectError}
+                detail={connectErrorDetail}
+              />
               <div className="flex justify-center">
                 <Button
                   type="button"
@@ -526,16 +549,7 @@ function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
           <h1 className="text-title-large text-center text-[var(--content-emphasised)]">
             Local Assistant
           </h1>
-          {connectError && (
-            <p className="text-body-small-default text-center text-[var(--system-negative-strong)]">
-              {connectError}
-            </p>
-          )}
-          {connectErrorDetail && (
-            <p className="text-body-small-default text-center text-[var(--content-secondary)] break-words">
-              {connectErrorDetail}
-            </p>
-          )}
+          <ConnectErrorMessage message={connectError} detail={connectErrorDetail} />
           <div className="flex flex-col gap-2">
             {localAssistants.map((assistant) => (
               <button
