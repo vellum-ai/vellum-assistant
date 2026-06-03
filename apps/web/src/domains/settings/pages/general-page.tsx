@@ -222,8 +222,9 @@ export function GeneralPage() {
   const infraGate = usePlatformGate({ platformHostedOnly: true });
 
   const platformAssistant = assistant?.is_local && !isLocalMode() ? null : assistant;
+  const selected = getSelectedAssistant();
   const canRetireLocally =
-    isLocalMode() && !!assistant && isLocalAssistant(getSelectedAssistant()!);
+    isLocalMode() && !!assistant && !!selected && isLocalAssistant(selected);
 
   useEffect(() => {
     if (!assistant || window.location.hash !== "#storage-resources") {
