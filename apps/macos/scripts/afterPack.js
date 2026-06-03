@@ -26,10 +26,11 @@ exports.default = async function afterPack(context) {
 
   const entitlements = path.join(__dirname, "entitlements", "bun.plist");
   const identity = process.env.CSC_NAME || process.env.APPLE_SIGNING_IDENTITY || "-";
+  const timestamp = identity === "-" ? "" : " --timestamp";
 
   console.log(`afterPack: codesigning bun binary with identity="${identity}"`);
   execSync(
-    `codesign --force --options runtime --sign "${identity}" --entitlements "${entitlements}" "${bunPath}"`,
+    `codesign --force --options runtime --sign "${identity}"${timestamp} --entitlements "${entitlements}" "${bunPath}"`,
     { stdio: "inherit" }
   );
 };
