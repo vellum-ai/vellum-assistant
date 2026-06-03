@@ -13,7 +13,6 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
 
 import { Button } from "@vellum/design-library/components/button";
 import { Modal } from "@vellum/design-library/components/modal";
@@ -53,7 +52,7 @@ function buildApplyToOptions(
   const isNaturalLanguage = raw.length > 0 && raw === commandDescription.trim();
   const fallbackPattern = !raw || isNaturalLanguage ? "*" : raw;
   const fallbackLabel =
-    fallbackPattern === "*" ? `Any ${toolName} call` : asCode(fallbackPattern);
+    fallbackPattern === "*" ? `Any ${toolName} call` : fallbackPattern;
   return [{ label: fallbackLabel, description: "", pattern: fallbackPattern }];
 }
 
@@ -75,34 +74,6 @@ function isPipelineDecomposition(options: AllowlistOption[]): boolean {
 
 function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
-}
-
-/** Wraps a value in a backtick code span for `renderInlineLabel`. */
-function asCode(s: string): string {
-  return "`" + s + "`";
-}
-
-/**
- * Renders an option label with inline-code support: backtick-delimited spans
- * (e.g. `assistant avatar set *`) render as monospace `<code>`, everything else
- * as plain text. Only backticks are special, so command patterns containing
- * `*`/`_` are never misinterpreted as markdown emphasis. Long code wraps
- * (`overflow-wrap: anywhere`) so absolute paths don't overflow the modal.
- */
-function renderInlineLabel(label: string): ReactNode {
-  return label.split(/(`[^`]+`)/g).map((part, i) => {
-    if (part.length > 1 && part.startsWith("`") && part.endsWith("`")) {
-      return (
-        <code
-          key={i}
-          className="rounded bg-[var(--surface-active)] px-1 py-0.5 font-mono text-[0.9em] [overflow-wrap:anywhere]"
-        >
-          {part.slice(1, -1)}
-        </code>
-      );
-    }
-    return part;
-  });
 }
 
 // ---------------------------------------------------------------------------
@@ -169,7 +140,7 @@ function RadioRow({
         variant="body-medium-default"
         className="min-w-0 [overflow-wrap:anywhere] text-[var(--content-default)]"
       >
-        {renderInlineLabel(label)}
+        {label}
       </Typography>
     </button>
   );
@@ -491,9 +462,9 @@ export function ChatRuleEditorModal({
                 <div className="rounded-md bg-[var(--surface-base)] px-3 py-2">
                   <Typography
                     variant="body-medium-default"
-                    className="[overflow-wrap:anywhere] text-[var(--content-default)]"
+                    className="whitespace-pre-wrap break-words font-mono [overflow-wrap:anywhere] text-[var(--content-default)]"
                   >
-                    {renderInlineLabel(generalizedOptions[0]?.label ?? "")}
+                    {generalizedOptions[0]?.label ?? ""}
                   </Typography>
                 </div>
               ) : generalizedOptions.length > 1 ? (
