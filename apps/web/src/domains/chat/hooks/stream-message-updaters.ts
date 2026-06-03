@@ -13,7 +13,7 @@ import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import type { Surface } from "@/domains/chat/types/types";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 import { toDisplayAttachments } from "@/utils/display-attachments";
-import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
+import type { AllowlistOption, DirectoryScopeOption, RiskScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { MessageCompleteEvent } from "@vellumai/assistant-api";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
@@ -762,6 +762,7 @@ export function applyToolResult(
     riskThreshold?: string;
     allowlistOptions?: AllowlistOption[];
     scopeOptions?: ScopeOption[];
+    riskScopeOptions?: RiskScopeOption[];
     directoryScopeOptions?: DirectoryScopeOption[];
     /**
      * Structured activity metadata from the tool_result event. Persisted on
@@ -822,6 +823,7 @@ export function applyToolResult(
     riskThreshold: opts.riskThreshold,
     allowlistOptions: opts.allowlistOptions,
     scopeOptions: opts.scopeOptions,
+    riskScopeOptions: opts.riskScopeOptions,
     directoryScopeOptions: opts.directoryScopeOptions,
     // Preserve any pre-existing metadata when the new event omits it
     // (no overwrite with undefined on re-applied tool results).

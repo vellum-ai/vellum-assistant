@@ -44,7 +44,7 @@ import {
   removeConversation,
   resolveDraftKey,
 } from "@/utils/conversation-cache-mutations";
-import { findConversation } from "@/utils/conversation-cache";
+import { findConversation, patchConversation } from "@/utils/conversation-cache";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import {
   consumePendingPreChatContext,
@@ -724,6 +724,9 @@ export function useSendMessage({
   const handleStopGenerating = useCallback(async () => {
     if (!assistantId || !activeConversationId) return;
     useStreamStore.getState().bumpEpoch();
+    patchConversation(queryClient, assistantId, activeConversationId, {
+      isProcessing: false,
+    });
     endTurn({ conversationId: activeConversationId, reason: "cancelled" });
     setMessages(clearPendingConfirmationsFromMessages);
     useInteractionStore.getState().resetAll();
@@ -737,7 +740,7 @@ export function useSendMessage({
     } catch {
       // Best-effort — the daemon may have already finished
     }
-  }, [assistantId, activeConversationId]);
+  }, [assistantId, activeConversationId, queryClient]);
 
   return {
     sendMessage,

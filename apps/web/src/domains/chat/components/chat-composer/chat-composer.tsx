@@ -97,6 +97,14 @@ export interface ChatComposerProps {
   onVoiceBeforeStart?: () => boolean | Promise<boolean>;
 
   onStopGenerating: () => void;
+  /**
+   * Whether the active assistant turn can be cancelled. Computed by the
+   * parent from {@link canStopGeneration} which accounts for server-side
+   * processing state (survives page refresh), external-channel streaming,
+   * and the local turn phase. The composer must not derive this locally
+   * because the turn store resets to idle on refresh.
+   */
+  canStopGenerating: boolean;
 
   // assistant id used by AttachFileButton's disabled guard
   assistantId: string | null;
@@ -169,6 +177,7 @@ export function ChatComposer({
   onVoiceError,
   onVoiceBeforeStart,
   onStopGenerating,
+  canStopGenerating,
   assistantId,
   conversationId,
   thresholdPickerSlot,
@@ -297,9 +306,9 @@ export function ChatComposer({
   );
 
   const phase: TurnPhase = useTurnStore.use.phase();
-  const isGenerating =
+  const isLocallyGenerating =
     phase === "queued" || phase === "thinking" || phase === "streaming";
-  const hideTextareaForVoice = isNative && isVoiceActive && !isGenerating;
+  const hideTextareaForVoice = isNative && isVoiceActive && !isLocallyGenerating;
 
   const ghostSuffix = useMemo(
     () =>
@@ -511,7 +520,7 @@ export function ChatComposer({
                 style={{ maxHeight: `${textareaMaxHeightPx}px` }}
               />
             </div>
-            {isVoiceActive && !isGenerating && (
+            {isVoiceActive && !isLocallyGenerating && (
               // macOS parity: full-width scrolling waveform between textarea and
               // action bar. Mirrors VStreamingWaveform(.scrolling) in ComposerView.
               // Stays mounted through the `processing` phase with `paused` set so
@@ -570,7 +579,7 @@ export function ChatComposer({
                 {contextWindowIndicatorSlot}
               </div>
               <div className="flex items-center gap-1">
-                {isGenerating ? (
+                {canStopGenerating ? (
                   <>
                     {/* Desktop: always show stop. Mobile: show stop only when user has no input. */}
                     {(!isMobile || (!input.trim() && !canSendAttachments)) && (

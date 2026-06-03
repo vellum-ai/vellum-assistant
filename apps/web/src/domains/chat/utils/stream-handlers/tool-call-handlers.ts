@@ -64,6 +64,7 @@ export function handleToolResult(
       approvalReason: event.approvalReason,
       riskThreshold: event.riskThreshold,
       allowlistOptions: event.riskAllowlistOptions,
+      riskScopeOptions: event.riskScopeOptions,
       directoryScopeOptions: event.riskDirectoryScopeOptions,
       activityMetadata: event.activityMetadata,
     }),

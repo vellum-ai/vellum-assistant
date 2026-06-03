@@ -74,10 +74,7 @@ import {
 } from "../memory/conversation-crud.js";
 import { getResolvedConversationDirPath } from "../memory/conversation-directories.js";
 import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
-import {
-  isReplaceableTitle,
-  queueRegenerateConversationTitle,
-} from "../memory/conversation-title-service.js";
+import { isReplaceableTitle } from "../memory/conversation-title-service.js";
 import { isBackgroundConversationType } from "../memory/conversation-types.js";
 import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import {
@@ -303,6 +300,19 @@ function buildPluginTurnContext(
     contextWindowManager: ctx.contextWindowManager,
     callSite: ctx.currentCallSite,
   };
+}
+
+/**
+ * Trust class of the actor whose turn is in progress, for the compactor's
+ * image manifest filter. Prefers the turn-start snapshot
+ * ({@link AgentLoopConversationContext.currentTurnTrustContext}) over the live
+ * trust context so compaction running in a later tool iteration can't pick up
+ * a concurrent request's actor.
+ */
+function resolveTurnActorTrustClass(
+  ctx: AgentLoopConversationContext,
+): TrustContext["trustClass"] | undefined {
+  return (ctx.currentTurnTrustContext ?? ctx.trustContext)?.trustClass;
 }
 
 // ── Context Interface ────────────────────────────────────────────────
@@ -1043,7 +1053,7 @@ export async function runAgentLoopImpl(
     const compactionOptions = {
       precomputedEstimate: compactCheck.estimatedTokens,
       overrideProfile: resolveCurrentOverrideProfile() ?? null,
-      actorTrustClass: ctx.trustContext?.trustClass,
+      actorTrustClass: resolveTurnActorTrustClass(ctx),
     };
     let compacted: Awaited<
       ReturnType<typeof ctx.contextWindowManager.maybeCompact>
@@ -1802,7 +1812,7 @@ export async function runAgentLoopImpl(
                 options: {
                   ...(opts ?? {}),
                   overrideProfile: resolveCurrentOverrideProfile() ?? null,
-                  actorTrustClass: ctx.trustContext?.trustClass,
+                  actorTrustClass: resolveTurnActorTrustClass(ctx),
                 },
               },
               buildPluginTurnContext(ctx, reqId),
@@ -2049,11 +2059,11 @@ export async function runAgentLoopImpl(
       prepare: () => {
         // The loop strips runtime injections and commits the stripped basis to
         // durable state via the `compaction_completed` event; this hook only
-        // resolves the pipeline options.
+        // resolves the pipeline options. The loop sets `actorTrustClass` itself
+        // from the turn context.
         return {
           options: {
             overrideProfile: resolveCurrentOverrideProfile() ?? null,
-            actorTrustClass: ctx.trustContext?.trustClass,
           },
         };
       },
@@ -2443,7 +2453,7 @@ export async function runAgentLoopImpl(
             ctx.contextWindowManager.maybeCompact(msgs, signal!, {
               ...(opts ?? {}),
               overrideProfile: resolveCurrentOverrideProfile() ?? null,
-              actorTrustClass: ctx.trustContext?.trustClass,
+              actorTrustClass: resolveTurnActorTrustClass(ctx),
             }),
           abortController.signal,
         );
@@ -3161,19 +3171,6 @@ export async function runAgentLoopImpl(
         });
         publishLoopMessagesChanged();
       }
-    }
-
-    // Second title pass: after 3 completed turns, re-generate the title
-    // using the last 3 messages for better context. Only fires when the
-    // current title was auto-generated (isAutoTitle = 1) and the user
-    // has not opted out via `conversations.skipAutoRetitling`.
-    if (ctx.turnCount === 2 && !getConfig().conversations.skipAutoRetitling) {
-      // turnCount is 0-indexed, incremented in finally; 2 = about to become 3rd turn
-      queueRegenerateConversationTitle({
-        conversationId: ctx.conversationId,
-        provider: ctx.provider,
-        signal: abortController.signal,
-      });
     }
   } catch (err) {
     const errorCtx = {

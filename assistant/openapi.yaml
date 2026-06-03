@@ -23777,6 +23777,11 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
         "416":
           description: Range Not Satisfiable
       parameters:

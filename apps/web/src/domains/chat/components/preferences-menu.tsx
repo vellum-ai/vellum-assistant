@@ -166,12 +166,10 @@ function PreferencesMenuContent({
 
   return (
     <>
-      <ThemeToggle className="px-2 pt-0" />
-
-      <MenuDivider />
+      <ThemeToggle className="px-2 py-0" />
 
       {showBillingRows ? (
-        <>
+        <div className="my-2">
           <CreditsCard
             balance={
               effectiveBalance !== null
@@ -187,8 +185,7 @@ function PreferencesMenuContent({
               onEarnCredits();
             }}
           />
-          <MenuDivider />
-        </>
+        </div>
       ) : null}
 
       <PanelItem
@@ -253,14 +250,4 @@ function formatWholeCredits(value: string): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
-}
-
-function MenuDivider() {
-  return (
-    <div
-      aria-hidden="true"
-      className="my-1 h-px"
-      style={{ background: "var(--border-overlay)" }}
-    />
-  );
 }

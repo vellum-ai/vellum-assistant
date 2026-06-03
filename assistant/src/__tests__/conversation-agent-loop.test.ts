@@ -583,8 +583,8 @@ async function simulateInlineCompaction(
   // The agent loop strips runtime injections (identity-stubbed in this suite),
   // records the history-stripped marker via `history_stripped`, then prepare
   // returns only the orchestrator options. The loop owns the forced-compaction
-  // decision for its mid-loop budget gate and layers `force` onto the options
-  // bag before invoking the pipeline.
+  // decision for its mid-loop budget gate and layers `force` plus the turn
+  // actor's trust class onto the options bag before invoking the pipeline.
   const rawHistory = stripInjectionsForCompaction(history);
   await onEvent({ type: "history_stripped" });
   const { options } = compaction.prepare();
@@ -594,7 +594,15 @@ async function simulateInlineCompaction(
       "compaction",
       getMiddlewaresFor("compaction"),
       (args) => defaultCompactionTerminal(args, turnContext as TurnContext),
-      { messages: rawHistory, signal, options: { force: true, ...options } },
+      {
+        messages: rawHistory,
+        signal,
+        options: {
+          force: true,
+          actorTrustClass: turnContext?.trust.trustClass,
+          ...options,
+        },
+      },
       turnContext as TurnContext,
       DEFAULT_TIMEOUTS.compaction,
     );

@@ -27,8 +27,9 @@ import {
 } from "@/domains/chat/hooks/tool-call-card-utils";
 import { useToolCallCardData } from "@/domains/chat/hooks/use-tool-call-card-data";
 import type { ConfirmationDecision } from "@/types/event-types";
-import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
+import type { AllowlistOption, DirectoryScopeOption, RiskScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import { toolCallToRuleContext } from "@/domains/chat/utils/chat";
 
 export interface ToolCallProgressCardProps {
   toolCalls: ChatMessageToolCall[];
@@ -54,7 +55,9 @@ export interface ToolCallProgressCardProps {
     input?: Record<string, unknown>;
     allowlistOptions: AllowlistOption[];
     scopeOptions: ScopeOption[];
+    riskScopeOptions: RiskScopeOption[];
     directoryScopeOptions: DirectoryScopeOption[];
+    matchedTrustRuleId?: string;
   }) => void;
   // Inline confirmation props (pass-through)
   isSubmittingConfirmation?: boolean;
@@ -311,6 +314,15 @@ function UnifiedToolCallProgressCard({
                       durationLabel: step.durationLabel,
                     });
                   }}
+                  onRiskBadgeClick={
+                    onOpenRuleEditor
+                      ? () => {
+                          const tc = toolCallById.get(step.toolCallId);
+                          if (!tc) return;
+                          onOpenRuleEditor(toolCallToRuleContext(tc));
+                        }
+                      : undefined
+                  }
                 />
                 {nudgeTarget && onOpenRuleEditor && (
                   <UnknownCommandNudge
@@ -387,6 +399,7 @@ function UnknownCommandNudge({
             input: toolCall.input ?? {},
             allowlistOptions: toolCall.allowlistOptions ?? [],
             scopeOptions: toolCall.scopeOptions ?? [],
+            riskScopeOptions: toolCall.riskScopeOptions ?? [],
             directoryScopeOptions: toolCall.directoryScopeOptions ?? [],
           })
         }
