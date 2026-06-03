@@ -137,7 +137,7 @@ function RadioRow({
         )}
       </span>
       <Typography
-        variant="body-medium-default"
+        variant="body-small-default"
         className="min-w-0 [overflow-wrap:anywhere] text-[var(--content-default)]"
       >
         {label}
@@ -461,7 +461,7 @@ export function ChatRuleEditorModal({
               ) : pipelineCollapsed || generalizedOptions.length === 1 ? (
                 <div className="rounded-md bg-[var(--surface-base)] px-3 py-2">
                   <Typography
-                    variant="body-medium-default"
+                    variant="body-small-default"
                     className="whitespace-pre-wrap break-words font-mono [overflow-wrap:anywhere] text-[var(--content-default)]"
                   >
                     {generalizedOptions[0]?.label ?? ""}
@@ -535,7 +535,7 @@ export function ChatRuleEditorModal({
                       onClick={() =>
                         handleUserInteraction(() => setSelectedRiskLevel(level.value))
                       }
-                      className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 transition-colors ${
+                      className={`flex cursor-pointer items-center gap-1.5 rounded-md border px-3 py-1.5 transition-colors ${
                         isSelected
                           ? "border-[var(--primary-base)] bg-[var(--surface-active)]"
                           : "border-[var(--border-base)] bg-transparent hover:bg-[var(--surface-base)]"
