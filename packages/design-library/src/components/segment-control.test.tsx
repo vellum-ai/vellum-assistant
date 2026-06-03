@@ -4,7 +4,7 @@
  * No DOM environment — mirroring `button.test.tsx`, we verify behavior through
  * two angles:
  *   1. `renderToStaticMarkup` — asserts the HTML the component emits, including
- *      the icon-only geometry (the original `rounded-md`/`px-[5px]` sizing).
+ *      the icon-only geometry (`rounded-md` radius, `px-[5px]` padding).
  *   2. The pure `resolveSegmentSelection` helper that each segment's onClick
  *      delegates to — asserts the click→onChange decision without a renderer.
  */
@@ -50,7 +50,7 @@ function containerClassName(html: string): string {
 }
 
 describe("SegmentControl icon-only geometry", () => {
-  test("container keeps the base rounded-lg radius (no enlarged 10px radius)", () => {
+  test("container uses the rounded-lg radius", () => {
     const html = renderToStaticMarkup(
       <SegmentControl
         items={iconItems}
