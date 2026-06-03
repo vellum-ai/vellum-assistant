@@ -47,9 +47,10 @@ function getMaximizeButton(): HTMLButtonElement | null {
 }
 
 function getFloatingExitButton(): HTMLButtonElement | null {
-  // The floating exit button lives inside the `absolute right-3 top-3`
-  // container; scope to that so we don't match the nav-bar close (X) button.
-  const container = document.querySelector(".absolute.right-3.top-3");
+  // The floating exit button lives inside the `absolute z-10` container (its
+  // top/right offsets are applied via inline safe-area-aware styles); scope to
+  // that so we don't match the nav-bar close (X) button.
+  const container = document.querySelector(".absolute.z-10");
   return container?.querySelector("svg.lucide-x")?.closest("button") ?? null;
 }
 
