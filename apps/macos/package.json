@@ -16,7 +16,8 @@
     "typecheck": "bunx tsc --noEmit",
     "test": "bun test",
     "test:ci": "bun scripts/run-tests.ts",
-    "build:fetch-bun": "bash scripts/fetch-bun.sh"
+    "build:fetch-bun": "bash scripts/fetch-bun.sh",
+    "pack": "bun run build:fetch-bun && electron-vite build && electron-builder"
   },
   "devDependencies": {
     "@types/bun": "1.3.14",
