@@ -1,17 +1,20 @@
 
-import { Check, Sparkles, SlidersHorizontal } from "lucide-react";
+import { Check, Plus, Sparkles, SlidersHorizontal } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { BottomSheet } from "@vellum/design-library";
 import { Button } from "@vellum/design-library";
 import { Menu } from "@vellum/design-library";
 import { PanelItem } from "@vellum/design-library";
+import { Tooltip } from "@vellum/design-library";
+import { toast } from "@vellum/design-library/components/toast";
 import { client } from "@/generated/api/client.gen";
 import {
   conversationsByIdGet,
   conversationsByIdInferenceprofilePut,
 } from "@/generated/daemon/sdk.gen";
+import { inferenceProviderconnectionsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import {
   profilePickerLabel,
@@ -19,6 +22,9 @@ import {
   gateAutoProfile,
   type ProfilePickerEntry,
 } from "@/assistant/profile-pickers";
+import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal";
+import { filterFlaggedConnections } from "@/domains/settings/ai/provider-connections-client";
+import type { ProfileEntry } from "@/domains/settings/ai/ai-types";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import {
   deleteConversationOverride,
@@ -289,6 +295,10 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
 
   const queryComplexityRoutingEnabled =
     useAssistantFeatureFlagStore.use.queryComplexityRouting();
+  const openAICompatibleEndpoints =
+    useAssistantFeatureFlagStore.use.openAICompatibleEndpoints();
+  const chatgptSubscriptionAuth =
+    useAssistantFeatureFlagStore.use.chatgptSubscriptionAuth();
 
   const visibleProfileEntries = useMemo(
     () =>
@@ -297,6 +307,98 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
         queryComplexityRoutingEnabled,
       ),
     [orderedProfileEntries, profileActiveKey, queryComplexityRoutingEnabled],
+  );
+
+  // Quick-add: open the shared provider-first ProfileEditorModal in create
+  // mode over the chat. Provider connections feed the modal's Provider picker;
+  // the query is gated on `quickAddOpen` so the menu doesn't fetch them until
+  // the user actually starts creating a profile.
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const { data: connectionsData } = useQuery({
+    ...inferenceProviderconnectionsGetOptions({
+      path: { assistant_id: assistantId },
+    }),
+    enabled: quickAddOpen && !!assistantId,
+  });
+  const quickAddConnections = useMemo(
+    () =>
+      connectionsData
+        ? filterFlaggedConnections(connectionsData.connections, openAICompatibleEndpoints)
+        : undefined,
+    [connectionsData, openAICompatibleEndpoints],
+  );
+
+  const existingProfileNames = useMemo(
+    () => Array.from(new Set([...profileOrder, ...Object.keys(profileMap)])),
+    [profileOrder, profileMap],
+  );
+
+  // Persist a freshly-created profile, then autoselect it for this thread.
+  // Mirrors ManageProfilesModal's create path: write `llm.profiles[name]`
+  // plus an appended `profileOrder` in a single config PATCH so the daemon
+  // records both the entry and its picker position. On success we reuse the
+  // existing per-thread selection handler (writes the override + invalidates
+  // the active-model cache) and surface a success toast.
+  const handleQuickAddSave = useCallback(
+    async (name: string, entry: ProfileEntry) => {
+      const profileOrderPatch = profileOrder.includes(name)
+        ? undefined
+        : [...profileOrder, name];
+      await client.patch({
+        url: `/v1/assistants/{assistant_id}/config`,
+        path: { assistant_id: assistantId },
+        body: {
+          llm: {
+            profiles: { [name]: entry },
+            ...(profileOrderPatch ? { profileOrder: profileOrderPatch } : {}),
+          },
+        },
+        headers: { "Content-Type": "application/json" },
+        throwOnError: true,
+      });
+      // Reflect the new profile locally so the picker renders it immediately
+      // (the daemon-config fetch only re-runs on assistant/conversation change).
+      setProfileMap((prev) => ({ ...prev, [name]: { label: entry.label ?? null } }));
+      if (profileOrderPatch) setProfileOrder(profileOrderPatch);
+      // Profiles are guaranteed loaded by now (the menu opened); allow the
+      // autoselect below to write the per-thread override.
+      profilesReadyRef.current = true;
+      await handleProfileSelect(name);
+      setQuickAddOpen(false);
+      toast.success(`Profile "${name}" created`);
+    },
+    [assistantId, profileOrder, handleProfileSelect],
+  );
+
+  // The "+" quick-add affordance rendered in both the desktop Menu.Label and
+  // the mobile SectionLabel. Closes the popover/sheet, then opens the modal.
+  const quickAddButton = (
+    <Tooltip content="New Profile" side="top">
+      <Button
+        variant="ghost"
+        size="compact"
+        iconOnly={<Plus className="h-3.5 w-3.5" />}
+        aria-label="New Profile"
+        onClick={() => {
+          setOpen(false);
+          setQuickAddOpen(true);
+        }}
+      />
+    </Tooltip>
+  );
+
+  const quickAddModal = (
+    <ProfileEditorModal
+      isOpen={quickAddOpen}
+      mode="create"
+      existingNames={existingProfileNames}
+      connections={quickAddConnections}
+      openAICompatibleEndpointsEnabled={openAICompatibleEndpoints}
+      assistantId={assistantId}
+      chatgptSubscriptionEnabled={chatgptSubscriptionAuth}
+      onSave={handleQuickAddSave}
+      onCancel={() => setQuickAddOpen(false)}
+    />
   );
 
   const trigger = (
@@ -310,6 +412,7 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
 
   if (isMobile) {
     return (
+      <>
       <BottomSheet.Root open={open} onOpenChange={setOpen}>
         <BottomSheet.Trigger asChild>{trigger}</BottomSheet.Trigger>
         {/* Radix Dialog requires a Title for screen-reader accessibility;
@@ -345,39 +448,40 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
                 />
               );
             })}
-            {visibleProfileEntries.length > 0 && (
-              <>
-                <MenuDivider />
-                <SectionLabel>Model Profile</SectionLabel>
-                {visibleProfileEntries.map((entry) => {
-                  const isActive = entry.name === profileActiveKey;
-                  return (
-                    <PanelItem
-                      key={entry.name}
-                      icon={Sparkles}
-                      label={profilePickerLabel(entry)}
-                      active={isActive}
-                      trailingAction={
-                        isActive ? (
-                          <Check className="h-3.5 w-3.5 text-[var(--system-positive-strong)]" />
-                        ) : undefined
-                      }
-                      onSelect={() => {
-                        handleProfileSelect(entry.name);
-                        setOpen(false);
-                      }}
-                    />
-                  );
-                })}
-              </>
-            )}
+            <MenuDivider />
+            <SectionLabel trailingAction={quickAddButton}>
+              Model Profile
+            </SectionLabel>
+            {visibleProfileEntries.map((entry) => {
+              const isActive = entry.name === profileActiveKey;
+              return (
+                <PanelItem
+                  key={entry.name}
+                  icon={Sparkles}
+                  label={profilePickerLabel(entry)}
+                  active={isActive}
+                  trailingAction={
+                    isActive ? (
+                      <Check className="h-3.5 w-3.5 text-[var(--system-positive-strong)]" />
+                    ) : undefined
+                  }
+                  onSelect={() => {
+                    handleProfileSelect(entry.name);
+                    setOpen(false);
+                  }}
+                />
+              );
+            })}
           </BottomSheet.Body>
         </BottomSheet.Content>
       </BottomSheet.Root>
+      {quickAddModal}
+      </>
     );
   }
 
   return (
+    <>
     <Menu.Root open={open} onOpenChange={setOpen}>
       <Menu.Trigger asChild>{trigger}</Menu.Trigger>
       <Menu.Content side="top" align="start">
@@ -405,39 +509,45 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
             </Menu.Item>
           );
         })}
-        {visibleProfileEntries.length > 0 && (
-          <>
-            <Menu.Separator />
-            <Menu.Label className="text-label-small-default normal-case tracking-normal">
-              Model Profile
-            </Menu.Label>
-            {visibleProfileEntries.map((entry) => {
-              const isActive = entry.name === profileActiveKey;
-              return (
-                <Menu.Item
-                  key={entry.name}
-                  onSelect={() => handleProfileSelect(entry.name)}
-                  leftIcon={<Sparkles className="h-3.5 w-3.5" />}
-                  className={isActive ? "bg-[var(--surface-active)] text-[var(--content-emphasised)]" : ""}
-                  shortcut={isActive ? <Check className="h-3.5 w-3.5 text-[var(--system-positive-strong)]" /> : undefined}
-                  title={entry.name === "auto" ? "Automatically switches profiles based on the query" : undefined}
-                >
-                  {profilePickerLabel(entry)}
-                </Menu.Item>
-              );
-            })}
-          </>
-        )}
+        <Menu.Separator />
+        <Menu.Label className="flex items-center justify-between gap-2 text-label-small-default normal-case tracking-normal">
+          <span>Model Profile</span>
+          {quickAddButton}
+        </Menu.Label>
+        {visibleProfileEntries.map((entry) => {
+          const isActive = entry.name === profileActiveKey;
+          return (
+            <Menu.Item
+              key={entry.name}
+              onSelect={() => handleProfileSelect(entry.name)}
+              leftIcon={<Sparkles className="h-3.5 w-3.5" />}
+              className={isActive ? "bg-[var(--surface-active)] text-[var(--content-emphasised)]" : ""}
+              shortcut={isActive ? <Check className="h-3.5 w-3.5 text-[var(--system-positive-strong)]" /> : undefined}
+              title={entry.name === "auto" ? "Automatically switches profiles based on the query" : undefined}
+            >
+              {profilePickerLabel(entry)}
+            </Menu.Item>
+          );
+        })}
       </Menu.Content>
     </Menu.Root>
+    {quickAddModal}
+    </>
   );
 }
 
 /** Bottom-sheet section label — small-caps style matching Menu.Label. */
-function SectionLabel({ children }: { children: ReactNode }) {
+function SectionLabel({
+  children,
+  trailingAction,
+}: {
+  children: ReactNode;
+  trailingAction?: ReactNode;
+}) {
   return (
-    <div className="px-[8px] pt-2.5 pb-2 text-body-small-default text-[var(--content-tertiary)]">
-      {children}
+    <div className="flex items-center justify-between gap-2 px-[8px] pt-2.5 pb-2 text-body-small-default text-[var(--content-tertiary)]">
+      <span>{children}</span>
+      {trailingAction}
     </div>
   );
 }
