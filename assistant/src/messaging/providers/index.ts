@@ -200,6 +200,13 @@ async function deliverSlack(
       blocks: blocks as unknown[] | undefined,
       approval: payload.approval,
       useBlocks: payload.useBlocks,
+      allowUpdateFailureFallbackToPost:
+        typeof payload.messageTs === "string" &&
+        payload.messageTs.length > 0 &&
+        !payload.approval &&
+        !payload.ephemeral &&
+        (payload.useBlocks ||
+          (Array.isArray(blocks) && blocks.length > 0)),
       ephemeral: payload.ephemeral,
       user: payload.user,
       messageTs: payload.messageTs,
