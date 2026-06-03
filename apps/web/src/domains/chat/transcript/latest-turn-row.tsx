@@ -66,6 +66,12 @@ export interface LatestTurnRowProps {
   onSubagentClick?: (subagentId: string) => void;
   /** Callback to abort/stop a running subagent from an inline card. */
   onStopSubagent?: (subagentId: string) => void;
+  /** Whether the combined per-turn activity-summary card is enabled. Forwarded
+   *  to the rendered `TranscriptRow`s. */
+  activitySummaryEnabled?: boolean;
+  /** Click handler for an activity-summary step pill — scrolls the matching
+   *  inline card into view. Forwarded to the rendered `TranscriptRow`s. */
+  onActivityStepClick?: (anchorId: string) => void;
 }
 
 export const LatestTurnRow = memo(function LatestTurnRow({
@@ -97,6 +103,8 @@ export const LatestTurnRow = memo(function LatestTurnRow({
   assistantId,
   onSubagentClick,
   onStopSubagent,
+  activitySummaryEnabled,
+  onActivityStepClick,
 }: LatestTurnRowProps) {
   // The response cluster is "streaming" whenever the turn is in flight. This
   // keeps each response message's last tool-call group expanded for the whole
@@ -134,6 +142,8 @@ export const LatestTurnRow = memo(function LatestTurnRow({
         assistantId={assistantId}
         onSubagentClick={onSubagentClick}
         onStopSubagent={onStopSubagent}
+        activitySummaryEnabled={activitySummaryEnabled}
+        onActivityStepClick={onActivityStepClick}
       />
       {responseItems.map((response) => (
         <Fragment key={response.key}>
@@ -165,6 +175,8 @@ export const LatestTurnRow = memo(function LatestTurnRow({
             assistantId={assistantId}
             onSubagentClick={onSubagentClick}
             onStopSubagent={onStopSubagent}
+            activitySummaryEnabled={activitySummaryEnabled}
+            onActivityStepClick={onActivityStepClick}
             isStreaming={isStreaming}
           />
         </Fragment>

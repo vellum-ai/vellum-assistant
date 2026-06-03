@@ -73,6 +73,12 @@ export interface TranscriptRowProps {
   onSubagentClick?: (subagentId: string) => void;
   /** Callback to abort/stop a running subagent from an inline card. */
   onStopSubagent?: (subagentId: string) => void;
+  /** Whether the combined per-turn activity-summary card is enabled. Forwarded
+   *  to `TranscriptMessageBody`. */
+  activitySummaryEnabled?: boolean;
+  /** Click handler for an activity-summary step pill — scrolls the matching
+   *  inline card into view. Forwarded to `TranscriptMessageBody`. */
+  onActivityStepClick?: (anchorId: string) => void;
   /** True when this row belongs to the actively-streaming turn. Forwarded to
    *  `TranscriptMessageBody` so the streaming message's last tool-call group
    *  defaults open. History rows leave it `false`. */
@@ -107,6 +113,8 @@ export const TranscriptRow = memo(function TranscriptRow({
   assistantId,
   onSubagentClick,
   onStopSubagent,
+  activitySummaryEnabled,
+  onActivityStepClick,
   isStreaming,
 }: TranscriptRowProps) {
   switch (item.kind) {
@@ -133,6 +141,8 @@ export const TranscriptRow = memo(function TranscriptRow({
           assistantId={assistantId}
           onSubagentClick={onSubagentClick}
           onStopSubagent={onStopSubagent}
+          activitySummaryEnabled={activitySummaryEnabled}
+          onActivityStepClick={onActivityStepClick}
           isStreaming={isStreaming}
         />
       );
