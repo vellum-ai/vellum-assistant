@@ -408,6 +408,9 @@ describe("POST /v1/acp/spawn — CLAUDE_CODE_OAUTH_TOKEN injection", () => {
 
   test("does NOT inject CLAUDE_CODE_OAUTH_TOKEN for agents whose command is not claude-agent-acp", async () => {
     seedVaultToken("test-token-abc123");
+    // The codex-acp path requires an OpenAI/Codex key; seed one so the spawn
+    // succeeds and we can assert the CLAUDE token is NOT injected for it.
+    vaultStore.set("acp/openai_api_key", "test-openai-key-abc123");
 
     const handler = getSpawnHandler();
     await handler({
