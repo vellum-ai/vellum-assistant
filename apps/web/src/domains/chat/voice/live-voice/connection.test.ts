@@ -208,15 +208,19 @@ describe("buildSelfHostedLiveVoiceWsUrl", () => {
     expect(url.pathname).toBe("/v1/live-voice");
   });
 
-  test("discards any path/query/hash on the ingress and appends conversationId", () => {
+  test("preserves the ingress path prefix (local Docker proxy) and drops query/hash", () => {
+    // Local mode reaches the gateway at a path-based proxy under the SPA origin.
     const url = new URL(
       buildSelfHostedLiveVoiceWsUrl({
-        ingressUrl: "https://x.ngrok-free.app/some/path?a=1#frag",
+        ingressUrl: "http://localhost:3000/assistant/__gateway/7821?a=1#frag",
         conversationId: "conv-xyz",
         token: "actor-tok",
       }),
     );
-    expect(url.pathname).toBe("/v1/live-voice");
+    expect(url.protocol).toBe("ws:");
+    expect(url.host).toBe("localhost:3000");
+    // Prefix preserved, /v1/live-voice appended — matches the HTTP interceptor.
+    expect(url.pathname).toBe("/assistant/__gateway/7821/v1/live-voice");
     expect(url.hash).toBe("");
     expect(url.searchParams.get("a")).toBeNull();
     expect(url.searchParams.get("token")).toBe("actor-tok");

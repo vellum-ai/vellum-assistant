@@ -197,7 +197,11 @@ export interface BuildSelfHostedLiveVoiceWsUrlArgs {
  *   `?token=` because the browser WebSocket API can't set an `Authorization`
  *   header; the gateway's non-managed `checkLiveVoiceAuth` reads it there.
  *
- * Any path/query/hash on the ingress URL is discarded — only its origin is used.
+ * The ingress *path prefix* is preserved and `/v1/live-voice` is appended to it
+ * — in local Docker mode the gateway is reached at a path-based proxy
+ * (`<origin>/assistant/__gateway/{port}`), exactly as the HTTP interceptor
+ * (`rewriteForSelfHostedIngress`) splices it. Any query/hash on the ingress is
+ * dropped.
  */
 export function buildSelfHostedLiveVoiceWsUrl({
   ingressUrl,
@@ -206,7 +210,8 @@ export function buildSelfHostedLiveVoiceWsUrl({
 }: BuildSelfHostedLiveVoiceWsUrlArgs): string {
   const url = new URL(ingressUrl);
   url.protocol = url.protocol === "http:" ? "ws:" : "wss:";
-  url.pathname = "/v1/live-voice";
+  const prefix = url.pathname.replace(/\/+$/, "");
+  url.pathname = `${prefix}/v1/live-voice`;
   url.search = "";
   url.hash = "";
   url.searchParams.set("token", token);
