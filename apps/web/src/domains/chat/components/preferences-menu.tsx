@@ -169,8 +169,9 @@ function PreferencesMenuContent({
       <ThemeToggle className="px-2 py-0" />
 
       {showBillingRows ? (
-        // 8px gap separating the credits card from the menu rows below it.
-        <div className="mb-2">
+        // 8px gap above and below the credits card, separating it from the
+        // theme switcher and the menu rows.
+        <div className="my-2">
           <CreditsCard
             balance={
               effectiveBalance !== null
