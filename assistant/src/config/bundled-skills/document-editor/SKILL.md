@@ -31,7 +31,7 @@ When the user asks to see, open, or pull up a document:
 
 1. Check the `<active_documents>` block in your context — it lists all documents in this conversation with their `surface_id` and title.
 2. If the document is NOT in `<active_documents>`, call `document_list` with a `query` matching the document title. For guardian/local users, this searches across previous conversations and sessions.
-3. Once you have the `surface_id`, call `document_open` to open the editor panel. This both surfaces the editor on the client and returns the document content. If the user only needs the text (not the editor), use `document_read` instead.
+3. Once you have the `surface_id`, call `document_open` to open the editor panel. This surfaces the editor on the client and returns document metadata (`surface_id`, `title`, `word_count`) — not the full content. If you need the actual document text, follow up with `document_read`.
 
 **Never** search the filesystem, conversation history, or archives to find a document. Always use `document_list` with a `query`.
 
