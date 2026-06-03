@@ -548,7 +548,6 @@ describe("DEFAULT_TIMEOUTS", () => {
     expect(DEFAULT_TIMEOUTS).toEqual({
       turn: null,
       llmCall: null,
-      toolExecute: null,
       memoryRetrieval: null,
       tokenEstimate: null,
       compaction: null,

@@ -7,7 +7,7 @@
  * placeholders) and add the pipeline runner, registry, and bootstrap.
  *
  * The assistant composes behavior around a small set of named pipelines
- * (`turn`, `llmCall`, `toolExecute`, ...). Each plugin may contribute one
+ * (`turn`, `llmCall`, `memoryRetrieval`, ...). Each plugin may contribute one
  * {@link Middleware} per pipeline; the registry composes them in onion
  * order at runtime. Plugins may also contribute {@link Injector}s that emit
  * system-prompt-time content, as well as model-visible capabilities
@@ -44,7 +44,7 @@ import type {
   ToolDefinition,
 } from "../providers/types.js";
 import type { SkillRoute } from "../runtime/skill-route-registry.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
+import type { Tool } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 
 // ─── Manifest ────────────────────────────────────────────────────────────────
@@ -119,7 +119,6 @@ export type Middleware<A, R> = (
 export type PipelineName =
   | "turn"
   | "llmCall"
-  | "toolExecute"
   | "memoryRetrieval"
   | "tokenEstimate"
   | "compaction"
@@ -155,25 +154,6 @@ export type LLMCallArgs = {
   readonly options?: SendMessageOptions;
 };
 export type LLMCallResult = ProviderResponse;
-
-/**
- * Arguments passed to the `toolExecute` pipeline — mirrors the public
- * {@link ToolExecutor.execute} signature so middleware can observe (and
- * mutate) the tool name, input payload, and the full {@link ToolContext}
- * before the terminal runs the actual execution.
- */
-export interface ToolExecuteArgs {
-  readonly name: string;
-  readonly input: Record<string, unknown>;
-  readonly context: ToolContext;
-}
-
-/**
- * Result returned from the `toolExecute` pipeline — identical to
- * {@link ToolExecutionResult} so short-circuit middleware can supply a
- * synthetic result without invoking the terminal.
- */
-export type ToolExecuteResult = ToolExecutionResult;
 
 /**
  * A single retrieved memory artifact.
@@ -599,7 +579,6 @@ export type CircuitBreakerResult = {
 export interface PipelineMiddlewareMap {
   turn: Middleware<TurnArgs, TurnResult>;
   llmCall: Middleware<LLMCallArgs, LLMCallResult>;
-  toolExecute: Middleware<ToolExecuteArgs, ToolExecuteResult>;
   memoryRetrieval: Middleware<MemoryArgs, MemoryResult>;
   tokenEstimate: Middleware<TokenEstimateArgs, TokenEstimateResult>;
   compaction: Middleware<CompactionArgs, CompactionResult>;

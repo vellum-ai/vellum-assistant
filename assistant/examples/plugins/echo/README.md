@@ -4,7 +4,7 @@ Minimal example plugin. Observes every assistant pipeline and logs one JSON
 line per invocation to `stderr`:
 
 ```json
-{"plugin":"echo","pipeline":"toolExecute","durationMs":42,"outcome":"success"}
+{"plugin":"echo","pipeline":"tokenEstimate","durationMs":1,"outcome":"success"}
 {"plugin":"echo","pipeline":"llmCall","durationMs":1873,"outcome":"success"}
 ```
 
@@ -18,9 +18,9 @@ For the full plugin authoring guide, see
 ## What it does
 
 - Registers one observer middleware per slot in
-  `PipelineMiddlewareMap` — `turn`, `llmCall`, `toolExecute`,
-  `memoryRetrieval`, `tokenEstimate`, `compaction`,
-  `overflowReduce`, `persistence`, and `circuitBreaker`.
+  `PipelineMiddlewareMap` — `turn`, `llmCall`, `memoryRetrieval`,
+  `tokenEstimate`, `compaction`, `overflowReduce`, `persistence`, and
+  `circuitBreaker`.
 - Each middleware calls `next(args)` to pass the request through unchanged,
   measures wall-clock duration, and emits one line to `stderr` whether the
   downstream succeeded or threw.

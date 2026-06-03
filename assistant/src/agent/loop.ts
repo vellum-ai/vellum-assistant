@@ -533,21 +533,12 @@ export interface AgentLoopRunOptions {
 
 /**
  * Callback shape the loop uses to execute a tool invocation.
- *
- * The trailing `turnContext` is optional so in-process tests that wire the
- * callback without an orchestrator keep working. Production sites (the
- * `Conversation`'s `createToolExecutor`) forward the supplied context into
- * `ToolExecutor.execute` so the `toolExecute` pipeline sees the orchestrator's
- * real conversation identity/trust/contextWindowManager instead of the
- * synthesized placeholder `ToolExecutor` would otherwise build from the
- * `ToolContext` alone.
  */
 export type LoopToolExecutor = (
   name: string,
   input: Record<string, unknown>,
   onOutput?: (chunk: string) => void,
   toolUseId?: string,
-  turnContext?: TurnContext,
 ) => Promise<{
   content: string;
   isError: boolean;
@@ -1372,14 +1363,6 @@ export class AgentLoop {
                 });
               },
               toolUse.id,
-              // Forward the loop's resolved `TurnContext` through the
-              // executor callback so `ToolExecutor.execute` can thread the
-              // real orchestrator context into the `toolExecute` pipeline.
-              // Standalone tests that don't wire a `turnContext` into
-              // `AgentLoop.run()` pass `undefined` here and the executor
-              // falls back to the synthesized placeholder — preserving the
-              // existing unit-test behavior.
-              turnCtx,
             );
 
             return { toolUse, result };

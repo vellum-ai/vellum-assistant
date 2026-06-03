@@ -38,7 +38,6 @@ import { defaultPersistencePlugin } from "./persistence/register.js";
 import { defaultTitleGeneratePlugin } from "./title-generate/register.js";
 import { defaultTokenEstimatePlugin } from "./token-estimate/register.js";
 import { defaultToolErrorPlugin } from "./tool-error/register.js";
-import { defaultToolExecutePlugin } from "./tool-execute/register.js";
 import { defaultToolResultTruncatePlugin } from "./tool-result-truncate/register.js";
 
 /**
@@ -54,7 +53,6 @@ import { defaultToolResultTruncatePlugin } from "./tool-result-truncate/register
 function getAllDefaultPlugins(): readonly Plugin[] {
   return [
     defaultLlmCallPlugin,
-    defaultToolExecutePlugin,
     defaultToolResultTruncatePlugin,
     defaultEmptyResponsePlugin,
     defaultToolErrorPlugin,

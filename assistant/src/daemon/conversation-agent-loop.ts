@@ -2042,7 +2042,7 @@ export async function runAgentLoopImpl(
     rlog.info({ callSite: turnCallSite }, "Starting agent loop run");
 
     // Thread the orchestrator's canonical per-turn context into the agent
-    // loop so its internal pipeline invocations (llmCall, toolExecute) see
+    // loop so its internal pipeline invocations (llmCall, tokenEstimate) see
     // the real conversation identity / trust /
     // contextWindowManager instead of the synthesized `"agent-loop"`
     // placeholder. The loop clones this value and overwrites `turnIndex`

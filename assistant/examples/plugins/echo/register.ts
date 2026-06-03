@@ -57,8 +57,6 @@ import type {
   Plugin,
   TokenEstimateArgs,
   TokenEstimateResult,
-  ToolExecuteArgs,
-  ToolExecuteResult,
   TurnArgs,
   TurnResult,
 } from "../../../src/plugins/types.js";
@@ -142,9 +140,6 @@ const echoPlugin: Plugin = {
   middleware: {
     turn: makeObserver<TurnArgs, TurnResult>("turn"),
     llmCall: makeObserver<LLMCallArgs, LLMCallResult>("llmCall"),
-    toolExecute: makeObserver<ToolExecuteArgs, ToolExecuteResult>(
-      "toolExecute",
-    ),
     memoryRetrieval: makeObserver<MemoryArgs, MemoryResult>("memoryRetrieval"),
     tokenEstimate: makeObserver<TokenEstimateArgs, TokenEstimateResult>(
       "tokenEstimate",

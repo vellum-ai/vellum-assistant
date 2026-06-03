@@ -320,8 +320,8 @@ return the result unchanged. Wrap the call in `try`/`finally` so your
 observer runs on both success and failure paths.
 
 ```typescript
-const observer: Middleware<ToolExecuteArgs, ToolExecuteResult> =
-  async function observeToolExecute(args, next, ctx) {
+const observer: Middleware<LLMCallArgs, LLMCallResult> =
+  async function observeLlmCall(args, next, ctx) {
     const start = performance.now();
     let outcome: "success" | "error" = "success";
     try {
@@ -331,7 +331,9 @@ const observer: Middleware<ToolExecuteArgs, ToolExecuteResult> =
       throw err;
     } finally {
       const ms = Math.round(performance.now() - start);
-      console.error(JSON.stringify({ tool: args.name, ms, outcome }));
+      console.error(
+        JSON.stringify({ messages: args.messages.length, ms, outcome }),
+      );
     }
   };
 ```
@@ -392,10 +394,10 @@ through any outer middleware unchanged — there is no internal
 `try`/`catch` around user middleware.
 
 ```typescript
-const denyIfUnauthorized: Middleware<ToolExecuteArgs, ToolExecuteResult> =
-  async function denyIfUnauthorized(args, next, ctx) {
-    if (!isAuthorizedFor(args.name, ctx.trust)) {
-      throw new Error(`tool ${args.name} denied by policy`);
+const denyIfUntrusted: Middleware<LLMCallArgs, LLMCallResult> =
+  async function denyIfUntrusted(args, next, ctx) {
+    if (!isTrusted(ctx.trust)) {
+      throw new Error(`llmCall denied by policy`);
     }
     return next(args);
   };
@@ -441,7 +443,6 @@ Every pipeline slot and its purpose. Type details live in
 | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `turn`            | The outermost wrapper around a single assistant turn. Middleware here sees everything a turn does end-to-end.                                      |
 | `llmCall`         | Every call to `Provider.sendMessage`. Input carries `messages` and `options` (with `tools`, `systemPrompt`, `config`, `onEvent`, `signal` inside). |
-| `toolExecute`     | Every `ToolExecutor.execute` call. Input carries `name`, `input`, and the full `ToolContext`.                                                      |
 | `memoryRetrieval` | PKB, NOW.md, and memory-graph retrieval for a turn. Output is a merged `MemoryResult`.                                                             |
 | `tokenEstimate`   | The token-count estimate used for budgeting. Wraps `estimatePromptTokensRaw`.                                                                      |
 | `compaction`      | The conversation-compaction step. Wraps `ContextWindowManager.maybeCompact`.                                                                       |
@@ -460,9 +461,8 @@ current values.
 
 | Pipeline          | Timeout  | Rationale                                                                                                      |
 | ----------------- | -------- | -------------------------------------------------------------------------------------------------------------- |
-| `turn`            | none     | Turn duration is bounded by the downstream `llmCall` / `toolExecute` timeouts, not a pipeline-level timer.     |
+| `turn`            | none     | Turn duration is bounded by the downstream `llmCall` timeout, not a pipeline-level timer.                      |
 | `llmCall`         | none     | Deferred to the provider's HTTP timeout so network hiccups surface as provider errors, not pipeline timeouts.  |
-| `toolExecute`     | none     | Deferred to the per-tool timeout already enforced by `ToolExecutor`.                                           |
 | `memoryRetrieval` | 5000 ms  | Memory reads may hit Qdrant and disk; 5 s leaves slack for cold caches without blocking the turn indefinitely. |
 | `tokenEstimate`   | 1000 ms  | Same — CPU-bound, should return instantly.                                                                     |
 | `compaction`      | 30000 ms | Summarization involves a provider call; mirrors the pipeline-level budget for LLM-backed operations.           |
@@ -805,7 +805,7 @@ Every pipeline invocation emits one structured line tagged
 
 | Field                                      | Meaning                                                                 |
 | ------------------------------------------ | ----------------------------------------------------------------------- |
-| `pipeline`                                 | Pipeline name (`llmCall`, `toolExecute`, …).                            |
+| `pipeline`                                 | Pipeline name (`llmCall`, `compaction`, …).                             |
 | `chain`                                    | Ordered list of middleware function names, outermost first.             |
 | `durationMs`                               | Total time spent in the composed chain.                                 |
 | `outcome`                                  | `"success"`, `"error"`, or `"timeout"`.                                 |

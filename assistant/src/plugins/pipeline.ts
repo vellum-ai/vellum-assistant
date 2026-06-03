@@ -20,8 +20,7 @@
  *   timer. A timeout rejection is a `PluginTimeoutError` carrying the
  *   pipeline name, the best-known offending plugin (from `ctx.pluginName`),
  *   and elapsed ms. When `timeoutMs` is `null`/`undefined`, no timer is
- *   armed — pipelines like `llmCall` and `toolExecute` rely on downstream
- *   timeouts instead.
+ *   armed — pipelines like `llmCall` rely on downstream timeouts instead.
  */
 
 import type { Logger } from "pino";
@@ -44,8 +43,7 @@ const moduleLogger = getLogger("plugin-pipeline");
  * Default per-pipeline timeout budgets in milliseconds. A value of `null`
  * means the runner does NOT arm a timer — the pipeline relies on its
  * downstream for budgeting (e.g. `llmCall` defers to provider-level HTTP
- * timeouts; `toolExecute` defers to the per-tool timeout already enforced
- * by `ToolExecutor`).
+ * timeouts).
  *
  * Callers pass the appropriate entry as `runPipeline`'s `timeoutMs` argument.
  * The design doc locks these numbers in; do not tweak without coordinating
@@ -54,7 +52,6 @@ const moduleLogger = getLogger("plugin-pipeline");
 export const DEFAULT_TIMEOUTS: Record<PipelineName, number | null> = {
   turn: null,
   llmCall: null,
-  toolExecute: null,
   memoryRetrieval: null,
   tokenEstimate: null,
   compaction: null,

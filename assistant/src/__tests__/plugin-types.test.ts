@@ -34,8 +34,6 @@ import {
   type PluginInitContext,
   type PluginManifest,
   PluginTimeoutError,
-  type ToolExecuteArgs,
-  type ToolExecuteResult,
   type TurnContext,
 } from "../plugins/types.js";
 import type { Tool } from "../tools/types.js";
@@ -77,12 +75,6 @@ describe("plugin core types", () => {
       next,
       _ctx,
     ) => next(args);
-
-    // `toolExecute` has concrete arg/result types (refined in PR 16).
-    const toolExecutePassthrough: Middleware<
-      ToolExecuteArgs,
-      ToolExecuteResult
-    > = async (args, next, _ctx) => next(args);
 
     // `memoryRetrieval` has a concrete typed signature (MemoryArgs →
     // MemoryResult) introduced in PR 20, so it can't use the generic
@@ -204,7 +196,6 @@ describe("plugin core types", () => {
       middleware: {
         turn: passthrough,
         llmCall: llmCallPassthrough,
-        toolExecute: toolExecutePassthrough,
         memoryRetrieval: memoryPassthrough,
         tokenEstimate: tokenEstimatePassthrough,
         compaction: compactionPassthrough,
