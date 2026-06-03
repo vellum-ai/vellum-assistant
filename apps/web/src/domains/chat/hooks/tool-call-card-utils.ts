@@ -13,6 +13,7 @@ import {
   deriveStepLabel,
   type IconName,
 } from "@/domains/chat/components/tool-progress-card/derive-step-label";
+import { isSubagentSpawnCall } from "@/domains/chat/transcript/message-content";
 import {
   extractDomain,
   parseWebSearchResultText,
@@ -141,29 +142,6 @@ export function formatMs(ms: number): string {
 /** True when `tc.toolName` is a web tool (`web_search` / `web_fetch`). */
 function isWebTool(tc: ChatMessageToolCall): boolean {
   return WEB_TOOL_NAMES.has(tc.toolName);
-}
-
-/**
- * Recognise a subagent-spawn invocation in either canonical form:
- *
- * - direct `subagent_spawn` tool calls (legacy or any future path that exposes
- *   the executor as a bare tool), and
- * - `skill_execute` calls whose `input.tool === "subagent_spawn"`, which is
- *   the form the LLM actually emits today — the daemon's `skill_execute`
- *   interceptor (see `assistant/src/daemon/conversation-tool-setup.ts`)
- *   re-dispatches to the real executor under the hood, but the
- *   `tool_use_start` event the frontend receives still carries
- *   `toolName: "skill_execute"`.
- *
- * Kept local rather than imported from `transcript-message-body.tsx` so the
- * hooks module stays self-contained (no cross-domain dep on transcript code).
- */
-function isSubagentSpawnLikeCall(tc: ChatMessageToolCall): boolean {
-  if (tc.toolName === "subagent_spawn") return true;
-  if (tc.toolName !== "skill_execute") return false;
-  const input = tc.input;
-  if (input == null || typeof input !== "object") return false;
-  return input.tool === "subagent_spawn";
 }
 
 /**
@@ -529,7 +507,7 @@ export function computeToolCallCardData(
   // `skill_execute` interceptor) — matching the bare `toolName` would miss
   // every spawn and let the unified card swallow them as generic skill steps.
   const renderableToolCalls = toolCalls.filter(
-    (tc) => !isSubagentSpawnLikeCall(tc),
+    (tc) => !isSubagentSpawnCall(tc),
   );
 
   const steps: ToolCallCardStep[] = [];
