@@ -312,6 +312,23 @@ describe("selectFromLeaf — request shape", () => {
     expect(blockB.cache_control).toBeUndefined();
   });
 
+  test("situational context renders in the per-turn block when present", async () => {
+    providerStub = makeProvider(toolUseResponse({ ids: [1] }));
+    await selectFromLeaf(
+      "people/alice",
+      {
+        ...makeTurn("alice?"),
+        situationalContext: "Today is Saturday. Alice's anniversary is today.",
+      },
+      makeTree(),
+      summaryOf,
+    );
+    const blockB = providerCalls[0].messages[0].content[1] as { text: string };
+    expect(blockB.text).toContain(
+      "<situation>Today is Saturday. Alice's anniversary is today.</situation>",
+    );
+  });
+
   test("system prompt mentions pinned (locks the pinning commitment)", async () => {
     providerStub = makeProvider(toolUseResponse({ ids: [1] }));
     await selectFromLeaf("people/alice", makeTurn("x"), makeTree(), summaryOf);

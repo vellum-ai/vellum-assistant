@@ -225,6 +225,34 @@ describe("routeL1 — request shape", () => {
     expect(blockB.cache_control).toBeUndefined();
   });
 
+  test("situational context renders in the per-turn block when present", async () => {
+    providerStub = makeProvider(toolUseResponse({ ids: [1] }));
+    await routeL1(
+      {
+        ...makeTurn("x"),
+        situationalContext: "Today is Saturday. Alice's anniversary is today.",
+      },
+      makeTree(),
+    );
+    const blockB = providerCalls[0].messages[0].content[1] as { text: string };
+    expect(blockB.text).toContain(
+      "<situation>Today is Saturday. Alice's anniversary is today.</situation>",
+    );
+  });
+
+  test("situational context is omitted when the turn has none", async () => {
+    providerStub = makeProvider(toolUseResponse({ ids: [1] }));
+    await routeL1(makeTurn("x"), makeTree());
+    const blockB = providerCalls[0].messages[0].content[1] as { text: string };
+    expect(blockB.text).not.toContain("<situation>");
+  });
+
+  test("system prompt mentions situation (locks the routing commitment)", async () => {
+    providerStub = makeProvider(toolUseResponse({ ids: [1] }));
+    await routeL1(makeTurn("x"), makeTree());
+    expect(providerCalls[0].options?.systemPrompt).toMatch(/[Ss]ituation/);
+  });
+
   test("system prompt mentions register (locks the routing commitment)", async () => {
     providerStub = makeProvider(toolUseResponse({ ids: [1] }));
     await routeL1(makeTurn("x"), makeTree());

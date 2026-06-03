@@ -46,6 +46,14 @@ export interface TurnContext {
   turnNumber: number;
   currentMessage: string;
   recentContext: string;
+  /**
+   * Optional situational signal — the current date plus the live NOW.md
+   * scratchpad — so a leaf or page can be routed/selected on a date or
+   * live-state cue the message itself never names (e.g. a person whose
+   * anniversary is today). Omitted when unavailable; the router and selector
+   * render nothing for an undefined value.
+   */
+  situationalContext?: string;
 }
 
 export type SelectionSource = "l1+l2" | "core+l2" | "needle" | "carry-forward";
