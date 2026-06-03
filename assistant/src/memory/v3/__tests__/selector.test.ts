@@ -298,13 +298,13 @@ describe("selectFromLeaf — request shape", () => {
     const [blockA, blockB] = providerCalls[0].messages[0].content as Array<{
       type: string;
       text: string;
-      cache_control?: { type: string };
+      cache_control?: { type: string; ttl?: string };
     }>;
     expect(blockA.type).toBe("text");
     expect(blockA.text).toContain("<leaf>people/alice</leaf>");
     expect(blockA.text).toContain("<pages>");
     expect(blockA.text).toContain("[1] alice-bio — summary of alice-bio");
-    expect(blockA.cache_control).toEqual({ type: "ephemeral" });
+    expect(blockA.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
 
     expect(blockB.type).toBe("text");
     expect(blockB.text).toContain("<current_message>alice?</current_message>");
