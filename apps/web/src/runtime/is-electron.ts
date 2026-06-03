@@ -59,7 +59,7 @@ declare global {
         setSignedIn(signedIn: boolean): Promise<void>;
       };
       localMode: {
-        hatch(species: string): Promise<{
+        hatch(species: string, remote?: string): Promise<{
           ok: boolean;
           assistantId?: string;
           error?: string;

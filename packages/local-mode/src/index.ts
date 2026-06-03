@@ -29,7 +29,7 @@ export type {
   LockfileWriteResult,
 } from "./lockfile-contract";
 export { runHatch } from "./hatch";
-export type { HatchResult, RunHatchOptions } from "./hatch";
+export type { HatchResult } from "./hatch";
 export { runRetire } from "./retire";
 export type { RetireResult } from "./retire";
 export { getGuardianAccessToken } from "./guardian-token";
