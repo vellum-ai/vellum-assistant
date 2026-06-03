@@ -575,7 +575,7 @@ export function NotificationsPage() {
 
   if (platformGate === "disabled") {
     return (
-      <div className="max-w-[940px] space-y-4">
+      <div className="mx-auto max-w-[940px] space-y-4">
         <div className="flex items-center gap-3">
           <Bell className="h-5 w-5 text-[var(--content-secondary)]" />
           <div className="flex-1">
@@ -595,7 +595,7 @@ export function NotificationsPage() {
   }
 
   return (
-    <div className="max-w-[940px] space-y-4">
+    <div className="mx-auto max-w-[940px] space-y-4">
       <div className="flex items-center gap-3">
         <Bell className="h-5 w-5 text-[var(--content-secondary)]" />
         <div className="flex-1">

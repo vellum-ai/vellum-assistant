@@ -80,18 +80,18 @@ export function DeveloperPage() {
         className="flex min-h-0 flex-1 flex-col pt-6"
       >
         {activeTab === "feature-flags" && (
-          <div className="max-w-[940px] space-y-6">
+          <div className="mx-auto max-w-[940px] space-y-6">
             <FeatureFlagsPanel />
             <EnvironmentConfigPanel />
           </div>
         )}
         {activeTab === "lifecycle" && (
-          <div className="max-w-[940px]">
+          <div className="mx-auto max-w-[940px]">
             <AssistantLifecyclePanel />
           </div>
         )}
         {activeTab === "sentry" && (
-          <div className="max-w-[940px]">
+          <div className="mx-auto max-w-[940px]">
             <SentryTestingPanel />
           </div>
         )}
