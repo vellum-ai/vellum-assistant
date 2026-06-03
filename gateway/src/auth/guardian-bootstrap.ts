@@ -504,7 +504,6 @@ function mintRefreshToken(
   guardianPrincipalId: string,
   hashedDeviceId: string,
   platform: string,
-  accessTtlMs: number = ACCESS_TOKEN_TTL_MS,
 ): {
   refreshToken: string;
   refreshTokenExpiresAt: number;
@@ -539,7 +538,8 @@ function mintRefreshToken(
   return {
     refreshToken,
     refreshTokenExpiresAt: Math.min(absoluteExpiresAt, inactivityExpiresAt),
-    refreshAfter: now + Math.floor(accessTtlMs * REFRESH_AFTER_FRACTION),
+    refreshAfter:
+      now + Math.floor(ACCESS_TOKEN_TTL_MS * REFRESH_AFTER_FRACTION),
   };
 }
 
@@ -547,24 +547,17 @@ function mintRefreshToken(
  * Revoke any existing credentials for a (guardian, device) pair and mint a
  * fresh, DB-recorded access + refresh token pair bound to that device.
  *
- * This is the shared core used by both guardian bootstrap and device-scoped
- * pairing. The device binding enforces one active token per
- * (guardianPrincipalId, hashedDeviceId) via a unique index, so re-minting for
- * the same device first revokes the prior tokens.
- *
- * `accessTtlSeconds` controls the access-token lifetime (default: the
- * bootstrap TTL). Callers can pass a shorter value — e.g. loopback pairing
- * keeps a short access TTL so a token stays low-blast-radius until hot-path
- * revocation is enforced; the refresh token remains long-lived and DB-backed.
+ * This is the shared core used by guardian bootstrap (and any other flow that
+ * needs a full refreshable credential). The device binding enforces one active
+ * token per (guardianPrincipalId, hashedDeviceId) via a unique index, so
+ * re-minting for the same device first revokes the prior tokens.
  */
 export function mintAndRecordDeviceBoundTokenPair(params: {
   guardianPrincipalId: string;
   deviceId: string;
   platform: string;
-  accessTtlSeconds?: number;
 }): DeviceBoundTokenPair {
   const hashedDeviceId = hashToken(params.deviceId);
-  const accessTtlSeconds = params.accessTtlSeconds ?? ACCESS_TOKEN_TTL_SECONDS;
 
   revokeActorTokensByDevice(params.guardianPrincipalId, hashedDeviceId);
   revokeRefreshTokensByDevice(params.guardianPrincipalId, hashedDeviceId);
@@ -573,13 +566,11 @@ export function mintAndRecordDeviceBoundTokenPair(params: {
     params.guardianPrincipalId,
     hashedDeviceId,
     params.platform,
-    accessTtlSeconds,
   );
   const refresh = mintRefreshToken(
     params.guardianPrincipalId,
     hashedDeviceId,
     params.platform,
-    accessTtlSeconds * 1000,
   );
 
   return {
@@ -589,6 +580,39 @@ export function mintAndRecordDeviceBoundTokenPair(params: {
     refreshTokenExpiresAt: refresh.refreshTokenExpiresAt,
     refreshAfter: refresh.refreshAfter,
   };
+}
+
+/**
+ * Revoke any existing credentials for a (guardian, device) pair and mint a
+ * fresh, DB-recorded access token bound to that device — WITHOUT a refresh
+ * token.
+ *
+ * Used by loopback pairing: the recorded token is revocable per device (once
+ * hot-path revocation is enforced), and `ttlSeconds` keeps it short so its
+ * blast radius stays bounded in the interim. No refresh token is issued —
+ * refreshable pairing is deferred until revocation is enforced on live
+ * requests, so a long-lived refresh can't silently re-mint long access tokens.
+ * Callers re-pair when the access token expires.
+ */
+export function mintAndRecordDeviceBoundAccessToken(params: {
+  guardianPrincipalId: string;
+  deviceId: string;
+  platform: string;
+  ttlSeconds: number;
+}): { accessToken: string; accessTokenExpiresAt: number } {
+  const hashedDeviceId = hashToken(params.deviceId);
+
+  revokeActorTokensByDevice(params.guardianPrincipalId, hashedDeviceId);
+  revokeRefreshTokensByDevice(params.guardianPrincipalId, hashedDeviceId);
+
+  const access = mintAccessToken(
+    params.guardianPrincipalId,
+    hashedDeviceId,
+    params.platform,
+    params.ttlSeconds,
+  );
+
+  return { accessToken: access.token, accessTokenExpiresAt: access.expiresAt };
 }
 
 // ---------------------------------------------------------------------------

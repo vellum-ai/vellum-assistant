@@ -30,7 +30,6 @@ const { actorTokenRecords, actorRefreshTokenRecords } =
   await import("../db/schema.js");
 const { handlePair, resetPairRateLimiterForTests } =
   await import("../http/routes/pair.js");
-const { rotateCredentials } = await import("../auth/guardian-refresh.js");
 const { hashToken } = await import("../auth/guardian-bootstrap.js");
 
 const LOOPBACK_IP = "127.0.0.1";
@@ -81,7 +80,7 @@ afterEach(() => {
 });
 
 describe("/v1/pair device-bound minting", () => {
-  test("records an access + refresh token bound to the device and returns a refresh token", async () => {
+  test("records a device-bound access token and issues NO refresh token", async () => {
     const res = await handlePair(
       makePairRequest({ deviceId: "device-A", platform: "web" }),
       LOOPBACK_IP,
@@ -90,8 +89,9 @@ describe("/v1/pair device-bound minting", () => {
     const body = (await res.json()) as Record<string, unknown>;
 
     expect(typeof body.token).toBe("string");
-    expect(typeof body.refreshToken).toBe("string");
-    expect(typeof body.refreshAfter).toBe("string");
+    // Refreshable pairing is deferred until hot-path revocation is enforced.
+    expect(body.refreshToken).toBeUndefined();
+    expect(body.refreshAfter).toBeUndefined();
 
     const tokens = activeTokens();
     expect(tokens).toHaveLength(1);
@@ -99,13 +99,13 @@ describe("/v1/pair device-bound minting", () => {
     expect(tokens[0].hashedDeviceId).toBe(hashToken("device-A"));
     expect(tokens[0].platform).toBe("web");
 
+    // No refresh token record is created on the pair path.
     const refresh = getGatewayDb()
       .select()
       .from(actorRefreshTokenRecords)
       .where(eq(actorRefreshTokenRecords.status, "active"))
       .all();
-    expect(refresh).toHaveLength(1);
-    expect(refresh[0].hashedDeviceId).toBe(hashToken("device-A"));
+    expect(refresh).toHaveLength(0);
   });
 
   test("uses the short 24h pair TTL for the access token, not the 30-day bootstrap default", async () => {
@@ -119,21 +119,6 @@ describe("/v1/pair device-bound minting", () => {
     // token's blast radius must stay bounded.
     expect(token.expiresAt! - before).toBeGreaterThan(PAIR_TTL_MS - 60_000);
     expect(token.expiresAt! - before).toBeLessThan(PAIR_TTL_MS + 60_000);
-  });
-
-  test("the returned refresh token can be rotated via the refresh handler", async () => {
-    const res = await handlePair(
-      makePairRequest({ deviceId: "device-A" }),
-      LOOPBACK_IP,
-    );
-    const { refreshToken } = (await res.json()) as { refreshToken: string };
-
-    const rotated = rotateCredentials({ refreshToken });
-    expect(rotated.ok).toBe(true);
-    if (!rotated.ok) throw new Error("expected rotation to succeed");
-    expect(rotated.result.accessToken).toBeTruthy();
-    expect(rotated.result.refreshToken).toBeTruthy();
-    expect(rotated.result.refreshToken).not.toBe(refreshToken);
   });
 
   test("re-pairing the same device revokes the prior active token (no unique-index violation)", async () => {
