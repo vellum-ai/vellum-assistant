@@ -25,14 +25,17 @@ mock.module("electron", () => ({
 }));
 
 // Track fs calls so tests can assert on them.
-let existsSyncReturn = false;
+// Per-path overrides for existsSync. Falls back to `existsSyncDefault`.
+let existsSyncDefault = false;
+const existsSyncByPath: Record<string, boolean> = {};
 let readdirSyncReturn: Array<{ name: string; isDirectory: () => boolean }> = [];
 let readdirSyncError: Error | null = null;
 const mkdirSyncCalls: Array<[string, object]> = [];
 const rmSyncCalls: Array<[string, object]> = [];
 
 mock.module("node:fs", () => ({
-  existsSync: () => existsSyncReturn,
+  existsSync: (p: string) =>
+    p in existsSyncByPath ? existsSyncByPath[p] : existsSyncDefault,
   mkdirSync: (p: string, opts: object) => {
     mkdirSyncCalls.push([p, opts]);
   },
@@ -64,14 +67,18 @@ const {
   getCliInstallDir,
   getCliBinPath,
   getBundledBunPath,
+  getWebDistPath,
+  isWebInstalled,
   isCliInstalled,
+  ensureWebInstalled,
   ensureCliInstalled,
   cleanupOldVersions,
   _resetInstallLock,
 } = await import("./cli-installer");
 
 afterEach(() => {
-  existsSyncReturn = false;
+  existsSyncDefault = false;
+  for (const key of Object.keys(existsSyncByPath)) delete existsSyncByPath[key];
   readdirSyncReturn.length = 0;
   readdirSyncError = null;
   mkdirSyncCalls.length = 0;
@@ -104,17 +111,92 @@ describe("getBundledBunPath", () => {
   });
 });
 
+describe("getWebDistPath", () => {
+  test("returns <installDir>/node_modules/@vellumai/web/dist", () => {
+    expect(getWebDistPath()).toBe(
+      `${userDataPath}/cli/${PINNED_CLI_VERSION}/node_modules/@vellumai/web/dist`,
+    );
+  });
+});
+
+// --- isWebInstalled ---
+
+describe("isWebInstalled", () => {
+  test("returns true when web dist/index.html exists", () => {
+    existsSyncByPath[`${userDataPath}/cli/${PINNED_CLI_VERSION}/node_modules/@vellumai/web/dist/index.html`] = true;
+    expect(isWebInstalled()).toBe(true);
+  });
+
+  test("returns false when web dist is missing", () => {
+    existsSyncDefault = false;
+    expect(isWebInstalled()).toBe(false);
+  });
+});
+
 // --- isCliInstalled ---
 
 describe("isCliInstalled", () => {
   test("returns true when the bin path exists", () => {
-    existsSyncReturn = true;
+    existsSyncDefault = true;
     expect(isCliInstalled()).toBe(true);
   });
 
   test("returns false when the bin path is missing", () => {
-    existsSyncReturn = false;
+    existsSyncDefault = false;
     expect(isCliInstalled()).toBe(false);
+  });
+});
+
+// --- ensureWebInstalled ---
+
+describe("ensureWebInstalled", () => {
+  test("skips install when web dist already exists", async () => {
+    existsSyncByPath[`${userDataPath}/cli/${PINNED_CLI_VERSION}/node_modules/@vellumai/web/dist/index.html`] = true;
+    await ensureWebInstalled();
+    expect(spawnCalls).toHaveLength(0);
+  });
+
+  test("spawns bun add @vellumai/web with correct args", async () => {
+    existsSyncDefault = false;
+
+    const promise = ensureWebInstalled();
+    lastChild.emit("close", 0);
+    await promise;
+
+    expect(spawnCalls).toHaveLength(1);
+    const [cmd, args, opts] = spawnCalls[0];
+    expect(cmd).toBe(`${mockResourcesPath}/bun`);
+    expect(args).toEqual(["add", `@vellumai/web@${PINNED_CLI_VERSION}`]);
+    expect(opts).toEqual({
+      cwd: `${userDataPath}/cli/${PINNED_CLI_VERSION}`,
+    });
+  });
+
+  test("concurrent calls share a single install", async () => {
+    existsSyncDefault = false;
+
+    const p1 = ensureWebInstalled();
+    const p2 = ensureWebInstalled();
+
+    expect(spawnCalls).toHaveLength(1);
+
+    lastChild.emit("close", 0);
+    await Promise.all([p1, p2]);
+  });
+
+  test("failed install resets the lock so retries are possible", async () => {
+    existsSyncDefault = false;
+
+    const p1 = ensureWebInstalled();
+    lastChild.stderr.emit("data", Buffer.from("network error"));
+    lastChild.emit("close", 1);
+
+    await expect(p1).rejects.toThrow(/Package install failed/);
+
+    const p2 = ensureWebInstalled();
+    expect(spawnCalls).toHaveLength(2);
+    lastChild.emit("close", 0);
+    await p2;
   });
 });
 
@@ -122,13 +204,13 @@ describe("isCliInstalled", () => {
 
 describe("ensureCliInstalled", () => {
   test("skips install when already installed", async () => {
-    existsSyncReturn = true;
+    existsSyncDefault = true;
     await ensureCliInstalled();
     expect(spawnCalls).toHaveLength(0);
   });
 
   test("spawns bun add with correct args and cwd", async () => {
-    existsSyncReturn = false;
+    existsSyncDefault = false;
 
     const promise = ensureCliInstalled();
 
@@ -146,7 +228,7 @@ describe("ensureCliInstalled", () => {
   });
 
   test("creates the install directory before spawning", async () => {
-    existsSyncReturn = false;
+    existsSyncDefault = false;
 
     const promise = ensureCliInstalled();
     lastChild.emit("close", 0);
@@ -159,18 +241,18 @@ describe("ensureCliInstalled", () => {
   });
 
   test("throws on non-zero exit code", async () => {
-    existsSyncReturn = false;
+    existsSyncDefault = false;
 
     const promise = ensureCliInstalled();
     lastChild.stderr.emit("data", Buffer.from("install failed"));
     lastChild.emit("close", 1);
 
-    await expect(promise).rejects.toThrow(/CLI install failed/);
+    await expect(promise).rejects.toThrow(/Package install failed/);
     await expect(promise).rejects.toThrow(/exit code 1/);
   });
 
   test("throws on spawn error", async () => {
-    existsSyncReturn = false;
+    existsSyncDefault = false;
 
     const promise = ensureCliInstalled();
     lastChild.emit("error", new Error("ENOENT"));
@@ -180,7 +262,7 @@ describe("ensureCliInstalled", () => {
   });
 
   test("calls cleanupOldVersions after successful install", async () => {
-    existsSyncReturn = false;
+    existsSyncDefault = false;
     readdirSyncReturn = [dirEntry("0.8.5"), dirEntry(PINNED_CLI_VERSION)];
 
     const promise = ensureCliInstalled();
@@ -197,7 +279,7 @@ describe("ensureCliInstalled", () => {
   });
 
   test("concurrent calls share a single install", async () => {
-    existsSyncReturn = false;
+    existsSyncDefault = false;
 
     const p1 = ensureCliInstalled();
     const p2 = ensureCliInstalled();
@@ -210,13 +292,13 @@ describe("ensureCliInstalled", () => {
   });
 
   test("failed install resets the lock so retries are possible", async () => {
-    existsSyncReturn = false;
+    existsSyncDefault = false;
 
     const p1 = ensureCliInstalled();
     lastChild.stderr.emit("data", Buffer.from("disk full"));
     lastChild.emit("close", 1);
 
-    await expect(p1).rejects.toThrow(/CLI install failed/);
+    await expect(p1).rejects.toThrow(/Package install failed/);
 
     // Second attempt should spawn a new process.
     const p2 = ensureCliInstalled();

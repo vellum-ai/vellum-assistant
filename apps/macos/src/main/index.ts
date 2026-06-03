@@ -11,6 +11,7 @@ import {
 
 import { installAbout, openAboutWindow } from "./about";
 import { APP_PROTOCOL } from "./app-config";
+import { ensureWebInstalled, getWebDistPath } from "./cli-installer";
 import { handle } from "./ipc";
 import { resolveAppProtocolPath } from "./app-protocol";
 import { planGatewayForward } from "./gateway-forward";
@@ -102,11 +103,17 @@ installDeepLinks();
 // parameter so the protocol handler strips it before path resolution.
 const RENDERER_MOUNT = "/assistant";
 
+const resolveRendererRoot = (): string => {
+  if (app.isPackaged) {
+    return getWebDistPath();
+  }
+  // Dev source tree: apps/web/dist — requires `bun run build` in apps/web/.
+  const repoRoot = path.resolve(app.getAppPath(), "..", "..");
+  return path.join(repoRoot, "apps", "web", "dist");
+};
+
 const registerAppProtocol = (): void => {
-  // The packaged renderer bundle lives next to the main bundle. When this app
-  // is built into an .asar/Resources/app/ tree, apps/web/dist/ is copied to
-  // ../renderer relative to the main process bundle.
-  const rendererRoot = path.join(__dirname, "../renderer");
+  const rendererRoot = resolveRendererRoot();
   const indexHtml = path.join(rendererRoot, "index.html");
   const lockfilePaths = resolveLockfilePaths(process.env);
   const getAllowedGatewayPorts = (): Set<number> =>
@@ -225,10 +232,9 @@ const installSettingsIpc = (): void => {
 
 app
   .whenReady()
-  .then(() => {
-    if (!isDev) {
-      registerAppProtocol();
-    }
+  .then(async () => {
+    // Install tray, dock, and menu before the potentially slow CLI
+    // install so the user sees the app in the menu bar immediately.
     installPermissionHandler();
     installSettingsIpc();
     installLocalMode();
@@ -241,6 +247,15 @@ app
       ensureMainWindow: ensureMainWindowVisible,
       openAbout: openAboutWindow,
     });
+
+    if (!isDev) {
+      // The renderer is served from the installed @vellumai/web package.
+      // Install just the web package (pre-built static assets) to unblock the
+      // UI as fast as possible — the full vellum meta-package installs lazily
+      // when local-mode needs the CLI/daemon/gateway.
+      await ensureWebInstalled();
+      registerAppProtocol();
+    }
     installMainWindow();
 
     // Dock-icon click / Cmd-Tab re-activation: bring the main window
