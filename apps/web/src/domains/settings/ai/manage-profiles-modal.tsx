@@ -7,6 +7,7 @@ import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Toggle } from "@vellum/design-library/components/toggle";
 import { Modal } from "@vellum/design-library/components/modal";
 import { Tag } from "@vellum/design-library/components/tag";
+import { toast } from "@vellum/design-library/components/toast";
 import { Typography } from "@vellum/design-library/components/typography";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { captureError } from "@/lib/sentry/capture-error";
@@ -130,6 +131,14 @@ export function ManageProfilesModal({
       }
     } else {
       await configMutation.mutateAsync({ llm: llmPatch });
+    }
+
+    // Fire the profile-create success toast from the SETTINGS surface only.
+    // The composer quick-add surface owns its own create toast, so firing
+    // here (rather than inside ProfileEditorModal, which both surfaces share)
+    // keeps exactly one success toast per create with no double-fire.
+    if (isNew) {
+      toast.success(`Profile "${entry.label ?? name}" created`);
     }
 
     setEditorOpen(false);

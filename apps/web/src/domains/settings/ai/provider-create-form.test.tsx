@@ -45,6 +45,18 @@ let createConnectionCalls: CreateConnectionCall[] = [];
 let createdConnection: ProviderConnection;
 let createResponseOk = true;
 let createResponseStatus = 200;
+let toastSuccessCalls: string[] = [];
+
+mock.module("@vellum/design-library/components/toast", () => ({
+  toast: {
+    success: (message: string) => {
+      toastSuccessCalls.push(message);
+    },
+    error: () => {},
+  },
+  Toaster: () => null,
+  ToastContent: () => null,
+}));
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
   ...sdkGen,
@@ -180,6 +192,7 @@ beforeEach(() => {
   createdConnection = makeConnection("anthropic-personal");
   createResponseOk = true;
   createResponseStatus = 200;
+  toastSuccessCalls = [];
 });
 
 afterEach(() => {
@@ -328,6 +341,67 @@ describe("ProviderCreateForm submit sequence", () => {
     // confirms the form initialized on the "bring your own credential" path
     // (instead of the managed-capable provider's default `platform`).
     expect(getInputByPlaceholder("Enter your API key")).toBeDefined();
+  });
+
+  test("fires a 'Provider connected' success toast on a successful create", async () => {
+    render(
+      <ModalWrapper>
+        <ProviderCreateForm
+          assistantId={ASSISTANT_ID}
+          existingNames={[]}
+          onCreated={() => {}}
+          onCancel={() => {}}
+        />
+      </ModalWrapper>,
+    );
+
+    fireEvent.change(getInputByPlaceholder("e.g. anthropic-personal"), {
+      target: { value: "anthropic-personal" },
+    });
+    selectDropdownOption("Auth type", "API Key");
+    fireEvent.change(getInputByPlaceholder("Enter your API key"), {
+      target: { value: "sk-test-123" },
+    });
+
+    fireEvent.click(getButton("Create"));
+
+    await waitFor(() => {
+      expect(toastSuccessCalls).toEqual(["Provider connected"]);
+    });
+  });
+
+  test("a connection failure renders inline, keeps the form open, and does NOT toast", async () => {
+    createResponseOk = false;
+    createResponseStatus = 401;
+
+    render(
+      <ModalWrapper>
+        <ProviderCreateForm
+          assistantId={ASSISTANT_ID}
+          existingNames={[]}
+          onCreated={() => {}}
+          onCancel={() => {}}
+        />
+      </ModalWrapper>,
+    );
+
+    fireEvent.change(getInputByPlaceholder("e.g. anthropic-personal"), {
+      target: { value: "anthropic-personal" },
+    });
+    selectDropdownOption("Auth type", "API Key");
+    fireEvent.change(getInputByPlaceholder("Enter your API key"), {
+      target: { value: "sk-test-123" },
+    });
+
+    fireEvent.click(getButton("Create"));
+
+    // The connection-failure message surfaces inline...
+    await waitFor(() => {
+      expect(createConnectionCalls.length).toBe(1);
+    });
+    expect(toastSuccessCalls).toEqual([]);
+    // ...and the form stays mounted (the Create button is still present).
+    expect(getButton("Create")).toBeDefined();
   });
 
   test("clicking Cancel invokes onCancel", () => {

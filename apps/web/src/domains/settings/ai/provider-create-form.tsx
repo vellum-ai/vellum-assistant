@@ -5,6 +5,7 @@ import { Button } from "@vellum/design-library/components/button";
 import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Input } from "@vellum/design-library/components/input";
 import { Modal } from "@vellum/design-library/components/modal";
+import { toast } from "@vellum/design-library/components/toast";
 import { Typography } from "@vellum/design-library/components/typography";
 
 import {
@@ -237,6 +238,9 @@ export function ProviderCreateForm({
         setError("Server returned an empty response. Please try again.");
         return;
       }
+      // Single success confirmation for both the standalone and inline
+      // surfaces; failures above already surface inline via `error` (no toast).
+      toast.success("Provider connected");
       onCreated(created);
     } catch {
       setError("Failed to save connection. Please try again.");
