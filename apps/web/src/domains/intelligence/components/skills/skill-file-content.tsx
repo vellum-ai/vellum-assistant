@@ -54,7 +54,7 @@ export function SkillFileContent({
 
   return (
     <pre
-      className="h-full overflow-auto p-4 font-mono text-body-small-default"
+      className="h-full overflow-y-auto whitespace-pre-wrap break-words p-4 font-mono text-body-small-default"
       style={{ color: "var(--content-default)" }}
     >
       {content}
