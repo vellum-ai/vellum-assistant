@@ -27,6 +27,7 @@ wired surface.
 - [Manifest](#manifest)
 - [Registration](#registration)
 - [Middleware patterns](#middleware-patterns)
+- [Hooks](#hooks)
 - [Pipeline reference](#pipeline-reference)
 - [Timeouts](#timeouts)
 - [Strict-fail semantics](#strict-fail-semantics)
@@ -49,14 +50,14 @@ wired surface.
 
 ## What a plugin can contribute today
 
-| Surface                 | Where                     | Discovery                                         |
-| ----------------------- | ------------------------- | ------------------------------------------------- |
-| Pipeline middleware     | `plugin.middleware`       | keyed by pipeline name in `PipelineMiddlewareMap` |
-| Model-visible tools     | `plugin.tools`            | each `PluginToolRegistration`                     |
-| HTTP routes             | `plugin.routes`           | each `PluginRouteRegistration`                    |
-| Skills                  | `plugin.skills`           | each `PluginSkillRegistration`                    |
-| System-prompt injectors | `plugin.injectors`        | each `Injector`                                   |
-| Lifecycle               | `init()` / `onShutdown()` | methods on the `Plugin` object                    |
+| Surface                    | Where               | Discovery                                         |
+| -------------------------- | ------------------- | ------------------------------------------------- |
+| Pipeline middleware        | `plugin.middleware` | keyed by pipeline name in `PipelineMiddlewareMap` |
+| Model-visible tools        | `plugin.tools`      | each `PluginToolRegistration`                     |
+| HTTP routes                | `plugin.routes`     | each `PluginRouteRegistration`                    |
+| Skills                     | `plugin.skills`     | each `PluginSkillRegistration`                    |
+| System-prompt injectors    | `plugin.injectors`  | each `Injector`                                   |
+| Lifecycle & per-turn hooks | `plugin.hooks`      | keyed by hook name (`init`, `shutdown`, …)        |
 
 The modern schema wires only **hooks** and **tools**; the middleware
 pipelines, routes, skills, and injectors above are the surfaces that still
@@ -85,9 +86,8 @@ The `Plugin` shape is declared in
 ```typescript
 export interface Plugin {
   manifest: PluginManifest;
-  init?(ctx: PluginInitContext): Promise<void>;
-  onShutdown?(): Promise<void>;
-  tools?: PluginToolRegistration[];
+  hooks?: PluginHooks;
+  tools?: Tool[];
   routes?: PluginRouteRegistration[];
   skills?: PluginSkillRegistration[];
   injectors?: Injector[];
@@ -96,8 +96,9 @@ export interface Plugin {
 ```
 
 Every field except `manifest` is optional. A plugin that only contributes
-middleware doesn't need tools or routes; a plugin that only contributes a
-skill can omit middleware entirely.
+a hook doesn't need tools or routes; a plugin that only contributes a
+skill can omit everything else. Lifecycle and per-turn behavior live under
+`hooks` (see [Hooks](#hooks)).
 
 ## Where plugins live
 
@@ -410,27 +411,45 @@ operators can see the registered chain at a glance:
 plugin.pipeline pipeline=llmCall chain=["observeLlm","addHeader","defaultLlmCall"] durationMs=1840 outcome=success
 ```
 
+## Hooks
+
+Hooks are the **modern** lifecycle surface: a plugin contributes one
+function per phase under `plugin.hooks`, keyed by hook name. The wired
+hook names live in [`HOOKS`](../src/plugin-api/constants.ts); the context
+shapes and a full authoring walkthrough live in the
+[experimental plugin guide](../../experimental/plugins/README.md#hooks).
+
+Every hook implements `PluginHookFn` — it receives a context and either
+mutates it in place (returning `void`) or returns a replacement. Hooks
+from multiple plugins chain in registration order, and defaults register
+first.
+
+| Hook                 | Fires                                                             | Context                   |
+| -------------------- | ----------------------------------------------------------------- | ------------------------- |
+| `init`               | Once when the plugin is registered.                               | `PluginInitContext`       |
+| `shutdown`           | Once when the plugin is torn down.                                | `PluginShutdownContext`   |
+| `user-prompt-submit` | Once per user turn, before the agent loop receives the messages.  | `UserPromptSubmitContext` |
+| `post-tool-use`      | Once per tool result, before it joins the provider-bound history. | `PostToolUseContext`      |
+| `stop`               | Once per run when the model yields a turn with no tool calls.     | `StopContext`             |
+
 ## Pipeline reference
 
 Every pipeline slot and its purpose. Type details live in
 [`types.ts`](../src/plugins/types.ts).
 
-| Pipeline             | Purpose                                                                                                                                            |
-| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `turn`               | The outermost wrapper around a single assistant turn. Middleware here sees everything a turn does end-to-end.                                      |
-| `llmCall`            | Every call to `Provider.sendMessage`. Input carries `messages` and `options` (with `tools`, `systemPrompt`, `config`, `onEvent`, `signal` inside). |
-| `toolExecute`        | Every `ToolExecutor.execute` call. Input carries `name`, `input`, and the full `ToolContext`.                                                      |
-| `memoryRetrieval`    | PKB, NOW.md, and memory-graph retrieval for a turn. Output is a merged `MemoryResult`.                                                             |
-| `historyRepair`      | The pre-run repair pass on the message history. Wraps `repairHistory`.                                                                             |
-| `tokenEstimate`      | The token-count estimate used for budgeting. Wraps `estimatePromptTokensRaw`.                                                                      |
-| `compaction`         | The conversation-compaction step. Wraps `ContextWindowManager.maybeCompact`.                                                                       |
-| `overflowReduce`     | The reducer tier loop invoked when a turn blows the context budget.                                                                                |
-| `persistence`        | Every message CRUD op (`add` / `update` / `delete`). Discriminated by `args.op`.                                                                   |
-| `titleGenerate`      | Conversation title generation. Fire-and-forget by default.                                                                                         |
-| `toolResultTruncate` | The per-tool-result truncation step that fits a tool's output into the context window.                                                             |
-| `emptyResponse`      | The decision about what to do when the model returns an empty turn (nudge / accept / error).                                                       |
-| `toolError`          | The decision about what to do when one or more tool calls errored on a turn.                                                                       |
-| `circuitBreaker`     | The compaction circuit breaker. Tracks consecutive-failure state, decides whether to open the circuit.                                             |
+| Pipeline          | Purpose                                                                                                                                            |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `turn`            | The outermost wrapper around a single assistant turn. Middleware here sees everything a turn does end-to-end.                                      |
+| `llmCall`         | Every call to `Provider.sendMessage`. Input carries `messages` and `options` (with `tools`, `systemPrompt`, `config`, `onEvent`, `signal` inside). |
+| `toolExecute`     | Every `ToolExecutor.execute` call. Input carries `name`, `input`, and the full `ToolContext`.                                                      |
+| `memoryRetrieval` | PKB, NOW.md, and memory-graph retrieval for a turn. Output is a merged `MemoryResult`.                                                             |
+| `tokenEstimate`   | The token-count estimate used for budgeting. Wraps `estimatePromptTokensRaw`.                                                                      |
+| `compaction`      | The conversation-compaction step. Wraps `ContextWindowManager.maybeCompact`.                                                                       |
+| `overflowReduce`  | The reducer tier loop invoked when a turn blows the context budget.                                                                                |
+| `persistence`     | Every message CRUD op (`add` / `update` / `delete`). Discriminated by `args.op`.                                                                   |
+| `titleGenerate`   | Conversation title generation. Fire-and-forget by default.                                                                                         |
+| `toolError`       | The decision about what to do when one or more tool calls errored on a turn.                                                                       |
+| `circuitBreaker`  | The compaction circuit breaker. Tracks consecutive-failure state, decides whether to open the circuit.                                             |
 
 ## Timeouts
 
@@ -441,22 +460,19 @@ duration. See
 [`assistant/src/plugins/pipeline.ts`](../src/plugins/pipeline.ts) for the
 current values.
 
-| Pipeline             | Timeout  | Rationale                                                                                                      |
-| -------------------- | -------- | -------------------------------------------------------------------------------------------------------------- |
-| `turn`               | none     | Turn duration is bounded by the downstream `llmCall` / `toolExecute` timeouts, not a pipeline-level timer.     |
-| `llmCall`            | none     | Deferred to the provider's HTTP timeout so network hiccups surface as provider errors, not pipeline timeouts.  |
-| `toolExecute`        | none     | Deferred to the per-tool timeout already enforced by `ToolExecutor`.                                           |
-| `memoryRetrieval`    | 5000 ms  | Memory reads may hit Qdrant and disk; 5 s leaves slack for cold caches without blocking the turn indefinitely. |
-| `historyRepair`      | 1000 ms  | CPU-bound list walk — should finish in a few ms.                                                               |
-| `tokenEstimate`      | 1000 ms  | Same — CPU-bound, should return instantly.                                                                     |
-| `compaction`         | 30000 ms | Summarization involves a provider call; mirrors the pipeline-level budget for LLM-backed operations.           |
-| `overflowReduce`     | 30000 ms | Iterative compaction; matches the `compaction` budget since each tier step may invoke it.                      |
-| `persistence`        | 10000 ms | SQLite writes, Qdrant deletes, and disk syncs. 10 s is generous for the slowest op (batched segment inserts).  |
-| `titleGenerate`      | 30000 ms | Provider-backed. Fire-and-forget, but the budget exists so a stuck call doesn't leak forever.                  |
-| `toolResultTruncate` | 1000 ms  | Pure string op.                                                                                                |
-| `emptyResponse`      | 500 ms   | Decision logic only — must be near-instant.                                                                    |
-| `toolError`          | 500 ms   | Decision logic only — must be near-instant.                                                                    |
-| `circuitBreaker`     | 500 ms   | Numeric state update — must be near-instant.                                                                   |
+| Pipeline          | Timeout  | Rationale                                                                                                      |
+| ----------------- | -------- | -------------------------------------------------------------------------------------------------------------- |
+| `turn`            | none     | Turn duration is bounded by the downstream `llmCall` / `toolExecute` timeouts, not a pipeline-level timer.     |
+| `llmCall`         | none     | Deferred to the provider's HTTP timeout so network hiccups surface as provider errors, not pipeline timeouts.  |
+| `toolExecute`     | none     | Deferred to the per-tool timeout already enforced by `ToolExecutor`.                                           |
+| `memoryRetrieval` | 5000 ms  | Memory reads may hit Qdrant and disk; 5 s leaves slack for cold caches without blocking the turn indefinitely. |
+| `tokenEstimate`   | 1000 ms  | Same — CPU-bound, should return instantly.                                                                     |
+| `compaction`      | 30000 ms | Summarization involves a provider call; mirrors the pipeline-level budget for LLM-backed operations.           |
+| `overflowReduce`  | 30000 ms | Iterative compaction; matches the `compaction` budget since each tier step may invoke it.                      |
+| `persistence`     | 10000 ms | SQLite writes, Qdrant deletes, and disk syncs. 10 s is generous for the slowest op (batched segment inserts).  |
+| `titleGenerate`   | 30000 ms | Provider-backed. Fire-and-forget, but the budget exists so a stuck call doesn't leak forever.                  |
+| `toolError`       | 500 ms   | Decision logic only — must be near-instant.                                                                    |
+| `circuitBreaker`  | 500 ms   | Numeric state update — must be near-instant.                                                                   |
 
 `null` timeouts skip the timer entirely. Finite timeouts arm a
 `setTimeout` that races the pipeline via `Promise.race`.

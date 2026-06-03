@@ -70,6 +70,59 @@ describe("parseAssistantEvent", () => {
   });
 
   // ---------------------------------------------------------------------
+  // assistant_thinking_delta (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses assistant_thinking_delta with messageId and conversationId", () => {
+    // GIVEN a streaming reasoning chunk stamped with its anchor ids
+    // WHEN it is parsed
+    const event = parseEvent({
+      type: "assistant_thinking_delta",
+      thinking: "let me think",
+      messageId: "msg-1",
+      conversationId: "conv-1",
+    });
+    // THEN it is recognized (not coerced to `unknown`) with fields preserved
+    expect(event).toEqual({
+      type: "assistant_thinking_delta",
+      thinking: "let me think",
+      messageId: "msg-1",
+      conversationId: "conv-1",
+    });
+  });
+
+  test("parses assistant_thinking_delta with only the required thinking field", () => {
+    // GIVEN a delta from an older daemon that doesn't stamp anchor ids
+    // WHEN it is parsed
+    const event = parseEvent({
+      type: "assistant_thinking_delta",
+      thinking: "",
+    });
+    // THEN it still parses as the canonical event
+    expect(event).toEqual({
+      type: "assistant_thinking_delta",
+      thinking: "",
+    });
+  });
+
+  test("returns unknown assistant_thinking_delta event when thinking field is missing", () => {
+    // GIVEN a malformed delta lacking the required reasoning text
+    const data = {
+      type: "assistant_thinking_delta",
+      conversationId: "conv-1",
+    };
+    // WHEN it is parsed
+    const event = parseEvent(data);
+    // THEN it falls back to the unknown envelope rather than throwing
+    expect(event).toEqual({
+      type: "unknown",
+      rawType: "assistant_thinking_delta",
+      data,
+      conversationId: "conv-1",
+    });
+  });
+
+  // ---------------------------------------------------------------------
   // message_complete (schema-validated)
   // ---------------------------------------------------------------------
 
@@ -3150,15 +3203,18 @@ describe("envelope format parsing", () => {
 });
 
 // ---------------------------------------------------------------------------
-// RuntimeMessage metadata preservation
+// RuntimeMessage wire shape
 // ---------------------------------------------------------------------------
 
-describe("RuntimeMessage metadata types", () => {
-  test("RuntimeMessage interface accepts optional metadata fields", () => {
-    // Type-level test: ensure RuntimeMessage can carry metadata
+describe("RuntimeMessage wire shape", () => {
+  test("RuntimeMessage carries wire-shape content fields", () => {
+    // Type-level test: the canonical wire contract encodes textSegments as
+    // plain strings and contentOrder as positional "<type>:<index>" strings.
     const msg: import("@/domains/chat/api/messages").RuntimeMessage = {
       id: "msg-1",
       role: "assistant",
+      timestamp: "2024-01-01T00:00:00.000Z",
+      attachments: [],
       surfaces: [
         {
           surfaceId: "s-1",
@@ -3166,27 +3222,23 @@ describe("RuntimeMessage metadata types", () => {
           data: { title: "Test" },
         },
       ],
-      textSegments: [{ type: "text", content: "Hello" }],
-      contentOrder: [
-        { type: "text", id: "seg-1" },
-        { type: "surface", id: "s-1" },
-      ],
-      metadata: { custom: true },
+      textSegments: ["Hello"],
+      contentOrder: ["text:0", "surface:0"],
     };
     expect(msg.surfaces).toHaveLength(1);
     expect(msg.textSegments).toHaveLength(1);
     expect(msg.contentOrder).toHaveLength(2);
-    expect(msg.metadata).toEqual({ custom: true });
   });
 
-  test("RuntimeMessage works without metadata fields", () => {
+  test("RuntimeMessage works with only the required fields", () => {
     const msg: import("@/domains/chat/api/messages").RuntimeMessage = {
       id: "msg-2",
       role: "user",
+      timestamp: "2024-01-01T00:00:00.000Z",
+      attachments: [],
     };
     expect(msg.surfaces).toBeUndefined();
     expect(msg.textSegments).toBeUndefined();
     expect(msg.contentOrder).toBeUndefined();
-    expect(msg.metadata).toBeUndefined();
   });
 });

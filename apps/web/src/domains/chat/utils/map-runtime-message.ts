@@ -1,3 +1,4 @@
+import type { ConversationMessageSurface } from "@vellumai/assistant-api";
 import { runtimeAttachmentsToDisplay } from "@/domains/chat/utils/attachment-mapping";
 import { parseAttachmentSummariesFromContent } from "@/domains/chat/utils/parse-attachment-summaries";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
@@ -5,8 +6,41 @@ import type {
   DisplayAttachment,
   DisplayMessage,
   SlackRuntimeMessage,
+  Surface,
 } from "@/domains/chat/types/types";
-import { mapRuntimeToolCalls, normalizeContentOrder, normalizeTextSegments, type RuntimeMessage } from "@/domains/chat/api/messages";
+import { mapRuntimeToolCalls, normalizeContentOrder, type RuntimeMessage } from "@/domains/chat/api/messages";
+
+/**
+ * Narrow the wire surface `display` (an open string) to the display union.
+ * The daemon only emits "inline" / "panel" (or omits it); any other value
+ * maps to undefined, which the renderer treats as an unset display mode.
+ */
+function narrowSurfaceDisplay(
+  display: string | undefined,
+): Surface["display"] {
+  return display === "inline" || display === "panel" ? display : undefined;
+}
+
+/**
+ * Adapt wire surfaces onto the display `Surface` shape. The client-only
+ * fields (`messageId`, `orphaned`) are populated later by the live SSE
+ * surface handlers, not from history.
+ */
+export function mapServerSurfaces(
+  surfaces: readonly ConversationMessageSurface[],
+): Surface[] {
+  return surfaces.map((s) => ({
+    surfaceId: s.surfaceId,
+    surfaceType: s.surfaceType,
+    title: s.title,
+    data: s.data,
+    actions: s.actions,
+    display: narrowSurfaceDisplay(s.display),
+    completed: s.completed,
+    completionSummary: s.completionSummary,
+    toolCallId: s.toolCallId,
+  }));
+}
 
 /**
  * Intermediate representation of a RuntimeMessage after all server-side fields
@@ -23,13 +57,12 @@ import { mapRuntimeToolCalls, normalizeContentOrder, normalizeTextSegments, type
 export interface PreparedRuntimeMessage {
   parsedAttachments: DisplayAttachment[] | undefined;
   structuredAttachments: DisplayAttachment[] | undefined;
-  normalizedSegments:
-    | Array<{ type: string; content: string; [key: string]: unknown }>
-    | undefined;
+  normalizedSegments: string[] | undefined;
   normalizedContentOrder: Array<{ type: string; id: string }> | undefined;
   toolCalls: ReturnType<typeof mapRuntimeToolCalls> | undefined;
   slackMessage: SlackRuntimeMessage | undefined;
   timestamp: number | undefined;
+  thinkingSegments: string[] | undefined;
 }
 
 /**
@@ -71,18 +104,17 @@ export function prepareServerMessage(m: RuntimeMessage): PreparedRuntimeMessage 
   // segments[0] (as a prior implementation did) left raw "[File attachment]"
   // text in trailing segments, which the transcript renderer then printed
   // into chat bubbles. LUM-1527.
-  const rawSegments = normalizeTextSegments(m.textSegments as unknown[]);
+  const rawSegments =
+    m.textSegments && m.textSegments.length > 0 ? m.textSegments : undefined;
   const parsedAttachmentsAccum: DisplayAttachment[] = [];
   const normalizedSegments = rawSegments
     ? rawSegments.map((seg) => {
         const { cleanedContent: segCleaned, attachments: segAttachments } =
-          parseAttachmentSummariesFromContent(seg.content);
+          parseAttachmentSummariesFromContent(seg);
         if (segAttachments) {
           parsedAttachmentsAccum.push(...segAttachments);
         }
-        return segCleaned === seg.content
-          ? seg
-          : { ...seg, content: segCleaned };
+        return segCleaned;
       })
     : undefined;
 
@@ -96,9 +128,7 @@ export function prepareServerMessage(m: RuntimeMessage): PreparedRuntimeMessage 
         }))
       : undefined;
 
-  const normalizedContentOrder = normalizeContentOrder(
-    m.contentOrder as unknown[],
-  );
+  const normalizedContentOrder = normalizeContentOrder(m.contentOrder);
 
   const toolCalls =
     m.toolCalls && m.toolCalls.length > 0
@@ -106,6 +136,11 @@ export function prepareServerMessage(m: RuntimeMessage): PreparedRuntimeMessage 
       : undefined;
 
   const timestamp = parseRuntimeTimestamp(m.timestamp);
+
+  const thinkingSegments =
+    m.thinkingSegments && m.thinkingSegments.length > 0
+      ? m.thinkingSegments
+      : undefined;
 
   return {
     parsedAttachments,
@@ -115,6 +150,7 @@ export function prepareServerMessage(m: RuntimeMessage): PreparedRuntimeMessage 
     toolCalls,
     slackMessage: m.slackMessage,
     timestamp,
+    thinkingSegments,
   };
 }
 
@@ -133,10 +169,10 @@ export function mapRuntimeToDisplayMessage(m: RuntimeMessage): DisplayMessage {
     role: m.role,
   };
   if (m.mergedMessageIds?.length) msg.mergedMessageIds = m.mergedMessageIds;
-  if (m.surfaces) msg.surfaces = m.surfaces;
+  if (m.surfaces) msg.surfaces = mapServerSurfaces(m.surfaces);
   if (prepared.normalizedSegments) msg.textSegments = prepared.normalizedSegments;
   if (prepared.normalizedContentOrder) msg.contentOrder = prepared.normalizedContentOrder;
-  if (m.metadata) msg.metadata = m.metadata;
+  if (prepared.thinkingSegments) msg.thinkingSegments = prepared.thinkingSegments;
   if (m.subagentNotification) msg.isSubagentNotification = true;
   if (prepared.slackMessage) msg.slackMessage = prepared.slackMessage;
   if (prepared.toolCalls) msg.toolCalls = prepared.toolCalls;

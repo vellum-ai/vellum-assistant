@@ -63,31 +63,31 @@ body {
   animation: busy-pulse 1s ease-in-out infinite;
 }
 
-/* Avatar progress — gradient variant. A translucent highlight band sweeps
-   diagonally across the whole avatar (clipped to its circular frame) as a
-   "glistening" loading state, echoing the "working" shimmer used elsewhere.
-   The band is taller than the avatar and tilted so the leading/trailing edges
-   never reveal a gap as it travels left → right. */
-@keyframes avatar-glisten-sweep {
-  0% { transform: translateX(-220%) rotate(12deg); }
-  100% { transform: translateX(220%) rotate(12deg); }
+/* Avatar streaming ring — a semicircular arc that traces the circular avatar's
+   edge and spins continuously while the assistant is streaming/loading. Used
+   only for custom uploaded-image avatars; character avatars convey streaming
+   through their own morph animation instead. Two adjacent borders are colored
+   (each border occupies a 90° quadrant of the ring when border-radius is 50%,
+   so two adjacent borders make a 180° semicircle); the rest stay transparent,
+   and the whole ring rotates. Border thickness/inset are set inline so the
+   ring scales with avatar size. `prefers-reduced-motion` holds it static. */
+@keyframes avatar-ring-spin {
+  to { transform: rotate(360deg); }
 }
 
-.avatar-glisten::before {
-  content: "";
-  position: absolute;
-  top: -30%;
-  bottom: -30%;
-  left: 0;
-  width: 45%;
-  background-image: linear-gradient(
-    90deg,
-    transparent 0%,
-    color-mix(in srgb, #fff 75%, transparent) 50%,
-    transparent 100%
-  );
-  transform: translateX(-220%) rotate(12deg);
-  animation: avatar-glisten-sweep 1.6s ease-in-out infinite;
+.avatar-streaming-ring {
+  border-style: solid;
+  border-radius: 50%;
+  border-color: transparent;
+  border-top-color: var(--border-active);
+  border-right-color: var(--border-active);
+  animation: avatar-ring-spin 0.85s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .avatar-streaming-ring {
+    animation: none;
+  }
 }
 
 /* Onboarding hatching avatar pulse. Mirrors the macOS HatchingStepView
@@ -249,10 +249,5 @@ body {
   .typing-dot {
     animation: none !important;
     opacity: 0.7 !important;
-  }
-  .avatar-glisten::before {
-    animation: none;
-    transform: translateX(0) rotate(12deg);
-    opacity: 0.5;
   }
 }

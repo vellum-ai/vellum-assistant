@@ -41,8 +41,10 @@ import {
 import { CreateScheduleModal } from "@/domains/settings/components/create-schedule-modal";
 
 import type {
-  ConsolidationConfigResponse,
-  HeartbeatConfigResponse,
+  ConsolidationConfigGetResponse,
+  HeartbeatConfigGetResponse,
+} from "@/generated/daemon/types.gen";
+import type {
   Schedule,
   ScheduleRun,
   SystemTaskKind,
@@ -78,7 +80,7 @@ function formatInterval(ms: number): string {
   return `Every ${minutes} min`;
 }
 
-function heartbeatSubtitle(config: HeartbeatConfigResponse): string {
+function heartbeatSubtitle(config: HeartbeatConfigGetResponse): string {
   if (config.cronExpression) {
     return config.timezone
       ? `Cron: ${config.cronExpression} (${config.timezone})`
@@ -91,7 +93,7 @@ function heartbeatSubtitle(config: HeartbeatConfigResponse): string {
   return subtitle;
 }
 
-function consolidationSubtitle(config: ConsolidationConfigResponse): string {
+function consolidationSubtitle(config: ConsolidationConfigGetResponse): string {
   return formatInterval(config.intervalMs);
 }
 
@@ -858,8 +860,8 @@ function SystemTaskRow({
 }
 
 interface SystemTasksSectionProps {
-  heartbeatConfig: HeartbeatConfigResponse | undefined;
-  consolidationConfig: ConsolidationConfigResponse | undefined;
+  heartbeatConfig: HeartbeatConfigGetResponse | undefined;
+  consolidationConfig: ConsolidationConfigGetResponse | undefined;
   isLoading: boolean;
   hasError: boolean;
   onRetry: () => void;

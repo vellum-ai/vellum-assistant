@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type {
   ContentBlock,
@@ -220,6 +220,64 @@ import {
   OpenAIChatCompletionsProvider,
   OpenAIResponsesProvider,
 } from "../providers/openai/client.js";
+
+// ---------------------------------------------------------------------------
+// App-side web_search provider adapters (Brave/Perplexity/Tavily)
+//
+// Exercise the real `web-search.ts` execute path with a mocked config, provider
+// key, and global fetch. The logger is mocked to capture structured warnings so
+// we can assert the `web_search_backend_failure` telemetry (ATL-727).
+// ---------------------------------------------------------------------------
+
+let mockWebSearchProvider: string = "brave";
+let mockProviderKey: string | undefined = "test-key";
+const capturedWarnLogs: Record<string, unknown>[] = [];
+
+const realConfigLoader = await import("../config/loader.js");
+mock.module("../config/loader.js", () => ({
+  ...realConfigLoader,
+  getConfig: () => ({
+    services: { "web-search": { provider: mockWebSearchProvider } },
+  }),
+}));
+
+const realSecureKeys = await import("../security/secure-keys.js");
+mock.module("../security/secure-keys.js", () => ({
+  ...realSecureKeys,
+  getProviderKeyAsync: async () => mockProviderKey,
+}));
+
+const realLogger = await import("../util/logger.js");
+mock.module("../util/logger.js", () => ({
+  ...realLogger,
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: (_target, prop) => {
+        if (prop === "warn") {
+          return (obj: Record<string, unknown>) => {
+            capturedWarnLogs.push(obj);
+          };
+        }
+        return () => {};
+      },
+    }),
+}));
+
+const { webSearchTool } = await import("../tools/network/web-search.js");
+const { WEB_SEARCH_BACKEND_FAILURE_MESSAGE } = await import(
+  "../tools/network/web-search-error.js"
+);
+
+function executeWebSearch(input: Record<string, unknown>) {
+  return webSearchTool.execute(input, {} as never);
+}
+
+function executeWebSearchWithSignal(
+  input: Record<string, unknown>,
+  signal: AbortSignal,
+) {
+  return webSearchTool.execute(input, { signal } as never);
+}
 
 // ---------------------------------------------------------------------------
 // OpenAI Responses API provider tests
@@ -602,5 +660,160 @@ describe("Cross-Provider Web Search — Gemini", () => {
       (p) => p.functionCall !== undefined,
     );
     expect(functionCallParts).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// App-side provider backend-failure normalization (ATL-727)
+// ---------------------------------------------------------------------------
+
+describe("Cross-Provider Web Search — app-side backend failure normalization", () => {
+  let originalFetch: typeof globalThis.fetch;
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+    mockWebSearchProvider = "brave";
+    mockProviderKey = "test-key";
+    capturedWarnLogs.length = 0;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  function backendFailureLog() {
+    return capturedWarnLogs.find(
+      (entry) => entry.event === "web_search_backend_failure",
+    );
+  }
+
+  test("503 from provider yields friendly recoverable copy in content + errorMessage, logs raw 503, no body leak", async () => {
+    const rawBody = '{"error":"upstream exploded","trace":"do-not-leak"}';
+    globalThis.fetch = (async () =>
+      new Response(rawBody, { status: 503 })) as unknown as typeof fetch;
+
+    const result = await executeWebSearch({ query: "needle in a haystack" });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toBe(WEB_SEARCH_BACKEND_FAILURE_MESSAGE);
+    const meta = result.activityMetadata?.webSearch;
+    expect(meta?.errorMessage).toBe(WEB_SEARCH_BACKEND_FAILURE_MESSAGE);
+    expect(meta?.results).toEqual([]);
+    expect(meta?.resultCount).toBe(0);
+
+    const logEntry = backendFailureLog();
+    expect(logEntry).toBeDefined();
+    expect(logEntry!.provider).toBe("brave");
+    expect(logEntry!.errorCategory).toBe("backend_unavailable");
+    expect(logEntry!.fallbackShown).toBe(true);
+    expect(logEntry!.queryLength).toBe("needle in a haystack".length);
+    expect(String(logEntry!.rawDetail)).toContain("503");
+    // Provider diagnostic body is preserved in internal telemetry rawDetail.
+    expect(String(logEntry!.rawDetail)).toContain("upstream exploded");
+    expect(String(logEntry!.rawDetail)).toContain("do-not-leak");
+
+    // Raw provider body must never reach user-facing fields.
+    expect(result.content).not.toContain("upstream exploded");
+    expect(result.content).not.toContain("do-not-leak");
+    expect(meta?.errorMessage).not.toContain("upstream exploded");
+    expect(meta?.errorMessage).not.toContain("do-not-leak");
+  });
+
+  test("thrown network error yields the same friendly backend result", async () => {
+    globalThis.fetch = (async () => {
+      throw new TypeError("fetch failed");
+    }) as unknown as typeof fetch;
+
+    const result = await executeWebSearch({ query: "offline" });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toBe(WEB_SEARCH_BACKEND_FAILURE_MESSAGE);
+    expect(result.activityMetadata?.webSearch?.errorMessage).toBe(
+      WEB_SEARCH_BACKEND_FAILURE_MESSAGE,
+    );
+    const logEntry = backendFailureLog();
+    expect(logEntry).toBeDefined();
+    expect(logEntry!.errorCategory).toBe("backend_unavailable");
+    expect(result.content).not.toContain("fetch failed");
+  });
+
+  test("401 invalid-key preserves the specific message, not the backend copy", async () => {
+    globalThis.fetch = (async () =>
+      new Response("Unauthorized", { status: 401 })) as unknown as typeof fetch;
+
+    const result = await executeWebSearch({ query: "bad key" });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Invalid or expired Brave Search API key");
+    expect(result.content).not.toBe(WEB_SEARCH_BACKEND_FAILURE_MESSAGE);
+    expect(result.activityMetadata?.webSearch?.errorMessage).not.toBe(
+      WEB_SEARCH_BACKEND_FAILURE_MESSAGE,
+    );
+    expect(backendFailureLog()).toBeUndefined();
+  });
+
+  test("HTTP 200 with zero results stays a success (unchanged)", async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ web: { results: [] } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })) as unknown as typeof fetch;
+
+    const result = await executeWebSearch({ query: "no hits" });
+
+    expect(result.isError).toBe(false);
+    expect(result.activityMetadata?.webSearch?.errorMessage).toBeUndefined();
+    expect(result.content).toContain("No results found");
+    expect(backendFailureLog()).toBeUndefined();
+  });
+
+  test("post-retry 429 yields the friendly recoverable copy and preserves body in rawDetail", async () => {
+    const rawBody = '{"error":"quota burned","retryHint":"do-not-leak-429"}';
+    globalThis.fetch = (async () =>
+      new Response(rawBody, {
+        status: 429,
+        headers: { "retry-after": "0" },
+      })) as unknown as typeof fetch;
+
+    const result = await executeWebSearch({ query: "rate limited" });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toBe(WEB_SEARCH_BACKEND_FAILURE_MESSAGE);
+    const meta = result.activityMetadata?.webSearch;
+    expect(meta?.errorMessage).toBe(WEB_SEARCH_BACKEND_FAILURE_MESSAGE);
+    const logEntry = backendFailureLog();
+    expect(logEntry).toBeDefined();
+    expect(logEntry!.errorCategory).toBe("rate_limited");
+    expect(String(logEntry!.rawDetail)).toContain("429");
+    // Provider diagnostic body is preserved in internal telemetry rawDetail.
+    expect(String(logEntry!.rawDetail)).toContain("quota burned");
+    expect(String(logEntry!.rawDetail)).toContain("do-not-leak-429");
+
+    // Raw provider body must never reach user-facing fields.
+    expect(result.content).not.toContain("quota burned");
+    expect(result.content).not.toContain("do-not-leak-429");
+    expect(meta?.errorMessage).not.toContain("quota burned");
+    expect(meta?.errorMessage).not.toContain("do-not-leak-429");
+  });
+
+  test("caller abort re-throws instead of producing a backend failure (no telemetry)", async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    // A caller-aborted request surfaces an AbortError from fetch.
+    globalThis.fetch = (async () => {
+      const abortError = new Error("The operation was aborted");
+      abortError.name = "AbortError";
+      throw abortError;
+    }) as unknown as typeof fetch;
+
+    // The cancellation must re-throw so the executor's abort handling takes
+    // over — NOT resolve to the friendly backend-failure result.
+    await expect(
+      executeWebSearchWithSignal({ query: "cancel me" }, controller.signal),
+    ).rejects.toThrow();
+
+    // No spurious backend-failure telemetry for a user/external cancellation.
+    expect(backendFailureLog()).toBeUndefined();
   });
 });

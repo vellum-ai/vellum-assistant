@@ -257,9 +257,7 @@ export function getCommittedChunks(runId: string): Set<number> {
 }
 
 /** Get the latest checkpoint from a run log. */
-export function getLatestCheckpoint(
-  runId: string,
-): CheckpointData | undefined {
+export function getLatestCheckpoint(runId: string): CheckpointData | undefined {
   const entries = readLog(runId);
   let latest: CheckpointData | undefined;
   for (const entry of entries) {

@@ -3,8 +3,10 @@ name: tasks
 description: Two-layer task system with reusable templates and a prioritized work queue
 compatibility: "Designed for Vellum personal assistants"
 metadata:
+  icon: assets/icon.svg
   emoji: "✅"
   vellum:
+    category: "productivity"
     display-name: "Tasks"
     activation-hints:
       - "User wants to add, check, or manage items on their to-do list or task queue"

@@ -19,9 +19,9 @@ For the full plugin authoring guide, see
 
 - Registers one observer middleware per slot in
   `PipelineMiddlewareMap` — `turn`, `llmCall`, `toolExecute`,
-  `memoryRetrieval`, `historyRepair`, `tokenEstimate`, `compaction`,
-  `overflowReduce`, `persistence`, `titleGenerate`, `toolResultTruncate`,
-  `emptyResponse`, `toolError`, and `circuitBreaker`.
+  `memoryRetrieval`, `tokenEstimate`, `compaction`,
+  `overflowReduce`, `persistence`, `titleGenerate`,
+  `toolError`, and `circuitBreaker`.
 - Each middleware calls `next(args)` to pass the request through unchanged,
   measures wall-clock duration, and emits one line to `stderr` whether the
   downstream succeeded or threw.

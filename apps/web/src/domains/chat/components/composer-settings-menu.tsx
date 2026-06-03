@@ -1,6 +1,6 @@
 
 import { Check, Sparkles, SlidersHorizontal } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { BottomSheet } from "@vellum/design-library";
@@ -8,6 +8,10 @@ import { Button } from "@vellum/design-library";
 import { Menu } from "@vellum/design-library";
 import { PanelItem } from "@vellum/design-library";
 import { client } from "@/generated/api/client.gen";
+import {
+  conversationsByIdGet,
+  conversationsByIdInferenceprofilePut,
+} from "@/generated/daemon/sdk.gen";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import {
   profilePickerLabel,
@@ -29,6 +33,7 @@ import {
   presetFromThreshold,
   type ThresholdPreset,
 } from "@/utils/threshold-presets";
+import { activeProfileModelQueryKey } from "@/domains/chat/hooks/use-active-profile-model";
 
 interface Props {
   assistantId: string;
@@ -61,7 +66,7 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
   const profilesReadyRef = useRef(false);
 
   const conversationIdRef = useRef(conversationId);
-  useEffect(() => {
+  useLayoutEffect(() => {
     conversationIdRef.current = conversationId;
   }, [conversationId]);
 
@@ -117,9 +122,8 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
             throwOnError: false,
           }),
           conversationId
-            ? client.get<Record<string, unknown>, unknown>({
-                url: `/v1/assistants/{assistant_id}/conversations/{conversation_id}`,
-                path: { assistant_id: assistantId, conversation_id: conversationId },
+            ? conversationsByIdGet({
+                path: { assistant_id: assistantId, id: conversationId },
                 throwOnError: false,
               })
             : Promise.resolve(null),
@@ -142,10 +146,9 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
 
         // Determine effective profile — per-conversation override wins over global.
         let effective: string | null = globalActive;
-        if (convResult?.status === "fulfilled" && convResult.value !== null && convResult.value?.data) {
-          const convData = convResult.value.data as Record<string, unknown>;
-          const conv = (convData.conversation as Record<string, unknown> | undefined) ?? convData;
-          const inferenceProfile = typeof conv.inferenceProfile === "string" ? conv.inferenceProfile : null;
+        if (convResult?.status === "fulfilled" && convResult.value !== null) {
+          const inferenceProfile =
+            convResult.value.data?.conversation.inferenceProfile ?? null;
           if (inferenceProfile !== null) {
             effective = inferenceProfile;
           }
@@ -222,11 +225,9 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
       try {
         if (capturedConversationId) {
           // Per-conversation override — matches the threshold pattern.
-          await client.put({
-            url: `/v1/assistants/{assistant_id}/conversations/{conversation_id}/inference-profile`,
-            path: { assistant_id: assistantId, conversation_id: capturedConversationId },
+          await conversationsByIdInferenceprofilePut({
+            path: { assistant_id: assistantId, id: capturedConversationId },
             body: { profile: name },
-            headers: { "Content-Type": "application/json" },
             throwOnError: true,
           });
         } else {
@@ -255,14 +256,10 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
         // for staleTime to elapse. Predicate match covers both the global
         // (conversationId=null) and per-conversation cache entries.
         void queryClient.invalidateQueries({
-          predicate: (query) => {
-            const key = query.queryKey;
-            return (
-              Array.isArray(key) &&
-              key[0] === "active-profile-model" &&
-              key[1] === assistantId
-            );
-          },
+          predicate: (query) =>
+            activeProfileModelQueryKey(assistantId, null).every(
+              (seg, i) => seg === null || query.queryKey[i] === seg,
+            ),
         });
       } catch {
         if (conversationIdRef.current === capturedConversationId) {

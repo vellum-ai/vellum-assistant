@@ -17,8 +17,8 @@ import {
   getPlatformAssistants,
   setSelectedAssistantId,
   gatewayProxyUrl,
-  fetchGuardianToken,
 } from "@/lib/local-mode";
+import { fetchGuardianTokenHost } from "@/runtime/local-mode-host";
 import { startLoopbackAuth, useIsPlatformLocal } from "@/lib/auth/loopback-auth";
 import {
   startAuthFlow,
@@ -85,14 +85,23 @@ function NativeLoginForm({ returnTo }: { returnTo: string | null }) {
     try {
       await startNativeLogin({ returnTo: returnTo ?? null });
     } catch (err) {
-      const errorCode = (err as { code?: unknown } | null | undefined)?.code;
+      const errorCode =
+        err && typeof err === "object" && "code" in err ? err.code : undefined;
       if (errorCode === "USER_CANCELLED") {
         setLoading(false);
         return;
       }
       if (errorCode === "AUTH_ERROR") {
         const errorKey =
-          (err as { data?: Record<string, unknown> }).data?.authError as string | undefined;
+          err &&
+          typeof err === "object" &&
+          "data" in err &&
+          err.data &&
+          typeof err.data === "object" &&
+          "authError" in err.data &&
+          typeof err.data.authError === "string"
+            ? err.data.authError
+            : undefined;
         setErrorMessage(
           (errorKey && AUTH_ERROR_MESSAGES[errorKey]) ?? "Something went wrong. Please try again.",
         );
@@ -273,7 +282,7 @@ function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
       setConnectError(null);
       setConnectingId(assistant.assistantId);
       try {
-        const guardianToken = await fetchGuardianToken(assistant.assistantId);
+        const guardianToken = await fetchGuardianTokenHost(assistant.assistantId);
         const tokenUrl = `${gatewayProxyUrl(assistant.resources!.gatewayPort)}/auth/token`;
         setSelectedAssistantId(assistant.assistantId);
         await ensureGatewayToken(tokenUrl, guardianToken);

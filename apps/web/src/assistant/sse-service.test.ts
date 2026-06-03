@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import * as eventBus from "@/lib/event-bus";
+import { requestSseReconnect } from "@/lib/streaming/sse-reconnect-control";
 
 type EventHandler = (envelope: AssistantEventEnvelope) => void;
 type ReconnectHandler = (cause: "error" | "watchdog") => void;
@@ -11,18 +12,16 @@ let activeOnError: ((err: Error) => void) | null = null;
 let activeOnReconnect: ReconnectHandler | null = null;
 let lastSubscribeArgs: {
   assistantId: string;
-  conversationKey: string | null | undefined;
 } | null = null;
 const cancelMock = mock(() => {});
-const subscribeChatEventsMock = mock(
+const subscribeEventsMock = mock(
   (
     assistantId: string,
-    conversationKey: string | null | undefined,
     onEvent: EventHandler,
     onError: (err: Error) => void,
     options?: { onReconnect?: ReconnectHandler },
   ) => {
-    lastSubscribeArgs = { assistantId, conversationKey };
+    lastSubscribeArgs = { assistantId };
     activeOnEvent = onEvent;
     activeOnError = onError;
     activeOnReconnect = options?.onReconnect ?? null;
@@ -30,7 +29,7 @@ const subscribeChatEventsMock = mock(
   },
 );
 mock.module("@/lib/streaming/stream-transport", () => ({
-  subscribeChatEvents: subscribeChatEventsMock,
+  subscribeEvents: subscribeEventsMock,
 }));
 
 const checkAssistantMock = mock(async () => {});
@@ -56,7 +55,7 @@ beforeEach(() => {
   activeOnReconnect = null;
   lastSubscribeArgs = null;
   cancelMock.mockClear();
-  subscribeChatEventsMock.mockClear();
+  subscribeEventsMock.mockClear();
   checkAssistantMock.mockClear();
   publishSpy.mockClear();
 });
@@ -65,10 +64,9 @@ describe("sseService.attach — connection lifecycle", () => {
   test("opens a single unfiltered SSE for the supplied assistantId", () => {
     sseService.attach("asst-1");
 
-    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(1);
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(1);
     expect(lastSubscribeArgs).toEqual({
       assistantId: "asst-1",
-      conversationKey: null,
     });
   });
 
@@ -145,7 +143,7 @@ describe("sseService.attach — connection lifecycle", () => {
 describe("sseService.attach — visibility-driven bounce", () => {
   test("tears down on app.hidden and reopens on app.resume after the dedup window", async () => {
     sseService.attach("asst-1");
-    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(1);
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(1);
 
     eventBus.publish("app.hidden", { signal: "visibility" });
     expect(cancelMock).toHaveBeenCalledTimes(1);
@@ -153,7 +151,7 @@ describe("sseService.attach — visibility-driven bounce", () => {
     await new Promise((resolve) => setTimeout(resolve, 1100));
     eventBus.publish("app.resume", { signal: "visibility" });
 
-    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(2);
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(2);
     expect(checkAssistantMock).toHaveBeenCalledTimes(1);
   }, 5_000);
 
@@ -167,19 +165,19 @@ describe("sseService.attach — visibility-driven bounce", () => {
     eventBus.publish("app.resume", { signal: "visibility" });
     eventBus.publish("app.resume", { signal: "app_state" });
 
-    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(2);
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(2);
     expect(checkAssistantMock).toHaveBeenCalledTimes(1);
   });
 
   test("does NOT reopen the SSE on app.resume while a connection is still live", () => {
     sseService.attach("asst-1");
-    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(1);
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(1);
 
     eventBus.publish("app.resume", { signal: "visibility" });
 
     // Stream is still open (no app.hidden first), so app.resume only
-    // triggers a checkAssistant — no new subscribeChatEvents call.
-    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(1);
+    // triggers a checkAssistant — no new subscribeEvents call.
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(1);
     expect(checkAssistantMock).toHaveBeenCalledTimes(1);
   });
 
@@ -201,7 +199,7 @@ describe("sseService.attach — visibility-driven bounce", () => {
 describe("sseService.attach — power-driven bounce", () => {
   test("power.suspend tears down a live SSE so the daemon sees us go away cleanly", () => {
     sseService.attach("asst-1");
-    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(1);
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(1);
 
     eventBus.publish("power.suspend", {});
 
@@ -218,18 +216,18 @@ describe("sseService.attach — power-driven bounce", () => {
     eventBus.publish("power.resume", {});
 
     expect(cancelMock).toHaveBeenCalledTimes(1);
-    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(2);
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(2);
     expect(checkAssistantMock).toHaveBeenCalledTimes(1);
   });
 
   test("power.unlock bounces a LIVE SSE — screen lock can outlast TCP timeouts", () => {
     sseService.attach("asst-1");
-    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(1);
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(1);
 
     eventBus.publish("power.unlock", {});
 
     expect(cancelMock).toHaveBeenCalledTimes(1);
-    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(2);
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(2);
   });
 
   test("power.resume reopens the SSE after teardown — same dedup window as app.resume", async () => {
@@ -240,7 +238,7 @@ describe("sseService.attach — power-driven bounce", () => {
     await new Promise((resolve) => setTimeout(resolve, 1100));
     eventBus.publish("power.resume", {});
 
-    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(2);
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(2);
     expect(checkAssistantMock).toHaveBeenCalledTimes(1);
   }, 5_000);
 
@@ -252,7 +250,7 @@ describe("sseService.attach — power-driven bounce", () => {
     await new Promise((resolve) => setTimeout(resolve, 1100));
     eventBus.publish("power.unlock", {});
 
-    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(2);
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(2);
     expect(checkAssistantMock).toHaveBeenCalledTimes(1);
   }, 5_000);
 
@@ -264,7 +262,7 @@ describe("sseService.attach — power-driven bounce", () => {
     // arrives. The handler MUST bounce — that's the entire point of
     // the independent dedup windows.
     sseService.attach("asst-1");
-    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(1);
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(1);
 
     eventBus.publish("app.resume", { signal: "online" });
     expect(cancelMock).toHaveBeenCalledTimes(0);
@@ -272,7 +270,7 @@ describe("sseService.attach — power-driven bounce", () => {
     eventBus.publish("power.resume", {});
 
     expect(cancelMock).toHaveBeenCalledTimes(1);
-    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(2);
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(2);
   });
 
   test("app.resume then power.resume — fresh SSE gets bounced (correctness tradeoff)", async () => {
@@ -287,11 +285,11 @@ describe("sseService.attach — power-driven bounce", () => {
     eventBus.publish("app.hidden", { signal: "visibility" });
     await new Promise((resolve) => setTimeout(resolve, 1100));
     eventBus.publish("app.resume", { signal: "visibility" });
-    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(2);
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(2);
 
     eventBus.publish("power.resume", {});
 
-    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(3);
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(3);
     expect(cancelMock).toHaveBeenCalledTimes(2);
   }, 5_000);
 
@@ -309,12 +307,12 @@ describe("sseService.attach — power-driven bounce", () => {
 describe("sseService.attach — reachability bounce", () => {
   test("reachability.retry-requested bounces the SSE connection", () => {
     sseService.attach("asst-1");
-    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(1);
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(1);
 
     eventBus.publish("reachability.retry-requested", {});
 
     expect(cancelMock).toHaveBeenCalledTimes(1);
-    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(2);
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(2);
   });
 
   test("reachability-driven reopen labels sse.opened with cause='error', not 'resume'", () => {
@@ -330,12 +328,90 @@ describe("sseService.attach — reachability bounce", () => {
   });
 });
 
+describe("sseService.attach — debug-driven reconnect", () => {
+  test("reconnectClient with no delay bounces the SSE immediately", () => {
+    // GIVEN a live SSE connection
+    sseService.attach("asst-1");
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(1);
+
+    // WHEN a debug reconnect is requested with no delay
+    const serviced = requestSseReconnect(0);
+
+    // THEN the live connection is torn down and a fresh one opened
+    expect(serviced).toBe(true);
+    expect(cancelMock).toHaveBeenCalledTimes(1);
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("debug reconnect labels sse.opened with cause='debug'", () => {
+    // GIVEN a live SSE connection
+    sseService.attach("asst-1");
+    publishSpy.mockClear();
+
+    // WHEN a debug reconnect is requested
+    requestSseReconnect(0);
+
+    // THEN the reopen is labeled as a debug-triggered reconnect so
+    // reconcile consumers (which only skip on "fresh") still fire
+    expect(publishSpy).toHaveBeenCalledWith("sse.opened", {
+      assistantId: "asst-1",
+      cause: "debug",
+    });
+  });
+
+  test("reconnectClient with a delay disconnects now and reopens after the timeout", async () => {
+    // GIVEN a live SSE connection
+    sseService.attach("asst-1");
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(1);
+
+    // WHEN a debug reconnect is requested with a delay
+    requestSseReconnect(50);
+
+    // THEN the connection drops immediately but does not reopen yet
+    expect(cancelMock).toHaveBeenCalledTimes(1);
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(1);
+
+    // AND it reopens once the delay elapses
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(2);
+  }, 5_000);
+
+  test("detach cancels a pending delayed reconnect", async () => {
+    // GIVEN a live connection with a delayed debug reconnect queued
+    const detach = sseService.attach("asst-1");
+    requestSseReconnect(1000);
+    expect(cancelMock).toHaveBeenCalledTimes(1);
+    subscribeEventsMock.mockClear();
+
+    // WHEN the connection is detached before the timer fires
+    detach();
+    await new Promise((resolve) => setTimeout(resolve, 60));
+
+    // THEN the queued reopen never runs
+    expect(subscribeEventsMock).not.toHaveBeenCalled();
+  });
+
+  test("reconnectClient is a no-op after detach (no live connection)", () => {
+    // GIVEN a connection that has already been detached
+    const detach = sseService.attach("asst-1");
+    detach();
+    subscribeEventsMock.mockClear();
+
+    // WHEN a debug reconnect is requested
+    const serviced = requestSseReconnect(0);
+
+    // THEN nothing services it and no connection is opened
+    expect(serviced).toBe(false);
+    expect(subscribeEventsMock).not.toHaveBeenCalled();
+  });
+});
+
 describe("sseService.attach — detach cleanup", () => {
   test("detach unsubscribes all bus handlers — events after detach do nothing", () => {
     const detach = sseService.attach("asst-1");
     detach();
     cancelMock.mockClear();
-    subscribeChatEventsMock.mockClear();
+    subscribeEventsMock.mockClear();
 
     eventBus.publish("app.hidden", { signal: "visibility" });
     eventBus.publish("app.resume", { signal: "visibility" });
@@ -345,7 +421,7 @@ describe("sseService.attach — detach cleanup", () => {
     eventBus.publish("reachability.retry-requested", {});
 
     expect(cancelMock).not.toHaveBeenCalled();
-    expect(subscribeChatEventsMock).not.toHaveBeenCalled();
+    expect(subscribeEventsMock).not.toHaveBeenCalled();
   });
 
   test("re-attach after detach gets a fresh dedup window (no leak across sessions)", () => {
@@ -353,7 +429,7 @@ describe("sseService.attach — detach cleanup", () => {
     eventBus.publish("power.resume", {});
     detach1();
     cancelMock.mockClear();
-    subscribeChatEventsMock.mockClear();
+    subscribeEventsMock.mockClear();
     checkAssistantMock.mockClear();
 
     // Fresh attach — the first power.resume should NOT be dedup'd
@@ -362,7 +438,7 @@ describe("sseService.attach — detach cleanup", () => {
     eventBus.publish("power.resume", {});
 
     expect(cancelMock).toHaveBeenCalledTimes(1);
-    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(2);
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(2);
     expect(checkAssistantMock).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
-import { useRef } from "react";
 
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import type { AssistantEvent } from "@/types/event-types";
@@ -17,7 +16,7 @@ function renderEventStream(
 ) {
   return renderHook(
     ({ key }: { key: string }) => {
-      const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
       useEventStream({
         assistantStateKind: "active",
         assistantId: "asst-1",
@@ -36,7 +35,7 @@ function renderEventStream(
         reachabilityPhase: "ready",
         reachabilityReset: () => {},
         dispatchReconnect: async () => undefined,
-        conversationListInvalidatedTimerRef: timerRef,
+        cancelScheduledRefetch: () => {},
       });
     },
     { initialProps: { key: activeConversationId } },
@@ -87,9 +86,9 @@ describe("useEventStream — conversation-switch filtering", () => {
     expect(handler).toHaveBeenCalledTimes(1);
 
     // Conversation switch: re-render with the new active key. The
-    // effect cleanup + re-subscribe has not necessarily run yet on
-    // the bus side, but the latest-key ref must already gate further
-    // deliveries for the previous conversation.
+    // bus subscription is stable (never torn down / re-registered),
+    // but the `activeConversationIdLatestRef` is updated during the
+    // commit phase and gates further deliveries for the old key.
     rerender({ key: "conv-B" });
     publishDelta("conv-A");
     expect(handler).toHaveBeenCalledTimes(1);

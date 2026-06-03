@@ -3,8 +3,10 @@ name: voice-setup
 description: Complete voice configuration in chat - PTT key, microphone permissions, ElevenLabs TTS, and troubleshooting
 compatibility: "Designed for Vellum personal assistants"
 metadata:
+  icon: assets/icon.svg
   emoji: "🎙️"
   vellum:
+    category: "voice"
     display-name: "Voice Setup"
     includes: ["elevenlabs-voice"]
     activation-hints:

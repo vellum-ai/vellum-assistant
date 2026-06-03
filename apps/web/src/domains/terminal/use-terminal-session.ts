@@ -6,7 +6,7 @@
  * by calling store actions in response to I/O events.
  */
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 
 import {
   assistantsTerminalSessionsCreate,
@@ -71,7 +71,7 @@ export function useTerminalSession({
   const streamRef = useRef<TerminalOutputStream | null>(null);
   const onDataRef = useRef(onData);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     onDataRef.current = onData;
   }, [onData]);
 

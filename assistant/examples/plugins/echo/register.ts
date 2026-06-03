@@ -40,18 +40,12 @@
  * user-plugin-loader contract (see `assistant/src/plugins/user-loader.ts`).
  */
 
-import type {
-  ToolResultTruncateArgs,
-  ToolResultTruncateResult,
-} from "../../../src/plugins/defaults/tool-result-truncate/types.js";
 import type { VellumPluginRuntime } from "../../../src/plugins/external-api.js";
 import type {
   CircuitBreakerArgs,
   CircuitBreakerResult,
   CompactionArgs,
   CompactionResult,
-  EmptyResponseArgs,
-  EmptyResponseResult,
   LLMCallArgs,
   LLMCallResult,
   MemoryArgs,
@@ -165,13 +159,6 @@ const echoPlugin: Plugin = {
     ),
     persistence: makeObserver<PersistArgs, PersistResult>("persistence"),
     titleGenerate: makeObserver<TitleArgs, TitleResult>("titleGenerate"),
-    toolResultTruncate: makeObserver<
-      ToolResultTruncateArgs,
-      ToolResultTruncateResult
-    >("toolResultTruncate"),
-    emptyResponse: makeObserver<EmptyResponseArgs, EmptyResponseResult>(
-      "emptyResponse",
-    ),
     toolError: makeObserver<ToolErrorArgs, ToolErrorResult>("toolError"),
     circuitBreaker: makeObserver<CircuitBreakerArgs, CircuitBreakerResult>(
       "circuitBreaker",

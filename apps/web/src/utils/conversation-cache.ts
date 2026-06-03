@@ -11,10 +11,12 @@
  * - **Scheduled** under `scheduledConversationsQueryKey` — scheduled jobs
  *   only. Fetched lazily and independently, only once the user reveals the
  *   Scheduled sidebar section.
+ * - **Archived** under `archivedConversationsQueryKey` — archived
+ *   conversations. Fetched lazily when the user opens the archive view.
  *
  * A conversation lives in exactly one cache, so the cross-cache helpers
  * (`findConversation`, `getConversations`, `patchConversation`) read from
- * all three and write to all three — the caches that don't hold the row are
+ * all four and write to all four — the caches that don't hold the row are
  * a no-op. This lets every mutation, stream handler, and attention sweep
  * keep a single call site regardless of which bucket a conversation
  * belongs to.
@@ -29,11 +31,101 @@
 import type { QueryClient } from "@tanstack/react-query";
 
 import {
+  archivedConversationsQueryKey,
   backgroundConversationsQueryKey,
   conversationsQueryKey,
   scheduledConversationsQueryKey,
 } from "@/lib/sync/query-tags";
 import type { Conversation } from "@/types/conversation-types";
+
+// ---------------------------------------------------------------------------
+// Query lifecycle helpers — cancel, snapshot, restore, invalidate
+//
+// Optimistic updates require a three-step lifecycle:
+//   1. Cancel outgoing refetches so they don't overwrite the optimistic value
+//   2. Snapshot the current cache for rollback
+//   3. After the mutation settles, invalidate so TanStack Query refetches
+//
+// References:
+// - https://tanstack.com/query/latest/docs/framework/react/guides/optimistic-updates
+// ---------------------------------------------------------------------------
+
+/** All conversation query keys for the given assistant. */
+function allConversationQueryKeys(assistantId: string | null) {
+  return [
+    conversationsQueryKey(assistantId),
+    backgroundConversationsQueryKey(assistantId),
+    scheduledConversationsQueryKey(assistantId),
+    archivedConversationsQueryKey(assistantId),
+  ] as const;
+}
+
+/**
+ * Cancel any in-flight refetches for conversation caches. Call this before
+ * applying an optimistic update so a concurrent refetch doesn't overwrite
+ * the optimistic value with stale server data.
+ */
+export async function cancelConversationQueries(
+  queryClient: QueryClient,
+  assistantId: string,
+): Promise<void> {
+  await Promise.all(
+    allConversationQueryKeys(assistantId).map((key) =>
+      queryClient.cancelQueries({ queryKey: key }),
+    ),
+  );
+}
+
+/**
+ * Snapshot of all conversation caches for a given assistant, used for
+ * rollback in `onError` after a failed optimistic mutation.
+ */
+export type ConversationCacheSnapshot = Array<
+  [queryKey: readonly unknown[], data: Conversation[] | undefined]
+>;
+
+/**
+ * Capture the current state of all conversation caches. The returned
+ * snapshot can be passed to `restoreConversationCaches` to undo an
+ * optimistic update.
+ */
+export function snapshotConversationCaches(
+  queryClient: QueryClient,
+  assistantId: string,
+): ConversationCacheSnapshot {
+  return allConversationQueryKeys(assistantId).map((key) => [
+    key,
+    queryClient.getQueryData<Conversation[]>(key),
+  ]);
+}
+
+/**
+ * Restore conversation caches from a snapshot, undoing an optimistic update.
+ */
+export function restoreConversationCaches(
+  queryClient: QueryClient,
+  snapshot: ConversationCacheSnapshot,
+): void {
+  for (const [key, data] of snapshot) {
+    queryClient.setQueryData(key, data);
+  }
+}
+
+/**
+ * Invalidate all conversation caches so TanStack Query refetches from the
+ * server. Used in `onSettled` to reconcile optimistic values with the
+ * server-authoritative state regardless of mutation success or failure.
+ */
+export async function invalidateConversationQueries(
+  queryClient: QueryClient,
+  assistantId: string,
+): Promise<void> {
+  await Promise.all(
+    allConversationQueryKeys(assistantId).map((key) =>
+      queryClient.invalidateQueries({ queryKey: key }),
+    ),
+  );
+}
 
 type ConversationUpdater = (conversations: Conversation[]) => Conversation[];
 
@@ -96,10 +188,26 @@ export function updateScheduledConversationsCache(
 }
 
 /**
- * Apply `updater` to all conversation caches. The caches that don't
- * contain the targeted row return their list unchanged, so the write is a
- * no-op there. Callers that mutate a row by id without knowing whether it
- * is a foreground, background, or scheduled conversation use this.
+ * Apply `updater` to the archived conversation cache.
+ */
+export function updateArchivedConversationsCache(
+  queryClient: QueryClient,
+  assistantId: string | null,
+  updater: ConversationUpdater,
+): void {
+  updateCache(
+    queryClient,
+    archivedConversationsQueryKey(assistantId),
+    updater,
+  );
+}
+
+/**
+ * Apply `updater` to all conversation caches (foreground, background,
+ * scheduled, and archived). The caches that don't contain the targeted row
+ * return their list unchanged, so the write is a no-op there. Callers that
+ * mutate a row by id without knowing which bucket a conversation belongs to
+ * use this.
  */
 export function updateAllConversationCaches(
   queryClient: QueryClient,
@@ -109,6 +217,7 @@ export function updateAllConversationCaches(
   updateConversationsCache(queryClient, assistantId, updater);
   updateBackgroundConversationsCache(queryClient, assistantId, updater);
   updateScheduledConversationsCache(queryClient, assistantId, updater);
+  updateArchivedConversationsCache(queryClient, assistantId, updater);
 }
 
 /**
@@ -121,11 +230,7 @@ export function findConversation(
   assistantId: string | null,
   key: string,
 ): Conversation | undefined {
-  for (const queryKey of [
-    conversationsQueryKey(assistantId),
-    backgroundConversationsQueryKey(assistantId),
-    scheduledConversationsQueryKey(assistantId),
-  ]) {
+  for (const queryKey of allConversationQueryKeys(assistantId)) {
     const match = queryClient
       .getQueryData<Conversation[]>(queryKey)
       ?.find((c) => c.conversationId === key);
@@ -174,19 +279,10 @@ export function getConversations(
   queryClient: QueryClient,
   assistantId: string | null,
 ): Conversation[] {
-  const foreground =
-    queryClient.getQueryData<Conversation[]>(
-      conversationsQueryKey(assistantId),
-    ) ?? [];
-  const background =
-    queryClient.getQueryData<Conversation[]>(
-      backgroundConversationsQueryKey(assistantId),
-    ) ?? [];
-  const scheduled =
-    queryClient.getQueryData<Conversation[]>(
-      scheduledConversationsQueryKey(assistantId),
-    ) ?? [];
-  return mergeConversationLists(foreground, background, scheduled);
+  const lists = allConversationQueryKeys(assistantId).map(
+    (key) => queryClient.getQueryData<Conversation[]>(key) ?? [],
+  );
+  return mergeConversationLists(...lists);
 }
 
 /**

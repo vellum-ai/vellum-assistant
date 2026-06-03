@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { client } from "@/generated/api/client.gen";
+import { conversationsByIdGet } from "@/generated/daemon/sdk.gen";
 
 /**
  * Resolves the (provider, model) pair currently in effect for a chat
@@ -83,11 +84,11 @@ function resolveSupportsVision(
 }
 
 /**
- * Stable query key for the active-profile-model lookup. Exported so callers
- * that mutate the underlying LLM config (e.g. `ComposerSettingsMenu` when the
- * user switches profile, or `manage-profiles-modal` when a profile's
- * provider/model is edited) can invalidate this cache and refresh dependent
- * UI without waiting for the staleTime to elapse.
+ * Stable query key for the active-profile-model lookup. Callers that mutate
+ * the underlying LLM config (e.g. `ComposerSettingsMenu` when the user
+ * switches profile, or `manage-profiles-modal` when a profile's
+ * provider/model is edited) use this to invalidate the cache and refresh
+ * dependent UI without waiting for the staleTime to elapse.
  */
 export function activeProfileModelQueryKey(
   assistantId: string | null,
@@ -112,12 +113,8 @@ export function useActiveProfileModel(
           throwOnError: false,
         }),
         conversationId
-          ? client.get<Record<string, unknown>, unknown>({
-              url: `/v1/assistants/{assistant_id}/conversations/{conversation_id}`,
-              path: {
-                assistant_id: assistantId,
-                conversation_id: conversationId,
-              },
+          ? conversationsByIdGet({
+              path: { assistant_id: assistantId, id: conversationId },
               throwOnError: false,
             })
           : Promise.resolve(null),
@@ -134,20 +131,12 @@ export function useActiveProfileModel(
         (llm.activeProfile as string | null | undefined) ?? null;
 
       let effective: string | null = globalActive;
-      if (
-        convResult?.status === "fulfilled" &&
-        convResult.value !== null &&
-        convResult.value?.data
-      ) {
-        const convData = convResult.value.data as Record<string, unknown>;
-        const conv =
-          (convData.conversation as Record<string, unknown> | undefined) ??
-          convData;
+      if (convResult?.status === "fulfilled" && convResult.value !== null) {
         const override =
-          typeof conv.inferenceProfile === "string"
-            ? conv.inferenceProfile
-            : null;
-        if (override !== null) effective = override;
+          convResult.value.data?.conversation.inferenceProfile ?? null;
+        if (override !== null) {
+          effective = override;
+        }
       }
 
       if (!effective) return null;

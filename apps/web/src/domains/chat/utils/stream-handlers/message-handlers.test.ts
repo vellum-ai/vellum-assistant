@@ -3,6 +3,7 @@ import { describe, expect, it } from "bun:test";
 import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
 import {
   handleAssistantTextDelta,
+  handleAssistantThinkingDelta,
   handleAssistantTurnStart,
   handleAssistantActivityState,
   handleMessageComplete,
@@ -48,6 +49,36 @@ describe("handleAssistantTextDelta", () => {
     expect(next[0]).toMatchObject({
       role: "assistant",
       ...textBody("Hi"),
+    });
+  });
+});
+
+describe("handleAssistantThinkingDelta", () => {
+  it("cancels reconciliation and accumulates reasoning onto the streaming row", () => {
+    // GIVEN a fresh stream context (no assistant tail yet — the reasoning
+    // burst precedes any text, as with reasoning-heavy models)
+    const ctx = makeCtx();
+
+    // WHEN a thinking delta arrives
+    handleAssistantThinkingDelta(
+      { type: "assistant_thinking_delta", thinking: "reasoning" },
+      ctx,
+    );
+
+    // THEN a pending reconcile is cancelled and the row updater runs
+    expect(ctx.cancelReconciliation).toHaveBeenCalled();
+    expect(ctx.setMessages).toHaveBeenCalled();
+
+    // AND applying the updater opens an assistant bubble carrying the
+    // reasoning as a thinking block, stamping the current-assistant ref
+    const updater = (ctx.setMessages as unknown as ReturnType<typeof Object>)
+      .mock.calls[0][0] as (prev: never[]) => unknown[];
+    const next = updater([]);
+    expect(next).toHaveLength(1);
+    expect(next[0]).toMatchObject({
+      role: "assistant",
+      thinkingSegments: ["reasoning"],
+      contentOrder: [{ type: "thinking", id: "0" }],
     });
   });
 });

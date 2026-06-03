@@ -8,6 +8,9 @@
  *                  path owns the initial fetch, no reconcile here.
  *   - `"resume"` — visibility-driven reopen; standalone reconcile +
  *                  start the reconciliation loop on the new epoch.
+ *   - `"debug"`  — manual `_vellumDebug.events.reconnectClient()`
+ *                  trigger; takes the same standalone-reconcile path as
+ *                  `"resume"` so QA can exercise post-reconnect catch-up.
  *   - `"watchdog"` / `"error"` — transport-level recovery; prefer the
  *                  sync router's `dispatchReconnect()` (it returns the
  *                  active conversation's refreshed messages in the
@@ -26,17 +29,19 @@ import { captureError } from "@/lib/sentry/capture-error";
 
 import { useStreamStore } from "@/domains/chat/stream-store";
 import {
-  bucketMessagesAdded,
   recordDiagnostic,
   recordLifecycleDiagnostic,
   resolvePlatformTag,
 } from "@/lib/diagnostics";
+import type { BusEventPayload } from "@/lib/event-bus";
 import type {
   ActiveConversationMessagesRefreshResult,
   WebSyncReconnectResult,
 } from "@/lib/sync/web-sync-router";
 
-type SseOpenedCause = "fresh" | "error" | "watchdog" | "resume";
+// Derived from the bus payload so this handler can't drift from the
+// canonical `sse.opened` cause union in `event-bus.ts`.
+type SseOpenedCause = BusEventPayload<"sse.opened">["cause"];
 
 export interface ReconcileOnReopenDeps {
   /** Assistant ID the bus is dispatching for; events for other assistants are ignored. */
@@ -213,22 +218,8 @@ function recordWatchdogRescue(
       assistantProgress: reconcileResult.assistantProgress,
     },
   });
-  Sentry.captureMessage("sse_post_watchdog_reconcile_result", {
-    level: "info",
-    tags: {
-      context: "sse_watchdog",
-      platform: resolvePlatformTag(),
-      assistantProgress: String(reconcileResult.assistantProgress),
-      rescued: String(reconcileResult.messagesAdded > 0),
-      messagesAddedBucket: bucketMessagesAdded(reconcileResult.messagesAdded),
-    },
-    extra: {
-      latencyMs,
-      messagesAdded: reconcileResult.messagesAdded,
-      changed: reconcileResult.changed,
-      assistantProgress: reconcileResult.assistantProgress,
-      conversationId,
-      epoch,
-    },
-  });
+  // captureMessage removed — 94% of events had rescued=false (watchdog
+  // reconnected but no messages were lost), providing no actionable
+  // signal. The breadcrumb above still attaches to any nearby Sentry
+  // event for debugging context. See LUM-2190.
 }

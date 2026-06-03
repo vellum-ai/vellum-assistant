@@ -81,9 +81,9 @@ export const DISABLED_CONFIG: AutoTopUpConfigResponse = {
  * rendering the card.
  */
 export function extractAutoTopUpServerErrors(err: unknown): Record<string, string> {
-  if (!err || typeof err !== "object") return {};
+  if (!err || typeof err !== "object" || Array.isArray(err)) return {};
   const out: Record<string, string> = {};
-  for (const [key, messages] of Object.entries(err as Record<string, unknown>)) {
+  for (const [key, messages] of Object.entries(err)) {
     if (Array.isArray(messages) && typeof messages[0] === "string") {
       out[key] = messages[0];
     }

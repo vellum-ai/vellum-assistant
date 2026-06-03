@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import {
   ChartColumn,
   ChevronDown,
@@ -20,11 +21,18 @@ import {
 
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { hardNavigate } from "@/lib/auth/hard-navigate";
 import { useAuthStore } from "@/stores/auth-store";
-import { usePlatformGate } from "@/hooks/use-platform-gate";
+import {
+  useActiveAssistantIsPlatformHosted,
+  usePlatformGate,
+} from "@/hooks/use-platform-gate";
 import { adminUrl, routes } from "@/utils/routes";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { organizationsBillingSummaryRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
+
+import { CreditsCard } from "./credits-card";
 
 // Modal only opens when the user clicks "Share Feedback" — defer loading
 // until then to keep the modal's form deps (markdown editor, etc.) out of
@@ -32,6 +40,11 @@ import { ThemeToggle } from "@/components/theme-toggle";
 const ShareFeedbackModal = lazy(() =>
   import("@/components/share-feedback-modal").then((m) => ({
     default: m.ShareFeedbackModal,
+  })),
+);
+const EarnCreditsModal = lazy(() =>
+  import("@/components/earn-credits-modal").then((m) => ({
+    default: m.EarnCreditsModal,
   })),
 );
 
@@ -50,6 +63,7 @@ export function PreferencesMenu({
   const isMobile = useIsMobile();
   const [isOpen, setIsOpen] = useState(false);
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
+  const [isEarnCreditsOpen, setIsEarnCreditsOpen] = useState(false);
 
   if (!isLoggedIn) {
     return null;
@@ -70,6 +84,7 @@ export function PreferencesMenu({
     <PreferencesMenuContent
       onClose={closeMenu}
       onShareFeedback={() => setIsFeedbackOpen(true)}
+      onEarnCredits={() => setIsEarnCreditsOpen(true)}
     />
   );
 
@@ -110,6 +125,15 @@ export function PreferencesMenu({
           />
         </LazyBoundary>
       ) : null}
+
+      {isEarnCreditsOpen ? (
+        <LazyBoundary>
+          <EarnCreditsModal
+            open={isEarnCreditsOpen}
+            onClose={() => setIsEarnCreditsOpen(false)}
+          />
+        </LazyBoundary>
+      ) : null}
     </>
   );
 }
@@ -117,22 +141,55 @@ export function PreferencesMenu({
 interface PreferencesMenuContentProps {
   onClose: () => void;
   onShareFeedback: () => void;
+  onEarnCredits: () => void;
 }
 
 function PreferencesMenuContent({
   onClose,
   onShareFeedback,
+  onEarnCredits,
 }: PreferencesMenuContentProps) {
   const navigate = useNavigate();
   const logout = useAuthStore.use.logout();
   const user = useAuthStore.use.user();
   const platformGate = usePlatformGate();
+  const billingPlatformGate = usePlatformGate({ platformHostedOnly: true });
+  const isPlatformHosted = useActiveAssistantIsPlatformHosted();
+  const isOrgReady = useIsOrgReady();
+  const showBillingRows =
+    billingPlatformGate === "full" && isPlatformHosted && isOrgReady;
+  const { data: billingSummary } = useQuery({
+    ...organizationsBillingSummaryRetrieveOptions(),
+    enabled: showBillingRows,
+  });
+  const effectiveBalance = billingSummary?.effective_balance ?? null;
 
   return (
     <>
       <ThemeToggle className="px-2 pt-0" />
 
       <MenuDivider />
+
+      {showBillingRows ? (
+        <>
+          <CreditsCard
+            balance={
+              effectiveBalance !== null
+                ? formatWholeCredits(effectiveBalance)
+                : null
+            }
+            onAddCredits={() => {
+              onClose();
+              navigate(routes.settings.billing);
+            }}
+            onEarnCredits={() => {
+              onClose();
+              onEarnCredits();
+            }}
+          />
+          <MenuDivider />
+        </>
+      ) : null}
 
       <PanelItem
         icon={SettingsIcon}
@@ -185,6 +242,17 @@ function PreferencesMenuContent({
       />
     </>
   );
+}
+
+function formatWholeCredits(value: string): string {
+  const num = parseFloat(value);
+  if (!Number.isFinite(num)) {
+    return value;
+  }
+  return num.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 }
 
 function MenuDivider() {

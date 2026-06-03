@@ -186,10 +186,54 @@ pass additional indexed tags via `tags` and unindexed metadata via `extra`.
 Toast/UI display stays at the call site — `captureError` never shows
 user-facing UI.
 
+For **best-effort background fetches** (imperative daemon calls that fire
+optimistically and have natural retry surfaces like SSE reconnect or
+navigation), pass `bestEffort: true`. This additionally filters expected
+daemon transient errors (503 startup, 502 bad-gateway, 401 auth-race,
+400 org-header-not-ready) while still reporting unexpected errors (500,
+data-integrity, programming errors) to Sentry:
+
+```ts
+captureError(err, { context: "useActiveConversation.refreshRow", bestEffort: true });
+```
+
 **Do not use bare `Sentry.captureException`.** The only exceptions are
 framework-level integration points that need raw Sentry scope
 manipulation: `RouteErrorBoundary`, `RouterProvider.onError`, and
 `LazyBoundary`.
+
+### Sentry telemetry: when to use what
+
+| Tool | Creates Sentry issue? | Use when |
+|------|-----------------------|----------|
+| `captureError(err, opts)` | Yes | Catching a real error that indicates a bug or degraded UX. |
+| `Sentry.captureMessage(msg)` | Yes | A non-error event where **every occurrence is individually actionable** (e.g., silent SSE event loss that left a user's turn stuck). |
+| `Sentry.addBreadcrumb(...)` | No — attaches to the next error event | Recording context that's useful for debugging nearby errors but isn't actionable on its own (e.g., watchdog fired, reconnect attempted). |
+| `recordDiagnostic` / `recordLifecycleDiagnostic` | No | Local diagnostics ring shipped via support bundles. |
+
+**Default to breadcrumb.** A `captureMessage` call that fires on normal
+operation (e.g., every iOS background/foreground cycle, every legacy URL
+redirect) creates a Sentry issue that never closes — it's noise that
+obscures real errors. If the event isn't individually actionable, use a
+breadcrumb so it attaches as context to real errors instead.
+
+Reserve `captureMessage` for events where you'd page someone or open a
+ticket if the count spiked — e.g., SSE terminal-event loss
+(`sse_poll_reconciled_rescue`), where every occurrence means a user saw a
+stuck turn.
+
+References:
+- [Sentry — Breadcrumbs](https://docs.sentry.io/platforms/javascript/enriching-events/breadcrumbs/)
+- [Sentry — `captureMessage`](https://docs.sentry.io/platforms/javascript/usage/#capturing-messages)
+
+**No bare `catch` blocks that discard errors.** Every `catch` must
+either report the error (toast + `captureError`) or re-throw it. A
+`catch { return; }` that silently swallows failures is a bug — the user
+gets no feedback and Sentry gets no telemetry. When a multi-step async
+function has per-step error handling, the outer catch may be silent only
+if every inner step already reports its own errors before re-throwing.
+
+Reference: [TanStack Query — Handling Mutation Errors](https://tanstack.com/query/latest/docs/framework/react/guides/mutations#mutation-side-effects)
 
 ---
 
@@ -225,11 +269,14 @@ src/
       turn-coordinator.ts          #   atomic turn-store + conversation-store transitions
       turn-selectors.ts            #   render-decision selectors from TurnState
   hooks/                           # cross-domain shared hooks
-    conversation-queries.ts        #   TanStack Query hooks + cache helpers
+    conversation-queries.ts        #   TanStack Query hooks for conversations/groups
     use-conversation-sync.ts       #   SSE-driven metadata sync
     use-is-mobile.ts
     use-visible-viewport.ts
   utils/                           # cross-domain shared utilities
+    conversation-cache.ts          #   low-level read/write over conversation caches
+    conversation-cache-mutations.ts #  domain-level cache mutation helpers
+    conversation-list-fetchers.ts  #   pure async fetch functions for conversation lists
     conversation-transforms.ts     #   daemon → client field mapping
     format.ts
     browser.ts
@@ -579,22 +626,31 @@ Reference: [React — Thinking in React: break the UI into a component hierarchy
 ### Stabilize external callbacks with refs
 
 When a hook receives callbacks that may not be memoized upstream, store
-them in refs to keep the consuming `useCallback` identity stable:
+them in refs to keep the consuming `useCallback` identity stable. **Sync
+the ref in `useLayoutEffect`**, not during render — React 19's
+concurrent features can abort renders, leaving refs pointing at values
+from uncommitted renders if written in the render phase:
 
 ```ts
 const callbackRef = useRef(onSomeEvent);
-callbackRef.current = onSomeEvent;
+useLayoutEffect(() => {
+  callbackRef.current = onSomeEvent;
+}, [onSomeEvent]);
 
 const stableHandler = useCallback(() => {
   callbackRef.current(/* args */);
 }, []);
 ```
 
-This is the standard workaround until
+Use `useLayoutEffect` (not `useEffect`) so the ref is updated before
+paint and before any `useEffect` that reads it. This is the standard
+workaround until
 [`useEffectEvent`](https://react.dev/learn/separating-events-from-effects#declaring-an-effect-event)
 ships as stable.
 
-Reference: [React — useCallback: preventing an Effect from firing too often](https://react.dev/reference/react/useCallback#preventing-an-effect-from-firing-too-often)
+References:
+- [React — useRef caveats: "Do not write or read ref.current during rendering"](https://react.dev/reference/react/useRef#caveats)
+- [React — useCallback: preventing an Effect from firing too often](https://react.dev/reference/react/useCallback#preventing-an-effect-from-firing-too-often)
 
 ---
 

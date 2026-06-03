@@ -9,8 +9,8 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { client } from "@/generated/api/client.gen";
-import { getChatHistory, normalizeContentOrder, normalizeTextSegments, postChatMessage } from "@/domains/chat/api/messages";
+import { client as daemonClient } from "@/generated/daemon/client.gen";
+import { getChatHistory, normalizeContentOrder, postChatMessage } from "@/domains/chat/api/messages";
 import { messageText } from "@/domains/chat/utils/message-test-helpers";
 
 // ---------------------------------------------------------------------------
@@ -19,8 +19,8 @@ import { messageText } from "@/domains/chat/utils/message-test-helpers";
 
 let capturedBody: Record<string, unknown> | null = null;
 let nextPostResult: { data: unknown; error: unknown; response: Response };
-const originalPost = client.post;
-const originalGet = client.get;
+const originalPost = daemonClient.post;
+const originalGet = daemonClient.get;
 
 beforeEach(() => {
   capturedBody = null;
@@ -29,17 +29,17 @@ beforeEach(() => {
     error: null,
     response: new Response(null, { status: 200 }),
   };
-  client.post = mock(
+  daemonClient.post = mock(
     async (options: { body?: Record<string, unknown> }) => {
       capturedBody = options.body ?? null;
       return nextPostResult;
     },
-  ) as typeof client.post;
+  ) as typeof daemonClient.post;
 });
 
 afterEach(() => {
-  client.post = originalPost;
-  client.get = originalGet;
+  daemonClient.post = originalPost;
+  daemonClient.get = originalGet;
 });
 
 // ---------------------------------------------------------------------------
@@ -158,58 +158,6 @@ describe("normalizeContentOrder", () => {
   });
 });
 
-describe("normalizeTextSegments", () => {
-  test("converts plain strings to text segment objects", () => {
-    const result = normalizeTextSegments(["Hello world", "Second segment"]);
-    expect(result).toEqual([
-      { type: "text", content: "Hello world" },
-      { type: "text", content: "Second segment" },
-    ]);
-  });
-
-  test("passes through already-object segments unchanged", () => {
-    const input = [
-      { type: "text", content: "Hello" },
-      { type: "markdown", content: "# Header" },
-    ];
-    const result = normalizeTextSegments(input);
-    expect(result).toEqual(input);
-  });
-
-  test("defaults type to text when object has content but no type", () => {
-    const result = normalizeTextSegments([
-      { content: "no type field" } as unknown as string,
-    ]);
-    expect(result).toEqual([{ type: "text", content: "no type field" }]);
-  });
-
-  test("handles mixed string and object entries", () => {
-    const result = normalizeTextSegments([
-      "plain string",
-      { type: "text", content: "object form" },
-    ]);
-    expect(result).toEqual([
-      { type: "text", content: "plain string" },
-      { type: "text", content: "object form" },
-    ]);
-  });
-
-  test("returns undefined for empty or missing input", () => {
-    expect(normalizeTextSegments(undefined)).toBeUndefined();
-    expect(normalizeTextSegments([])).toBeUndefined();
-  });
-
-  test("skips entries without content", () => {
-    const result = normalizeTextSegments([
-      "valid",
-      { type: "text" } as unknown as string,
-      42 as unknown as string,
-      null as unknown as string,
-    ]);
-    expect(result).toEqual([{ type: "text", content: "valid" }]);
-  });
-});
-
 describe("getChatHistory", () => {
   test("uses shared runtime mapping for Slack metadata and timestamps", async () => {
     const slackMessage = {
@@ -232,20 +180,16 @@ describe("getChatHistory", () => {
       },
     };
 
-    client.get = mock(async () => ({
+    daemonClient.get = mock(async () => ({
       data: {
         messages: [
           {
             id: "msg-slack",
             role: "user",
             textSegments: [
-              { type: "text", content: "Slack reply" },
-              {
-                type: "text",
-                content: "[File attachment] file.pdf, type=application/pdf",
-              },
+              "Slack reply",
+              "[File attachment] file.pdf, type=application/pdf",
             ],
-            metadata: { source: "slack" },
             slackMessage,
             timestamp: "2026-05-15T12:34:56.000Z",
           },
@@ -253,7 +197,7 @@ describe("getChatHistory", () => {
       },
       error: null,
       response: new Response(null, { status: 200 }),
-    })) as typeof client.get;
+    })) as typeof daemonClient.get;
 
     const result = await getChatHistory("assistant-1", "conv-key");
 
@@ -264,7 +208,6 @@ describe("getChatHistory", () => {
     expect(result.messages[0]).toMatchObject({
       id: "msg-slack",
       role: "user",
-      metadata: { source: "slack" },
       slackMessage,
       timestamp: Date.parse("2026-05-15T12:34:56.000Z"),
     });

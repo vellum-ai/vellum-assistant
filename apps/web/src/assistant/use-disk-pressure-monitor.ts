@@ -1,5 +1,5 @@
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import type { DiskPressureStatus } from "@vellumai/assistant-api";
 
@@ -13,7 +13,6 @@ import {
   getDiskPressureMonitorMode,
   type DiskPressureMonitorMode,
 } from "@/assistant/disk-pressure";
-import { subscribe } from "@/lib/event-bus";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 
 export interface UseDiskPressureMonitorOptions {
@@ -68,8 +67,10 @@ export function useDiskPressureMonitor({
   const generationRef = useRef(0);
   const pollRequestIdRef = useRef(0);
 
-  activeAssistantIdRef.current = assistantId;
-  enabledRef.current = enabled;
+  useLayoutEffect(() => {
+    activeAssistantIdRef.current = assistantId;
+    enabledRef.current = enabled;
+  });
 
   useEffect(() => {
     generationRef.current += 1;
@@ -170,18 +171,18 @@ export function useDiskPressureMonitor({
       void refresh();
     }, cadenceMs);
 
-    // The bus's `"app.resume"` channel fans in browser visibility,
-    // Capacitor foreground, and `window.online`, so a single
-    // subscription drives the focus-style refetch.
-    const unsubResume = subscribe("app.resume", () => {
-      void refresh();
-    });
-
     return () => {
       window.clearInterval(intervalId);
-      unsubResume();
     };
   }, [assistantId, cadenceMs, enabled, refresh, refreshKey]);
+
+  // The bus's `"app.resume"` channel fans in browser visibility,
+  // Capacitor foreground, and `window.online`, so a single
+  // subscription drives the focus-style refetch. `refresh` guards
+  // on `enabled` and `assistantId` internally.
+  useBusSubscription("app.resume", () => {
+    void refresh();
+  });
 
   const applyStatusEvent = useCallback(
     (payload: DiskPressureStatusEventPayload) => {

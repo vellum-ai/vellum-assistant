@@ -3,8 +3,10 @@ name: outlook
 description: Manage Outlook email — drafting, sending, organizing, rules, vacation replies, and inbox analysis
 compatibility: "Designed for Vellum personal assistants"
 metadata:
+  icon: assets/icon.svg
   emoji: "📧"
   vellum:
+    category: "email"
     display-name: "Outlook"
     user-invocable: true
 ---

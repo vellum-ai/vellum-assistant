@@ -17,6 +17,7 @@ import type {
 import { getConfig } from "../config/loader.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
 import { getCalibrationProviderKey } from "../context/token-estimator.js";
+import type { ContextWindowResult } from "../context/window-manager.js";
 import { projectAssistantMessage } from "../memory/conversation-attention-store.js";
 import {
   deleteMessageById,
@@ -24,6 +25,7 @@ import {
   getMessageById,
   messageMetadataSchema,
   provenanceFromTrustContext,
+  setConversationHistoryStrippedAt,
   updateMessageContent,
 } from "../memory/conversation-crud.js";
 import { indexMessageNow } from "../memory/indexer.js";
@@ -50,11 +52,20 @@ import type {
   PersistResult,
   TurnContext,
 } from "../plugins/types.js";
-import type { ContentBlock, ImageContent } from "../providers/types.js";
+import type {
+  ContentBlock,
+  ImageContent,
+  Message,
+} from "../providers/types.js";
 import { isContextOverflowError } from "../providers/types.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { redactSecrets } from "../security/secret-scanner.js";
 import { extractDomain } from "../tools/network/domain-normalize.js";
+import {
+  classifyWebSearchFailure,
+  logWebSearchBackendFailure,
+  WEB_SEARCH_BACKEND_FAILURE_MESSAGE,
+} from "../tools/network/web-search-error.js";
 import {
   buildPricingUsage,
   resolveStructuredPricing,
@@ -93,6 +104,24 @@ import type {
 import { FALLBACK_TURN_TRUST } from "./trust-context.js";
 
 const log = getLogger("agent-loop-handlers");
+
+/**
+ * Persist the history-stripped marker after the loop strips runtime injections
+ * for compaction / overflow recovery. The marker is a durability hint, not
+ * turn-critical state — a transient SQLite write failure (SQLITE_BUSY,
+ * disk-full, read-only FS) must not abort the turn, so failures log a warning
+ * and continue.
+ */
+export function markHistoryStrippedBestEffort(conversationId: string): void {
+  try {
+    setConversationHistoryStrippedAt(conversationId, Date.now());
+  } catch (err) {
+    log.warn(
+      { err, conversationId },
+      "Failed to persist history-stripped marker after compaction strip (non-fatal)",
+    );
+  }
+}
 
 // ── Partial-persistence tunables ─────────────────────────────────────
 // Debounce for mid-turn `updateContent` writes from text deltas.
@@ -246,12 +275,32 @@ export interface EventHandlerState {
   readonly serverToolStartedAt: Map<string, number>;
   /** Original input from server_tool_start, keyed by tool_use_id, so the complete handler can read the query. */
   readonly serverToolInputs: Map<string, Record<string, unknown>>;
+  /** Request ids for which a user-facing web_search backend-failure notice was already surfaced this turn (dedup noisy repeats). Keyed by request id; each turn has a fresh request id, so this grows at most one entry per turn. */
+  readonly webSearchBackendFailureNotified: Set<string>;
   /** Active debounce timer for partial persistence; `undefined` when idle. */
   pendingPartialFlushTimer: ReturnType<typeof setTimeout> | undefined;
   /** In-flight partial flush write awaited at finalize to avoid overwrite races. */
   pendingPartialFlushPromise: Promise<void> | undefined;
   /** Running mirror of the in-flight assistant message's content. */
   currentMessageContent: ContentBlock[];
+  /**
+   * Whether the workspace top-level block should be (re)injected on this
+   * turn. Compaction's prepare phase strips the workspace / NOW.md / PKB
+   * blocks off the tail, so it is set after any successful compaction to
+   * force the workspace overview back in. On an ordinary turn the block is
+   * already present in history, so it defaults `false` to avoid burning
+   * tokens re-injecting it redundantly.
+   */
+  shouldInjectWorkspace: boolean;
+  /**
+   * Whether the reducer has compacted `ctx.messages`, gating the Slack
+   * chronological-transcript override on re-injection. The captured
+   * transcript is the full persisted history; blindly replaying it after
+   * compaction would overwrite the reduced messages and undo compaction, so
+   * once this is `true` the override falls back to the reduced
+   * `ctx.messages`.
+   */
+  reducerCompacted: boolean;
 }
 
 /** Immutable context shared across event handlers within a single agent loop run. */
@@ -265,6 +314,18 @@ export interface EventHandlerDeps {
   readonly rlog: pino.Logger;
   readonly turnChannelContext: TurnChannelContext;
   readonly turnInterfaceContext: TurnInterfaceContext;
+  /**
+   * Commit a successful inline compaction to durable state. Invoked from the
+   * `compaction_completed` dispatch case (when `result.compacted`) with the
+   * loop's compaction result and the stripped pre-compaction `basis`. Supplied
+   * by the orchestrator because the body writes Conversation DB-record fields,
+   * projects Slack provenance, and emits transport the loop is intentionally
+   * blind to.
+   */
+  readonly applyCompaction: (
+    result: ContextWindowResult,
+    basis: Message[],
+  ) => Promise<void>;
 }
 
 // ── Factory ──────────────────────────────────────────────────────────
@@ -311,9 +372,12 @@ export function createEventHandlerState(): EventHandlerState {
     turnStartedAt: Date.now(),
     serverToolStartedAt: new Map(),
     serverToolInputs: new Map(),
+    webSearchBackendFailureNotified: new Set(),
     pendingPartialFlushTimer: undefined,
     pendingPartialFlushPromise: undefined,
     currentMessageContent: [],
+    shouldInjectWorkspace: false,
+    reducerCompacted: false,
   };
 }
 
@@ -1828,9 +1892,65 @@ export async function dispatchAgentEvent(
         // for them would mis-label the provider and ship empty results.
         const isAnthropicNative = deps.ctx.provider.name === "anthropic";
 
-        const errorMessage = event.isError
-          ? (event.errorMessage ?? event.errorCode ?? "Search failed")
-          : undefined;
+        // Classify provider failures through the shared normalizer so the same
+        // friendly copy propagates to every client via WebSearchMetadata, while
+        // the raw provider detail stays in telemetry only (ATL-727).
+        const classification = classifyWebSearchFailure({
+          errorCode: event.errorCode,
+          error: event.errorMessage,
+          isError: event.isError,
+          hasResults: results.length > 0,
+        });
+
+        let errorMessage: string | undefined;
+        let fallbackShown = false;
+        if (event.isError) {
+          // A genuine backend failure OR an unclassifiable, message-less native
+          // failure (e.g. `isError:true` with no `error_code`) both surface the
+          // friendly backend copy: a terse "Search failed" placeholder is the
+          // confusing copy this normalization exists to eliminate (ATL-727).
+          // Recoverable categories that carry a real user message
+          // (query_too_long, max_uses_exceeded) keep their own copy.
+          const useBackendCopy =
+            classification.isBackendFailure || !classification.userMessage;
+          if (useBackendCopy) {
+            // Dedup the user-facing friendly notice per turn (request id) so a
+            // burst of failures surfaces at most one full notice. The raw
+            // provider error is preserved on every failure via telemetry below.
+            const alreadyNotified = state.webSearchBackendFailureNotified.has(
+              deps.reqId,
+            );
+            if (alreadyNotified) {
+              errorMessage = "Search is still having trouble.";
+            } else {
+              state.webSearchBackendFailureNotified.add(deps.reqId);
+              errorMessage = WEB_SEARCH_BACKEND_FAILURE_MESSAGE;
+              fallbackShown = true;
+            }
+
+            // Backend-failure telemetry (provider outages / rate limits) must
+            // fire only for genuine backend classifications so it does not
+            // count recoverable input/quota errors — or a message-less unknown
+            // failure that merely borrows the friendly copy — as provider
+            // outages.
+            if (classification.isBackendFailure) {
+              logWebSearchBackendFailure(deps.rlog, {
+                provider: isAnthropicNative
+                  ? "anthropic-native"
+                  : deps.ctx.provider.name,
+                requestId: deps.reqId,
+                errorCategory: classification.category,
+                rawDetail: classification.rawDetail,
+                fallbackShown,
+                queryLength: query.length,
+              });
+            }
+          } else {
+            // Recoverable, non-backend categories with their own user-facing
+            // copy (query_too_long, max_uses_exceeded) keep that message.
+            errorMessage = classification.userMessage;
+          }
+        }
 
         const metadata: WebSearchMetadata | undefined = isAnthropicNative
           ? {
@@ -1872,6 +1992,31 @@ export async function dispatchAgentEvent(
         // unchanged. They drive the client's "auto-compaction paused"
         // banner.
         deps.onEvent(event);
+        break;
+      case "compaction_completed":
+        // Always commit the loop-stripped `basis` as the durable message base
+        // so re-injection re-applies onto the stripped history even when the
+        // pipeline ran but did not compact. When it did compact, commit the
+        // durable result (DB-record fields, Slack provenance, SSE) — which
+        // overwrites `ctx.messages` with the compacted history — and flip the
+        // per-turn re-injection guards the orchestrator reads. This runs
+        // before the loop's `reinject` hook (the loop awaits this dispatch),
+        // so the guards are set in time. A failed durable commit re-throws
+        // below to abort the turn rather than re-injecting against
+        // half-applied state.
+        deps.ctx.messages = event.basis;
+        if (event.result.compacted) {
+          await deps.applyCompaction(event.result, event.basis);
+          state.reducerCompacted = true;
+          state.shouldInjectWorkspace = true;
+        }
+        break;
+      case "history_stripped":
+        // Record the history-stripped DB marker right after the loop strips
+        // injections (before the pipeline). Best-effort: a transient marker
+        // write must not abort the turn, so unlike `compaction_completed` this
+        // is not on the re-throw allowlist below.
+        markHistoryStrippedBestEffort(deps.ctx.conversationId);
         break;
       case "error":
         handleError(state, deps, event);
@@ -1925,10 +2070,13 @@ export async function dispatchAgentEvent(
     // - message_complete: persists assistant message to DB, sets state flags
     // - error: sets recovery flags (contextTooLargeDetected, orderingErrorDetected)
     // - usage: records token accounting
+    // - compaction_completed: durable compaction commit; aborting the turn is
+    //   safer than re-injecting against a half-applied compaction
     if (
       event.type === "message_complete" ||
       event.type === "error" ||
-      event.type === "usage"
+      event.type === "usage" ||
+      event.type === "compaction_completed"
     ) {
       throw err;
     }

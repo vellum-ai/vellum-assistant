@@ -3,8 +3,10 @@ name: twilio-setup
 description: Configure Twilio credentials and phone numbers for voice calls
 compatibility: "Designed for Vellum personal assistants"
 metadata:
+  icon: assets/icon.svg
   emoji: "📱"
   vellum:
+    category: "integrations"
     display-name: "Twilio Setup"
     includes: ["public-ingress"]
 ---

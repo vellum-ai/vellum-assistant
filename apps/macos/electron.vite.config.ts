@@ -15,7 +15,18 @@ import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 // CJS main bundle, which returns the module namespace rather than the
 // default export and breaks `new Store(...)`. Bundling their ESM source
 // inline lets Rollup handle the CJS interop correctly at bundle time.
-const DEPS_TO_INLINE = ["electron-store", "conf"];
+//
+// `@vellumai/local-mode` (and its `@vellumai/environments` dep) are local
+// `file:` packages whose `exports` point at TypeScript source with no build
+// step. Externalizing them would emit `require("@vellumai/local-mode")`
+// resolving to a `.ts` file the Electron main process can't load at runtime;
+// inlining lets Rollup compile the source into the bundle.
+const DEPS_TO_INLINE = [
+  "electron-store",
+  "conf",
+  "@vellumai/local-mode",
+  "@vellumai/environments",
+];
 
 // Resolved at config-evaluation time and inlined into the main bundle via
 // Vite's `define`. Prefer the CI-provided GITHUB_SHA (7-char prefix);

@@ -3,8 +3,10 @@ name: slack
 description: Read, send, and manage Slack messages via the Web API
 compatibility: "Designed for Vellum personal assistants"
 metadata:
+  icon: assets/icon.svg
   emoji: "💬"
   vellum:
+    category: "messaging"
     display-name: "Slack"
 ---
 

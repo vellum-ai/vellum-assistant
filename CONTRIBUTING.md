@@ -6,7 +6,7 @@ Thank you for your interest in Vellum Assistant! We welcome contributions of all
 
 - **Bug reports and feature requests**: [Open an issue](https://github.com/vellum-ai/vellum-assistant/issues). Use the provided templates.
 - **Security vulnerabilities**: Report these privately. See [SECURITY.md](SECURITY.md).
-- **Questions and discussion**: Join us on [Discord](https://vellum.ai/community).
+- **Questions and discussion**: Join us on the #contributors channel on [Discord](https://discord.com/channels/1471183263174234245/1503398277092081875).
 
 ## Development setup
 
@@ -26,15 +26,7 @@ vellum --version
 
 ### Running the assistant locally
 
-**macOS app (recommended):**
-
-```bash
-./clients/macos/build.sh run   # build + launch + watch for changes (auto-rebuild)
-```
-
 **CLI only:**
-
-> **Note:** CLI interaction hasn't been heavily tested — we welcome contributions to improve the experience.
 
 ```bash
 vellum hatch   # first-time setup (only needed once)
@@ -51,6 +43,9 @@ cd assistant && bun run test
 
 # CLI
 cd cli && bun run test
+
+# Credential Executor
+cd credential-executor && bun run test
 
 # Gateway
 cd gateway && bun run test
@@ -75,25 +70,28 @@ If you use Claude Code, see [.claude/README.md](.claude/README.md) for setup (sh
 | `assistant/` | Core assistant runtime — memory, tools, skills, scheduling, integrations |
 | `gateway/` | Public ingress — webhooks, API routes, OAuth callbacks |
 | `cli/` | The `vellum` CLI |
-| `clients/` | Native clients (macOS) and browser extension |
-| `apps/` | End-user app surfaces (web, iOS, macOS/Electron, Chrome extension) — scaffold |
+| `apps/` | End-user app surfaces (web, iOS, macOS/Electron, Chrome extension) |
 | `credential-executor/` | Isolated credential execution service |
 | `packages/` | Shared internal packages |
 | `skills/` | Skill definitions |
 
 For deeper architectural context, see [ARCHITECTURE.md](ARCHITECTURE.md) and the domain-specific docs linked from it.
 
-## Active migrations
+## Personalizing your assistant vs. changing the core
 
-Some directories in this repo are landing zones for in-progress
-relocations. They build green but are not the live source for the
-corresponding surface yet. Please avoid landing feature work in these
-directories until the move is complete.
+Before opening a PR, ask: **does this belong in everyone's assistant, or just mine?**
 
-| Directory | Status |
-|---|---|
-| `apps/web/` | Active migration target — Vite + React Router v7 SPA for the assistant web app. Code is being incrementally migrated from a separate repo. See [`apps/web/README.md`](apps/web/README.md) for local dev setup, [`apps/web/docs/CONVENTIONS.md`](apps/web/docs/CONVENTIONS.md) and [`apps/web/docs/STATE_MANAGEMENT.md`](apps/web/docs/STATE_MANAGEMENT.md) for architecture and state, and [`apps/web/docs/STYLE_GUIDE.md`](apps/web/docs/STYLE_GUIDE.md) for coding style. |
-| `apps/chrome-extension/` | Move in progress from [`clients/chrome-extension/`](https://github.com/vellum-ai/vellum-assistant/tree/main/clients/chrome-extension). |
+A lot of "new feature" ideas are really *personal customization*: for example, a morning briefing, a recurring cleanup, a custom routine, or stitching existing capabilities together. These belong in **your assistant's own workspace**, not in the shared runtime. You don't need to fork the repo or wait for a review to get them, just ask your assistant to build it for you!
+
+### When a core change *is* the right call
+
+Adding or changing a **core tool** (anything under `assistant/src/tools/` registered in the tool manifest) ships to **every** user and is loaded into the agent's context on every turn — always-loaded tools share a tight budget, so each one has to earn its place. Open a PR for core changes only when the change is:
+
+- a **new primitive** that can't be expressed as a skill composed from existing tools, or
+- a bug fix, performance, security, or developer-experience improvement to existing behavior, or
+- there is pre-existing discussion on GitHub or Discord with the core team on why it will be broadly useful to most users.
+
+If you can build it as a skill in your own workspace, do that first. If you think a personal skill would genuinely benefit others, contribute it to [`skills/`](skills/) (see [`skills/AGENTS.md`](skills/AGENTS.md)) rather than adding a core tool. When in doubt, [open an issue](https://github.com/vellum-ai/vellum-assistant/issues) or ask on [Discord](https://vellum.ai/community) before writing new core capabilities.
 
 ## Submitting a pull request
 
@@ -116,6 +114,11 @@ directories until the move is complete.
 - Improves documentation or developer experience
 - Adds test coverage for untested paths
 - Implements a feature you've discussed in an issue or on Discord
+- Adds a broadly useful primitive or a reusable skill to [`skills/`](skills/)
+
+### Large Initiatives
+
+If there's a larger body of work that you'd like to champion, we'd love to help you see it through! We do request to hop on a call to understand the full context and be able to advise most effectively. Reach out to a member of the core team to coordinate scheduling.
 
 ## Code of Conduct
 

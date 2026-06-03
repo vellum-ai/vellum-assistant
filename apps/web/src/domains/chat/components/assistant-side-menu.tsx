@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 
+import { useCommandPaletteStore } from "@/stores/command-palette-store";
+
 import {
   ConversationActionsMenu,
   renderConversationMenuItems,
@@ -62,7 +64,7 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onStartNewConversation?: () => void;
   footerAction?: ReactNode;
   onClose?: () => void;
-  onSearchClick?: () => void;
+
   onPinConversation?: (conversation: Conversation) => void;
   onRenameConversation?: (conversation: Conversation) => void;
   onArchiveConversation?: (conversation: Conversation) => void;
@@ -81,6 +83,23 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onOpenInNewWindow?: (conversation: Conversation) => void;
   onShareFeedback?: () => void;
   onInspect?: (conversation: Conversation) => void;
+}
+
+function SearchButton({ onClose }: { onClose?: () => void }) {
+  const toggle = useCommandPaletteStore.use.toggle();
+  const handleClick = useCallback(() => {
+    onClose?.();
+    toggle();
+  }, [onClose, toggle]);
+  return (
+    <Button
+      variant="ghost"
+      iconOnly={<Search />}
+      aria-label="Search (⌘K)"
+      title="Search (⌘K)"
+      onClick={handleClick}
+    />
+  );
 }
 
 /**
@@ -136,7 +155,6 @@ export function AssistantSideMenu({
   onMarkAllReadInGroup,
   onArchiveAllInGroup,
   onClose,
-  onSearchClick,
   processingConversationIds,
   attentionConversationIds,
   activeConversationProcessing,
@@ -401,18 +419,7 @@ export function AssistantSideMenu({
                 aria-label="Close navigation"
                 onClick={() => onClose?.()}
               />
-              {onSearchClick ? (
-                <Button
-                  variant="ghost"
-                  iconOnly={<Search />}
-                  aria-label="Search (⌘K)"
-                  title="Search (⌘K)"
-                  onClick={() => {
-                    onClose?.();
-                    onSearchClick();
-                  }}
-                />
-              ) : null}
+              <SearchButton onClose={onClose} />
             </div>
             <div className="flex items-center gap-2">{headerActions}</div>
           </div>
@@ -449,7 +456,7 @@ export function AssistantSideMenu({
         <SideMenu.Separator />
       </SideMenu.Header>
 
-      <SideMenu.Body className="pt-3 max-md:pt-4">
+      <SideMenu.Body className="gap-1 pt-3 max-md:pt-4">
         {collapsed && variant === "rail" ? (
           <div className="flex flex-col items-center gap-1">
             {headerActions}
@@ -522,6 +529,7 @@ export function AssistantSideMenu({
 
             <SideMenu.Section
               title="Conversations"
+              className="gap-1"
               actions={variant === "overlay" ? undefined : headerActions}
             >
               {renderFlatList(
@@ -534,6 +542,7 @@ export function AssistantSideMenu({
 
               <CollapsibleNavSection.Root
                 type="multiple"
+                className="gap-1"
                 value={sidebar.effectiveOpenCategories}
                 onValueChange={sidebar.onOpenCategoriesChange}
               >
@@ -587,6 +596,7 @@ export function AssistantSideMenu({
                   <SideMenu.Section title="Your Groups">
                     <CollapsibleNavSection.Root
                       type="multiple"
+                      className="gap-1"
                       value={sidebar.effectiveOpenCustomGroups}
                       onValueChange={sidebar.onOpenCustomGroupsChange}
                     >

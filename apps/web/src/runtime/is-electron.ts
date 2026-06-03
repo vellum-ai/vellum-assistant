@@ -13,6 +13,14 @@
  * `window.vellum`, `isNativePlatform()` calls Capacitor, and the web branch
  * uses `localStorage` — so consumers stay platform-agnostic.
  */
+// The lockfile bridge surface is typed against the contract owned by
+// `@vellumai/local-mode` (the package the Electron main produces these values
+// from), so the renderer never has to re-assert the shape with casts. The
+// import is type-only and erased from the renderer bundle, and resolves the
+// `/contract` entry point (dependency-free types + parser) so it never pulls
+// the host's Node-only I/O graph into the renderer's module resolution.
+import type { Lockfile, LockfileWriteResult } from "@vellumai/local-mode/contract";
+
 /**
  * Renderer-side mirror of the discriminated union in
  * `apps/macos/src/main/commands.ts`. Inline (rather than cross-package
@@ -56,6 +64,21 @@ declare global {
           assistantId?: string;
           error?: string;
         }>;
+        readLockfile(): Promise<Lockfile>;
+        saveLockfileAssistant(
+          assistant: Record<string, unknown>,
+          activeAssistant?: string,
+        ): Promise<LockfileWriteResult>;
+        replacePlatformAssistants(
+          platformAssistants: Array<Record<string, unknown>>,
+        ): Promise<LockfileWriteResult>;
+        retire(assistantId: string): Promise<{ ok: boolean; error?: string }>;
+        guardianToken(
+          assistantId: string,
+        ): Promise<
+          | { ok: true; accessToken: string }
+          | { ok: false; status: number; error: string }
+        >;
       };
       mainWindow: {
         ensureVisible(): Promise<void>;

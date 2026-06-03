@@ -9,7 +9,7 @@
  */
 
 import { captureError } from "@/lib/sentry/capture-error";
-import { type Dispatch, type FormEvent, type MutableRefObject, type ReactNode, type RefObject, type SetStateAction, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type Dispatch, type FormEvent, type MutableRefObject, type ReactNode, type RefObject, type SetStateAction, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
 
@@ -28,7 +28,7 @@ import { useConversationStarters } from "@/domains/chat/hooks/use-conversation-s
 import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
 import type { TranscriptHandle, TranscriptProps } from "@/domains/chat/transcript/transcript";
 import { useTranscriptScroll } from "@/domains/chat/transcript/use-transcript-scroll";
-import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat";
+import { hasAnyInteractiveSurface, hasPendingAssistantResponse } from "@/domains/chat/utils/chat";
 import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone";
 import type { ChatAttachment } from "@/domains/chat/components/chat-attachments/use-chat-attachments";
 import type { ChatEmptyStateProps } from "@/domains/chat/components/chat-empty-state";
@@ -45,7 +45,6 @@ import { QueuedMessagesDrawer } from "@/domains/chat/components/queued-messages-
 import { AppViewerContainer } from "@/components/app-viewer-container";
 import { DocumentViewerContainer } from "@/domains/chat/components/document-viewer-container";
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
-import { isProgressBadgeEnabled } from "@/lib/feature-flags/progress-badge-flag";
 import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";
 import { ContextWindowIndicator } from "@/domains/chat/components/context-window-indicator";
 const SubagentDetailPanel = lazy(() =>
@@ -88,7 +87,6 @@ import {
   shouldShowThinkingIndicator,
   type UIContext,
 } from "@/domains/chat/turn-selectors";
-import { isSurfaceInteractive } from "@/domains/chat/types/types";
 import { getSlackConversationDisplay } from "@/domains/chat/utils/slack-conversation-display";
 
 import { useViewerStore } from "@/stores/viewer-store";
@@ -118,8 +116,8 @@ import { useInteractionActions } from "@/domains/chat/hooks/use-interaction-acti
 import { useGhostTextSuggestion } from "@/domains/chat/hooks/use-ghost-text-suggestion";
 import { useVoiceInput } from "@/domains/chat/hooks/use-voice-input";
 import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
+import { useEditApp } from "@/hooks/use-edit-app";
 import { lifecycleService } from "@/assistant/lifecycle-service";
-import { getEditChatConversationId, setEditChatConversationId } from "@/domains/chat/utils/edit-chat-session";
 
 // ---------------------------------------------------------------------------
 // Props — only values that cannot be owned locally
@@ -173,6 +171,7 @@ export interface ChatRouteContentProps {
   sanitizedMessagesRef: MutableRefObject<DisplayMessage[]>;
   transcriptItemsRef: MutableRefObject<TranscriptItem[]>;
   transcriptRef: RefObject<TranscriptHandle | null>;
+  uiContextRef: MutableRefObject<UIContext | null>;
 
   // Onboarding (local state in ActiveChatView)
   onboardingTasksEmpty: boolean;
@@ -216,6 +215,7 @@ export function ChatRouteContent({
   sanitizedMessagesRef,
   transcriptItemsRef,
   transcriptRef,
+  uiContextRef,
   onboardingTasksEmpty,
   didOnboarding,
   onboardingConversationId,
@@ -322,18 +322,11 @@ export function ChatRouteContent({
     useViewerStore.getState().exitAppEditing();
   }, []);
 
+  const editApp = useEditApp();
   const handleEditApp = useCallback(() => {
     const oas = useViewerStore.getState().openedAppState;
-    if (!oas || !assistantId) return;
-    const appId = oas.appId;
-    const convId = getEditChatConversationId(assistantId, appId) ?? crypto.randomUUID();
-    setEditChatConversationId(assistantId, appId, convId);
-    useConversationStore.getState().setEditingConversationId(convId);
-    useViewerStore.getState().enterAppEditing();
-    if (activeConversationId !== convId) {
-      void navigate(routes.conversation(convId));
-    }
-  }, [assistantId, activeConversationId, navigate]);
+    if (oas) editApp(oas);
+  }, [editApp]);
 
   const handleShareApp = useCallback(() => {
     const app = useViewerStore.getState().openedAppState;
@@ -457,16 +450,10 @@ export function ChatRouteContent({
   // Derived values
   // -------------------------------------------------------------------------
 
-  const hasUncompletedVisibleSurface = useMemo(() => {
-    for (const msg of messages) {
-      if (msg.surfaces) {
-        for (const s of msg.surfaces) {
-          if (isSurfaceInteractive(s)) return true;
-        }
-      }
-    }
-    return false;
-  }, [messages]);
+  const hasUncompletedVisibleSurface = useMemo(
+    () => hasAnyInteractiveSurface(messages),
+    [messages],
+  );
 
   // Derive "is this conversation processing?" as an OR of the local
   // optimistic set (driven by `useSendMessage` and the SSE start
@@ -514,24 +501,43 @@ export function ChatRouteContent({
     lastCompleteAssistantMsgId,
   });
 
-  const uiContext: UIContext = {
-    hasStreamingAssistantMessage,
-    hasPendingSecret: !!pendingSecret,
-    hasPendingConfirmation: !!pendingConfirmation,
-    hasPendingQuestion: !!pendingQuestion,
-    hasPendingContactRequest: !!pendingContactRequest,
-    hasUncompletedVisibleSurface,
-    activeConversationIsProcessing,
-    hasPendingAssistantResponse: activeConversationHasPendingAssistantResponse,
-  };
+  const uiContext: UIContext = useMemo(
+    () => ({
+      hasStreamingAssistantMessage,
+      hasPendingSecret: !!pendingSecret,
+      hasPendingConfirmation: !!pendingConfirmation,
+      hasPendingQuestion: !!pendingQuestion,
+      hasPendingContactRequest: !!pendingContactRequest,
+      hasUncompletedVisibleSurface,
+      activeConversationIsProcessing,
+      hasPendingAssistantResponse: activeConversationHasPendingAssistantResponse,
+    }),
+    [
+      hasStreamingAssistantMessage,
+      pendingSecret,
+      pendingConfirmation,
+      pendingQuestion,
+      pendingContactRequest,
+      hasUncompletedVisibleSurface,
+      activeConversationIsProcessing,
+      activeConversationHasPendingAssistantResponse,
+    ],
+  );
 
-  // When the `useProgressBadge` debug flag is on, suppress the
-  // transcript-trailer thinking dots — the avatar badge takes over the
-  // "the assistant is working" affordance. Default (flag off) keeps the
-  // long-standing dots in charge.
-  const showThinking =
-    !isProgressBadgeEnabled() &&
-    shouldShowThinkingIndicator(turnState, uiContext);
+  // Publish the rendered context (in an effect, after commit — never mutate a
+  // ref during render) so the debug API reports on-screen state instead of a
+  // separate recomputation (see useChatDebugRegistration). Clear it on unmount
+  // so the debug API falls back to its empty default instead of reporting the
+  // last rendered frame (which could claim a badge is processing) while no chat
+  // content is on screen.
+  useEffect(() => {
+    uiContextRef.current = uiContext;
+    return () => {
+      uiContextRef.current = null;
+    };
+  }, [uiContextRef, uiContext]);
+
+  const showThinking = shouldShowThinkingIndicator(turnState, uiContext);
   const isAssistantStreaming =
     showThinking || hasStreamingAssistantMessage;
   const canStopGenerating = canStopGeneration(turnState, uiContext);
@@ -698,7 +704,7 @@ export function ChatRouteContent({
     [messages],
   );
 
-  sanitizedMessagesRef.current = sanitizedMessages;
+  useLayoutEffect(() => { sanitizedMessagesRef.current = sanitizedMessages; });
 
   const transcriptItems = useMemo(
     () =>
@@ -739,7 +745,7 @@ export function ChatRouteContent({
     ],
   );
 
-  transcriptItemsRef.current = transcriptItems;
+  useLayoutEffect(() => { transcriptItemsRef.current = transcriptItems; });
 
   // -------------------------------------------------------------------------
   // Scroll coordination
@@ -1058,6 +1064,34 @@ export function ChatRouteContent({
       </div>
     ) : undefined;
 
+  // Stable callback so the latest-turn avatar slot isn't rebuilt on every
+  // transcript render. Paired with `memo(ChatAvatar)`, the avatar re-renders
+  // only when its inputs actually change (avatar data, or the streaming /
+  // processing flags) rather than on each parent render.
+  const renderAvatar = useMemo(
+    () =>
+      avatarComponents || avatarImageUrl
+        ? () => (
+            <ChatAvatar
+              components={avatarComponents}
+              traits={avatarTraits}
+              customImageUrl={avatarImageUrl}
+              size={56}
+              interactive
+              isStreaming={isAssistantStreaming}
+              isProcessing={activeConversationIsProcessing}
+            />
+          )
+        : undefined,
+    [
+      avatarComponents,
+      avatarImageUrl,
+      avatarTraits,
+      isAssistantStreaming,
+      activeConversationIsProcessing,
+    ],
+  );
+
   const chatTranscriptProps: TranscriptProps = {
     items: transcriptItems,
     conversationId: activeConversationId,
@@ -1131,20 +1165,7 @@ export function ChatRouteContent({
           onCancel={handleContactPromptCancel}
         />
       ) : null,
-    renderAvatar:
-      avatarComponents || avatarImageUrl
-        ? () => (
-            <ChatAvatar
-              components={avatarComponents}
-              traits={avatarTraits}
-              customImageUrl={avatarImageUrl}
-              size={56}
-              interactive
-              isStreaming={isAssistantStreaming}
-              isProcessing={activeConversationIsProcessing}
-            />
-          )
-        : undefined,
+    renderAvatar,
     onPullRefresh: handlePullRefresh,
     pullRefreshEnabled: chatPullToRefreshEnabled && touchSupported,
     scrollCoordinatorState: {

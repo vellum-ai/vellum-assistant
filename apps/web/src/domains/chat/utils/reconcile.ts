@@ -1,4 +1,4 @@
-import { prepareServerMessage } from "@/domains/chat/utils/map-runtime-message";
+import { mapServerSurfaces, prepareServerMessage } from "@/domains/chat/utils/map-runtime-message";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
 import { dedupeDisplayMessages, mergeLatestHistoryMessage, messagesEqual } from "@/domains/chat/utils/message-merge";
@@ -308,7 +308,6 @@ export function reconcileMessages(
 
       const msg: DisplayMessage = { id: m.id, role: m.role };
       if (m.mergedMessageIds?.length) msg.mergedMessageIds = m.mergedMessageIds;
-      if (m.metadata) msg.metadata = m.metadata;
       if (m.subagentNotification) msg.isSubagentNotification = true;
       if (prepared.slackMessage ?? localMsg?.slackMessage) {
         msg.slackMessage = prepared.slackMessage ?? localMsg?.slackMessage;
@@ -360,13 +359,18 @@ export function reconcileMessages(
         if (localMsg!.contentOrder) msg.contentOrder = localMsg!.contentOrder;
         if (localMsg!.textSegments) msg.textSegments = localMsg!.textSegments;
         if (localMsg!.surfaces) msg.surfaces = localMsg!.surfaces;
+        // Keep locally-accumulated thinking deltas in lockstep with the
+        // local contentOrder; fall back to the server snapshot when the
+        // local row never saw any thinking SSE events.
+        const localThinking = localMsg!.thinkingSegments ?? prepared.thinkingSegments;
+        if (localThinking) msg.thinkingSegments = localThinking;
       } else {
         // Prefer local surfaces (updated by SSE ui_surface_update events)
         // over server surfaces which may be stale.
         if (localMsg?.surfaces != null) {
           msg.surfaces = localMsg.surfaces;
         } else if (m.surfaces) {
-          msg.surfaces = m.surfaces;
+          msg.surfaces = mapServerSurfaces(m.surfaces);
         }
         if (prepared.toolCalls) {
           const serverToolCalls = [...prepared.toolCalls];
@@ -391,6 +395,10 @@ export function reconcileMessages(
         }
         if (prepared.normalizedContentOrder) msg.contentOrder = prepared.normalizedContentOrder;
         if (prepared.normalizedSegments) msg.textSegments = prepared.normalizedSegments;
+        // Prefer locally-accumulated thinking deltas (richer, in-progress)
+        // over the server snapshot, which may lag the live stream.
+        const thinking = localMsg?.thinkingSegments ?? prepared.thinkingSegments;
+        if (thinking) msg.thinkingSegments = thinking;
       }
 
       // Use server timestamp when available, otherwise preserve client-side one.

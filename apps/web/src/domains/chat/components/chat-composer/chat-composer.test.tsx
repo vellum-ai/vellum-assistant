@@ -17,6 +17,15 @@ import type { ChatAttachment } from "@/domains/chat/components/chat-attachments/
 import type { VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button";
 import { INITIAL_TURN_STATE, type TurnState, useTurnStore } from "@/domains/chat/turn-store";
 
+// Pure helpers live in `chat-composer-utils` (no mocks needed), so import them
+// statically. `ChatComposer` itself is imported dynamically *after* the mocks
+// below so its transitive flag-store / live-voice / voice-input-button imports
+// resolve against the mocked modules.
+import {
+  computeGhostSuffix,
+  shouldSubmitOnEnter,
+} from "@/domains/chat/components/chat-composer/chat-composer-utils";
+
 let mockIsMobile = false;
 mock.module("@/hooks/use-is-mobile", () => ({
   useIsMobile: () => mockIsMobile,
@@ -122,7 +131,9 @@ function resetLiveVoiceMocks() {
 
 // Imported after the mocks so the component (and its transitive flag-store /
 // live-voice / voice-input-button imports) resolve against the mocked modules.
-const { ChatComposer, computeGhostSuffix, shouldSubmitOnEnter } = await import(
+// The pure helpers (computeGhostSuffix / shouldSubmitOnEnter) come from
+// `chat-composer-utils`, imported statically above.
+const { ChatComposer } = await import(
   "@/domains/chat/components/chat-composer/chat-composer"
 );
 

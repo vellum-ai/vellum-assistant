@@ -19,7 +19,7 @@ import {
   useRef,
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import type { NavigateFunction } from "react-router";
+import { useNavigate } from "react-router";
 import { routes } from "@/utils/routes";
 
 import {
@@ -28,7 +28,7 @@ import {
   reconcileMessages,
 } from "@/domains/chat/utils/reconcile";
 import { isAsyncChatScopeCurrent } from "@/domains/chat/utils/conversation-scope";
-import { resolveEditChatDraftConversationId } from "@/domains/chat/utils/edit-chat-session";
+import { resolveEditChatDraftConversationId } from "@/utils/edit-chat-session";
 import { type DiskPressureChatBlockReason, getDiskPressureChatBlockMessage } from "@/assistant/disk-pressure";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useStreamStore } from "@/domains/chat/stream-store";
@@ -43,7 +43,7 @@ import {
   prependConversation,
   removeConversation,
   resolveDraftKey,
-} from "@/hooks/conversation-queries";
+} from "@/utils/conversation-cache-mutations";
 import { findConversation } from "@/utils/conversation-cache";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import {
@@ -122,8 +122,6 @@ interface UseSendMessageParams {
   cancelReconciliation: () => void;
   refreshConversations: () => Promise<void>;
 
-  // Routing adapter
-  navigate: NavigateFunction;
 }
 
 // ---------------------------------------------------------------------------
@@ -141,8 +139,8 @@ export function useSendMessage({
   startReconciliationLoop,
   cancelReconciliation,
   refreshConversations,
-  navigate,
 }: UseSendMessageParams) {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const setMessages = useChatSessionStore.use.setMessages();
   const setError = useChatSessionStore.use.setError();
@@ -517,7 +515,7 @@ export function useSendMessage({
         id: optimisticUserId,
         isOptimistic: true,
         role: "user",
-        textSegments: [{ type: "text", content }],
+        textSegments: [content],
         contentOrder: [{ type: "text", id: "0" }],
         timestamp: Date.now(),
         ...(attachments.length > 0 ? { attachments } : {}),

@@ -56,11 +56,21 @@ const RouteBodySchemaSchema = z.any().refine(
   { message: "Expected a Zod schema or a plain JSON Schema object" },
 );
 
-const RouteRequestBodyVariantSchema = z.object({
+/** Explicit `{ contentType, schema }` request body for non-JSON media types. */
+const RouteRequestBodyWithContentTypeSchema = z.object({
   contentType: z.string(),
   /** Zod schema OR plain JSON Schema fragment. */
   schema: z.any(),
 });
+
+/**
+ * A route's request body: either a bare Zod/JSON schema (advertised as
+ * `application/json`) or an explicit `{ contentType, schema }` pair.
+ */
+const RouteRequestBodySchema = z.union([
+  RouteRequestBodyWithContentTypeSchema,
+  RouteBodySchemaSchema,
+]);
 
 const RouteAdditionalResponseSchema = z.object({
   description: z.string(),
@@ -79,10 +89,8 @@ const RouteEntrySchema = z.object({
   tags: z.array(z.string()).optional(),
   /** Query parameter definitions. */
   queryParams: z.array(RouteQueryParamSchema).optional(),
-  /** JSON Schema for the request body. */
-  requestBody: RouteBodySchemaSchema.optional(),
-  /** Multi-content-type request body variants (overrides `requestBody` when present). */
-  requestBodies: z.array(RouteRequestBodyVariantSchema).optional(),
+  /** Request body: a bare Zod/JSON schema (JSON) or `{ contentType, schema }`. */
+  requestBody: RouteRequestBodySchema.optional(),
   /** JSON Schema for the success response body. */
   responseBody: RouteBodySchemaSchema.optional(),
   /** HTTP status code for the success response. Defaults to "200".
@@ -443,26 +451,21 @@ function buildSpec(
       operation.parameters = parameters;
     }
 
-    // Multi-content-type request bodies take precedence over the single
-    // application/json requestBody. This lets an endpoint advertise a
-    // `oneOf`-style choice between `application/octet-stream`,
-    // `multipart/form-data`, and `application/json` on the same URL.
-    if (entry.requestBodies && entry.requestBodies.length > 0) {
-      const content: Record<string, { schema: JSONSchemaObject }> = {};
-      for (const variant of entry.requestBodies) {
-        content[variant.contentType] = {
-          schema: toJSONSchemaObject(variant.schema, {
-            stripRequiredDefaults: true,
-          }),
-        };
-      }
-      operation.requestBody = { required: true, content };
-    } else if (entry.requestBody) {
+    // A bare Zod/JSON schema is advertised as `application/json`; the
+    // explicit `{ contentType, schema }` form lets a route declare a non-JSON
+    // body (e.g. a raw `application/octet-stream` upload) so the generated SDK
+    // describes a real body type instead of `never`.
+    if (entry.requestBody) {
+      const rb = entry.requestBody;
+      const hasContentType =
+        typeof rb === "object" && rb !== null && "contentType" in rb;
+      const contentType = hasContentType ? rb.contentType : "application/json";
+      const schemaSource = hasContentType ? rb.schema : rb;
       operation.requestBody = {
         required: true,
         content: {
-          "application/json": {
-            schema: toJSONSchemaObject(entry.requestBody, {
+          [contentType]: {
+            schema: toJSONSchemaObject(schemaSource, {
               stripRequiredDefaults: true,
             }),
           },

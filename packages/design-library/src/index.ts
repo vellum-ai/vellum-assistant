@@ -203,6 +203,7 @@ export {
   type SkillRowProps,
 } from "./components/skill-row";
 export { cn } from "./utils/cn";
+export { initInputModality } from "./utils/input-modality";
 export {
   PortalContainerProvider,
   usePortalContainer,

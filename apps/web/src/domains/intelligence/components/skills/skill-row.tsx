@@ -2,6 +2,7 @@ import { ArrowDownToLine, Loader2, Trash2 } from "lucide-react";
 import type { KeyboardEvent } from "react";
 
 import { Button, Card } from "@vellum/design-library";
+import { SkillIcon } from "@/domains/intelligence/components/skills/skill-icon";
 import { SkillOriginBadge } from "@/domains/intelligence/components/skills/skill-origin-badge";
 import {
   isAvailableSkill,
@@ -46,7 +47,7 @@ export function SkillRow({
         className="flex cursor-pointer items-center gap-4 px-5 py-4 text-left transition-colors hover:bg-[var(--surface-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
       >
       <div className="flex h-10 w-10 shrink-0 items-center justify-center text-2xl">
-        {skill.emoji ?? "🧩"}
+        <SkillIcon skill={skill} className="h-7 w-7" />
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">

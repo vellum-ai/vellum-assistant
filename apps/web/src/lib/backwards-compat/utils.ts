@@ -26,6 +26,7 @@
  */
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { compareParsed, parseSemver } from "@/utils/semver";
+import { whenStoreState } from "@/utils/when-store-state";
 
 /**
  * Returns `true` when the active assistant's version is at or above
@@ -69,4 +70,36 @@ function supportsVersion(
   const min = parseSemver(minVersion);
   if (!parsed || !min) return false;
   return compareParsed({ ...parsed, pre: null }, min) >= 0;
+}
+
+/**
+ * Upper bound for {@link whenAssistantVersionKnown}. The identity fetch
+ * that hydrates the version resolves in well under a second against a
+ * reachable daemon; this only caps the wait when the endpoint is
+ * unreachable, in which case the gated write would fail regardless.
+ */
+export const VERSION_RESOLUTION_TIMEOUT_MS = 5_000;
+
+/**
+ * Resolves once the active assistant's version is known (non-null), or
+ * after `timeoutMs` if it never hydrates.
+ *
+ * The version snapshot starts `null` and is hydrated asynchronously by
+ * the identity fetch (`useAssistantIdentityInit`) — onboarding even
+ * seeds a usable assistant with a still-`null` version. The sync
+ * `assistantSupports` snapshot collapses "unknown" and "known-old" into
+ * a single `false`, which is safe for read paths that fall back to a
+ * universally-understood legacy route, but NOT for write paths whose
+ * legacy fallback mutates state in a way a newer assistant ignores.
+ * Such writes await this first so the gate is read against a resolved
+ * version rather than the conservative `false`-on-unknown default.
+ */
+export function whenAssistantVersionKnown(
+  timeoutMs: number = VERSION_RESOLUTION_TIMEOUT_MS,
+): Promise<void> {
+  return whenStoreState(
+    useAssistantIdentityStore,
+    (state) => Boolean(state.version),
+    { timeoutMs },
+  );
 }

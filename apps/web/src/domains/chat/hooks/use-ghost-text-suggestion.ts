@@ -4,14 +4,8 @@ import { fetchSuggestion } from "@/domains/chat/api/suggestion-api";
 
 const GHOST_TEXT_SUGGESTION_GC_MS = 5 * 60_000;
 
-/**
- * Query-key factory for the ghost-text suggestion query.
- *
- * Exported so unrelated call sites (e.g. SSE handlers, daemon
- * push-driven invalidators) can invalidate or read from the same cache
- * entry without re-deriving the key shape.
- */
-export function ghostTextSuggestionQueryKey(
+/** Query-key factory for the ghost-text suggestion query. */
+function ghostTextSuggestionQueryKey(
   assistantId: string | null,
   conversationId: string | null,
   lastCompleteAssistantMsgId: string | null,

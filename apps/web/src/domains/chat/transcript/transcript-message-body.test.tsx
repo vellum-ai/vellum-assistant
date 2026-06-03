@@ -67,6 +67,7 @@ function renderMessage(
   props: {
     assistantDisplayName?: string | null;
     onInspectMessage?: (messageId: string) => void;
+    isStreaming?: boolean;
   } = {},
 ): string {
   return renderToStaticMarkup(
@@ -75,8 +76,10 @@ function renderMessage(
       assistantDisplayName={props.assistantDisplayName}
       expandedToolCallIds={new Set()}
       expandedCardIds={new Map()}
+      expandedThinkingKeys={new Map()}
       onSurfaceAction={noop}
       onInspectMessage={props.onInspectMessage}
+      isStreaming={props.isStreaming}
     />,
   );
 }
@@ -186,6 +189,7 @@ describe("TranscriptMessageBody", () => {
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -233,6 +237,7 @@ describe("TranscriptMessageBody", () => {
           }}
           expandedToolCallIds={new Set()}
           expandedCardIds={new Map()}
+          expandedThinkingKeys={new Map()}
           onSurfaceAction={noop}
         />,
       );
@@ -265,6 +270,7 @@ describe("TranscriptMessageBody", () => {
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
         onInspectMessage={(messageId) => inspectedIds.push(messageId)}
       />,
@@ -285,6 +291,7 @@ describe("TranscriptMessageBody", () => {
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
         onInspectMessage={(messageId) => inspectedIds.push(messageId)}
       />,
@@ -312,6 +319,7 @@ describe("TranscriptMessageBody", () => {
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -340,7 +348,112 @@ describe("TranscriptMessageBody", () => {
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
+      />,
+    );
+
+    expect(
+      getByTestId("tool-progress-card").getAttribute("data-auto-expand"),
+    ).toBe("false");
+  });
+
+  test("auto-expands the last tool-call group of a streaming message even after its tools complete", () => {
+    const { getByTestId } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m1",
+          role: "assistant",
+          contentOrder: [{ type: "tool", id: "tc-1" }],
+          toolCalls: [
+            {
+              id: "tc-1",
+              toolName: "bash",
+              input: {},
+              status: "completed",
+            },
+          ],
+        }}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
+        onSurfaceAction={noop}
+        isStreaming
+      />,
+    );
+
+    expect(
+      getByTestId("tool-progress-card").getAttribute("data-auto-expand"),
+    ).toBe("true");
+  });
+
+  test("only the last tool-call group of a streaming message auto-expands", () => {
+    const { getAllByTestId } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m1",
+          role: "assistant",
+          contentOrder: [
+            { type: "tool", id: "tc-1" },
+            { type: "text", id: "0" },
+            { type: "tool", id: "tc-2" },
+          ],
+          textSegments: ["Next I will check logs."],
+          toolCalls: [
+            {
+              id: "tc-1",
+              toolName: "bash",
+              input: {},
+              status: "completed",
+            },
+            {
+              id: "tc-2",
+              toolName: "bash",
+              input: {},
+              status: "completed",
+            },
+          ],
+        }}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
+        onSurfaceAction={noop}
+        isStreaming
+      />,
+    );
+
+    expect(
+      getAllByTestId("tool-progress-card").map((el) =>
+        el.getAttribute("data-auto-expand"),
+      ),
+    ).toEqual(["false", "true"]);
+  });
+
+  test("collapses a streaming message's tool-call group once answer text streams in below it", () => {
+    const { getByTestId } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m1",
+          role: "assistant",
+          contentOrder: [
+            { type: "tool", id: "tc-1" },
+            { type: "text", id: "0" },
+          ],
+          textSegments: ["Here is what I found."],
+          toolCalls: [
+            {
+              id: "tc-1",
+              toolName: "bash",
+              input: {},
+              status: "completed",
+            },
+          ],
+        }}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
+        onSurfaceAction={noop}
+        isStreaming
       />,
     );
 
@@ -359,7 +472,7 @@ describe("TranscriptMessageBody", () => {
             { type: "tool", id: "tc-1" },
             { type: "text", id: "0" },
           ],
-          textSegments: [{ type: "text", content: "Done." }],
+          textSegments: ["Done."],
           toolCalls: [
             {
               id: "tc-1",
@@ -371,6 +484,7 @@ describe("TranscriptMessageBody", () => {
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -391,7 +505,7 @@ describe("TranscriptMessageBody", () => {
             { type: "text", id: "0" },
             { type: "tool", id: "tc-2" },
           ],
-          textSegments: [{ type: "text", content: "Next I will check logs." }],
+          textSegments: ["Next I will check logs."],
           toolCalls: [
             {
               id: "tc-1",
@@ -409,6 +523,7 @@ describe("TranscriptMessageBody", () => {
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -439,6 +554,7 @@ describe("TranscriptMessageBody", () => {
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -482,6 +598,7 @@ describe("TranscriptMessageBody", () => {
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -515,6 +632,7 @@ describe("TranscriptMessageBody", () => {
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -536,11 +654,12 @@ describe("TranscriptMessageBody", () => {
             { type: "text", id: "0" },
             { type: "surface", id: "s-1" },
           ],
-          textSegments: [{ type: "text", content: "do this" }],
+          textSegments: ["do this"],
           surfaces: [{ surfaceId: "s-1" } as never],
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -569,11 +688,12 @@ describe("TranscriptMessageBody", () => {
             { type: "surface", id: "s-1" },
             { type: "text", id: "0" },
           ],
-          textSegments: [{ type: "text", content: "after surface" }],
+          textSegments: ["after surface"],
           surfaces: [{ surfaceId: "s-1" } as never],
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -610,8 +730,8 @@ describe("TranscriptMessageBody", () => {
             { type: "text", id: "1" },
           ],
           textSegments: [
-            { type: "text", content: "before tool" },
-            { type: "text", content: "after tool" },
+            "before tool",
+            "after tool",
           ],
           toolCalls: [
             {
@@ -624,6 +744,7 @@ describe("TranscriptMessageBody", () => {
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -677,6 +798,7 @@ describe("TranscriptMessageBody", () => {
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -710,6 +832,7 @@ describe("TranscriptMessageBody", () => {
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -734,11 +857,96 @@ describe("TranscriptMessageBody", () => {
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
     expect(
       getByTestId("tool-progress-card").getAttribute("data-auto-expand"),
     ).toBe("false");
+  });
+
+  test("renders a 'Thought process' block for completed reasoning followed by text", () => {
+    // GIVEN a persisted assistant message whose reasoning precedes its answer
+    // WHEN it is rendered (legacy path — no interleaved tool calls)
+    const html = renderMessage({
+      id: "m-think",
+      role: "assistant",
+      textSegments: ["the answer"],
+      thinkingSegments: ["chain of thought"],
+      contentOrder: [
+        { type: "thinking", id: "0" },
+        { type: "text", id: "0" },
+      ],
+      timestamp: 1_000,
+    });
+
+    // THEN the reasoning renders as a completed, collapsed thinking block
+    expect(html).toContain("Thought process");
+    expect(html).not.toContain("Thinking…");
+  });
+
+  test("labels trailing reasoning as 'Thinking…' while the row is live", () => {
+    // GIVEN an assistant row mid-reasoning: a thinking block is the last
+    // content entry with no text or tool output after it yet
+    // WHEN it is rendered as the in-flight turn (isStreaming)
+    const html = renderMessage(
+      {
+        id: "m-think-live",
+        role: "assistant",
+        textSegments: [],
+        thinkingSegments: ["reasoning in progress"],
+        contentOrder: [{ type: "thinking", id: "0" }],
+        timestamp: 1_000,
+      },
+      { isStreaming: true },
+    );
+
+    // THEN the block reads as still-streaming
+    expect(html).toContain("Thinking…");
+    expect(html).not.toContain("Thought process");
+  });
+
+  test("labels trailing reasoning of a completed turn as 'Thought process'", () => {
+    // GIVEN a persisted/completed assistant turn that ends in reasoning with
+    // nothing after it (e.g. a reasoning-only or truncated turn restored from
+    // history, or after message_complete / cancellation)
+    // WHEN it is rendered as a settled row (not streaming)
+    const html = renderMessage({
+      id: "m-think-done",
+      role: "assistant",
+      textSegments: [],
+      thinkingSegments: ["reasoning that finished"],
+      contentOrder: [{ type: "thinking", id: "0" }],
+      timestamp: 1_000,
+    });
+
+    // THEN the trailing block reads as finished, not perpetually streaming
+    expect(html).toContain("Thought process");
+    expect(html).not.toContain("Thinking…");
+  });
+
+  test("renders a thinking block interleaved with tool calls", () => {
+    // GIVEN an assistant message that reasons, calls a tool, then answers
+    // WHEN it is rendered (interleaved path — contentOrder carries a tool)
+    const html = renderMessage({
+      id: "m-think-interleaved",
+      role: "assistant",
+      textSegments: ["done"],
+      thinkingSegments: ["why I called the tool"],
+      contentOrder: [
+        { type: "thinking", id: "0" },
+        { type: "toolCall", id: "0" },
+        { type: "text", id: "0" },
+      ],
+      toolCalls: [
+        { id: "tc-1", toolName: "bash", input: {}, status: "completed" },
+      ],
+      timestamp: 1_000,
+    });
+
+    // THEN both the thinking block and the tool-call card render
+    expect(html).toContain("Thought process");
+    expect(html).toContain('data-testid="tool-progress-card"');
   });
 });

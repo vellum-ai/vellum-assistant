@@ -19,14 +19,16 @@ import { useEffect, useMemo, useRef } from "react";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useQueryClient } from "@tanstack/react-query";
 
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
+
 import type { Conversation } from "@/types/conversation-types";
 
 import {
-  refreshConversationRow,
   useBackgroundConversationListQuery,
   useConversationListQuery,
   useScheduledConversationListQuery,
 } from "@/hooks/conversation-queries";
+import { refreshConversationRow } from "@/utils/conversation-cache-mutations";
 
 export function useActiveConversation(
   assistantId: string | null,
@@ -34,6 +36,7 @@ export function useActiveConversation(
   enabled: boolean,
 ): Conversation | undefined {
   const queryClient = useQueryClient();
+  const isOrgReady = useIsOrgReady();
   const { conversations: foreground } = useConversationListQuery(
     assistantId,
     enabled,
@@ -63,7 +66,7 @@ export function useActiveConversation(
 
   const fetchedConversationIdRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!enabled || !assistantId || !conversationId) {
+    if (!enabled || !assistantId || !conversationId || !isOrgReady) {
       return;
     }
     if (activeConversation) {
@@ -78,12 +81,13 @@ export function useActiveConversation(
       assistantId,
       conversationId,
     ).catch((error) => {
-      // Clear the guard so a later dependency change can retry a row that
-      // failed to fetch transiently.
       fetchedConversationIdRef.current = null;
-      captureError(error, { context: "useActiveConversation.refreshRow" });
+      captureError(error, {
+        context: "useActiveConversation.refreshRow",
+        bestEffort: true,
+      });
     });
-  }, [enabled, assistantId, conversationId, activeConversation, queryClient]);
+  }, [enabled, assistantId, conversationId, activeConversation, queryClient, isOrgReady]);
 
   return activeConversation;
 }

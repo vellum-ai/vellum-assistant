@@ -4,6 +4,7 @@ import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 
 import {
   appendTextDelta,
+  appendThinkingDelta,
   applyToolResult,
   applyUserMessageEcho,
   attachSurface,
@@ -136,7 +137,7 @@ describe("appendTextDelta", () => {
     expect(result[1]!.id).toBe("row-X");
     expect(text(result[1]!)).toBe("Hello");
     expect(liveAssistantRowId(result, true)).toBe("row-X");
-    expect(result[1]!.textSegments).toEqual([{ type: "text", content: "Hello" }]);
+    expect(result[1]!.textSegments).toEqual(["Hello"]);
   });
 
   it("folds a later LLM call's delta into the assistant tail, recording its id as an alias", () => {
@@ -149,7 +150,7 @@ describe("appendTextDelta", () => {
     // GIVEN the first LLM call has finalized into an assistant tail
     const call1Final = makeAssistantMsg({
       id: "row-A",
-      textSegments: [{ type: "text", content: "Hello" }],
+      textSegments: ["Hello"],
       contentOrder: [{ type: "text", id: "0" }],
     });
 
@@ -196,7 +197,7 @@ describe("appendTextDelta", () => {
     // GIVEN an anchor row that already owns "row-B" as a merged alias
     const anchor = makeAssistantMsg({
       id: "row-A",
-      textSegments: [{ type: "text", content: "Hello" }],
+      textSegments: ["Hello"],
       contentOrder: [{ type: "text", id: "0" }],
       mergedMessageIds: ["row-B"],
     });
@@ -1004,5 +1005,87 @@ describe("applyUserMessageEcho", () => {
 
     // THEN the array is returned unchanged
     expect(result).toBe(prev);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// appendThinkingDelta
+// ---------------------------------------------------------------------------
+
+describe("appendThinkingDelta", () => {
+  it("opens a thinking bubble when the turn has no assistant row yet", () => {
+    // GIVEN a turn that has only the user message (reasoning-heavy models
+    // stream their chain of thought before any text delta)
+    // WHEN the first thinking delta arrives
+    const result = appendThinkingDelta([userMsg], "reason");
+
+    // THEN a new optimistic assistant bubble is opened carrying the thinking
+    expect(result).toHaveLength(2);
+    const bubble = result[1]!;
+    expect(bubble.role).toBe("assistant");
+    expect(bubble.thinkingSegments).toEqual(["reason"]);
+    expect(bubble.contentOrder).toEqual([{ type: "thinking", id: "0" }]);
+  });
+
+  it("coalesces consecutive thinking deltas into one trailing segment", () => {
+    // GIVEN an assistant row whose last content entry is thinking
+    const start = appendThinkingDelta([userMsg], "Hel", "row-A");
+    // WHEN a second thinking delta lands for the same row
+    const result = appendThinkingDelta(start, "lo", "row-A");
+
+    // THEN the trailing segment extends rather than opening a new block
+    const row = result[1]!;
+    expect(row.thinkingSegments).toEqual(["Hello"]);
+    expect(row.contentOrder).toEqual([{ type: "thinking", id: "0" }]);
+  });
+
+  it("opens a fresh thinking block when reasoning resumes after text", () => {
+    // GIVEN an assistant row that has emitted thinking, then text
+    const afterThinking = appendThinkingDelta([userMsg], "first", "row-A");
+    const afterText = appendTextDelta(afterThinking, "answer", "row-A");
+
+    // WHEN reasoning resumes
+    const result = appendThinkingDelta(afterText, "second", "row-A");
+
+    // THEN a new thinking segment + content-order entry is appended after
+    // the text, preserving interleaving order
+    const row = result[1]!;
+    expect(row.thinkingSegments).toEqual(["first", "second"]);
+    expect(row.contentOrder).toEqual([
+      { type: "thinking", id: "0" },
+      { type: "text", id: "0" },
+      { type: "thinking", id: "1" },
+    ]);
+  });
+
+  it("lands deltas on the row keyed by messageId regardless of tail position", () => {
+    // GIVEN a reserved assistant row pulled in by a reconcile race ahead of
+    // the first delta
+    const reserved = makeAssistantMsg({
+      id: "row-X",
+      textSegments: [],
+      contentOrder: [],
+    });
+
+    // WHEN a thinking delta arrives stamped with that row's id
+    const result = appendThinkingDelta([userMsg, reserved], "think", "row-X");
+
+    // THEN it extends that row rather than opening a duplicate bubble
+    expect(result).toHaveLength(2);
+    expect(result[1]!.id).toBe("row-X");
+    expect(result[1]!.thinkingSegments).toEqual(["think"]);
+  });
+
+  it("does not mutate the original array", () => {
+    // GIVEN an existing assistant row
+    const prev = appendThinkingDelta([userMsg], "a", "row-A");
+    const before = prev[1]!.thinkingSegments;
+
+    // WHEN another delta is applied
+    appendThinkingDelta(prev, "b", "row-A");
+
+    // THEN the prior row's segments are untouched
+    expect(prev[1]!.thinkingSegments).toBe(before);
+    expect(prev[1]!.thinkingSegments).toEqual(["a"]);
   });
 });

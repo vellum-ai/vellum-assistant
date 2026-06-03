@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
@@ -13,7 +13,7 @@ import type {
   HomeFeedGetResponse,
   HomeFeedByIdPatchData,
 } from "@/generated/daemon/types.gen";
-import { subscribe } from "@/lib/event-bus";
+import { useBusSubscription } from "@/hooks/use-bus-subscription";
 
 /**
  * React Query hook for the home feed.
@@ -43,28 +43,21 @@ export function useHomeFeedQuery(assistantId: string | null) {
     [assistantId],
   );
 
-  useEffect(() => {
-    const unsubHidden = subscribe("app.hidden", () => {
-      hiddenAtRef.current = Date.now();
-    });
+  useBusSubscription("app.hidden", () => {
+    hiddenAtRef.current = Date.now();
+  });
 
-    const unsubResume = subscribe("app.resume", ({ signal }) => {
-      if (signal === "online") return;
-      if (hiddenAtRef.current === null) return;
-      const elapsed = Math.round((Date.now() - hiddenAtRef.current) / 1000);
-      timeAwaySecondsRef.current = elapsed;
-      hiddenAtRef.current = null;
+  useBusSubscription("app.resume", ({ signal }) => {
+    if (signal === "online") return;
+    if (hiddenAtRef.current === null) return;
+    const elapsed = Math.round((Date.now() - hiddenAtRef.current) / 1000);
+    timeAwaySecondsRef.current = elapsed;
+    hiddenAtRef.current = null;
 
-      if (assistantId) {
-        void queryClient.invalidateQueries({ queryKey: feedQueryKey });
-      }
-    });
-
-    return () => {
-      unsubHidden();
-      unsubResume();
-    };
-  }, [assistantId, queryClient, feedQueryKey]);
+    if (assistantId) {
+      void queryClient.invalidateQueries({ queryKey: feedQueryKey });
+    }
+  });
 
   const query = useQuery({
     queryKey: feedQueryKey,

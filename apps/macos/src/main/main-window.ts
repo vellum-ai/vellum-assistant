@@ -1,13 +1,11 @@
-import { BrowserWindow, app, ipcMain, shell } from "electron";
+import { BrowserWindow, app, shell } from "electron";
 import path from "node:path";
+import { z } from "zod";
 
-import {
-  APP_HOST,
-  APP_PROTOCOL,
-  RENDERER_BASE_PROD,
-  getDevRendererBase,
-} from "./app-config";
+import { getRendererRootUrl } from "./app-config";
+import { isAllowedOrigin, resolveAllowedOrigin } from "./app-origin";
 import { type VellumCommand } from "./commands";
+import { handle } from "./ipc";
 import { restoreBounds, track as trackWindowState } from "./window-state";
 
 /**
@@ -99,18 +97,13 @@ const armReadyState = (win: BrowserWindow): ReadyState => {
 // wait for, so callers can compose `await` uniformly.
 const ALREADY_READY: Promise<void> = Promise.resolve();
 
-interface NavigationGuardConfig {
-  isDev: boolean;
-  devOrigin: string;
-}
-
-const installSameOriginNavigationGuard = (
-  win: BrowserWindow,
-  { isDev, devOrigin }: NavigationGuardConfig,
-): void => {
+const installSameOriginNavigationGuard = (win: BrowserWindow): void => {
   // Scoped to the main window — popups (OAuth flows etc.) need to
   // redirect between provider domains and our callback origin, so
-  // they're left unrestricted.
+  // they're left unrestricted. Resolved once per window construction
+  // so a `VELLUM_DEV_URL` mutated mid-process can't desync the loader
+  // and the guard.
+  const allowedOrigin = resolveAllowedOrigin();
   win.webContents.on("will-navigate", (event, url) => {
     let target: URL;
     try {
@@ -119,12 +112,7 @@ const installSameOriginNavigationGuard = (
       event.preventDefault();
       return;
     }
-    const allowed =
-      (isDev && target.origin === devOrigin) ||
-      (!isDev &&
-        target.protocol === `${APP_PROTOCOL}:` &&
-        target.host === APP_HOST);
-    if (allowed) return;
+    if (isAllowedOrigin(target, allowedOrigin)) return;
     event.preventDefault();
     // External http(s) top-level navigations (e.g.
     // `window.location.href = "https://billing.stripe.com/..."`) route
@@ -137,21 +125,15 @@ const installSameOriginNavigationGuard = (
 };
 
 const createWindow = (): BrowserWindow => {
-  // Resolve the dev URL once per window construction so the loader
-  // and the navigation guard see a consistent string even if
-  // `VELLUM_DEV_URL` is mutated mid-process.
-  //
   // The prod load target is the renderer base itself (no `/index.html`
   // suffix). The `app://` protocol handler in `index.ts` falls back
   // to `index.html` for paths without a file extension, so this
   // serves the SPA — but with the browser URL staying at `/assistant`,
   // which is where React Router's app-root route matches. Appending
   // `/index.html` would land us at the NotFound route under
-  // `/assistant/*`.
-  const isDev = !app.isPackaged;
-  const devBase = isDev ? getDevRendererBase() : null;
-  const loadTarget = devBase ?? RENDERER_BASE_PROD;
-  const devOrigin = devBase ? new URL(devBase).origin : "";
+  // `/assistant/*`. In dev the URL carries a trailing slash to match
+  // Vite's `base`; see `getRendererRootUrl`.
+  const loadTarget = getRendererRootUrl(app.isPackaged);
 
   const win = new BrowserWindow({
     ...restoreBounds("main", { width: 1280, height: 800 }),
@@ -211,7 +193,7 @@ const createWindow = (): BrowserWindow => {
     fireVisibilityChange();
   });
 
-  installSameOriginNavigationGuard(win, { isDev, devOrigin });
+  installSameOriginNavigationGuard(win);
 
   win.loadURL(loadTarget).catch((err: unknown) => {
     console.error(`[main-window] loadURL failed for ${loadTarget}:`, err);
@@ -315,7 +297,7 @@ export const installMainWindow = (): void => {
   // (deep links, future notification clicks, etc.). The renderer
   // wrapper at `apps/web/src/runtime/main-window.ts` calls this; the
   // handler returns void so the caller can `await` without value.
-  ipcMain.handle("vellum:mainWindow:ensureVisible", async (): Promise<void> => {
+  handle("vellum:mainWindow:ensureVisible", z.tuple([]), async (): Promise<void> => {
     await ensureVisible();
   });
 

@@ -37,7 +37,7 @@ mock.module("@/hooks/use-platform-gate", () => ({
   usePlatformGate: () => "full",
 }));
 
-const { EmailServiceCard } = await import("@/domains/settings/ai/ai-page");
+const { EmailServiceCard } = await import("@/domains/settings/ai/email-service-card");
 
 const ASSISTANT_ID = "asst-1";
 

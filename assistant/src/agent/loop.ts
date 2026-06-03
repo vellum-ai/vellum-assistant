@@ -1,31 +1,25 @@
 import * as Sentry from "@sentry/node";
 
 import type { LLMCallSite } from "../config/schemas/llm.js";
+import { stripInjectionsForCompaction } from "../context/strip-injections.js";
 import {
   estimatePromptTokensRaw,
   estimateToolsTokens,
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
-import { calculateMaxToolResultChars } from "../context/tool-result-truncation.js";
 import type { ContextWindowResult } from "../context/window-manager.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
+import { HOOKS } from "../plugin-api/constants.js";
+import type { PostToolUseContext, StopContext } from "../plugin-api/types.js";
 import { defaultCompactionTerminal } from "../plugins/defaults/compaction/terminal.js";
-import { defaultEmptyResponseTerminal } from "../plugins/defaults/empty-response/terminal.js";
 import { defaultTokenEstimateTerminal } from "../plugins/defaults/token-estimate/terminal.js";
 import { defaultToolErrorTerminal } from "../plugins/defaults/tool-error/terminal.js";
-import { defaultToolResultTruncateTerminal } from "../plugins/defaults/tool-result-truncate/terminal.js";
-import type {
-  ToolResultTruncateArgs,
-  ToolResultTruncateResult,
-} from "../plugins/defaults/tool-result-truncate/types.js";
-import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
+import { DEFAULT_TIMEOUTS, runHook, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
   CompactionArgs,
   CompactionCircuitEvent,
   CompactionResult,
-  EmptyResponseArgs,
-  EmptyResponseDecision,
   EstimateArgs,
   EstimateResult,
   LLMCallArgs,
@@ -48,7 +42,7 @@ import {
   applyStreamingSubstitution,
   applySubstitutions,
 } from "../tools/sensitive-output-placeholders.js";
-import { AssistantError, ErrorCode, ProviderError } from "../util/errors.js";
+import { ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { isRetryableNetworkError } from "../util/retry.js";
 import { CompactionCircuit } from "./compaction-circuit.js";
@@ -129,8 +123,6 @@ export interface AgentLoopRunResult {
 export type AgentLoopExitReason =
   /** `if (signal?.aborted) break;` at the top of the loop. */
   | "aborted_pre_call"
-  /** Empty assistant response after the configured retry budget. */
-  | "empty_response_exhausted"
   /** Assistant message has no tool-use blocks (or no tool executor). */
   | "no_tool_calls"
   /** Signal aborted while building the user-side tool-results message. */
@@ -295,6 +287,42 @@ export type AgentEvent =
        */
       type: "context_compacting";
     }
+  | {
+      /**
+       * Emitted after the loop's inline mid-loop compaction pipeline runs,
+       * immediately before re-injection — whether or not the pipeline actually
+       * compacted. The daemon's event dispatcher always commits `basis` (the
+       * stripped pre-compaction history) as the conversation's durable message
+       * state, so re-injection ({@link MidLoopCompaction.reinject}) re-applies
+       * injections onto the stripped base rather than stacking on top of the
+       * still-injected messages. When `result.compacted` is set it
+       * additionally commits the durable compaction result (DB-record fields,
+       * graph-memory side effects, SSE) and flips the per-turn re-injection
+       * guards on the handler state.
+       *
+       * Treated as a critical event: a failed durable commit re-throws so the
+       * turn aborts rather than re-injecting against half-applied state.
+       *
+       * `basis` is the stripped pre-compaction history the summary was built
+       * from; the dispatcher uses it to project Slack provenance onto the
+       * compacted result.
+       */
+      type: "compaction_completed";
+      result: ContextWindowResult;
+      basis: Message[];
+    }
+  | {
+      /**
+       * Emitted right after the loop strips runtime injections from the
+       * running history, before the compaction pipeline runs. The daemon's
+       * event dispatcher records the history-stripped marker — a Conversation
+       * DB-record field read back at load time to strip embedded injection
+       * prefixes from pre-strip messages. Best-effort: a transient marker
+       * write must not abort the turn, so unlike `compaction_completed` this
+       * event is not treated as critical.
+       */
+      type: "history_stripped";
+    }
   /**
    * Circuit-breaker transitions emitted when auto-compaction is paused
    * (`compaction_circuit_open`, after three consecutive summary-LLM
@@ -325,7 +353,7 @@ const DEFAULT_CONFIG: AgentLoopConfig = {
 };
 
 const MAX_CONSECUTIVE_ERROR_NUDGES = 3;
-const MAX_EMPTY_RESPONSE_RETRIES = 1;
+const MAX_STOP_CONTINUE_RETRIES = 1;
 const MAX_TOKENS_STOP_REASONS = new Set([
   "length",
   "max_output_tokens",
@@ -441,22 +469,21 @@ export interface ResolvedSystemPrompt {
  * trips and inline compaction runs. The loop owns the trigger, the
  * `compaction` pipeline call, the result interpretation (circuit-breaker
  * bookkeeping + the exhaustion decision), and the inline continue; these hooks
- * bridge the durable / injection state the loop is intentionally blind to.
- * Durable persistence ({@link applyResult}) and re-injection
- * ({@link reinject}) remain orchestrator-supplied for now and are expected to
- * move into the loop in a future change.
+ * bridge the injection state the loop is intentionally blind to. Durable
+ * persistence is signalled out-of-band via the `history_stripped` (marker)
+ * and `compaction_completed` (basis commit + successful summary) {@link
+ * AgentEvent}s; re-injection ({@link reinject}) remains orchestrator-supplied
+ * for now and is expected to move into the loop in a future change.
  */
 export interface MidLoopCompaction {
-  /** Strip runtime injections, commit stripped messages, and resolve pipeline options. */
-  prepare: (history: Message[]) => {
-    rawHistory: Message[];
+  /**
+   * Resolve the options for the compaction pipeline run. The loop-stripped
+   * history is committed to durable state separately via the
+   * `compaction_completed` event, so this hook only assembles options.
+   */
+  prepare: () => {
     options: CompactionArgs["options"];
   };
-  /** Commit a successful compaction result to durable state. */
-  applyResult: (
-    result: ContextWindowResult,
-    rawHistory: Message[],
-  ) => Promise<void>;
   /** Re-apply runtime injections and return the history to continue from. */
   reinject: () => Promise<Message[]>;
 }
@@ -722,7 +749,13 @@ export class AgentLoop {
     onEvent: (event: AgentEvent) => void | Promise<void>,
   ): Promise<Message[] | null> {
     await onEvent({ type: "context_compacting" });
-    const { rawHistory, options } = compaction.prepare(history);
+    // Strip runtime injections so the compactor summarizes the raw persistent
+    // messages.
+    const rawHistory = stripInjectionsForCompaction(history);
+    // Record the history-stripped marker right after stripping, before the
+    // pipeline runs.
+    await onEvent({ type: "history_stripped" });
+    const { options } = compaction.prepare();
     let result: CompactionResult;
     try {
       result = await runPipeline<CompactionArgs, CompactionResult>(
@@ -756,9 +789,15 @@ export class AgentLoop {
         onEvent,
       );
     }
-    if (compactResult.compacted) {
-      await compaction.applyResult(compactResult, rawHistory);
-    }
+    // Emit unconditionally: the dispatcher commits the stripped `basis` as the
+    // durable message base whether or not the pipeline compacted (re-injection
+    // reads it), and runs the durable compaction commit only when
+    // `result.compacted`.
+    await onEvent({
+      type: "compaction_completed",
+      result: compactResult,
+      basis: rawHistory,
+    });
     if (compactResult.exhausted ?? false) {
       return null;
     }
@@ -786,7 +825,7 @@ export class AgentLoop {
     let producedVisibleTextThisRun = false;
     let toolUseTurns = 0;
     let consecutiveErrorTurns = 0;
-    let emptyResponseRetries = 0;
+    let stopContinueRetries = 0;
     let lastLlmCallTime = 0;
     let exitReason: ExitReason | null = null;
     const rlog = requestId ? log.child({ requestId }) : log;
@@ -797,12 +836,11 @@ export class AgentLoop {
     const substitutionMap = new Map<string, string>();
     let streamingPending = "";
 
-    // Idempotency guard for `emitExit`. Used so the throw path in the
-    // empty-response branch can stamp its reason ("empty_response_exhausted")
-    // before throwing — the catch handler that observes the rethrow will
-    // then attempt to stamp "error" and harmlessly no-op, preserving the
-    // more specific reason. Also defends against accidental future
-    // double-emits if a new break site is added without checking this.
+    // Idempotency guard for `emitExit`: the first reason stamped wins. A break
+    // site that stamps a specific reason before unwinding into the catch
+    // handler keeps that reason instead of the generic "error", and the guard
+    // also defends against accidental double-emits if a new break site is
+    // added without checking this.
     let exitReasonEmitted = false;
     const emitExit = async (reason: AgentLoopExitReason): Promise<void> => {
       if (exitReasonEmitted) return;
@@ -1215,123 +1253,61 @@ export class AgentLoop {
           break;
         }
 
-        // Detect empty responses: no user-visible text and no tool calls.
-        // This can happen when the model fails to produce output after
-        // receiving a large tool result. Retry once with a nudge before
-        // the message is persisted.
-        //
-        // Only nudge when the model hasn't already delivered text to the user
-        // earlier in this tool-use chain. If a prior assistant turn in history
-        // contained visible text (e.g. the model said its piece before calling
-        // a side-effect tool like `remember`), an empty follow-up is the model
-        // correctly ending its turn — nudging would mislead it into thinking
-        // its earlier text didn't land and cause a verbatim re-send.
-        //
-        // Note: we check ANY prior assistant turn from this run()
-        // invocation, not just the most recent one. In multi-step tool-use
-        // chains (say-something → call-tool → call-another-tool → end),
-        // the "say-something" text lives on an earlier assistant turn while
-        // the most recent assistant turn is a pure tool_use with no text.
-        // Restricting the check to the most recent assistant turn would
-        // falsely nudge in that case and trigger a duplicate re-send of
-        // text the user already saw.
-        //
-        // Scope the scan to messages appended during this run() call only.
-        // Assistant text from prior conversation turns (earlier run()
-        // invocations passed in via `messages`) must NOT suppress the
-        // nudge — those turns completed long ago and have no bearing on
-        // whether the current tool-use chain has delivered text yet.
-        //
-        // The actual decision (nudge vs. accept vs. error) is delegated to
-        // the `emptyResponse` plugin pipeline. The pipeline returns a
-        // decision; the loop carries out the side-effect (pushing the nudge
-        // or surfacing the error). See `plugins/defaults/empty-response/register.ts`
-        // for the default decision logic.
+        // The model's "stop" moment: a response with no tool calls is about to
+        // yield to the user. The `stop` hook (below) decides whether to accept
+        // the turn or re-query with a follow-up; `priorAssistantHadVisibleText`
+        // gates the ops log for the post-tool empty case.
         const hasVisibleText = response.content.some(
           (block) => block.type === "text" && block.text.trim().length > 0,
         );
-        // Track whether the model produced visible text earlier in this
-        // run() invocation. Run-scoped rather than derived from `history` so
-        // it survives inline compaction rewriting the message array: an empty
-        // completion after a compaction must not be nudged into re-sending
-        // text the user already saw.
         const priorAssistantHadVisibleText = producedVisibleTextThisRun;
         if (hasVisibleText) {
           producedVisibleTextThisRun = true;
         }
 
-        const emptyResponseArgs: EmptyResponseArgs = {
-          responseContent: response.content,
-          toolUseBlocksLength: toolUseBlocks.length,
-          toolUseTurns,
-          emptyResponseRetries,
-          maxEmptyResponseRetries: MAX_EMPTY_RESPONSE_RETRIES,
-          priorAssistantHadVisibleText,
-          stopReason: response.stopReason,
-        };
-        const emptyResponseCtx = resolveLoopTurnContext(
-          turnContext,
-          requestId,
-          toolUseTurns,
-        );
-        const emptyResponseDecision: EmptyResponseDecision = await runPipeline(
-          "emptyResponse",
-          getMiddlewaresFor("emptyResponse"),
-          async (args) => defaultEmptyResponseTerminal(args),
-          emptyResponseArgs,
-          emptyResponseCtx,
-          DEFAULT_TIMEOUTS.emptyResponse,
-        );
+        if (toolUseBlocks.length === 0) {
+          // The model stopped requesting tools — the run's stop boundary. The
+          // `stop` hook decides whether to let the turn end or re-query with a
+          // follow-up turn. It receives the full history and, when it asks to
+          // continue, appends the follow-up turn itself.
+          const stopCtx: StopContext = {
+            conversationId: turnCtx.conversationId,
+            messages: [...history],
+            responseContent: response.content,
+            stopReason: response.stopReason,
+            decision: "stop",
+            logger: rlog,
+          };
+          const finalStopCtx = await runHook(HOOKS.STOP, stopCtx);
 
-        if (emptyResponseDecision.action === "nudge") {
-          // Fall back to the canonical nudge text if the plugin returned
-          // `action: "nudge"` but forgot `nudgeText`. Keeps a misbehaving
-          // plugin from silently breaking the loop invariant that the
-          // model sees a coherent prompt.
-          const nudgeText =
-            emptyResponseDecision.nudgeText ??
-            "<system_notice>Your previous response was empty. You must respond to the user with a summary of what you found or did. Do not use any tools — just respond with text.</system_notice>";
-          emptyResponseRetries++;
-          rlog.warn(
-            { turn: toolUseTurns, retry: emptyResponseRetries },
-            "Model returned empty response after tool results — retrying",
-          );
-          history.push({
-            role: "user",
-            content: [{ type: "text", text: nudgeText }],
-          });
-          continue;
-        }
+          if (finalStopCtx.decision === "continue") {
+            // The loop owns the retry budget: a hook always asks to continue
+            // when a nudge is warranted, and the loop stops anyway once the
+            // budget is spent. This bounds the hook-driven re-query loop.
+            if (stopContinueRetries < MAX_STOP_CONTINUE_RETRIES) {
+              stopContinueRetries++;
+              rlog.warn(
+                { turn: toolUseTurns, retry: stopContinueRetries },
+                "Model returned empty response after tool results — retrying",
+              );
+              history = finalStopCtx.messages;
+              continue;
+            }
 
-        if (emptyResponseDecision.action === "error") {
-          rlog.error(
-            { turn: toolUseTurns, retries: emptyResponseRetries },
-            "emptyResponse pipeline requested error surface",
-          );
-          // Stamp the specific exit reason *before* throwing. The catch
-          // handler below will see the rethrown error and attempt to stamp
-          // "error" — guarded by `exitReasonEmitted`, that becomes a no-op
-          // and the more specific reason wins.
-          await emitExit("empty_response_exhausted");
-          throw new AssistantError(
-            "Model returned empty response after tool results",
-            ErrorCode.INTERNAL_ERROR,
-          );
-        }
-
-        // action === "accept" — fall through. Emit a dedicated log line for
-        // the specific "empty turn after tool results, retries exhausted"
-        // case so ops dashboards that grep on this line keep working.
-        if (
-          !hasVisibleText &&
-          toolUseBlocks.length === 0 &&
-          toolUseTurns > 0 &&
-          !priorAssistantHadVisibleText
-        ) {
-          rlog.error(
-            { turn: toolUseTurns, retries: emptyResponseRetries },
-            "Model returned empty response after tool results — retries exhausted",
-          );
+            // Budget spent — accept the empty turn. Emit a dedicated log line
+            // for the post-tool empty case so ops dashboards that grep on it
+            // keep working.
+            if (
+              !hasVisibleText &&
+              toolUseTurns > 0 &&
+              !priorAssistantHadVisibleText
+            ) {
+              rlog.error(
+                { turn: toolUseTurns, retries: stopContinueRetries },
+                "Model returned empty response after tool results — retries exhausted",
+              );
+            }
+          }
         }
 
         history.push(assistantMessage);
@@ -1464,59 +1440,30 @@ export class AgentLoop {
           }),
         );
 
-        // Pre-emptively truncate oversized tool results to prevent context
-        // overflow. The work is delegated to the `toolResultTruncate`
-        // plugin pipeline so downstream plugins can swap in a smarter
-        // truncation strategy (e.g. a summariser) while the default
-        // middleware preserves the historical tail-drop behaviour.
+        // Run the `post-tool-use` hook once per tool result, after the tool
+        // returns and before the result joins the provider-bound history.
+        // The default tool-result-truncate plugin tail-drops oversized output
+        // to fit the context window; user hooks can swap in a smarter strategy
+        // (e.g. a summariser) or observe results for side effects.
         const contextWindowTokens =
           resolveContextWindow?.().maxInputTokens ??
           this.config.maxInputTokens ??
           180_000;
-        const maxChars = calculateMaxToolResultChars(contextWindowTokens);
-        const truncateMiddlewares = getMiddlewaresFor("toolResultTruncate");
 
-        let truncatedCount = 0;
-        const truncatedBlocks: ContentBlock[] = [];
+        const resultBlocks: ContentBlock[] = [];
         for (const block of rawResultBlocks) {
           if (block.type !== "tool_result") {
-            truncatedBlocks.push(block);
+            resultBlocks.push(block);
             continue;
           }
-          const toolBlock = block as ToolResultContent;
-          if (
-            typeof toolBlock.content !== "string" ||
-            toolBlock.content.length <= maxChars
-          ) {
-            truncatedBlocks.push(block);
-            continue;
-          }
-          const pipelineResult = await runPipeline<
-            ToolResultTruncateArgs,
-            ToolResultTruncateResult
-          >(
-            "toolResultTruncate",
-            truncateMiddlewares,
-            async (args) => defaultToolResultTruncateTerminal(args),
-            { content: toolBlock.content, maxChars },
-            turnCtx,
-            DEFAULT_TIMEOUTS.toolResultTruncate,
-          );
-          if (pipelineResult.truncated) {
-            truncatedCount++;
-            truncatedBlocks.push({
-              ...toolBlock,
-              content: pipelineResult.content,
-            });
-          } else {
-            truncatedBlocks.push(block);
-          }
-        }
-        const resultBlocks = truncatedBlocks;
-        if (truncatedCount > 0) {
-          log.warn(
-            `Truncated ${truncatedCount} oversized tool result(s) to prevent context overflow`,
-          );
+          const postToolUseCtx: PostToolUseContext = {
+            conversationId: turnCtx.conversationId,
+            toolResponse: block as ToolResultContent,
+            maxInputTokens: contextWindowTokens,
+            logger: rlog,
+          };
+          const finalCtx = await runHook(HOOKS.POST_TOOL_USE, postToolUseCtx);
+          resultBlocks.push(finalCtx.toolResponse);
         }
 
         // Emit tool_result events AFTER truncation so downstream consumers
@@ -1714,11 +1661,9 @@ export class AgentLoop {
           Sentry.captureException(err);
         }
         onEvent({ type: "error", error: err });
-        // Catch-block fallback. If the rethrow came from the
-        // empty-response throw path above, `emitExit("error")` no-ops
-        // because `emitExit("empty_response_exhausted")` already ran
-        // before the throw. Otherwise, this is the genuine
-        // unhandled-error exit.
+        // Catch-block fallback. A break site that stamped a more specific
+        // reason before unwinding here keeps it; the guard makes this a no-op.
+        // Otherwise this is the genuine unhandled-error exit.
         await emitExit("error");
         break;
       }

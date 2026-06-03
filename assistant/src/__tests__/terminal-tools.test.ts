@@ -141,7 +141,7 @@ describe("buildSanitizedEnv", () => {
     expect(env.LC_CTYPE).toBe("UTF-8");
   });
 
-  test("only includes Kata apt variables when sandbox runtime is kata", () => {
+  test("only includes Kata apt variables for Kata-family sandbox runtimes", () => {
     process.env.VELLUM_SANDBOX_RUNTIME = "gvisor";
     process.env.PATH = "/usr/bin";
     process.env.VELLUM_APT_DATA_ROOT = "/data/system";
@@ -162,6 +162,11 @@ describe("buildSanitizedEnv", () => {
       "/data/system/usr/local/lib",
     );
     expect(env.LD_LIBRARY_PATH.split(":")).not.toContain("/host/lib");
+
+    process.env.VELLUM_SANDBOX_RUNTIME = "cloud-hypervisor";
+    env = buildSanitizedEnv();
+    expect(env.VELLUM_APT_DATA_ROOT).toBe("/data/system");
+    expect(env.PATH.split(":")).toContain("/data/system/usr/bin");
   });
 
   test("defaults LANG and LC_ALL to UTF-8 when unset", () => {

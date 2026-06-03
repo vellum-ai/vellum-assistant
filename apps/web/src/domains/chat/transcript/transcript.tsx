@@ -16,10 +16,8 @@ import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import { LatestTurnRow } from "@/domains/chat/transcript/latest-turn-row";
 import { PullRefreshSpinner } from "@/domains/chat/transcript/pull-refresh-spinner";
 import { TranscriptRow } from "@/domains/chat/transcript/transcript-row";
-import {
-  PULL_THRESHOLD_PX,
-  usePullToRefresh,
-} from "@/domains/chat/transcript/use-pull-to-refresh";
+import { PULL_THRESHOLD_PX } from "@/domains/chat/transcript/pull-to-refresh-utils";
+import { usePullToRefresh } from "@/domains/chat/transcript/use-pull-to-refresh";
 import { useViewportMinHeight } from "@/domains/chat/transcript/use-viewport-min-height";
 import type { ConfirmationDecision } from "@/types/event-types";
 
@@ -175,6 +173,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
       rest.expandedToolCallIds ?? ownedExpandedToolCallIds;
 
     const [expandedCardIds] = useState(() => new Map<string, boolean>());
+    const [expandedThinkingKeys] = useState(() => new Map<string, boolean>());
 
     const partition = useMemo(() => partitionLatestTurn(items), [items]);
 
@@ -226,6 +225,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
     const rowProps = {
       expandedToolCallIds: effectiveExpandedToolCallIds,
       expandedCardIds,
+      expandedThinkingKeys,
       onSurfaceAction: rest.onSurfaceAction,
       onSecretSubmit: rest.onSecretSubmit,
       onConfirmationDecision: rest.onConfirmationDecision,

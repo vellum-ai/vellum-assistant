@@ -3,8 +3,10 @@ name: inbox-management
 description: Ongoing Gmail inbox management via scheduled runs. Archives known noise, flags urgent items, drafts replies in-thread (never auto-sends), and catches stale follow-ups. Starts in flag-only mode — earns autonomy through a three-stage trust ladder.
 compatibility: "Designed for Vellum personal assistants"
 metadata:
+  icon: assets/icon.svg
   emoji: "📬"
   vellum:
+    category: "email"
     display-name: "Inbox Management"
     includes: ["gmail"]
     activation-hints:
@@ -32,11 +34,11 @@ Runs as a **scheduled task** (via the `schedule` skill). Each run should be sile
 
 A single wrong archive of an important email kills trust. Earn autonomy in stages:
 
-| Stage | Archive behavior | Draft behavior | Alerts |
-|-------|------------------|----------------|--------|
-| **0 — Flag-only** (default) | Nothing archived. All archive calls use `--dry-run`. Summary shows what *would* be archived for user review. | Drafts created in-thread, listed in summary. | Urgent scan active. |
-| **1 — Standard** | Silent archive of known-safe categories only (calendar responses, no-reply, newsletters). Cold outreach still flagged. Batches > 1,000 ops auto-dry-run. | Drafts created in-thread, summarized per run. | Urgent scan active. |
-| **2 — Aggressive** | Above + cold outreach archived by LLM judgment (default archive, flag only when relevant to user). All ops logged for reversal. | Same as Stage 1. | Urgent scan active. |
+| Stage                       | Archive behavior                                                                                                                                         | Draft behavior                                | Alerts              |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- | ------------------- |
+| **0 — Flag-only** (default) | Nothing archived. All archive calls use `--dry-run`. Summary shows what _would_ be archived for user review.                                             | Drafts created in-thread, listed in summary.  | Urgent scan active. |
+| **1 — Standard**            | Silent archive of known-safe categories only (calendar responses, no-reply, newsletters). Cold outreach still flagged. Batches > 1,000 ops auto-dry-run. | Drafts created in-thread, summarized per run. | Urgent scan active. |
+| **2 — Aggressive**          | Above + cold outreach archived by LLM judgment (default archive, flag only when relevant to user). All ops logged for reversal.                          | Same as Stage 1.                              | Urgent scan active. |
 
 **Graduation requires the user to explicitly say "graduate me" or equivalent.** Do not infer from silence.
 
@@ -52,7 +54,7 @@ Before anything else, explain what the user is opting into. Be direct:
 
 > "Here's what inbox management does: on a schedule you choose (e.g. every few hours on weekdays), I'll scan your inbox and take action based on a trust level you control.
 >
-> **Stage 0 (where everyone starts):** I watch but don't touch. I'll tell you what I *would* archive, show you draft replies I wrote, and flag urgent items — but I won't move or delete anything. This lasts until you explicitly tell me to graduate.
+> **Stage 0 (where everyone starts):** I watch but don't touch. I'll tell you what I _would_ archive, show you draft replies I wrote, and flag urgent items — but I won't move or delete anything. This lasts until you explicitly tell me to graduate.
 >
 > **Stage 1 (you opt in):** I silently archive obvious noise — calendar responses, no-reply senders, newsletters. Everything else is still flagged for your review.
 >
@@ -69,6 +71,7 @@ Start at **Stage 0**. Store via `gmail-prefs.ts --action set-management-config -
 ### 2. Safe-list
 
 Ask for senders/domains that may look like outreach but matter. Seed categories:
+
 - Financial advisors, lawyers, accountants
 - Active investors and VCs
 - Customer domains
@@ -80,6 +83,7 @@ Store via `gmail-prefs.ts --action add-safelist --emails "..."`. The safe-list i
 ### 3. Interrupt threshold
 
 Default urgency bar for alerts:
+
 - Customer at risk (churn, renewal, escalation)
 - Investor/board with time-sensitive ask
 - Legal/compliance deadline
@@ -91,6 +95,7 @@ Store threshold level via `gmail-prefs.ts --action set-management-config --inter
 ### 4. Schedule
 
 Create a recurring schedule via `schedule_create`:
+
 - Default: `0 */3 * * 1-5` (every 3 hours on weekdays)
 - Message: `"Load the inbox-management skill and run the inbox management pipeline."`
 - Mode: `execute`
@@ -117,6 +122,7 @@ Each step is silent unless something qualifies for interrupt. Run these in order
 **Resume interrupted runs first.** Before starting a new pipeline pass, check `bun run scripts/gmail-runs.ts list`. If the most recent run has `status: "interrupted"`, resume it via `bun run scripts/gmail-archive.ts archive --resume "<run-id>"` before proceeding. Also run `bun run scripts/gmail-runs.ts prune` to clean up logs older than 30 days.
 
 Read the last-run timestamp via `gmail-prefs.ts --action get-management-config`. If `last-run` is more than 2x the scheduled interval ago (e.g. >6 hours for a 3-hour schedule), notify the user:
+
 - **Slack:** "📬 Inbox management hasn't run since [time]. I'm catching up now."
 - **No Slack:** In-app notification.
 
@@ -147,15 +153,16 @@ Use `gmail-scan.ts --action outreach-scan` to identify cold outreach senders. Fo
 
 Search `in:inbox is:unread newer_than:1d`. Scan each for urgency signals:
 
-| Signal | Why |
-|--------|-----|
-| "past due", "overdue", "final notice", "balance due" | Financial consequence |
-| "will be suspended", "service interruption", "account closure" | Operational consequence |
-| "signature required", "agreement", "DocuSign pending" from real sender | Legal action needed |
-| .gov domain, "IRS", "state of", "department of" | Regulatory |
-| Safe-list sender with deadline language | Known-important, urgent framing |
+| Signal                                                                 | Why                             |
+| ---------------------------------------------------------------------- | ------------------------------- |
+| "past due", "overdue", "final notice", "balance due"                   | Financial consequence           |
+| "will be suspended", "service interruption", "account closure"         | Operational consequence         |
+| "signature required", "agreement", "DocuSign pending" from real sender | Legal action needed             |
+| .gov domain, "IRS", "state of", "department of"                        | Regulatory                      |
+| Safe-list sender with deadline language                                | Known-important, urgent framing |
 
 If any qualify, send **one** alert:
+
 - **Slack connected:** Slack DM with `🚨 urgent email` — count + per-item bullets (sender · subject · why)
 - **Slack not connected:** In-app notification via notification pipeline
 - If nothing qualifies: skip silently. **Never ping just to ping.**
@@ -172,6 +179,7 @@ For each remaining email from real humans expecting a response:
 4. Create draft in-thread via `gmail-email.ts draft --thread-id "..." --in-reply-to "..."`. Draft must be fully written in the user's voice (use Personal Knowledge Base style profile), substantive, no placeholders. **Never auto-send.**
 
 After the pass, send one summary:
+
 - **Slack:** `[N] drafts ready for review:` + per-item bullets
 - **No Slack:** In-app notification
 
@@ -180,6 +188,7 @@ After the pass, send one summary:
 Search `in:sent newer_than:14d`. For each thread where the user sent the last message and no reply has arrived:
 
 Ask: did this email **clearly expect a response**? Only flag if **2+ signals** are present:
+
 - The email contains a direct question
 - The email proposes a meeting, call, or next step
 - The email requests a deliverable or decision
@@ -212,6 +221,7 @@ Follow-ups suggested ([N]):
 ```
 
 User responds with:
+
 - "approve X" — graduates a category to auto-archive
 - "safe-list X" — permanently protects a sender/domain
 - "graduate me" — advances to Stage 1

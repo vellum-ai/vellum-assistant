@@ -68,7 +68,6 @@ import {
   getLastUserTimestampBefore,
   getMessageById,
   provenanceFromTrustContext,
-  setConversationHistoryStrippedAt,
   setLastNotifiedInferenceProfile,
   updateConversationContextWindow,
   updateConversationSlackContextWatermark,
@@ -124,11 +123,6 @@ import type {
   TurnContext as PluginTurnContext,
 } from "../plugins/types.js";
 import { PluginExecutionError, PluginTimeoutError } from "../plugins/types.js";
-import {
-  hasProactiveArtifactCompleted,
-  runProactiveArtifactJob,
-  tryClaimProactiveArtifactTrigger,
-} from "../proactive-artifact/index.js";
 import type {
   ContentBlock,
   Message,
@@ -163,6 +157,7 @@ import {
   createEventHandlerState,
   dispatchAgentEvent,
   type EventHandlerDeps,
+  markHistoryStrippedBestEffort,
 } from "./conversation-agent-loop-handlers.js";
 import {
   approveHostAttachmentRead,
@@ -218,34 +213,15 @@ import type { MemoryRecalled } from "./message-types/memory.js";
 import type { ConfirmationStateChanged } from "./message-types/messages.js";
 import { conversationMetadataSyncTag } from "./message-types/sync.js";
 import { parseActualTokensFromError } from "./parse-actual-tokens-from-error.js";
+import {
+  persistUnsendableImageDowngrades,
+  UNSENDABLE_IMAGE_NOTE,
+} from "./persist-unsendable-image.js";
 import type { TraceEmitter } from "./trace-emitter.js";
 import type { TrustContext } from "./trust-context.js";
 import { stripHistoricalWebSearchResults } from "./web-search-history.js";
 
 const log = getLogger("conversation-agent-loop");
-
-/**
- * Best-effort persistence of the history-stripped marker after an
- * injection-strip event (compaction / overflow recovery). The marker is a
- * durability hint, not turn-critical state — a transient SQLite write failure
- * (SQLITE_BUSY, disk-full, read-only FS) must not abort the turn. Logs a
- * warning and continues on failure, preserving the long-standing non-fatal
- * contract for this metadata write.
- */
-function markHistoryStrippedBestEffort(
-  conversationId: string,
-  strippedAt: number,
-  logger: ReturnType<typeof getLogger>,
-): void {
-  try {
-    setConversationHistoryStrippedAt(conversationId, strippedAt);
-  } catch (err) {
-    logger.warn(
-      { err },
-      "Failed to persist history-stripped marker after compaction strip (non-fatal)",
-    );
-  }
-}
 
 const DISK_PRESSURE_ERROR_CODE = "DISK_SPACE_CRITICAL" as const;
 const DISK_PRESSURE_ERROR_CATEGORY = "disk_pressure";
@@ -327,6 +303,7 @@ function buildPluginTurnContext(
     turnIndex: ctx.turnCount,
     trust,
     contextWindowManager: ctx.contextWindowManager,
+    callSite: ctx.currentCallSite,
   };
 }
 
@@ -360,6 +337,14 @@ export interface AgentLoopConversationContext {
   processing: boolean;
   abortController: AbortController | null;
   currentRequestId?: string;
+  /**
+   * The {@link LLMCallSite} of the in-flight turn, set at turn start from
+   * `options?.callSite ?? "mainAgent"`. Read by {@link buildPluginTurnContext}
+   * so pipeline/injector plugins can tell the main reply apart from
+   * background agent-loop work (compaction, subagents, …) on this same
+   * conversation. Per-turn mutable, mirroring {@link currentRequestId}.
+   */
+  currentCallSite?: LLMCallSite;
 
   readonly agentLoop: AgentLoop;
   readonly provider: Provider;
@@ -584,6 +569,9 @@ export async function runAgentLoopImpl(
   // `resolveCallSiteConfig`, picking up any user overrides under
   // `llm.callSites.mainAgent` (falling back to `llm.default` when absent).
   const turnCallSite: LLMCallSite = options?.callSite ?? "mainAgent";
+  // Expose the turn's call site to plugin pipeline/injector contexts (read by
+  // buildPluginTurnContext) so plugins can scope behaviour to the main reply.
+  ctx.currentCallSite = turnCallSite;
 
   // Read the conversation row once for both the override-profile derivation
   // below and the title-replaceability check at turn start. Later reads in
@@ -959,7 +947,7 @@ export async function runAgentLoopImpl(
     // so this fires exactly once per `/compact` event.
     const consumedPostCompactReinject = ctx.pendingPostCompactReinject;
     ctx.pendingPostCompactReinject = false;
-    let shouldInjectWorkspace = isFirstMessage || consumedPostCompactReinject;
+    state.shouldInjectWorkspace = isFirstMessage || consumedPostCompactReinject;
     let compactedThisTurn = consumedPostCompactReinject;
     let slackCompactedThisTurn = false;
     const isSlackConversation = ctx.channelCapabilities?.channel === "slack";
@@ -1170,7 +1158,7 @@ export async function runAgentLoopImpl(
         compacted,
         messagesForStartOfTurnCompaction,
       );
-      shouldInjectWorkspace = true;
+      state.shouldInjectWorkspace = true;
       if (compacted.compactedPersistedMessages > 0) {
         compactedThisTurn = true;
       }
@@ -1630,13 +1618,7 @@ export async function runAgentLoopImpl(
         )
       : null;
 
-    // Guards the chronological-transcript override on re-injection after
-    // the reducer compacts `ctx.messages`. The captured transcript is the
-    // full persisted history; blindly replaying it on every re-inject would
-    // overwrite the reducer's compacted messages and undo compaction. Flip
-    // to `true` after any compaction so subsequent re-injections fall back
-    // to the reduced `ctx.messages`.
-    let reducerCompacted = compactedThisTurn;
+    state.reducerCompacted = compactedThisTurn;
 
     // memory-v3-live: route the turn's `<memory>` block to the v3 injector.
     // When on, runtime assembly suppresses v2's `<memory>` injection (only
@@ -1656,7 +1638,7 @@ export async function runAgentLoopImpl(
       diskPressureContext,
       activeSurface,
       activeDocuments,
-      workspaceTopLevelContext: shouldInjectWorkspace
+      workspaceTopLevelContext: state.shouldInjectWorkspace
         ? ctx.workspaceTopLevelContext
         : null,
       channelCapabilities: ctx.channelCapabilities ?? null,
@@ -1694,7 +1676,7 @@ export async function runAgentLoopImpl(
 
     const injection = await applyRuntimeInjections(runMessages, {
       ...injectionOpts,
-      slackChronologicalMessages: reducerCompacted
+      slackChronologicalMessages: state.reducerCompacted
         ? null
         : injectionOpts.slackChronologicalMessages,
       mode: currentInjectionMode,
@@ -1937,7 +1919,7 @@ export async function runAgentLoopImpl(
           }
           if (result.compacted) {
             await applySuccessfulCompaction(result, compactedBasis);
-            shouldInjectWorkspace = true;
+            state.shouldInjectWorkspace = true;
           }
         },
         reinjectForMode: async (
@@ -1966,7 +1948,7 @@ export async function runAgentLoopImpl(
             ...(stepCompacted && { pkbContext: currentPkbContent }),
             ...(stepCompacted && { memoryV2Static: currentMemoryV2Static }),
             ...(stepCompacted && { nowScratchpad: currentNowContent }),
-            workspaceTopLevelContext: shouldInjectWorkspace
+            workspaceTopLevelContext: state.shouldInjectWorkspace
               ? ctx.workspaceTopLevelContext
               : null,
             // Once ANY iteration has compacted `ctx.messages`, the captured
@@ -2023,7 +2005,7 @@ export async function runAgentLoopImpl(
       currentInjectionMode = overflowResult.injectionMode;
       reducerState = overflowResult.reducerState;
       if (overflowResult.reducerCompacted) {
-        reducerCompacted = true;
+        state.reducerCompacted = true;
       }
     }
 
@@ -2083,6 +2065,7 @@ export async function runAgentLoopImpl(
       rlog,
       turnChannelContext: capturedTurnChannelContext,
       turnInterfaceContext: capturedTurnInterfaceContext,
+      applyCompaction: applySuccessfulCompaction,
     };
     const eventHandler = (event: AgentEvent): Promise<void> =>
       dispatchAgentEvent(state, deps, event);
@@ -2102,11 +2085,11 @@ export async function runAgentLoopImpl(
     rlog.info({ callSite: turnCallSite }, "Starting agent loop run");
 
     // Thread the orchestrator's canonical per-turn context into the agent
-    // loop so its internal pipeline invocations (llmCall, emptyResponse,
-    // toolError, toolResultTruncate, toolExecute) see the real
-    // conversation identity / trust / contextWindowManager instead of the
-    // synthesized `"agent-loop"` placeholder. The loop clones this value
-    // and overwrites `turnIndex` with its own tool-use iteration counter.
+    // loop so its internal pipeline invocations (llmCall, toolError,
+    // toolExecute) see the real conversation identity / trust /
+    // contextWindowManager instead of the synthesized `"agent-loop"`
+    // placeholder. The loop clones this value and overwrites `turnIndex`
+    // with its own tool-use iteration counter.
     const loopTurnCtx = buildPluginTurnContext(ctx, reqId);
 
     // Hooks for the loop-owned mid-loop compaction. The agent loop owns the
@@ -2116,14 +2099,11 @@ export async function runAgentLoopImpl(
     // state the loop is intentionally blind to. Durable persistence and
     // re-injection stay orchestrator-supplied for now.
     const midLoopCompaction: MidLoopCompaction = {
-      prepare: (history) => {
-        // Strip injected context so the compactor summarizes the raw
-        // persistent messages, and commit the stripped set to durable state.
-        const rawHistory = stripInjectionsForCompaction(history);
-        ctx.messages = rawHistory;
-        markHistoryStrippedBestEffort(ctx.conversationId, Date.now(), rlog);
+      prepare: () => {
+        // The loop strips runtime injections and commits the stripped basis to
+        // durable state via the `compaction_completed` event; this hook only
+        // resolves the pipeline options.
         return {
-          rawHistory,
           options: {
             lastCompactedAt: ctx.contextCompactedAt ?? undefined,
             force: true,
@@ -2136,11 +2116,6 @@ export async function runAgentLoopImpl(
           },
         };
       },
-      applyResult: async (result, rawHistory) => {
-        await applySuccessfulCompaction(result, rawHistory);
-        reducerCompacted = true;
-        shouldInjectWorkspace = true;
-      },
       reinject: async () => {
         // stripInjectionsForCompaction() unconditionally removed the existing
         // NOW.md block, so re-inject the current content regardless of whether
@@ -2150,13 +2125,13 @@ export async function runAgentLoopImpl(
           pkbContext: currentPkbContent,
           memoryV2Static: currentMemoryV2Static,
           nowScratchpad: currentNowContent,
-          workspaceTopLevelContext: shouldInjectWorkspace
+          workspaceTopLevelContext: state.shouldInjectWorkspace
             ? ctx.workspaceTopLevelContext
             : null,
           // Suppress the chronological-transcript snapshot once the reducer
           // has collapsed `ctx.messages`; the captured snapshot reflects the
           // full persisted transcript and would overwrite compaction.
-          slackChronologicalMessages: reducerCompacted
+          slackChronologicalMessages: state.reducerCompacted
             ? null
             : injectionOpts.slackChronologicalMessages,
           mode: currentInjectionMode,
@@ -2324,15 +2299,29 @@ export async function runAgentLoopImpl(
             }
             // Can't resize — replace with a text annotation so the model
             // can explain the situation rather than silently dropping context
-            return [
-              {
-                type: "text" as const,
-                text: "(An image was attached but could not be sent — its dimensions exceed the provider limit and automatic resize was not available. Please resize the image and try again.)",
-              },
-            ];
+            return [{ type: "text" as const, text: UNSENDABLE_IMAGE_NOTE }];
           }),
         };
       });
+      // The transform above only mutates ctx.messages for the current retry.
+      // Persist the downgrade for images that can never be sent so the rejected
+      // upload doesn't rehydrate from the DB and resurface on later turns. This
+      // is cleanup for future turns, so a persistence failure must never abort
+      // the retry that is about to run — log it and continue.
+      try {
+        const rewritten = persistUnsendableImageDowngrades(ctx.conversationId);
+        if (rewritten > 0) {
+          rlog.info(
+            { phase: "image-recovery", rewritten },
+            "Persisted unsendable-image downgrades so they cannot resurface",
+          );
+        }
+      } catch (err) {
+        rlog.warn(
+          { phase: "image-recovery", err },
+          "Failed to persist unsendable-image downgrade; continuing with in-memory recovery",
+        );
+      }
       runMessages = ctx.messages;
       updatedHistory = await runAgentLoop(runMessages);
       if (state.imageTooLargeDetected) {
@@ -2370,7 +2359,7 @@ export async function runAgentLoopImpl(
 
       if (updatedHistory.length > preRunHistoryLength) {
         ctx.messages = stripInjectionsForCompaction(updatedHistory);
-        markHistoryStrippedBestEffort(ctx.conversationId, Date.now(), rlog);
+        markHistoryStrippedBestEffort(ctx.conversationId);
         convergenceStripped = true;
         preRepairMessages = updatedHistory;
         preRunHistoryLength = updatedHistory.length;
@@ -2462,7 +2451,7 @@ export async function runAgentLoopImpl(
             }
             if (emergencyResult.compacted) {
               await applySuccessfulCompaction(emergencyResult, ctx.messages);
-              shouldInjectWorkspace = true;
+              state.shouldInjectWorkspace = true;
             }
             // Clear the overflow flag and re-run the agent loop with
             // the compacted context.
@@ -2542,8 +2531,8 @@ export async function runAgentLoopImpl(
             step.compactionResult,
             convergenceCompactionBasis,
           );
-          shouldInjectWorkspace = true;
-          reducerCompacted = true;
+          state.shouldInjectWorkspace = true;
+          state.reducerCompacted = true;
         }
 
         // Only re-inject NOW.md when ctx.messages was actually stripped;
@@ -2554,10 +2543,10 @@ export async function runAgentLoopImpl(
           pkbContext: currentPkbContent,
           memoryV2Static: convergenceStripped ? currentMemoryV2Static : null,
           nowScratchpad: convergenceStripped ? currentNowContent : null,
-          workspaceTopLevelContext: shouldInjectWorkspace
+          workspaceTopLevelContext: state.shouldInjectWorkspace
             ? ctx.workspaceTopLevelContext
             : null,
-          slackChronologicalMessages: reducerCompacted
+          slackChronologicalMessages: state.reducerCompacted
             ? null
             : injectionOpts.slackChronologicalMessages,
           mode: currentInjectionMode,
@@ -2601,7 +2590,7 @@ export async function runAgentLoopImpl(
           // pre-rerun messages.
           if (updatedHistory.length > preRunHistoryLength) {
             ctx.messages = stripInjectionsForCompaction(updatedHistory);
-            markHistoryStrippedBestEffort(ctx.conversationId, Date.now(), rlog);
+            markHistoryStrippedBestEffort(ctx.conversationId);
             convergenceStripped = true;
             preRepairMessages = updatedHistory;
             preRunHistoryLength = updatedHistory.length;
@@ -2689,8 +2678,8 @@ export async function runAgentLoopImpl(
           }
           if (emergencyCompact?.compacted) {
             await applySuccessfulCompaction(emergencyCompact, ctx.messages);
-            reducerCompacted = true;
-            shouldInjectWorkspace = true;
+            state.reducerCompacted = true;
+            state.shouldInjectWorkspace = true;
           }
 
           // Only re-inject NOW.md when ctx.messages was actually stripped;
@@ -2700,10 +2689,10 @@ export async function runAgentLoopImpl(
             pkbContext: currentPkbContent,
             memoryV2Static: convergenceStripped ? currentMemoryV2Static : null,
             nowScratchpad: convergenceStripped ? currentNowContent : null,
-            workspaceTopLevelContext: shouldInjectWorkspace
+            workspaceTopLevelContext: state.shouldInjectWorkspace
               ? ctx.workspaceTopLevelContext
               : null,
-            slackChronologicalMessages: reducerCompacted
+            slackChronologicalMessages: state.reducerCompacted
               ? null
               : injectionOpts.slackChronologicalMessages,
             mode: currentInjectionMode,
@@ -3232,42 +3221,6 @@ export async function runAgentLoopImpl(
             : {}),
         });
         publishLoopMessagesChanged();
-
-        // Proactive artifact: fire once when the processed turn was the 4th user message.
-        // Only trigger for real user-authored turns (not subagent/system messages).
-        {
-          const paConv = getConversation(ctx.conversationId);
-          if (
-            paConv &&
-            paConv.conversationType === "standard" &&
-            options?.isUserMessage
-          ) {
-            void (async () => {
-              try {
-                if (hasProactiveArtifactCompleted()) return;
-                const userMsg = getMessageById(
-                  userMessageId,
-                  ctx.conversationId,
-                );
-                if (!userMsg) return;
-                if (!tryClaimProactiveArtifactTrigger(userMsg.createdAt))
-                  return;
-                await runProactiveArtifactJob({
-                  conversationId: ctx.conversationId,
-                  userMessageCutoff: userMsg.createdAt,
-                  assistantMessageId: state.lastAssistantMessageId,
-                  suppressAppBuild: state.appBuildToolUsedThisRun,
-                  broadcastMessage,
-                });
-              } catch (err) {
-                log.warn(
-                  { err, conversationId: ctx.conversationId },
-                  "Proactive artifact trigger failed",
-                );
-              }
-            })();
-          }
-        }
       }
     }
 
@@ -3539,7 +3492,7 @@ export async function applyCompactionResult(
     result.summaryText,
     ctx.contextCompactedMessageCount,
   );
-  markHistoryStrippedBestEffort(ctx.conversationId, compactedAt, log);
+  markHistoryStrippedBestEffort(ctx.conversationId);
   if (options.slackContextCompactionWatermarkTs) {
     updateConversationSlackContextWatermark(
       ctx.conversationId,

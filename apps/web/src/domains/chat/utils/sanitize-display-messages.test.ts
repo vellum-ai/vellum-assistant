@@ -105,7 +105,7 @@ describe("sanitizeDisplayMessages · invalid row filter", () => {
     const emptySegments = makeMessage({
       id: "empty-segments",
       role: "user",
-      textSegments: [{ type: "text", content: "" }],
+      textSegments: [""],
     });
     const result = sanitizeDisplayMessages([emptySegments]);
     expect(result).toEqual([]);
@@ -172,7 +172,7 @@ describe("sanitizeDisplayMessages · drop trailing assistant duplicate", () => {
     const server = makeMessage({
       id: "msg-1",
       role: "assistant",
-      textSegments: [{ type: "text", content: "Final answer" }],
+      textSegments: ["Final answer"],
       toolCalls: [
         makeToolCall({ id: "tc-1", toolName: "bash", result: "ok" }),
       ],
@@ -181,7 +181,7 @@ describe("sanitizeDisplayMessages · drop trailing assistant duplicate", () => {
     const orphan = makeMessage({
       id: "assistant-abc",
       role: "assistant",
-      textSegments: [{ type: "text", content: "Final answer" }],
+      textSegments: ["Final answer"],
       toolCalls: [
         makeToolCall({ id: "tc-1", toolName: "bash", result: "ok" }),
       ],
@@ -208,13 +208,13 @@ describe("sanitizeDisplayMessages · drop trailing assistant duplicate", () => {
     const first = makeMessage({
       id: "first",
       role: "assistant",
-      textSegments: [{ type: "text", content: "Answer A" }],
+      textSegments: ["Answer A"],
       timestamp: 1,
     });
     const second = makeMessage({
       id: "second",
       role: "assistant",
-      textSegments: [{ type: "text", content: "Answer B" }],
+      textSegments: ["Answer B"],
       timestamp: 2,
     });
     const result = sanitizeDisplayMessages([first, second]);
@@ -225,15 +225,15 @@ describe("sanitizeDisplayMessages · drop trailing assistant duplicate", () => {
     const first = makeMessage({
       id: "first",
       role: "assistant",
-      textSegments: [{ type: "text", content: "Answer" }],
+      textSegments: ["Answer"],
       timestamp: 1,
     });
     const second = makeMessage({
       id: "second",
       role: "assistant",
       textSegments: [
-        { type: "text", content: "Answer" },
-        { type: "text", content: "More" },
+        "Answer",
+        "More",
       ],
       timestamp: 2,
     });
@@ -301,19 +301,19 @@ describe("sanitizeDisplayMessages · drop trailing assistant duplicate", () => {
     const a = makeMessage({
       id: "a",
       role: "assistant",
-      textSegments: [{ type: "text", content: "Same" }],
+      textSegments: ["Same"],
       timestamp: 1,
     });
     const b = makeMessage({
       id: "b",
       role: "assistant",
-      textSegments: [{ type: "text", content: "Same" }],
+      textSegments: ["Same"],
       timestamp: 2,
     });
     const c = makeMessage({
       id: "c",
       role: "assistant",
-      textSegments: [{ type: "text", content: "Same" }],
+      textSegments: ["Same"],
       timestamp: 3,
     });
     const result = sanitizeDisplayMessages([a, b, c]);
@@ -324,13 +324,13 @@ describe("sanitizeDisplayMessages · drop trailing assistant duplicate", () => {
     const first = makeMessage({
       id: "first",
       role: "assistant",
-      textSegments: [{ type: "text", content: "Hi" }],
+      textSegments: ["Hi"],
       timestamp: 1,
     });
     const second = makeMessage({
       id: "second",
       role: "assistant",
-      textSegments: [{ type: "text", content: "Hi" }],
+      textSegments: ["Hi"],
       timestamp: 2,
     });
     const result = sanitizeDisplayMessages([first, second]);
@@ -943,7 +943,7 @@ describe("sanitizeDisplayMessages · integration", () => {
     const olderWithDangling = makeMessage({
       id: "older",
       role: "assistant",
-      textSegments: [{ type: "text", content: "let me check" }],
+      textSegments: ["let me check"],
       toolCalls: [
         makeToolCall({ id: "tc-x", toolName: "bash", status: "running" }),
       ],
@@ -953,14 +953,14 @@ describe("sanitizeDisplayMessages · integration", () => {
     const server = makeMessage({
       id: "msg-1",
       role: "assistant",
-      textSegments: [{ type: "text", content: "42" }],
+      textSegments: ["42"],
       timestamp: 200,
     });
     // The duplicate orphan emission (a synthesized optimistic-style id).
     const orphan = makeMessage({
       id: "assistant-abc",
       role: "assistant",
-      textSegments: [{ type: "text", content: "42" }],
+      textSegments: ["42"],
       timestamp: 200,
     });
 

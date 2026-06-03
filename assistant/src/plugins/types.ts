@@ -19,6 +19,7 @@
 import type { CompactionCircuitClosedEvent } from "../api/events/compaction-circuit-closed.js";
 import type { CompactionCircuitOpenEvent } from "../api/events/compaction-circuit-open.js";
 import type { ContextWindowConfig } from "../config/schemas/inference.js";
+import type { LLMCallSite } from "../config/schemas/llm.js";
 import type {
   ContextWindowManager,
   ContextWindowResult,
@@ -36,7 +37,6 @@ import type { MessageRole } from "../memory/conversation-crud.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
 import type { PluginHookFn } from "../plugin-api/types.js";
 import type {
-  ContentBlock,
   Message,
   Provider,
   ProviderResponse,
@@ -46,10 +46,6 @@ import type {
 import type { SkillRoute } from "../runtime/skill-route-registry.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
-import type {
-  ToolResultTruncateArgs,
-  ToolResultTruncateResult,
-} from "./defaults/tool-result-truncate/types.js";
 
 // ─── Manifest ────────────────────────────────────────────────────────────────
 
@@ -130,8 +126,6 @@ export type PipelineName =
   | "overflowReduce"
   | "persistence"
   | "titleGenerate"
-  | "toolResultTruncate"
-  | "emptyResponse"
   | "toolError"
   | "circuitBreaker";
 
@@ -576,73 +570,6 @@ export type TitleGenerateArgs = TitleArgs;
 export type TitleGenerateResult = TitleResult;
 
 /**
- * Snapshot of the just-completed assistant turn plus retry/context counters
- * the `emptyResponse` pipeline needs to decide whether to nudge, accept, or
- * surface an error.
- *
- * `emptyResponseRetries` is the *current* retry counter — the pipeline may
- * compare it to `maxEmptyResponseRetries` to implement a retry cap. The loop
- * increments the counter only after a `"nudge"` decision; the pipeline is
- * stateless across turns.
- *
- * `priorAssistantHadVisibleText` signals that an earlier turn in the current
- * `run()` invocation already delivered user-visible text. When true, an
- * empty follow-up is the model correctly ending its turn and nudging would
- * mislead it into resending text the user already saw.
- */
-export interface EmptyResponseArgs {
-  /** Content blocks produced by the assistant on this turn. */
-  readonly responseContent: ReadonlyArray<ContentBlock>;
-  /**
-   * Number of `tool_use` blocks in `responseContent`. Mirrors the loop's own
-   * count so middleware doesn't have to recompute it. When > 0 the turn is
-   * not empty — the model issued tool calls.
-   */
-  readonly toolUseBlocksLength: number;
-  /** 0-based index of the tool-use turn being evaluated. */
-  readonly toolUseTurns: number;
-  /** How many empty-response nudges the loop has already issued this run. */
-  readonly emptyResponseRetries: number;
-  /** Upper bound for `emptyResponseRetries`. The default is 1. */
-  readonly maxEmptyResponseRetries: number;
-  /**
-   * Whether ANY prior assistant turn in the current `run()` call carried
-   * visible text. See `agent/loop.ts` for why the whole-run scan matters.
-   */
-  readonly priorAssistantHadVisibleText: boolean;
-  /**
-   * Provider-reported stop reason for the assistant turn being evaluated.
-   * `null`/`undefined` when the provider didn't report one (older
-   * providers, partial responses). The default terminal uses this to
-   * distinguish an explicit safety-classifier refusal (Anthropic's
-   * `"refusal"`) from an organically-empty turn — refusals deserve a
-   * nudge even on the very first model call of the run, whereas an
-   * organically-empty first call usually means the model legitimately
-   * had nothing to say.
-   */
-  readonly stopReason: string | null | undefined;
-}
-
-/**
- * Decision produced by the `emptyResponse` pipeline.
- *
- * - `"nudge"`  — loop appends `nudgeText` as a `user` message and retries.
- *                `nudgeText` MUST be present; it is what the model will see.
- * - `"accept"` — loop treats the turn as complete (pushes the assistant
- *                message to history and exits the tool-use chain normally).
- * - `"error"`  — loop surfaces a clear error. Reserved for middleware that
- *                wants to escalate an empty response rather than absorb it.
- */
-export interface EmptyResponseDecision {
-  readonly action: "nudge" | "accept" | "error";
-  /** Nudge text the loop will push to history. Required when `action === "nudge"`. */
-  readonly nudgeText?: string;
-}
-
-/** Alias so the {@link PipelineMiddlewareMap} entry names its own result shape. */
-export type EmptyResponseResult = EmptyResponseDecision;
-
-/**
  * Arguments to the `toolError` pipeline — invoked by the agent loop once per
  * turn that produced tool results, BEFORE the turn's tool-result user message
  * is pushed into history.
@@ -750,11 +677,6 @@ export interface PipelineMiddlewareMap {
   overflowReduce: Middleware<OverflowReduceArgs, OverflowReduceResult>;
   persistence: Middleware<PersistArgs, PersistResult>;
   titleGenerate: Middleware<TitleArgs, TitleResult>;
-  toolResultTruncate: Middleware<
-    ToolResultTruncateArgs,
-    ToolResultTruncateResult
-  >;
-  emptyResponse: Middleware<EmptyResponseArgs, EmptyResponseResult>;
   toolError: Middleware<ToolErrorArgs, ToolErrorResult>;
   circuitBreaker: Middleware<CircuitBreakerArgs, CircuitBreakerResult>;
 }
@@ -937,6 +859,20 @@ export interface TurnContext {
    * a context without `injectionInputs` produces an empty injection chain.
    */
   injectionInputs?: TurnInjectionInputs;
+  /**
+   * The {@link LLMCallSite} this turn's pipeline work belongs to —
+   * `"mainAgent"` for the user-facing conversational reply, or the specific
+   * background/utility site (`"compactionAgent"`, `"subagentSpawn"`,
+   * `"memoryConsolidation"`, `"conversationTitle"`, …) when the agent loop is
+   * driving non-main work that happens to share the same `conversationId`.
+   *
+   * Lets `llmCall` middleware and {@link Injector}s scope their behaviour to
+   * the main reply and stay out of background turns, which `onEvent` presence
+   * alone cannot distinguish (compaction and subagent loops also stream).
+   * Omitted by call sites that don't tag a site (synthesized test contexts);
+   * consumers should treat absence conservatively.
+   */
+  callSite?: LLMCallSite;
 }
 
 // ─── Injectors ───────────────────────────────────────────────────────────────

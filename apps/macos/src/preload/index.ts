@@ -1,5 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 
+import type { Lockfile, LockfileWriteResult } from "@vellumai/local-mode";
+
 // Command surface mirrors the discriminated union in
 // `apps/macos/src/main/commands.ts`. Kept inline (rather than imported)
 // because preload + main + renderer each have their own TS project; the
@@ -131,6 +133,47 @@ export interface VellumBridge {
       assistantId?: string;
       error?: string;
     }>;
+    /**
+     * Read the local-assistant lockfile, with sensitive fields stripped.
+     * Resolves with the parsed lockfile (`{ assistants, activeAssistant }`),
+     * or an empty lockfile shape when none exists yet. Rejects on a genuine
+     * read/parse error so the renderer surfaces it.
+     */
+    readLockfile(): Promise<Lockfile>;
+    /**
+     * Insert or update one assistant in the lockfile and optionally set the
+     * active assistant. Resolves with the updated, stripped lockfile on
+     * success or `{ ok: false, error }` on a validation/write failure.
+     */
+    saveLockfileAssistant(
+      assistant: Record<string, unknown>,
+      activeAssistant?: string,
+    ): Promise<LockfileWriteResult>;
+    /**
+     * Replace every platform (`cloud === "vellum"`) assistant in the lockfile
+     * with the provided set, preserving local assistants. Resolves with the
+     * updated, stripped lockfile on success or `{ ok: false, error }`.
+     */
+    replacePlatformAssistants(
+      platformAssistants: Array<Record<string, unknown>>,
+    ): Promise<LockfileWriteResult>;
+    /**
+     * Retire a local assistant via the Vellum CLI's `retire`. Mirrors
+     * `hatch`'s never-reject contract: resolves with `{ ok: false, error }`
+     * on failure rather than rejecting.
+     */
+    retire(assistantId: string): Promise<{ ok: boolean; error?: string }>;
+    /**
+     * Acquire a fresh guardian access token for a local assistant, reading
+     * the token file from disk and refreshing it via the CLI when expired.
+     * Authorizes the gateway token exchange.
+     */
+    guardianToken(
+      assistantId: string,
+    ): Promise<
+      | { ok: true; accessToken: string }
+      | { ok: false; status: number; error: string }
+    >;
   };
   mainWindow: {
     /**
@@ -229,6 +272,37 @@ const bridge: VellumBridge = {
         assistantId?: string;
         error?: string;
       }>,
+    readLockfile: () =>
+      ipcRenderer.invoke("vellum:localMode:readLockfile") as Promise<Lockfile>,
+    saveLockfileAssistant: (
+      assistant: Record<string, unknown>,
+      activeAssistant?: string,
+    ) =>
+      ipcRenderer.invoke(
+        "vellum:localMode:saveLockfileAssistant",
+        assistant,
+        activeAssistant,
+      ) as Promise<LockfileWriteResult>,
+    replacePlatformAssistants: (
+      platformAssistants: Array<Record<string, unknown>>,
+    ) =>
+      ipcRenderer.invoke(
+        "vellum:localMode:replacePlatformAssistants",
+        platformAssistants,
+      ) as Promise<LockfileWriteResult>,
+    retire: (assistantId: string) =>
+      ipcRenderer.invoke("vellum:localMode:retire", assistantId) as Promise<{
+        ok: boolean;
+        error?: string;
+      }>,
+    guardianToken: (assistantId: string) =>
+      ipcRenderer.invoke(
+        "vellum:localMode:guardianToken",
+        assistantId,
+      ) as Promise<
+        | { ok: true; accessToken: string }
+        | { ok: false; status: number; error: string }
+      >,
   },
   mainWindow: {
     ensureVisible: (): Promise<void> =>

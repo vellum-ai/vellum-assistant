@@ -4,6 +4,7 @@ import { Fragment, memo, type ReactNode } from "react";
 import type { MessageItem, TranscriptItem } from "@/domains/chat/transcript/types";
 
 import { TranscriptRow } from "@/domains/chat/transcript/transcript-row";
+import { useTurnStore } from "@/domains/chat/turn-store";
 import type { ConfirmationDecision } from "@/types/event-types";
 
 /**
@@ -22,6 +23,7 @@ export interface LatestTurnRowProps {
   assistantDisplayName?: string | null;
   expandedToolCallIds: Set<string>;
   expandedCardIds: Map<string, boolean>;
+  expandedThinkingKeys: Map<string, boolean>;
   onSurfaceAction: (
     surfaceId: string,
     actionId: string,
@@ -71,6 +73,7 @@ export const LatestTurnRow = memo(function LatestTurnRow({
   assistantDisplayName,
   expandedToolCallIds,
   expandedCardIds,
+  expandedThinkingKeys,
   onSurfaceAction,
   onSecretSubmit,
   onConfirmationDecision,
@@ -94,6 +97,12 @@ export const LatestTurnRow = memo(function LatestTurnRow({
   onSubagentClick,
   onStopSubagent,
 }: LatestTurnRowProps) {
+  // The response cluster is "streaming" whenever the turn is in flight. This
+  // keeps each response message's last tool-call group expanded for the whole
+  // turn, rather than only during the instants a tool reports `running`.
+  const phase = useTurnStore.use.phase();
+  const isStreaming =
+    phase === "queued" || phase === "thinking" || phase === "streaming";
   return (
     <div className="flex flex-col" data-latest-turn="true">
       <TranscriptRow
@@ -101,6 +110,7 @@ export const LatestTurnRow = memo(function LatestTurnRow({
         assistantDisplayName={assistantDisplayName}
         expandedToolCallIds={expandedToolCallIds}
         expandedCardIds={expandedCardIds}
+        expandedThinkingKeys={expandedThinkingKeys}
         onSurfaceAction={onSurfaceAction}
         onSecretSubmit={onSecretSubmit}
         onConfirmationDecision={onConfirmationDecision}
@@ -131,6 +141,7 @@ export const LatestTurnRow = memo(function LatestTurnRow({
             assistantDisplayName={assistantDisplayName}
             expandedToolCallIds={expandedToolCallIds}
             expandedCardIds={expandedCardIds}
+            expandedThinkingKeys={expandedThinkingKeys}
             onSurfaceAction={onSurfaceAction}
             onSecretSubmit={onSecretSubmit}
             onConfirmationDecision={onConfirmationDecision}
@@ -153,6 +164,7 @@ export const LatestTurnRow = memo(function LatestTurnRow({
             assistantId={assistantId}
             onSubagentClick={onSubagentClick}
             onStopSubagent={onStopSubagent}
+            isStreaming={isStreaming}
           />
         </Fragment>
       ))}

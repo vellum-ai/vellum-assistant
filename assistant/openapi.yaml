@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.8.6
+  version: 0.8.7
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -1230,6 +1230,13 @@ paths:
                   - scanResult
                   - signatureResult
                 additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
   /v1/apps/open-bundle:
     post:
       operationId: apps_openbundle_post
@@ -1585,29 +1592,22 @@ paths:
       requestBody:
         required: true
         content:
-          application/json:
+          multipart/form-data:
             schema:
               type: object
               properties:
+                file:
+                  type: string
+                  format: binary
+                  description: The file to upload
                 filename:
                   type: string
                 mimeType:
                   type: string
-                data:
-                  type: string
-                  description: Base64-encoded file data
-                filePath:
-                  type: string
-                  description: On-disk file path (file-backed upload)
-                trustedSource:
-                  type: boolean
-                  description:
-                    Set by the gateway when the file came from a guardian-bound channel actor. Honored only when the request is
-                    authenticated as a gateway service token; ignored otherwise.
               required:
+                - file
                 - filename
                 - mimeType
-              additionalProperties: false
   /v1/attachments/{id}:
     get:
       operationId: attachments_by_id_get
@@ -1868,6 +1868,140 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bodyShapes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        viewBox:
+                          type: object
+                          properties:
+                            width:
+                              type: number
+                            height:
+                              type: number
+                          required:
+                            - width
+                            - height
+                          additionalProperties: false
+                        faceCenter:
+                          type: object
+                          properties:
+                            x:
+                              type: number
+                            y:
+                              type: number
+                          required:
+                            - x
+                            - y
+                          additionalProperties: false
+                        svgPath:
+                          type: string
+                      required:
+                        - id
+                        - viewBox
+                        - faceCenter
+                        - svgPath
+                      additionalProperties: false
+                  eyeStyles:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        sourceViewBox:
+                          type: object
+                          properties:
+                            width:
+                              type: number
+                            height:
+                              type: number
+                          required:
+                            - width
+                            - height
+                          additionalProperties: false
+                        eyeCenter:
+                          type: object
+                          properties:
+                            x:
+                              type: number
+                            y:
+                              type: number
+                          required:
+                            - x
+                            - y
+                          additionalProperties: false
+                        paths:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              svgPath:
+                                type: string
+                              color:
+                                type: string
+                            required:
+                              - svgPath
+                              - color
+                            additionalProperties: false
+                      required:
+                        - id
+                        - sourceViewBox
+                        - eyeCenter
+                        - paths
+                      additionalProperties: false
+                  colors:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        hex:
+                          type: string
+                      required:
+                        - id
+                        - hex
+                      additionalProperties: false
+                  faceCenterOverrides:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        bodyShape:
+                          type: string
+                        eyeStyle:
+                          type: string
+                        faceCenter:
+                          type: object
+                          properties:
+                            x:
+                              type: number
+                            y:
+                              type: number
+                          required:
+                            - x
+                            - y
+                          additionalProperties: false
+                      required:
+                        - bodyShape
+                        - eyeStyle
+                        - faceCenter
+                      additionalProperties: false
+                required:
+                  - bodyShapes
+                  - eyeStyles
+                  - colors
+                  - faceCenterOverrides
+                additionalProperties: false
   /v1/avatar/character/ascii:
     get:
       operationId: avatar_character_ascii_get
@@ -4168,6 +4302,25 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                  - ok
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              propertyNames:
+                type: string
+              additionalProperties: {}
   /v1/config/allowlist/validate:
     get:
       operationId: config_allowlist_validate_get
@@ -10378,11 +10531,12 @@ paths:
           schema:
             type: string
           description:
-            "Optional reconnect cursor: the highest per-conversation event seq the client has already applied. When set
-            together with a conversation scope, the daemon replays any buffered events with seq > lastSeenSeq before
-            going live. If the cursor is older than the ring buffer's oldest entry the connection simply goes live; the
-            client is expected to detect the gap from the next event's seq and refetch via the messages API. Must be a
-            non-negative integer."
+            "Optional reconnect cursor: the highest global event seq the client has already applied. `seq` is a single
+            per-assistant counter shared across all conversations, so one cursor resumes the stream regardless of how
+            many conversations are multiplexed on the connection. When set, the daemon replays any buffered events with
+            seq > lastSeenSeq (re-applying the subscriber's targeting/scope filter) before going live. If the cursor is
+            older than the ring buffer's oldest entry the connection simply goes live; the client is expected to detect
+            the gap from the next event's seq and refetch via the messages API. Must be a non-negative integer."
   /v1/events/emit:
     post:
       operationId: events_emit_post
@@ -10847,21 +11001,59 @@ paths:
                   version:
                     type: string
                   disk:
-                    type: object
-                    properties: {}
-                    additionalProperties: {}
+                    anyOf:
+                      - type: object
+                        properties:
+                          path:
+                            type: string
+                          totalMb:
+                            type: number
+                          usedMb:
+                            type: number
+                          freeMb:
+                            type: number
+                        required:
+                          - path
+                          - totalMb
+                          - usedMb
+                          - freeMb
+                        additionalProperties: false
+                      - type: "null"
                   memory:
                     type: object
-                    properties: {}
-                    additionalProperties: {}
+                    properties:
+                      currentMb:
+                        type: number
+                      maxMb:
+                        type: number
+                    required:
+                      - currentMb
+                      - maxMb
+                    additionalProperties: false
                   cpu:
                     type: object
-                    properties: {}
-                    additionalProperties: {}
+                    properties:
+                      currentPercent:
+                        type: number
+                      maxCores:
+                        type: number
+                    required:
+                      - currentPercent
+                      - maxCores
+                    additionalProperties: false
                   migrations:
                     type: object
-                    properties: {}
-                    additionalProperties: {}
+                    properties:
+                      dbVersion:
+                        type: number
+                      lastWorkspaceMigrationId:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                    required:
+                      - dbVersion
+                      - lastWorkspaceMigrationId
+                    additionalProperties: false
                   ces:
                     type: object
                     properties:
@@ -10977,21 +11169,59 @@ paths:
                   version:
                     type: string
                   disk:
-                    type: object
-                    properties: {}
-                    additionalProperties: {}
+                    anyOf:
+                      - type: object
+                        properties:
+                          path:
+                            type: string
+                          totalMb:
+                            type: number
+                          usedMb:
+                            type: number
+                          freeMb:
+                            type: number
+                        required:
+                          - path
+                          - totalMb
+                          - usedMb
+                          - freeMb
+                        additionalProperties: false
+                      - type: "null"
                   memory:
                     type: object
-                    properties: {}
-                    additionalProperties: {}
+                    properties:
+                      currentMb:
+                        type: number
+                      maxMb:
+                        type: number
+                    required:
+                      - currentMb
+                      - maxMb
+                    additionalProperties: false
                   cpu:
                     type: object
-                    properties: {}
-                    additionalProperties: {}
+                    properties:
+                      currentPercent:
+                        type: number
+                      maxCores:
+                        type: number
+                    required:
+                      - currentPercent
+                      - maxCores
+                    additionalProperties: false
                   migrations:
                     type: object
-                    properties: {}
-                    additionalProperties: {}
+                    properties:
+                      dbVersion:
+                        type: number
+                      lastWorkspaceMigrationId:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                    required:
+                      - dbVersion
+                      - lastWorkspaceMigrationId
+                    additionalProperties: false
                   ces:
                     type: object
                     properties:
@@ -14874,6 +15104,37 @@ paths:
                 required:
                   - messages
                 additionalProperties: false
+      parameters:
+        - name: conversationId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Conversation UUID. One of conversationId or conversationKey is required.
+        - name: conversationKey
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Channel/external conversation key. One of conversationId or conversationKey is required.
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: string
+          description: When set to 'latest', returns the most recent page of messages with pagination metadata.
+        - name: beforeTimestamp
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Return messages older than this timestamp (ms since epoch). Used for paging older history.
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Maximum number of messages to return.
     post:
       operationId: messages_post
       summary: Send a message
@@ -14883,6 +15144,24 @@ paths:
       responses:
         "202":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accepted:
+                    type: boolean
+                  conversationId:
+                    type: string
+                  messageId:
+                    type: string
+                  queued:
+                    type: boolean
+                  requestId:
+                    type: string
+                required:
+                  - accepted
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -14890,15 +15169,35 @@ paths:
             schema:
               type: object
               properties:
+                conversationId:
+                  description:
+                    Internal conversation id (0.8.6+ strict lookup). Omit both id and key to mint a new conversation
+                    server-side.
+                  anyOf:
+                    - type: string
+                    - type: "null"
                 conversationKey:
-                  type: string
+                  anyOf:
+                    - type: string
+                    - type: "null"
                 content:
                   type: string
                   description: Message text content
                 attachments:
                   type: array
                   items: {}
-                  description: Optional file attachments
+                  description: Optional inline file attachments
+                attachmentIds:
+                  type: array
+                  items:
+                    type: string
+                  description: Ids of previously uploaded attachments to attach
+                sourceChannel:
+                  type: string
+                  description: Originating channel id (e.g. "vellum")
+                interface:
+                  type: string
+                  description: Originating interface id (e.g. "vellum")
                 conversationType:
                   type: string
                 slashCommand:
@@ -14916,8 +15215,57 @@ paths:
                     - low
                     - medium
                     - high
+                onboarding:
+                  type: object
+                  properties:
+                    tools:
+                      type: array
+                      items:
+                        type: string
+                    tasks:
+                      type: array
+                      items:
+                        type: string
+                    tone:
+                      type: string
+                    userName:
+                      type: string
+                    assistantName:
+                      type: string
+                    googleConnected:
+                      type: boolean
+                    googleScopes:
+                      type: array
+                      items:
+                        type: string
+                    priorAssistants:
+                      type: array
+                      items:
+                        type: string
+                    cohort:
+                      type: string
+                    websiteUrl:
+                      type: string
+                    contentSourceUrl:
+                      type: string
+                    bootstrapTemplate:
+                      type: string
+                    initialMessage:
+                      type: string
+                    skills:
+                      type: array
+                      items:
+                        type: string
+                  required:
+                    - tools
+                    - tasks
+                    - tone
+                  additionalProperties: false
+                  description: PreChat onboarding context, sent on the first message only
               required:
                 - content
+                - sourceChannel
+                - interface
               additionalProperties: false
   /v1/messages/{id}/content:
     get:
@@ -16341,6 +16689,63 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  providers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        provider_key:
+                          type: string
+                        display_name:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        description:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        dashboard_url:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        client_id_placeholder:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        requires_client_secret:
+                          type: boolean
+                        logo_url:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        supports_managed_mode:
+                          type: boolean
+                        managed_service_is_paid:
+                          type: boolean
+                        feature_flag:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                      required:
+                        - provider_key
+                        - display_name
+                        - description
+                        - dashboard_url
+                        - client_id_placeholder
+                        - requires_client_secret
+                        - logo_url
+                        - supports_managed_mode
+                        - managed_service_is_paid
+                        - feature_flag
+                      additionalProperties: false
+                required:
+                  - providers
+                additionalProperties: false
       parameters:
         - name: supports_managed_mode
           in: query
@@ -18821,11 +19226,37 @@ paths:
                 properties:
                   secrets:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        type:
+                          type: string
+                          enum:
+                            - api_key
+                            - credential
+                        name:
+                          type: string
+                      required:
+                        - type
+                        - name
+                      additionalProperties: false
                     description: List of secret metadata entries, each with type and name
                   accounts:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        type:
+                          type: string
+                          enum:
+                            - api_key
+                            - credential
+                        name:
+                          type: string
+                      required:
+                        - type
+                        - name
+                      additionalProperties: false
                     description: Alias for secrets (same data)
                 required:
                   - secrets
@@ -19192,6 +19623,8 @@ paths:
                               type: string
                             description:
                               type: string
+                            icon:
+                              type: string
                             emoji:
                               type: string
                             kind:
@@ -19236,6 +19669,8 @@ paths:
                             name:
                               type: string
                             description:
+                              type: string
+                            icon:
                               type: string
                             emoji:
                               type: string
@@ -19301,6 +19736,8 @@ paths:
                             name:
                               type: string
                             description:
+                              type: string
+                            icon:
                               type: string
                             emoji:
                               type: string
@@ -19381,6 +19818,8 @@ paths:
                             name:
                               type: string
                             description:
+                              type: string
+                            icon:
                               type: string
                             emoji:
                               type: string
@@ -19546,6 +19985,8 @@ paths:
                             type: string
                           description:
                             type: string
+                          icon:
+                            type: string
                           emoji:
                             type: string
                           kind:
@@ -19590,6 +20031,8 @@ paths:
                           name:
                             type: string
                           description:
+                            type: string
+                          icon:
                             type: string
                           emoji:
                             type: string
@@ -19710,6 +20153,8 @@ paths:
                             type: string
                           description:
                             type: string
+                          icon:
+                            type: string
                           emoji:
                             type: string
                           kind:
@@ -19789,6 +20234,8 @@ paths:
                           name:
                             type: string
                           description:
+                            type: string
+                          icon:
                             type: string
                           emoji:
                             type: string
@@ -19964,6 +20411,8 @@ paths:
                             type: string
                           description:
                             type: string
+                          icon:
+                            type: string
                           emoji:
                             type: string
                           kind:
@@ -20008,6 +20457,8 @@ paths:
                           name:
                             type: string
                           description:
+                            type: string
+                          icon:
                             type: string
                           emoji:
                             type: string
@@ -20073,6 +20524,8 @@ paths:
                           name:
                             type: string
                           description:
+                            type: string
+                          icon:
                             type: string
                           emoji:
                             type: string
@@ -20153,6 +20606,8 @@ paths:
                           name:
                             type: string
                           description:
+                            type: string
+                          icon:
                             type: string
                           emoji:
                             type: string
@@ -20419,15 +20874,16 @@ paths:
               type: object
               properties:
                 slug:
+                  description: Skill slug. One of slug, url, or spec is required.
                   type: string
-                  description: Skill slug
                 url:
+                  description: Skill URL. One of slug, url, or spec is required.
                   type: string
-                  description: Skill URL
                 spec:
+                  description: Skill spec. One of slug, url, or spec is required.
                   type: string
-                  description: Skill spec
                 version:
+                  description: Specific version to install
                   type: string
                 origin:
                   description: Which registry to install from. When omitted, the install flow auto-detects based on slug format.
@@ -20443,11 +20899,6 @@ paths:
                     When true, restrict to bundled and Vellum catalog skills only — do not fall through to community
                     registries.
                   type: boolean
-              required:
-                - slug
-                - url
-                - spec
-                - version
               additionalProperties: false
   /v1/skills/search:
     get:
@@ -20475,6 +20926,8 @@ paths:
                             name:
                               type: string
                             description:
+                              type: string
+                            icon:
                               type: string
                             emoji:
                               type: string
@@ -20520,6 +20973,8 @@ paths:
                             name:
                               type: string
                             description:
+                              type: string
+                            icon:
                               type: string
                             emoji:
                               type: string
@@ -20585,6 +21040,8 @@ paths:
                             name:
                               type: string
                             description:
+                              type: string
+                            icon:
                               type: string
                             emoji:
                               type: string
@@ -20665,6 +21122,8 @@ paths:
                             name:
                               type: string
                             description:
+                              type: string
+                            icon:
                               type: string
                             emoji:
                               type: string

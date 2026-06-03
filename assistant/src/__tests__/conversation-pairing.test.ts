@@ -872,7 +872,7 @@ describe("pairDeliveryWithConversation", () => {
     expect(addMessageMock).toHaveBeenCalledTimes(1);
   });
 
-  test("passive vellum signal still honors explicit reuse_existing action", async () => {
+  test("passive vellum signal suppresses even when decision engine says reuse_existing", async () => {
     mockExistingConversations["conv-explicit-passive"] = {
       id: "conv-explicit-passive",
       source: "notification",
@@ -892,10 +892,11 @@ describe("pairDeliveryWithConversation", () => {
       { conversationAction },
     );
 
-    expect(result.conversationId).toBe("conv-explicit-passive");
+    expect(result.conversationId).toBeNull();
+    expect(result.messageId).toBeNull();
     expect(result.createdNewConversation).toBe(false);
     expect(createConversationMock).not.toHaveBeenCalled();
-    expect(addMessageMock).toHaveBeenCalledTimes(1);
+    expect(addMessageMock).not.toHaveBeenCalled();
   });
 
   // ── conversationMetadata.conversationType override ─────────────────

@@ -363,6 +363,32 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Get character components",
     description: "Return available avatar character components.",
     tags: ["avatar"],
+    responseBody: z.object({
+      bodyShapes: z.array(
+        z.object({
+          id: z.string(),
+          viewBox: z.object({ width: z.number(), height: z.number() }),
+          faceCenter: z.object({ x: z.number(), y: z.number() }),
+          svgPath: z.string(),
+        }),
+      ),
+      eyeStyles: z.array(
+        z.object({
+          id: z.string(),
+          sourceViewBox: z.object({ width: z.number(), height: z.number() }),
+          eyeCenter: z.object({ x: z.number(), y: z.number() }),
+          paths: z.array(z.object({ svgPath: z.string(), color: z.string() })),
+        }),
+      ),
+      colors: z.array(z.object({ id: z.string(), hex: z.string() })),
+      faceCenterOverrides: z.array(
+        z.object({
+          bodyShape: z.string(),
+          eyeStyle: z.string(),
+          faceCenter: z.object({ x: z.number(), y: z.number() }),
+        }),
+      ),
+    }),
   },
   {
     operationId: "avatar_get_state",

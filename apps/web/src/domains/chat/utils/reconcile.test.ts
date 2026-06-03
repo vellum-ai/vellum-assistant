@@ -15,8 +15,11 @@ import {
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { RuntimeMessage } from "@/domains/chat/api/messages";
 import {
+  makeServerMessage,
   messageText,
   textBody,
+  wireTextBody,
+  wireTimestamp,
 } from "@/domains/chat/utils/message-test-helpers";
 
 // Test factory that produces a DisplayMessage with `id` assigned. Every
@@ -124,18 +127,13 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
       id: "a1",
       role: "assistant",
       timestamp: 1000,
-      textSegments: [
-        {
-          type: "text",
-          content: "This is the longer text already delivered by SSE.",
-        },
-      ],
+      textSegments: ["This is the longer text already delivered by SSE."],
     });
     const staleHistory = makeLocal({
       id: "a1",
       role: "assistant",
       timestamp: 1000,
-      textSegments: [{ type: "text", content: "This is" }],
+      textSegments: ["This is"],
     });
 
     const result = reconcileDisplayMessagesWithLatestHistory(
@@ -150,10 +148,7 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
     // text is never rolled back to the stale snapshot.
     expect(liveAssistantRowId(result, true)).toBe("a1");
     expect(result[0]!.textSegments).toEqual([
-      {
-        type: "text",
-        content: "This is the longer text already delivered by SSE.",
-      },
+      "This is the longer text already delivered by SSE.",
     ]);
   });
 
@@ -198,12 +193,7 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
       role: "assistant",
       isOptimistic: true,
       timestamp: 1010,
-      textSegments: [
-        {
-          type: "text",
-          content: "Stockholm plan: start with Gamla Stan",
-        },
-      ],
+      textSegments: ["Stockholm plan: start with Gamla Stan"],
       contentOrder: [{ type: "text", id: "0" }],
     });
     const completedAssistant = makeLocal({
@@ -211,11 +201,7 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
       role: "assistant",
       timestamp: 1020,
       textSegments: [
-        {
-          type: "text",
-          content:
-            "Stockholm plan: start with Gamla Stan, then spend the afternoon on Djurgarden.",
-        },
+        "Stockholm plan: start with Gamla Stan, then spend the afternoon on Djurgarden.",
       ],
       contentOrder: [{ type: "text", id: "0" }],
     });
@@ -236,11 +222,7 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
     // stays the live row — the merge layer never declares the turn done.
     expect(liveAssistantRowId(result, true)).toBe("a1");
     expect(result[1]!.textSegments).toEqual([
-      {
-        type: "text",
-        content:
-          "Stockholm plan: start with Gamla Stan, then spend the afternoon on Djurgarden.",
-      },
+      "Stockholm plan: start with Gamla Stan, then spend the afternoon on Djurgarden.",
     ]);
   });
 
@@ -294,7 +276,7 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
       timestamp: 1010,
       toolCalls: liveToolCalls,
       textSegments: [
-        { type: "text", content: "Good, that's exactly what we're here for." },
+        "Good, that's exactly what we're here for.",
       ],
       contentOrder: [
         { type: "text", id: "0" },
@@ -355,7 +337,7 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
       id: "assistant-anchor",
       mergedMessageIds: ["assistant-final"],
       role: "assistant",
-      textSegments: [{ type: "text", content: "Everything is set up." }],
+      textSegments: ["Everything is set up."],
       timestamp: 1010,
       toolCalls: [
         {
@@ -501,8 +483,8 @@ describe("reconcileMessages", () => {
       makeLocal({ id: "m2", role: "assistant", ...textBody("partial stream...") }),
     ];
     const server: RuntimeMessage[] = [
-      { id: "m1", role: "user", ...textBody("Hello") },
-      { id: "m2", role: "assistant", ...textBody("Complete response from server") },
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
+      makeServerMessage({ id: "m2", role: "assistant", ...wireTextBody("Complete response from server") }),
     ];
     const result = reconcileMessages(local, server);
     expect(result).toHaveLength(2);
@@ -520,9 +502,9 @@ describe("reconcileMessages", () => {
       makeLocal({ id: "m2", role: "assistant", ...textBody("First reply") }),
     ];
     const server: RuntimeMessage[] = [
-      { id: "m1", role: "user", ...textBody("Hello") },
-      { id: "m2", role: "assistant", ...textBody("First reply") },
-      { id: "m3", role: "assistant", ...textBody("Second reply after handoff") },
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
+      makeServerMessage({ id: "m2", role: "assistant", ...wireTextBody("First reply") }),
+      makeServerMessage({ id: "m3", role: "assistant", ...wireTextBody("Second reply after handoff") }),
     ];
     const result = reconcileMessages(local, server);
     expect(result).toHaveLength(3);
@@ -541,8 +523,8 @@ describe("reconcileMessages", () => {
       optimistic,
     ];
     const server: RuntimeMessage[] = [
-      { id: "m1", role: "user", ...textBody("First") },
-      { id: "m2", role: "assistant", ...textBody("Reply") },
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("First") }),
+      makeServerMessage({ id: "m2", role: "assistant", ...wireTextBody("Reply") }),
     ];
     const result = reconcileMessages(local, server);
     // Server doesn't have the optimistic message yet, so the result is
@@ -561,8 +543,8 @@ describe("reconcileMessages", () => {
 
     // WHEN the server response doesn't include the latest message (replication lag)
     const server: RuntimeMessage[] = [
-      { id: "m1", role: "user", ...textBody("Hello") },
-      { id: "m2", role: "assistant", ...textBody("First reply") },
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
+      makeServerMessage({ id: "m2", role: "assistant", ...wireTextBody("First reply") }),
     ];
     const result = reconcileMessages(local, server);
 
@@ -584,7 +566,7 @@ describe("reconcileMessages", () => {
 
     // WHEN the server response only has the user message
     const server: RuntimeMessage[] = [
-      { id: "m1", role: "user", ...textBody("Hello") },
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
     ];
     const result = reconcileMessages(local, server);
 
@@ -613,8 +595,8 @@ describe("reconcileMessages", () => {
 
     // WHEN the server returns a different id with extended content
     const server: RuntimeMessage[] = [
-      { id: "m1", role: "user", ...textBody("Hello") },
-      { id: "m2", role: "assistant", ...textBody("Let me check... Done!") },
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
+      makeServerMessage({ id: "m2", role: "assistant", ...wireTextBody("Let me check... Done!") }),
     ];
     const result = reconcileMessages(local, server);
 
@@ -652,22 +634,22 @@ describe("reconcileMessages", () => {
           { type: "toolCall", id: "toolu_check_workspace" },
           { type: "text", id: "0" },
         ],
-        textSegments: [{ type: "text", content: "Everything is set up." }],
+        textSegments: ["Everything is set up."],
       }),
     ];
     const server: RuntimeMessage[] = [
-      {
+      makeServerMessage({
         id: "user-1",
         role: "user",
-        ...textBody("I want to write articles that rank better in GEO"),
-        timestamp: 1000,
-      },
-      {
+        ...wireTextBody("I want to write articles that rank better in GEO"),
+        timestamp: wireTimestamp(1000),
+      }),
+      makeServerMessage({
         id: "assistant-anchor",
         mergedMessageIds: ["assistant-tool", "assistant-final"],
         role: "assistant",
-        ...textBody("Good, that's exactly what we're here for. Everything is set up."),
-        timestamp: 1010,
+        ...wireTextBody("Good, that's exactly what we're here for. Everything is set up."),
+        timestamp: wireTimestamp(1010),
         toolCalls: [
           {
             name: "bash",
@@ -675,7 +657,7 @@ describe("reconcileMessages", () => {
             result: "exists",
           },
         ],
-      },
+      }),
     ];
 
     const result = reconcileMessages(local, server);
@@ -700,8 +682,8 @@ describe("reconcileMessages", () => {
       makeLocal({ role: "user", ...textBody("Hello"), isOptimistic: true }),
     ];
     const server: RuntimeMessage[] = [
-      { id: "m1", role: "user", ...textBody("Hello") },
-      { id: "m2", role: "assistant", ...textBody("Hi") },
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
+      makeServerMessage({ id: "m2", role: "assistant", ...wireTextBody("Hi") }),
     ];
     const result = reconcileMessages(local, server);
     expect(result).toHaveLength(2);
@@ -720,7 +702,7 @@ describe("reconcileMessages", () => {
       makeLocal({ id: "m1", role: "assistant", ...textBody("streaming...") }),
     ];
     const server: RuntimeMessage[] = [
-      { id: "m1", role: "assistant", ...textBody("Complete") },
+      makeServerMessage({ id: "m1", role: "assistant", ...wireTextBody("Complete") }),
     ];
     const result = reconcileMessages(local, server);
     expect(result).toHaveLength(1);
@@ -736,10 +718,10 @@ describe("reconcileMessages", () => {
     ];
     // Server has the full conversation including messages missed by the stream
     const server: RuntimeMessage[] = [
-      { id: "m1", role: "user", ...textBody("Hello") },
-      { id: "m2", role: "assistant", ...textBody("First") },
-      { id: "m3", role: "assistant", ...textBody("Second (missed by stream)") },
-      { id: "m4", role: "assistant", ...textBody("Third (missed by stream)") },
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
+      makeServerMessage({ id: "m2", role: "assistant", ...wireTextBody("First") }),
+      makeServerMessage({ id: "m3", role: "assistant", ...wireTextBody("Second (missed by stream)") }),
+      makeServerMessage({ id: "m4", role: "assistant", ...wireTextBody("Third (missed by stream)") }),
     ];
     const result = reconcileMessages(local, server);
     expect(result).toHaveLength(4);
@@ -761,8 +743,8 @@ describe("reconcileMessages", () => {
       makeLocal({ id: "m2", role: "assistant", ...textBody("Hi there") }),
     ];
     const server: RuntimeMessage[] = [
-      { id: "m1", role: "user", ...textBody("Hello") },
-      { id: "m2", role: "assistant", ...textBody("Hi there") },
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
+      makeServerMessage({ id: "m2", role: "assistant", ...wireTextBody("Hi there") }),
     ];
     const result = reconcileMessages(local, server);
     expect(result).toBe(local); // same reference, not just deep equal
@@ -774,8 +756,8 @@ describe("reconcileMessages", () => {
       makeLocal({ id: "m2", role: "assistant", ...textBody("Old reply") }),
     ];
     const server: RuntimeMessage[] = [
-      { id: "m1", role: "user", ...textBody("Hello") },
-      { id: "m2", role: "assistant", ...textBody("Updated reply") },
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
+      makeServerMessage({ id: "m2", role: "assistant", ...wireTextBody("Updated reply") }),
     ];
     const result = reconcileMessages(local, server);
     expect(result).not.toBe(local);
@@ -793,8 +775,8 @@ describe("reconcileMessages", () => {
       makeLocal({ id: "m1", role: "user", ...textBody("Hello") }),
     ];
     const server: RuntimeMessage[] = [
-      { id: "m1", role: "user", ...textBody("Hello") },
-      { id: "m2", role: "assistant", ...textBody("Here is a card"), surfaces: [surface] },
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
+      makeServerMessage({ id: "m2", role: "assistant", ...wireTextBody("Here is a card"), surfaces: [surface] }),
     ];
     const result = reconcileMessages(local, server);
     expect(result).toHaveLength(2);
@@ -805,20 +787,19 @@ describe("reconcileMessages", () => {
     const local: DisplayMessage[] = [
       makeLocal({ id: "m1", role: "user", ...textBody("Hello") }),
     ];
-    const segments = [{ type: "text", content: "Hello world" }];
-    const order = [{ type: "text", id: "seg-1" }];
     const server: RuntimeMessage[] = [
-      { id: "m1", role: "user", ...textBody("Hello") },
-      {
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
+      makeServerMessage({
         id: "m2",
         role: "assistant",
-        textSegments: segments,
-        contentOrder: order,
-      },
+        ...wireTextBody("Hello world"),
+      }),
     ];
     const result = reconcileMessages(local, server);
-    expect(result[1]!.textSegments).toEqual(segments);
-    expect(result[1]!.contentOrder).toEqual(order);
+    expect(result[1]!.textSegments).toEqual([
+      "Hello world",
+    ]);
+    expect(result[1]!.contentOrder).toEqual([{ type: "text", id: "0" }]);
   });
 
   test("preserves local contentOrder and textSegments when local has toolCalls", () => {
@@ -833,8 +814,8 @@ describe("reconcileMessages", () => {
       { type: "text", id: "1" },
     ];
     const localTextSegments = [
-      { type: "text", content: "Let me check..." },
-      { type: "text", content: "Done!" },
+      "Let me check...",
+      "Done!",
     ];
     const localToolCalls: ChatMessageToolCall[] = [
       {
@@ -855,14 +836,14 @@ describe("reconcileMessages", () => {
       }),
     ];
     const server: RuntimeMessage[] = [
-      { id: "m1", role: "user", ...textBody("Run ls") },
-      {
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Run ls") }),
+      makeServerMessage({
         id: "m2",
         role: "assistant",
         toolCalls: [{ name: "bash", input: { command: "ls" } }],
-        contentOrder: [{ type: "text", id: "0" }, { type: "tool", id: "0" }, { type: "text", id: "1" }],
-        textSegments: [{ type: "text", content: "Let me check..." }, { type: "text", content: "Done!" }],
-      },
+        contentOrder: ["text:0", "tool:0", "text:1"],
+        textSegments: ["Let me check...", "Done!"],
+      }),
     ];
     const result = reconcileMessages(local, server);
     // Should use the local versions because local had richer toolCalls
@@ -879,17 +860,17 @@ describe("reconcileMessages", () => {
       makeLocal({ id: "m1", role: "user", ...textBody("Hello") }),
     ];
     const server: RuntimeMessage[] = [
-      { id: "m1", role: "user", ...textBody("Hello") },
-      {
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
+      makeServerMessage({
         id: "m2",
         role: "assistant",
-        contentOrder: [{ type: "text", id: "0" }],
-        textSegments: [{ type: "text", content: "Hi!" }],
-      },
+        contentOrder: ["text:0"],
+        textSegments: ["Hi!"],
+      }),
     ];
     const result = reconcileMessages(local, server);
     expect(result[1]!.contentOrder).toEqual(serverOrder);
-    expect(result[1]!.textSegments).toEqual([{ type: "text", content: "Hi!" }]);
+    expect(result[1]!.textSegments).toEqual(["Hi!"]);
     expect(result[1]!.toolCalls).toBeUndefined();
   });
 
@@ -934,7 +915,7 @@ describe("reconcileMessages — mid-stream sync-tag bubble-split regression", ()
         { type: "text", id: "0" },
         { type: "tool", id: "toolu_01ABC" },
       ],
-      textSegments: [{ type: "text", content: "Working on it..." }],
+      textSegments: ["Working on it..."],
       timestamp: 2000,
     });
     const local: DisplayMessage[] = [
@@ -946,13 +927,13 @@ describe("reconcileMessages — mid-stream sync-tag bubble-split regression", ()
     // the assistant row exists with the same id, content matches the
     // first text delta, but the snapshot has no tool calls.
     const server: RuntimeMessage[] = [
-      { id: "u1", role: "user", ...textBody("Run the script"), timestamp: 1000 },
-      {
+      makeServerMessage({ id: "u1", role: "user", ...wireTextBody("Run the script"), timestamp: wireTimestamp(1000) }),
+      makeServerMessage({
         id: "msg_streaming",
         role: "assistant",
-        ...textBody("Working on it..."),
-        timestamp: 2000,
-      },
+        ...wireTextBody("Working on it..."),
+        timestamp: wireTimestamp(2000),
+      }),
     ];
 
     const result = reconcileMessages(local, server);
@@ -988,11 +969,11 @@ describe("reconcileMessages — server attachment propagation", () => {
     ];
 
     const server: RuntimeMessage[] = [
-      {
+      makeServerMessage({
         id: "m1",
         role: "user",
-        ...textBody("Here is my file"),
-        timestamp: 1000,
+        ...wireTextBody("Here is my file"),
+        timestamp: wireTimestamp(1000),
         attachments: [
           {
             id: "att-uuid-1",
@@ -1002,7 +983,7 @@ describe("reconcileMessages — server attachment propagation", () => {
             kind: "file",
           },
         ],
-      },
+      }),
     ];
 
     const result = reconcileMessages(local, server);
@@ -1039,11 +1020,11 @@ describe("reconcileMessages — server attachment propagation", () => {
     ];
 
     const server: RuntimeMessage[] = [
-      {
+      makeServerMessage({
         id: "m1",
         role: "user",
-        ...textBody("Here is my file"),
-        timestamp: 1000,
+        ...wireTextBody("Here is my file"),
+        timestamp: wireTimestamp(1000),
         attachments: [
           {
             id: "att-uuid-1",
@@ -1053,7 +1034,7 @@ describe("reconcileMessages — server attachment propagation", () => {
             kind: "file",
           },
         ],
-      },
+      }),
     ];
 
     const result = reconcileMessages(local, server);
@@ -1073,11 +1054,11 @@ describe("reconcileMessages — server attachment propagation", () => {
     ];
 
     const server: RuntimeMessage[] = [
-      {
+      makeServerMessage({
         id: "m1",
         role: "user",
-        ...textBody("An image"),
-        timestamp: 1000,
+        ...wireTextBody("An image"),
+        timestamp: wireTimestamp(1000),
         attachments: [
           {
             id: "att-img",
@@ -1088,7 +1069,7 @@ describe("reconcileMessages — server attachment propagation", () => {
             thumbnailData: "dGh1bWJuYWls",
           },
         ],
-      },
+      }),
     ];
 
     const result = reconcileMessages(local, server);
@@ -1119,11 +1100,11 @@ describe("reconcileMessages — server attachment propagation", () => {
     ];
 
     const server: RuntimeMessage[] = [
-      {
+      makeServerMessage({
         id: "m1",
         role: "user",
-        ...textBody("Here is my file"),
-        timestamp: 1000,
+        ...wireTextBody("Here is my file"),
+        timestamp: wireTimestamp(1000),
         attachments: [
           {
             id: "att-real-uuid",
@@ -1133,7 +1114,7 @@ describe("reconcileMessages — server attachment propagation", () => {
             kind: "file",
           },
         ],
-      },
+      }),
     ];
 
     const result = reconcileMessages(local, server);
@@ -1165,12 +1146,12 @@ describe("reconcileMessages — server attachment propagation", () => {
     ];
 
     const server: RuntimeMessage[] = [
-      {
+      makeServerMessage({
         id: "m1",
         role: "user",
-        ...textBody("Here is my file"),
-        timestamp: 1000,
-      },
+        ...wireTextBody("Here is my file"),
+        timestamp: wireTimestamp(1000),
+      }),
     ];
 
     const result = reconcileMessages(local, server);
@@ -1189,11 +1170,11 @@ describe("reconcileMessages — server attachment propagation", () => {
     ];
 
     const server: RuntimeMessage[] = [
-      {
+      makeServerMessage({
         id: "m1",
         role: "user",
-        ...textBody("Please review this\n[File attachment] spec.pdf, type=application/pdf, size=1.2 MB"),
-        timestamp: 1000,
+        ...wireTextBody("Please review this\n[File attachment] spec.pdf, type=application/pdf, size=1.2 MB"),
+        timestamp: wireTimestamp(1000),
         attachments: [
           {
             id: "att-uuid",
@@ -1203,7 +1184,7 @@ describe("reconcileMessages — server attachment propagation", () => {
             kind: "file",
           },
         ],
-      },
+      }),
     ];
 
     const result = reconcileMessages(local, server);
@@ -1224,37 +1205,33 @@ describe("reconcileMessages — server attachment propagation", () => {
     ];
 
     const server: RuntimeMessage[] = [
-      {
+      makeServerMessage({
         id: "m1",
         role: "user",
-        timestamp: 1000,
-        textSegments: [
-          {
-            type: "text",
-            content:
-              "Check this file\n[File attachment] notes.txt, type=text/plain, size=5 B",
-          },
-        ],
-      },
+        timestamp: wireTimestamp(1000),
+        ...wireTextBody(
+          "Check this file\n[File attachment] notes.txt, type=text/plain, size=5 B",
+        ),
+      }),
     ];
 
     const result = reconcileMessages(local, server);
     const msg = result.find((m) => m.id === "m1");
     expect(messageText(msg!)).toBe("Check this file");
     expect(msg!.textSegments).toBeDefined();
-    expect(msg!.textSegments![0]!.content).toBe("Check this file");
+    expect(msg!.textSegments![0]).toBe("Check this file");
   });
 
   test("falls back to parsed attachments when server has no structured metadata", () => {
     const local: DisplayMessage[] = [];
 
     const server: RuntimeMessage[] = [
-      {
+      makeServerMessage({
         id: "m1",
         role: "user",
-        ...textBody("Here is the doc\n[File attachment] report.pdf, type=application/pdf, size=2 MB"),
-        timestamp: 1000,
-      },
+        ...wireTextBody("Here is the doc\n[File attachment] report.pdf, type=application/pdf, size=2 MB"),
+        timestamp: wireTimestamp(1000),
+      }),
     ];
 
     const result = reconcileMessages(local, server);
@@ -1270,12 +1247,12 @@ describe("reconcileMessages — server attachment propagation", () => {
     const local: DisplayMessage[] = [];
 
     const server: RuntimeMessage[] = [
-      {
+      makeServerMessage({
         id: "m1",
         role: "user",
-        ...textBody("Just a normal message"),
-        timestamp: 1000,
-      },
+        ...wireTextBody("Just a normal message"),
+        timestamp: wireTimestamp(1000),
+      }),
     ];
 
     const result = reconcileMessages(local, server);
@@ -1309,11 +1286,11 @@ describe("reconcileMessages — server attachment propagation", () => {
     ];
 
     const server: RuntimeMessage[] = [
-      {
+      makeServerMessage({
         id: "m1",
         role: "user",
-        ...textBody("Please review this\n[File attachment] spec.pdf, type=application/pdf, size=4 KB"),
-        timestamp: 1000,
+        ...wireTextBody("Please review this\n[File attachment] spec.pdf, type=application/pdf, size=4 KB"),
+        timestamp: wireTimestamp(1000),
         attachments: [
           {
             id: "att-real-uuid",
@@ -1323,7 +1300,7 @@ describe("reconcileMessages — server attachment propagation", () => {
             kind: "file",
           },
         ],
-      },
+      }),
     ];
 
     const result = reconcileMessages(local, server);
@@ -1365,8 +1342,8 @@ describe("reconcileMessages id semantics", () => {
     });
     const local: DisplayMessage[] = [optimistic];
     const server: RuntimeMessage[] = [
-      { id: "srv-m1", role: "user", ...textBody("Hello there") },
-      { id: "srv-m2", role: "assistant", ...textBody("Hi") },
+      makeServerMessage({ id: "srv-m1", role: "user", ...wireTextBody("Hello there") }),
+      makeServerMessage({ id: "srv-m2", role: "assistant", ...wireTextBody("Hi") }),
     ];
 
     const result = reconcileMessages(local, server);
@@ -1389,8 +1366,8 @@ describe("reconcileMessages id semantics", () => {
       makeLocal({ id: "m2", role: "assistant", ...textBody("Hi there") }),
     ];
     const server: RuntimeMessage[] = [
-      { id: "m1", role: "user", ...textBody("Hello") },
-      { id: "m2", role: "assistant", ...textBody("Hi there") },
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
+      makeServerMessage({ id: "m2", role: "assistant", ...wireTextBody("Hi there") }),
     ];
     const result = reconcileMessages(local, server);
     expect(result).toBe(local);
@@ -1404,7 +1381,7 @@ describe("reconcileMessages id semantics", () => {
     });
     const local: DisplayMessage[] = [localRow];
     const server: RuntimeMessage[] = [
-      { id: "m1", role: "user", ...textBody("Hello changed by server") },
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello changed by server") }),
     ];
 
     reconcileMessages(local, server);
@@ -1430,9 +1407,9 @@ describe("reconcileMessages — timestamp ordering", () => {
 
     // AND the server returns messages with a new assistant response at ts 3000
     const server: RuntimeMessage[] = [
-      { id: "m1", role: "user", ...textBody("First"), timestamp: 1000 },
-      { id: "m2", role: "assistant", ...textBody("Reply"), timestamp: 2000 },
-      { id: "m3", role: "assistant", ...textBody("New response"), timestamp: 3000 },
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("First"), timestamp: wireTimestamp(1000) }),
+      makeServerMessage({ id: "m2", role: "assistant", ...wireTextBody("Reply"), timestamp: wireTimestamp(2000) }),
+      makeServerMessage({ id: "m3", role: "assistant", ...wireTextBody("New response"), timestamp: wireTimestamp(3000) }),
     ];
 
     // WHEN reconciliation runs
@@ -1457,9 +1434,9 @@ describe("reconcileMessages — timestamp ordering", () => {
 
     // AND the server returns messages in correct chronological order
     const server: RuntimeMessage[] = [
-      { id: "m1", role: "user", ...textBody("Hello"), timestamp: 1000 },
-      { id: "m2", role: "assistant", ...textBody("Earlier reply"), timestamp: 2000 },
-      { id: "m3", role: "assistant", ...textBody("Late reply"), timestamp: 3000 },
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello"), timestamp: wireTimestamp(1000) }),
+      makeServerMessage({ id: "m2", role: "assistant", ...wireTextBody("Earlier reply"), timestamp: wireTimestamp(2000) }),
+      makeServerMessage({ id: "m3", role: "assistant", ...wireTextBody("Late reply"), timestamp: wireTimestamp(3000) }),
     ];
 
     // WHEN reconciliation runs
@@ -1476,8 +1453,8 @@ describe("reconcileMessages — timestamp ordering", () => {
       makeLocal({ id: "m2", role: "assistant", ...textBody("Reply") }),
     ];
     const server: RuntimeMessage[] = [
-      { id: "m1", role: "user", ...textBody("Hello") },
-      { id: "m2", role: "assistant", ...textBody("Reply") },
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
+      makeServerMessage({ id: "m2", role: "assistant", ...wireTextBody("Reply") }),
     ];
 
     // WHEN reconciliation runs
@@ -1505,10 +1482,10 @@ describe("reconcileMessages — timestamp ordering", () => {
 
     // AND the server returns all messages including the missed assistant reply
     const server: RuntimeMessage[] = [
-      { id: "m1", role: "user", ...textBody("Hello"), timestamp: 1000 },
-      { id: "m2", role: "assistant", ...textBody("Hi"), timestamp: 2000 },
-      { id: "m3", role: "user", ...textBody("Follow-up"), timestamp: 3000 },
-      { id: "m4", role: "assistant", ...textBody("Missed reply"), timestamp: 4000 },
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello"), timestamp: wireTimestamp(1000) }),
+      makeServerMessage({ id: "m2", role: "assistant", ...wireTextBody("Hi"), timestamp: wireTimestamp(2000) }),
+      makeServerMessage({ id: "m3", role: "user", ...wireTextBody("Follow-up"), timestamp: wireTimestamp(3000) }),
+      makeServerMessage({ id: "m4", role: "assistant", ...wireTextBody("Missed reply"), timestamp: wireTimestamp(4000) }),
     ];
 
     // WHEN reconciliation runs
@@ -1532,8 +1509,8 @@ describe("reconcileMessages — timestamp ordering", () => {
       makeLocal({ id: "sse-1", role: "assistant", ...textBody("SSE msg"), timestamp: 1500 }),
     ];
     const server: RuntimeMessage[] = [
-      { id: "m1", role: "user", ...textBody("Hello"), timestamp: 1000 },
-      { id: "m2", role: "assistant", ...textBody("Server msg"), timestamp: 2000 },
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello"), timestamp: wireTimestamp(1000) }),
+      makeServerMessage({ id: "m2", role: "assistant", ...wireTextBody("Server msg"), timestamp: wireTimestamp(2000) }),
     ];
 
     // WHEN reconciliation runs
@@ -1556,9 +1533,9 @@ describe("reconcileMessages — timestamp ordering", () => {
       makeLocal({ id: "m3", role: "user", ...textBody("Early"), timestamp: 1000 }),
     ];
     const server: RuntimeMessage[] = [
-      { id: "m1", role: "assistant", ...textBody("Late"), timestamp: 3000 },
-      { id: "m2", role: "user", ...textBody("No timestamp") },
-      { id: "m3", role: "user", ...textBody("Early"), timestamp: 1000 },
+      makeServerMessage({ id: "m1", role: "assistant", ...wireTextBody("Late"), timestamp: wireTimestamp(3000) }),
+      makeServerMessage({ id: "m2", role: "user", ...wireTextBody("No timestamp") }),
+      makeServerMessage({ id: "m3", role: "user", ...wireTextBody("Early"), timestamp: wireTimestamp(1000) }),
     ];
 
     // WHEN reconciliation runs
@@ -1633,8 +1610,8 @@ describe("reconcileMessages — dedup safety net", () => {
       makeLocal({ id: "m2", role: "assistant", ...textBody("Reply (dup from reconnect)") }),
     ];
     const server: RuntimeMessage[] = [
-      { id: "m1", role: "user", ...textBody("Hello") },
-      { id: "m2", role: "assistant", ...textBody("Reply") },
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
+      makeServerMessage({ id: "m2", role: "assistant", ...wireTextBody("Reply") }),
     ];
     const result = reconcileMessages(local, server);
     const ids = result.filter((m) => m.id).map((m) => m.id);
@@ -1648,8 +1625,8 @@ describe("reconcileMessages — dedup safety net", () => {
       makeLocal({ id: "m2", role: "assistant", ...textBody("Reply") }),
     ];
     const server: RuntimeMessage[] = [
-      { id: "m1", role: "user", ...textBody("Hello") },
-      { id: "m2", role: "assistant", ...textBody("Reply") },
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
+      makeServerMessage({ id: "m2", role: "assistant", ...wireTextBody("Reply") }),
     ];
     const result = reconcileMessages(local, server);
     const ids = result.filter((m) => m.id).map((m) => m.id);
@@ -1724,12 +1701,12 @@ describe("reconcileMessages — Slack metadata", () => {
       makeLocal({ id: "m1", role: "user", ...textBody("Slack reply") }),
     ];
     const server: RuntimeMessage[] = [
-      {
+      makeServerMessage({
         id: "m1",
         role: "user",
-        ...textBody("Slack reply"),
+        ...wireTextBody("Slack reply"),
         slackMessage,
-      },
+      }),
     ];
 
     const result = reconcileMessages(local, server);
@@ -1754,12 +1731,12 @@ describe("reconcileMessages — Slack metadata", () => {
       }),
     ];
     const server: RuntimeMessage[] = [
-      {
+      makeServerMessage({
         id: "m1",
         role: "user",
-        ...textBody("Slack reply"),
+        ...wireTextBody("Slack reply"),
         slackMessage,
-      },
+      }),
     ];
 
     const result = reconcileMessages(local, server);
@@ -1788,12 +1765,12 @@ describe("reconcileMessages — Slack metadata", () => {
       }),
     ];
     const server: RuntimeMessage[] = [
-      {
+      makeServerMessage({
         id: "m1",
         role: "user",
-        ...textBody("Slack reply"),
+        ...wireTextBody("Slack reply"),
         slackMessage: serverSlackMessage,
-      },
+      }),
     ];
 
     const result = reconcileMessages(local, server);

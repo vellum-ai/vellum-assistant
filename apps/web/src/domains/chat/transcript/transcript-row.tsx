@@ -25,6 +25,7 @@ export interface TranscriptRowProps {
   assistantDisplayName?: string | null;
   expandedToolCallIds: Set<string>;
   expandedCardIds: Map<string, boolean>;
+  expandedThinkingKeys: Map<string, boolean>;
   onSurfaceAction: (
     surfaceId: string,
     actionId: string,
@@ -71,6 +72,10 @@ export interface TranscriptRowProps {
   onSubagentClick?: (subagentId: string) => void;
   /** Callback to abort/stop a running subagent from an inline card. */
   onStopSubagent?: (subagentId: string) => void;
+  /** True when this row belongs to the actively-streaming turn. Forwarded to
+   *  `TranscriptMessageBody` so the streaming message's last tool-call group
+   *  defaults open. History rows leave it `false`. */
+  isStreaming?: boolean;
 }
 
 export const TranscriptRow = memo(function TranscriptRow({
@@ -78,6 +83,7 @@ export const TranscriptRow = memo(function TranscriptRow({
   assistantDisplayName,
   expandedToolCallIds,
   expandedCardIds,
+  expandedThinkingKeys,
   onSurfaceAction,
   onSecretSubmit,
   onConfirmationDecision,
@@ -100,6 +106,7 @@ export const TranscriptRow = memo(function TranscriptRow({
   assistantId,
   onSubagentClick,
   onStopSubagent,
+  isStreaming,
 }: TranscriptRowProps) {
   switch (item.kind) {
     case "message":
@@ -109,6 +116,7 @@ export const TranscriptRow = memo(function TranscriptRow({
           assistantDisplayName={assistantDisplayName}
           expandedToolCallIds={expandedToolCallIds}
           expandedCardIds={expandedCardIds}
+          expandedThinkingKeys={expandedThinkingKeys}
           onSurfaceAction={onSurfaceAction}
           onForkConversation={onForkConversation}
           onInspectMessage={onInspectMessage}
@@ -124,6 +132,7 @@ export const TranscriptRow = memo(function TranscriptRow({
           assistantId={assistantId}
           onSubagentClick={onSubagentClick}
           onStopSubagent={onStopSubagent}
+          isStreaming={isStreaming}
         />
       );
 

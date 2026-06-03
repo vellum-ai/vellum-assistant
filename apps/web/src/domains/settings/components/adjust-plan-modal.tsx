@@ -68,15 +68,16 @@ const DRF_FIELD_KEYS = [
 
 function extractMutationError(error: unknown, fallback: string): string {
   if (error && typeof error === "object") {
-    const rec = error as Record<string, unknown>;
     for (const key of DRF_FIELD_KEYS) {
-      const msgs = rec[key];
-      if (Array.isArray(msgs) && typeof msgs[0] === "string") {
-        return msgs[0];
+      if (key in error) {
+        const msgs = (error as Record<string, unknown>)[key];
+        if (Array.isArray(msgs) && typeof msgs[0] === "string") {
+          return msgs[0];
+        }
       }
     }
-    if (typeof rec.detail === "string") {
-      return rec.detail;
+    if ("detail" in error && typeof error.detail === "string") {
+      return error.detail;
     }
   }
   return fallback;
@@ -652,6 +653,15 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                             features={plan.included_features}
                             variant="checklist"
                           />
+                          {isProCard && (
+                            <Typography
+                              as="p"
+                              variant="body-small-default"
+                              className="text-[var(--content-tertiary)]"
+                            >
+                              *Credits not included
+                            </Typography>
+                          )}
                         </div>
                         <div className="mt-4 flex flex-1 flex-col justify-end gap-4">
                           {!isCurrent && isProCard && (

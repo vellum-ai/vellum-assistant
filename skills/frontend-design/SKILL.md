@@ -4,8 +4,10 @@ description: Create distinctive, production-grade frontend interfaces with high 
 compatibility: "Designed for Vellum personal assistants"
 license: Complete terms in LICENSE.txt
 metadata:
+  icon: assets/icon.svg
   emoji: "🎨"
   vellum:
+    category: "development"
     display-name: "Frontend Design"
 ---
 

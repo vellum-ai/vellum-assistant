@@ -8,19 +8,17 @@
  * Keeping the two implementations byte-identical means text derived on the
  * client matches the text the daemon would have produced.
  *
- * Only `text` segments contribute — non-text segment kinds (if any are ever
- * introduced) are skipped, matching the daemon which joins only text parts.
+ * Mirrors the wire `textSegments: string[]` shape — every entry is a text
+ * body, matching the daemon which joins only text parts.
  */
 export function segmentsToPlainText(
-  segments: Array<{ type: string; content: string }> | undefined,
+  segments: string[] | undefined,
 ): string {
   if (!segments || segments.length === 0) {
     return "";
   }
 
-  const parts = segments
-    .filter((seg) => seg.type === "text")
-    .map((seg) => seg.content);
+  const parts = segments;
 
   let result = parts[0] ?? "";
   for (let i = 1; i < parts.length; i++) {

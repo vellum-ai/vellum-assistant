@@ -1,19 +1,32 @@
 /**
  * Message operations: history retrieval, polling, sending, and attachments.
  *
- * Includes `RuntimeMessage` / `RuntimeToolCall` types used for daemon
- * history payloads, content normalization helpers, and the `postChatMessage`
- * / `uploadChatAttachment` / `deleteQueuedMessage` write operations.
+ * The daemon's history-row wire contract (`RuntimeMessage` / `RuntimeToolCall`)
+ * is derived from the canonical `ConversationMessage` schema in
+ * `@vellumai/assistant-api`, alongside content normalization helpers and the
+ * `postChatMessage` / `uploadChatAttachment` / `deleteQueuedMessage` writes.
  */
 
 import { captureError } from "@/lib/sentry/capture-error";
-import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type {
-  DisplayMessage,
-  SlackRuntimeMessage,
-  Surface,
-} from "@/domains/chat/types/types";
-import { client } from "@/generated/api/client.gen";
+  ConversationMessage,
+  ConversationMessageAttachment,
+  ConversationMessageToolCall,
+  ConversationSubagentNotification,
+} from "@vellumai/assistant-api";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import type { DisplayMessage } from "@/domains/chat/types/types";
+import {
+  attachmentsPost,
+  messagesGet,
+  messagesPost,
+  messagesQueuedByIdSteerPost,
+  messagesQueuedByIdDelete,
+} from "@/generated/daemon/sdk.gen";
+import type {
+  MessagesGetResponse,
+  MessagesPostData,
+} from "@/generated/daemon/types.gen";
 import { assertHasResponse, extractErrorMessage } from "@/utils/api-errors";
 import {
   normalizePreChatOnboardingContext,
@@ -22,101 +35,60 @@ import {
 import { persistPreChatOnboardingProfile } from "@/domains/onboarding/prechat-profile";
 import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
 import { pickConversationIdWireField } from "@/lib/backwards-compat/conversation-id-wire-field";
+import { getEffectiveTimezone } from "@/utils/effective-timezone";
 
 const POLL_INTERVAL_MS = 1000;
 const POLL_TIMEOUT_MS = 120_000;
 
-/** Shape of a single tool call as returned by the daemon's history endpoint. */
-export interface RuntimeToolCall {
-  name: string;
-  input: Record<string, unknown>;
-  result?: string;
-  isError?: boolean;
-  /** Risk level classification at invocation time ("low" | "medium" | "high" | "unknown"). */
-  riskLevel?: string;
-  /** Human-readable reason for the risk classification. */
-  riskReason?: string;
-  /** Whether the tool was auto-approved (true) or required explicit user input (false). */
-  autoApproved?: boolean;
-  /** ID of the trust rule that matched this invocation (if any). */
-  matchedTrustRuleId?: string;
-  /** How the approval decision was reached. */
-  approvalMode?: string;
-  /** Why the approval decision was reached. */
-  approvalReason?: string;
-  /** Snapshot of the auto-approve threshold at execution time. */
-  riskThreshold?: string;
-  /** Unix ms timestamp when the tool call started. Persisted by the daemon; used for duration display. */
-  startedAt?: number;
-  /** Unix ms timestamp when the tool call completed. Persisted by the daemon; used for duration display. */
-  completedAt?: number;
-  /** Explicit confirmation decision persisted by the daemon ("approved" | "denied" | "timed_out"). */
-  confirmationDecision?: string;
-}
+/**
+ * A single tool call as returned by the daemon's history endpoint. Canonical
+ * wire contract — re-exported under the runtime-local name so the web derives
+ * from one source of truth instead of a hand-rolled copy that can drift.
+ */
+export type RuntimeToolCall = ConversationMessageToolCall;
 
 /** Attachment metadata returned by the daemon's message history endpoint. */
-export interface RuntimeAttachment {
-  id: string;
-  filename: string;
-  mimeType: string;
-  sizeBytes: number;
-  kind: string;
-  /** Base64-encoded file data. Only populated for images on history reload. */
-  data?: string;
-  thumbnailData?: string;
-  fileBacked?: boolean;
-}
+export type RuntimeAttachment = ConversationMessageAttachment;
 
-/** Subagent notification embedded in assistant history messages. */
-export interface RuntimeSubagentNotification {
-  subagentId: string;
-  label: string;
-  status: string;
-  error?: string;
-  conversationId?: string;
+/**
+ * Subagent notification as carried by the web. The wire shape
+ * (`ConversationSubagentNotification`) is enriched during history
+ * reconstruction with the client-derived id of the parent assistant message
+ * that spawned the subagent (see `history.ts`); those fields are not part of
+ * the wire contract.
+ */
+export interface RuntimeSubagentNotification extends ConversationSubagentNotification {
   /** StableId of the parent assistant message that spawned this subagent. */
   parentMessageStableId?: string;
   /** Daemon UUID of the parent assistant message. Stable across reloads. */
   parentMessageId?: string;
 }
 
-export interface RuntimeMessage {
-  id: string;
-  /** Server message ids folded into this canonical history row. */
-  mergedMessageIds?: string[];
-  role: "user" | "assistant";
-  surfaces?: Surface[];
-  textSegments?: Array<{
-    type: string;
-    content: string;
-    [key: string]: unknown;
-  }>;
-  contentOrder?: Array<{ type: string; id: string }>;
-  metadata?: Record<string, unknown>;
-  slackMessage?: SlackRuntimeMessage;
-  toolCalls?: RuntimeToolCall[];
-  /** Structured attachment metadata from the daemon's history endpoint. */
-  attachments?: RuntimeAttachment[];
-  /** Server-provided timestamp as epoch milliseconds or an ISO string. */
-  timestamp?: number | string;
-  /** Subagent notification attached to this history message by the daemon. */
-  subagentNotification?: RuntimeSubagentNotification;
-}
+/**
+ * A consolidated conversation-history row as returned by the daemon's messages
+ * endpoint. Canonical wire contract from `@vellumai/assistant-api`; the
+ * display-ready shape (`DisplayMessage`) is produced by
+ * `mapRuntimeToDisplayMessage` / `prepareServerMessage`.
+ */
+export type RuntimeMessage = ConversationMessage;
 
-interface SendMessageResponse {
-  accepted: boolean;
-  messageId?: string;
-  queued?: boolean;
-  conversationId?: string;
-  assistantMessage?: RuntimeMessage;
-  /** Set when `queued` is true — the daemon's request id for the
-   *  queued message, used by the steer/cancel endpoints. Added by
-   *  #7484 (queue steering) but the interface field was missed. */
-  requestId?: string;
-}
-
-interface ListMessagesResponse {
-  messages: RuntimeMessage[];
+/**
+ * Coerce the daemon messages endpoint's `Array<unknown>` rows into the
+ * canonical `RuntimeMessage` shape. The route declares message items as
+ * `unknown` on the wire, so consumers narrow defensively here rather than
+ * trusting the element type.
+ */
+function extractRuntimeMessages(
+  data: MessagesGetResponse | undefined,
+): RuntimeMessage[] {
+  const raw = Array.isArray(data?.messages) ? data.messages : [];
+  return raw.filter(
+    (m): m is RuntimeMessage =>
+      !!m &&
+      typeof m === "object" &&
+      typeof (m as RuntimeMessage).id === "string" &&
+      typeof (m as RuntimeMessage).role === "string",
+  );
 }
 
 export async function pollForResponse(
@@ -127,11 +99,7 @@ export async function pollForResponse(
   const deadline = Date.now() + POLL_TIMEOUT_MS;
 
   while (Date.now() < deadline) {
-    const { data, error, response } = await client.get<
-      ListMessagesResponse,
-      unknown
-    >({
-      url: "/v1/assistants/{assistant_id}/messages/",
+    const { data, error, response } = await messagesGet({
       path: { assistant_id: assistantId },
       query: { conversationId },
       throwOnError: false,
@@ -147,7 +115,7 @@ export async function pollForResponse(
       throw new Error(msg);
     }
 
-    const messages = Array.isArray(data?.messages) ? data.messages : [];
+    const messages = extractRuntimeMessages(data);
 
     // Only consider assistant messages that appear after our sent user
     // message in the list, establishing a causal boundary so delayed
@@ -253,39 +221,6 @@ export function normalizeContentOrder(
   return result.length > 0 ? result : undefined;
 }
 
-/**
- * Normalize a textSegments array from the server. The server sends plain
- * strings, but the client expects objects with `{ type, content }`.
- */
-export function normalizeTextSegments(
-  raw: unknown[] | undefined,
-):
-  | Array<{ type: string; content: string; [key: string]: unknown }>
-  | undefined {
-  if (!raw || raw.length === 0) return undefined;
-  const result: Array<{
-    type: string;
-    content: string;
-    [key: string]: unknown;
-  }> = [];
-  for (const entry of raw) {
-    if (typeof entry === "string") {
-      result.push({ type: "text", content: entry });
-    } else if (entry && typeof entry === "object" && !Array.isArray(entry)) {
-      const obj = entry as Record<string, unknown>;
-      if (typeof obj.content === "string") {
-        const type = typeof obj.type === "string" ? obj.type : "text";
-        result.push({ ...obj, type, content: obj.content } as {
-          type: string;
-          content: string;
-          [key: string]: unknown;
-        });
-      }
-    }
-  }
-  return result.length > 0 ? result : undefined;
-}
-
 export type ChatHistoryResult =
   | { ok: true; messages: DisplayMessage[] }
   | { ok: false; status: number; error: string };
@@ -295,11 +230,7 @@ export async function getChatHistory(
   conversationId: string,
 ): Promise<ChatHistoryResult> {
   try {
-    const { data, error, response } = await client.get<
-      ListMessagesResponse,
-      unknown
-    >({
-      url: "/v1/assistants/{assistant_id}/messages/",
+    const { data, error, response } = await messagesGet({
       path: { assistant_id: assistantId },
       query: { conversationId },
       throwOnError: false,
@@ -319,7 +250,7 @@ export async function getChatHistory(
       };
     }
 
-    const messages = (Array.isArray(data?.messages) ? data.messages : [])
+    const messages = extractRuntimeMessages(data)
       .filter((m) => m.role === "user" || m.role === "assistant")
       .map(mapRuntimeToDisplayMessage);
 
@@ -342,11 +273,7 @@ export async function fetchConversationMessages(
   assistantId: string,
   conversationId: string,
 ): Promise<RuntimeMessage[]> {
-  const { data, error, response } = await client.get<
-    ListMessagesResponse,
-    unknown
-  >({
-    url: "/v1/assistants/{assistant_id}/messages/",
+  const { data, error, response } = await messagesGet({
     path: { assistant_id: assistantId },
     query: { conversationId },
     throwOnError: false,
@@ -357,7 +284,7 @@ export async function fetchConversationMessages(
       `Failed to fetch conversation messages (HTTP ${response.status})`,
     );
   }
-  return Array.isArray(data?.messages) ? data.messages : [];
+  return extractRuntimeMessages(data);
 }
 
 export type PostMessageResult =
@@ -393,7 +320,7 @@ export type UploadAttachmentResult =
  * Upload a single file as a chat attachment and return the server-assigned id.
  *
  * The assistant backend exposes a multipart upload at
- * `/v1/assistants/{assistant_id}/attachments/` that accepts a `file` field
+ * `/v1/assistants/{assistant_id}/attachments` that accepts a `file` field
  * plus `filename` and `mimeType` text fields. The response body contains an
  * `id` that can be included in a subsequent `postChatMessage` call via
  * `attachmentIds`.
@@ -405,25 +332,9 @@ export async function uploadChatAttachment(
   const filename = file.name || "attachment";
   const mimeType = file.type || "application/octet-stream";
 
-  const form = new FormData();
-  form.append("filename", filename);
-  form.append("mimeType", mimeType);
-  form.append("file", file, filename);
-
-  const { data, error, response } = await client.post<
-    Record<string, unknown>,
-    unknown
-  >({
-    url: "/v1/assistants/{assistant_id}/attachments/",
+  const { data, error, response } = await attachmentsPost({
     path: { assistant_id: assistantId },
-    body: form as unknown as Record<string, unknown>,
-    // Pass the FormData through without serialization so the browser sets
-    // the correct multipart boundary on Content-Type.
-    bodySerializer: (body: unknown) => body as BodyInit,
-    headers: {
-      // Let fetch compute the multipart boundary for us.
-      "Content-Type": null,
-    },
+    body: { file, filename, mimeType },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to upload attachment");
@@ -440,12 +351,7 @@ export async function uploadChatAttachment(
     return { ok: false, status: response.status, error: { detail } };
   }
 
-  const dataRecord =
-    data && typeof data === "object" && !Array.isArray(data)
-      ? (data as Record<string, unknown>)
-      : undefined;
-  const rawId = dataRecord?.id;
-  const id = typeof rawId === "string" ? rawId : undefined;
+  const id = data?.id;
   if (!id) {
     return {
       ok: false,
@@ -499,11 +405,20 @@ export async function postChatMessage(
   // Pre-0.8.6 assistants always receive `conversationKey` — including
   // `conversationKey: null` for safety, since they have no mint branch
   // and need the legacy create-or-lookup path either way.
-  const body: Record<string, unknown> = {
+  const body: MessagesPostData["body"] = {
     content,
     sourceChannel: "vellum",
     interface: "vellum",
   };
+  // Read the effective timezone LIVE at send time (not from cached state) so
+  // every message carries the user's current zone, keeping the assistant's
+  // per-turn time awareness fresh as the OS/browser timezone changes. The
+  // daemon route consumes this field in its turn-timezone cascade (see
+  // `assistant/src/runtime/routes/conversation-routes.ts`, where the request
+  // schema accepts `clientTimezone: z.string().optional()` and forwards it
+  // into `resolveTurnTimezoneContext`).
+  const clientTimezone = getEffectiveTimezone();
+  if (clientTimezone) body.clientTimezone = clientTimezone;
   const conversationField = pickConversationIdWireField();
   if (conversationId !== null || conversationField !== "conversationId") {
     body[conversationField] = conversationId;
@@ -515,11 +430,12 @@ export async function postChatMessage(
     ? normalizePreChatOnboardingContext(onboarding)
     : undefined;
   if (normalizedOnboarding) {
-    const onboardingDict: Record<string, unknown> = {
-      tools: normalizedOnboarding.tools,
-      tasks: normalizedOnboarding.tasks,
-      tone: normalizedOnboarding.tone,
-    };
+    const onboardingDict: NonNullable<MessagesPostData["body"]["onboarding"]> =
+      {
+        tools: normalizedOnboarding.tools,
+        tasks: normalizedOnboarding.tasks,
+        tone: normalizedOnboarding.tone,
+      };
     if (normalizedOnboarding.userName !== undefined)
       onboardingDict.userName = normalizedOnboarding.userName;
     if (normalizedOnboarding.assistantName !== undefined)
@@ -558,8 +474,7 @@ export async function postChatMessage(
     data,
     error,
     response: sendResponse,
-  } = await client.post<SendMessageResponse, unknown>({
-    url: "/v1/assistants/{assistant_id}/messages/",
+  } = await messagesPost({
     path: { assistant_id: assistantId },
     body,
     throwOnError: false,
@@ -610,10 +525,7 @@ export async function postChatMessage(
     };
   }
 
-  const sendData =
-    data && typeof data === "object" && !Array.isArray(data)
-      ? (data as SendMessageResponse)
-      : undefined;
+  const sendData = data;
   if (!sendData?.accepted) {
     return {
       ok: false,
@@ -685,10 +597,8 @@ export async function steerToMessage(
   requestId: string,
 ): Promise<boolean> {
   try {
-    const encoded = encodeURIComponent(requestId);
-    const { response } = await client.post<unknown, unknown>({
-      url: `/v1/assistants/{assistant_id}/messages/queued/${encoded}/steer`,
-      path: { assistant_id: assistantId },
+    const { response } = await messagesQueuedByIdSteerPost({
+      path: { assistant_id: assistantId, id: requestId },
       query: { conversationId },
       throwOnError: false,
     });
@@ -709,10 +619,8 @@ export async function deleteQueuedMessage(
   requestId: string,
 ): Promise<boolean> {
   try {
-    const encoded = encodeURIComponent(requestId);
-    const { response } = await client.delete<unknown, unknown>({
-      url: `/v1/assistants/{assistant_id}/messages/queued/${encoded}`,
-      path: { assistant_id: assistantId },
+    const { response } = await messagesQueuedByIdDelete({
+      path: { assistant_id: assistantId, id: requestId },
       query: { conversationId },
       throwOnError: false,
     });

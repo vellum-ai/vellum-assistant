@@ -1,4 +1,7 @@
-import { client } from "@/generated/api/client.gen";
+import {
+  inferenceProviderconnectionsPost,
+  secretsPost,
+} from "@/generated/daemon/sdk.gen";
 import type { OnboardingProviderId } from "@/domains/onboarding/provider-catalog";
 
 // Model-provider API key collected during onboarding. Held in sessionStorage
@@ -26,11 +29,23 @@ export function setPendingProviderKey(value: PendingProviderKey | null): void {
   }
 }
 
+function isPendingProviderKey(value: unknown): value is PendingProviderKey {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    "provider" in value &&
+    typeof value.provider === "string" &&
+    "key" in value &&
+    typeof value.key === "string"
+  );
+}
+
 export function peekPendingProviderKey(): PendingProviderKey | null {
   try {
     const raw = sessionStorage.getItem(PENDING_KEY_STORAGE);
     if (!raw) return null;
-    return JSON.parse(raw) as PendingProviderKey;
+    const parsed: unknown = JSON.parse(raw);
+    return isPendingProviderKey(parsed) ? parsed : null;
   } catch {
     return null;
   }
@@ -46,7 +61,7 @@ export function consumePendingProviderKey(): PendingProviderKey | null {
   return value;
 }
 
-// Daemon wrappers via the generated client. Duplicated minimally here rather
+// Daemon wrappers via the generated SDK. Duplicated minimally here rather
 // than importing domains/settings/ai/provider-connections-client (cross-domain
 // imports are ESLint-gated in apps/web).
 
@@ -55,15 +70,14 @@ async function writeApiKeySecret(
   provider: OnboardingProviderId,
   value: string,
 ): Promise<void> {
-  const result = await client.post({
-    url: "/v1/assistants/{assistant_id}/secrets/",
+  const { response } = await secretsPost({
     path: { assistant_id: assistantId },
     body: { type: "api_key", name: provider, value },
-    headers: { "Content-Type": "application/json" },
+    throwOnError: false,
   });
-  if (!result.response?.ok) {
+  if (!response?.ok) {
     throw Object.assign(new Error("Failed to write provider secret"), {
-      status: result.response?.status,
+      status: response?.status,
     });
   }
 }
@@ -74,17 +88,16 @@ async function createProviderConnection(
   hasKey: boolean,
 ): Promise<void> {
   const auth = hasKey
-    ? { type: "api_key", credential: `credential/${provider}/api_key` }
-    : { type: "none" };
-  const result = await client.post({
-    url: "/v1/assistants/{assistant_id}/inference/provider-connections",
+    ? { type: "api_key" as const, credential: `credential/${provider}/api_key` }
+    : { type: "none" as const };
+  const { response } = await inferenceProviderconnectionsPost({
     path: { assistant_id: assistantId },
     body: { name: provider, provider, auth },
-    headers: { "Content-Type": "application/json" },
+    throwOnError: false,
   });
-  if (!result.response?.ok) {
+  if (!response?.ok) {
     throw Object.assign(new Error("Failed to create provider connection"), {
-      status: result.response?.status,
+      status: response?.status,
     });
   }
 }

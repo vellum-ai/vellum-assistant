@@ -1,14 +1,10 @@
 /**
- * Default `toolResultTruncate` behavior: tail-drops oversized tool-result text
- * down to a character budget, plus the truncation primitive it wraps.
+ * Tool-result truncation: tail-drops oversized tool-result text down to a
+ * character budget derived from the model's context window, plus the
+ * primitives it wraps.
  *
  * This module is side-effect free: importing it does not register any plugin.
  */
-
-import type {
-  ToolResultTruncateArgs,
-  ToolResultTruncateResult,
-} from "./types.js";
 
 const HIGH_SURROGATE_START = 0xd800;
 const HIGH_SURROGATE_END = 0xdbff;
@@ -98,16 +94,39 @@ export function truncateToolResultText(text: string, maxChars: number): string {
 }
 
 /**
- * Truncate a single tool-result block's content to `args.maxChars`. Exported
- * so the agent loop can call it directly and tests can verify the default
- * behavior.
+ * Maximum share of the context window that a single tool result may occupy.
  */
-export function defaultToolResultTruncateTerminal(
-  args: ToolResultTruncateArgs,
-): ToolResultTruncateResult {
-  const truncated = truncateToolResultText(args.content, args.maxChars);
-  return {
-    content: truncated,
-    truncated: truncated !== args.content,
-  };
+const MAX_TOOL_RESULT_CONTEXT_SHARE = 0.3;
+
+/**
+ * Absolute cap on tool-result characters (~100K tokens).
+ */
+export const HARD_MAX_TOOL_RESULT_CHARS = 400_000;
+
+/**
+ * Calculate the maximum allowed characters for a tool result based on the
+ * context window size. Uses ~4 chars per token as a rough heuristic.
+ */
+export function calculateMaxToolResultChars(
+  contextWindowTokens: number,
+): number {
+  return Math.min(
+    HARD_MAX_TOOL_RESULT_CHARS,
+    Math.floor(contextWindowTokens * MAX_TOOL_RESULT_CONTEXT_SHARE * 4),
+  );
+}
+
+/**
+ * Truncate a tool result's content to fit the model's context window. Derives
+ * the character budget from `maxInputTokens` and tail-drops anything beyond it.
+ * Returns the (possibly truncated) content alongside a `truncated` flag the
+ * caller can use for telemetry.
+ */
+export function truncateToolResult(
+  content: string,
+  maxInputTokens: number,
+): { content: string; truncated: boolean } {
+  const maxChars = calculateMaxToolResultChars(maxInputTokens);
+  const next = truncateToolResultText(content, maxChars);
+  return { content: next, truncated: next !== content };
 }

@@ -1,8 +1,6 @@
 import {
-  Calendar,
   ChevronLeft,
   ChevronRight,
-  Contact,
   Globe,
   LayoutGrid,
   MessageSquare,
@@ -13,7 +11,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 
 import {
   type CommandPaletteItemData,
@@ -23,7 +21,7 @@ import {
   useCommandPalette,
   type UseCommandPaletteReturn,
 } from "@/components/command-palette/use-command-palette";
-import type { GlobalSearchResponse } from "@/domains/chat/api/global-search";
+import { buildServerResultSections } from "@/domains/chat/hooks/command-palette-utils";
 import { haptic } from "@/utils/haptics";
 import { routes } from "@/utils/routes";
 
@@ -111,63 +109,6 @@ function buildRecentsSection(
         : undefined,
     })),
   };
-}
-
-/**
- * Build sections from server search results, deduplicating conversations
- * that already appear in the local recents section.
- */
-export function buildServerResultSections(
-  results: GlobalSearchResponse,
-  recentConversationIds: Set<string>,
-): CommandPaletteSection[] {
-  const sections: CommandPaletteSection[] = [];
-
-  const serverConvItems = results.conversations
-    .filter((c) => !recentConversationIds.has(c.id))
-    .map((c) => ({
-      id: `search-conv-${c.id}`,
-      icon: MessageSquare,
-      title: c.title ?? "Untitled",
-      subtitle: c.excerpt,
-    }));
-  if (serverConvItems.length > 0) {
-    sections.push({
-      id: "search-conversations",
-      label: "Conversations",
-      items: serverConvItems,
-    });
-  }
-
-  const scheduleItems = results.schedules.map((s) => ({
-    id: `search-schedule-${s.id}`,
-    icon: Calendar,
-    title: s.name,
-    subtitle: s.expression ?? s.message,
-  }));
-  if (scheduleItems.length > 0) {
-    sections.push({
-      id: "search-schedules",
-      label: "Schedules",
-      items: scheduleItems,
-    });
-  }
-
-  const contactItems = results.contacts.map((c) => ({
-    id: `search-contact-${c.id}`,
-    icon: Contact,
-    title: c.displayName,
-    subtitle: c.notes ?? undefined,
-  }));
-  if (contactItems.length > 0) {
-    sections.push({
-      id: "search-contacts",
-      label: "Contacts",
-      items: contactItems,
-    });
-  }
-
-  return sections;
 }
 
 // ---------------------------------------------------------------------------
@@ -258,7 +199,7 @@ interface UseCommandPaletteSectionsParams {
   navigateToSettings: () => void;
 }
 
-interface UseCommandPaletteSectionsReturn {
+export interface UseCommandPaletteSectionsReturn {
   commandPalette: UseCommandPaletteReturn;
   mergedSections: CommandPaletteSection[];
   handleItemSelect: (item: CommandPaletteItemData) => void;
@@ -335,7 +276,9 @@ export function useCommandPaletteSections({
     assistantId,
   });
 
-  closeRef.current = commandPalette.close;
+  useLayoutEffect(() => {
+    closeRef.current = commandPalette.close;
+  });
 
   // Filter local sections by the current query.
   const filteredLocalSections = useMemo((): CommandPaletteSection[] => {
@@ -369,7 +312,9 @@ export function useCommandPaletteSections({
   ]);
 
   // Keep the ref in sync so keyboard nav and onSelect always use the latest sections.
-  mergedSectionsRef.current = mergedSections;
+  useLayoutEffect(() => {
+    mergedSectionsRef.current = mergedSections;
+  });
 
   const handleItemSelect = useCallback(
     (item: CommandPaletteItemData) => {

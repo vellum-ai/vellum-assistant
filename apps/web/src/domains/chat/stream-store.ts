@@ -22,7 +22,7 @@
 import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
-import type { ChatEventStream } from "@/lib/streaming/stream-transport";
+import type { EventStream } from "@/lib/streaming/stream-transport";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -42,7 +42,7 @@ export interface StreamStoreState {
    *  is live for the current conversation context. `use-send-message`
    *  reads it to decide whether SSE will deliver the response or
    *  polling is needed. */
-  stream: ChatEventStream | null;
+  stream: EventStream | null;
 
   /** Monotonic counter bumped on every SSE lifecycle transition.
    *  In-flight async work captures the epoch at dispatch time and
@@ -59,7 +59,7 @@ export interface StreamStoreState {
 // ---------------------------------------------------------------------------
 
 export interface StreamStoreActions {
-  setStream: (stream: ChatEventStream | null) => void;
+  setStream: (stream: EventStream | null) => void;
 
   /** Increment the epoch counter and return the new value. */
   bumpEpoch: () => number;

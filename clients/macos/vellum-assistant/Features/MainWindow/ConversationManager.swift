@@ -1713,12 +1713,24 @@ final class ConversationManager: ConversationRestorerDelegate {
 
     // MARK: - Managed Key Reprovisioning
 
+    nonisolated static func shouldReprovisionAssistantKeyViaLocalBootstrap(for assistant: LockfileAssistant) -> Bool {
+        !assistant.isManaged && (!assistant.isRemote || assistant.isDocker)
+    }
+
     private func reprovisionManagedKey() async {
         guard let assistantId = LockfileAssistant.loadActiveAssistantId(), !assistantId.isEmpty else {
             log.warning("Cannot reprovision — no connected assistant ID")
             return
         }
-        log.info("Managed API key invalid — attempting reprovision for \(assistantId, privacy: .public)")
+        guard let assistant = LockfileAssistant.loadByName(assistantId) else {
+            log.warning("Cannot reprovision assistant API key — active assistant \(assistantId, privacy: .public) is missing from the lockfile")
+            return
+        }
+        guard Self.shouldReprovisionAssistantKeyViaLocalBootstrap(for: assistant) else {
+            log.warning("Skipping local assistant API key reprovision for \(assistantId, privacy: .public) because local bootstrap is only valid for local or Docker assistants")
+            return
+        }
+        log.info("Assistant API key invalid — attempting local reprovision for \(assistantId, privacy: .public)")
         let credentialStorage = FileCredentialStorage()
         let bootstrapService = LocalAssistantBootstrapService(credentialStorage: credentialStorage)
         do {
@@ -1727,9 +1739,9 @@ final class ConversationManager: ConversationRestorerDelegate {
                 clientPlatform: "macos",
                 assistantVersion: connectionManager.assistantVersion
             )
-            log.info("Managed API key reprovisioned successfully")
+            log.info("Assistant API key reprovisioned successfully")
         } catch {
-            log.error("Failed to reprovision managed API key: \(error.localizedDescription)")
+            log.error("Failed to reprovision assistant API key: \(error.localizedDescription)")
         }
     }
 }

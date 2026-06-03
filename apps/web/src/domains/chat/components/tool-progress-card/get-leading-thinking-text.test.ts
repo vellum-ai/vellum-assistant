@@ -6,7 +6,7 @@ import type { DisplayMessage } from "@/domains/chat/types/types";
 import { textBody } from "@/domains/chat/utils/message-test-helpers";
 function makeMessage(
   contentOrder: Array<{ type: string; id: string }>,
-  textSegments: Array<{ type: string; content: string }> = [],
+  textSegments: string[] = [],
 ): DisplayMessage {
   return {
     id: "stable-1",
@@ -31,7 +31,7 @@ describe("getLeadingThinkingText", () => {
         { type: "text", id: "0" },
         { type: "toolCall", id: "tc-1" },
       ],
-      [{ type: "text", content: "  Looking up the docs.  " }],
+      ["  Looking up the docs.  "],
     );
 
     // WHEN we ask for the thinking text preceding the tool group at index 1
@@ -57,7 +57,7 @@ describe("getLeadingThinkingText", () => {
         { type: "surface", id: "s-1" },
         { type: "toolCall", id: "tc-2" },
       ],
-      [{ type: "text", content: "Earlier preamble." }],
+      ["Earlier preamble."],
     );
 
     // WHEN we ask for the thinking text preceding the second tool group (index 3)
@@ -94,7 +94,7 @@ describe("getLeadingThinkingText", () => {
         { type: "text", id: "0" },
         { type: "toolCall", id: "tc-1" },
       ],
-      [{ type: "text", content: "   \n  " }],
+      ["   \n  "],
     );
 
     // WHEN we ask for the thinking text preceding the tool group
@@ -116,7 +116,7 @@ describe("getLeadingThinkingText", () => {
         { type: "text", id: "0" },
         { type: "toolCall", id: "tc-1" },
       ],
-      [{ type: "text", content: longText }],
+      [longText],
     );
 
     // WHEN we ask for the thinking text
@@ -140,7 +140,7 @@ describe("getLeadingThinkingText", () => {
         { type: "toolCall", id: "tc-1" },
         { type: "toolCall", id: "tc-2" },
       ],
-      [{ type: "text", content: "Thinking step." }],
+      ["Thinking step."],
     );
 
     // WHEN we ask for the thinking text preceding the merged tool group at index 1

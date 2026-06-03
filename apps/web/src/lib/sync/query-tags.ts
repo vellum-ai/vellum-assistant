@@ -1,5 +1,12 @@
 import type { QueryClient } from "@tanstack/react-query";
 
+import {
+  configGetQueryKey,
+  groupsGetQueryKey,
+} from "@/generated/daemon/@tanstack/react-query.gen";
+import type { Options } from "@/generated/daemon/sdk.gen";
+import type { ConfigGetData, GroupsGetData } from "@/generated/daemon/types.gen";
+
 export const AVATAR_QUERY_KEY_PREFIX = "assistantAvatar";
 
 export function avatarQueryKey(assistantId: string) {
@@ -33,10 +40,30 @@ export function scheduledConversationsQueryKey(assistantId: string | null) {
   return [SCHEDULED_CONVERSATIONS_QUERY_KEY, assistantId ?? ""] as const;
 }
 
+/**
+ * Build the generated query key for conversation groups. Exported so that
+ * invalidation call sites (sync stream, loader, group actions) can target
+ * the same cache entry that `useConversationGroupsQuery` populates.
+ */
+export function conversationGroupsQueryKey(
+  assistantId: string | null,
+): ReturnType<typeof groupsGetQueryKey> {
+  return groupsGetQueryKey({
+    path: { assistant_id: assistantId ?? "" },
+  } as Options<GroupsGetData>);
+}
+
+/**
+ * Build the generated query key for the daemon config. All consumers —
+ * sync handler, service cards, imperative invalidation — share one cache
+ * entry via this key.
+ */
 export function assistantDaemonConfigQueryKey(
   assistantId: string | null | undefined,
-) {
-  return ["daemon-config", assistantId] as const;
+): ReturnType<typeof configGetQueryKey> {
+  return configGetQueryKey({
+    path: { assistant_id: assistantId ?? "" },
+  } as Options<ConfigGetData>);
 }
 
 export function assistantSoundsConfigQueryKey(

@@ -11,43 +11,32 @@ interface SentryBreadcrumbCall {
   message?: string;
   data?: Record<string, unknown>;
 }
-interface SentryCaptureMessageCall {
-  message: string;
-  level?: string;
-  tags?: Record<string, string>;
-  extra?: Record<string, unknown>;
-}
-
 const sentryBreadcrumbs: SentryBreadcrumbCall[] = [];
-const sentryCaptureMessages: SentryCaptureMessageCall[] = [];
 
 mock.module("@sentry/react", () => ({
   addBreadcrumb: (crumb: SentryBreadcrumbCall) => {
     sentryBreadcrumbs.push(crumb);
   },
-  captureMessage: (
-    message: string,
-    options?: {
-      level?: string;
-      tags?: Record<string, string>;
-      extra?: Record<string, unknown>;
-    },
-  ) => {
-    sentryCaptureMessages.push({
-      message,
-      level: options?.level,
-      tags: options?.tags,
-      extra: options?.extra,
-    });
-  },
+  captureMessage: () => {},
   captureException: () => {},
 }));
 
-import { getLifecycleDiagnosticsEvents } from "@/lib/diagnostics";
-import { subscribeChatEvents, type ChatStreamReconnectCause } from "@/lib/streaming/stream-transport";
-import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+// Controllable seq-gap flag + reconnect cursor so the reconnect-URL
+// tests can exercise the resumable-stream wiring without a live daemon.
+let mockSeqGapEnabled = true;
+mock.module("@/lib/feature-flags/seq-gap-detection-flag", () => ({
+  isSeqGapDetectionEnabled: () => mockSeqGapEnabled,
+}));
 
-describe("subscribeChatEvents idle watchdog", () => {
+let mockReconnectCursor: number | null = null;
+mock.module("@/lib/streaming/reconnect-cursor", () => ({
+  getReconnectCursor: () => mockReconnectCursor,
+}));
+
+import { getLifecycleDiagnosticsEvents } from "@/lib/diagnostics";
+import { subscribeEvents, type StreamReconnectCause } from "@/lib/streaming/stream-transport";
+
+describe("subscribeEvents idle watchdog", () => {
   let originalFetch: typeof fetch;
   let originalDocument: unknown;
 
@@ -58,10 +47,6 @@ describe("subscribeChatEvents idle watchdog", () => {
     // path but keeps the bun (Node) test env consistent.
     originalDocument = (globalThis as { document?: unknown }).document;
     (globalThis as { document?: unknown }).document = { cookie: "csrftoken=test" };
-    // Reset the version-gating store so subscribeChatEvents defaults to
-    // the legacy `conversationKey` wire field. Tests that exercise the
-    // newer `conversationId` path opt in explicitly via setIdentity().
-    useAssistantIdentityStore.getState().clearIdentity();
   });
 
   afterEach(() => {
@@ -71,7 +56,6 @@ describe("subscribeChatEvents idle watchdog", () => {
     } else {
       (globalThis as { document?: unknown }).document = originalDocument;
     }
-    useAssistantIdentityStore.getState().clearIdentity();
   });
 
   test("omits any conversation query param when subscribing to all assistant events", async () => {
@@ -90,9 +74,8 @@ describe("subscribeChatEvents idle watchdog", () => {
       },
     ) as unknown as typeof fetch;
 
-    const stream = subscribeChatEvents(
+    const stream = subscribeEvents(
       "asst-1",
-      null,
       () => {},
       () => {},
       { idleTimeoutMs: 5_000, reconnectBaseDelayMs: 10_000 },
@@ -111,124 +94,10 @@ describe("subscribeChatEvents idle watchdog", () => {
     }
   });
 
-  test("uses conversationId query when daemon version >= 0.8.6", async () => {
-    useAssistantIdentityStore.getState().setIdentity("Vel", "0.8.6");
-
-    const requestedUrls: string[] = [];
-    globalThis.fetch = mock(
-      async (input: RequestInfo | URL) => {
-        requestedUrls.push(input instanceof Request ? input.url : String(input));
-        return new Response(
-          new ReadableStream({
-            start(controller) {
-              controller.close();
-            },
-          }),
-          { status: 200, headers: { "Content-Type": "text/event-stream" } },
-        );
-      },
-    ) as unknown as typeof fetch;
-
-    const stream = subscribeChatEvents(
-      "asst-1",
-      "conv-internal-1",
-      () => {},
-      () => {},
-      { idleTimeoutMs: 5_000, reconnectBaseDelayMs: 10_000 },
-    );
-
-    try {
-      await new Promise((r) => setTimeout(r, 50));
-      expect(requestedUrls).toHaveLength(1);
-      const url = new URL(requestedUrls[0]!);
-      expect(url.searchParams.get("conversationId")).toBe("conv-internal-1");
-      expect(url.searchParams.get("conversationKey")).toBeNull();
-    } finally {
-      stream.cancel();
-    }
-  });
-
-  test("uses conversationKey query when daemon version is older than 0.8.6", async () => {
-    useAssistantIdentityStore.getState().setIdentity("Vel", "0.8.5");
-
-    const requestedUrls: string[] = [];
-    globalThis.fetch = mock(
-      async (input: RequestInfo | URL) => {
-        requestedUrls.push(input instanceof Request ? input.url : String(input));
-        return new Response(
-          new ReadableStream({
-            start(controller) {
-              controller.close();
-            },
-          }),
-          { status: 200, headers: { "Content-Type": "text/event-stream" } },
-        );
-      },
-    ) as unknown as typeof fetch;
-
-    const stream = subscribeChatEvents(
-      "asst-1",
-      "conv-key-legacy",
-      () => {},
-      () => {},
-      { idleTimeoutMs: 5_000, reconnectBaseDelayMs: 10_000 },
-    );
-
-    try {
-      await new Promise((r) => setTimeout(r, 50));
-      expect(requestedUrls).toHaveLength(1);
-      const url = new URL(requestedUrls[0]!);
-      expect(url.searchParams.get("conversationKey")).toBe("conv-key-legacy");
-      expect(url.searchParams.get("conversationId")).toBeNull();
-    } finally {
-      stream.cancel();
-    }
-  });
-
-  test("falls back to conversationKey when daemon version is unknown", async () => {
-    // Default store state: identity not yet hydrated. Conservative
-    // fallback to the legacy field is the only safe choice — older
-    // daemons silently ignore `conversationId`.
-    expect(useAssistantIdentityStore.getState().version).toBeNull();
-
-    const requestedUrls: string[] = [];
-    globalThis.fetch = mock(
-      async (input: RequestInfo | URL) => {
-        requestedUrls.push(input instanceof Request ? input.url : String(input));
-        return new Response(
-          new ReadableStream({
-            start(controller) {
-              controller.close();
-            },
-          }),
-          { status: 200, headers: { "Content-Type": "text/event-stream" } },
-        );
-      },
-    ) as unknown as typeof fetch;
-
-    const stream = subscribeChatEvents(
-      "asst-1",
-      "conv-unknown-version",
-      () => {},
-      () => {},
-      { idleTimeoutMs: 5_000, reconnectBaseDelayMs: 10_000 },
-    );
-
-    try {
-      await new Promise((r) => setTimeout(r, 50));
-      expect(requestedUrls).toHaveLength(1);
-      const url = new URL(requestedUrls[0]!);
-      expect(url.searchParams.get("conversationKey")).toBe("conv-unknown-version");
-      expect(url.searchParams.get("conversationId")).toBeNull();
-    } finally {
-      stream.cancel();
-    }
-  });
-
   test("force-reconnects when the SSE stream stalls past the idle timeout", async () => {
     // When the SSE transport silently stalls (no bytes flowing) but
     // never raises an error, the for-await-of loop in
-    // subscribeChatEvents blocks forever and any messages emitted
+    // subscribeEvents blocks forever and any messages emitted
     // server-side never reach the UI. The watchdog must abort the
     // active fetch after idleTimeoutMs and let the existing reconnect
     // path open a fresh connection.
@@ -260,9 +129,8 @@ describe("subscribeChatEvents idle watchdog", () => {
     const onError = mock(() => {});
     let reconnectCallbacks = 0;
 
-    const stream = subscribeChatEvents(
+    const stream = subscribeEvents(
       "asst-1",
-      "conv-key",
       onEvent,
       onError,
       {
@@ -323,9 +191,8 @@ describe("subscribeChatEvents idle watchdog", () => {
       },
     ) as unknown as typeof fetch;
 
-    const stream = subscribeChatEvents(
+    const stream = subscribeEvents(
       "asst-1",
-      "conv-key",
       () => {},
       () => {},
       {
@@ -378,11 +245,9 @@ describe("subscribeChatEvents idle watchdog", () => {
 
     const eventCountBefore = getLifecycleDiagnosticsEvents().length;
     const breadcrumbsBefore = sentryBreadcrumbs.length;
-    const captureMessagesBefore = sentryCaptureMessages.length;
 
-    const sub = subscribeChatEvents(
+    const sub = subscribeEvents(
       "asst-watchdog",
-      "conv-watchdog",
       () => {},
       () => {},
       { idleTimeoutMs: 50, reconnectBaseDelayMs: 10 },
@@ -400,7 +265,6 @@ describe("subscribeChatEvents idle watchdog", () => {
       const first = fires[0]!;
       expect(first.details).toMatchObject({
         assistantId: "asst-watchdog",
-        conversationId: "conv-watchdog",
         idleTimeoutMs: 50,
       });
       // The first watchdog fire happens on the very first connect
@@ -409,9 +273,8 @@ describe("subscribeChatEvents idle watchdog", () => {
       // Centralized platform tag is injected by the diagnostics recorder.
       expect(first.details.platform).toBe("web");
 
-      // Sentry mirrors are how fleet data answers the L2/L3 question.
-      // Without these, telemetry is gated on user-submitted support
-      // bundles, which biases the sample toward broken-and-noisy.
+      // Breadcrumb attaches to nearby Sentry error events for
+      // debugging context.
       const newBreadcrumbs = sentryBreadcrumbs.slice(breadcrumbsBefore);
       const watchdogBreadcrumb = newBreadcrumbs.find(
         (crumb) =>
@@ -423,48 +286,17 @@ describe("subscribeChatEvents idle watchdog", () => {
         assistantId: "asst-watchdog",
         idleTimeoutMs: 50,
       });
-      const newCaptureMessages = sentryCaptureMessages.slice(
-        captureMessagesBefore,
-      );
-      const watchdogCapture = newCaptureMessages.find(
-        (call) => call.message === "sse_watchdog_fired",
-      );
-      expect(watchdogCapture).toBeDefined();
-      // platform must be a tag (not just an extra) so the L2/L3
-      // breakdown — Capacitor iOS vs web — is one Discover query
-      // away. Sentry's auto-detected os.name does not distinguish
-      // Capacitor iOS from Safari iOS.
-      expect(watchdogCapture!.tags).toMatchObject({
-        context: "sse_watchdog",
-        platform: "web",
-      });
-      expect(watchdogCapture!.extra).toMatchObject({
-        assistantId: "asst-watchdog",
-        conversationId: "conv-watchdog",
-        idleTimeoutMs: 50,
-      });
     } finally {
       sub.cancel();
     }
   });
 
-  test("tags watchdog fires with wasTurnSending + liveness counters so user-harming vs benign stalls are aggregable", async () => {
-    // The 100% bucket=0 reading on `sse_post_watchdog_reconcile_result`
-    // collapses two populations into one: stalls during an in-flight
-    // turn (user-harming — visible blank screen) and stalls on an
-    // idle stream after a turn completed (benign — user is not
-    // waiting on anything). Without splitting these, the Layer 2/3
-    // decision is uninterpretable, because the L2/L3 work only
-    // helps the first population.
-    //
-    // wasTurnSending is the dimension that splits them: promoted to a
-    // tag so a single Discover groupBy answers "what fraction of
-    // watchdog fires happen while the user is waiting?" The liveness
-    // counters (keepalivesReceivedSinceConnect, dataFramesReceivedSinceConnect,
-    // lastByteAgeMs) further split each population by whether vembda
-    // was alive at the time of the stall, distinguishing
-    // "vembda alive, daemon silent" from "server never responded"
-    // from "stream died mid-turn".
+  test("records wasTurnSending + liveness counters in diagnostics and breadcrumb so user-harming vs benign stalls are distinguishable", async () => {
+    // wasTurnSending splits stalls into two populations: in-flight
+    // turn (user-harming — visible blank screen) vs idle stream
+    // (benign). The liveness counters further split by whether
+    // vembda was alive: "vembda alive, daemon silent" vs "server
+    // never responded" vs "stream died mid-turn".
     globalThis.fetch = mock(
       async () =>
         new Response(
@@ -478,11 +310,10 @@ describe("subscribeChatEvents idle watchdog", () => {
     ) as unknown as typeof fetch;
 
     const eventCountBefore = getLifecycleDiagnosticsEvents().length;
-    const captureMessagesBefore = sentryCaptureMessages.length;
+    const breadcrumbsBefore = sentryBreadcrumbs.length;
 
-    const sub = subscribeChatEvents(
+    const sub = subscribeEvents(
       "asst-aggregation",
-      "conv-aggregation",
       () => {},
       () => {},
       {
@@ -503,38 +334,24 @@ describe("subscribeChatEvents idle watchdog", () => {
         (event) => event.kind === "sse_watchdog_fired",
       );
       expect(firstFire).toBeDefined();
-      // The diagnostic carries the same fields as the Sentry extras
-      // so support snapshots (which only ship the diagnostics
-      // buffer, not Sentry events) can answer the same questions.
+      // The diagnostic ring and breadcrumb carry the full context
+      // so both support snapshots and Sentry error events have it.
       expect(firstFire!.details).toMatchObject({
         wasTurnSending: true,
-        // No SSE traffic arrived because the stream stalled on
-        // first byte, so the counters stay at zero and
-        // lastByteAgeMs stays null (distinguishes
-        // "server never responded" from "stream stalled after
-        // some traffic").
         keepalivesReceivedSinceConnect: 0,
         dataFramesReceivedSinceConnect: 0,
         lastByteAgeMs: null,
       });
 
-      const newCaptureMessages = sentryCaptureMessages.slice(
-        captureMessagesBefore,
+      // Breadcrumb carries the same fields for debugging context.
+      const newBreadcrumbs = sentryBreadcrumbs.slice(breadcrumbsBefore);
+      const watchdogBreadcrumb = newBreadcrumbs.find(
+        (crumb) =>
+          crumb.category === "sse.watchdog" &&
+          crumb.message === "watchdog_fired",
       );
-      const watchdogCapture = newCaptureMessages.find(
-        (call) => call.message === "sse_watchdog_fired",
-      );
-      expect(watchdogCapture).toBeDefined();
-      // wasTurnSending is promoted to a TAG (not just extra) so
-      // Discover can groupBy it. String-encoded because Sentry
-      // tag values must be strings.
-      expect(watchdogCapture!.tags).toMatchObject({
-        context: "sse_watchdog",
-        wasTurnSending: "true",
-      });
-      // And mirrored as an extra so per-event drill-in shows the
-      // raw boolean alongside the counters.
-      expect(watchdogCapture!.extra).toMatchObject({
+      expect(watchdogBreadcrumb).toBeDefined();
+      expect(watchdogBreadcrumb!.data).toMatchObject({
         wasTurnSending: true,
         keepalivesReceivedSinceConnect: 0,
         dataFramesReceivedSinceConnect: 0,
@@ -545,14 +362,10 @@ describe("subscribeChatEvents idle watchdog", () => {
     }
   });
 
-  test("tags wasTurnSending: 'unknown' when no getActiveTurnSending snapshot is supplied", async () => {
-    // Backwards compatibility: callers that have not yet wired the
-    // turn-sending snapshot (e.g. unit tests of subscribeChatEvents
-    // in isolation, or any caller without turn-sending wiring) must still produce
-    // a tag value, not omit the field. Sentry groups absent tags as
-    // `"<no-tag>"` in Discover, which collides with healthy events
-    // that legitimately have no value. Sending `"unknown"` makes
-    // the missing-instrumentation population explicit.
+  test("records wasTurnSending: null in breadcrumb when no getActiveTurnSending snapshot is supplied", async () => {
+    // Callers without turn-sending wiring produce wasTurnSending: null
+    // in the breadcrumb, distinguishing "caller didn't provide" from
+    // "caller provided false".
     globalThis.fetch = mock(
       async () =>
         new Response(
@@ -565,11 +378,10 @@ describe("subscribeChatEvents idle watchdog", () => {
         ),
     ) as unknown as typeof fetch;
 
-    const captureMessagesBefore = sentryCaptureMessages.length;
+    const breadcrumbsBefore = sentryBreadcrumbs.length;
 
-    const sub = subscribeChatEvents(
+    const sub = subscribeEvents(
       "asst-no-snapshot",
-      "conv-no-snapshot",
       () => {},
       () => {},
       { idleTimeoutMs: 50, reconnectBaseDelayMs: 10 },
@@ -578,20 +390,14 @@ describe("subscribeChatEvents idle watchdog", () => {
     try {
       await new Promise((r) => setTimeout(r, 200));
 
-      const newCaptureMessages = sentryCaptureMessages.slice(
-        captureMessagesBefore,
+      const newBreadcrumbs = sentryBreadcrumbs.slice(breadcrumbsBefore);
+      const watchdogBreadcrumb = newBreadcrumbs.find(
+        (crumb) =>
+          crumb.category === "sse.watchdog" &&
+          crumb.message === "watchdog_fired",
       );
-      const watchdogCapture = newCaptureMessages.find(
-        (call) => call.message === "sse_watchdog_fired",
-      );
-      expect(watchdogCapture).toBeDefined();
-      expect(watchdogCapture!.tags).toMatchObject({
-        wasTurnSending: "unknown",
-      });
-      // Extra remains the raw `null` so per-event drill-in
-      // distinguishes "caller didn't provide" from "caller
-      // provided false".
-      expect(watchdogCapture!.extra).toMatchObject({
+      expect(watchdogBreadcrumb).toBeDefined();
+      expect(watchdogBreadcrumb!.data).toMatchObject({
         wasTurnSending: null,
       });
     } finally {
@@ -641,9 +447,8 @@ describe("subscribeChatEvents idle watchdog", () => {
 
     const eventCountBefore = getLifecycleDiagnosticsEvents().length;
 
-    const sub = subscribeChatEvents(
+    const sub = subscribeEvents(
       "asst-heartbeat",
-      "conv-heartbeat",
       () => {},
       () => {},
       { idleTimeoutMs: 100, reconnectBaseDelayMs: 10 },
@@ -696,11 +501,10 @@ describe("subscribeChatEvents idle watchdog", () => {
         ),
     ) as unknown as typeof fetch;
 
-    const causes: ChatStreamReconnectCause[] = [];
+    const causes: StreamReconnectCause[] = [];
 
-    const sub = subscribeChatEvents(
+    const sub = subscribeEvents(
       "asst-1",
-      "conv-key",
       () => {},
       () => {},
       {
@@ -762,12 +566,11 @@ describe("subscribeChatEvents idle watchdog", () => {
       );
     }) as unknown as typeof fetch;
 
-    const causes: ChatStreamReconnectCause[] = [];
+    const causes: StreamReconnectCause[] = [];
     const eventCountBefore = getLifecycleDiagnosticsEvents().length;
 
-    const sub = subscribeChatEvents(
+    const sub = subscribeEvents(
       "asst-stale",
-      "conv-stale",
       () => {},
       () => {},
       {
@@ -844,11 +647,10 @@ describe("subscribeChatEvents idle watchdog", () => {
       );
     }) as unknown as typeof fetch;
 
-    const causes: ChatStreamReconnectCause[] = [];
+    const causes: StreamReconnectCause[] = [];
 
-    const sub = subscribeChatEvents(
+    const sub = subscribeEvents(
       "asst-1",
-      "conv-key",
       () => {},
       () => {},
       {
@@ -895,9 +697,8 @@ describe("subscribeChatEvents idle watchdog", () => {
       );
     }) as unknown as typeof fetch;
 
-    const sub = subscribeChatEvents(
+    const sub = subscribeEvents(
       "asst-1",
-      "conv-key",
       () => {},
       () => {},
       { idleTimeoutMs: 50, reconnectBaseDelayMs: 10 },
@@ -911,5 +712,113 @@ describe("subscribeChatEvents idle watchdog", () => {
     // After cancel, no further attempts should be scheduled.
     await new Promise((r) => setTimeout(r, 250));
     expect(fetchCallCount).toBe(countAtCancel);
+  });
+});
+
+describe("subscribeEvents reconnect cursor (resumable stream)", () => {
+  let originalFetch: typeof fetch;
+  let originalDocument: unknown;
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+    originalDocument = (globalThis as { document?: unknown }).document;
+    (globalThis as { document?: unknown }).document = { cookie: "csrftoken=test" };
+    mockSeqGapEnabled = true;
+    mockReconnectCursor = null;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    if (originalDocument === undefined) {
+      delete (globalThis as { document?: unknown }).document;
+    } else {
+      (globalThis as { document?: unknown }).document = originalDocument;
+    }
+  });
+
+  // First connect closes the stream cleanly so the transport schedules
+  // a reconnect; the second connect is the one that should carry the
+  // cursor. Returns the URLs requested in order.
+  const captureReconnectUrls = async (): Promise<string[]> => {
+    const requestedUrls: string[] = [];
+    let callCount = 0;
+    globalThis.fetch = mock(async (input: RequestInfo | URL) => {
+      requestedUrls.push(input instanceof Request ? input.url : String(input));
+      callCount++;
+      const closeImmediately = callCount === 1;
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            // First attempt ends cleanly (→ reconnect); later attempts
+            // stay open so no third connect races into the assertion.
+            if (closeImmediately) controller.close();
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "text/event-stream" } },
+      );
+    }) as unknown as typeof fetch;
+
+    const stream = subscribeEvents(
+      "asst-1",
+      () => {},
+      () => {},
+      { idleTimeoutMs: 10_000, reconnectBaseDelayMs: 5 },
+    );
+    try {
+      await new Promise((r) => setTimeout(r, 80));
+    } finally {
+      stream.cancel();
+    }
+    return requestedUrls;
+  };
+
+  test("first connect omits lastSeenSeq even when a cursor exists", async () => {
+    // GIVEN a non-null cursor and the flag enabled
+    mockReconnectCursor = 42;
+
+    // WHEN the stream connects for the first time
+    const urls = await captureReconnectUrls();
+
+    // THEN the initial (cold) connect carries no resume cursor — a
+    // fresh connection has nothing buffered to replay.
+    expect(urls.length).toBeGreaterThanOrEqual(1);
+    expect(urls[0]).not.toContain("lastSeenSeq");
+  });
+
+  test("reconnect sends lastSeenSeq when the flag is on and a cursor exists", async () => {
+    // GIVEN a non-null cursor and the flag enabled
+    mockReconnectCursor = 42;
+
+    // WHEN the stream drops and reconnects
+    const urls = await captureReconnectUrls();
+
+    // THEN the reconnect URL resumes the global stream from the cursor
+    expect(urls.length).toBeGreaterThanOrEqual(2);
+    expect(urls[1]).toContain("lastSeenSeq=42");
+  });
+
+  test("reconnect omits lastSeenSeq when the flag is disabled", async () => {
+    // GIVEN a cursor but the seq-gap feature disabled
+    mockReconnectCursor = 42;
+    mockSeqGapEnabled = false;
+
+    // WHEN the stream drops and reconnects
+    const urls = await captureReconnectUrls();
+
+    // THEN no resume cursor is sent (replay stays inert behind the flag)
+    expect(urls.length).toBeGreaterThanOrEqual(2);
+    expect(urls[1]).not.toContain("lastSeenSeq");
+  });
+
+  test("reconnect omits lastSeenSeq when no cursor has been seen yet", async () => {
+    // GIVEN the flag enabled but no event has seeded the cursor
+    mockReconnectCursor = null;
+
+    // WHEN the stream drops and reconnects
+    const urls = await captureReconnectUrls();
+
+    // THEN there is nothing to resume from, so the param is omitted
+    expect(urls.length).toBeGreaterThanOrEqual(2);
+    expect(urls[1]).not.toContain("lastSeenSeq");
   });
 });

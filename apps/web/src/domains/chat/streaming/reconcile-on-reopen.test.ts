@@ -217,7 +217,7 @@ describe("reconcile-on-reopen — transport recovery (watchdog / error)", () => 
     expect(captureMessageMock).not.toHaveBeenCalled();
   });
 
-  test("watchdog success records the rescue outcome to Sentry", async () => {
+  test("watchdog success records breadcrumb but not captureMessage", async () => {
     const reconcileActive = mock(
       async () => makeReconcileResult({ messagesAdded: 2, changed: true }),
     );
@@ -228,16 +228,7 @@ describe("reconcile-on-reopen — transport recovery (watchdog / error)", () => 
     await new Promise((r) => setTimeout(r, 0));
 
     expect(addBreadcrumbMock).toHaveBeenCalled();
-    expect(captureMessageMock).toHaveBeenCalledWith(
-      "sse_post_watchdog_reconcile_result",
-      expect.objectContaining({
-        level: "info",
-        tags: expect.objectContaining({
-          context: "sse_watchdog",
-          rescued: "true",
-        }),
-      }),
-    );
+    expect(captureMessageMock).not.toHaveBeenCalled();
   });
 
   test("error cause does NOT record the watchdog rescue diagnostics", async () => {
