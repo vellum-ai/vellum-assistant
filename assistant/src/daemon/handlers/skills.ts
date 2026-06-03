@@ -48,7 +48,6 @@ import {
   installSkillLocally,
 } from "../../skills/catalog-install.js";
 import { filterByQuery } from "../../skills/catalog-search.js";
-import { inferCategory } from "../../skills/category-inference.js";
 import type { ClawhubInspectResult } from "../../skills/clawhub.js";
 import {
   clawhubCheckUpdates,
@@ -347,9 +346,7 @@ function toSlimSkillResponse(
   const origin = deriveOrigin(kind, summary.directoryPath, installMeta);
   const status: SlimSkillResponse["status"] = state;
 
-  const category =
-    getCatalogCategoryMap().get(summary.id) ??
-    inferCategory(summary.displayName, summary.description);
+  const category = getCatalogCategoryMap().get(summary.id) ?? "system";
   const base = {
     id: summary.id,
     name: summary.displayName,
@@ -1395,7 +1392,7 @@ export async function searchSkills(
         kind: "catalog" as const,
         origin: "vellum" as const,
         status: "available" as const,
-        category: s.metadata?.vellum?.category ?? inferCategory(s.displayName, s.description),
+        category: getCatalogCategoryMap().get(s.id) ?? "system",
       };
     });
 
@@ -1414,7 +1411,7 @@ export async function searchSkills(
         kind: "catalog" as const,
         origin: "clawhub" as const,
         status: "available" as const,
-        category: inferCategory(s.name, s.description),
+        category: "integrations",
         slug: s.slug,
         author: s.author,
         stars: s.stars,
@@ -1441,7 +1438,7 @@ export async function searchSkills(
         kind: "catalog" as const,
         origin: "skillssh" as const,
         status: "available" as const,
-        category: inferCategory(r.name, ""),
+        category: "integrations",
         slug: r.id,
         sourceRepo: r.source,
         installs: r.installs,
