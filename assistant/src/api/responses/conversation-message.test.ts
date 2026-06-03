@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  type ConversationContentBlock,
+  ConversationContentBlockSchema,
   type ConversationMessageAttachment,
   type ConversationMessageSurface,
   type ConversationMessageToolCall,
-  deriveContentBlocks,
 } from "./conversation-message.js";
 
 const toolCall: ConversationMessageToolCall = {
@@ -27,101 +28,39 @@ const attachment: ConversationMessageAttachment = {
   kind: "image",
 };
 
-describe("deriveContentBlocks", () => {
-  test("maps interleaved content order into ordered tagged blocks", () => {
-    // GIVEN a row whose positional contentOrder interleaves every block kind
-    const row = {
-      contentOrder: [
-        "text:0",
-        "thinking:0",
-        "tool:0",
-        "surface:0",
-        "attachment:0",
-        "text:1",
-      ],
-      textSegments: ["before tool", "after tool"],
-      thinkingSegments: ["reasoning"],
-      toolCalls: [toolCall],
-      surfaces: [surface],
-      attachments: [attachment],
-    };
-
-    // WHEN we derive the unified content blocks
-    const blocks = deriveContentBlocks(row);
-
-    // THEN each ref resolves to its block in contentOrder order
-    expect(blocks).toEqual([
-      { type: "text", text: "before tool" },
+describe("ConversationContentBlockSchema", () => {
+  test("accepts every block kind in the union", () => {
+    // GIVEN one well-formed value per discriminant
+    const blocks: ConversationContentBlock[] = [
+      { type: "text", text: "hi" },
       { type: "thinking", thinking: "reasoning" },
       { type: "tool_use", toolCall },
       { type: "surface", surface },
       { type: "attachment", attachment },
-      { type: "text", text: "after tool" },
-    ]);
+    ];
+
+    // WHEN each is parsed against the canonical schema
+    // THEN all parse and round-trip unchanged
+    for (const block of blocks) {
+      expect(ConversationContentBlockSchema.parse(block)).toEqual(block);
+    }
   });
 
-  test("tool_use blocks carry the already-paired tool call", () => {
-    // GIVEN a tool ref pointing at a tool call that already has its result
-    const row = { contentOrder: ["tool:0"], toolCalls: [toolCall] };
+  test("rejects an unknown discriminant", () => {
+    // GIVEN a block whose `type` is not part of the union
+    const block = { type: "mystery", text: "hi" };
 
-    // WHEN we derive blocks
-    const [block] = deriveContentBlocks(row);
-
-    // THEN the block reuses the cleaned tool call (result merged in)
-    expect(block).toEqual({ type: "tool_use", toolCall });
-    expect(block?.type === "tool_use" && block.toolCall.result).toBe(
-      "file.txt",
-    );
+    // WHEN parsed
+    // THEN the discriminated union rejects it
+    expect(() => ConversationContentBlockSchema.parse(block)).toThrow();
   });
 
-  test("preserves empty-string text segments", () => {
-    // GIVEN a text ref pointing at an empty (but present) segment
-    const row = { contentOrder: ["text:0"], textSegments: [""] };
+  test("rejects a block missing its payload", () => {
+    // GIVEN a tool_use block with no toolCall payload
+    const block = { type: "tool_use" };
 
-    // WHEN we derive blocks
-    const blocks = deriveContentBlocks(row);
-
-    // THEN the empty segment is kept (only missing segments are skipped)
-    expect(blocks).toEqual([{ type: "text", text: "" }]);
-  });
-
-  test("skips refs whose index is out of range", () => {
-    // GIVEN refs that point past the end of their backing arrays
-    const row = {
-      contentOrder: ["text:5", "tool:2", "text:0"],
-      textSegments: ["only"],
-      toolCalls: [toolCall],
-    };
-
-    // WHEN we derive blocks
-    const blocks = deriveContentBlocks(row);
-
-    // THEN only the resolvable ref produces a block
-    expect(blocks).toEqual([{ type: "text", text: "only" }]);
-  });
-
-  test("skips unknown kinds and malformed entries", () => {
-    // GIVEN entries with an unknown kind, no separator, and a negative index
-    const row = {
-      contentOrder: ["mystery:0", "text", "text:-1", "text:0"],
-      textSegments: ["kept"],
-    };
-
-    // WHEN we derive blocks
-    const blocks = deriveContentBlocks(row);
-
-    // THEN only the well-formed, in-range text ref survives
-    expect(blocks).toEqual([{ type: "text", text: "kept" }]);
-  });
-
-  test("returns an empty array when contentOrder is absent", () => {
-    // GIVEN a row with no contentOrder
-    const row = { textSegments: ["orphan"] };
-
-    // WHEN we derive blocks
-    const blocks = deriveContentBlocks(row);
-
-    // THEN nothing is emitted (contentOrder drives the projection)
-    expect(blocks).toEqual([]);
+    // WHEN parsed
+    // THEN validation fails
+    expect(() => ConversationContentBlockSchema.parse(block)).toThrow();
   });
 });

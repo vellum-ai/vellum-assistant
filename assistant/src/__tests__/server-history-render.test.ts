@@ -569,6 +569,114 @@ describe("renderHistoryContent", () => {
   });
 });
 
+describe("renderHistoryContent contentBlocks", () => {
+  test("builds an ordered block array while walking interleaved content", () => {
+    // GIVEN a turn that interleaves text, reasoning, a tool call, a surface,
+    // and trailing text in the raw model content
+    const output = renderHistoryContent([
+      { type: "text", text: "before tool" },
+      { type: "thinking", thinking: "reasoning", signature: "sig" },
+      { type: "tool_use", id: "t1", name: "run_command", input: { cmd: "ls" } },
+      { type: "tool_result", tool_use_id: "t1", content: "file.txt" },
+      {
+        type: "ui_surface",
+        surfaceId: "s1",
+        surfaceType: "ui_card",
+        data: {},
+      },
+      { type: "text", text: "after tool" },
+    ]);
+
+    // THEN contentBlocks mirrors the walk order
+    expect(output.contentBlocks.map((b) => b.type)).toEqual([
+      "text",
+      "thinking",
+      "tool_use",
+      "surface",
+      "text",
+    ]);
+    expect(output.contentBlocks[0]).toEqual({
+      type: "text",
+      text: "before tool",
+    });
+    expect(output.contentBlocks[1]).toEqual({
+      type: "thinking",
+      thinking: "reasoning",
+    });
+    expect(output.contentBlocks[4]).toEqual({
+      type: "text",
+      text: "after tool",
+    });
+    // AND the tool_use / surface blocks reuse the same objects the positional
+    // arrays hold, so the tool result paired in later is reflected here too
+    const toolBlock = output.contentBlocks[2];
+    expect(toolBlock.type === "tool_use" && toolBlock.toolCall).toBe(
+      output.toolCalls[0],
+    );
+    expect(output.toolCalls[0].result).toBe("file.txt");
+    const surfaceBlock = output.contentBlocks[3];
+    expect(surfaceBlock.type === "surface" && surfaceBlock.surface).toBe(
+      output.surfaces[0],
+    );
+    // AND attachments are not inlined here (the route splices hydrated rows)
+    expect(output.attachmentBlockOffsets).toEqual([]);
+  });
+
+  test("records an offset per file block instead of an inline block", () => {
+    // GIVEN a turn with text, a file attachment, then more text
+    const output = renderHistoryContent([
+      { type: "text", text: "see file" },
+      {
+        type: "file",
+        source: {
+          type: "base64",
+          media_type: "application/pdf",
+          filename: "spec.pdf",
+          data: Buffer.from("hi").toString("base64"),
+        },
+      },
+      { type: "text", text: "thanks" },
+    ]);
+
+    // THEN no attachment block is emitted, but its insertion point is recorded
+    // at the position after the first text block
+    expect(output.contentBlocks).toEqual([
+      { type: "text", text: "see file" },
+      { type: "text", text: "thanks" },
+    ]);
+    expect(output.attachmentBlockOffsets).toEqual([1]);
+  });
+
+  test("excludes the trailing attachment-description segment from blocks", () => {
+    // GIVEN an attachment-only turn (the legacy text body carries a synthetic
+    // attachment description segment for clients without attachment UI)
+    const output = renderHistoryContent([
+      {
+        type: "file",
+        source: {
+          type: "base64",
+          media_type: "application/pdf",
+          filename: "spec.pdf",
+          data: Buffer.from("hi").toString("base64"),
+        },
+      },
+    ]);
+
+    // THEN that synthetic segment is not duplicated as a text block — the
+    // attachment surfaces via its recorded offset instead
+    expect(output.contentBlocks).toEqual([]);
+    expect(output.attachmentBlockOffsets).toEqual([0]);
+    expect(output.textSegments.length).toBe(1);
+  });
+
+  test("emits a single text block for the non-array fallback", () => {
+    expect(renderHistoryContent("raw string").contentBlocks).toEqual([
+      { type: "text", text: "raw string" },
+    ]);
+    expect(renderHistoryContent(null).contentBlocks).toEqual([]);
+  });
+});
+
 describe("getAttachmentsForMessage", () => {
   beforeEach(() => {
     const db = getDb();

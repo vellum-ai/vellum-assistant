@@ -1,6 +1,7 @@
 import { v4 as uuid } from "uuid";
 
 import type {
+  ConversationContentBlock,
   ConversationMessageSurface,
   ConversationMessageToolCall,
 } from "../../api/responses/conversation-message.js";
@@ -79,6 +80,21 @@ export interface RenderedHistoryContent {
    * attachment metadata to this ordering for inline placement.
    */
   attachments: HistoryAttachmentRef[];
+  /**
+   * Unified ordered content blocks built directly from the model-native
+   * content while walking it once — the wire `contentBlocks` projection minus
+   * `attachment` blocks. Attachments need DB-hydrated metadata the caller
+   * resolves, so the serializer splices them in using `attachmentBlockOffsets`
+   * rather than this function reconstructing them from the positional arrays.
+   */
+  contentBlocks: ConversationContentBlock[];
+  /**
+   * Insertion points for inline attachment blocks, parallel to `attachments`:
+   * `attachmentBlockOffsets[k]` is the length of `contentBlocks` at the moment
+   * attachment `k` was encountered, so the serializer can splice a hydrated
+   * `attachment` block at that position to recover full content order.
+   */
+  attachmentBlockOffsets: number[];
 }
 
 /**
@@ -244,6 +260,8 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
       surfaces: [],
       thinkingSegments: [],
       attachments: [],
+      contentBlocks: text ? [{ type: "text", text }] : [],
+      attachmentBlockOffsets: [],
     };
   }
 
@@ -263,6 +281,14 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
   const contentOrder: string[] = [];
   let currentSegmentParts: string[] = [];
   let hasOpenSegment = false;
+
+  // Unified content blocks built in lockstep with the positional arrays as we
+  // walk the model-native content. `attachment` blocks are omitted here (they
+  // need DB-hydrated metadata the caller resolves); `attachmentBlockOffsets`
+  // records where each one should be spliced back in.
+  const contentBlocks: ConversationContentBlock[] = [];
+  const attachmentBlockOffsets: number[] = [];
+  let currentTextBlock: { type: "text"; text: string } | null = null;
 
   function joinWithSpacing(parts: string[]): string {
     let result = parts[0] ?? "";
@@ -289,18 +315,42 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
 
   function finalizeSegment(): void {
     if (hasOpenSegment) {
-      textSegments[textSegments.length - 1] =
-        joinWithSpacing(currentSegmentParts);
+      const joined = joinWithSpacing(currentSegmentParts);
+      textSegments[textSegments.length - 1] = joined;
+      if (currentTextBlock) {
+        currentTextBlock.text = joined;
+        currentTextBlock = null;
+      }
       currentSegmentParts = [];
       hasOpenSegment = false;
     }
   }
 
-  function ensureSegment(): void {
+  // Flush the open text segment into its tracked block and stop tracking it,
+  // without closing the segment. Used before folding the synthetic attachment
+  // description into the trailing segment: it stays in the legacy
+  // `textSegments`/`text` body but must not pollute the clean contentBlocks,
+  // since `attachment` blocks already carry that metadata.
+  function detachTextBlock(): void {
+    if (currentTextBlock) {
+      currentTextBlock.text = joinWithSpacing(currentSegmentParts);
+      currentTextBlock = null;
+    }
+  }
+
+  // `trackBlock` mirrors the segment into `contentBlocks`. The trailing
+  // attachment-description segment (legacy `message.text` for clients without
+  // attachment UI) sets it false so it isn't duplicated as a text block —
+  // attachments surface as `attachment` blocks instead.
+  function ensureSegment(trackBlock = true): void {
     if (!hasOpenSegment) {
       textSegments.push("");
       contentOrder.push(`text:${textSegments.length - 1}`);
       hasOpenSegment = true;
+      if (trackBlock) {
+        currentTextBlock = { type: "text", text: "" };
+        contentBlocks.push(currentTextBlock);
+      }
     }
   }
 
@@ -331,6 +381,7 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
       };
       surfaces.push(surface);
       contentOrder.push(`surface:${surfaces.length - 1}`);
+      contentBlocks.push({ type: "surface", surface });
       continue;
     }
 
@@ -338,6 +389,7 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
       finalizeSegment();
       thinkingSegments.push(block.thinking);
       contentOrder.push(`thinking:${thinkingSegments.length - 1}`);
+      contentBlocks.push({ type: "thinking", thinking: block.thinking });
       continue;
     }
 
@@ -374,6 +426,7 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
       }
       attachments.push(ref);
       contentOrder.push(`attachment:${attachments.length - 1}`);
+      attachmentBlockOffsets.push(contentBlocks.length);
       continue;
     }
     if (block.type === "image") {
@@ -428,6 +481,9 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
       toolCalls.push(entry);
       if (id) pendingToolUses.set(id, entry);
       contentOrder.push(`tool:${toolCalls.length - 1}`);
+      // Same `entry` reference the block carries: a later tool_result pairs its
+      // output onto `entry`, so the content block reflects it automatically.
+      contentBlocks.push({ type: "tool_use", toolCall: entry });
       if (!seenToolUse) {
         seenToolUse = true;
         if (!seenText) toolCallsBeforeText = true;
@@ -445,6 +501,7 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
       toolCalls.push(entry);
       if (id) pendingToolUses.set(id, entry);
       contentOrder.push(`tool:${toolCalls.length - 1}`);
+      contentBlocks.push({ type: "tool_use", toolCall: entry });
       if (!seenToolUse) {
         seenToolUse = true;
         if (!seenText) toolCallsBeforeText = true;
@@ -534,9 +591,10 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
   // The macOS client handles this by selecting the *first* non-empty text
   // segment in interleaved content, so trailing attachment segments are safe.
   if (attachmentParts.length > 0) {
+    detachTextBlock();
     const attachmentText = attachmentParts.join("\n");
     const prefix = textParts.length > 0 ? "\n" : "";
-    ensureSegment();
+    ensureSegment(false);
     currentSegmentParts.push(prefix + attachmentText);
   }
 
@@ -561,6 +619,8 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
     surfaces,
     thinkingSegments,
     attachments,
+    contentBlocks,
+    attachmentBlockOffsets,
   };
 }
 

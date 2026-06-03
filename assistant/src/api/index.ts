@@ -318,7 +318,6 @@ export {
   ConversationSlackMessageSchema,
   type ConversationSubagentNotification,
   ConversationSubagentNotificationSchema,
-  deriveContentBlocks,
 } from "./responses/conversation-message.js";
 export {
   type DiskPressureStatusResponse,

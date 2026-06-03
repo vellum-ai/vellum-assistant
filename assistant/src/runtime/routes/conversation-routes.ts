@@ -10,7 +10,7 @@ import {
   createAssistantMessage,
   createUserMessage,
 } from "../../agent/message-types.js";
-import { deriveContentBlocks } from "../../api/responses/conversation-message.js";
+import type { ConversationContentBlock } from "../../api/responses/conversation-message.js";
 import {
   CHANNEL_IDS,
   INTERFACE_IDS,
@@ -143,6 +143,53 @@ const log = getLogger("conversation-routes");
 /** Matches the `<no_response/>` sentinel used by channel delivery suppression. */
 const NO_RESPONSE_INLINE_RE = /<no_response\s*\/?>/g;
 const ATTACHMENT_ENTRY_RE = /^attachment:(\d+)$/;
+
+/**
+ * Reconstruct a row's full ordered `contentBlocks` from the
+ * `renderHistoryContent` output. That walk builds every block except
+ * `attachment` (those need DB-hydrated metadata the route resolves), recording
+ * insertion points in `offsets` parallel to the file blocks it saw. This
+ * splices a hydrated `attachment` block at each offset whose ref resolved to a
+ * DB row (`refIndexToAttachment`), dropping refs with no inline placement. For
+ * assistant rows it also strips `<no_response/>` sentinels from text blocks and
+ * drops any that become empty, matching the positional-array filtering.
+ */
+function spliceAttachmentBlocks(
+  blocks: ConversationContentBlock[],
+  offsets: number[],
+  refIndexToAttachment: Map<number, RuntimeAttachmentMetadata>,
+  stripNoResponse: boolean,
+): ConversationContentBlock[] {
+  const merged: ConversationContentBlock[] = [];
+  let refIdx = 0;
+  for (let i = 0; i <= blocks.length; i++) {
+    while (refIdx < offsets.length && offsets[refIdx] === i) {
+      const attachment = refIndexToAttachment.get(refIdx);
+      if (attachment) {
+        merged.push({ type: "attachment", attachment });
+      }
+      refIdx++;
+    }
+    if (i < blocks.length) {
+      merged.push(blocks[i]);
+    }
+  }
+  if (!stripNoResponse) {
+    return merged;
+  }
+  const cleaned: ConversationContentBlock[] = [];
+  for (const block of merged) {
+    if (block.type !== "text") {
+      cleaned.push(block);
+      continue;
+    }
+    const text = block.text.replace(NO_RESPONSE_INLINE_RE, "").trim();
+    if (text.length > 0) {
+      cleaned.push({ type: "text", text });
+    }
+  }
+  return cleaned;
+}
 
 /** Feature flag gating the self-intro first message (see first-greeting.ts). */
 const SELF_INTRO_GREETING_FLAG = "self-intro-greeting" as const;
@@ -677,6 +724,8 @@ export function handleListMessages({
         contentOrder: filteredContentOrder,
         surfaces: rendered.surfaces,
         attachmentRefs: rendered.attachments,
+        contentBlocks: rendered.contentBlocks,
+        attachmentBlockOffsets: rendered.attachmentBlockOffsets,
         slackMessage,
         ...(rendered.thinkingSegments.length > 0
           ? { thinkingSegments: rendered.thinkingSegments }
@@ -697,6 +746,8 @@ export function handleListMessages({
       contentOrder: rendered.contentOrder,
       surfaces: rendered.surfaces,
       attachmentRefs: rendered.attachments,
+      contentBlocks: rendered.contentBlocks,
+      attachmentBlockOffsets: rendered.attachmentBlockOffsets,
       slackMessage,
       ...(rendered.thinkingSegments.length > 0
         ? { thinkingSegments: rendered.thinkingSegments }
@@ -763,6 +814,12 @@ export function handleListMessages({
     // match we fall back to positional alignment if the ref and row counts
     // agree; otherwise we strip the markers and let chips fall to the tail.
     let alignedContentOrder = m.contentOrder;
+    // Resolves a content-walk attachment ref index (parallel to
+    // `attachmentBlockOffsets`) to its hydrated DB row, mirroring the inline
+    // placement `alignedContentOrder` encodes. Refs with no inline placement
+    // (unmatched ids, count mismatch, no DB rows) are absent and their
+    // `attachment` blocks are dropped — the row still ships via `attachments`.
+    const refIndexToAttachment = new Map<number, RuntimeAttachmentMetadata>();
     if (
       m.attachmentRefs.length > 0 &&
       msgAttachments.length > 0 &&
@@ -799,6 +856,7 @@ export function handleListMessages({
         orderedRowIdx.forEach((rowIdx, refIdx) => {
           if (rowIdx !== null) {
             refToNewIdx.set(refIdx, nextIdx);
+            refIndexToAttachment.set(refIdx, msgAttachments[nextIdx]);
             nextIdx++;
           }
         });
@@ -820,10 +878,14 @@ export function handleListMessages({
         alignedContentOrder = m.contentOrder.filter(
           (entry) => !ATTACHMENT_ENTRY_RE.test(entry),
         );
+      } else {
+        // No ref matched an id but the counts agree (the assistant-authored
+        // case): the Nth marker maps to the Nth row positionally, so the
+        // original contentOrder is left untouched.
+        m.attachmentRefs.forEach((_ref, refIdx) => {
+          refIndexToAttachment.set(refIdx, msgAttachments[refIdx]);
+        });
       }
-      // Otherwise no ref matched an id but the counts agree (the
-      // assistant-authored case): the Nth marker maps to the Nth row
-      // positionally, so the original contentOrder is left untouched.
     } else if (m.attachmentRefs.length > 0 && msgAttachments.length === 0) {
       // Refs were captured but no DB rows came back — drop the
       // contentOrder entries to avoid out-of-bounds renders.
@@ -839,17 +901,18 @@ export function handleListMessages({
     // on createdAt. The mismatch is benign — it may return slightly extra
     // data on a page boundary but never loses messages.
     const displayTimestamp = m.sentAt ?? m.timestamp;
-    // Unified ordered projection of the row's content. Built from the same
-    // aligned positional arrays the legacy fields below carry, so the two
-    // representations stay in lockstep until clients finish migrating.
-    const contentBlocks = deriveContentBlocks({
-      contentOrder: alignedContentOrder,
-      textSegments: m.textSegments,
-      thinkingSegments: m.thinkingSegments,
-      toolCalls: m.toolCalls,
-      surfaces: m.surfaces,
-      attachments: msgAttachments,
-    });
+    // Splice hydrated `attachment` blocks into the content blocks
+    // `renderHistoryContent` built from the raw model content, at the offsets
+    // it recorded. Only attachments with an inline placement (present in
+    // `refIndexToAttachment`) are inlined; the rest still ship via the
+    // `attachments` array. Assistant `<no_response/>` sentinels are stripped
+    // from text blocks here too, matching the positional-array filtering above.
+    const contentBlocks = spliceAttachmentBlocks(
+      m.contentBlocks,
+      m.attachmentBlockOffsets,
+      refIndexToAttachment,
+      m.role === "assistant",
+    );
     return {
       id: m.id ?? "",
       ...(mergedMessageIds.length > 0 ? { mergedMessageIds } : {}),
