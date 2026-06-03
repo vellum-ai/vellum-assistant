@@ -251,3 +251,15 @@ body {
     opacity: 0.7 !important;
   }
 }
+
+@keyframes activity-anchor-flash {
+  0%   { box-shadow: 0 0 0 2px var(--system-info-strong, #4c8bf5); }
+  100% { box-shadow: 0 0 0 2px transparent; }
+}
+[data-activity-highlight="true"] {
+  border-radius: var(--radius-lg);
+  animation: activity-anchor-flash 1.6s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-activity-highlight="true"] { animation: none; }
+}
