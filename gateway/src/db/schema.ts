@@ -197,9 +197,9 @@ export const actorTokenRecords = sqliteTable(
     uniqueIndex("idx_actor_tokens_active_device")
       .on(table.guardianPrincipalId, table.hashedDeviceId)
       .where(sql`status = 'active'`),
-    index("idx_actor_tokens_hash")
-      .on(table.tokenHash)
-      .where(sql`status = 'active'`),
+    // Unfiltered (not WHERE status='active') so the hot-path revocation lookup
+    // — which matches by token_hash and must find REVOKED rows — is indexed.
+    index("idx_actor_tokens_hash").on(table.tokenHash),
   ],
 );
 
