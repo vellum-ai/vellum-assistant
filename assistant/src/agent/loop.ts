@@ -762,7 +762,9 @@ export class AgentLoop {
         "compaction",
         getMiddlewaresFor("compaction"),
         (args) => defaultCompactionTerminal(args, turnContext),
-        { messages: rawHistory, signal, options },
+        // The mid-loop budget gate is reached only when this turn decides to
+        // compact in place, so force the pipeline past its auto-threshold check.
+        { messages: rawHistory, signal, force: true, options },
         turnContext,
         DEFAULT_TIMEOUTS.compaction,
       );

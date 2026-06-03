@@ -63,7 +63,15 @@ export async function defaultCompactionTerminal(
 ): Promise<CompactionResult> {
   const manager = extractManager(ctx);
   const messages = args.messages as Message[];
-  const options = args.options as ContextWindowCompactOptions | undefined;
+  const baseOptions = args.options as ContextWindowCompactOptions | undefined;
+  // The agent loop owns the forced-compaction decision for its mid-loop budget
+  // gate and supplies it as a top-level arg; fold it into the options the
+  // manager reads. Other callers carry `force` inside their options bag, so
+  // only override when a top-level value is present.
+  const options: ContextWindowCompactOptions | undefined =
+    args.force === undefined
+      ? baseOptions
+      : { ...(baseOptions ?? {}), force: args.force };
   const result: ContextWindowResult = await manager.maybeCompact(
     messages,
     args.signal,

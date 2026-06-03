@@ -2106,7 +2106,6 @@ export async function runAgentLoopImpl(
         return {
           options: {
             lastCompactedAt: ctx.contextCompactedAt ?? undefined,
-            force: true,
             targetInputTokensOverride:
               resolveCurrentContextBudget().preflightBudget,
             conversationOriginChannel:

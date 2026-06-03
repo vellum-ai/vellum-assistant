@@ -469,7 +469,9 @@ async function simulateInlineCompaction(
   await onEvent({ type: "context_compacting" });
   // The agent loop strips runtime injections (identity-stubbed in this suite),
   // records the history-stripped marker via `history_stripped`, then prepare
-  // returns only the pipeline options.
+  // returns only the pipeline options. The loop owns the forced-compaction
+  // decision for its mid-loop budget gate and supplies `force` as a top-level
+  // pipeline arg.
   const rawHistory = stripInjectionsForCompaction(history);
   await onEvent({ type: "history_stripped" });
   const { options } = compaction.prepare();
@@ -479,7 +481,7 @@ async function simulateInlineCompaction(
       "compaction",
       getMiddlewaresFor("compaction"),
       (args) => defaultCompactionTerminal(args, turnContext as TurnContext),
-      { messages: rawHistory, signal, options },
+      { messages: rawHistory, signal, force: true, options },
       turnContext as TurnContext,
       DEFAULT_TIMEOUTS.compaction,
     );
