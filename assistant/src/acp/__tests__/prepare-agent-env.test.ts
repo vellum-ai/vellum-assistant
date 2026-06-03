@@ -116,6 +116,10 @@ function seedVaultToken(token: string): void {
   vaultStore.set("acp/claude_oauth_token", token);
 }
 
+function seedVaultField(field: string, value: string): void {
+  vaultStore.set(`acp/${field}`, value);
+}
+
 describe("prepareAgentEnv — claude-agent-acp gating", () => {
   test("injects CLAUDE_CODE_OAUTH_TOKEN from the vault via the broker when agent.env has no override", async () => {
     seedVaultToken("vault-AAA");
@@ -214,6 +218,112 @@ describe("prepareAgentEnv — claude-agent-acp gating", () => {
     });
 
     expect(prepared.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe("vault-FFF");
+  });
+
+  test("falls back to ANTHROPIC_API_KEY from the vault when no OAuth token exists", async () => {
+    seedVaultField("anthropic_api_key", "vault-anthropic-key");
+
+    const prepared = await prepareAgentEnv({
+      command: "claude-agent-acp",
+      args: [],
+    });
+
+    expect(prepared.env?.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+    expect(prepared.env?.ANTHROPIC_API_KEY).toBe("vault-anthropic-key");
+  });
+
+  test("accepts ANTHROPIC_API_KEY from agent.env (config.json override) with no vault entry", async () => {
+    const prepared = await prepareAgentEnv({
+      command: "claude-agent-acp",
+      args: [],
+      env: { ANTHROPIC_API_KEY: "config-anthropic" },
+    });
+
+    expect(prepared.env?.ANTHROPIC_API_KEY).toBe("config-anthropic");
+  });
+
+  test("prefers the OAuth token over the Anthropic API key when both are present", async () => {
+    seedVaultToken("vault-oauth");
+    seedVaultField("anthropic_api_key", "vault-anthropic-key");
+
+    const prepared = await prepareAgentEnv({
+      command: "claude-agent-acp",
+      args: [],
+    });
+
+    expect(prepared.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe("vault-oauth");
+    // API-key fallback is only consulted when no OAuth token resolves.
+    expect(prepared.env?.ANTHROPIC_API_KEY).toBeUndefined();
+  });
+
+  test("agent.env ANTHROPIC_API_KEY override wins over the vault entry", async () => {
+    seedVaultField("anthropic_api_key", "vault-anthropic-key");
+
+    const prepared = await prepareAgentEnv({
+      command: "claude-agent-acp",
+      args: [],
+      env: { ANTHROPIC_API_KEY: "config-anthropic" },
+    });
+
+    expect(prepared.env?.ANTHROPIC_API_KEY).toBe("config-anthropic");
+  });
+
+  test("injects GH_TOKEN from the vault when a git token is present", async () => {
+    seedVaultToken("vault-oauth");
+    seedVaultField("git_token", "vault-git");
+
+    const prepared = await prepareAgentEnv({
+      command: "claude-agent-acp",
+      args: [],
+    });
+
+    expect(prepared.env?.GH_TOKEN).toBe("vault-git");
+  });
+
+  test("git token works alongside the API-key-only LLM credential", async () => {
+    seedVaultField("anthropic_api_key", "vault-anthropic-key");
+    seedVaultField("git_token", "vault-git");
+
+    const prepared = await prepareAgentEnv({
+      command: "claude-agent-acp",
+      args: [],
+    });
+
+    expect(prepared.env?.ANTHROPIC_API_KEY).toBe("vault-anthropic-key");
+    expect(prepared.env?.GH_TOKEN).toBe("vault-git");
+  });
+
+  test("agent.env GH_TOKEN override wins over the vault entry", async () => {
+    seedVaultToken("vault-oauth");
+    seedVaultField("git_token", "vault-git");
+
+    const prepared = await prepareAgentEnv({
+      command: "claude-agent-acp",
+      args: [],
+      env: { GH_TOKEN: "config-git" },
+    });
+
+    expect(prepared.env?.GH_TOKEN).toBe("config-git");
+  });
+
+  test("does NOT inject GH_TOKEN when no git token is present", async () => {
+    seedVaultToken("vault-oauth");
+
+    const prepared = await prepareAgentEnv({
+      command: "claude-agent-acp",
+      args: [],
+    });
+
+    expect(prepared.env?.GH_TOKEN).toBeUndefined();
+  });
+
+  test("throws FailedDependencyError when NEITHER LLM credential is present", async () => {
+    // A git token alone is not sufficient — an LLM credential is required.
+    seedVaultField("git_token", "vault-git");
+
+    await expect(
+      prepareAgentEnv({ command: "claude-agent-acp", args: [] }),
+    ).rejects.toThrow("ANTHROPIC_API_KEY");
   });
 
   test("does NOT mutate the caller's agentConfig", async () => {
