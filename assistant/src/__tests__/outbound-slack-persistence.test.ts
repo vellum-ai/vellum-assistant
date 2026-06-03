@@ -170,6 +170,7 @@ mock.module("../runtime/gateway-client.js", () => ({
     ok: true,
     ...(nextDeliveryTs ? { ts: nextDeliveryTs } : {}),
   }),
+  trackSlackActiveThread: async () => true,
 }));
 
 mock.module("../memory/attachments-store.js", () => ({

@@ -56,6 +56,7 @@ mock.module("../runtime/gateway-client.js", () => ({
   ) => {
     deliverReplyCalls.push({ url, payload });
   },
+  trackSlackActiveThread: async () => true,
 }));
 
 // Mock the approval conversation / copy generators so they return canned text.

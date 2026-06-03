@@ -6,10 +6,17 @@ import {
   getMessages,
   updateMessageMetadata,
 } from "../memory/conversation-crud.js";
+import {
+  extractChannelFromCallbackUrl,
+  extractThreadTsFromCallbackUrl,
+} from "../memory/slack-thread-store.js";
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
 import { getLogger } from "../util/logger.js";
 import type { ChannelDeliveryResult } from "./gateway-client.js";
-import { deliverChannelReply } from "./gateway-client.js";
+import {
+  deliverChannelReply,
+  trackSlackActiveThread,
+} from "./gateway-client.js";
 import type { RuntimeAttachmentMetadata } from "./http-types.js";
 import {
   isSlackCallbackUrl,
@@ -89,6 +96,38 @@ function hasDeliverableReply(
   );
 }
 
+type SlackActiveThreadTarget = {
+  channelId: string;
+  threadTs: string;
+};
+
+function getSlackActiveThreadTarget(
+  callbackUrl: string,
+): SlackActiveThreadTarget | null {
+  if (!isSlackCallbackUrl(callbackUrl)) {
+    return null;
+  }
+
+  const channelId = extractChannelFromCallbackUrl(callbackUrl);
+  const threadTs = extractThreadTsFromCallbackUrl(callbackUrl);
+  if (!channelId || !threadTs) {
+    return null;
+  }
+
+  return { channelId, threadTs };
+}
+
+async function activateSlackThreadIfNeeded(
+  target: SlackActiveThreadTarget | null,
+): Promise<SlackActiveThreadTarget | null> {
+  if (!target) {
+    return null;
+  }
+
+  const tracked = await trackSlackActiveThread(target.channelId, target.threadTs);
+  return tracked ? null : target;
+}
+
 export async function deliverRenderedReplyViaCallback(
   params: DeliverRenderedReplyParams,
 ): Promise<void> {
@@ -114,6 +153,7 @@ export async function deliverRenderedReplyViaCallback(
   );
   const replyAttachments =
     attachments && attachments.length > 0 ? attachments : undefined;
+  let pendingSlackThreadActivation = getSlackActiveThreadTarget(callbackUrl);
 
   // If the model output <no_response/> and no other deliverable text remains,
   // suppress all delivery — including attachments — so nothing is posted.
@@ -137,6 +177,9 @@ export async function deliverRenderedReplyViaCallback(
       if (result.ts) {
         onMessageTs?.(result.ts);
       }
+      pendingSlackThreadActivation = await activateSlackThreadIfNeeded(
+        pendingSlackThreadActivation,
+      );
     }
     return;
   }
@@ -158,8 +201,16 @@ export async function deliverRenderedReplyViaCallback(
       if (deliveredTs) {
         onMessageTs?.(deliveredTs);
       }
+      pendingSlackThreadActivation = await activateSlackThreadIfNeeded(
+        pendingSlackThreadActivation,
+      );
     } else if (messageTs) {
       onMessageTs?.(messageTs);
+    }
+    if (startFromSegment > 0) {
+      pendingSlackThreadActivation = await activateSlackThreadIfNeeded(
+        pendingSlackThreadActivation,
+      );
     }
     return;
   }
@@ -194,6 +245,9 @@ export async function deliverRenderedReplyViaCallback(
       onMessageTs?.(result.ts);
     }
 
+    pendingSlackThreadActivation = await activateSlackThreadIfNeeded(
+      pendingSlackThreadActivation,
+    );
     onSegmentDelivered?.(i + 1);
 
     // Send split messages in-order with a short gap so downstream channel

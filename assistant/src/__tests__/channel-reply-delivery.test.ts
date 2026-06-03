@@ -8,6 +8,12 @@ type DeliveryCall = {
 };
 
 const deliveryCalls: DeliveryCall[] = [];
+type SlackThreadActivationCall = {
+  channelId: string;
+  threadTs: string;
+  ttlMs?: number;
+};
+const slackThreadActivationCalls: SlackThreadActivationCall[] = [];
 type MockMessageRow = {
   id: string;
   role: string;
@@ -85,6 +91,14 @@ mock.module("../runtime/gateway-client.js", () => ({
     }
     return { ok: true };
   },
+  trackSlackActiveThread: async (
+    channelId: string,
+    threadTs: string,
+    ttlMs?: number,
+  ) => {
+    slackThreadActivationCalls.push({ channelId, threadTs, ttlMs });
+    return true;
+  },
 }));
 
 mock.module("../memory/conversation-crud.js", () => ({
@@ -158,6 +172,7 @@ const {
 describe("channel-reply-delivery", () => {
   beforeEach(() => {
     deliveryCalls.length = 0;
+    slackThreadActivationCalls.length = 0;
     deliveryFailAtIndex = -1;
     failOnRecordedMessageTs = null;
     conversationMessages.length = 0;
@@ -638,6 +653,58 @@ describe("channel-reply-delivery", () => {
     expect(deliveryCalls[0].callbackUrl).toContain("threadTs=");
     expect(deliveryCalls[0].payload.chatId).toBe("C123THREAD");
     expect(deliveryCalls[0].payload.messageTs).toBe(failOnRecordedMessageTs);
+  });
+
+  it("activates a Slack thread after the first successful threaded delivery", async () => {
+    await deliverRenderedReplyViaCallback({
+      callbackUrl:
+        "http://gateway/deliver/slack?channel=C123THREAD&threadTs=1700000000.000001",
+      chatId: "C123THREAD",
+      textSegments: ["Part 1.", "Part 2."],
+      interSegmentDelayMs: 0,
+    });
+
+    expect(deliveryCalls).toHaveLength(2);
+    expect(slackThreadActivationCalls).toEqual([
+      {
+        channelId: "C123THREAD",
+        threadTs: "1700000000.000001",
+        ttlMs: undefined,
+      },
+    ]);
+  });
+
+  it("re-activates a Slack thread when a resumed delivery has no segments left to send", async () => {
+    await deliverRenderedReplyViaCallback({
+      callbackUrl:
+        "http://gateway/deliver/slack?channel=C123THREAD&threadTs=1700000000.000001",
+      chatId: "C123THREAD",
+      textSegments: ["Already delivered."],
+      interSegmentDelayMs: 0,
+      startFromSegment: 1,
+      messageTs: "1700000000.000055",
+    });
+
+    expect(deliveryCalls).toHaveLength(0);
+    expect(slackThreadActivationCalls).toEqual([
+      {
+        channelId: "C123THREAD",
+        threadTs: "1700000000.000001",
+        ttlMs: undefined,
+      },
+    ]);
+  });
+
+  it("does not activate Slack thread tracking for non-Slack callbacks", async () => {
+    await deliverRenderedReplyViaCallback({
+      callbackUrl: "http://gateway/deliver/telegram?channel=C123THREAD",
+      chatId: "chat-telegram",
+      textSegments: ["Telegram reply."],
+      interSegmentDelayMs: 0,
+    });
+
+    expect(deliveryCalls).toHaveLength(1);
+    expect(slackThreadActivationCalls).toHaveLength(0);
   });
 
   it("passes ephemeral and user through to each delivery call", async () => {
