@@ -182,6 +182,7 @@ export async function sendSlackReply(
       log.info({ chatId, messageTs }, "Slack message updated");
       return { ok: true, ts: result.ts ?? messageTs };
     } catch (err) {
+      let fallbackToPostAfterUpdateFailure = false;
       if (
         err instanceof SlackApiError &&
         err.slackError === "invalid_blocks" &&
@@ -206,6 +207,7 @@ export async function sendSlackReply(
               { err: retryErr, chatId, messageTs },
               "Slack chat.update retry without blocks failed; falling back to chat.postMessage",
             );
+            fallbackToPostAfterUpdateFailure = true;
           } else {
             log.warn(
               { err: retryErr, chatId, messageTs },
@@ -216,7 +218,10 @@ export async function sendSlackReply(
         }
       }
 
-      if (shouldFallbackToPostAfterUpdateError(err, options)) {
+      if (
+        fallbackToPostAfterUpdateFailure ||
+        shouldFallbackToPostAfterUpdateError(err, options)
+      ) {
         log.warn(
           { err, chatId, messageTs },
           "Slack chat.update failed; falling back to chat.postMessage",

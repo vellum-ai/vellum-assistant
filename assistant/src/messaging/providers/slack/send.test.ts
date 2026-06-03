@@ -139,4 +139,46 @@ describe("sendSlackReply", () => {
       ts: "1700000000.000100",
     });
   });
+
+  test("falls back to chat.postMessage when the no-block update retry hits message_not_found", async () => {
+    const invalidBlocksErr = new SlackApiError("invalid blocks");
+    invalidBlocksErr.slackError = "invalid_blocks";
+    const missingMessageErr = new SlackApiError("message not found");
+    missingMessageErr.slackError = "message_not_found";
+
+    callSlackApiMock
+      .mockImplementationOnce(async () => {
+        throw invalidBlocksErr;
+      })
+      .mockImplementationOnce(async () => {
+        throw missingMessageErr;
+      })
+      .mockImplementationOnce(async () => ({ ok: true, ts: "1700000000.000300" }));
+
+    const result = await sendSlackReply("C123", "Fallback reply", {
+      messageTs: "1700000000.000100",
+      threadTs: "1700000000.000001",
+      blocks: [
+        { type: "section", text: { type: "mrkdwn", text: "Fallback reply" } },
+      ],
+      allowUpdateFailureFallbackToPost: true,
+    });
+
+    expect(result).toEqual({ ok: true, ts: "1700000000.000300" });
+    expect(callSlackApiMock).toHaveBeenCalledTimes(3);
+    expect(callSlackApiMock.mock.calls[0]?.[0]).toBe("chat.update");
+    expect(callSlackApiMock).toHaveBeenNthCalledWith(2, "chat.update", {
+      channel: "C123",
+      text: "Fallback reply",
+      ts: "1700000000.000100",
+    });
+    expect(callSlackApiMock).toHaveBeenNthCalledWith(3, "chat.postMessage", {
+      channel: "C123",
+      text: "Fallback reply",
+      thread_ts: "1700000000.000001",
+      blocks: [
+        { type: "section", text: { type: "mrkdwn", text: "Fallback reply" } },
+      ],
+    });
+  });
 });
