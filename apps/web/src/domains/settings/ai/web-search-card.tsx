@@ -149,7 +149,7 @@ export function WebSearchCard() {
     setWebSearchApiKey("");
     setDraftWebSearchProvider("inference-provider-native");
     setLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native");
-  }, [webSearchProvider]);
+  }, [webSearchProvider, setDraftWebSearchProvider]);
 
   return (
     <ServiceCard

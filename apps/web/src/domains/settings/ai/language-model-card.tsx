@@ -65,7 +65,7 @@ export function LanguageModelCard() {
       toast.error("Failed to switch profile. Please try again.");
       captureError(error, { context: "settings-ai-language-model-save" });
     }
-  }, [effectiveActiveProfile, configMutation]);
+  }, [effectiveActiveProfile, configMutation, setDraftActiveProfile]);
 
   return (
     <>
