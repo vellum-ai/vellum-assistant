@@ -581,10 +581,10 @@ async function simulateInlineCompaction(
 ): Promise<Message[] | null> {
   await onEvent({ type: "context_compacting" });
   // The agent loop strips runtime injections (identity-stubbed in this suite),
-  // commits the stripped basis to durable state via `compaction_basis_committed`,
-  // then prepare returns only the pipeline options.
+  // records the history-stripped marker via `history_stripped`, then prepare
+  // returns only the pipeline options.
   const rawHistory = stripInjectionsForCompaction(history);
-  await onEvent({ type: "compaction_basis_committed", basis: rawHistory });
+  await onEvent({ type: "history_stripped" });
   const { options } = compaction.prepare();
   let result: CompactionResult;
   try {
@@ -623,13 +623,11 @@ async function simulateInlineCompaction(
       onEvent,
     );
   }
-  if (compactResult.compacted) {
-    await onEvent({
-      type: "compaction_applied",
-      result: compactResult,
-      basis: rawHistory,
-    });
-  }
+  await onEvent({
+    type: "compaction_completed",
+    result: compactResult,
+    basis: rawHistory,
+  });
   if (compactResult.exhausted ?? false) {
     return null;
   }

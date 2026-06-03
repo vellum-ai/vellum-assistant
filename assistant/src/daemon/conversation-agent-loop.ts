@@ -68,7 +68,6 @@ import {
   getLastUserTimestampBefore,
   getMessageById,
   provenanceFromTrustContext,
-  setConversationHistoryStrippedAt,
   setLastNotifiedInferenceProfile,
   updateConversationContextWindow,
   updateConversationSlackContextWatermark,
@@ -158,6 +157,7 @@ import {
   createEventHandlerState,
   dispatchAgentEvent,
   type EventHandlerDeps,
+  markHistoryStrippedBestEffort,
 } from "./conversation-agent-loop-handlers.js";
 import {
   approveHostAttachmentRead,
@@ -222,29 +222,6 @@ import type { TrustContext } from "./trust-context.js";
 import { stripHistoricalWebSearchResults } from "./web-search-history.js";
 
 const log = getLogger("conversation-agent-loop");
-
-/**
- * Best-effort persistence of the history-stripped marker after an
- * injection-strip event (compaction / overflow recovery). The marker is a
- * durability hint, not turn-critical state — a transient SQLite write failure
- * (SQLITE_BUSY, disk-full, read-only FS) must not abort the turn. Logs a
- * warning and continues on failure, preserving the long-standing non-fatal
- * contract for this metadata write.
- */
-function markHistoryStrippedBestEffort(
-  conversationId: string,
-  strippedAt: number,
-  logger: ReturnType<typeof getLogger>,
-): void {
-  try {
-    setConversationHistoryStrippedAt(conversationId, strippedAt);
-  } catch (err) {
-    logger.warn(
-      { err },
-      "Failed to persist history-stripped marker after compaction strip (non-fatal)",
-    );
-  }
-}
 
 const DISK_PRESSURE_ERROR_CODE = "DISK_SPACE_CRITICAL" as const;
 const DISK_PRESSURE_ERROR_CATEGORY = "disk_pressure";
@@ -2077,23 +2054,6 @@ export async function runAgentLoopImpl(
       turnChannelContext: capturedTurnChannelContext,
       turnInterfaceContext: capturedTurnInterfaceContext,
       applyCompaction: applySuccessfulCompaction,
-      commitCompactionBasis: (basis) => {
-        // Commit the loop-stripped history as the durable message base before
-        // the compaction pipeline runs. This must land even when the pipeline
-        // runs but does not compact (e.g. `force` bypasses the gates but the
-        // run still finds no eligible / insufficient messages): in that case no
-        // `compaction_applied` event fires to overwrite `ctx.messages`, yet the
-        // loop still re-injects, and re-injection reads `ctx.messages` as its
-        // base. Without this commit that base would be the still-injected
-        // history and re-injection would stack onto it. When the pipeline does
-        // compact, `applyCompactionResult` overwrites `ctx.messages` with the
-        // compacted result, so this write is transient there.
-        ctx.messages = basis;
-        // `historyStrippedAt` is a Conversation DB-record field read back at
-        // load time to strip embedded injection prefixes from pre-strip
-        // messages, so persisting it stays daemon-side rather than in the loop.
-        markHistoryStrippedBestEffort(ctx.conversationId, Date.now(), rlog);
-      },
     };
     const eventHandler = (event: AgentEvent): Promise<void> =>
       dispatchAgentEvent(state, deps, event);
@@ -2129,8 +2089,8 @@ export async function runAgentLoopImpl(
     const midLoopCompaction: MidLoopCompaction = {
       prepare: () => {
         // The loop strips runtime injections and commits the stripped basis to
-        // durable state via the `compaction_basis_committed` event; this hook
-        // only resolves the pipeline options.
+        // durable state via the `compaction_completed` event; this hook only
+        // resolves the pipeline options.
         return {
           options: {
             lastCompactedAt: ctx.contextCompactedAt ?? undefined,

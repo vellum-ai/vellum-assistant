@@ -104,7 +104,6 @@ function makeDeps(): EventHandlerDeps {
       assistantMessageInterface: "web",
     } as unknown as EventHandlerDeps["turnInterfaceContext"],
     applyCompaction: async () => {},
-    commitCompactionBasis: () => {},
   };
 }
 

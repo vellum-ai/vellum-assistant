@@ -99,7 +99,6 @@ function createCollectorDeps(): {
       assistantMessageInterface: "macos",
     } as EventHandlerDeps["turnInterfaceContext"],
     applyCompaction: async () => {},
-    commitCompactionBasis: () => {},
   } as EventHandlerDeps;
   return { deps, events };
 }

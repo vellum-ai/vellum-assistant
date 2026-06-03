@@ -97,7 +97,6 @@ function createCollectorDeps(providerName = "anthropic"): {
       assistantMessageInterface: "macos",
     } as EventHandlerDeps["turnInterfaceContext"],
     applyCompaction: async () => {},
-    commitCompactionBasis: () => {},
   } as EventHandlerDeps;
   return { deps, events };
 }

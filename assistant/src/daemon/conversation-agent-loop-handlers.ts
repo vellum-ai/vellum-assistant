@@ -25,6 +25,7 @@ import {
   getMessageById,
   messageMetadataSchema,
   provenanceFromTrustContext,
+  setConversationHistoryStrippedAt,
   updateMessageContent,
 } from "../memory/conversation-crud.js";
 import { indexMessageNow } from "../memory/indexer.js";
@@ -103,6 +104,28 @@ import type {
 import { FALLBACK_TURN_TRUST } from "./trust-context.js";
 
 const log = getLogger("agent-loop-handlers");
+
+/**
+ * Persist the history-stripped marker after the loop strips runtime injections
+ * for compaction / overflow recovery. The marker is a durability hint, not
+ * turn-critical state — a transient SQLite write failure (SQLITE_BUSY,
+ * disk-full, read-only FS) must not abort the turn, so failures log a warning
+ * and continue.
+ */
+export function markHistoryStrippedBestEffort(
+  conversationId: string,
+  strippedAt: number,
+  logger: pino.Logger,
+): void {
+  try {
+    setConversationHistoryStrippedAt(conversationId, strippedAt);
+  } catch (err) {
+    logger.warn(
+      { err },
+      "Failed to persist history-stripped marker after compaction strip (non-fatal)",
+    );
+  }
+}
 
 // ── Partial-persistence tunables ─────────────────────────────────────
 // Debounce for mid-turn `updateContent` writes from text deltas.
@@ -297,24 +320,16 @@ export interface EventHandlerDeps {
   readonly turnInterfaceContext: TurnInterfaceContext;
   /**
    * Commit a successful inline compaction to durable state. Invoked from the
-   * `compaction_applied` dispatch case with the loop's compaction result and
-   * the stripped pre-compaction `basis`. Supplied by the orchestrator because
-   * the body writes Conversation DB-record fields, projects Slack provenance,
-   * and emits transport the loop is intentionally blind to.
+   * `compaction_completed` dispatch case (when `result.compacted`) with the
+   * loop's compaction result and the stripped pre-compaction `basis`. Supplied
+   * by the orchestrator because the body writes Conversation DB-record fields,
+   * projects Slack provenance, and emits transport the loop is intentionally
+   * blind to.
    */
   readonly applyCompaction: (
     result: ContextWindowResult,
     basis: Message[],
   ) => Promise<void>;
-  /**
-   * Commit the loop-stripped pre-compaction history as the conversation's
-   * durable message state. Invoked from the `compaction_basis_committed`
-   * dispatch case before the compaction pipeline runs, so re-injection
-   * re-applies onto the stripped base even when the pipeline does not compact.
-   * Supplied by the orchestrator because it writes `ctx.messages` and the
-   * history-stripped marker the loop is intentionally blind to.
-   */
-  readonly commitCompactionBasis: (basis: Message[]) => void;
 }
 
 // ── Factory ──────────────────────────────────────────────────────────
@@ -1982,23 +1997,34 @@ export async function dispatchAgentEvent(
         // banner.
         deps.onEvent(event);
         break;
-      case "compaction_applied":
-        // Commit the loop's successful inline compaction to durable state,
-        // then flip the per-turn re-injection guards the orchestrator reads
-        // when re-applying injections. The commit runs before the loop's
-        // `reinject` hook (the loop awaits this dispatch), so the guards are
-        // set in time. A failed commit re-throws below to abort the turn
-        // rather than re-injecting against half-applied state.
-        await deps.applyCompaction(event.result, event.basis);
-        state.reducerCompacted = true;
-        state.shouldInjectWorkspace = true;
+      case "compaction_completed":
+        // Always commit the loop-stripped `basis` as the durable message base
+        // so re-injection re-applies onto the stripped history even when the
+        // pipeline ran but did not compact. When it did compact, commit the
+        // durable result (DB-record fields, Slack provenance, SSE) — which
+        // overwrites `ctx.messages` with the compacted history — and flip the
+        // per-turn re-injection guards the orchestrator reads. This runs
+        // before the loop's `reinject` hook (the loop awaits this dispatch),
+        // so the guards are set in time. A failed durable commit re-throws
+        // below to abort the turn rather than re-injecting against
+        // half-applied state.
+        deps.ctx.messages = event.basis;
+        if (event.result.compacted) {
+          await deps.applyCompaction(event.result, event.basis);
+          state.reducerCompacted = true;
+          state.shouldInjectWorkspace = true;
+        }
         break;
-      case "compaction_basis_committed":
-        // Commit the loop-stripped history as the durable message base before
-        // the pipeline runs. Best-effort by construction (an in-memory write
-        // plus a swallowed marker write), so unlike `compaction_applied` this
+      case "history_stripped":
+        // Record the history-stripped DB marker right after the loop strips
+        // injections (before the pipeline). Best-effort: a transient marker
+        // write must not abort the turn, so unlike `compaction_completed` this
         // is not on the re-throw allowlist below.
-        deps.commitCompactionBasis(event.basis);
+        markHistoryStrippedBestEffort(
+          deps.ctx.conversationId,
+          Date.now(),
+          deps.rlog,
+        );
         break;
       case "error":
         handleError(state, deps, event);
@@ -2052,13 +2078,13 @@ export async function dispatchAgentEvent(
     // - message_complete: persists assistant message to DB, sets state flags
     // - error: sets recovery flags (contextTooLargeDetected, orderingErrorDetected)
     // - usage: records token accounting
-    // - compaction_applied: durable compaction commit; aborting the turn is
+    // - compaction_completed: durable compaction commit; aborting the turn is
     //   safer than re-injecting against a half-applied compaction
     if (
       event.type === "message_complete" ||
       event.type === "error" ||
       event.type === "usage" ||
-      event.type === "compaction_applied"
+      event.type === "compaction_completed"
     ) {
       throw err;
     }

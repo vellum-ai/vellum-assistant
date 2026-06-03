@@ -294,19 +294,25 @@ export type AgentEvent =
     }
   | {
       /**
-       * Emitted after the loop's inline mid-loop compaction successfully
-       * compacts the running history, immediately before re-injection. The
-       * daemon's event dispatcher commits the durable compaction result
-       * (DB-record fields, graph-memory side effects, SSE) and flips the
-       * per-turn re-injection guards on the handler state. Treated as a
-       * critical event: a failed commit re-throws so the turn aborts rather
-       * than re-injecting against half-applied state.
+       * Emitted after the loop's inline mid-loop compaction pipeline runs,
+       * immediately before re-injection — whether or not the pipeline actually
+       * compacted. The daemon's event dispatcher always commits `basis` (the
+       * stripped pre-compaction history) as the conversation's durable message
+       * state, so re-injection ({@link MidLoopCompaction.reinject}) re-applies
+       * injections onto the stripped base rather than stacking on top of the
+       * still-injected messages. When `result.compacted` is set it
+       * additionally commits the durable compaction result (DB-record fields,
+       * graph-memory side effects, SSE) and flips the per-turn re-injection
+       * guards on the handler state.
+       *
+       * Treated as a critical event: a failed durable commit re-throws so the
+       * turn aborts rather than re-injecting against half-applied state.
        *
        * `basis` is the stripped pre-compaction history the summary was built
        * from; the dispatcher uses it to project Slack provenance onto the
        * compacted result.
        */
-      type: "compaction_applied";
+      type: "compaction_completed";
       result: ContextWindowResult;
       basis: Message[];
     }
@@ -314,18 +320,13 @@ export type AgentEvent =
       /**
        * Emitted right after the loop strips runtime injections from the
        * running history, before the compaction pipeline runs. The daemon's
-       * event dispatcher commits the stripped `basis` as the conversation's
-       * durable message state and records the history-stripped marker.
-       *
-       * This commit must land even when the pipeline does not actually
-       * compact: re-injection ({@link MidLoopCompaction.reinject}) re-applies
-       * injections onto the durable `ctx.messages`, so that base has to be the
-       * stripped history or the re-injection would stack on top of the
-       * still-injected messages. Both commit operations are best-effort, so
-       * unlike `compaction_applied` this event is not treated as critical.
+       * event dispatcher records the history-stripped marker — a Conversation
+       * DB-record field read back at load time to strip embedded injection
+       * prefixes from pre-strip messages. Best-effort: a transient marker
+       * write must not abort the turn, so unlike `compaction_completed` this
+       * event is not treated as critical.
        */
-      type: "compaction_basis_committed";
-      basis: Message[];
+      type: "history_stripped";
     }
   /**
    * Circuit-breaker transitions emitted when auto-compaction is paused
@@ -474,8 +475,8 @@ export interface ResolvedSystemPrompt {
  * `compaction` pipeline call, the result interpretation (circuit-breaker
  * bookkeeping + the exhaustion decision), and the inline continue; these hooks
  * bridge the injection state the loop is intentionally blind to. Durable
- * persistence is signalled out-of-band via the `compaction_basis_committed`
- * (stripped basis) and `compaction_applied` (successful summary) {@link
+ * persistence is signalled out-of-band via the `history_stripped` (marker)
+ * and `compaction_completed` (basis commit + successful summary) {@link
  * AgentEvent}s; re-injection ({@link reinject}) remains orchestrator-supplied
  * for now and is expected to move into the loop in a future change.
  */
@@ -483,7 +484,7 @@ export interface MidLoopCompaction {
   /**
    * Resolve the options for the compaction pipeline run. The loop-stripped
    * history is committed to durable state separately via the
-   * `compaction_basis_committed` event, so this hook only assembles options.
+   * `compaction_completed` event, so this hook only assembles options.
    */
   prepare: () => {
     options: CompactionArgs["options"];
@@ -756,10 +757,9 @@ export class AgentLoop {
     // Strip runtime injections so the compactor summarizes the raw persistent
     // messages.
     const rawHistory = stripInjectionsForCompaction(history);
-    // Commit the stripped history as the durable message base before the
-    // pipeline runs, so re-injection re-applies onto the stripped messages
-    // even when the pipeline does not actually compact.
-    await onEvent({ type: "compaction_basis_committed", basis: rawHistory });
+    // Record the history-stripped marker right after stripping, before the
+    // pipeline runs.
+    await onEvent({ type: "history_stripped" });
     const { options } = compaction.prepare();
     let result: CompactionResult;
     try {
@@ -794,13 +794,15 @@ export class AgentLoop {
         onEvent,
       );
     }
-    if (compactResult.compacted) {
-      await onEvent({
-        type: "compaction_applied",
-        result: compactResult,
-        basis: rawHistory,
-      });
-    }
+    // Emit unconditionally: the dispatcher commits the stripped `basis` as the
+    // durable message base whether or not the pipeline compacted (re-injection
+    // reads it), and runs the durable compaction commit only when
+    // `result.compacted`.
+    await onEvent({
+      type: "compaction_completed",
+      result: compactResult,
+      basis: rawHistory,
+    });
     if (compactResult.exhausted ?? false) {
       return null;
     }
