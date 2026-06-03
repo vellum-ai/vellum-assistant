@@ -94,6 +94,10 @@ const metadataStore = new Map<
 >();
 
 mock.module("../../tools/credentials/metadata-store.js", () => ({
+  // acp-routes.js (the module under test) also exports the credential-link
+  // route, which imports assertMetadataWritable from this module. Since the
+  // mock replaces the whole module, it must provide that export too.
+  assertMetadataWritable: () => {},
   getCredentialMetadata: (service: string, field: string) => {
     const key = `${service}/${field}`;
     const entry = metadataStore.get(key);

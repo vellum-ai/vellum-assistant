@@ -15,6 +15,7 @@ import {
   getWorkspaceDir,
 } from "../util/platform.js";
 import { isAssistantFeatureFlagEnabled } from "./assistant-feature-flags.js";
+import { getAcpEnabled } from "./env-registry.js";
 import { AssistantConfigSchema } from "./schema.js";
 import type { AssistantConfig } from "./types.js";
 
@@ -126,7 +127,7 @@ export function getDeploymentContextDefaults(): Record<string, unknown> {
   // for non-native inference providers while preserving provider-native hosted
   // search for providers/models that support it.
   const managed = { mode: "managed" as const };
-  return {
+  const defaults: Record<string, unknown> = {
     services: {
       "image-generation": managed,
       "web-search": managed,
@@ -141,6 +142,13 @@ export function getDeploymentContextDefaults(): Record<string, unknown> {
       "hubspot-oauth": managed,
     },
   };
+  // ACP is gated behind VELLUM_ACP_ENABLED on top of IS_PLATFORM so it can be
+  // flipped on per release for hosted assistants only. Fill-only, so an
+  // explicit user `acp.enabled` on disk still wins.
+  if (getAcpEnabled()) {
+    defaults.acp = { enabled: true };
+  }
+  return defaults;
 }
 
 /**
@@ -774,8 +782,40 @@ export function loadConfig(): AssistantConfig {
         if (!existsSync(dir)) {
           mkdirSync(dir, { recursive: true });
         }
-        // Strip dataDir (runtime-derived) from the persisted config
-        const { dataDir: _, ...persistable } = config;
+        // Strip dataDir (runtime-derived) from the persisted config. The
+        // persisted shape diverges from `AssistantConfig` (the env-gated
+        // `acp.enabled` key is omitted below), so type it as a loose record for
+        // serialization.
+        const { dataDir: _, ...rest } = config;
+        const persistable: Record<string, unknown> = rest;
+        // Keep the env-gated `acp.enabled` default off-disk so the per-release
+        // rollout gate survives both rollback AND restart, in EVERY flag state.
+        // The default is effective in-memory (above), but persisting any
+        // `acp.enabled` value into the first-launch seed bakes it into
+        // config.json as durable user intent — the fill-only
+        // `fillContextDefaultsForMissingKeys` pass would then treat it as an
+        // explicit choice forever and refuse to re-apply the env-gated default.
+        //
+        // This omission is UNCONDITIONAL — it does not depend on whether
+        // VELLUM_ACP_ENABLED is currently on (`contextDefaults.acp` present) or
+        // off (pre-rollout). Writing `acp.enabled: false` is just as wrong as
+        // writing `true`: a hosted assistant first-launched while the flag is
+        // OFF would otherwise materialize the schema default `false` to disk;
+        // when the flag later flips ON, that on-disk `false` shadows the gate
+        // and ACP can NEVER enable for that pre-rollout config. So we OMIT the
+        // key entirely (delete it) regardless of the flag's current state. On a
+        // subsequent load the absent key lets the env gate re-apply (→ true
+        // when on, schema default false when off), while a genuine user-set
+        // `acp.enabled` written by a real config edit still wins (fill-only
+        // never overrides a present key). The rest of the `acp` block
+        // (maxConcurrentSessions, agents) still persists at its schema default.
+        // Clone the subtree so we never mutate the in-memory effective
+        // `config.acp`.
+        if (persistable.acp !== undefined) {
+          const { enabled: _enabled, ...acpWithoutEnabled } =
+            persistable.acp as Record<string, unknown>;
+          persistable.acp = acpWithoutEnabled;
+        }
         writeFileSync(configPath, JSON.stringify(persistable, null, 2) + "\n");
         log.info("Wrote default config to %s", configPath);
       } catch (err) {

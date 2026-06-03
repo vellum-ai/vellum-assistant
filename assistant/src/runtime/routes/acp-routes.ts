@@ -8,19 +8,32 @@ import { desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getAcpSessionManager } from "../../acp/index.js";
-import { prepareAgentEnv } from "../../acp/prepare-agent-env.js";
+import {
+  ACP_SPAWN_TOOL,
+  prepareAgentEnv,
+} from "../../acp/prepare-agent-env.js";
 import { resolveAcpAgent } from "../../acp/resolve-agent.js";
 import type { AcpSessionState } from "../../acp/types.js";
 import { getDb } from "../../memory/db-connection.js";
 import { rawChanges } from "../../memory/raw-query.js";
 import { acpSessionHistory } from "../../memory/schema.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
+import { credentialKey } from "../../security/credential-key.js";
+import {
+  getActiveBackendName,
+  setSecureKeyAsync,
+} from "../../security/secure-keys.js";
+import {
+  assertMetadataWritable,
+  upsertCredentialMetadata,
+} from "../../tools/credentials/metadata-store.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   BadRequestError,
   ConflictError,
   FailedDependencyError,
+  InternalError,
   NotFoundError,
 } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -31,6 +44,32 @@ const log = getLogger("acp-routes");
 
 const DEFAULT_SESSION_LIMIT = 50;
 const MAX_SESSION_LIMIT = 500;
+
+/** Service namespace under which all linked ACP credentials are stored. */
+const ACP_CREDENTIAL_SERVICE = "acp";
+
+/**
+ * The ONLY credential fields a client may link via `acp/credentials/link`.
+ * These are the BYO secrets `prepare-agent-env.ts` reads through the broker
+ * when spawning a per-user agent on a hosted pod. The route is intentionally
+ * locked to this allowlist so the client-reachable surface can never write
+ * (or overwrite) an arbitrary `acp/*` secret outside the agent's needs.
+ */
+const LINKABLE_ACP_FIELDS = [
+  "claude_oauth_token",
+  "anthropic_api_key",
+  "openai_api_key",
+  "git_token",
+] as const;
+
+type LinkableAcpField = (typeof LINKABLE_ACP_FIELDS)[number];
+
+const LINKABLE_FIELD_DESCRIPTIONS: Record<LinkableAcpField, string> = {
+  claude_oauth_token: "Claude OAuth token for ACP agent authentication",
+  anthropic_api_key: "Anthropic API key for ACP agent authentication",
+  openai_api_key: "OpenAI API key for ACP agent authentication",
+  git_token: "Git access token for ACP agent repository operations",
+};
 
 const sessionEntrySchema = z.object({
   id: z.string(),
@@ -106,6 +145,65 @@ async function spawnSession({ body }: RouteHandlerArgs) {
 
   log.info({ acpSessionId, protocolSessionId, agent }, "ACP spawn succeeded");
   return { acpSessionId, protocolSessionId, agent };
+}
+
+/**
+ * Link a per-user ACP/dev credential into the pod's secure store.
+ *
+ * Hosted users have no shell, so they cannot run `assistant credentials set`.
+ * This route is the client → gateway → daemon path that writes the BYO
+ * secret into the SAME broker location `prepare-agent-env.ts` reads:
+ * `credential/acp/<field>` in secure-keys, with metadata whose
+ * `allowedTools` is `["acp_spawn"]` so only the agent spawn path can read it.
+ *
+ * Invariants (enforced here, asserted by tests):
+ *  - WRITE-ONLY over the wire: the response NEVER echoes the value back.
+ *  - IN-POD ONLY: the value goes to the local secure store; it is never sent
+ *    centrally (no managed-catalog / platform sync call on this path).
+ *  - Locked to the {@link LINKABLE_ACP_FIELDS} allowlist.
+ */
+async function linkCredential({ body }: RouteHandlerArgs) {
+  const rawField = body?.field;
+  const value = body?.value as string | undefined;
+
+  if (!rawField || typeof rawField !== "string") {
+    throw new BadRequestError("field is required");
+  }
+  if (!LINKABLE_ACP_FIELDS.includes(rawField as LinkableAcpField)) {
+    throw new BadRequestError(
+      `field must be one of: ${LINKABLE_ACP_FIELDS.join(", ")}`,
+    );
+  }
+  const field = rawField as LinkableAcpField;
+  if (!value || typeof value !== "string") {
+    throw new BadRequestError("value is required");
+  }
+
+  // Fail before any side effects if the metadata store is on an
+  // unrecognized version, mirroring `credentials/set`.
+  assertMetadataWritable();
+
+  const storageKey = credentialKey(ACP_CREDENTIAL_SERVICE, field);
+  const stored = await setSecureKeyAsync(storageKey, value);
+  if (!stored) {
+    throw new InternalError(
+      `Failed to store ACP credential in secure storage (backend: ${getActiveBackendName()})`,
+    );
+  }
+
+  // Scope the credential to acp_spawn ONLY so nothing but the agent spawn
+  // path can read it back through the broker. We always (re)assert this
+  // policy on link so the client can never widen it.
+  upsertCredentialMetadata(ACP_CREDENTIAL_SERVICE, field, {
+    allowedTools: [ACP_SPAWN_TOOL],
+    usageDescription: LINKABLE_FIELD_DESCRIPTIONS[field],
+  });
+
+  log.info({ field }, "ACP credential linked");
+
+  // Write-only: respond with the field name and a boolean ONLY. Never the
+  // value, never a scrubbed preview that could leak length/suffix.
+  return { field, linked: true };
 }
 
 async function steerSession({ pathParams, body }: RouteHandlerArgs) {
@@ -221,6 +319,34 @@ export const ROUTES: RouteDefinition[] = [
       acpSessionId: z.string(),
       protocolSessionId: z.string(),
       agent: z.string(),
+    }),
+  },
+  {
+    operationId: "acp_link_credential",
+    endpoint: "acp/credentials/link",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    handler: linkCredential,
+    summary: "Link a per-user ACP/dev credential",
+    description:
+      "Write a BYO ACP credential (Claude OAuth token, Anthropic/OpenAI API " +
+      "key, or git token) into the pod's secure store for the agent spawn " +
+      "path to read. Write-only: the value is never returned in the response " +
+      "and never sent centrally. Stored under acp/<field> with an " +
+      "acp_spawn-only policy.",
+    tags: ["acp"],
+    requestBody: z.object({
+      field: z
+        .enum(LINKABLE_ACP_FIELDS)
+        .describe("Which ACP credential to link"),
+      value: z.string().min(1).describe("Secret value to store (write-only)"),
+    }),
+    responseBody: z.object({
+      field: z.string(),
+      linked: z.boolean(),
     }),
   },
   {

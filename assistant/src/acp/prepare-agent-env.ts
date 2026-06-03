@@ -32,12 +32,18 @@ import {
 import { getLogger } from "../util/logger.js";
 import type { AcpAgentConfig } from "./types.js";
 
-const ACP_SPAWN_TOOL = "acp_spawn";
+/**
+ * Tool name the agent-spawn path presents to the credential broker. The
+ * in-pod credential-link route (`runtime/routes/acp-routes.ts`) writes this
+ * into each linked credential's `allowedTools` so the broker authorizes the
+ * read here. Exported so the two sides can never drift.
+ */
+export const ACP_SPAWN_TOOL = "acp_spawn";
 
 const log = getLogger("acp:prepare-agent-env");
 
 /**
- * Ensure the `acp/<field>` credential has metadata that allows the
+ * Ensure an `acp/<field>` credential has metadata that allows the
  * `acp_spawn` tool to read it, but only for legacy/unmanaged cases:
  *
  * - No metadata at all → create with `allowedTools: ["acp_spawn"]`.
@@ -65,25 +71,110 @@ function ensureAcpTokenPolicy(field: string, usageDescription: string): void {
 }
 
 /**
+ * Resolve a broker-stored `acp/<field>` credential into `env[envVar]` unless
+ * the caller already supplied it via `agent.env`. Mirrors the OAuth-token
+ * resolution: seed the read policy, then read through the broker (which only
+ * runs `execute` on a successful, policy-allowed read). config.json overrides
+ * always win, so we never clobber an explicit user-supplied value.
+ */
+async function resolveAcpCredential(
+  env: Record<string, string>,
+  envVar: string,
+  field: string,
+  usageDescription: string,
+): Promise<void> {
+  if (env[envVar]) return;
+  ensureAcpTokenPolicy(field, usageDescription);
+  await credentialBroker.serverUse<void>({
+    service: "acp",
+    field,
+    toolName: ACP_SPAWN_TOOL,
+    execute: async (value) => {
+      env[envVar] = value;
+    },
+  });
+}
+
+/**
+ * Resolve an LLM credential into `env` honoring the documented precedence:
+ *
+ *   agent.env explicit  →  vault (broker)  →  ambient process.env
+ *
+ * The two LLM credentials are mutually exclusive at the adapter level — when
+ * both `CLAUDE_CODE_OAUTH_TOKEN` and `ANTHROPIC_API_KEY` are set the adapter
+ * prefers OAuth — so we must NOT inject a competing credential over one the
+ * caller intentionally supplied. Precedence is therefore evaluated as a whole:
+ *
+ *   1. If `agent.env` already carries EITHER LLM credential, it is the
+ *      highest-precedence source. Leave it untouched and inject nothing else
+ *      (no vault/ambient OAuth over an explicit API key, and vice versa).
+ *   2. Otherwise prefer the vault OAuth token, then the vault API key.
+ *   3. Otherwise fall back to the ambient `process.env` OAuth token, then the
+ *      ambient API key. This preserves local users who export a daemon-level
+ *      `ANTHROPIC_API_KEY` / `CLAUDE_CODE_OAUTH_TOKEN`: sibling PR F1 strips
+ *      the daemon's ambient env from the spawned agent, so the only way an
+ *      ambient cred reaches the adapter is for us to read it here and inject
+ *      it via the returned `config.env` (which survives the F1 strip).
+ */
+async function resolveLlmCredential(
+  env: Record<string, string>,
+): Promise<void> {
+  // (1) Explicit agent.env credential wins outright — never compete with it.
+  if (env.CLAUDE_CODE_OAUTH_TOKEN || env.ANTHROPIC_API_KEY) return;
+
+  // (2) Vault: prefer the OAuth token, fall back to an Anthropic API key.
+  await resolveAcpCredential(
+    env,
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    "claude_oauth_token",
+    "Claude OAuth token for ACP agent authentication",
+  );
+  if (!env.CLAUDE_CODE_OAUTH_TOKEN) {
+    await resolveAcpCredential(
+      env,
+      "ANTHROPIC_API_KEY",
+      "anthropic_api_key",
+      "Anthropic API key for ACP agent authentication",
+    );
+  }
+  if (env.CLAUDE_CODE_OAUTH_TOKEN || env.ANTHROPIC_API_KEY) return;
+
+  // (3) Ambient process.env: same OAuth-preferred ordering. Injected into the
+  // returned env so it survives F1's spawn-env strip.
+  const ambientOAuth = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+  if (ambientOAuth) {
+    env.CLAUDE_CODE_OAUTH_TOKEN = ambientOAuth;
+    return;
+  }
+  const ambientApiKey = process.env.ANTHROPIC_API_KEY;
+  if (ambientApiKey) {
+    env.ANTHROPIC_API_KEY = ambientApiKey;
+  }
+}
+
+/**
  * Returns a NEW config with any required credentials merged into `env`.
  * Does NOT mutate the input. Throws `FailedDependencyError` if a required
- * credential is missing from both the user-supplied env override and the
- * secure store.
+ * credential is missing from the user-supplied env override, the secure
+ * store, AND the ambient process env.
  *
  * Gating is keyed off the resolved agent COMMAND (basename), not the
  * user-facing agent id, so a custom `acp.agents.my-claude = { command:
  * "claude-agent-acp", ... }` alias still gets the env it needs.
  *
- * For `claude-agent-acp` the only required env var is
- * `CLAUDE_CODE_OAUTH_TOKEN`. Two provisioning routes converge on it, with
- * config.json winning over the vault so explicit user overrides
- * (per-workspace, rotated, etc.) are never silently clobbered:
- *   1. `acp.agents.<id>.env.CLAUDE_CODE_OAUTH_TOKEN` in `config.json` —
- *      the user-supplied env override on the resolved agent config.
- *   2. Secure store via CLI: `assistant credentials set --service acp \
- *        --field claude_oauth_token <token>` — read through the
- *      credential broker for policy enforcement and audit logging.
- * After resolution, this asserts the token is present (from either route)
+ * For `claude-agent-acp` the agent needs ONE of two LLM credentials, plus
+ * an optional git/dev credential so it can clone/push.
+ *   1. LLM auth — `CLAUDE_CODE_OAUTH_TOKEN` (preferred) OR `ANTHROPIC_API_KEY`,
+ *      resolved by precedence: explicit `acp.agents.<id>.env` in `config.json`
+ *      wins, then the secure store (`acp/claude_oauth_token` /
+ *      `acp/anthropic_api_key`) read through the credential broker, then the
+ *      ambient `process.env`. Once a source supplies a credential we never
+ *      inject a competing one over it (the adapter prefers OAuth when both are
+ *      set, so an explicit API key must not be shadowed by a vault/ambient
+ *      OAuth token — and vice versa).
+ *   2. Git auth (optional) — `GH_TOKEN` from `acp.agents.<id>.env` or the
+ *      secure store (`acp/git_token`). Injected when present; never required.
+ * After resolution, this asserts at least one LLM credential is present
  * before spawning. The "fail-fast" throw is symmetric with the existing
  * `binary_not_found` preflight in `resolveAcpAgent` and strictly better
  * than a `warn` + zombie subprocess 10 seconds later.
@@ -137,27 +228,23 @@ export async function prepareAgentEnv(
   const commandBasename = basename(agentConfig.command);
 
   if (commandBasename === "claude-agent-acp") {
-    if (!env.CLAUDE_CODE_OAUTH_TOKEN) {
-      ensureAcpTokenPolicy(
-        "claude_oauth_token",
-        "Claude OAuth token for ACP agent authentication",
-      );
-      await credentialBroker.serverUse<void>({
-        service: "acp",
-        field: "claude_oauth_token",
-        toolName: ACP_SPAWN_TOOL,
-        execute: async (token) => {
-          env.CLAUDE_CODE_OAUTH_TOKEN = token;
-        },
-      });
-    }
-    if (!env.CLAUDE_CODE_OAUTH_TOKEN) {
+    // LLM auth: agent.env explicit → vault → ambient process.env.
+    await resolveLlmCredential(env);
+    if (!env.CLAUDE_CODE_OAUTH_TOKEN && !env.ANTHROPIC_API_KEY) {
       throw new FailedDependencyError(
-        "claude-agent-acp requires CLAUDE_CODE_OAUTH_TOKEN. " +
+        "claude-agent-acp requires an LLM credential: either CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY. " +
           "Run: assistant credentials set --service acp --field claude_oauth_token <token> " +
-          "(or set it under acp.agents.<id>.env in config.json).",
+          "(or --field anthropic_api_key <key>), or set it under acp.agents.<id>.env in config.json.",
       );
     }
+
+    // Git auth (optional): inject when present so the agent can clone/push.
+    await resolveAcpCredential(
+      env,
+      "GH_TOKEN",
+      "git_token",
+      "Git token for ACP agent clone/push",
+    );
   }
 
   if (commandBasename === "codex-acp") {
