@@ -46,6 +46,7 @@ import {
 } from "../context/post-turn-tool-result-truncation.js";
 import {
   estimatePromptTokens,
+  estimatePromptTokensWithTools,
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
 import type { ContextWindowManager } from "../context/window-manager.js";
@@ -102,14 +103,11 @@ import {
   runDefaultMemoryRetrieval,
 } from "../plugins/defaults/memory-retrieval/register.js";
 import { defaultPersistenceTerminal } from "../plugins/defaults/persistence/terminal.js";
-import { defaultTokenEstimateTerminal } from "../plugins/defaults/token-estimate/terminal.js";
 import { DEFAULT_TIMEOUTS, runHook, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
   CompactionArgs,
   CompactionResult,
-  EstimateArgs,
-  EstimateResult,
   MemoryArgs,
   MemoryResult,
   OverflowReduceArgs,
@@ -120,11 +118,7 @@ import type {
   TurnContext as PluginTurnContext,
 } from "../plugins/types.js";
 import { PluginExecutionError, PluginTimeoutError } from "../plugins/types.js";
-import type {
-  ContentBlock,
-  Message,
-  ToolDefinition,
-} from "../providers/types.js";
+import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import { resolveActorTrust } from "../runtime/actor-trust-resolver.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
@@ -1706,51 +1700,18 @@ export async function runAgentLoopImpl(
     let reducerState: ReducerState | undefined;
 
     const toolTokenBudget = ctx.agentLoop.getToolTokenBudget(runMessages);
-    // Canonical calibration key — passed to the `tokenEstimate` pipeline for
-    // every preflight/mid-loop estimate, the overflow reducer config, and the
-    // convergence-path `estimatePromptTokens` call. Matches the key recorded
-    // by `handleUsage` for wrapper providers (OpenRouter routing to
-    // Anthropic → key is `"anthropic"`).
+    // Canonical calibration key — used by the preflight estimate, the
+    // overflow reducer config, and the convergence-path `estimatePromptTokens`
+    // call. Matches the key recorded by `handleUsage` for wrapper providers
+    // (OpenRouter routing to Anthropic → key is `"anthropic"`).
     const estimationProviderName = getCalibrationProviderKey(ctx.provider);
 
-    // Shared `TurnContext` for every `tokenEstimate` pipeline invocation in
-    // this turn. The pipeline is the extension point for plugins that want
-    // to substitute an alternate estimator (e.g. provider-native tokenization)
-    // without touching orchestrator code.
-    //
-    // Routed through the canonical builder — `turnIndex` is `ctx.turnCount`,
-    // trust cascades through per-turn/conversation-level/fallback, and the
-    // context-window handle rides along so any middleware that wants to
-    // reuse the manager (e.g. to compute compaction-aware estimates) can.
-    const pipelineTurnCtx = buildPluginTurnContext(ctx, reqId);
-
-    const runTokenEstimatePipeline = (
-      history: Message[],
-    ): Promise<EstimateResult> =>
-      runPipeline<EstimateArgs, EstimateResult>(
-        "tokenEstimate",
-        getMiddlewaresFor("tokenEstimate"),
-        defaultTokenEstimateTerminal,
-        {
-          // Shallow-frozen copies so a misbehaving middleware that mutates
-          // `args.history` or `args.tools` in place (e.g. trims the array
-          // before calling next) can't silently strip prompt context from
-          // the orchestrator's live `runMessages` / resolved-tools arrays.
-          // TypeScript `readonly` on `EstimateArgs` does not prevent
-          // `push`/`splice` at runtime; the frozen wrapper throws in strict
-          // mode and isolates any mutation attempts from the call-site state.
-          history: Object.freeze([...history]) as Message[],
-          systemPrompt: ctx.systemPrompt,
-          tools: Object.freeze([
-            ...ctx.agentLoop.getResolvedTools(history),
-          ]) as ToolDefinition[],
-          providerName: estimationProviderName,
-        },
-        pipelineTurnCtx,
-        DEFAULT_TIMEOUTS.tokenEstimate,
-      );
-
-    const preflightTokens = await runTokenEstimatePipeline(runMessages);
+    const preflightTokens = estimatePromptTokensWithTools(
+      runMessages,
+      ctx.systemPrompt,
+      ctx.agentLoop.getResolvedTools(runMessages),
+      estimationProviderName,
+    );
 
     if (overflowRecovery.enabled && preflightTokens > preflightBudget) {
       rlog.warn(
@@ -2043,11 +2004,10 @@ export async function runAgentLoopImpl(
     rlog.info({ callSite: turnCallSite }, "Starting agent loop run");
 
     // Thread the orchestrator's canonical per-turn context into the agent
-    // loop so its internal pipeline invocations (tokenEstimate, compaction) see
-    // the real conversation identity / trust /
-    // contextWindowManager instead of the synthesized `"agent-loop"`
-    // placeholder. The loop clones this value and overwrites `turnIndex`
-    // with its own tool-use iteration counter.
+    // loop so its internal pipeline invocations (e.g. compaction) see the
+    // real conversation identity / trust / contextWindowManager instead of
+    // the synthesized `"agent-loop"` placeholder. The loop clones this value
+    // and overwrites `turnIndex` with its own tool-use iteration counter.
     const loopTurnCtx = buildPluginTurnContext(ctx, reqId);
 
     // Hook for the loop-owned mid-loop compaction. The agent loop owns the

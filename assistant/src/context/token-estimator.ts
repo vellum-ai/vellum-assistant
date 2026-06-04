@@ -359,6 +359,29 @@ export function estimatePromptTokens(
   return correction === 1.0 ? raw : Math.ceil(raw * correction);
 }
 
+/**
+ * Calibrated prompt-token estimate including the tool-definition budget.
+ *
+ * Combines the per-tool budget ({@link estimateToolsTokens}) with the
+ * message/system estimate ({@link estimatePromptTokens}) under the EWMA
+ * calibration correction. This is the estimate the overflow gate consumes;
+ * the pre-send calibration capture in `agent/loop.ts` deliberately stays on
+ * `estimatePromptTokensRaw` so the calibrator trains against the uncorrected
+ * value rather than chasing its own output.
+ */
+export function estimatePromptTokensWithTools(
+  history: Message[],
+  systemPrompt: string | undefined,
+  tools: ToolDefinition[],
+  providerName: string,
+): number {
+  const toolTokenBudget = tools.length > 0 ? estimateToolsTokens(tools) : 0;
+  return estimatePromptTokens(history, systemPrompt, {
+    providerName,
+    toolTokenBudget,
+  });
+}
+
 function stableJson(value: unknown): string {
   try {
     return JSON.stringify(value);

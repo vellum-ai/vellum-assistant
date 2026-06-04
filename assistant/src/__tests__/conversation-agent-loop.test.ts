@@ -86,9 +86,9 @@ mock.module("../config/loader.js", () => ({
 
 // Token estimator returns a small value by default (well within budget)
 // so preflight does not trigger unless the test overrides it. Both the
-// calibrated entry point (`estimatePromptTokens`, used in the convergence
-// path) and the raw entry point (`estimatePromptTokensRaw`, used by the
-// default `tokenEstimate` plugin pipeline for preflight/mid-loop) are
+// calibrated entry point (`estimatePromptTokens`, which backs the preflight
+// overflow gate and the convergence path) and the raw entry point
+// (`estimatePromptTokensRaw`, used by the pre-send calibration capture) are
 // stubbed so either call site can drive the test.
 let mockEstimateTokens = 1000;
 mock.module("../context/token-estimator.js", () => ({

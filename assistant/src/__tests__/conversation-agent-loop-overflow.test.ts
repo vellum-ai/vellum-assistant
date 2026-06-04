@@ -114,10 +114,10 @@ mock.module("../config/loader.js", () => ({
 // Token estimator — controllable per-test via mockEstimateTokens.
 // Can be a number (constant), a no-arg function, or a function that
 // receives the messages array for dynamic behavior based on content.
-// Both the calibrated entry point (`estimatePromptTokens`, used in the
-// convergence path) and the raw entry point (`estimatePromptTokensRaw`,
-// used by the default `tokenEstimate` plugin pipeline for preflight/mid-
-// loop) are stubbed so either call site can drive the test.
+// Both the calibrated entry point (`estimatePromptTokens`, which backs the
+// preflight overflow gate and the convergence path) and the raw entry point
+// (`estimatePromptTokensRaw`, used by the pre-send calibration capture) are
+// stubbed so either call site can drive the test.
 let mockEstimateTokens: number | ((msgs?: Message[]) => number) = 1000;
 mock.module("../context/token-estimator.js", () => ({
   estimatePromptTokens: (msgs: Message[]) =>

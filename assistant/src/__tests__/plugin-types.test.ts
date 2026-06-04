@@ -17,8 +17,6 @@ import {
   type CircuitBreakerResult,
   type CompactionArgs,
   type CompactionResult,
-  type EstimateArgs,
-  type EstimateResult,
   type Injector,
   type MemoryArgs,
   type MemoryResult,
@@ -67,15 +65,6 @@ describe("plugin core types", () => {
       next,
       _ctx,
     ) => next(args);
-
-    // `tokenEstimate` has a concrete arg/result shape (refined in the
-    // tokenEstimate-pipeline PR), so its middleware can't share the generic
-    // `{ input, output }` passthrough. A slot-specific passthrough keeps the
-    // shape-only assertion honest across type-refinement PRs.
-    const tokenEstimatePassthrough: Middleware<
-      EstimateArgs,
-      EstimateResult
-    > = async (args, next, _ctx) => next(args);
 
     // `overflowReduce` has a concrete arg/result shape (PR 23). Uses a
     // dedicated passthrough that returns a structurally-correct result so
@@ -178,7 +167,6 @@ describe("plugin core types", () => {
       injectors: [injector],
       middleware: {
         memoryRetrieval: memoryPassthrough,
-        tokenEstimate: tokenEstimatePassthrough,
         compaction: compactionPassthrough,
         overflowReduce: overflowReducePassthrough,
         persistence: persistPassthrough,
@@ -204,7 +192,7 @@ describe("plugin core types", () => {
   });
 
   test("PluginTimeoutError omits plugin suffix when unknown", () => {
-    const err = new PluginTimeoutError("tokenEstimate", undefined, 1234);
+    const err = new PluginTimeoutError("circuitBreaker", undefined, 1234);
     expect(err.pluginName).toBeUndefined();
     expect(err.message).not.toContain("offending plugin");
   });

@@ -35,7 +35,6 @@ import { defaultMemoryRetrievalPlugin } from "./memory-retrieval/register.js";
 import { defaultOverflowReducePlugin } from "./overflow-reduce/register.js";
 import { defaultPersistencePlugin } from "./persistence/register.js";
 import { defaultTitleGeneratePlugin } from "./title-generate/register.js";
-import { defaultTokenEstimatePlugin } from "./token-estimate/register.js";
 import { defaultToolErrorPlugin } from "./tool-error/register.js";
 import { defaultToolResultTruncatePlugin } from "./tool-result-truncate/register.js";
 
@@ -56,7 +55,6 @@ function getAllDefaultPlugins(): readonly Plugin[] {
     defaultToolErrorPlugin,
     defaultMemoryRetrievalPlugin,
     defaultInjectorsPlugin,
-    defaultTokenEstimatePlugin,
     defaultOverflowReducePlugin,
     defaultHistoryRepairPlugin,
     defaultCompactionPlugin,
