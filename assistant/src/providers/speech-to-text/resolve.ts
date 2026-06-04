@@ -17,6 +17,39 @@ import {
 const log = getLogger("stt-resolver");
 
 // ---------------------------------------------------------------------------
+// Realtime-streaming capability check
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether the configured `services.stt` provider's streaming is *genuinely
+ * realtime* — i.e. it emits partial/final transcript events continuously while
+ * audio is flowing, rather than only producing a final transcript when the
+ * stream is stopped.
+ *
+ * This gates the media-stream realtime streaming path. Providers whose
+ * `conversationStreamingMode` is `"realtime-ws"` (e.g. Deepgram, Google
+ * Gemini Live, xAI) can drive mid-call responses through the streaming path.
+ * Providers whose mode is `"incremental-batch"` (e.g. OpenAI Whisper) only
+ * emit a `final` on `stop()`, so the streaming path would never fire
+ * `onTranscriptFinal` until hangup — those must use the batch turn-segmenting
+ * path instead.
+ *
+ * Returns `false` for unknown providers or any non-`realtime-ws` mode,
+ * defaulting safely to the batch path.
+ */
+export function isRealtimeStreamingProvider(): boolean {
+  let provider: string;
+  try {
+    provider = getConfig().services.stt.provider;
+  } catch {
+    // Config unavailable (early startup / tests) — default to the batch path.
+    return false;
+  }
+  const entry = getProviderEntry(provider as SttProviderId);
+  return entry?.conversationStreamingMode === "realtime-ws";
+}
+
+// ---------------------------------------------------------------------------
 // Batch transcriber resolver (existing public API — unchanged contract)
 // ---------------------------------------------------------------------------
 
