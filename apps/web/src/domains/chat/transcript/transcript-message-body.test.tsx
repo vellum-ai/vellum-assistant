@@ -116,7 +116,7 @@ describe("TranscriptMessageBody", () => {
       toolCalls: [
         {
           id: "tc-1",
-          toolName: "bash",
+          name: "bash",
           input: {},
           status: "completed",
           startedAt: 1_500,
@@ -138,7 +138,7 @@ describe("TranscriptMessageBody", () => {
       toolCalls: [
         {
           id: "tc-1",
-          toolName: "bash",
+          name: "bash",
           input: {},
           status: "running",
           startedAt: 1_500,
@@ -311,7 +311,7 @@ describe("TranscriptMessageBody", () => {
           toolCalls: [
             {
               id: "tc-1",
-              toolName: "bash",
+              name: "bash",
               input: {},
               status: "running",
             },
@@ -340,7 +340,7 @@ describe("TranscriptMessageBody", () => {
           toolCalls: [
             {
               id: "tc-1",
-              toolName: "bash",
+              name: "bash",
               input: {},
               status: "completed",
             },
@@ -368,7 +368,7 @@ describe("TranscriptMessageBody", () => {
           toolCalls: [
             {
               id: "tc-1",
-              toolName: "bash",
+              name: "bash",
               input: {},
               status: "completed",
             },
@@ -402,13 +402,13 @@ describe("TranscriptMessageBody", () => {
           toolCalls: [
             {
               id: "tc-1",
-              toolName: "bash",
+              name: "bash",
               input: {},
               status: "completed",
             },
             {
               id: "tc-2",
-              toolName: "bash",
+              name: "bash",
               input: {},
               status: "completed",
             },
@@ -443,7 +443,7 @@ describe("TranscriptMessageBody", () => {
           toolCalls: [
             {
               id: "tc-1",
-              toolName: "bash",
+              name: "bash",
               input: {},
               status: "completed",
             },
@@ -476,7 +476,7 @@ describe("TranscriptMessageBody", () => {
           toolCalls: [
             {
               id: "tc-1",
-              toolName: "bash",
+              name: "bash",
               input: {},
               status: "completed",
             },
@@ -509,13 +509,13 @@ describe("TranscriptMessageBody", () => {
           toolCalls: [
             {
               id: "tc-1",
-              toolName: "bash",
+              name: "bash",
               input: {},
               status: "completed",
             },
             {
               id: "tc-2",
-              toolName: "bash",
+              name: "bash",
               input: {},
               status: "running",
             },
@@ -736,7 +736,7 @@ describe("TranscriptMessageBody", () => {
           toolCalls: [
             {
               id: "tc-1",
-              toolName: "bash",
+              name: "bash",
               input: {},
               status: "completed",
             },
@@ -790,7 +790,7 @@ describe("TranscriptMessageBody", () => {
           toolCalls: [
             {
               id: "tc-1",
-              toolName: "bash",
+              name: "bash",
               input: {},
               status: "completed",
             },
@@ -824,7 +824,7 @@ describe("TranscriptMessageBody", () => {
           toolCalls: [
             {
               id: "tc-1",
-              toolName: "bash",
+              name: "bash",
               input: {},
               status: "running",
             },
@@ -849,7 +849,7 @@ describe("TranscriptMessageBody", () => {
           toolCalls: [
             {
               id: "tc-1",
-              toolName: "bash",
+              name: "bash",
               input: {},
               status: "completed",
             },
@@ -940,7 +940,7 @@ describe("TranscriptMessageBody", () => {
         { type: "text", id: "0" },
       ],
       toolCalls: [
-        { id: "tc-1", toolName: "bash", input: {}, status: "completed" },
+        { id: "tc-1", name: "bash", input: {}, status: "completed" },
       ],
       timestamp: 1_000,
     });

@@ -86,17 +86,20 @@ mock.module("../config/loader.js", () => ({
 
 // Token estimator returns a small value by default (well within budget)
 // so preflight does not trigger unless the test overrides it. Both the
-// calibrated entry point (`estimatePromptTokens`, used in the convergence
-// path) and the raw entry point (`estimatePromptTokensRaw`, used by the
-// default `tokenEstimate` plugin pipeline for preflight/mid-loop) are
+// calibrated entry point (`estimatePromptTokens`, which backs the preflight
+// overflow gate and the convergence path) and the raw entry point
+// (`estimatePromptTokensRaw`, used by the pre-send calibration capture) are
 // stubbed so either call site can drive the test.
 let mockEstimateTokens = 1000;
 mock.module("../context/token-estimator.js", () => ({
   estimatePromptTokens: () => mockEstimateTokens,
   estimatePromptTokensRaw: () => mockEstimateTokens,
-  // Pass-through: the default plugin computes `toolTokenBudget` via this
-  // helper before delegating to the raw estimator. Return 0 so the mocked
-  // raw estimate is not perturbed.
+  // The preflight overflow gate calls this calibrated wrapper directly, so it
+  // must honor `mockEstimateTokens` too rather than fall through to the real
+  // implementation.
+  estimatePromptTokensWithTools: () => mockEstimateTokens,
+  // Pass-through: `estimatePromptTokensWithTools` computes `toolTokenBudget`
+  // via this helper. Return 0 so the mocked estimate is not perturbed.
   estimateToolsTokens: () => 0,
 }));
 
@@ -720,7 +723,17 @@ const asAgentLoopRun = (
       };
     }
     const history = await fn(messages, onEvent, wrapped);
-    return { history, exitReason };
+    // Mirror the loop's forward-progress signal: it sets `appendedNewMessages`
+    // when it pushes a new assistant message, which for these mock bodies (that
+    // never return a compaction-shrunk history) means the returned history grew
+    // past the input.
+    const appendedNewMessages = history.length > messages.length;
+    return {
+      history,
+      exitReason,
+      appendedNewMessages,
+      newMessages: history.slice(messages.length),
+    };
   };
 };
 
@@ -740,13 +753,17 @@ function makeCtx(
     ]);
 
   const compactionCircuit = new CompactionCircuit("test-conv");
+  let processing = true;
 
   return {
     conversationId: "test-conv",
     messages: [
       { role: "user", content: [{ type: "text", text: "Hello" }] },
     ] as Message[],
-    processing: true,
+    isProcessing: () => processing,
+    setProcessing: (value: boolean) => {
+      processing = value;
+    },
     abortController: new AbortController(),
     currentRequestId: "test-req",
 
@@ -1259,7 +1276,7 @@ describe("session-agent-loop", () => {
       });
 
       expect(applyRuntimeInjectionsMock).not.toHaveBeenCalled();
-      expect(ctx.processing).toBe(false);
+      expect(ctx.isProcessing()).toBe(false);
       expect(ctx.abortController).toBeNull();
       expect(ctx.currentRequestId).toBeUndefined();
       expect(drainQueue).toHaveBeenCalledWith("loop_complete");
@@ -2928,7 +2945,7 @@ describe("session-agent-loop", () => {
 
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
 
-      expect(ctx.processing).toBe(false);
+      expect(ctx.isProcessing()).toBe(false);
       expect(ctx.abortController).toBeNull();
       expect(ctx.currentRequestId).toBeUndefined();
       expect(ctx.commandIntent).toBeUndefined();
@@ -2944,7 +2961,7 @@ describe("session-agent-loop", () => {
 
       await runAgentLoopImpl(ctx, "hi", "msg-1", (msg) => events.push(msg));
 
-      expect(ctx.processing).toBe(false);
+      expect(ctx.isProcessing()).toBe(false);
       expect(ctx.abortController).toBeNull();
       expect(events.find((event) => event.type === "error")).toMatchObject({
         type: "error",
@@ -3119,7 +3136,7 @@ describe("session-agent-loop", () => {
         isUserMessage: true,
       });
 
-      expect(ctx.processing).toBe(false);
+      expect(ctx.isProcessing()).toBe(false);
       expect(ctx.abortController).toBeNull();
       expect(ctx.currentRequestId).toBeUndefined();
     });
@@ -4855,7 +4872,7 @@ describe("session-agent-loop", () => {
         await onEvent({ type: "llm_call_started" });
         if (callCount === 1) {
           // Trigger convergence path: error + appended assistant message so
-          // updatedHistory.length > preRunHistoryLength at the strip site.
+          // the loop reports appendedNewMessages at the strip site.
           onEvent({
             type: "error",
             error: new Error("context_length_exceeded"),

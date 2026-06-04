@@ -4,6 +4,7 @@ import cliPkg from "../package.json";
 import { backup } from "./commands/backup";
 import { clean } from "./commands/clean";
 import { client } from "./commands/client";
+import { connect } from "./commands/connect";
 import { env } from "./commands/env";
 import { events } from "./commands/events";
 import { exec } from "./commands/exec";
@@ -37,6 +38,7 @@ const commands = {
   backup,
   clean,
   client,
+  connect,
   env,
   events,
   exec,
@@ -75,6 +77,7 @@ function printHelp(): void {
   console.log("  backup   Export a backup of a running assistant");
   console.log("  clean    Kill orphaned vellum processes");
   console.log("  client   Connect to a hatched assistant");
+  console.log("  connect  Import an assistant paired from another machine");
   console.log("  env      Manage the default CLI environment");
   console.log("  events   Stream events from a running assistant");
   console.log("  exec     Execute a command inside an assistant's container");

@@ -194,7 +194,7 @@ export function conversationToWakeTarget(
     },
     isProcessing: () => conversation.isProcessing(),
     markProcessing: (on) => {
-      conversation.processing = on;
+      conversation.setProcessing(on);
     },
     setTrustContext: (ctx) => conversation.setTrustContext(ctx),
     setWakeAllowedTools: (tools) => {

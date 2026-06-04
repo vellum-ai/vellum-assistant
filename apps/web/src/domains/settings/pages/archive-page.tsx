@@ -140,7 +140,7 @@ export function ArchivePage() {
 
   if (isLoading) {
     return (
-      <div className="mx-auto max-w-[940px]">
+      <div className="w-full">
         <div className="flex min-h-[400px] items-center justify-center">
           <Loader2 className="h-6 w-6 animate-spin text-[var(--content-disabled)]" />
         </div>
@@ -150,7 +150,7 @@ export function ArchivePage() {
 
   if (isError) {
     return (
-      <div className="mx-auto max-w-[940px]">
+      <div className="w-full">
         <Card>
           <div className="flex min-h-[400px] flex-col items-center justify-center px-6 py-16 text-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--system-error-lighter)]">
@@ -178,14 +178,14 @@ export function ArchivePage() {
 
   if (archived.length === 0) {
     return (
-      <div className="mx-auto max-w-[940px]">
+      <div className="w-full">
         <EmptyState />
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-[940px]">
+    <div className="w-full">
       <Card noPadding className="px-4">
         {archived.map((conversation, index) => (
           <ArchivedConversationRow

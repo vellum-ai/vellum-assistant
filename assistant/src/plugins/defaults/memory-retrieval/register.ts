@@ -24,46 +24,27 @@
  * milestone.
  */
 
+import type { Logger } from "pino";
+
 import type { AssistantConfig } from "../../../config/schema.js";
 import {
   readNowScratchpad,
   readPkbContext,
 } from "../../../daemon/conversation-runtime-assembly.js";
 import type { ServerMessage } from "../../../daemon/message-protocol.js";
+import type { MemoryRecalled } from "../../../daemon/message-types/memory.js";
+import { updateMessageMetadata } from "../../../memory/conversation-crud.js";
 import type { ConversationGraphMemory } from "../../../memory/graph/conversation-graph-memory.js";
+import { recordMemoryRecallLog } from "../../../memory/memory-recall-log-store.js";
 import type { Message } from "../../../providers/types.js";
 import {
+  type GraphMemoryResult,
   type MemoryArgs,
   type MemoryResult,
   type Plugin,
 } from "../../types.js";
 import defaultMemoryRetrievalMiddleware from "./middlewares/memoryRetrieval.js";
 import pkg from "./package.json" with { type: "json" };
-
-/**
- * Discriminator the agent loop uses to narrow `MemoryResult.memoryGraphBlocks`
- * back into the full {@link GraphMemoryPayload} shape. Plugins that substitute
- * their own memory blocks without setting this marker will fall through the
- * agent loop's graph-result consumption path — which is the intended escape
- * hatch for custom retrievers.
- */
-export const DEFAULT_MEMORY_GRAPH_KIND = "default.graph" as const;
-
-/**
- * Shape of the single block the default memory-graph retriever emits.
- *
- * Mirrors the object returned by
- * {@link ConversationGraphMemory.prepareMemory} — the agent loop consumes
- * every field downstream (PKB query vectors, metrics persistence, memory
- * event emission). Kept as a concrete type here so both the terminal and the
- * agent loop can share one import.
- */
-export interface GraphMemoryPayload {
-  readonly kind: typeof DEFAULT_MEMORY_GRAPH_KIND;
-  readonly result: Awaited<
-    ReturnType<ConversationGraphMemory["prepareMemory"]>
-  >;
-}
 
 /**
  * External state the default retriever needs but the pipeline args cannot
@@ -79,21 +60,116 @@ export interface DefaultMemoryRetrievalDeps {
   readonly graphMemory: ConversationGraphMemory;
   /** Assistant config snapshot. */
   readonly config: AssistantConfig;
-  /** Event sink used by the graph retriever (memory_status events). */
+  /** Event sink used by the graph retriever and `memory_recalled` emission. */
   readonly onEvent: (msg: ServerMessage) => void;
   /** True when the actor for this turn is trusted (guardian-class). */
   readonly isTrustedActor: boolean;
+  /** Conversation the turn belongs to — keys the recall-log row. */
+  readonly conversationId: string;
+  /** User message the injected memory block is persisted onto. */
+  readonly userMessageId: string;
+  /** Turn-scoped logger for non-fatal persistence warnings. */
+  readonly logger: Logger;
+}
+
+/**
+ * Persist and broadcast the retrieval's side effects: the injected block on
+ * the user message's metadata (so it survives reloads), a recall-log row, and
+ * the `memory_recalled` debug event. All three are best-effort — a failure to
+ * persist must not abort the turn.
+ */
+function recordRecallSideEffects(
+  graphResult: GraphMemoryResult,
+  deps: DefaultMemoryRetrievalDeps,
+): void {
+  // Persist the injected block text in message metadata so it survives
+  // conversation reloads (eviction, restart, fork). loadFromDb re-injects
+  // from metadata.
+  if (graphResult.injectedBlockText) {
+    try {
+      updateMessageMetadata(deps.userMessageId, {
+        memoryInjectedBlock: graphResult.injectedBlockText,
+      });
+    } catch (err) {
+      deps.logger.warn(
+        { err },
+        "Failed to persist memory injection to metadata (non-fatal)",
+      );
+    }
+  }
+
+  const m = graphResult.metrics;
+
+  try {
+    recordMemoryRecallLog({
+      conversationId: deps.conversationId,
+      enabled: true,
+      degraded: false,
+      provider: m?.embeddingProvider ?? undefined,
+      model: m?.embeddingModel ?? undefined,
+      semanticHits: m?.semanticHits ?? 0,
+      mergedCount: m?.mergedCount ?? 0,
+      selectedCount: m?.selectedCount ?? 0,
+      tier1Count: m?.tier1Count ?? 0,
+      tier2Count: m?.tier2Count ?? 0,
+      hybridSearchLatencyMs: m?.hybridSearchLatencyMs ?? 0,
+      sparseVectorUsed: m?.sparseVectorUsed ?? false,
+      injectedTokens: graphResult.injectedTokens,
+      latencyMs: graphResult.latencyMs,
+      topCandidatesJson: (m?.topCandidates ?? []).map((c) => ({
+        key: c.nodeId,
+        type: c.type,
+        kind: "graph",
+        finalScore: c.score,
+        semantic: c.semanticSimilarity,
+        recency: c.recencyBoost,
+      })),
+      injectedText: graphResult.injectedBlockText ?? undefined,
+      reason: `graph:${graphResult.mode}`,
+      queryContext: m?.queryContext ?? undefined,
+    });
+  } catch (err) {
+    deps.logger.warn(
+      { err },
+      "Failed to persist memory recall log (non-fatal)",
+    );
+  }
+
+  if (m) {
+    const memoryRecalledEvent: MemoryRecalled = {
+      type: "memory_recalled",
+      provider: m.embeddingProvider ?? "unknown",
+      model: m.embeddingModel ?? "unknown",
+      semanticHits: m.semanticHits,
+      mergedCount: m.mergedCount,
+      selectedCount: m.selectedCount,
+      tier1Count: m.tier1Count,
+      tier2Count: m.tier2Count,
+      hybridSearchLatencyMs: m.hybridSearchLatencyMs,
+      sparseVectorUsed: m.sparseVectorUsed,
+      injectedTokens: graphResult.injectedTokens,
+      latencyMs: graphResult.latencyMs,
+      topCandidates: m.topCandidates.map((c) => ({
+        key: c.nodeId,
+        type: c.type,
+        kind: "graph",
+        finalScore: c.score,
+        semantic: c.semanticSimilarity,
+        recency: c.recencyBoost,
+      })),
+    };
+    deps.onEvent(memoryRecalledEvent);
+  }
 }
 
 /**
  * Run the default retrieval. Always returns a {@link MemoryResult}; skips
- * the memory-graph call entirely when the actor is not trusted (matches the
- * prior agent-loop gate).
+ * the memory-graph call entirely (returning a `null` `graphResult`) when the
+ * actor is not trusted (matches the prior agent-loop gate).
  *
- * The returned `memoryGraphBlocks` is either empty (when the actor is not
- * trusted) or a single {@link GraphMemoryPayload} wrapping the graph
- * retriever's full output. The agent loop narrows via
- * {@link DEFAULT_MEMORY_GRAPH_KIND} to consume it.
+ * When the graph runs, this also persists its side effects — injected-block
+ * metadata, the recall-log row, and the `memory_recalled` event — so callers
+ * only consume the returned content and query vectors.
  *
  * Memory retrieval blocks the turn — there is no soft timeout here. Memory
  * is critical context, and silently dropping it produces a worse outcome
@@ -115,7 +191,7 @@ export async function runDefaultMemoryRetrieval(
     return {
       pkbContent,
       nowContent,
-      memoryGraphBlocks: [],
+      graphResult: null,
     };
   }
 
@@ -126,43 +202,13 @@ export async function runDefaultMemoryRetrieval(
     deps.onEvent,
   );
 
-  const payload: GraphMemoryPayload = {
-    kind: DEFAULT_MEMORY_GRAPH_KIND,
-    result: graphResult,
-  };
+  recordRecallSideEffects(graphResult, deps);
 
   return {
     pkbContent,
     nowContent,
-    memoryGraphBlocks: [payload],
+    graphResult,
   };
-}
-
-/**
- * Narrow a {@link MemoryResult} memory-graph block back into the full
- * {@link GraphMemoryPayload} the default retriever emits. Returns `null` when
- * the pipeline output came from a custom retriever (no blocks, or a block
- * without the {@link DEFAULT_MEMORY_GRAPH_KIND} discriminator).
- *
- * The agent loop uses this helper to decide whether to run its downstream
- * graph-result consumption path (query-vector propagation, metric
- * persistence, memory-event emission). Custom retrievers that skip that
- * path are expected to handle their own side effects inside their
- * middleware.
- */
-export function asDefaultGraphPayload(
-  blocks: ReadonlyArray<unknown>,
-): GraphMemoryPayload | null {
-  const first = blocks[0];
-  if (
-    first != null &&
-    typeof first === "object" &&
-    "kind" in first &&
-    (first as { kind?: unknown }).kind === DEFAULT_MEMORY_GRAPH_KIND
-  ) {
-    return first as GraphMemoryPayload;
-  }
-  return null;
 }
 
 /**

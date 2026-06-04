@@ -16,7 +16,7 @@ function makeMessage(
 }
 
 function makeToolCall(
-  overrides: Partial<ChatMessageToolCall> & { id: string; toolName: string },
+  overrides: Partial<ChatMessageToolCall> & { id: string; name: string },
 ): ChatMessageToolCall {
   return {
     input: {},
@@ -111,13 +111,13 @@ describe("sanitizeDisplayMessages · invalid row filter", () => {
     expect(result).toEqual([]);
   });
 
-  test("drops phantom tool-only user messages where every toolName === 'unknown'", () => {
+  test("drops phantom tool-only user messages where every name === 'unknown'", () => {
     const phantom = makeMessage({
       id: "phantom",
       role: "user",
       ...textBody(""),
       toolCalls: [
-        makeToolCall({ id: "tc-1", toolName: "unknown", result: "orphan" }),
+        makeToolCall({ id: "tc-1", name: "unknown", result: "orphan" }),
       ],
     });
     const result = sanitizeDisplayMessages([phantom]);
@@ -130,8 +130,8 @@ describe("sanitizeDisplayMessages · invalid row filter", () => {
       role: "user",
       ...textBody(""),
       toolCalls: [
-        makeToolCall({ id: "tc-1", toolName: "unknown", result: "orphan" }),
-        makeToolCall({ id: "tc-2", toolName: "bash", result: "file.txt" }),
+        makeToolCall({ id: "tc-1", name: "unknown", result: "orphan" }),
+        makeToolCall({ id: "tc-2", name: "bash", result: "file.txt" }),
       ],
     });
     const result = sanitizeDisplayMessages([mixed]);
@@ -174,7 +174,7 @@ describe("sanitizeDisplayMessages · drop trailing assistant duplicate", () => {
       role: "assistant",
       textSegments: ["Final answer"],
       toolCalls: [
-        makeToolCall({ id: "tc-1", toolName: "bash", result: "ok" }),
+        makeToolCall({ id: "tc-1", name: "bash", result: "ok" }),
       ],
       timestamp: 1000,
     });
@@ -183,7 +183,7 @@ describe("sanitizeDisplayMessages · drop trailing assistant duplicate", () => {
       role: "assistant",
       textSegments: ["Final answer"],
       toolCalls: [
-        makeToolCall({ id: "tc-1", toolName: "bash", result: "ok" }),
+        makeToolCall({ id: "tc-1", name: "bash", result: "ok" }),
       ],
       timestamp: 1000,
     });
@@ -241,17 +241,17 @@ describe("sanitizeDisplayMessages · drop trailing assistant duplicate", () => {
     expect(result.map((m) => m.id)).toEqual(["first", "second"]);
   });
 
-  test("keeps both rows when tool call toolName differs", () => {
+  test("keeps both rows when tool call name differs", () => {
     const first = makeMessage({
       id: "first",
       role: "assistant",
-      toolCalls: [makeToolCall({ id: "tc", toolName: "bash", result: "x" })],
+      toolCalls: [makeToolCall({ id: "tc", name: "bash", result: "x" })],
       timestamp: 1,
     });
     const second = makeMessage({
       id: "second",
       role: "assistant",
-      toolCalls: [makeToolCall({ id: "tc", toolName: "read", result: "x" })],
+      toolCalls: [makeToolCall({ id: "tc", name: "read", result: "x" })],
       timestamp: 2,
     });
     const result = sanitizeDisplayMessages([first, second]);
@@ -262,13 +262,13 @@ describe("sanitizeDisplayMessages · drop trailing assistant duplicate", () => {
     const first = makeMessage({
       id: "first",
       role: "assistant",
-      toolCalls: [makeToolCall({ id: "tc", toolName: "bash", result: "a" })],
+      toolCalls: [makeToolCall({ id: "tc", name: "bash", result: "a" })],
       timestamp: 1,
     });
     const second = makeMessage({
       id: "second",
       role: "assistant",
-      toolCalls: [makeToolCall({ id: "tc", toolName: "bash", result: "b" })],
+      toolCalls: [makeToolCall({ id: "tc", name: "bash", result: "b" })],
       timestamp: 2,
     });
     const result = sanitizeDisplayMessages([first, second]);
@@ -279,15 +279,15 @@ describe("sanitizeDisplayMessages · drop trailing assistant duplicate", () => {
     const first = makeMessage({
       id: "first",
       role: "assistant",
-      toolCalls: [makeToolCall({ id: "tc", toolName: "bash", result: "x" })],
+      toolCalls: [makeToolCall({ id: "tc", name: "bash", result: "x" })],
       timestamp: 1,
     });
     const second = makeMessage({
       id: "second",
       role: "assistant",
       toolCalls: [
-        makeToolCall({ id: "tc-a", toolName: "bash", result: "x" }),
-        makeToolCall({ id: "tc-b", toolName: "bash", result: "y" }),
+        makeToolCall({ id: "tc-a", name: "bash", result: "x" }),
+        makeToolCall({ id: "tc-b", name: "bash", result: "y" }),
       ],
       timestamp: 2,
     });
@@ -341,13 +341,13 @@ describe("sanitizeDisplayMessages · drop trailing assistant duplicate", () => {
     const first = makeMessage({
       id: "first",
       role: "assistant",
-      toolCalls: [makeToolCall({ id: "tc", toolName: "bash", result: "x" })],
+      toolCalls: [makeToolCall({ id: "tc", name: "bash", result: "x" })],
       timestamp: 1,
     });
     const second = makeMessage({
       id: "second",
       role: "assistant",
-      toolCalls: [makeToolCall({ id: "tc", toolName: "bash", result: "x" })],
+      toolCalls: [makeToolCall({ id: "tc", name: "bash", result: "x" })],
       timestamp: 2,
     });
     const result = sanitizeDisplayMessages([first, second]);
@@ -384,7 +384,7 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
       role: "assistant",
       timestamp: 100,
       toolCalls: [
-        makeToolCall({ id: "tc-1", toolName: "bash", status: "running" }),
+        makeToolCall({ id: "tc-1", name: "bash", status: "running" }),
       ],
     });
     const later = makeMessage({
@@ -396,7 +396,7 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
     const [patchedOld, untouchedNew] = sanitizeDisplayMessages([older, later]);
     expect(patchedOld!.toolCalls![0]).toEqual({
       id: "tc-1",
-      toolName: "bash",
+      name: "bash",
       input: {},
       status: "error",
       isError: true,
@@ -418,7 +418,7 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
       role: "assistant",
       timestamp: 200,
       toolCalls: [
-        makeToolCall({ id: "tc-1", toolName: "bash", status: "running" }),
+        makeToolCall({ id: "tc-1", name: "bash", status: "running" }),
       ],
     });
     const result = sanitizeDisplayMessages([userMsg, last]);
@@ -432,7 +432,7 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
       role: "assistant",
       timestamp: 100,
       toolCalls: [
-        makeToolCall({ id: "tc-1", toolName: "bash", status: "running" }),
+        makeToolCall({ id: "tc-1", name: "bash", status: "running" }),
       ],
     });
     const trailingUser = makeMessage({
@@ -452,7 +452,7 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
       role: "assistant",
       timestamp: 100,
       toolCalls: [
-        makeToolCall({ id: "tc-1", toolName: "bash", status: "running" }),
+        makeToolCall({ id: "tc-1", name: "bash", status: "running" }),
       ],
     });
     const u = makeMessage({
@@ -480,7 +480,7 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
       toolCalls: [
         makeToolCall({
           id: "tc-1",
-          toolName: "bash",
+          name: "bash",
           status: "completed",
           result: "ok",
         }),
@@ -507,7 +507,7 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
       toolCalls: [
         makeToolCall({
           id: "tc-1",
-          toolName: "bash",
+          name: "bash",
           status: "error",
           isError: true,
           result: "boom",
@@ -533,14 +533,14 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
       toolCalls: [
         makeToolCall({
           id: "tc-1",
-          toolName: "bash",
+          name: "bash",
           status: "completed",
           result: "first ok",
         }),
-        makeToolCall({ id: "tc-2", toolName: "web_search", status: "running" }),
+        makeToolCall({ id: "tc-2", name: "web_search", status: "running" }),
         makeToolCall({
           id: "tc-3",
-          toolName: "read_file",
+          name: "read_file",
           status: "completed",
           result: "third ok",
         }),
@@ -566,7 +566,7 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
       role: "assistant",
       timestamp: 100,
       toolCalls: [
-        makeToolCall({ id: "tc-1", toolName: "bash", status: "running" }),
+        makeToolCall({ id: "tc-1", name: "bash", status: "running" }),
       ],
     });
     const a2 = makeMessage({
@@ -574,7 +574,7 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
       role: "assistant",
       timestamp: 200,
       toolCalls: [
-        makeToolCall({ id: "tc-2", toolName: "bash", status: "running" }),
+        makeToolCall({ id: "tc-2", name: "bash", status: "running" }),
       ],
     });
     const a3 = makeMessage({
@@ -590,7 +590,7 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
   });
 
   test("does not mutate the input messages or tool-call objects", () => {
-    const tc = makeToolCall({ id: "tc", toolName: "bash", status: "running" });
+    const tc = makeToolCall({ id: "tc", name: "bash", status: "running" });
     const older = makeMessage({
       id: "a-old",
       role: "assistant",
@@ -621,7 +621,7 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
       toolCalls: [
         makeToolCall({
           id: "tc-1",
-          toolName: "bash",
+          name: "bash",
           status: "completed",
           result: "ok",
         }),
@@ -684,7 +684,7 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
       toolCalls: [
         makeToolCall({
           id: "tc",
-          toolName: "web_search",
+          name: "web_search",
           status: "running",
           startedAt: started,
         }),
@@ -708,7 +708,7 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
       toolCalls: [
         makeToolCall({
           id: "tc",
-          toolName: "web_search",
+          name: "web_search",
           status: "running",
           startedAt: started,
         }),
@@ -732,7 +732,7 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
       toolCalls: [
         makeToolCall({
           id: "tc",
-          toolName: "web_search",
+          name: "web_search",
           status: "running",
           startedAt: started,
         }),
@@ -757,7 +757,7 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
       toolCalls: [
         makeToolCall({
           id: "tc",
-          toolName: "bash",
+          name: "bash",
           status: "running",
           startedAt: started,
           pendingConfirmation: {
@@ -782,7 +782,7 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
       toolCalls: [
         makeToolCall({
           id: "tc",
-          toolName: "bash",
+          name: "bash",
           status: "running",
           // No startedAt — typically a pre-stamping history hydration.
         }),
@@ -812,7 +812,7 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
       toolCalls: [
         makeToolCall({
           id: "tc",
-          toolName: "web_search",
+          name: "web_search",
           status: "running",
           startedAt: started,
         }),
@@ -834,20 +834,20 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
       toolCalls: [
         makeToolCall({
           id: "tc-1",
-          toolName: "bash",
+          name: "bash",
           status: "completed",
           startedAt: started,
           result: "first ok",
         }),
         makeToolCall({
           id: "tc-2",
-          toolName: "web_search",
+          name: "web_search",
           status: "running",
           startedAt: started,
         }),
         makeToolCall({
           id: "tc-3",
-          toolName: "read_file",
+          name: "read_file",
           status: "completed",
           startedAt: started,
           result: "third ok",
@@ -868,7 +868,7 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
     const now = started + PAST_DEFAULT_TIMEOUT_MS;
     const tc = makeToolCall({
       id: "tc",
-      toolName: "web_search",
+      name: "web_search",
       status: "running",
       startedAt: started,
     });
@@ -896,7 +896,7 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
       toolCalls: [
         makeToolCall({
           id: "tc-1",
-          toolName: "bash",
+          name: "bash",
           status: "completed",
           startedAt: 100,
           result: "ok",
@@ -928,7 +928,7 @@ describe("sanitizeDisplayMessages · integration", () => {
       role: "user",
       ...textBody(""),
       toolCalls: [
-        makeToolCall({ id: "p", toolName: "unknown", result: "orphan" }),
+        makeToolCall({ id: "p", name: "unknown", result: "orphan" }),
       ],
       timestamp: 50,
     });
@@ -945,7 +945,7 @@ describe("sanitizeDisplayMessages · integration", () => {
       role: "assistant",
       textSegments: ["let me check"],
       toolCalls: [
-        makeToolCall({ id: "tc-x", toolName: "bash", status: "running" }),
+        makeToolCall({ id: "tc-x", name: "bash", status: "running" }),
       ],
       timestamp: 150,
     });

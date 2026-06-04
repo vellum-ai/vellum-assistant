@@ -136,6 +136,10 @@ import {
 const runResult = (history: Message[]): AgentLoopRunResult => ({
   history,
   exitReason: null,
+  appendedNewMessages: true,
+  // The wake path slices its own new-message boundary off the returned
+  // history (it never destructures `newMessages`), so this is type-only.
+  newMessages: [],
 });
 
 interface MockTarget extends WakeTarget {
@@ -1077,7 +1081,7 @@ describe("wakeAgentForOpportunity", () => {
     expect(target.drainQueueCalls).toBe(1);
     // Critical ordering invariant: drain runs after processing=false.
     // If drain ran while processing was still true,
-    // `enqueueMessage`'s `if (!ctx.processing) return ...` gate would
+    // `enqueueMessage`'s `if (!ctx.isProcessing()) return ...` gate would
     // see processing=true and the drained item would itself just
     // re-enqueue — no progress. Snapshot the live flag *inside* drain
     // (rather than inferring from toggle order) so a future regression

@@ -145,6 +145,7 @@ export const TranscriptRow = memo(function TranscriptRow({
           onOpenApp={onOpenApp}
           onOpenDocument={onOpenDocument}
           assistantId={assistantId}
+          assistantDisplayName={assistantDisplayName}
         />
       );
 

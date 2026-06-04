@@ -25,14 +25,12 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 import type { MutableRefObject } from "react";
 
 import * as assistantApi from "@vellumai/assistant-api";
+import type { ConversationMessage } from "@vellumai/assistant-api";
 import {
   type ChatDebugEventsApi,
   eventsDebugApi,
 } from "@/domains/chat/api/debug-api";
-import {
-  fetchConversationMessages as defaultFetchConversationMessages,
-  type RuntimeMessage,
-} from "@/domains/chat/api/messages";
+import { fetchConversationMessages as defaultFetchConversationMessages } from "@/domains/chat/api/messages";
 import { useStreamStore } from "@/domains/chat/stream-store";
 import type {
   PendingConfirmationState,
@@ -115,9 +113,6 @@ export interface ChatDebugThinkingDoneSignal {
   /** Last terminal reason recorded by the reducer. `null` if the turn is
    *  still active or has never terminated since mount. */
   lastTerminalReason: TerminalReason;
-  /** Human-readable summary of the current lifecycle state — what we'd say
-   *  to a developer asking "why isn't this turn done?" or "why is it done?". */
-  explanation: string;
 }
 
 /**
@@ -148,6 +143,39 @@ export interface PendingInteractionsSnapshot {
   /** Tool-call id paired with the currently-rendered inline confirmation,
    *  or `null` when no inline confirmation is active. */
   inlineConfirmationToolCallId: string | null;
+}
+
+/**
+ * Avatar streaming-ring state block — answers "why is the spinning ring
+ * around the avatar showing (or stuck) — or not showing?".
+ *
+ * The ring renders in {@link ChatAvatar} for custom-image avatars iff
+ * `isStreaming || isProcessing` (see `chat-avatar.tsx`, and the props wired
+ * in `chat-route-content.tsx`). This mirrors those two gates so a developer
+ * can tell at a glance which one is keeping it lit — most usefully when the
+ * ring "hangs" after a turn ends, which means one gate is still latched on.
+ *
+ * Distinct from the transcript "thinking…" dots described by
+ * {@link ChatDebugThinkingIndicator}: the dots gate on the stricter
+ * {@link shouldShowThinkingIndicator} predicate (which tolerates a stale
+ * `activeConversationIsProcessing` snapshot via `hasPendingAssistantResponse`),
+ * whereas the ring trusts the coarse `isStreaming`/`isProcessing` OR directly.
+ */
+export interface ChatDebugStreamingRing {
+  /** Whether the ring would render this frame — `isStreaming || isProcessing`. */
+  visible: boolean;
+  /** The `isStreaming` prop `ChatAvatar` receives — the app's
+   *  `isAssistantStreaming` signal (`showThinking || hasStreamingAssistantMessage`,
+   *  i.e. {@link shouldShowThinkingIndicator} OR an open streaming bubble). */
+  isStreaming: boolean;
+  /** The `isProcessing` prop `ChatAvatar` receives — the OR of the local
+   *  optimistic processing set and the cached `conversation.isProcessing`
+   *  snapshot (`uiContext.activeConversationIsProcessing`). A `true` here
+   *  after the turn is done points at a stale cached snapshot. */
+  isProcessing: boolean;
+  /** Names of the gates currently keeping the ring visible. Empty when
+   *  `visible` is false. */
+  litBy: string[];
 }
 
 /** Result of {@link ChatDebugApi.thinkingIndicator}. */
@@ -268,7 +296,7 @@ export interface ChatDebugApi {
    * Live evaluation of the thinking-indicator predicate
    * ({@link shouldShowThinkingIndicator}) plus turn-state lifecycle info.
    *
-   * Use this to answer three questions when triaging "indicator stuck"
+   * Use this to answer two questions when triaging "indicator stuck"
    * reports (ATL-654 et al.):
    *   1. Is the assistant done? See `.done` (terminal/phase/lastTerminalReason).
    *   2. Why are the `...` showing — or not showing? See `.visible` and
@@ -279,6 +307,17 @@ export interface ChatDebugApi {
    * UI is computing on this frame.
    */
   thinkingIndicator(): ChatDebugThinkingIndicator;
+  /**
+   * Live evaluation of the avatar streaming-ring gates — answers "why is
+   * the spinning ring around the avatar showing (or stuck), or not
+   * showing?". See {@link ChatDebugStreamingRing}: `.litBy` names the gate
+   * keeping it lit, so a terminal turn with `litBy: ["isProcessing"]` is the
+   * signature of a stale `conversation.isProcessing` snapshot.
+   *
+   * Synchronous, side-effect-free; reads the same turn-store + UI-context
+   * snapshot the React render path reads.
+   */
+  streamingRing(): ChatDebugStreamingRing;
   /**
    * [experimental] Imperatively trigger a reconcile of the active conversation
    * against `/v1/history`. Returns the same shape as the watchdog /
@@ -292,7 +331,7 @@ export interface ChatDebugApi {
    * the console when you need to declare drift. Throws if there's no
    * active assistant/conversation context. Subject to change.
    */
-  serverMessages(): Promise<RuntimeMessage[]>;
+  serverMessages(): Promise<ConversationMessage[]>;
   /**
    * Return the frontend-tracked pending interactions — the user prompts
    * currently rendered (or recently dismissed) by the chat UI, plus their
@@ -412,7 +451,7 @@ export interface ChatDebugRefs {
   historyFetcher?: (
     assistantId: string,
     conversationId: string,
-  ) => Promise<RuntimeMessage[]>;
+  ) => Promise<ConversationMessage[]>;
 }
 
 /**
@@ -522,21 +561,6 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       turnState.activeTurnId === null;
     const lastTerminalReason = turnState.lastTerminalReason;
 
-    let explanation: string;
-    if (terminal) {
-      explanation = lastTerminalReason
-        ? `terminal: phase=${phase}, lastTerminalReason=${lastTerminalReason}`
-        : `terminal: phase=${phase}, no prior turn this session`;
-    } else if (phase === "queued") {
-      explanation = `active: phase=queued, pending=${turnState.pendingQueuedCount}`;
-    } else if (turnState.activeToolCallCount > 0) {
-      explanation = `active: phase=${phase}, activeToolCallCount=${turnState.activeToolCallCount}`;
-    } else if (conditions.hasStreamingAssistantMessage) {
-      explanation = `active: phase=${phase}, streaming an assistant message`;
-    } else {
-      explanation = `active: phase=${phase}`;
-    }
-
     return {
       visible,
       turnState,
@@ -547,8 +571,36 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
         terminal,
         phase,
         lastTerminalReason,
-        explanation,
       },
+    };
+  }
+
+  function streamingRing(): ChatDebugStreamingRing {
+    const turnState = refs.getTurnState();
+    const uiContext = refs.getUIContext();
+
+    // The ring renders in `ChatAvatar` for custom-image avatars iff
+    // `isStreaming || isProcessing`; mirror both gates so a stuck (or missing)
+    // ring points straight at the latched gate. `isStreaming` is the app's
+    // `isAssistantStreaming` (`showThinking || hasStreamingAssistantMessage`);
+    // `isProcessing` is the coarse `activeConversationIsProcessing` OR-signal.
+    const isStreaming =
+      shouldShowThinkingIndicator(turnState, uiContext) ||
+      uiContext.hasStreamingAssistantMessage;
+    const isProcessing = uiContext.activeConversationIsProcessing === true;
+    const litBy: string[] = [];
+    if (isStreaming) {
+      litBy.push("isStreaming");
+    }
+    if (isProcessing) {
+      litBy.push("isProcessing");
+    }
+
+    return {
+      visible: isStreaming || isProcessing,
+      isStreaming,
+      isProcessing,
+      litBy,
     };
   }
 
@@ -567,7 +619,7 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     return result;
   }
 
-  async function serverMessages(): Promise<RuntimeMessage[]> {
+  async function serverMessages(): Promise<ConversationMessage[]> {
     // Resolve context from stream store first (matches what reconcile
     // would use); fall back to assistantId + activeConversationId so
     // the call still works during a brief conv-switch window where
@@ -677,6 +729,7 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       "  .thinkingIndicator()       live evaluation of the `...` predicate + done signal",
       "                              .visible / .failingConditions tell you why dots are or aren't showing",
       "                              .done.terminal / .done.lastTerminalReason tell you if the turn is finished",
+      "  .streamingRing()           why the avatar ring is showing or stuck — .visible / .litBy",
       "  .forceReconcile()          [experimental] imperatively run /v1/history reconcile",
       "  .serverMessages()          [experimental] fetch /v1/history and return server message list",
       "                              (diff against getClientMessages() manually in the console)",
@@ -694,6 +747,7 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     getTranscriptItems,
     getPhase,
     thinkingIndicator,
+    streamingRing,
     forceReconcile,
     serverMessages,
     listPendingInteractions,

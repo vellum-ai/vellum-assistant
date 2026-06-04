@@ -10,17 +10,20 @@
  * POST   /v1/integrations/a2a/invite/accept   — self-hosted broker: orchestrate complete + redeem
  */
 
-import { z } from "zod";
-
 import { isA2AEnabled } from "../../../a2a/feature-gate.js";
 import { getConfig } from "../../../config/loader.js";
 import {
+  A2AConfigResultSchema,
   acceptA2AInvite,
+  AcceptA2AInviteResultSchema,
   clearA2AConfig,
   completeA2AInvite,
+  CompleteA2AInviteResultSchema,
   createA2AInvite,
+  CreateA2AInviteResultSchema,
   getA2AConfig,
   redeemA2AInvite,
+  RedeemA2AInviteResultSchema,
   setA2AConfig,
 } from "../../../daemon/handlers/config-a2a.js";
 import {
@@ -232,6 +235,7 @@ export const ROUTES: RouteDefinition[] = [
     description: "Check current A2A channel configuration status.",
     tags: ["integrations"],
     handler: () => handleGetA2AConfig(),
+    responseBody: A2AConfigResultSchema,
   },
   {
     operationId: "integrations_a2a_config_post",
@@ -242,6 +246,7 @@ export const ROUTES: RouteDefinition[] = [
     description: "Enable the A2A channel for inter-assistant communication.",
     tags: ["integrations"],
     handler: () => handleSetA2AConfig(),
+    responseBody: A2AConfigResultSchema,
   },
   {
     operationId: "integrations_a2a_config_delete",
@@ -252,6 +257,7 @@ export const ROUTES: RouteDefinition[] = [
     description: "Disable the A2A channel.",
     tags: ["integrations"],
     handler: () => handleClearA2AConfig(),
+    responseBody: A2AConfigResultSchema,
   },
   {
     operationId: "integrations_a2a_invite_post",
@@ -266,14 +272,7 @@ export const ROUTES: RouteDefinition[] = [
       "Create a shareable A2A invite token for link-based contact creation.",
     tags: ["integrations"],
     handler: handleCreateA2AInvite,
-    responseBody: z.object({
-      success: z.boolean(),
-      inviteId: z.string().optional(),
-      token: z.string().optional(),
-      expiresAt: z.number().optional(),
-      senderGatewayUrl: z.string().optional(),
-      error: z.string().optional(),
-    }),
+    responseBody: CreateA2AInviteResultSchema,
   },
   {
     operationId: "integrations_a2a_invite_complete_post",
@@ -288,6 +287,7 @@ export const ROUTES: RouteDefinition[] = [
       "Called by the platform to finalize the sender side of a link-based A2A connection.",
     tags: ["integrations"],
     handler: handleCompleteA2AInvite,
+    responseBody: CompleteA2AInviteResultSchema,
   },
   {
     operationId: "integrations_a2a_invite_redeem_post",
@@ -302,6 +302,7 @@ export const ROUTES: RouteDefinition[] = [
       "Called by the platform to create a trusted contact on the receiver side of a link-based A2A connection.",
     tags: ["integrations"],
     handler: handleRedeemA2AInvite,
+    responseBody: RedeemA2AInviteResultSchema,
   },
   {
     operationId: "integrations_a2a_invite_accept_post",
@@ -313,5 +314,6 @@ export const ROUTES: RouteDefinition[] = [
       "Orchestrate cross-daemon invite acceptance for self-hosted deployments. Calls the sender's invite/complete, then creates a local contact via invite/redeem.",
     tags: ["integrations"],
     handler: handleAcceptA2AInvite,
+    responseBody: AcceptA2AInviteResultSchema,
   },
 ];

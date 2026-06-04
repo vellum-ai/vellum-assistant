@@ -66,6 +66,13 @@ import {
   handleToolUsePreviewStart,
 } from "../daemon/conversation-agent-loop-handlers.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../runtime/assistant-event.js";
+import {
+  _resetStreamStateForTesting,
+  getCurrentSeq,
+  getPersistedSeq,
+  stampAndBuffer,
+} from "../runtime/assistant-stream-state.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -277,6 +284,66 @@ describe("tool preview lifecycle", () => {
   });
 
   // ── Event ordering ────────────────────────────────────────────────────────
+
+  describe("persisted seq advances on tool_use_start", () => {
+    beforeEach(() => {
+      _resetStreamStateForTesting();
+    });
+
+    test("advances the conversation's persisted seq to the tool_use_start seq", () => {
+      /**
+       * The assistant row (including tool_use blocks) is persisted at
+       * message_complete, which precedes tool events. handleToolUse emits a
+       * seq-stamped tool_use_start afterward, so the persisted seq must catch
+       * up to that event -- otherwise /messages would advertise a seq below an
+       * event it already reflects.
+       */
+      // GIVEN an onEvent that stamps conversation-scoped events like the hub
+      const collector = createEventCollector();
+      const conversationId = "test-session-id";
+      const deps = createMockDeps({
+        onEvent: (msg: ServerMessage) => {
+          collector.events.push(msg);
+          stampAndBuffer(msg as unknown as AssistantEvent);
+        },
+        ctx: {
+          ...createMockDeps().ctx,
+          conversationId,
+          emitActivityState: collector.emitActivityState,
+        } as unknown as EventHandlerDeps["ctx"],
+      });
+
+      // AND prior streamed text deltas have already advanced the global seq
+      stampAndBuffer({
+        type: "assistant_text_delta",
+        text: "hello",
+        conversationId,
+      } as unknown as AssistantEvent);
+      stampAndBuffer({
+        type: "assistant_text_delta",
+        text: " world",
+        conversationId,
+      } as unknown as AssistantEvent);
+
+      // WHEN a tool_use is handled (its block is already durable)
+      handleToolUse(state, deps, {
+        type: "tool_use",
+        id: "toolu_abc123",
+        name: "bash",
+        input: { command: "ls" },
+      });
+
+      // THEN the persisted seq equals the just-stamped tool_use_start seq
+      const toolUseStart = collector.events.find(
+        (e) => e.type === "tool_use_start",
+      );
+      expect(toolUseStart).toBeDefined();
+      expect(getPersistedSeq(conversationId)).toBe(getCurrentSeq());
+      expect(getPersistedSeq(conversationId)).toBe(
+        (toolUseStart as unknown as AssistantEvent).seq ?? null,
+      );
+    });
+  });
 
   describe("event ordering", () => {
     test("events are emitted in correct order: tool_use_preview_start → tool_input_delta → tool_use", () => {

@@ -3,6 +3,7 @@ import {
   ChartColumn,
   ChevronDown,
   ChevronUp,
+  Gift,
   LogOut,
   MessageSquareText,
   Settings as SettingsIcon,
@@ -23,7 +24,12 @@ import { LazyBoundary } from "@/components/lazy-boundary";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { hardNavigate } from "@/lib/auth/hard-navigate";
-import { useAuthStore, useIsAuthenticated } from "@/stores/auth-store";
+import { isLocalMode } from "@/lib/local-mode";
+import {
+  useAuthStore,
+  useHasPlatformSession,
+  useIsAuthenticated,
+} from "@/stores/auth-store";
 import {
   useActiveAssistantIsPlatformHosted,
   usePlatformGate,
@@ -156,6 +162,8 @@ function PreferencesMenuContent({
   const billingPlatformGate = usePlatformGate({ platformHostedOnly: true });
   const isPlatformHosted = useActiveAssistantIsPlatformHosted();
   const isOrgReady = useIsOrgReady();
+  const hasPlatformSession = useHasPlatformSession();
+  const showLogout = !isLocalMode() || hasPlatformSession;
   const showBillingRows =
     billingPlatformGate === "full" && isPlatformHosted && isOrgReady;
   const { data: billingSummary } = useQuery({
@@ -168,24 +176,29 @@ function PreferencesMenuContent({
     <>
       <ThemeToggle className="px-2 py-0" />
 
-      {showBillingRows ? (
+      <div className="my-2 border-t border-[var(--border-subtle)]" />
+
+      {showBillingRows && effectiveBalance !== null ? (
         <div className="my-2">
           <CreditsCard
-            balance={
-              effectiveBalance !== null
-                ? formatWholeCredits(effectiveBalance)
-                : null
-            }
+            balance={formatWholeCredits(effectiveBalance)}
             onAddCredits={() => {
               onClose();
               navigate(routes.settings.billing);
             }}
-            onEarnCredits={() => {
-              onClose();
-              onEarnCredits();
-            }}
           />
         </div>
+      ) : null}
+
+      {showBillingRows ? (
+        <PanelItem
+          icon={Gift}
+          label="Earn Free Credits"
+          onSelect={() => {
+            onClose();
+            onEarnCredits();
+          }}
+        />
       ) : null}
 
       <PanelItem
@@ -228,15 +241,17 @@ function PreferencesMenuContent({
         />
       ) : null}
 
-      <PanelItem
-        icon={LogOut}
-        label="Log Out"
-        onSelect={async () => {
-          await logout();
-          onClose();
-          hardNavigate(routes.account.login);
-        }}
-      />
+      {showLogout ? (
+        <PanelItem
+          icon={LogOut}
+          label="Log Out"
+          onSelect={async () => {
+            await logout();
+            onClose();
+            hardNavigate(routes.account.login);
+          }}
+        />
+      ) : null}
     </>
   );
 }

@@ -1,3 +1,6 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+
 import { describe, expect, test } from "bun:test";
 
 import type { AgentEvent } from "../adapter";
@@ -12,6 +15,7 @@ import {
   HERMES_EVAL_SESSION_SOURCE,
   HERMES_STATE_DB_PATH,
 } from "../adapters/hermes-seed";
+import { runArtifacts } from "../metrics";
 import type { Profile } from "../profile";
 import type {
   CommandResult,
@@ -81,6 +85,12 @@ const profile: Profile = {
   workspaceDir: "/profiles/hermes-bare/workspace",
 };
 
+async function preStageRecordingCa(runId: string): Promise<void> {
+  const runDir = runArtifacts(runId).runDir;
+  await mkdir(runDir, { recursive: true });
+  await writeFile(join(runDir, "mitmproxy-ca-cert.pem"), "fake-ca-pem");
+}
+
 describe("HermesAgent", () => {
   test("starts a detached Hermes container, applies the jail, runs setup, and subscribes to events", async () => {
     const runner = new FakeRunner();
@@ -92,6 +102,7 @@ describe("HermesAgent", () => {
       processEnv: {}, // deterministic: no provider env flags
     });
 
+    await preStageRecordingCa(agent.id);
     await agent.hatch();
 
     expect(agent.id).toBe("eval-hermes-1");
@@ -137,8 +148,9 @@ describe("HermesAgent", () => {
     expect(calls[4]).toContain("--cap-add");
     expect(calls[4]).toContain("NET_ADMIN");
     expect(calls[4]).toContain("evals.vellum.ai/egress-recording=1");
-    // Setup command
-    expect(calls[5]).toEqual([
+    // Setup command (calls[5..6] are now CA install: docker cp + docker exec
+    // update-ca-certificates; setup shifts to calls[7])
+    expect(calls[7]).toEqual([
       "docker",
       "exec",
       "--env",
@@ -186,6 +198,7 @@ describe("HermesAgent", () => {
       processEnv: {},
     });
 
+    await preStageRecordingCa(agent.id);
     await agent.hatch();
     await agent.send({ content: "hello hermes" });
 
@@ -228,6 +241,7 @@ describe("HermesAgent", () => {
       processEnv: {},
     });
 
+    await preStageRecordingCa(agent.id);
     await agent.hatch();
     const runsBeforeSeed = runner.runs.length;
 
@@ -343,6 +357,7 @@ describe("HermesAgent", () => {
       processEnv: {},
     });
 
+    await preStageRecordingCa(agent.id);
     await agent.hatch();
 
     await expect(
@@ -369,6 +384,7 @@ describe("HermesAgent", () => {
       processEnv: {},
     });
 
+    await preStageRecordingCa(agent.id);
     await agent.hatch();
     agent.events();
     await agent.send({ content: "hello" });
@@ -480,6 +496,7 @@ describe("HermesAgent", () => {
       },
     });
 
+    await preStageRecordingCa(agent.id);
     await agent.hatch();
 
     const dockerRun = runner.runs.find(

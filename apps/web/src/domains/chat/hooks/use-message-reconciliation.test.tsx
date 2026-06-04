@@ -27,7 +27,7 @@ import { useConversationStore } from "@/stores/conversation-store";
 // Mocks — module mocks MUST come before importing the subject under test.
 // ---------------------------------------------------------------------------
 
-let mockFetchResult: RuntimeMessage[] = [];
+let mockFetchResult: ConversationMessage[] = [];
 let mockFetchError: Error | null = null;
 let mockFetchSideEffect: (() => void) | null = null;
 let fetchCallCount = 0;
@@ -101,7 +101,7 @@ mock.module("@/domains/chat/api/messages", () => ({
 // ---------------------------------------------------------------------------
 
 import type { useMessageReconciliation } from "@/domains/chat/hooks/use-message-reconciliation";
-import type { RuntimeMessage } from "@/domains/chat/api/messages";
+import type { ConversationMessage } from "@vellumai/assistant-api";
 
 import {
   makeServerMessage,
@@ -255,7 +255,7 @@ describe("reconcileFromServer", () => {
   test("returns true when messages change", () => {
     messages = [makeMessage({ id: "m1", role: "user", ...textBody("Hello") })];
     const { reconcileFromServer } = createHarness();
-    const serverMessages: RuntimeMessage[] = [
+    const serverMessages: ConversationMessage[] = [
       makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
       makeServerMessage({ id: "m2", role: "assistant", ...wireTextBody("World") }),
     ];
@@ -266,7 +266,7 @@ describe("reconcileFromServer", () => {
     const msg = makeMessage({ id: "m1", role: "user", ...textBody("Hello") });
     messages = [msg];
     const { reconcileFromServer } = createHarness();
-    const serverMessages: RuntimeMessage[] = [
+    const serverMessages: ConversationMessage[] = [
       makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
     ];
     // reconcileMessages rebuilds messages from server data, so the array
@@ -279,7 +279,7 @@ describe("reconcileFromServer", () => {
   test("updates messages state with reconciled result", () => {
     messages = [makeMessage({ id: "m1", role: "user", ...textBody("Hello") })];
     const { reconcileFromServer } = createHarness();
-    const serverMessages: RuntimeMessage[] = [
+    const serverMessages: ConversationMessage[] = [
       makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
       makeServerMessage({ id: "m2", role: "assistant", ...wireTextBody("Response") }),
     ];
@@ -291,7 +291,7 @@ describe("reconcileFromServer", () => {
   test("surfaces on server messages are preserved in reconciled messages", () => {
     messages = [makeMessage({ id: "m1", role: "user", ...textBody("Hello") })];
     const { reconcileFromServer } = createHarness();
-    const serverMessages: RuntimeMessage[] = [
+    const serverMessages: ConversationMessage[] = [
       makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
       makeServerMessage({
         id: "m2",
@@ -1055,7 +1055,7 @@ describe("reconcileActiveConversation — stale tool call cleanup", () => {
         role: "assistant",
         ...textBody(""),
         toolCalls: [
-          { id: "tc-1", toolName: "web_search", input: {}, status: "running" as const },
+          { id: "tc-1", name: "web_search", input: {}, status: "running" as const },
         ],
       }),
     ];
@@ -1090,8 +1090,8 @@ describe("reconcileActiveConversation — stale tool call cleanup", () => {
         role: "assistant",
         ...textBody("partial"),
         toolCalls: [
-          { id: "tc-1", toolName: "web_search", input: {}, status: "running" as const },
-          { id: "tc-2", toolName: "bash", input: {}, status: "completed" as const },
+          { id: "tc-1", name: "web_search", input: {}, status: "running" as const },
+          { id: "tc-2", name: "bash", input: {}, status: "completed" as const },
         ],
       }),
     ];
@@ -1128,7 +1128,7 @@ describe("reconcileActiveConversation — stale tool call cleanup", () => {
         role: "assistant",
         ...textBody(""),
         toolCalls: [
-          { id: "tc-1", toolName: "web_search", input: {}, status: "running" as const },
+          { id: "tc-1", name: "web_search", input: {}, status: "running" as const },
         ],
       }),
     ];

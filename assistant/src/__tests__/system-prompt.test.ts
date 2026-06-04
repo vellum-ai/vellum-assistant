@@ -673,6 +673,26 @@ describe("buildSystemPrompt", () => {
       expect(result).toContain("Batch independent tool calls");
     });
 
+    test("bundled communication section renders and sorts before the parallel-tool-calls block", () => {
+      // `01-communication` sorts ahead of `01-parallel-tool-calls`, so the
+      // communication guidance leads the operational sections.
+      const result = buildSystemPrompt();
+      expect(result).toContain("## Communication");
+      // The core rule: deliberation belongs in private thinking, not text.
+      expect(result).toContain(
+        "in your private thinking — never in user-facing text",
+      );
+      // Closes by deferring to the user's established communication preferences.
+      expect(result).toContain(
+        "Always prioritize communication preferences that you've established",
+      );
+      const communicationIdx = result.indexOf("## Communication");
+      const parallelIdx = result.indexOf("<use_parallel_tool_calls>");
+      expect(communicationIdx).toBeGreaterThan(-1);
+      expect(parallelIdx).toBeGreaterThan(-1);
+      expect(communicationIdx).toBeLessThan(parallelIdx);
+    });
+
     test("workspace prefix with frontmatter renders body at the very top", () => {
       mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
       writeFileSync(

@@ -83,7 +83,8 @@ function readAssistantName(entry: AssistantEntry | null): string | undefined {
     : undefined;
 }
 
-function parseArgs(): ParsedArgs {
+// Exported for unit testing the arg/auth resolution without launching the TUI.
+export function parseArgs(): ParsedArgs {
   const args = process.argv.slice(3);
 
   const positionalName = parseAssistantTargetArg(args, [
@@ -93,6 +94,8 @@ function parseArgs(): ParsedArgs {
     "-a",
     "--interface",
     "-i",
+    "--token",
+    "-t",
   ]);
   const flagArgs: string[] = [];
   for (let i = 0; i < args.length; i++) {
@@ -106,7 +109,9 @@ function parseArgs(): ParsedArgs {
         arg === "--assistant-id" ||
         arg === "-a" ||
         arg === "--interface" ||
-        arg === "-i") &&
+        arg === "-i" ||
+        arg === "--token" ||
+        arg === "-t") &&
       args[i + 1]
     ) {
       flagArgs.push(arg, args[++i]);
@@ -154,11 +159,31 @@ function parseArgs(): ParsedArgs {
   const cloud = entry?.cloud;
   const species: Species = (entry?.species as Species) ?? "vellum";
 
-  // Platform-hosted assistants use a session token; local assistants use a guardian JWT.
-  const platformToken =
-    cloud === "vellum" ? (readPlatformToken() ?? undefined) : undefined;
-  const bearerToken =
-    cloud === "vellum"
+  // Ephemeral auth: a handed-over token (e.g. from `vellum pair`) used for this
+  // session only. Resolve it BEFORE the credential lookup below so an ephemeral
+  // session never reads (or writes) the local token store.
+  let bearerTokenOverride: string | undefined;
+  for (let i = 0; i < flagArgs.length; i++) {
+    if (
+      (flagArgs[i] === "--token" || flagArgs[i] === "-t") &&
+      flagArgs[i + 1]
+    ) {
+      bearerTokenOverride = flagArgs[i + 1];
+    }
+  }
+
+  // Platform-hosted assistants (cloud "vellum") use a session token; every
+  // other topology — local, docker, and "paired" (a remote assistant paired
+  // from another machine) — uses a bearer guardian JWT. Both are skipped
+  // entirely when --token supplies the credential, so no saved creds are read.
+  const platformToken = bearerTokenOverride
+    ? undefined
+    : cloud === "vellum"
+      ? (readPlatformToken() ?? undefined)
+      : undefined;
+  const bearerToken = bearerTokenOverride
+    ? bearerTokenOverride
+    : cloud === "vellum"
       ? undefined
       : (loadGuardianToken(entry?.assistantId ?? "")?.accessToken ?? undefined);
 
@@ -248,6 +273,9 @@ ${ANSI.bold}ARGUMENTS:${ANSI.reset}
 
 ${ANSI.bold}OPTIONS:${ANSI.reset}
     -u, --url <url>            Runtime URL
+    -t, --token <jwt>          Bearer token to use for this session (e.g. from
+                              'vellum pair'). Overrides the stored token and is
+                              not persisted.
     -a, --assistant-id <id>    Assistant ID
     -i, --interface <id>       Interface identifier: cli (default) or web
     -h, --help                 Show this help message
@@ -261,6 +289,10 @@ ${ANSI.bold}EXAMPLES:${ANSI.reset}
     vellum client vellum-assistant-foo
     vellum client --url http://34.56.78.90:${GATEWAY_PORT}
     vellum client vellum-assistant-foo --url http://localhost:${GATEWAY_PORT}
+
+    # Ephemeral: connect to another machine's assistant with a paired token
+    # (no lockfile entry, nothing persisted):
+    vellum client --url http://10.0.0.196:${GATEWAY_PORT} --token <jwt>
 `);
 }
 

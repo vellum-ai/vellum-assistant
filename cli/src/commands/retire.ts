@@ -290,6 +290,18 @@ async function retireInner(): Promise<void> {
   const assistantId = entry.assistantId;
   const source = parsed.source;
   const cloud = resolveCloud(entry);
+
+  if (cloud === "paired") {
+    // A remote assistant paired from another machine. Retiring tears the
+    // assistant down — that can only happen on its host machine, never from a
+    // paired machine, which holds nothing but a pairing record. (Removing that
+    // local record is `vellum unpair`'s job, not retire's.)
+    console.error(
+      `Error: '${assistantId}' is a remote assistant paired from another machine — it can't be retired from here. Retiring tears down the assistant, which can only be done on its host machine. To remove the local pairing record on this machine, use \`vellum unpair\` (coming soon).`,
+    );
+    process.exit(1);
+  }
+
   printRetireTarget(entry, cloud);
 
   if (!parsed.yes) {

@@ -367,11 +367,22 @@ export async function handlePair(
   }
 
   // CLI pairing (e.g. `vellum pair`): a loopback-local caller mints a
-  // device-bound token for another machine. No extension-origin check applies
-  // (the CLI is not a browser); the loopback / X-Forwarded-For / edge-marker
-  // guards above are the boundary. A deviceId is required — CLI pairing is
-  // always device-scoped (and thus revocable).
+  // device-bound token for another machine. The loopback / X-Forwarded-For /
+  // edge-marker guards above are the boundary. A deviceId is required — CLI
+  // pairing is always device-scoped (and thus revocable).
   if (interfaceId === "cli") {
+    // A real `vellum pair` is a terminal process and never sends an Origin
+    // header; any Origin means a browser/WebView is calling (e.g. dynamic
+    // surface JS at https://<appId>.vellum.local). Reject it: combined with the
+    // gateway's WebView CORS allowance, such JS could otherwise mint and read
+    // back a broadly-scoped actor_client_v1 token. (A local non-browser process
+    // omitting Origin can still mint — that's the intentional loopback trust
+    // model; this guard closes the browser/WebView sandbox-escape vector.)
+    const origin = req.headers.get("origin");
+    if (origin) {
+      auditDeny(req, clientIp, "cli_browser_origin", { origin });
+      return errorResponse("FORBIDDEN", "endpoint is local-only", 403);
+    }
     if (!deviceId) {
       return errorResponse(
         "BAD_REQUEST",

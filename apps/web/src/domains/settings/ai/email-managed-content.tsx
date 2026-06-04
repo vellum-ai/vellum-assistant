@@ -325,7 +325,7 @@ export function EmailManagedContent({
     return (
       <div className="space-y-3">
         {subscriptionWarning}
-        <label className="block text-body-small-default text-[var(--content-quiet)]">
+        <label className="block text-body-small-default text-[var(--content-tertiary)]">
           Subdomain
         </label>
         <DomainField
@@ -365,7 +365,7 @@ export function EmailManagedContent({
       <div className="space-y-4">
         {subscriptionWarning}
         <div className="space-y-1.5">
-          <label className="block text-body-small-default text-[var(--content-quiet)]">
+          <label className="block text-body-small-default text-[var(--content-tertiary)]">
             Domain
           </label>
           <div className="flex items-center gap-2">
@@ -398,7 +398,7 @@ export function EmailManagedContent({
         </div>
 
         <div className="space-y-1.5">
-          <label className="block text-body-small-default text-[var(--content-quiet)]">
+          <label className="block text-body-small-default text-[var(--content-tertiary)]">
             Email address
           </label>
           <div className="flex items-center gap-2">
@@ -441,7 +441,7 @@ export function EmailManagedContent({
     <div className="space-y-4">
       {subscriptionWarning}
       <div className="space-y-1.5">
-        <label className="block text-body-small-default text-[var(--content-quiet)]">
+        <label className="block text-body-small-default text-[var(--content-tertiary)]">
           Address
         </label>
         <div className="flex items-center gap-2">

@@ -87,6 +87,14 @@ export const DaemonConfigSchema = z
       .describe(
         "Whether the daemon records conversations even when no client is connected",
       ),
+    reapOrphanedSubprocesses: z
+      .boolean({
+        error: "daemon.reapOrphanedSubprocesses must be a boolean",
+      })
+      .default(false)
+      .describe(
+        "Whether the daemon, when running as PID 1 in a container, periodically reaps orphaned subprocesses that reparented to it. Off by default while the behavior is being validated.",
+      ),
   })
   .describe("Background daemon process configuration");
 

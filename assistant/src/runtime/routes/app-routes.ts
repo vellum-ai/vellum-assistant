@@ -73,14 +73,15 @@ function buildCsp(scriptSrc: string): string {
   ].join("; ");
 }
 
-function servePageHeaders({ pathParams }: ResponseHeaderArgs): Record<string, string> {
+function servePageHeaders({
+  pathParams,
+}: ResponseHeaderArgs): Record<string, string> {
   const appId = pathParams?.appId as string;
   const app = getApp(appId);
   // Multifile apps use external scripts — no 'unsafe-inline' for script-src.
   // Legacy apps contain inline event handlers that require 'unsafe-inline'.
-  const scriptSrc = app && isMultifileApp(app)
-    ? "'self'"
-    : "'self' 'unsafe-inline'";
+  const scriptSrc =
+    app && isMultifileApp(app) ? "'self'" : "'self' 'unsafe-inline'";
   return {
     "Content-Type": "text/html; charset=utf-8",
     "Content-Security-Policy": buildCsp(scriptSrc),
@@ -186,9 +187,7 @@ const DIST_CONTENT_TYPES: Record<string, string> = {
  * Serve a static file from an app's dist/ directory.
  * Validates the filename to prevent path traversal.
  */
-function handleServeDistFile({
-  pathParams,
-}: RouteHandlerArgs): Uint8Array {
+function handleServeDistFile({ pathParams }: RouteHandlerArgs): Uint8Array {
   const appId = pathParams?.appId as string;
   const filename = pathParams?.filename as string;
 
@@ -225,9 +224,7 @@ function handleServeDistFile({
 /** 50 MB — generous cap for zip app bundles. */
 const MAX_SHARE_BODY_BYTES = 50 * 1024 * 1024;
 
-async function handleShareApp({
-  rawBody,
-}: RouteHandlerArgs): Promise<{
+async function handleShareApp({ rawBody }: RouteHandlerArgs): Promise<{
   shareToken: string;
   shareUrl: string;
   bundleSizeBytes: number;
@@ -275,9 +272,7 @@ async function handleShareApp({
   };
 }
 
-function handleDownloadSharedApp({
-  pathParams,
-}: RouteHandlerArgs): Uint8Array {
+function handleDownloadSharedApp({ pathParams }: RouteHandlerArgs): Uint8Array {
   const shareToken = pathParams?.token as string;
   const record = getSharedAppLink(shareToken);
   if (!record) {
@@ -348,8 +343,7 @@ export const ROUTES: RouteDefinition[] = [
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     summary: "Serve app dist file",
-    description:
-      "Serve a static asset from an app's compiled dist/ directory.",
+    description: "Serve a static asset from an app's compiled dist/ directory.",
     tags: ["apps"],
     responseHeaders: ({ pathParams }) => ({
       "Content-Type":
@@ -410,6 +404,10 @@ export const ROUTES: RouteDefinition[] = [
     responseHeaders: {
       "Content-Type": "application/zip",
       "Content-Disposition": 'attachment; filename="app.vellum"',
+    },
+    responseBody: {
+      contentType: "application/zip",
+      schema: { type: "string", format: "binary" },
     },
     handler: handleDownloadSharedApp,
   },

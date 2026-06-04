@@ -8,7 +8,10 @@ import type {
 import {
   _peekStreamForTesting,
   _resetStreamStateForTesting,
+  getCurrentSeq,
+  getPersistedSeq,
   getReplayWindow,
+  recordPersistedSeq,
   stampAndBuffer,
 } from "../runtime/assistant-stream-state.js";
 
@@ -537,6 +540,106 @@ describe("assistant-stream-state", () => {
       // THEN web sees only conv_a's untargeted event; macOS sees both conv_a entries
       expect(webReplay!.map((e) => e.seq)).toEqual([3]);
       expect(macReplay!.map((e) => e.seq)).toEqual([1, 3]);
+    });
+  });
+
+  describe("getCurrentSeq", () => {
+    test("is 0 before anything is stamped", () => {
+      expect(getCurrentSeq()).toBe(0);
+    });
+
+    test("reports the seq just assigned by stampAndBuffer", () => {
+      const a = mkEvent();
+      stampAndBuffer(a);
+      expect(a.seq).toBe(1);
+      expect(getCurrentSeq()).toBe(1);
+
+      const b = mkEvent();
+      stampAndBuffer(b);
+      expect(b.seq).toBe(2);
+      expect(getCurrentSeq()).toBe(2);
+    });
+
+    test("unscoped (unstamped) events do not advance it", () => {
+      stampAndBuffer(mkEvent());
+      // An event with no conversationId is never stamped.
+      stampAndBuffer(mkEvent({ conversationId: undefined }));
+      expect(getCurrentSeq()).toBe(1);
+    });
+  });
+
+  describe("persisted seq", () => {
+    test("getPersistedSeq is null for an unknown conversation", () => {
+      expect(getPersistedSeq("conv_unknown")).toBeNull();
+    });
+
+    test("records and retrieves a per-conversation value", () => {
+      recordPersistedSeq("conv_a", 7);
+      expect(getPersistedSeq("conv_a")).toBe(7);
+      expect(getPersistedSeq("conv_b")).toBeNull();
+    });
+
+    test("tracks conversations independently", () => {
+      recordPersistedSeq("conv_a", 3);
+      recordPersistedSeq("conv_b", 9);
+      expect(getPersistedSeq("conv_a")).toBe(3);
+      expect(getPersistedSeq("conv_b")).toBe(9);
+    });
+
+    test("advances monotonically and never regresses", () => {
+      recordPersistedSeq("conv_a", 5);
+      recordPersistedSeq("conv_a", 12);
+      expect(getPersistedSeq("conv_a")).toBe(12);
+
+      // A lower seq (e.g. an out-of-order async commit) is clamped.
+      recordPersistedSeq("conv_a", 8);
+      expect(getPersistedSeq("conv_a")).toBe(12);
+    });
+
+    test("ignores non-positive and non-finite seq values", () => {
+      recordPersistedSeq("conv_a", 0);
+      recordPersistedSeq("conv_a", -3);
+      recordPersistedSeq("conv_a", Number.NaN);
+      recordPersistedSeq("conv_a", Number.POSITIVE_INFINITY);
+      expect(getPersistedSeq("conv_a")).toBeNull();
+    });
+
+    test("is cleared by reset", () => {
+      recordPersistedSeq("conv_a", 4);
+      _resetStreamStateForTesting();
+      expect(getPersistedSeq("conv_a")).toBeNull();
+    });
+
+    test("evicts the least-recently-recorded conversation past the cap", () => {
+      // The map is LRU-bounded at 1024 conversations. Fill to the cap,
+      // then one more insert evicts the oldest key.
+      const CAP = 1024;
+      for (let i = 0; i < CAP; i++) {
+        recordPersistedSeq(`conv_${i}`, i + 1);
+      }
+      // All present at the cap.
+      expect(getPersistedSeq("conv_0")).toBe(1);
+      expect(getPersistedSeq(`conv_${CAP - 1}`)).toBe(CAP);
+
+      // One more distinct conversation evicts the oldest (conv_0).
+      recordPersistedSeq("conv_overflow", 9999);
+      expect(getPersistedSeq("conv_0")).toBeNull();
+      expect(getPersistedSeq("conv_1")).toBe(2);
+      expect(getPersistedSeq("conv_overflow")).toBe(9999);
+    });
+
+    test("re-recording refreshes recency so a kept key is not evicted first", () => {
+      const CAP = 1024;
+      for (let i = 0; i < CAP; i++) {
+        recordPersistedSeq(`conv_${i}`, i + 1);
+      }
+      // Touch the oldest key so it moves to the most-recent end.
+      recordPersistedSeq("conv_0", 5000);
+
+      // The next insert now evicts conv_1 (the new oldest), not conv_0.
+      recordPersistedSeq("conv_overflow", 9999);
+      expect(getPersistedSeq("conv_0")).toBe(5000);
+      expect(getPersistedSeq("conv_1")).toBeNull();
     });
   });
 });

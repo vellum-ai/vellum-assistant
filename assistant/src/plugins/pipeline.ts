@@ -20,8 +20,7 @@
  *   timer. A timeout rejection is a `PluginTimeoutError` carrying the
  *   pipeline name, the best-known offending plugin (from `ctx.pluginName`),
  *   and elapsed ms. When `timeoutMs` is `null`/`undefined`, no timer is
- *   armed — pipelines like `llmCall` and `toolExecute` rely on downstream
- *   timeouts instead.
+ *   armed — pipelines like `compaction` rely on downstream timeouts instead.
  */
 
 import type { Logger } from "pino";
@@ -43,23 +42,17 @@ const moduleLogger = getLogger("plugin-pipeline");
 /**
  * Default per-pipeline timeout budgets in milliseconds. A value of `null`
  * means the runner does NOT arm a timer — the pipeline relies on its
- * downstream for budgeting (e.g. `llmCall` defers to provider-level HTTP
- * timeouts; `toolExecute` defers to the per-tool timeout already enforced
- * by `ToolExecutor`).
+ * downstream for budgeting (e.g. `compaction` defers to the provider-level
+ * HTTP timeouts of the summary call it wraps).
  *
  * Callers pass the appropriate entry as `runPipeline`'s `timeoutMs` argument.
  * The design doc locks these numbers in; do not tweak without coordinating
  * a design update.
  */
 export const DEFAULT_TIMEOUTS: Record<PipelineName, number | null> = {
-  turn: null,
-  llmCall: null,
-  toolExecute: null,
   memoryRetrieval: null,
-  tokenEstimate: null,
   compaction: null,
   overflowReduce: null,
-  persistence: null,
   circuitBreaker: null,
 };
 
@@ -110,7 +103,7 @@ export function composeMiddleware<A, R>(
  *
  * When `args` carries no `AbortSignal` property, the original object is
  * returned unchanged — pipelines whose terminals don't consume a signal
- * (e.g. `persistence`, `tokenEstimate`) see identical behavior to before.
+ * (e.g. `circuitBreaker`) see identical behavior to before.
  * The return value's `cleanup()` tears down any `addEventListener("abort",
  * ...)` handlers attached to the caller's signal so a pipeline that
  * completes successfully doesn't leak listeners on the caller's controller.

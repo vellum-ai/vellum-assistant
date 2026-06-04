@@ -19,8 +19,7 @@ import {
  */
 export function useToolCallCardData(
   toolCalls: ChatMessageToolCall[],
-  leadingThinkingText: string | null,
 ): ToolCallCardData {
   const liveWebActivity = useTurnStore.use.liveWebActivity();
-  return computeToolCallCardData(toolCalls, liveWebActivity, leadingThinkingText);
+  return computeToolCallCardData(toolCalls, liveWebActivity);
 }

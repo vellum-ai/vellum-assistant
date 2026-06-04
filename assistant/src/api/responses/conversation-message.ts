@@ -73,6 +73,8 @@ const RiskDirectoryScopeOptionSchema = z.object({
  * `tool:N` where `N` indexes into `toolCalls`.
  */
 export const ConversationMessageToolCallSchema = z.object({
+  /** Stable tool-call id: the provider `tool_use` id, or a synthesized positional id. Guaranteed present as of daemon v0.8.8; optional for skew with older daemons. */
+  id: z.string().optional(),
   name: z.string(),
   input: z.record(z.string(), z.unknown()),
   result: z.string().optional(),

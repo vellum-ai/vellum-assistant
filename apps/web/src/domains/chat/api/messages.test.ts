@@ -10,8 +10,14 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { client as daemonClient } from "@/generated/daemon/client.gen";
-import { getChatHistory, normalizeContentOrder, postChatMessage } from "@/domains/chat/api/messages";
+import {
+  getChatHistory,
+  mapRuntimeToolCalls,
+  normalizeContentOrder,
+  postChatMessage,
+} from "@/domains/chat/api/messages";
 import { messageText } from "@/domains/chat/utils/message-test-helpers";
+import type { ConversationMessageToolCall } from "@vellumai/assistant-api";
 
 // ---------------------------------------------------------------------------
 // Spy setup — replace client.post per-test, restore after
@@ -48,19 +54,13 @@ afterEach(() => {
 
 describe("postChatMessage — onboarding wire format", () => {
   test("includes googleConnected and googleScopes when provided", async () => {
-    await postChatMessage(
-      "assistant-1",
-      "conv-key",
-      "Hello",
-      [],
-      {
-        tools: [],
-        tasks: [],
-        tone: "warm",
-        googleConnected: true,
-        googleScopes: ["https://mail.google.com/"],
-      },
-    );
+    await postChatMessage("assistant-1", "conv-key", "Hello", [], {
+      tools: [],
+      tasks: [],
+      tone: "warm",
+      googleConnected: true,
+      googleScopes: ["https://mail.google.com/"],
+    });
 
     expect(capturedBody).not.toBeNull();
     const onboarding = (capturedBody as Record<string, unknown>)
@@ -71,17 +71,11 @@ describe("postChatMessage — onboarding wire format", () => {
   });
 
   test("omits googleConnected and googleScopes when not provided", async () => {
-    await postChatMessage(
-      "assistant-1",
-      "conv-key",
-      "Hello",
-      [],
-      {
-        tools: [],
-        tasks: [],
-        tone: "grounded",
-      },
-    );
+    await postChatMessage("assistant-1", "conv-key", "Hello", [], {
+      tools: [],
+      tasks: [],
+      tone: "grounded",
+    });
 
     const onboarding = (capturedBody as Record<string, unknown>)
       .onboarding as Record<string, unknown>;
@@ -93,7 +87,9 @@ describe("postChatMessage — onboarding wire format", () => {
     await postChatMessage("assistant-1", "conv-key", "Hello");
 
     expect(capturedBody).not.toBeNull();
-    expect((capturedBody as Record<string, unknown>).onboarding).toBeUndefined();
+    expect(
+      (capturedBody as Record<string, unknown>).onboarding,
+    ).toBeUndefined();
   });
 });
 
@@ -299,5 +295,73 @@ describe("postChatMessage — daemon error envelope handling", () => {
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("expected failure result");
     expect(result.error.detail).toBe("HTTP 503");
+  });
+});
+
+describe("mapRuntimeToolCalls — confirmationDecision", () => {
+  test("omits confirmationDecision entirely when the wire row lacks it", () => {
+    // GIVEN a history tool call with no confirmationDecision on the wire
+    const wire: ConversationMessageToolCall = {
+      name: "bash",
+      input: { command: "ls" },
+      result: "ok",
+    };
+
+    // WHEN it is projected onto the rendered tool call
+    const [mapped] = mapRuntimeToolCalls([wire], "msg-1");
+
+    // THEN the key is absent — not materialized as `undefined` — so a later
+    // reconcile spread can't clobber a locally-set decision.
+    expect(mapped).not.toHaveProperty("confirmationDecision");
+  });
+
+  test("keeps a known confirmationDecision and narrows it", () => {
+    // GIVEN history rows carrying a known and an unknown decision string
+    const wire: ConversationMessageToolCall[] = [
+      { name: "bash", input: {}, confirmationDecision: "denied" },
+      { name: "bash", input: {}, confirmationDecision: "bogus" },
+    ];
+
+    // WHEN they are projected onto rendered tool calls
+    const [known, unknown] = mapRuntimeToolCalls(wire, "msg-1");
+
+    // THEN the known decision survives
+    expect(known.confirmationDecision).toBe("denied");
+    // AND the unknown one is narrowed away rather than leaking a raw string
+    expect(unknown).not.toHaveProperty("confirmationDecision");
+  });
+});
+
+describe("mapRuntimeToolCalls — id", () => {
+  test("uses the wire-provided provider tool-use id when present", () => {
+    // GIVEN a history tool call carrying the provider tool-use id on the wire
+    const wire: ConversationMessageToolCall = {
+      id: "toolu_abc123",
+      name: "bash",
+      input: { command: "ls" },
+      result: "ok",
+    };
+
+    // WHEN it is projected onto the rendered tool call
+    const [mapped] = mapRuntimeToolCalls([wire], "msg-1");
+
+    // THEN it keys by the same id the live `tool_use_start` stream uses, so
+    // reconcile can match snapshot and stream tool calls — no positional id.
+    expect(mapped!.id).toBe("toolu_abc123");
+  });
+
+  test("falls back to a positional id when the wire omits id", () => {
+    // GIVEN history rows from a daemon predating the wire `id` field
+    const wire: ConversationMessageToolCall[] = [
+      { name: "bash", input: {}, result: "a" },
+      { name: "bash", input: {}, result: "b" },
+    ];
+
+    // WHEN they are projected onto rendered tool calls
+    const [first, second] = mapRuntimeToolCalls(wire, "msg-1");
+
+    // THEN each gets a stable synthesized positional id
+    expect(first!.id).toBe("tool-history-msg-1-0");
+    expect(second!.id).toBe("tool-history-msg-1-1");
   });
 });

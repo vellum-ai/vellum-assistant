@@ -16,7 +16,7 @@ import {
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { OAuthConnection } from "@/generated/api/types.gen";
 
-import { IntegrationIcon } from "@/domains/settings/components/integration-icon";
+import { IntegrationIcon } from "@/components/integrations/integration-icon";
 import type { PlatformGateState } from "@/hooks/use-platform-gate";
 
 import { extractErrorMessage } from "@/utils/api-errors";

@@ -7,6 +7,8 @@
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
+import { z } from "zod";
+
 import type { SlackChannelConfigResult } from "../../../../../daemon/handlers/config-slack-channel.js";
 
 // ---------------------------------------------------------------------------
@@ -29,6 +31,20 @@ let mockSetConfigResult: SlackChannelConfigResult = {
 };
 
 mock.module("../../../../../daemon/handlers/config-slack-channel.js", () => ({
+  SlackChannelConfigResultSchema: z.object({
+    success: z.boolean(),
+    hasBotToken: z.boolean(),
+    hasAppToken: z.boolean(),
+    hasUserToken: z.boolean(),
+    connected: z.boolean(),
+    teamId: z.string().optional(),
+    teamName: z.string().optional(),
+    teamUrl: z.string().optional(),
+    botUserId: z.string().optional(),
+    botUsername: z.string().optional(),
+    error: z.string().optional(),
+    warning: z.string().optional(),
+  }),
   setSlackChannelConfig: async (
     botToken?: string,
     appToken?: string,

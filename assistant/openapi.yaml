@@ -1314,6 +1314,11 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
       parameters:
         - name: token
           in: path
@@ -8270,6 +8275,17 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+                required:
+                  - ok
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -10060,6 +10076,11 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
       parameters:
         - name: id
           in: path
@@ -10075,6 +10096,47 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  subdomain:
+                    type: string
+                  domain:
+                    type: string
+                  created_at:
+                    type: string
+                  created:
+                    type: string
+                  email_error:
+                    type: object
+                    properties:
+                      detail:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - detail
+                      - code
+                    additionalProperties: false
+                required:
+                  - id
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                subdomain:
+                  type: string
+                email_username:
+                  type: string
+              additionalProperties: false
   /v1/domain/status:
     get:
       operationId: domain_status_get
@@ -10084,6 +10146,43 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: number
+                  next:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  previous:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        subdomain:
+                          type: string
+                        domain:
+                          type: string
+                        created_at:
+                          type: string
+                        created:
+                          type: string
+                      required:
+                        - id
+                      additionalProperties: false
+                required:
+                  - count
+                  - results
+                additionalProperties: false
   /v1/domain/verification-status:
     post:
       operationId: domain_verificationstatus_post
@@ -10093,6 +10192,34 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  domain:
+                    type: string
+                  status:
+                    type: string
+                  message:
+                    type: string
+                required:
+                  - domain
+                  - status
+                  - message
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                domain_id:
+                  type: string
+              required:
+                - domain_id
+              additionalProperties: false
   /v1/email/attachment-get:
     get:
       operationId: email_attachmentget_get
@@ -10591,6 +10718,24 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  lines:
+                    type: array
+                    items:
+                      type: object
+                      propertyNames:
+                        type: string
+                      additionalProperties: {}
+                  truncated:
+                    type: boolean
+                required:
+                  - lines
+                  - truncated
+                additionalProperties: false
       parameters:
         - name: n
           in: query
@@ -12679,6 +12824,68 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  images:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        mimeType:
+                          type: string
+                        dataBase64:
+                          type: string
+                        title:
+                          type: string
+                      required:
+                        - mimeType
+                        - dataBase64
+                      additionalProperties: false
+                  text:
+                    type: string
+                  resolvedModel:
+                    type: string
+                required:
+                  - images
+                  - resolvedModel
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                prompt:
+                  type: string
+                mode:
+                  type: string
+                  enum:
+                    - generate
+                    - edit
+                sourceImages:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      mimeType:
+                        type: string
+                      dataBase64:
+                        type: string
+                    required:
+                      - mimeType
+                      - dataBase64
+                    additionalProperties: false
+                model:
+                  type: string
+                variants:
+                  type: number
+              required:
+                - prompt
+              additionalProperties: false
   /v1/inference/chatgpt-subscription/auth:
     post:
       operationId: inference_chatgptsubscription_auth_post
@@ -13599,6 +13806,24 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  enabled:
+                    type: boolean
+                  activeConnections:
+                    type: number
+                  error:
+                    type: string
+                required:
+                  - success
+                  - enabled
+                  - activeConnections
+                additionalProperties: false
     get:
       operationId: integrations_a2a_config_get
       summary: Get A2A config
@@ -13608,6 +13833,24 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  enabled:
+                    type: boolean
+                  activeConnections:
+                    type: number
+                  error:
+                    type: string
+                required:
+                  - success
+                  - enabled
+                  - activeConnections
+                additionalProperties: false
     post:
       operationId: integrations_a2a_config_post
       summary: Enable A2A channel
@@ -13617,6 +13860,24 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  enabled:
+                    type: boolean
+                  activeConnections:
+                    type: number
+                  error:
+                    type: string
+                required:
+                  - success
+                  - enabled
+                  - activeConnections
+                additionalProperties: false
   /v1/integrations/a2a/invite:
     post:
       operationId: integrations_a2a_invite_post
@@ -13659,6 +13920,24 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  contactId:
+                    type: string
+                  alreadyConnected:
+                    type: boolean
+                  error:
+                    type: string
+                  errorCode:
+                    type: string
+                required:
+                  - success
+                additionalProperties: false
   /v1/integrations/a2a/invite/complete:
     post:
       operationId: integrations_a2a_invite_complete_post
@@ -13669,6 +13948,32 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  sender:
+                    type: object
+                    properties:
+                      assistantId:
+                        type: string
+                      displayName:
+                        type: string
+                      gatewayUrl:
+                        type: string
+                    required:
+                      - assistantId
+                      - displayName
+                      - gatewayUrl
+                    additionalProperties: false
+                  error:
+                    type: string
+                required:
+                  - success
+                additionalProperties: false
   /v1/integrations/a2a/invite/redeem:
     post:
       operationId: integrations_a2a_invite_redeem_post
@@ -13679,6 +13984,22 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  contactId:
+                    type: string
+                  alreadyConnected:
+                    type: boolean
+                  error:
+                    type: string
+                required:
+                  - success
+                additionalProperties: false
   /v1/integrations/ingress/config:
     get:
       operationId: integrations_ingress_config_get
@@ -13770,6 +14091,42 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  hasBotToken:
+                    type: boolean
+                  hasAppToken:
+                    type: boolean
+                  hasUserToken:
+                    type: boolean
+                  connected:
+                    type: boolean
+                  teamId:
+                    type: string
+                  teamName:
+                    type: string
+                  teamUrl:
+                    type: string
+                  botUserId:
+                    type: string
+                  botUsername:
+                    type: string
+                  error:
+                    type: string
+                  warning:
+                    type: string
+                required:
+                  - success
+                  - hasBotToken
+                  - hasAppToken
+                  - hasUserToken
+                  - connected
+                additionalProperties: false
     get:
       operationId: integrations_slack_channel_config_get
       summary: Get Slack channel config
@@ -13779,6 +14136,42 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  hasBotToken:
+                    type: boolean
+                  hasAppToken:
+                    type: boolean
+                  hasUserToken:
+                    type: boolean
+                  connected:
+                    type: boolean
+                  teamId:
+                    type: string
+                  teamName:
+                    type: string
+                  teamUrl:
+                    type: string
+                  botUserId:
+                    type: string
+                  botUsername:
+                    type: string
+                  error:
+                    type: string
+                  warning:
+                    type: string
+                required:
+                  - success
+                  - hasBotToken
+                  - hasAppToken
+                  - hasUserToken
+                  - connected
+                additionalProperties: false
     post:
       operationId: integrations_slack_channel_config_post
       summary: Set Slack channel config
@@ -13788,6 +14181,42 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  hasBotToken:
+                    type: boolean
+                  hasAppToken:
+                    type: boolean
+                  hasUserToken:
+                    type: boolean
+                  connected:
+                    type: boolean
+                  teamId:
+                    type: string
+                  teamName:
+                    type: string
+                  teamUrl:
+                    type: string
+                  botUserId:
+                    type: string
+                  botUsername:
+                    type: string
+                  error:
+                    type: string
+                  warning:
+                    type: string
+                required:
+                  - success
+                  - hasBotToken
+                  - hasAppToken
+                  - hasUserToken
+                  - connected
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -13815,6 +14244,39 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  hasBotToken:
+                    type: boolean
+                  botId:
+                    type: string
+                  botUsername:
+                    type: string
+                  connected:
+                    type: boolean
+                  hasWebhookSecret:
+                    type: boolean
+                  lastError:
+                    type: string
+                  error:
+                    type: string
+                  commandsRegistered:
+                    type: array
+                    items:
+                      type: string
+                  warning:
+                    type: string
+                required:
+                  - success
+                  - hasBotToken
+                  - connected
+                  - hasWebhookSecret
+                additionalProperties: false
   /v1/integrations/telegram/config:
     delete:
       operationId: integrations_telegram_config_delete
@@ -13825,6 +14287,39 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  hasBotToken:
+                    type: boolean
+                  botId:
+                    type: string
+                  botUsername:
+                    type: string
+                  connected:
+                    type: boolean
+                  hasWebhookSecret:
+                    type: boolean
+                  lastError:
+                    type: string
+                  error:
+                    type: string
+                  commandsRegistered:
+                    type: array
+                    items:
+                      type: string
+                  warning:
+                    type: string
+                required:
+                  - success
+                  - hasBotToken
+                  - connected
+                  - hasWebhookSecret
+                additionalProperties: false
     get:
       operationId: integrations_telegram_config_get
       summary: Get Telegram config
@@ -13834,6 +14329,39 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  hasBotToken:
+                    type: boolean
+                  botId:
+                    type: string
+                  botUsername:
+                    type: string
+                  connected:
+                    type: boolean
+                  hasWebhookSecret:
+                    type: boolean
+                  lastError:
+                    type: string
+                  error:
+                    type: string
+                  commandsRegistered:
+                    type: array
+                    items:
+                      type: string
+                  warning:
+                    type: string
+                required:
+                  - success
+                  - hasBotToken
+                  - connected
+                  - hasWebhookSecret
+                additionalProperties: false
     post:
       operationId: integrations_telegram_config_post
       summary: Set Telegram config
@@ -13843,6 +14371,39 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  hasBotToken:
+                    type: boolean
+                  botId:
+                    type: string
+                  botUsername:
+                    type: string
+                  connected:
+                    type: boolean
+                  hasWebhookSecret:
+                    type: boolean
+                  lastError:
+                    type: string
+                  error:
+                    type: string
+                  commandsRegistered:
+                    type: array
+                    items:
+                      type: string
+                  warning:
+                    type: string
+                required:
+                  - success
+                  - hasBotToken
+                  - connected
+                  - hasWebhookSecret
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -13866,6 +14427,39 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  hasBotToken:
+                    type: boolean
+                  botId:
+                    type: string
+                  botUsername:
+                    type: string
+                  connected:
+                    type: boolean
+                  hasWebhookSecret:
+                    type: boolean
+                  lastError:
+                    type: string
+                  error:
+                    type: string
+                  commandsRegistered:
+                    type: array
+                    items:
+                      type: string
+                  warning:
+                    type: string
+                required:
+                  - success
+                  - hasBotToken
+                  - connected
+                  - hasWebhookSecret
+                additionalProperties: false
   /v1/integrations/twilio/config:
     get:
       operationId: integrations_twilio_config_get
@@ -13876,6 +14470,23 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  hasCredentials:
+                    type: boolean
+                  accountSid:
+                    type: string
+                  phoneNumber:
+                    type: string
+                required:
+                  - success
+                  - hasCredentials
+                additionalProperties: false
   /v1/integrations/twilio/credentials:
     delete:
       operationId: integrations_twilio_credentials_delete
@@ -13886,6 +14497,19 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  hasCredentials:
+                    type: boolean
+                required:
+                  - success
+                  - hasCredentials
+                additionalProperties: false
     post:
       operationId: integrations_twilio_credentials_post
       summary: Set Twilio credentials
@@ -13895,6 +14519,19 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  hasCredentials:
+                    type: boolean
+                required:
+                  - success
+                  - hasCredentials
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -13922,6 +14559,42 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  hasCredentials:
+                    type: boolean
+                  numbers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        phoneNumber:
+                          type: string
+                        friendlyName:
+                          type: string
+                        capabilities:
+                          type: object
+                          properties:
+                            voice:
+                              type: boolean
+                          required:
+                            - voice
+                          additionalProperties: false
+                      required:
+                        - phoneNumber
+                        - friendlyName
+                        - capabilities
+                      additionalProperties: false
+                required:
+                  - success
+                  - hasCredentials
+                  - numbers
+                additionalProperties: false
   /v1/integrations/twilio/numbers/assign:
     post:
       operationId: integrations_twilio_numbers_assign_post
@@ -13932,6 +14605,23 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  hasCredentials:
+                    type: boolean
+                  phoneNumber:
+                    type: string
+                  warning:
+                    type: string
+                required:
+                  - success
+                  - hasCredentials
+                additionalProperties: false
   /v1/integrations/twilio/numbers/provision:
     post:
       operationId: integrations_twilio_numbers_provision_post
@@ -13942,6 +14632,23 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  hasCredentials:
+                    type: boolean
+                  phoneNumber:
+                    type: string
+                  warning:
+                    type: string
+                required:
+                  - success
+                  - hasCredentials
+                additionalProperties: false
   /v1/integrations/twilio/numbers/release:
     post:
       operationId: integrations_twilio_numbers_release_post
@@ -13952,6 +14659,23 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  hasCredentials:
+                    type: boolean
+                  phoneNumber:
+                    type: string
+                  warning:
+                    type: string
+                required:
+                  - success
+                  - hasCredentials
+                additionalProperties: false
   /v1/integrations/vercel/config:
     delete:
       operationId: integrations_vercel_config_delete
@@ -14793,6 +15517,33 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pages:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        slug:
+                          type: string
+                        bodyBytes:
+                          type: number
+                        edgeCount:
+                          type: number
+                        updatedAtMs:
+                          type: number
+                      required:
+                        - slug
+                        - bodyBytes
+                        - edgeCount
+                        - updatedAtMs
+                      additionalProperties: false
+                required:
+                  - pages
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -15044,6 +15795,37 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rendered:
+                    type: string
+                  counts:
+                    type: object
+                    properties:
+                      unassigned:
+                        type: number
+                      danglingRefs:
+                        type: number
+                      novelClusters:
+                        type: number
+                      oversizedLeaves:
+                        type: number
+                      tinyLeaves:
+                        type: number
+                    required:
+                      - unassigned
+                      - danglingRefs
+                      - novelClusters
+                      - oversizedLeaves
+                      - tinyLeaves
+                    additionalProperties: false
+                required:
+                  - rendered
+                  - counts
+                additionalProperties: false
   /v1/memory/v3/rebuild-index:
     post:
       operationId: memory_v3_rebuildindex_post
@@ -15053,6 +15835,17 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+                required:
+                  - ok
+                additionalProperties: false
   /v1/memory/v3/reconcile:
     post:
       operationId: memory_v3_reconcile_post
@@ -15062,6 +15855,39 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  renames:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        oldPath:
+                          type: string
+                        newPath:
+                          type: string
+                      required:
+                        - oldPath
+                        - newPath
+                      additionalProperties: false
+                  deleted:
+                    type: array
+                    items:
+                      type: string
+                  prunedCore:
+                    type: array
+                    items:
+                      type: string
+                required:
+                  - renames
+                  - deleted
+                  - prunedCore
+                additionalProperties: false
   /v1/memory/v3/set-core:
     post:
       operationId: memory_v3_setcore_post
@@ -15071,6 +15897,42 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  nextCore:
+                    type: array
+                    items:
+                      type: string
+                  alwaysOnPageCount:
+                    type: number
+                  written:
+                    type: boolean
+                required:
+                  - nextCore
+                  - alwaysOnPageCount
+                  - written
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                add:
+                  type: array
+                  items:
+                    type: string
+                remove:
+                  type: array
+                  items:
+                    type: string
+                write:
+                  type: boolean
+              additionalProperties: false
   /v1/messages:
     get:
       operationId: messages_get
@@ -15104,6 +15966,16 @@ paths:
                     description: ID of the oldest message in this page
                     anyOf:
                       - type: string
+                      - type: "null"
+                  seq:
+                    description:
+                      Global SSE `seq` of the last event whose content is durably persisted for this conversation in the current
+                      daemon process. A client can align this snapshot with the `/events` stream by applying only events
+                      with `seq` greater than this value. Null when no events have been persisted in this process (cold
+                      conversation, after a daemon restart, or when the conversation has aged out of the in-memory map)
+                      — clients should cold-start in that case. Absent on older daemons that predate this field.
+                    anyOf:
+                      - type: number
                       - type: "null"
                 required:
                   - messages
@@ -17289,6 +18161,41 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  routes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        assistant_id:
+                          type: string
+                        type:
+                          type: string
+                        callback_path:
+                          type: string
+                        callback_url:
+                          type: string
+                        source_identifier:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                      required:
+                        - id
+                        - assistant_id
+                        - type
+                        - callback_path
+                        - callback_url
+                        - source_identifier
+                      additionalProperties: false
+                required:
+                  - routes
+                additionalProperties: false
   /v1/platform/callback-routes/register:
     post:
       operationId: platform_callbackroutes_register_post
@@ -17299,6 +18206,37 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  callbackUrl:
+                    type: string
+                  callbackPath:
+                    type: string
+                  type:
+                    type: string
+                required:
+                  - callbackUrl
+                  - callbackPath
+                  - type
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                type:
+                  type: string
+              required:
+                - path
+                - type
+              additionalProperties: false
   /v1/platform/connect:
     post:
       operationId: platform_connect_post
@@ -17309,6 +18247,18 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  alreadyConnected:
+                    type: boolean
+                  baseUrl:
+                    type: string
+                  showPlatformLogin:
+                    type: boolean
+                additionalProperties: false
   /v1/platform/disconnect:
     post:
       operationId: platform_disconnect_post
@@ -17319,6 +18269,22 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  disconnected:
+                    type: boolean
+                    const: true
+                  previousBaseUrl:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                required:
+                  - disconnected
+                  - previousBaseUrl
+                additionalProperties: false
   /v1/platform/status:
     get:
       operationId: platform_status_get
@@ -17329,6 +18295,57 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  isPlatform:
+                    type: boolean
+                  baseUrl:
+                    type: string
+                  assistantId:
+                    type: string
+                  hasAssistantApiKey:
+                    type: boolean
+                  hasWebhookSecret:
+                    type: boolean
+                  available:
+                    type: boolean
+                  organizationId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  userId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  velayTunnel:
+                    anyOf:
+                      - type: object
+                        properties:
+                          connected:
+                            type: boolean
+                          publicUrl:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                        required:
+                          - connected
+                          - publicUrl
+                        additionalProperties: false
+                      - type: "null"
+                required:
+                  - isPlatform
+                  - baseUrl
+                  - assistantId
+                  - hasAssistantApiKey
+                  - hasWebhookSecret
+                  - available
+                  - organizationId
+                  - userId
+                  - velayTunnel
+                additionalProperties: false
   /v1/playground/seed-conversation:
     post:
       operationId: playground_seedconversation_post
@@ -21565,6 +22582,37 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  channels:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                        type:
+                          type: string
+                          enum:
+                            - channel
+                            - group
+                            - dm
+                        isPrivate:
+                          type: boolean
+                      required:
+                        - id
+                        - name
+                        - type
+                        - isPrivate
+                      additionalProperties: false
+                required:
+                  - channels
+                additionalProperties: false
   /v1/slack/share:
     post:
       operationId: slack_share_post
@@ -21575,6 +22623,42 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  ts:
+                    type: string
+                  channel:
+                    type: string
+                required:
+                  - ok
+                  - ts
+                  - channel
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                appId:
+                  type: string
+                  description: App to share
+                channelId:
+                  type: string
+                  description: Target Slack channel ID
+                message:
+                  description: Optional accompanying message
+                  type: string
+              required:
+                - appId
+                - channelId
+              additionalProperties: false
   /v1/stt/providers:
     get:
       operationId: stt_providers_get
@@ -22736,6 +23820,58 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rules:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        tool:
+                          type: string
+                        pattern:
+                          type: string
+                        risk:
+                          type: string
+                          enum:
+                            - low
+                            - medium
+                            - high
+                        description:
+                          type: string
+                        origin:
+                          type: string
+                          enum:
+                            - default
+                            - user_defined
+                        userModified:
+                          type: boolean
+                        deleted:
+                          type: boolean
+                        createdAt:
+                          type: string
+                        updatedAt:
+                          type: string
+                      required:
+                        - id
+                        - tool
+                        - pattern
+                        - risk
+                        - description
+                        - origin
+                        - userModified
+                        - deleted
+                        - createdAt
+                        - updatedAt
+                      additionalProperties: false
+                required:
+                  - rules
+                additionalProperties: false
       parameters:
         - name: tool
           in: query
@@ -23656,6 +24792,41 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  routes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        assistant_id:
+                          type: string
+                        type:
+                          type: string
+                        callback_path:
+                          type: string
+                        callback_url:
+                          type: string
+                        source_identifier:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                      required:
+                        - id
+                        - assistant_id
+                        - type
+                        - callback_path
+                        - callback_url
+                        - source_identifier
+                      additionalProperties: false
+                required:
+                  - routes
+                additionalProperties: false
   /v1/webhooks/register:
     post:
       operationId: webhooks_register_post
@@ -23668,6 +24839,44 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  callbackUrl:
+                    type: string
+                  type:
+                    type: string
+                  path:
+                    type: string
+                  mode:
+                    type: string
+                    enum:
+                      - platform
+                      - self-hosted
+                required:
+                  - callbackUrl
+                  - type
+                  - path
+                  - mode
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                type:
+                  type: string
+                path:
+                  type: string
+                source:
+                  type: string
+              required:
+                - type
+              additionalProperties: false
   /v1/work-items:
     get:
       operationId: workitems_get

@@ -320,6 +320,7 @@ async function buildClientLogsFile(
         clientMessages: debugApi.getClientMessages?.() ?? null,
         transcriptItems: debugApi.getTranscriptItems?.() ?? null,
         thinkingIndicator: debugApi.thinkingIndicator?.() ?? null,
+        streamingRing: debugApi.streamingRing?.() ?? null,
       };
       const triageBytes = new TextEncoder().encode(
         JSON.stringify(triagePayload, null, 2),

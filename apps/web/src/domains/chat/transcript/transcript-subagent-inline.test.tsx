@@ -92,7 +92,7 @@ function assistantMessageWithSpawn(
     })),
     toolCalls: spawnedIds.map((subagentId, i) => ({
       id: `tc-${i}`,
-      toolName: "subagent_spawn",
+      name: "subagent_spawn",
       input: { label: `agent-${i}`, objective: "do a thing" },
       status: "completed" as const,
       result: JSON.stringify({ subagentId, label: `agent-${i}` }),
@@ -120,7 +120,7 @@ function assistantMessageWithRunningSpawns(
     })),
     toolCalls: Array.from({ length: count }, (_, i) => ({
       id: `tc-${i}`,
-      toolName: "subagent_spawn",
+      name: "subagent_spawn",
       input: { label: `agent-${i}`, objective: "do a thing" },
       status: "running" as const,
       // No `result` — the daemon hasn't acked the spawn yet.
@@ -149,7 +149,7 @@ function assistantMessageWithMixedSpawns(
     toolCalls: entries.map((entry, i) => {
       const base = {
         id: `tc-${i}`,
-        toolName: "subagent_spawn",
+        name: "subagent_spawn",
         input: { label: `agent-${i}`, objective: "do a thing" },
       };
       if ("subagentId" in entry) {
@@ -334,7 +334,7 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
       toolCalls: [
         {
           id: "tc-0",
-          toolName: "subagent_spawn",
+          name: "subagent_spawn",
           input: { label: "agent-0", objective: "" },
           status: "running",
         },
@@ -410,7 +410,7 @@ describe("Transcript — toolUseId anchor (PR 3)", () => {
       toolCalls: [
         {
           id: "tool-use-abc",
-          toolName: "subagent_spawn",
+          name: "subagent_spawn",
           input: { label: "agent-0", objective: "do a thing" },
           status: "running",
           // No `result` — the daemon hasn't acked the spawn yet.
@@ -482,13 +482,13 @@ describe("Transcript — cross-group claimed-set (fix-r1-c)", () => {
       toolCalls: [
         {
           id: "tc-0",
-          toolName: "subagent_spawn",
+          name: "subagent_spawn",
           input: { label: "agent-0", objective: "do a thing" },
           status: "running",
         },
         {
           id: "tc-1",
-          toolName: "subagent_spawn",
+          name: "subagent_spawn",
           input: { label: "agent-1", objective: "do another thing" },
           status: "running",
         },
@@ -537,7 +537,7 @@ describe("Transcript — live → reconcile card lifecycle (PR 6)", () => {
       toolCalls: [
         {
           id: toolUseId,
-          toolName: "skill_execute",
+          name: "skill_execute",
           input: { tool: "subagent_spawn", label: "agent-0", objective: "do a thing" },
           status: "running",
           // No `result` — daemon hasn't acked the spawn yet.

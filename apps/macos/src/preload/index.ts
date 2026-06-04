@@ -11,7 +11,8 @@ import type { Lockfile, LockfileWriteResult } from "@vellumai/local-mode";
 export type VellumCommand =
   | { kind: "newConversation" }
   | { kind: "currentConversation" }
-  | { kind: "markCurrentUnread" };
+  | { kind: "markCurrentUnread" }
+  | { kind: "logout" };
 
 // Surface exposed to the renderer as `window.vellum`. `platform`, `settings`,
 // and `commands` are wired through IPC; `auth` and `helper` are typed stubs
@@ -182,6 +183,9 @@ export interface VellumBridge {
       | { ok: false; status: number; error: string }
     >;
   };
+  menu: {
+    setPlatformSession(has: boolean): Promise<void>;
+  };
   mainWindow: {
     /**
      * Bring the main window to the foreground: recreate if destroyed,
@@ -315,6 +319,10 @@ const bridge: VellumBridge = {
         | { ok: true; accessToken: string }
         | { ok: false; status: number; error: string }
       >,
+  },
+  menu: {
+    setPlatformSession: (has: boolean): Promise<void> =>
+      ipcRenderer.invoke("vellum:menu:setPlatformSession", has) as Promise<void>,
   },
   mainWindow: {
     ensureVisible: (): Promise<void> =>

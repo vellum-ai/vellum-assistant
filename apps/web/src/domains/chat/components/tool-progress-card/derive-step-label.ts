@@ -225,5 +225,5 @@ export function deriveStepLabelFromName(
  * the unified card needs to label.
  */
 export function deriveStepLabel(toolCall: ChatMessageToolCall): StepLabel {
-  return deriveStepLabelFromName(toolCall.toolName, toolCall.input);
+  return deriveStepLabelFromName(toolCall.name, toolCall.input);
 }

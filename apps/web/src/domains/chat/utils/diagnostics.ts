@@ -1,13 +1,13 @@
 /**
  * Chat-domain diagnostic summarization helpers.
  *
- * Compact summaries of chat-specific types (DisplayMessage, RuntimeMessage)
+ * Compact summaries of chat-specific types (DisplayMessage, ConversationMessage)
  * for the diagnostics ring buffer. Generic recording infrastructure lives
  * in `@/lib/diagnostics`.
  */
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
-import type { RuntimeMessage } from "@/domains/chat/api/messages";
+import type { ConversationMessage } from "@vellumai/assistant-api";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 import { runtimeMessagePlainText } from "@/domains/chat/utils/map-runtime-message";
 import { roleCounts } from "@/lib/diagnostics";
@@ -28,7 +28,7 @@ export function summarizeDisplayMessage(message: DisplayMessage): Record<string,
   };
 }
 
-export function summarizeRuntimeMessage(message: RuntimeMessage): Record<string, unknown> {
+export function summarizeRuntimeMessage(message: ConversationMessage): Record<string, unknown> {
   return {
     id: message.id,
     role: message.role,
@@ -58,7 +58,7 @@ export function summarizeDisplayMessages(
 }
 
 export function summarizeRuntimeMessages(
-  messages: RuntimeMessage[],
+  messages: ConversationMessage[],
   tailCount = 20,
 ): Record<string, unknown> {
   return {

@@ -12,6 +12,7 @@ import {
   clearSlackChannelConfig,
   getSlackChannelConfig,
   setSlackChannelConfig,
+  SlackChannelConfigResultSchema,
 } from "../../../../daemon/handlers/config-slack-channel.js";
 import { ACTOR_PRINCIPALS } from "../../../auth/route-policy.js";
 import { BadRequestError } from "../../errors.js";
@@ -62,6 +63,7 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Get Slack channel config",
     description: "Check current Slack channel configuration status.",
     tags: ["integrations"],
+    responseBody: SlackChannelConfigResultSchema,
     handler: () => handleGetSlackChannelConfig(),
   },
   {
@@ -80,6 +82,7 @@ export const ROUTES: RouteDefinition[] = [
       botToken: z.string().describe("Slack bot token"),
       appToken: z.string().describe("Slack app-level token"),
     }),
+    responseBody: SlackChannelConfigResultSchema,
   },
   {
     operationId: "integrations_slack_channel_config_delete",
@@ -92,6 +95,7 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Clear Slack channel config",
     description: "Clear stored Slack channel credentials.",
     tags: ["integrations"],
+    responseBody: SlackChannelConfigResultSchema,
     handler: () => handleClearSlackChannelConfig(),
   },
 ];
