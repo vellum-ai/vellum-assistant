@@ -478,6 +478,56 @@ describe("AdjustPlanModal credit bundle — resize flow", () => {
   });
 });
 
+describe("AdjustPlanModal credit bundle — headline total", () => {
+  test("upgrade total includes the selected bundle's monthly price", async () => {
+    // Base→Pro. Defaults: base $20 + Small machine $10 + 10 GiB storage $5 =
+    // $35/mo with no bundle. Picking the $50 bundle must add $50 → $85/mo.
+    const { getByTestId } = renderModal(
+      subscription("base", null),
+      proPlansResponse(CREDIT_TIERS),
+    );
+
+    await waitFor(() => {
+      if (getByTestId("tier-picker-total").textContent?.includes("$35/mo"))
+        return;
+      throw new Error("base total not rendered yet");
+    });
+
+    openCreditDropdown();
+    clickOption("50 credits — $50/mo");
+
+    await waitFor(() => {
+      if (getByTestId("tier-picker-total").textContent?.includes("$85/mo"))
+        return;
+      throw new Error("total did not include the selected bundle");
+    });
+  });
+
+  test("change-mode total and delta reflect swapping bundles", async () => {
+    // Pro with no current bundle. Current = base $20 + Small $10 + 10 GiB $5 =
+    // $35/mo. Picking the $25 bundle makes the new total $60/mo (+$25 delta).
+    const { getByTestId } = renderModal(
+      subscription("pro", null),
+      proPlansResponse(CREDIT_TIERS),
+    );
+
+    await waitFor(() => {
+      if (getByTestId("tier-picker-total").textContent?.includes("$35/mo"))
+        return;
+      throw new Error("current total not rendered yet");
+    });
+
+    openCreditDropdown();
+    clickOption("25 credits — $25/mo");
+
+    await waitFor(() => {
+      const text = getByTestId("tier-picker-total").textContent ?? "";
+      if (text.includes("$60/mo") && text.includes("+$25/mo")) return;
+      throw new Error("total/delta did not reflect the swapped bundle");
+    });
+  });
+});
+
 describe("AdjustPlanModal credit bundle — catalog gate", () => {
   test("hides the credit UI when the plan has no credit_tiers (upgrade)", () => {
     renderModal(subscription("base", null), proPlansResponse(undefined));
