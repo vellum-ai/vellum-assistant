@@ -147,6 +147,24 @@ describe("/v1/pair device-bound minting", () => {
     expect(token.expiresAt! - before).toBeLessThan(PAIR_TTL_MS + 60_000);
   });
 
+  test("refreshAfter tracks the 24h access TTL, not the 30-day default", async () => {
+    const before = Date.now();
+    const res = await handlePair(
+      makePairRequest({ deviceId: "device-A" }),
+      LOOPBACK_IP,
+    );
+    const body = (await res.json()) as { refreshAfter: string };
+
+    const PAIR_TTL_MS = 24 * 60 * 60 * 1000;
+    const refreshAfterMs = new Date(body.refreshAfter).getTime() - before;
+    // ~80% of 24h (≈19.2h): must land BEFORE the 24h access token expires so a
+    // client renewing off refreshAfter never carries a dead token — and nowhere
+    // near the 30-day default's ~24-day refreshAfter (the bug this guards).
+    expect(refreshAfterMs).toBeGreaterThan(0);
+    expect(refreshAfterMs).toBeLessThan(PAIR_TTL_MS);
+    expect(refreshAfterMs).toBeLessThan(2 * PAIR_TTL_MS);
+  });
+
   test("re-pairing the same device revokes the prior active token (no unique-index violation)", async () => {
     const first = await handlePair(
       makePairRequest({ deviceId: "device-A" }),
