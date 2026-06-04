@@ -92,9 +92,9 @@ export function useDockIconSync(
   // Reset to the branded icon when the app root unmounts (logout / teardown)
   // so a stale assistant avatar doesn't linger on the Dock once signed out.
   // Mount-only — kept out of the per-change effect above so normal avatar
-  // updates don't flash through the default icon.
+  // updates don't flash through the default icon. `setDockIcon` no-ops off
+  // Electron, so no platform guard is needed here.
   useEffect(() => {
-    if (!isElectron()) return;
     return () => {
       void setDockIcon(null);
     };

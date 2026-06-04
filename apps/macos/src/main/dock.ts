@@ -162,15 +162,29 @@ const resolveDefaultIconPath = (): string =>
     ? path.join(process.resourcesPath, "icon.png")
     : path.join(app.getAppPath(), "build", "icon.png");
 
-let defaultDockIcon: ReturnType<typeof nativeImage.createFromPath> | null | undefined;
-const getDefaultDockIcon = (): ReturnType<
-  typeof nativeImage.createFromPath
-> | null => {
+type DockIcon = ReturnType<typeof nativeImage.createFromPath>;
+
+let defaultDockIcon: DockIcon | null | undefined;
+const getDefaultDockIcon = (): DockIcon | null => {
   if (defaultDockIcon === undefined) {
     const image = nativeImage.createFromPath(resolveDefaultIconPath());
     defaultDockIcon = image.isEmpty() ? null : image;
   }
   return defaultDockIcon;
+};
+
+/**
+ * Paint the bundled branded icon onto the Dock immediately. Used in dev to
+ * override Electron's default atom icon at startup so the Dock matches a
+ * packaged build — packaged apps get the branded icon from the bundle's
+ * `CFBundleIconFile` and don't need this. No-op when the icon file is absent
+ * (a dev run that didn't generate `build/icon.png`) or there's no Dock. The
+ * renderer's avatar override (`useDockIconSync`) takes over once signed in.
+ */
+export const paintDefaultDockIcon = (): void => {
+  if (!app.dock) return;
+  const icon = getDefaultDockIcon();
+  if (icon) app.dock.setIcon(icon);
 };
 
 // Apply a Dock icon from a renderer-supplied PNG data URL, or reset to the

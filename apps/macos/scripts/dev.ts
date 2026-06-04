@@ -21,7 +21,31 @@
  * routing decision that delegates to scripts that already use
  * concurrently for the actual orchestration.
  */
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
+// Generate the per-environment branded Dock icon (build/icon.png) before
+// launching Electron, so the main process can paint it over the dev binary's
+// default atom icon (see paintDefaultDockIcon in src/main/dock.ts). Skipped
+// when it already exists to keep startup fast — `rm build/icon.png` (or switch
+// VELLUM_ENVIRONMENT) to force a regen. Non-fatal: a machine missing the
+// native tools (swift/sips/iconutil) just keeps Electron's default icon.
+function ensureDevIcon(): void {
+  const iconPath = join(import.meta.dir, "..", "build", "icon.png");
+  if (existsSync(iconPath)) return;
+  console.log("[dev] generating branded Dock icon (build/icon.png)…");
+  const res = spawnSync("bash", [join(import.meta.dir, "generate-icon.sh")], {
+    stdio: "inherit",
+  });
+  if (res.status !== 0) {
+    console.warn(
+      "[dev] generate-icon.sh failed — the Dock will show Electron's default icon",
+    );
+  }
+}
+
+ensureDevIcon();
 
 // Edge-proxy origin used by the probe — vel up serves the marketing site
 // at the bare root and reverse-proxies `/assistant/*` to apps/web's Vite,
