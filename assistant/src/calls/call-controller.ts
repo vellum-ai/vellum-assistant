@@ -146,6 +146,13 @@ export class CallController {
   private guardianUnavailableForCall = false;
   /** Active synthesized-TTS session — tracked so interrupt handling can close it. */
   private activeSynthesisAbort: AbortController | null = null;
+  /**
+   * Controller-owned in-call guardian-wait flag. Set by the wait owner (the
+   * media-stream setup flow / session) to suppress the silence nudge during an
+   * access-request wait without depending on transport connection state. See
+   * {@link setGuardianWaitActive}.
+   */
+  private guardianWaitActive = false;
 
   constructor(
     callSessionId: string,
@@ -196,6 +203,23 @@ export class CallController {
    */
   setTrustContext(ctx: TrustContext | null): void {
     this.trustContext = ctx;
+  }
+
+  /**
+   * Explicit, controller-owned guardian-wait signal used to suppress the
+   * silence nudge during an in-call access-request wait.
+   *
+   * On the ConversationRelay transport the controller can infer this state
+   * from `transport.getConnectionState() === "awaiting_guardian_decision"`,
+   * but the media-stream transport's connection state only reports
+   * `connected`/`closed` and cannot distinguish a guardian wait. Rather than
+   * overloading transport connection state, the wait owner (e.g. the
+   * media-stream setup flow / session) drives this flag directly so the
+   * controller's silence-nudge suppression is honest about which phase is
+   * active regardless of transport.
+   */
+  setGuardianWaitActive(active: boolean): void {
+    this.guardianWaitActive = active;
   }
 
   /**
@@ -1502,6 +1526,7 @@ export class CallController {
       // inbound access-request wait (relay state).
       if (
         this.pendingGuardianInput ||
+        this.guardianWaitActive ||
         this.transport.getConnectionState() === "awaiting_guardian_decision"
       ) {
         log.debug(

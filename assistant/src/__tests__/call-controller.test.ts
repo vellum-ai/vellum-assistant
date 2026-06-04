@@ -2418,6 +2418,30 @@ describe("call-controller", () => {
     controller.destroy();
   });
 
+  test("silence timeout suppressed via explicit setGuardianWaitActive signal (transport state stays connected)", async () => {
+    mockSilenceTimeoutMs = 20; // Short timeout for testing
+    const { relay, controller } = setupController();
+
+    // Drive the controller-owned wait signal directly. The transport's
+    // connection state remains "connected" — proving the suppression honors
+    // the explicit signal rather than transport-derived state (the media-stream
+    // transport can only report connected/closed).
+    expect(relay.mockConnectionState).toBe("connected");
+    controller.setGuardianWaitActive(true);
+
+    // Wait for the silence timeout to fire
+    await new Promise((r) => setTimeout(r, 30));
+
+    // "Are you still there?" should NOT have been sent while the wait signal
+    // is active.
+    expect(
+      relay.sentTokens.filter((t) => t.token.includes("Are you still there?"))
+        .length,
+    ).toBe(0);
+
+    controller.destroy();
+  });
+
   test("silence timeout suppressed during in-call guardian consultation (pendingGuardianInput)", async () => {
     mockSilenceTimeoutMs = 20; // Short timeout for testing
     mockConsultationTimeoutMs = 10_000; // Long enough to not interfere
