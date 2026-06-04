@@ -64,6 +64,11 @@ interface PairResponse {
   expiresAt: string;
   guardianId: string;
   assistantId: string;
+  // Present on the device-bound path: a long-lived refresh credential the
+  // imported client uses to renew its access token (ISO-8601 strings).
+  refreshToken?: string;
+  refreshTokenExpiresAt?: string;
+  refreshAfter?: string;
 }
 
 export async function pair(): Promise<void> {
@@ -183,6 +188,16 @@ export async function pair(): Promise<void> {
     assistantId: result.assistantId,
     token: result.token,
     deviceId,
+    // Carry the refresh credential through when the gateway issued one, so the
+    // imported client can renew without re-pairing. Omitted entirely for an
+    // access-only (older gateway) response so the bundle stays clean.
+    ...(result.refreshToken
+      ? {
+          refreshToken: result.refreshToken,
+          refreshTokenExpiresAt: result.refreshTokenExpiresAt,
+          refreshAfter: result.refreshAfter,
+        }
+      : {}),
   };
   const blob = Buffer.from(JSON.stringify(bundle)).toString("base64");
 

@@ -46,6 +46,14 @@ interface PairBundle {
   token: string;
   assistantId?: string;
   deviceId?: string;
+  // Optional refresh credential. Present when the host's gateway issued a
+  // device-bound token pair; absent for older access-only bundles (which remain
+  // importable, just without auto-renewal). `refreshTokenExpiresAt` mirrors
+  // GuardianTokenData (ISO string OR epoch-ms number) so a numeric expiry isn't
+  // silently dropped on import.
+  refreshToken?: string;
+  refreshTokenExpiresAt?: string | number;
+  refreshAfter?: string;
 }
 
 /** Decode the base64 bundle, returning null if malformed or missing fields. */
@@ -77,6 +85,15 @@ function decodeBundle(blob: string): PairBundle | null {
     token: b.token,
     assistantId: typeof b.assistantId === "string" ? b.assistantId : undefined,
     deviceId: typeof b.deviceId === "string" ? b.deviceId : undefined,
+    refreshToken:
+      typeof b.refreshToken === "string" ? b.refreshToken : undefined,
+    refreshTokenExpiresAt:
+      typeof b.refreshTokenExpiresAt === "string" ||
+      typeof b.refreshTokenExpiresAt === "number"
+        ? b.refreshTokenExpiresAt
+        : undefined,
+    refreshAfter:
+      typeof b.refreshAfter === "string" ? b.refreshAfter : undefined,
   };
 }
 
@@ -172,14 +189,15 @@ export async function connectImport(): Promise<void> {
   });
 
   const now = Date.now();
+  const hasRefresh = Boolean(bundle.refreshToken);
   saveGuardianToken(localId, {
     guardianPrincipalId: "imported",
     accessToken: bundle.token,
     accessTokenExpiresAt:
       jwtExpiryMs(bundle.token) ?? now + 24 * 60 * 60 * 1000,
-    refreshToken: "",
-    refreshTokenExpiresAt: 0,
-    refreshAfter: "",
+    refreshToken: bundle.refreshToken ?? "",
+    refreshTokenExpiresAt: bundle.refreshTokenExpiresAt ?? 0,
+    refreshAfter: bundle.refreshAfter ?? "",
     isNew: false,
     deviceId: bundle.deviceId ?? "",
     leasedAt: new Date(now).toISOString(),
@@ -192,6 +210,8 @@ export async function connectImport(): Promise<void> {
   console.log(`  Connect with:  vellum client ${localId}`);
   console.log("");
   console.log(
-    "Note: the token is access-only and will expire — re-run `vellum pair` and import again when it does.",
+    hasRefresh
+      ? "Note: this connection includes a refresh credential, so it can renew itself — re-pair only if it's revoked or the refresh credential expires."
+      : "Note: the token is access-only and will expire — re-run `vellum pair` and import again when it does.",
   );
 }
