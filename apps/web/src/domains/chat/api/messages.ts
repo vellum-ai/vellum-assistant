@@ -140,16 +140,25 @@ export function mapRuntimeToolCalls(
   toolCalls: ConversationMessageToolCall[],
   messageId: string,
 ): ChatMessageToolCall[] {
-  return toolCalls.map((tc, idx) => ({
-    ...tc,
-    id: `tool-history-${messageId}-${idx}`,
-    status: tc.isError
-      ? ("error" as const)
-      : tc.result === undefined
-        ? ("running" as const)
-        : ("completed" as const),
-    confirmationDecision: narrowConfirmationDecision(tc.confirmationDecision),
-  }));
+  return toolCalls.map((tc, idx) => {
+    // Drop the wire's free-form `confirmationDecision` from the spread and add
+    // it back only when it narrows to a known value. A history row that omits
+    // it must not materialize `confirmationDecision: undefined`, or
+    // reconciliation would spread that over a live `"denied"`/`"timed_out"`
+    // decision set locally by `useInteractionActions`.
+    const { confirmationDecision: wireDecision, ...rest } = tc;
+    const confirmationDecision = narrowConfirmationDecision(wireDecision);
+    return {
+      ...rest,
+      id: `tool-history-${messageId}-${idx}`,
+      status: tc.isError
+        ? ("error" as const)
+        : tc.result === undefined
+          ? ("running" as const)
+          : ("completed" as const),
+      ...(confirmationDecision !== undefined ? { confirmationDecision } : {}),
+    };
+  });
 }
 
 /**
