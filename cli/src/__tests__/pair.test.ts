@@ -1,4 +1,12 @@
-import { afterAll, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  spyOn,
+  test,
+} from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -30,16 +38,21 @@ function writeLockfile(): void {
   );
 }
 
-describe("pair command", () => {
-  let originalArgv: string[];
+// Capture the real argv ONCE, before any test mutates it, and restore after
+// every test — so a `['bun','vellum','pair',...]` argv can't leak into other
+// test files in the same Bun run.
+const ORIGINAL_ARGV = [...process.argv];
 
+describe("pair command", () => {
   beforeEach(() => {
-    originalArgv = [...process.argv];
     writeLockfile();
   });
 
+  afterEach(() => {
+    process.argv = [...ORIGINAL_ARGV];
+  });
+
   afterAll(() => {
-    process.argv = originalArgv;
     rmSync(testDir, { recursive: true, force: true });
     delete process.env.VELLUM_LOCKFILE_DIR;
   });
