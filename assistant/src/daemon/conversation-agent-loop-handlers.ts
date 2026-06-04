@@ -379,9 +379,10 @@ export function createEventHandlerState(): EventHandlerState {
 // ── Partial-persistence helpers ──────────────────────────────────────
 
 /** Canonical persisted-content build: clean → append surfaces → redact. */
-function buildPersistedAssistantContent(
+export function buildPersistedAssistantContent(
   rawBlocks: readonly ContentBlock[],
   surfaces: readonly AssistantSurface[],
+  activityByToolUseId?: ReadonlyMap<string, ToolActivityMetadata>,
 ): ContentBlock[] {
   const { cleanedContent } = cleanAssistantContent(rawBlocks);
   const cleaned = cleanedContent as ContentBlock[];
@@ -403,6 +404,18 @@ function buildPersistedAssistantContent(
     if (block.type === "text") {
       const tb = block as Extract<ContentBlock, { type: "text" }>;
       return { ...tb, text: redactSecrets(tb.text) };
+    }
+    // Native server tools (Anthropic web_search) resolve mid-stream — their
+    // `server_tool_complete` fires before `message_complete` — so the captured
+    // activity is available at persist time. Stamp it on the server_tool_use
+    // block here so the web-search card survives a history reopen. External
+    // tool_use activity arrives only with the later tool_result, so it is
+    // stamped in `annotatePersistedAssistantMessage` instead.
+    if (block.type === "server_tool_use" && activityByToolUseId) {
+      const activity = activityByToolUseId.get(block.id);
+      if (activity) {
+        return { ...block, _activityMetadata: activity } as ContentBlock;
+      }
     }
     return block;
   });
@@ -466,7 +479,11 @@ async function flushAccumulatedContent(
   if (messageId === undefined) return;
   if (state.currentMessageContent.length === 0) return;
 
-  const built = buildPersistedAssistantContent(state.currentMessageContent, []);
+  const built = buildPersistedAssistantContent(
+    state.currentMessageContent,
+    [],
+    state.toolActivityMetadata,
+  );
   const contentJson = JSON.stringify(built);
   // Pair the seq with the exact content snapshot taken above: deltas that
   // arrive while the write is in flight bump `lastPersistedContentSeq`
@@ -1221,19 +1238,11 @@ function annotatePersistedAssistantMessage(
           rec._riskDirectoryScopeOptions = risk.riskDirectoryScopeOptions;
         modified = true;
       }
-      const activity = state.toolActivityMetadata.get(id);
-      if (activity) {
-        rec._activityMetadata = activity;
-        modified = true;
-      }
-    } else if (block.type === "server_tool_use") {
-      // Native server tools (Anthropic web_search) flow through a separate
-      // path, so stamp their captured activity here too. Timing/risk are not
-      // applicable to these blocks.
-      const rec = block as unknown as Record<string, unknown>;
-      const id = rec.id as string | undefined;
-      if (!id) continue;
-
+      // External provider tools (brave/perplexity/tavily) + web_fetch produce
+      // their activity only when the tool_result lands, after message_complete
+      // has already persisted this block — so it is stamped here. Native
+      // server_tool_use activity is stamped earlier, at persist time, in
+      // `buildPersistedAssistantContent`.
       const activity = state.toolActivityMetadata.get(id);
       if (activity) {
         rec._activityMetadata = activity;
@@ -1528,6 +1537,7 @@ export async function handleMessageComplete(
   const contentForPersistence = buildPersistedAssistantContent(
     event.message.content as ContentBlock[],
     deps.ctx.currentTurnSurfaces,
+    state.toolActivityMetadata,
   );
 
   // The row was reserved at `llm_call_started` (with channel metadata

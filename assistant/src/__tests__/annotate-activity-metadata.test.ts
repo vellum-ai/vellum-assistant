@@ -4,9 +4,12 @@
  *
  * Without this annotation the tool activity card (e.g. WebSearchProgressCard)
  * is lost on a history reopen — the snapshot only carries the plain result
- * text. The metadata is captured for both external provider tools (in
- * handleToolResult) and native server tools (server_tool_complete), and stamped
- * onto the matching `tool_use` / `server_tool_use` block here.
+ * text. External provider tools (brave/perplexity/tavily, web_fetch) resolve
+ * their activity only when the `tool_result` lands, after `message_complete`
+ * already persisted the block, so they are stamped here. Native server tools
+ * (Anthropic web_search) resolve before `message_complete` and are stamped at
+ * persist time in `buildPersistedAssistantContent` (covered separately in
+ * build-persisted-content.test.ts).
  *
  * The test exercises the populate → annotate → persist round-trip:
  *   handleToolResult(event with activityMetadata)
@@ -188,9 +191,9 @@ describe("annotatePersistedAssistantMessage — activityMetadata", () => {
     expect(block._activityMetadata).toEqual(webSearchActivity);
   });
 
-  test("stamps activityMetadata onto a native server_tool_use block", () => {
+  test("leaves native server_tool_use blocks untouched (stamped at persist time)", () => {
     // GIVEN an external tool completes (to trigger annotation) AND a native
-    // server_tool_use block with metadata captured at server_tool_complete
+    // server_tool_use block whose activity was captured at server_tool_complete
     const externalId = "tu_external";
     const nativeId = "srvtu_native_search";
     const state = setupState(externalId);
@@ -218,11 +221,13 @@ describe("annotatePersistedAssistantMessage — activityMetadata", () => {
       isError: false,
     });
 
-    // THEN the server_tool_use block carries the native activity, and the
-    // unrelated external tool_use block does not
+    // THEN the annotate pass does not stamp the server_tool_use block — native
+    // activity is stamped earlier by `buildPersistedAssistantContent` (covered
+    // in build-persisted-content.test.ts), and the unrelated external tool_use
+    // block carries no activity of its own
     expect(updates).toHaveLength(1);
     const nativeBlock = findBlockById(updates[0].content, nativeId);
-    expect(nativeBlock._activityMetadata).toEqual(webSearchActivity);
+    expect(nativeBlock._activityMetadata).toBeUndefined();
     const externalBlock = findBlockById(updates[0].content, externalId);
     expect(externalBlock._activityMetadata).toBeUndefined();
   });
