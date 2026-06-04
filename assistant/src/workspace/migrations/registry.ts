@@ -93,6 +93,7 @@ import { backfillV3LeavesMigration } from "./092-backfill-v3-leaves.js";
 import { backfillLeafIdsMigration } from "./093-backfill-leaf-ids.js";
 import { seedAvatarManifestMigration } from "./094-seed-avatar-manifest.js";
 import { bumpHeartbeatInterval30mTo60mMigration } from "./095-bump-heartbeat-interval-30m-to-60m.js";
+import { reduceQualityProfileEffortMigration } from "./096-reduce-quality-profile-effort.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -197,4 +198,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   backfillLeafIdsMigration,
   seedAvatarManifestMigration,
   bumpHeartbeatInterval30mTo60mMigration,
+  reduceQualityProfileEffortMigration,
 ];
