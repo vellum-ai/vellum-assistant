@@ -275,7 +275,7 @@ final class ConversationManager: ConversationRestorerDelegate {
                         serverConversationId: message.conversationId,
                         profile: message.profile
                     )
-                case .acpSessionSpawned, .acpSessionUpdate, .acpSessionCompleted, .acpSessionError:
+                case .acpSessionSpawned, .acpSessionResumed, .acpSessionUpdate, .acpSessionCompleted, .acpSessionError:
                     self.acpSessionStore?.handle(message)
                 default:
                     break

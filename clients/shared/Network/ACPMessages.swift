@@ -103,6 +103,24 @@ public struct ACPSessionSpawnedMessage: Codable, Equatable, Sendable {
     }
 }
 
+// MARK: - ACPSessionResumedMessage
+
+/// Wire event: an existing idle ACP session has been reused and a follow-up
+/// turn is now running.
+///
+/// Wire type: `"acp_session_resumed"`. Mirrors `AcpSessionResumed` in
+/// `assistant/src/daemon/message-types/acp.ts`. Unlike `acp_session_spawned`
+/// (which creates a session), this targets a session the client already
+/// tracks — the store flips its status back to `.running` so it stops looking
+/// finished while the follow-up turn runs.
+public struct ACPSessionResumedMessage: Codable, Equatable, Sendable {
+    public let acpSessionId: String
+
+    public init(acpSessionId: String) {
+        self.acpSessionId = acpSessionId
+    }
+}
+
 // MARK: - ACPSessionUpdateMessage
 
 /// Wire event: streaming update from an ACP session.

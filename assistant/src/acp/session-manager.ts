@@ -346,6 +346,12 @@ export class AcpSessionManager {
       );
     }
 
+    // Reuse of an `idle` session is the case clients can't infer from the
+    // event stream: they already show it as completed/idle, and steering only
+    // appends `acp_session_update` events. A genuinely `running` session is
+    // already shown as running, so it needs no resume signal.
+    const wasIdle = entry.state.status === "idle";
+
     // Disarm the idle reaper — the session is being reused.
     this.clearIdleTimer(entry);
     // Mark the session freshly active so a just-reused session is treated as
@@ -380,6 +386,14 @@ export class AcpSessionManager {
     entry.state.completedAt = undefined;
     entry.state.stopReason = undefined;
     entry.state.error = undefined;
+
+    // Tell clients an existing (idle) session is running again. The spawn path
+    // emits `acp_session_spawned` to CREATE a session; reuse instead flips a
+    // session clients already track from completed/idle back to running, so it
+    // stops looking finished while this follow-up turn runs.
+    if (wasIdle) {
+      entry.sendToVellum({ type: "acp_session_resumed", acpSessionId });
+    }
 
     // Fire new prompt in the background with event handlers
     entry.currentPrompt = this.firePromptInBackground(

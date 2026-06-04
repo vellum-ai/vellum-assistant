@@ -9,6 +9,18 @@ export interface AcpSessionSpawned {
   parentConversationId: string;
 }
 
+/**
+ * Wire event: an existing idle session has been reused and a follow-up turn is
+ * now running. Unlike `acp_session_spawned` (which creates a session), this
+ * targets a session the client already tracks — emitted from `steer()` on the
+ * idle→running reuse path so clients flip the existing session back to running
+ * instead of leaving it looking finished until the next `/acp/sessions` refresh.
+ */
+export interface AcpSessionResumed {
+  type: "acp_session_resumed";
+  acpSessionId: string;
+}
+
 export interface AcpSessionUpdate {
   type: "acp_session_update";
   acpSessionId: string;
@@ -47,6 +59,7 @@ export interface AcpSessionError {
 
 export type _AcpServerMessages =
   | AcpSessionSpawned
+  | AcpSessionResumed
   | AcpSessionUpdate
   | AcpSessionCompleted
   | AcpSessionError;

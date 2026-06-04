@@ -224,6 +224,8 @@ open class ACPSessionStore {
         switch message {
         case .acpSessionSpawned(let spawned):
             handleSpawned(spawned)
+        case .acpSessionResumed(let resumed):
+            handleResumed(resumed)
         case .acpSessionUpdate(let update):
             handleUpdate(update)
         case .acpSessionCompleted(let completed):
@@ -257,6 +259,30 @@ open class ACPSessionStore {
             rebuildSessionOrder()
         }
         flushOrphans()
+    }
+
+    /// An existing idle session has been reused — a follow-up turn is now
+    /// running. Flip the tracked session back to `.running` and clear the
+    /// terminal fields its prior turn left behind (`completedAt`/`stopReason`/
+    /// `error`) so it no longer reads as finished and the clear/delete
+    /// affordances disappear while the turn runs. No-op when the session isn't
+    /// tracked yet — a later `seed()` reflects the daemon's authoritative
+    /// status, and the follow-up's `acp_session_update` events still buffer as
+    /// orphans for whenever the parent appears.
+    private func handleResumed(_ message: ACPSessionResumedMessage) {
+        guard let viewModel = sessions[message.acpSessionId] else { return }
+        let current = viewModel.state
+        viewModel.state = ACPSessionState(
+            id: current.id,
+            agentId: current.agentId,
+            acpSessionId: current.acpSessionId,
+            parentConversationId: current.parentConversationId,
+            status: .running,
+            startedAt: current.startedAt,
+            completedAt: nil,
+            error: nil,
+            stopReason: nil
+        )
     }
 
     private func handleUpdate(_ message: ACPSessionUpdateMessage) {

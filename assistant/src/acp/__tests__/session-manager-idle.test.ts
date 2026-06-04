@@ -287,6 +287,31 @@ describe("AcpSessionManager — idle keep-alive lifecycle", () => {
     );
   });
 
+  test("steer() on an idle session broadcasts acp_session_resumed so clients flip back to running", async () => {
+    const id = "idle-resumed";
+    const { manager, resolvePrompt, sent } = buildIdleSession({
+      id,
+      parentConversationId: "conv-idle-resumed",
+    });
+
+    // Drive turn 0 to completion → idle. The completion broadcasts
+    // `acp_session_completed`, after which clients show the session finished.
+    resolvePrompt({ stopReason: "end_turn" });
+    await flush();
+    expect((manager.getStatus(id) as { status: string }).status).toBe("idle");
+
+    const before = sent.length;
+    await manager.steer(id, "now change Y");
+
+    // Reuse broadcasts exactly one `acp_session_resumed` carrying the session
+    // id — the signal clients use to flip the existing session back to running
+    // instead of leaving it looking finished while the follow-up turn runs.
+    const resumed = sent
+      .slice(before)
+      .filter((m) => m.type === "acp_session_resumed");
+    expect(resumed).toEqual([{ type: "acp_session_resumed", acpSessionId: id }]);
+  });
+
   test("idle-timeout reaper closes the session (process killed, slot freed)", async () => {
     const id = "idle-4";
     const { manager, fakeProcess, resolvePrompt } = buildIdleSession({

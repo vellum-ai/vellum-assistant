@@ -3060,6 +3060,7 @@ public enum ServerMessage: Decodable, Sendable {
     indirect case subagentEvent(SubagentEventMessage)
     case subagentDetailResponse(SubagentDetailResponse)
     case acpSessionSpawned(ACPSessionSpawnedMessage)
+    case acpSessionResumed(ACPSessionResumedMessage)
     case acpSessionUpdate(ACPSessionUpdateMessage)
     case acpSessionCompleted(ACPSessionCompletedMessage)
     case acpSessionError(ACPSessionErrorMessage)
@@ -3519,6 +3520,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "acp_session_spawned":
             let message = try ACPSessionSpawnedMessage(from: decoder)
             self = .acpSessionSpawned(message)
+        case "acp_session_resumed":
+            let message = try ACPSessionResumedMessage(from: decoder)
+            self = .acpSessionResumed(message)
         case "acp_session_update":
             let message = try ACPSessionUpdateMessage(from: decoder)
             self = .acpSessionUpdate(message)
