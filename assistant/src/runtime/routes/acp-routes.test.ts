@@ -36,6 +36,10 @@ import {
 import { installAcpConfigStub } from "../../acp/__tests__/helpers/acp-config-stub.js";
 import { installWhichStub } from "../../acp/__tests__/helpers/which-stub.js";
 import type { AcpSessionState } from "../../acp/index.js";
+import {
+  SessionBusyError,
+  SessionNotFoundError,
+} from "../../acp/session-manager.js";
 
 const config = await installAcpConfigStub();
 const which = installWhichStub();
@@ -79,8 +83,54 @@ let steerShouldThrow = false;
 // by conversation id; absent → null (no live session).
 const liveByConversation = new Map<string, AcpSessionState>();
 
+/**
+ * Faithful re-implementation of `AcpSessionManager.continueSession` over the
+ * route test's doubles. The `acp/continue` route now delegates the resolve +
+ * running-session guard to this shared helper, so the mock exercises the same
+ * control flow and throws the same typed errors the route maps to 409/404.
+ */
+async function fakeContinueSession(opts: {
+  acpSessionId?: string;
+  parentConversationId?: string;
+  instruction: string;
+}): Promise<{ acpSessionId: string }> {
+  let acpSessionId = opts.acpSessionId;
+  let status: AcpSessionState["status"] | undefined;
+  if (acpSessionId) {
+    const state = inMemoryStates.get(acpSessionId);
+    if (!state) {
+      throw new SessionNotFoundError(
+        `ACP session "${acpSessionId}" not found or not reusable.`,
+      );
+    }
+    status = state.status;
+  } else if (opts.parentConversationId) {
+    const live = liveByConversation.get(opts.parentConversationId) ?? null;
+    if (!live) {
+      throw new SessionNotFoundError(
+        "No live ACP session to continue for this conversation.",
+      );
+    }
+    acpSessionId = live.id;
+    status = live.status;
+  } else {
+    throw new SessionNotFoundError(
+      "No live ACP session to continue for this conversation.",
+    );
+  }
+  if (status === "running" || status === "initializing") {
+    throw new SessionBusyError(acpSessionId!, status);
+  }
+  if (steerShouldThrow) {
+    throw new SessionNotFoundError(`ACP session "${acpSessionId}" not found`);
+  }
+  steerCalls.push({ id: acpSessionId!, instruction: opts.instruction });
+  return { acpSessionId: acpSessionId! };
+}
+
 mock.module("../../acp/index.js", () => ({
   getAcpSessionManager: () => ({
+    continueSession: fakeContinueSession,
     steer: async (id: string, instruction: string) => {
       if (steerShouldThrow) throw new Error(`ACP session "${id}" not found`);
       steerCalls.push({ id, instruction });

@@ -20,6 +20,42 @@ import type { AcpAgentConfig, AcpSessionState } from "./types.js";
 
 const log = getLogger("acp:session-manager");
 
+/**
+ * Thrown by {@link AcpSessionManager.continueSession} when the resolved target
+ * session has a prompt still in flight (`running`/`initializing`). Continuing
+ * such a session would route through `steer()`'s cancel-on-running path and
+ * abort the in-progress task, so the manager rejects it and lets callers
+ * translate to their wire format (tool → isError, route → 409). Distinct from
+ * the generic not-found `Error` so callers can map it to the right status.
+ */
+export class SessionBusyError extends Error {
+  readonly acpSessionId: string;
+  readonly sessionStatus: "running" | "initializing";
+
+  constructor(acpSessionId: string, status: "running" | "initializing") {
+    super(
+      `ACP session "${acpSessionId}" is busy (${status}); wait for the ` +
+        "current task to finish before continuing.",
+    );
+    this.name = "SessionBusyError";
+    this.acpSessionId = acpSessionId;
+    this.sessionStatus = status;
+  }
+}
+
+/**
+ * Thrown by {@link AcpSessionManager.continueSession} when the continue target
+ * cannot be resolved — an unknown/closed explicit id, or no live session for
+ * the conversation. Distinct from {@link SessionBusyError} so callers map it to
+ * not-found (tool → isError, route → 404) rather than busy.
+ */
+export class SessionNotFoundError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SessionNotFoundError";
+  }
+}
+
 /** Maximum number of update events kept in a session's ring buffer. */
 const MAX_BUFFER_EVENTS = 200;
 /** Maximum aggregate JSON size of a session's ring buffer, in bytes. */
@@ -56,6 +92,15 @@ interface SessionEntry {
    * follow-up prompt starts or the session is torn down.
    */
   idleTimer: ReturnType<typeof setTimeout> | null;
+  /**
+   * Timestamp (epoch ms) of the session's most recent activity boundary —
+   * stamped whenever the session transitions to `idle` (a prompt completed)
+   * and refreshed on every `steer()` reuse. Unlike `state.startedAt` (set once
+   * at creation, never updated), this reflects *recency of use*, so the idle
+   * eviction picker can reap the session that has actually sat idle the
+   * longest instead of the one with the oldest start time.
+   */
+  lastActiveAt: number;
   /**
    * Whether a terminal `acp_session_history` row has already been written
    * for this session's last completed task. Set when a prompt completes and
@@ -223,6 +268,7 @@ export class AcpSessionManager {
       cwd,
       command: agentConfig.command,
       idleTimer: null,
+      lastActiveAt: Date.now(),
       historyPersisted: false,
       turnIndex: 0,
     };
@@ -297,6 +343,9 @@ export class AcpSessionManager {
 
     // Disarm the idle reaper — the session is being reused.
     this.clearIdleTimer(entry);
+    // Mark the session freshly active so a just-reused session is treated as
+    // recently active (not stale) by the idle eviction picker.
+    entry.lastActiveAt = Date.now();
 
     // Cancel any in-flight prompt before starting a new one.
     // Clear currentPrompt BEFORE awaiting cancel so the old prompt's
@@ -337,6 +386,78 @@ export class AcpSessionManager {
   }
 
   /**
+   * Single source of truth for the `acp_continue` flow (used by both the
+   * `acp_continue` tool and the `POST /v1/acp/continue` route): resolve the
+   * target session, refuse one whose prompt is still in flight, and otherwise
+   * steer a follow-up turn onto it.
+   *
+   * Targeting resolves an explicit `acpSessionId` (via `getStatus`) when given,
+   * otherwise the conversation's most-recent live session (via
+   * `getLiveSessionForConversation`).
+   *
+   * Rejection semantics — distinct from `steer()`, whose cancel-on-running
+   * behavior `acp_steer` deliberately keeps:
+   *  - {@link SessionNotFoundError}: unknown/closed explicit id, or no live
+   *    session for the conversation, or a steer that rejects (adapter torn down
+   *    between the status read and the steer).
+   *  - {@link SessionBusyError}: the resolved session is `running`/
+   *    `initializing` — continuing it would abort the in-flight task.
+   *
+   * Returns the resolved `acpSessionId` on success so callers can echo it.
+   */
+  async continueSession(opts: {
+    acpSessionId?: string;
+    parentConversationId?: string;
+    instruction: string;
+  }): Promise<{ acpSessionId: string }> {
+    let acpSessionId = opts.acpSessionId;
+    let status: AcpSessionState["status"] | undefined;
+
+    if (acpSessionId) {
+      let state: AcpSessionState | AcpSessionState[];
+      try {
+        state = this.getStatus(acpSessionId);
+      } catch {
+        throw new SessionNotFoundError(
+          `ACP session "${acpSessionId}" not found or not reusable.`,
+        );
+      }
+      if (!Array.isArray(state)) status = state.status;
+    } else if (opts.parentConversationId) {
+      const live = this.getLiveSessionForConversation(
+        opts.parentConversationId,
+      );
+      if (!live) {
+        throw new SessionNotFoundError(
+          "No live ACP session to continue for this conversation.",
+        );
+      }
+      acpSessionId = live.id;
+      status = live.status;
+    } else {
+      throw new SessionNotFoundError(
+        "No live ACP session to continue for this conversation.",
+      );
+    }
+
+    // A prompt is still in flight: steering would CANCEL it, aborting the
+    // in-progress task. Refuse cleanly and let the caller wait.
+    if (status === "running" || status === "initializing") {
+      throw new SessionBusyError(acpSessionId!, status);
+    }
+
+    try {
+      await this.steer(acpSessionId!, opts.instruction);
+    } catch (err) {
+      throw new SessionNotFoundError(
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+
+    return { acpSessionId: acpSessionId! };
+  }
+
+  /**
    * Returns the live (non-terminal: running or idle) session attached to a
    * conversation, if any. Used to reattach a follow-up prompt to an existing
    * session for multi-turn continuity (PR E2). Returns the most recently
@@ -359,18 +480,22 @@ export class AcpSessionManager {
   }
 
   /**
-   * Returns the acpSessionId of the least-recently-started `idle` session, or
-   * null if none are idle. Used to free a concurrency slot when a new spawn
-   * hits the limit: idle sessions have no in-flight prompt, so reaping the
-   * oldest one is the least-disruptive way to make room.
+   * Returns the acpSessionId of the `idle` session that has sat idle the
+   * LONGEST (smallest `lastActiveAt`), or null if none are idle. Used to free a
+   * concurrency slot when a new spawn hits the limit: idle sessions have no
+   * in-flight prompt, so reaping the least-recently-active one is the
+   * least-disruptive way to make room. Keyed on `lastActiveAt` (refreshed on
+   * every steer reuse) rather than `state.startedAt` (set once at creation), so
+   * a just-reused session is not reaped before one that has actually been idle
+   * far longer.
    */
   private oldestIdleSession(): string | null {
     let bestId: string | null = null;
-    let bestStartedAt = Infinity;
+    let bestActiveAt = Infinity;
     for (const [id, entry] of this.sessions) {
       if (entry.state.status !== "idle") continue;
-      if (entry.state.startedAt < bestStartedAt) {
-        bestStartedAt = entry.state.startedAt;
+      if (entry.lastActiveAt < bestActiveAt) {
+        bestActiveAt = entry.lastActiveAt;
         bestId = id;
       }
     }
@@ -652,6 +777,9 @@ export class AcpSessionManager {
             this.persistTerminal(acpSessionId, current);
             current.historyPersisted = true;
             current.state.status = "idle";
+            // Stamp the idle boundary so eviction reaps the longest-idle
+            // session, not the one with the oldest start time.
+            current.lastActiveAt = Date.now();
             this.armIdleTimer(acpSessionId, current);
           }
 

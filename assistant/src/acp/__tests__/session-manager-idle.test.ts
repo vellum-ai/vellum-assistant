@@ -446,6 +446,60 @@ describe("AcpSessionManager — idle sessions don't wedge the spawn limit", () =
     expect(readStatus(sessions[0]!.id)).toBe("completed");
   });
 
+  test("eviction reaps the LONGEST-idle session, not the oldest-started — a just-reused session is spared", async () => {
+    const max = 3;
+    const manager = new AcpSessionManager(max, 60_000);
+
+    // Fill the budget; drive each to idle. `sessions[0]` started first (oldest
+    // startedAt), `sessions[2]` started last.
+    const sessions: { id: string; fake: FakeSpawnedProcess }[] = [];
+    for (let i = 0; i < max; i++) {
+      const s = await spawnSession(manager, `/cwd-${i}`);
+      s.fake.resolvePrompt({ stopReason: "end_turn" });
+      await flush();
+      sessions.push(s);
+    }
+
+    // Reuse the OLDEST-started session (sessions[0]) via steer, then drive it
+    // back to idle. steer() refreshes its `lastActiveAt`, so although it has
+    // the oldest startedAt it is now the MOST-recently-active idle session.
+    await manager.steer(sessions[0]!.id, "follow-up turn");
+    expect((manager.getStatus(sessions[0]!.id) as { status: string }).status)
+      .toBe("running");
+    sessions[0]!.fake.resolvePrompt({ stopReason: "end_turn" });
+    await flush();
+    expect((manager.getStatus(sessions[0]!.id) as { status: string }).status)
+      .toBe("idle");
+
+    // Make the relative idle ordering deterministic regardless of wall-clock
+    // resolution: sessions[1] has been idle the LONGEST, sessions[0] (just
+    // reused) the shortest. Stamp `lastActiveAt` directly on the entries.
+    const sessionMap = (
+      manager as unknown as {
+        sessions: Map<string, { lastActiveAt: number }>;
+      }
+    ).sessions;
+    sessionMap.get(sessions[1]!.id)!.lastActiveAt = 1_000;
+    sessionMap.get(sessions[2]!.id)!.lastActiveAt = 2_000;
+    sessionMap.get(sessions[0]!.id)!.lastActiveAt = 3_000;
+
+    // The (N+1)th spawn must reap the LONGEST-idle session (sessions[1]),
+    // NOT the oldest-started one (sessions[0], which was just reused).
+    const extra = await spawnSession(manager, "/cwd-new");
+    expect(extra.id).toBeTruthy();
+
+    expect(sessions[1]!.fake.killed).toBe(true);
+    expect(() => manager.getStatus(sessions[1]!.id)).toThrow();
+
+    // The just-reused oldest-started session and the other idle one survive.
+    expect(sessions[0]!.fake.killed).toBe(false);
+    expect(sessions[2]!.fake.killed).toBe(false);
+    expect((manager.getStatus(sessions[0]!.id) as { status: string }).status)
+      .toBe("idle");
+
+    expect((manager.getStatus() as unknown[]).length).toBe(max);
+  });
+
   test("a genuinely RUNNING session still counts toward the limit (no idle to reap → reject)", async () => {
     const max = 2;
     const manager = new AcpSessionManager(max, 60_000);
