@@ -239,6 +239,11 @@ export class AcpSessionManager {
       acpSessionId,
       wrappedSend,
       parentConversationId,
+      // Hand the handler the agent's own injected credentials (the same
+      // `config.env` the adapter process is spawned with) so terminals it
+      // launches via createTerminal get the agent's git/LLM auth without
+      // inheriting the daemon environment.
+      agentConfig.env,
     );
 
     const agentProcess = new AcpAgentProcess(
@@ -461,22 +466,28 @@ export class AcpSessionManager {
    * Returns the live (non-terminal: running or idle) session attached to a
    * conversation, if any. Used to reattach a follow-up prompt to an existing
    * session for multi-turn continuity (PR E2). Returns the most recently
-   * started match when several are live for the same conversation.
+   * *active* match when several are live for the same conversation.
+   *
+   * Ordered by `lastActiveAt` (refreshed on every `steer()` reuse), not
+   * `state.startedAt` (set once at creation). A just-reused session must win
+   * "most recent" over a session that merely *started* later — otherwise
+   * continue-by-conversation could keep routing to a newer-started session
+   * instead of the one the user actually used last.
    */
   getLiveSessionForConversation(
     parentConversationId: string,
   ): AcpSessionState | null {
-    let best: AcpSessionState | null = null;
+    let best: SessionEntry | null = null;
     for (const entry of this.sessions.values()) {
       if (entry.parentConversationId !== parentConversationId) continue;
       if (entry.state.status !== "running" && entry.state.status !== "idle") {
         continue;
       }
-      if (!best || entry.state.startedAt > best.startedAt) {
-        best = entry.state;
+      if (!best || entry.lastActiveAt > best.lastActiveAt) {
+        best = entry;
       }
     }
-    return best;
+    return best?.state ?? null;
   }
 
   /**
@@ -696,6 +707,14 @@ export class AcpSessionManager {
     // Serialize only the wire-shaped updates — drop the byte-size accounting
     // metadata so persisted rows match the protocol shape clients receive.
     const wireUpdates = buffer.map((buffered) => buffered.update);
+    // Turn 0 keeps the original spawn time. Reused turns (steer on an idle
+    // session) ran later than the original `startedAt`, so persist the turn's
+    // own start time (`lastActiveAt`, which `steer()` stamps to the turn
+    // start) — otherwise every later turn's row would carry the stale spawn
+    // timestamp and sort behind a session that merely started later in the
+    // `/acp/sessions` ordering.
+    const rowStartedAt =
+      entry.turnIndex > 0 ? entry.lastActiveAt : entry.state.startedAt;
     try {
       getDb()
         .insert(acpSessionHistory)
@@ -704,7 +723,7 @@ export class AcpSessionManager {
           agentId: entry.state.agentId,
           acpSessionId: entry.state.acpSessionId,
           parentConversationId: entry.parentConversationId,
-          startedAt: entry.state.startedAt,
+          startedAt: rowStartedAt,
           completedAt: entry.state.completedAt ?? null,
           status: entry.state.status,
           stopReason: entry.state.stopReason ?? null,

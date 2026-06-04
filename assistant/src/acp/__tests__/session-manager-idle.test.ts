@@ -108,6 +108,14 @@ function readTurnRows(
   }[];
 }
 
+/** Started-at timestamp for a persisted turn row (`<base>` or `<base>:<turn>`). */
+function readStartedAt(id: string): number | null {
+  const row = getSqlite()
+    .query("SELECT started_at AS startedAt FROM acp_session_history WHERE id = ?")
+    .get(id) as { startedAt: number } | null;
+  return row?.startedAt ?? null;
+}
+
 interface FakeProcess {
   prompt: (sessionId: string, text: string) => Promise<{ stopReason: string }>;
   kill: () => void;
@@ -344,6 +352,88 @@ describe("AcpSessionManager — idle keep-alive lifecycle", () => {
     // Each row carries its own turn's stop reason.
     expect(rows[0]!.stopReason).toBe("end_turn");
     expect(rows[1]!.stopReason).toBe("max_tokens");
+  });
+
+  test("a reused turn persists the turn's start time, not the original spawn time", async () => {
+    const id = "idle-startedat";
+    const { manager, resolvePrompt } = buildIdleSession({
+      id,
+      parentConversationId: "conv-startedat",
+    });
+
+    // Drive turn 0 to completion → persisted under the bare id with the
+    // original startedAt.
+    resolvePrompt({ stopReason: "end_turn" });
+    await flush();
+
+    const entry = (
+      manager as unknown as {
+        sessions: Map<string, { state: { startedAt: number } }>;
+      }
+    ).sessions.get(id)!;
+    const originalStartedAt = entry.state.startedAt;
+
+    // Make the reused turn unambiguously later than the original spawn time so
+    // the assertion can't pass on a same-millisecond tie.
+    await new Promise((r) => setTimeout(r, 5));
+    await manager.steer(id, "second turn");
+    resolvePrompt({ stopReason: "end_turn" });
+    await flush();
+
+    // Turn 0's row keeps the original spawn time.
+    expect(readStartedAt(id)).toBe(originalStartedAt);
+    // The reused turn's row carries the turn's OWN (newer) start time, not the
+    // stale original — so `/acp/sessions` ordering reflects when it ran.
+    const turn1StartedAt = readStartedAt(`${id}:1`)!;
+    expect(turn1StartedAt).toBeGreaterThan(originalStartedAt);
+  });
+
+  test("getLiveSessionForConversation prefers the just-reused session over a newer-started one", async () => {
+    const conv = "conv-reuse-recency";
+    // Session A: started first, then reused (steered) so it is the most
+    // recently *active* session for the conversation.
+    const a = buildIdleSession({ id: "reuse-A", parentConversationId: conv });
+    a.resolvePrompt({ stopReason: "end_turn" });
+    await flush();
+
+    // Inject session B into the SAME manager + conversation, started LATER than
+    // A but never reused — so it has a newer startedAt but an older
+    // lastActiveAt once A is steered.
+    const sessions = (
+      a.manager as unknown as { sessions: Map<string, unknown> }
+    ).sessions;
+    const eventBuffers = (
+      a.manager as unknown as { eventBuffers: Map<string, unknown[]> }
+    ).eventBuffers;
+    eventBuffers.set("reuse-B", []);
+    sessions.set("reuse-B", {
+      process: { kill() {}, cancel: () => Promise.resolve() },
+      state: {
+        id: "reuse-B",
+        agentId: "agent-X",
+        acpSessionId: "proto-B",
+        parentConversationId: conv,
+        status: "idle",
+        startedAt: 5_000,
+      },
+      clientHandler: new VellumAcpClientHandler("reuse-B", () => {}, conv),
+      sendToVellum: () => {},
+      currentPrompt: null,
+      parentConversationId: conv,
+      cwd: "/tmp",
+      command: "codex-acp",
+      idleTimer: null,
+      lastActiveAt: 5_000,
+      historyPersisted: true,
+      turnIndex: 0,
+    });
+
+    // Reuse A (newer activity) while B sits idle. steer() refreshes A's
+    // lastActiveAt to now — later than B's 5_000 — so A wins "most recent".
+    await a.manager.steer("reuse-A", "follow-up");
+    const live = a.manager.getLiveSessionForConversation(conv);
+    expect(live).not.toBeNull();
+    expect(live!.id).toBe("reuse-A");
   });
 
   test("cancel() of an idle session tears it down (process killed, slot + timer freed)", async () => {

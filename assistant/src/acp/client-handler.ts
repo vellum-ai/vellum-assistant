@@ -31,6 +31,7 @@ import type {
 } from "@agentclientprotocol/sdk";
 
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import { buildAgentSpawnEnv } from "../tools/terminal/safe-env.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("acp:client-handler");
@@ -68,11 +69,24 @@ export class VellumAcpClientHandler implements Client {
     this.accumulatedText = "";
   }
 
+  /**
+   * The agent's own injected credentials (the same `config.env` the adapter
+   * process was spawned with — user/workspace `acp.agents.<id>.env`: git/LLM
+   * auth, etc.). Threaded in so `createTerminal` can give terminals the SAME
+   * sanitized env the adapter got, instead of leaking the full daemon
+   * environment via `process.env`. Optional so manually-constructed handlers
+   * (e.g. tests) default to no injected creds.
+   */
+  private readonly injectedAgentEnv: Record<string, string>;
+
   constructor(
     private readonly acpSessionId: string,
     private readonly sendToVellum: (msg: ServerMessage) => void,
     private readonly parentConversationId: string,
-  ) {}
+    injectedAgentEnv?: Record<string, string>,
+  ) {
+    this.injectedAgentEnv = injectedAgentEnv ?? {};
+  }
 
   async sessionUpdate(params: SessionNotification): Promise<void> {
     const update = params.update;
@@ -231,15 +245,29 @@ export class VellumAcpClientHandler implements Client {
     );
 
     const args = params.args ?? [];
-    const env: Record<string, string> = { ...process.env } as Record<
-      string,
-      string
-    >;
+    // Build the terminal env from the SAME sanitized agent env the adapter
+    // process uses — NOT `process.env`. Spawning with the full daemon
+    // environment would let an untrusted ACP agent run `env` (or curl the
+    // internal gateway/CES URLs) in a terminal and recover exactly the daemon
+    // secrets + control-plane reachability vars that `buildAgentSpawnEnv`
+    // strips from the adapter — a side-channel around that strip.
+    //
+    // Merge the agent's own injected creds with the request's `params.env`
+    // into one record and pass it as the injectedEnv arg, so
+    // `buildAgentSpawnEnv`'s post-merge control-plane strip applies to
+    // `params.env` too: the agent must not be able to reintroduce a stripped
+    // control-plane var (INTERNAL_GATEWAY_BASE_URL, CES/IPC socket dirs, …)
+    // via `params.env` either.
+    const paramsEnv: Record<string, string> = {};
     if (params.env) {
       for (const { name, value } of params.env) {
-        env[name] = value;
+        paramsEnv[name] = value;
       }
     }
+    const env = buildAgentSpawnEnv({
+      ...this.injectedAgentEnv,
+      ...paramsEnv,
+    });
 
     const proc = spawn(params.command, args, {
       cwd: params.cwd ?? undefined,
