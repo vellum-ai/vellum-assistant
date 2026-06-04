@@ -28,6 +28,7 @@ import {
   getSchedule,
   getScheduleRuns,
   listSchedules,
+  setScheduleRunConversationId,
   updateSchedule,
 } from "../../schedule/schedule-store.js";
 import { getScheduleUsageSummaries } from "../../schedule/schedule-usage-store.js";
@@ -687,6 +688,7 @@ async function handleRunScheduleNow(id: string) {
   const taskMatch = schedule.message.match(/^run_task:(\S+)$/);
   if (taskMatch) {
     const taskId = taskMatch[1];
+    const runId = createScheduleRun(schedule.id, null);
     try {
       log.info(
         { jobId: schedule.id, name: schedule.name, taskId },
@@ -713,7 +715,7 @@ async function handleRunScheduleNow(id: string) {
         },
       );
 
-      const runId = createScheduleRun(schedule.id, result.conversationId);
+      setScheduleRunConversationId(runId, result.conversationId);
       if (result.status === "failed") {
         completeScheduleRun(runId, {
           status: "error",
@@ -734,7 +736,7 @@ async function handleRunScheduleNow(id: string) {
         origin: "schedule",
         systemHint: `Schedule (manual): ${schedule.name}`,
       });
-      const runId = createScheduleRun(schedule.id, fallbackConversation.id);
+      setScheduleRunConversationId(runId, fallbackConversation.id);
       completeScheduleRun(runId, { status: "error", error: message });
     }
     return handleListSchedules({});

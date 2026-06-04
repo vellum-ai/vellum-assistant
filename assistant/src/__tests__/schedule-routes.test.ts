@@ -84,6 +84,7 @@ import {
   completeScheduleRun,
   createSchedule,
   createScheduleRun,
+  getScheduleRuns,
   listSchedules,
 } from "../schedule/schedule-store.js";
 import { scheduleTask } from "../tasks/task-scheduler.js";
@@ -249,6 +250,78 @@ describe("schedule run-now trust propagation", () => {
     expect(processCalls[0].isInteractive).toBe(false);
     expect(typeof observedTaskRunIds[0]).toBe("string");
     expect(fakeConversation.taskRunId).toBeUndefined();
+  });
+
+  test("manual run-now opens task-backed schedule runs before task processing", async () => {
+    const task = createTask({
+      title: "Manual Usage Task",
+      template: "spend tokens manually",
+    });
+    const schedule = scheduleTask({
+      taskId: task.id,
+      name: "Manual scheduled task",
+      cronExpression: "* * * * *",
+    });
+
+    const from = Date.now() - 1000;
+    let usageEventCreatedAt: number | null = null;
+    let runsDuringProcessing: ReturnType<typeof getScheduleRuns> = [];
+    fakeConversation = {
+      taskRunId: undefined,
+      async processMessage(options: Record<string, unknown>) {
+        processCalls.push(options);
+        const conversationId = getOrCreateCalls[0]?.conversationId;
+        runsDuringProcessing = getScheduleRuns(schedule.id);
+        usageEventCreatedAt = Date.now();
+        recordUsageCostAt(
+          conversationId ?? "missing-conversation",
+          "manual-scheduled-task-usage",
+          usageEventCreatedAt,
+          0.25,
+        );
+        return "message-id";
+      },
+    };
+
+    const route = findRoute("schedules/:id/run", "POST");
+    await route.handler({ pathParams: { id: schedule.id } });
+    const to = Date.now() + 1000;
+
+    expect(usageEventCreatedAt).not.toBeNull();
+    expect(runsDuringProcessing).toHaveLength(1);
+    expect(runsDuringProcessing[0].status).toBe("running");
+    expect(runsDuringProcessing[0].conversationId).toBeNull();
+    expect(runsDuringProcessing[0].startedAt).toBeLessThanOrEqual(
+      usageEventCreatedAt!,
+    );
+
+    const runs = getScheduleRuns(schedule.id);
+    expect(runs).toHaveLength(1);
+    expect(runs[0].id).toBe(runsDuringProcessing[0].id);
+    expect(runs[0].status).toBe("ok");
+    expect(runs[0].conversationId).toBe(getOrCreateCalls[0].conversationId);
+    expect(runs[0].finishedAt).not.toBeNull();
+    expect(runs[0].finishedAt!).toBeGreaterThanOrEqual(usageEventCreatedAt!);
+
+    const summaryRoute = findRoute("schedules/usage-summary", "GET");
+    const summaryResult = summaryRoute.handler({
+      queryParams: { from: String(from), to: String(to) },
+    }) as {
+      summaries: Array<{
+        scheduleId: string;
+        runCount: number;
+        totalEstimatedCostUsd: number;
+        eventCount: number;
+      }>;
+    };
+    expect(
+      summaryResult.summaries.find((row) => row.scheduleId === schedule.id),
+    ).toEqual({
+      scheduleId: schedule.id,
+      runCount: 1,
+      totalEstimatedCostUsd: 0.25,
+      eventCount: 1,
+    });
   });
 });
 
