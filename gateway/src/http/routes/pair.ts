@@ -416,12 +416,14 @@ export async function handlePair(
  * pair response. Shared by the chrome-extension (deviceId) and cli pairing
  * paths.
  *
- * Issues a short-lived (PAIR_TOKEN_TTL_SECONDS) access token PLUS a long-lived
- * device-scoped refresh token, so a paired client renews via
- * `/v1/guardian/refresh` instead of re-pairing. Both are revocable per device
- * on the hot path (actor-token revocation is enforced on live requests), and
- * the refresh endpoint rejects revoked/rotated tokens — so the short access TTL
- * keeps a leaked access token's blast radius tight without forcing re-pairing.
+ * Issues the standard access + long-lived device-scoped refresh token pair, so
+ * a paired client renews via `/v1/guardian/refresh` instead of re-pairing.
+ * Both are revocable per device on the hot path (actor-token revocation is
+ * enforced on live requests), and the refresh endpoint rejects revoked/rotated
+ * tokens — so revocation, not a short TTL, bounds a leaked token's reach. The
+ * access TTL matches what `/v1/guardian/refresh` mints on rotation, so it stays
+ * consistent across the token's life (rather than 24h at mint then 30d after
+ * the first refresh).
  */
 function mintDeviceBoundPairResponse(opts: {
   guardianPrincipalId: string;
@@ -435,7 +437,6 @@ function mintDeviceBoundPairResponse(opts: {
     guardianPrincipalId: opts.guardianPrincipalId,
     deviceId: opts.deviceId,
     platform: opts.platform,
-    accessTtlSeconds: PAIR_TOKEN_TTL_SECONDS,
   });
 
   log.info(

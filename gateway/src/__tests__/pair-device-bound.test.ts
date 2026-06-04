@@ -133,36 +133,19 @@ describe("/v1/pair device-bound minting", () => {
     }
   });
 
-  test("uses the short 24h pair TTL for the access token, not the 30-day bootstrap default", async () => {
+  test("uses the standard 30-day access TTL, consistent with refresh rotation", async () => {
     const before = Date.now();
     await handlePair(makePairRequest({ deviceId: "device-A" }), LOOPBACK_IP);
 
-    const PAIR_TTL_MS = 24 * 60 * 60 * 1000;
+    const DAY_MS = 24 * 60 * 60 * 1000;
     const [token] = activeTokens();
-    // expiresAt should be ~24h out (allow a generous window), and well under
-    // the 30-day bootstrap TTL — the access token stays short-lived (the
-    // refresh token covers continuity) so a leaked access token's reach is
-    // bounded.
-    expect(token.expiresAt! - before).toBeGreaterThan(PAIR_TTL_MS - 60_000);
-    expect(token.expiresAt! - before).toBeLessThan(PAIR_TTL_MS + 60_000);
-  });
-
-  test("refreshAfter tracks the 24h access TTL, not the 30-day default", async () => {
-    const before = Date.now();
-    const res = await handlePair(
-      makePairRequest({ deviceId: "device-A" }),
-      LOOPBACK_IP,
-    );
-    const body = (await res.json()) as { refreshAfter: string };
-
-    const PAIR_TTL_MS = 24 * 60 * 60 * 1000;
-    const refreshAfterMs = new Date(body.refreshAfter).getTime() - before;
-    // ~80% of 24h (≈19.2h): must land BEFORE the 24h access token expires so a
-    // client renewing off refreshAfter never carries a dead token — and nowhere
-    // near the 30-day default's ~24-day refreshAfter (the bug this guards).
-    expect(refreshAfterMs).toBeGreaterThan(0);
-    expect(refreshAfterMs).toBeLessThan(PAIR_TTL_MS);
-    expect(refreshAfterMs).toBeLessThan(2 * PAIR_TTL_MS);
+    // The device-bound access token uses the standard ~30-day TTL (NOT a short
+    // pair-specific TTL): a refresh token + hot-path revocation bound a leaked
+    // token's reach, and the TTL stays consistent with what /v1/guardian/refresh
+    // mints on rotation (rather than 24h at mint then 30d after the first
+    // refresh). Allow a generous window around 30 days.
+    expect(token.expiresAt! - before).toBeGreaterThan(29 * DAY_MS);
+    expect(token.expiresAt! - before).toBeLessThan(31 * DAY_MS);
   });
 
   test("re-pairing the same device revokes the prior active token (no unique-index violation)", async () => {

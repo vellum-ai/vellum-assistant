@@ -504,7 +504,6 @@ function mintRefreshToken(
   guardianPrincipalId: string,
   hashedDeviceId: string,
   platform: string,
-  accessTtlSeconds: number = ACCESS_TOKEN_TTL_SECONDS,
 ): {
   refreshToken: string;
   refreshTokenExpiresAt: number;
@@ -539,12 +538,8 @@ function mintRefreshToken(
   return {
     refreshToken,
     refreshTokenExpiresAt: Math.min(absoluteExpiresAt, inactivityExpiresAt),
-    // refreshAfter must track the ACCESS token's lifetime (renew at ~80% of it,
-    // before it expires) — NOT the refresh token's. With a short pair access
-    // TTL (24h), deriving this from the 30-day default would tell the client to
-    // renew ~24 days out, long after its 24h token died.
     refreshAfter:
-      now + Math.floor(accessTtlSeconds * 1000 * REFRESH_AFTER_FRACTION),
+      now + Math.floor(ACCESS_TOKEN_TTL_MS * REFRESH_AFTER_FRACTION),
   };
 }
 
@@ -556,19 +551,11 @@ function mintRefreshToken(
  * needs a full refreshable credential). The device binding enforces one active
  * token per (guardianPrincipalId, hashedDeviceId) via a unique index, so
  * re-minting for the same device first revokes the prior tokens.
- *
- * `accessTtlSeconds` overrides the access token lifetime (default
- * ACCESS_TOKEN_TTL_SECONDS) and the `refreshAfter` hint, which tracks the
- * access token's life (renew before it expires); the refresh token's own
- * absolute/inactivity expiry is unaffected. Loopback pairing passes a short
- * access TTL so a leaked access token has a tight blast radius while the
- * refresh token quietly renews it.
  */
 export function mintAndRecordDeviceBoundTokenPair(params: {
   guardianPrincipalId: string;
   deviceId: string;
   platform: string;
-  accessTtlSeconds?: number;
 }): DeviceBoundTokenPair {
   const hashedDeviceId = hashToken(params.deviceId);
 
@@ -579,13 +566,11 @@ export function mintAndRecordDeviceBoundTokenPair(params: {
     params.guardianPrincipalId,
     hashedDeviceId,
     params.platform,
-    params.accessTtlSeconds,
   );
   const refresh = mintRefreshToken(
     params.guardianPrincipalId,
     hashedDeviceId,
     params.platform,
-    params.accessTtlSeconds,
   );
 
   return {
