@@ -8,6 +8,9 @@
  *
  *   window._vellumDebug.events.getClients()
  *   window._vellumDebug.events.getEvents()
+ *   const stop = window._vellumDebug.events.subscribe()
+ *   // ...events log to the console as they stream in...
+ *   stop()
  *
  * The accessors here read directly from the module-state registry in
  * `stream-debug.ts`. Installation onto `window` is performed by
@@ -23,6 +26,7 @@ import {
 } from "@/lib/streaming/stream-debug";
 import { requestSseReconnect } from "@/lib/streaming/sse-reconnect-control";
 import { getReconnectCursor } from "@/lib/streaming/reconnect-cursor";
+import { subscribe as subscribeToBus } from "@/lib/event-bus";
 
 export interface ChatDebugEventsApi {
   /** Snapshot of currently-live SSE clients. */
@@ -39,6 +43,14 @@ export interface ChatDebugEventsApi {
    * `false` if none was attached.
    */
   reconnectClient: (timeoutMs?: number) => boolean;
+  /**
+   * Subscribe to the live SSE event stream and `console.log` every event
+   * envelope as it arrives. Returns an unsubscribe function — call it to
+   * stop logging. Unlike {@link getEvents} (a snapshot of the ring
+   * buffer), this is a live tap: only events received after the call are
+   * logged.
+   */
+  subscribe: () => () => void;
 }
 
 /**
@@ -50,4 +62,8 @@ export const eventsDebugApi: ChatDebugEventsApi = {
   getEvents: getSseEvents,
   getSeqCursor: getReconnectCursor,
   reconnectClient: (timeoutMs) => requestSseReconnect(timeoutMs),
+  subscribe: () =>
+    subscribeToBus("sse.event", (envelope) => {
+      console.log("[_vellumDebug.events]", envelope);
+    }),
 };
