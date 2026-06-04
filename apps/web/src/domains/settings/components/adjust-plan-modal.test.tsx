@@ -170,7 +170,12 @@ function renderModal(
   onTierUpgraded?: () => void,
 ): ReturnType<typeof render> & { client: QueryClient } {
   const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
+    // `staleTime: Infinity` stops the pre-seeded reads from being marked stale
+    // and refetched on mount. Without it, the seeded queries fire background
+    // fetches: locally those hit a listening dev server (a soft 502 React Query
+    // swallows while keeping the cached data), but CI is hermetic so the same
+    // fetch rejects with ECONNREFUSED and the change-tier button never renders.
+    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
   });
   client.setQueryData(organizationsBillingSubscriptionRetrieveQueryKey(), sub);
   client.setQueryData(organizationsBillingPlansRetrieveQueryKey(), plans);
