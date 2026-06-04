@@ -261,7 +261,7 @@ mock.module("../agent/loop.js", () => ({
         cancelled: true,
       });
 
-      return { history, exitReason: null };
+      return { history, exitReason: null, appendedNewMessages: true };
     }
   },
 }));

@@ -611,7 +611,12 @@ const asAgentLoopRun = (
       };
     }
     const history = await fn(messages, onEvent, wrapped);
-    return { history, exitReason };
+    // Mirror the loop's forward-progress signal: it sets `appendedNewMessages`
+    // when it pushes a new assistant message, which for these mock bodies (that
+    // never return a compaction-shrunk history) means the returned history grew
+    // past the input.
+    const appendedNewMessages = history.length > messages.length;
+    return { history, exitReason, appendedNewMessages };
   };
 };
 

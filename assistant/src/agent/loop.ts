@@ -93,10 +93,18 @@ export type CheckpointDecision = "continue" | ExitReason;
  * orchestrator reads the loop's own signal instead of inferring it from
  * callback side-effects. It is `null` whenever the loop reached a terminal
  * stop (completion, error, abort, or a tool-requested yield-to-user).
+ *
+ * `appendedNewMessages` reports whether the loop produced at least one new
+ * assistant message this run. The orchestrator uses it to decide whether the
+ * turn made forward progress (the ordering-error retry gate and the overflow
+ * convergence fold) instead of diffing the returned history length against a
+ * pre-run index, which in-loop compaction can shrink below the start length —
+ * masking real progress.
  */
 export interface AgentLoopRunResult {
   history: Message[];
   exitReason: ExitReason | null;
+  appendedNewMessages: boolean;
 }
 
 /**
@@ -828,6 +836,7 @@ export class AgentLoop {
     let stopContinueRetries = 0;
     let lastLlmCallTime = 0;
     let exitReason: ExitReason | null = null;
+    let appendedNewMessages = false;
     const rlog = requestId ? log.child({ requestId }) : log;
 
     // Resolve the inference-profile override that applies right now. The
@@ -1225,6 +1234,7 @@ export class AgentLoop {
             "LLM response reached output token limit",
           );
           history.push(safeAssistantMessage);
+          appendedNewMessages = true;
           await onEvent({
             type: "max_tokens_reached",
             stopReason: response.stopReason,
@@ -1295,6 +1305,7 @@ export class AgentLoop {
         }
 
         history.push(assistantMessage);
+        appendedNewMessages = true;
 
         await onEvent({ type: "message_complete", message: assistantMessage });
 
@@ -1642,7 +1653,7 @@ export class AgentLoop {
       "Agent loop exited",
     );
 
-    return { history, exitReason };
+    return { history, exitReason, appendedNewMessages };
   }
 }
 

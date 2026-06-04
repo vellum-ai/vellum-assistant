@@ -136,6 +136,7 @@ import {
 const runResult = (history: Message[]): AgentLoopRunResult => ({
   history,
   exitReason: null,
+  appendedNewMessages: true,
 });
 
 interface MockTarget extends WakeTarget {

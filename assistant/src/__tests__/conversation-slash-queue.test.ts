@@ -228,7 +228,11 @@ mock.module("../agent/loop.js", () => ({
       const history = await new Promise<Message[]>((resolve) => {
         pendingRuns.push({ resolve, messages, onEvent });
       });
-      return { history, exitReason: null };
+      return {
+        history,
+        exitReason: null,
+        appendedNewMessages: history.length > messages.length,
+      };
     }
   },
 }));

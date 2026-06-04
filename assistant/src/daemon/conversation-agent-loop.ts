@@ -560,6 +560,10 @@ export async function runAgentLoopImpl(
   });
   let yieldedForHandoff = false;
   let yieldedForBudget = false;
+  // Whether the most recent agent-loop run produced at least one new assistant
+  // message — the loop's own forward-progress signal, used by the ordering
+  // retry gate and the overflow convergence fold.
+  let lastRunAppendedNewMessages = false;
   let pendingCheckpointYield: "budget" | "handoff" | null = null;
   // Captured when the auto_compress_latest_turn rerun yields at the mid-loop
   // budget checkpoint. SSE emission happens immediately at the detection site;
@@ -1992,7 +1996,6 @@ export async function runAgentLoopImpl(
     //
     // Fires BEFORE `preRunHistoryLength` is captured so the boundary
     // between pre-existing and hook-emitted messages — consumed by the
-    // ordering-error retry gate, the post-run reconcile loop, and the
     // new-message extraction for persistence — reflects exactly what
     // `agentLoop.run` receives.
     const userPromptCtx: UserPromptSubmitContext = {
@@ -2101,10 +2104,8 @@ export async function runAgentLoopImpl(
       msgs: Message[],
       compaction?: MidLoopCompaction,
     ): Promise<Message[]> => {
-      const { history, exitReason } = await ctx.agentLoop.run(
-        msgs,
-        eventHandler,
-        {
+      const { history, exitReason, appendedNewMessages } =
+        await ctx.agentLoop.run(msgs, eventHandler, {
           signal: abortController.signal,
           requestId: reqId,
           onCheckpoint,
@@ -2118,8 +2119,8 @@ export async function runAgentLoopImpl(
           // `<memory>` block, so anchor the provider's long-TTL cache breakpoint
           // on the most recent stable message instead.
           mutableLatestUserMessage: memoryV3Live,
-        },
-      );
+        });
+      lastRunAppendedNewMessages = appendedNewMessages;
       if (exitReason === "handoff") {
         yieldedForHandoff = true;
         pendingCheckpointYield = "handoff";
@@ -2157,10 +2158,7 @@ export async function runAgentLoopImpl(
     }
 
     // One-shot ordering error retry
-    if (
-      state.orderingErrorDetected &&
-      updatedHistory.length === preRunHistoryLength
-    ) {
+    if (state.orderingErrorDetected && !lastRunAppendedNewMessages) {
       rlog.warn(
         { phase: "retry" },
         "Provider ordering error detected, attempting one-shot deep-repair retry",
@@ -2290,7 +2288,7 @@ export async function runAgentLoopImpl(
       let convergenceStripped =
         findLastInjectedNowContent(ctx.messages) === null;
 
-      if (updatedHistory.length > preRunHistoryLength) {
+      if (lastRunAppendedNewMessages) {
         ctx.messages = stripInjectionsForCompaction(updatedHistory);
         markHistoryStrippedBestEffort(ctx.conversationId);
         convergenceStripped = true;
@@ -2521,7 +2519,7 @@ export async function runAgentLoopImpl(
           // Fold rerun progress into ctx.messages so the next reducer
           // tier operates on up-to-date history instead of stale
           // pre-rerun messages.
-          if (updatedHistory.length > preRunHistoryLength) {
+          if (lastRunAppendedNewMessages) {
             ctx.messages = stripInjectionsForCompaction(updatedHistory);
             markHistoryStrippedBestEffort(ctx.conversationId);
             convergenceStripped = true;
