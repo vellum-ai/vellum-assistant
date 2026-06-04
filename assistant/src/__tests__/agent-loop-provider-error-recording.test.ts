@@ -1,7 +1,7 @@
 /**
  * Integration tests for the agent loop's `provider_error` recording path.
  *
- * When the `llmCall` pipeline throws (provider rejected the request before
+ * When the provider call throws (provider rejected the request before
  * returning a usable response), the loop must emit a `provider_error` event
  * carrying the loop-level raw request and the thrown error so downstream
  * consumers can persist an `llm_request_logs` row. Without this, rejected

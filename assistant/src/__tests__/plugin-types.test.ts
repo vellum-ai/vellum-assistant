@@ -20,8 +20,6 @@ import {
   type EstimateArgs,
   type EstimateResult,
   type Injector,
-  type LLMCallArgs,
-  type LLMCallResult,
   type MemoryArgs,
   type MemoryResult,
   type Middleware,
@@ -69,12 +67,6 @@ describe("plugin core types", () => {
       { input: unknown },
       { output: unknown }
     > = async (args, next, _ctx) => next(args);
-    // `llmCall` has concrete arg/result types (upgraded in PR 15).
-    const llmCallPassthrough: Middleware<LLMCallArgs, LLMCallResult> = async (
-      args,
-      next,
-      _ctx,
-    ) => next(args);
 
     // `memoryRetrieval` has a concrete typed signature (MemoryArgs →
     // MemoryResult) introduced in PR 20, so it can't use the generic
@@ -195,7 +187,6 @@ describe("plugin core types", () => {
       injectors: [injector],
       middleware: {
         turn: passthrough,
-        llmCall: llmCallPassthrough,
         memoryRetrieval: memoryPassthrough,
         tokenEstimate: tokenEstimatePassthrough,
         compaction: compactionPassthrough,
@@ -223,7 +214,7 @@ describe("plugin core types", () => {
   });
 
   test("PluginTimeoutError omits plugin suffix when unknown", () => {
-    const err = new PluginTimeoutError("llmCall", undefined, 1234);
+    const err = new PluginTimeoutError("turn", undefined, 1234);
     expect(err.pluginName).toBeUndefined();
     expect(err.message).not.toContain("offending plugin");
   });

@@ -21,8 +21,6 @@ import type {
   CompactionResult,
   EstimateArgs,
   EstimateResult,
-  LLMCallArgs,
-  LLMCallResult,
   TurnContext,
 } from "../plugins/types.js";
 import { PluginTimeoutError } from "../plugins/types.js";
@@ -31,6 +29,8 @@ import type {
   ContentBlock,
   Message,
   Provider,
+  ProviderResponse,
+  SendMessageOptions,
   ToolDefinition,
   ToolResultContent,
 } from "../providers/types.js";
@@ -232,7 +232,7 @@ export type AgentEvent =
   | { type: "error"; error: Error }
   | {
       /**
-       * Emitted when the `llmCall` pipeline throws — i.e. the provider
+       * Emitted when the provider call throws — i.e. the provider
        * rejected the request before returning a usable response. Carries
        * the loop-level raw request we attempted to send (messages, tools,
        * system prompt, provider-agnostic config) plus the thrown error.
@@ -1006,82 +1006,68 @@ export class AgentLoop {
           stripOldMediaBlocks(history),
         );
 
-        // Wrap the provider call in the `llmCall` pipeline so middleware
-        // contributed by plugins may observe, rewrite, short-circuit, or
-        // post-process every LLM request. The terminal below is the real
-        // `provider.sendMessage(...)` call; middleware reach it by calling
-        // `next(args)`. The default `defaultLlmCallPlugin` contributes a
-        // passthrough middleware that forwards to `next(args)` — it
-        // registers at module load and sits at the outermost onion layer,
-        // so it must yield to keep user-registered `llmCall` middleware
-        // reachable. Timeout is `null` (`DEFAULT_TIMEOUTS.llmCall`) — the
-        // provider layer already enforces its own HTTP-level budgets.
-        //
-        // The `onEvent` wrapping is kept inside `args.options` so substitution
-        // and streaming behavior exactly match the pre-pipeline call site.
-        const llmCallArgs: LLMCallArgs = {
-          provider: this.provider,
-          messages: providerHistory,
-          options: {
-            tools: currentTools.length > 0 ? currentTools : undefined,
-            systemPrompt: turnSystemPrompt,
-            config: providerConfig,
-            onEvent: (event) => {
-              if (event.type === "text_delta") {
-                // Apply sensitive-output placeholder substitution (chunk-safe)
-                if (substitutionMap.size > 0) {
-                  const combined = streamingPending + event.text;
-                  const { emit, pending } = applyStreamingSubstitution(
-                    combined,
-                    substitutionMap,
-                  );
-                  streamingPending = pending;
-                  if (emit.length > 0) {
-                    onEvent({ type: "text_delta", text: emit });
-                  }
-                } else {
-                  onEvent({ type: "text_delta", text: event.text });
+        // The `onEvent` wrapping below applies sensitive-output placeholder
+        // substitution to streamed text while forwarding every other event
+        // type through unchanged.
+        const providerOptions: SendMessageOptions = {
+          tools: currentTools.length > 0 ? currentTools : undefined,
+          systemPrompt: turnSystemPrompt,
+          config: providerConfig,
+          onEvent: (event) => {
+            if (event.type === "text_delta") {
+              // Apply sensitive-output placeholder substitution (chunk-safe)
+              if (substitutionMap.size > 0) {
+                const combined = streamingPending + event.text;
+                const { emit, pending } = applyStreamingSubstitution(
+                  combined,
+                  substitutionMap,
+                );
+                streamingPending = pending;
+                if (emit.length > 0) {
+                  onEvent({ type: "text_delta", text: emit });
                 }
-              } else if (event.type === "thinking_delta") {
-                onEvent({ type: "thinking_delta", thinking: event.thinking });
-              } else if (event.type === "tool_use_preview_start") {
-                onEvent({
-                  type: "tool_use_preview_start",
-                  toolUseId: event.toolUseId,
-                  toolName: event.toolName,
-                });
-              } else if (event.type === "input_json_delta") {
-                onEvent({
-                  type: "input_json_delta",
-                  toolName: event.toolName,
-                  toolUseId: event.toolUseId,
-                  accumulatedJson: event.accumulatedJson,
-                });
-              } else if (event.type === "server_tool_start") {
-                onEvent({
-                  type: "server_tool_start",
-                  name: event.name,
-                  toolUseId: event.toolUseId,
-                  input: event.input,
-                });
-              } else if (event.type === "server_tool_complete") {
-                onEvent({
-                  type: "server_tool_complete",
-                  toolUseId: event.toolUseId,
-                  isError: event.isError,
-                  ...(event.content ? { content: event.content } : {}),
-                  ...(event.resolvedInput
-                    ? { resolvedInput: event.resolvedInput }
-                    : {}),
-                  ...(event.errorCode ? { errorCode: event.errorCode } : {}),
-                  ...(event.errorMessage
-                    ? { errorMessage: event.errorMessage }
-                    : {}),
-                });
+              } else {
+                onEvent({ type: "text_delta", text: event.text });
               }
-            },
-            signal,
+            } else if (event.type === "thinking_delta") {
+              onEvent({ type: "thinking_delta", thinking: event.thinking });
+            } else if (event.type === "tool_use_preview_start") {
+              onEvent({
+                type: "tool_use_preview_start",
+                toolUseId: event.toolUseId,
+                toolName: event.toolName,
+              });
+            } else if (event.type === "input_json_delta") {
+              onEvent({
+                type: "input_json_delta",
+                toolName: event.toolName,
+                toolUseId: event.toolUseId,
+                accumulatedJson: event.accumulatedJson,
+              });
+            } else if (event.type === "server_tool_start") {
+              onEvent({
+                type: "server_tool_start",
+                name: event.name,
+                toolUseId: event.toolUseId,
+                input: event.input,
+              });
+            } else if (event.type === "server_tool_complete") {
+              onEvent({
+                type: "server_tool_complete",
+                toolUseId: event.toolUseId,
+                isError: event.isError,
+                ...(event.content ? { content: event.content } : {}),
+                ...(event.resolvedInput
+                  ? { resolvedInput: event.resolvedInput }
+                  : {}),
+                ...(event.errorCode ? { errorCode: event.errorCode } : {}),
+                ...(event.errorMessage
+                  ? { errorMessage: event.errorMessage }
+                  : {}),
+              });
+            }
           },
+          signal,
         };
 
         // Per-turn pipeline context. When the orchestrator threaded a full
@@ -1117,15 +1103,11 @@ export class AgentLoop {
         // `llm_request_logs` row, then re-throw so the existing outer catch
         // continues to handle abort sync, Sentry capture, the `error` event,
         // and the loop break unchanged.
-        let response: LLMCallResult;
+        let response: ProviderResponse;
         try {
-          response = await runPipeline<LLMCallArgs, LLMCallResult>(
-            "llmCall",
-            getMiddlewaresFor("llmCall"),
-            (args) => args.provider.sendMessage(args.messages, args.options),
-            llmCallArgs,
-            turnCtx,
-            DEFAULT_TIMEOUTS.llmCall,
+          response = await this.provider.sendMessage(
+            providerHistory,
+            providerOptions,
           );
         } catch (llmCallError) {
           // Skip recording on abort — the user cancelled the request and
@@ -1143,10 +1125,10 @@ export class AgentLoop {
             // misrepresent both.
             const rawRequest = {
               provider: this.provider.name,
-              messages: llmCallArgs.messages,
-              tools: llmCallArgs.options?.tools,
-              systemPrompt: llmCallArgs.options?.systemPrompt,
-              config: llmCallArgs.options?.config,
+              messages: providerHistory,
+              tools: providerOptions.tools,
+              systemPrompt: providerOptions.systemPrompt,
+              config: providerOptions.config,
             };
             onEvent({
               type: "provider_error",

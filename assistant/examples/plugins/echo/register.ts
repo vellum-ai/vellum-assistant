@@ -46,8 +46,6 @@ import type {
   CircuitBreakerResult,
   CompactionArgs,
   CompactionResult,
-  LLMCallArgs,
-  LLMCallResult,
   MemoryArgs,
   MemoryResult,
   OverflowReduceArgs,
@@ -139,7 +137,6 @@ const echoPlugin: Plugin = {
   },
   middleware: {
     turn: makeObserver<TurnArgs, TurnResult>("turn"),
-    llmCall: makeObserver<LLMCallArgs, LLMCallResult>("llmCall"),
     memoryRetrieval: makeObserver<MemoryArgs, MemoryResult>("memoryRetrieval"),
     tokenEstimate: makeObserver<TokenEstimateArgs, TokenEstimateResult>(
       "tokenEstimate",

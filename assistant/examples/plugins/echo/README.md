@@ -5,7 +5,7 @@ line per invocation to `stderr`:
 
 ```json
 {"plugin":"echo","pipeline":"tokenEstimate","durationMs":1,"outcome":"success"}
-{"plugin":"echo","pipeline":"llmCall","durationMs":1873,"outcome":"success"}
+{"plugin":"echo","pipeline":"turn","durationMs":1873,"outcome":"success"}
 ```
 
 Use this as a starting point for writing your own plugin, or as a quick way
@@ -18,7 +18,7 @@ For the full plugin authoring guide, see
 ## What it does
 
 - Registers one observer middleware per slot in
-  `PipelineMiddlewareMap` — `turn`, `llmCall`, `memoryRetrieval`,
+  `PipelineMiddlewareMap` — `turn`, `memoryRetrieval`,
   `tokenEstimate`, `compaction`, `overflowReduce`, `persistence`, and
   `circuitBreaker`.
 - Each middleware calls `next(args)` to pass the request through unchanged,
@@ -98,8 +98,6 @@ You should see one line per pipeline invocation, similar to:
 {"plugin":"echo","pipeline":"persistence","durationMs":3,"outcome":"success"}
 {"plugin":"echo","pipeline":"tokenEstimate","durationMs":1,"outcome":"success"}
 {"plugin":"echo","pipeline":"memoryRetrieval","durationMs":64,"outcome":"success"}
-{"plugin":"echo","pipeline":"historyRepair","durationMs":0,"outcome":"success"}
-{"plugin":"echo","pipeline":"llmCall","durationMs":1520,"outcome":"success"}
 {"plugin":"echo","pipeline":"turn","durationMs":1590,"outcome":"success"}
 ```
 

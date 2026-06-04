@@ -31,7 +31,6 @@ import { defaultCompactionPlugin } from "./compaction/register.js";
 import { defaultEmptyResponsePlugin } from "./empty-response/register.js";
 import { defaultHistoryRepairPlugin } from "./history-repair/register.js";
 import { defaultInjectorsPlugin } from "./injectors/register.js";
-import { defaultLlmCallPlugin } from "./llm-call/register.js";
 import { defaultMemoryRetrievalPlugin } from "./memory-retrieval/register.js";
 import { defaultOverflowReducePlugin } from "./overflow-reduce/register.js";
 import { defaultPersistencePlugin } from "./persistence/register.js";
@@ -52,7 +51,6 @@ import { defaultToolResultTruncatePlugin } from "./tool-result-truncate/register
  */
 function getAllDefaultPlugins(): readonly Plugin[] {
   return [
-    defaultLlmCallPlugin,
     defaultToolResultTruncatePlugin,
     defaultEmptyResponsePlugin,
     defaultToolErrorPlugin,

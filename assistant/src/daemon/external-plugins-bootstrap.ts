@@ -228,7 +228,7 @@ export async function initializePlugins(): Promise<void> {
  */
 export async function bootstrapPlugins(): Promise<void> {
   // Register first-party default plugins. Each default wraps one of the
-  // assistant's canonical pipelines (`llmCall`, `compaction`, ...) with a
+  // assistant's canonical pipelines (`compaction`, `persistence`, ...) with a
   // passthrough so the pipeline shape is explicit at boot even when no
   // third-party plugins are loaded. Registration is idempotent via the
   // already-registered guard so repeated calls (e.g. during integration

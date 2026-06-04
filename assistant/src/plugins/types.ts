@@ -7,7 +7,7 @@
  * placeholders) and add the pipeline runner, registry, and bootstrap.
  *
  * The assistant composes behavior around a small set of named pipelines
- * (`turn`, `llmCall`, `memoryRetrieval`, ...). Each plugin may contribute one
+ * (`turn`, `memoryRetrieval`, ...). Each plugin may contribute one
  * {@link Middleware} per pipeline; the registry composes them in onion
  * order at runtime. Plugins may also contribute {@link Injector}s that emit
  * system-prompt-time content, as well as model-visible capabilities
@@ -36,13 +36,7 @@ import type { TrustContext } from "../daemon/trust-context.js";
 import type { MessageRole } from "../memory/conversation-crud.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
 import type { PluginHookFn } from "../plugin-api/types.js";
-import type {
-  Message,
-  Provider,
-  ProviderResponse,
-  SendMessageOptions,
-  ToolDefinition,
-} from "../providers/types.js";
+import type { Message, ToolDefinition } from "../providers/types.js";
 import type { SkillRoute } from "../runtime/skill-route-registry.js";
 import type { Tool } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
@@ -118,7 +112,6 @@ export type Middleware<A, R> = (
  */
 export type PipelineName =
   | "turn"
-  | "llmCall"
   | "memoryRetrieval"
   | "tokenEstimate"
   | "compaction"
@@ -133,27 +126,6 @@ export type PipelineName =
 
 export type TurnArgs = { readonly input: unknown };
 export type TurnResult = { readonly output: unknown };
-
-/**
- * Pipeline arguments for `llmCall` — mirrors the inputs to
- * {@link Provider.sendMessage}. The terminal handler (the default plugin)
- * delegates straight to `args.provider.sendMessage(args.messages, args.options)`;
- * middleware may observe or rewrite any field before that call, short-circuit
- * with a synthetic {@link LLMCallResult}, or post-process the response on the
- * way out.
- *
- * `provider` is passed in `args` (rather than resolved from the runtime) so
- * middleware can swap it deterministically per-call. `options` carries the
- * full `SendMessageOptions` bag — `tools`, `systemPrompt`, `config`,
- * `onEvent`, and `signal` — so middleware can substitute streaming handlers,
- * tool sets, or cancellation signals without reconstructing them.
- */
-export type LLMCallArgs = {
-  readonly provider: Provider;
-  readonly messages: Message[];
-  readonly options?: SendMessageOptions;
-};
-export type LLMCallResult = ProviderResponse;
 
 /**
  * A single retrieved memory artifact.
@@ -578,7 +550,6 @@ export type CircuitBreakerResult = {
  */
 export interface PipelineMiddlewareMap {
   turn: Middleware<TurnArgs, TurnResult>;
-  llmCall: Middleware<LLMCallArgs, LLMCallResult>;
   memoryRetrieval: Middleware<MemoryArgs, MemoryResult>;
   tokenEstimate: Middleware<TokenEstimateArgs, TokenEstimateResult>;
   compaction: Middleware<CompactionArgs, CompactionResult>;
@@ -772,7 +743,7 @@ export interface TurnContext {
    * `"memoryConsolidation"`, `"conversationTitle"`, …) when the agent loop is
    * driving non-main work that happens to share the same `conversationId`.
    *
-   * Lets `llmCall` middleware and {@link Injector}s scope their behaviour to
+   * Lets {@link Injector}s and pipeline middleware scope their behaviour to
    * the main reply and stay out of background turns, which `onEvent` presence
    * alone cannot distinguish (compaction and subagent loops also stream).
    * Omitted by call sites that don't tag a site (synthesized test contexts);
