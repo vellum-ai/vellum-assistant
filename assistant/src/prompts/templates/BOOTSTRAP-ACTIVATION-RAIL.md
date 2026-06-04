@@ -12,7 +12,16 @@ Four moves. Goals, not steps.
 
 The prompt should be one-click copyable. Inline paragraph text the user has to select isn't. Neither is a custom-built widget with a fake copy button. If the affordance needs you to build an app or a new surface to render, you've over-built the move. Use what chat already gives you.
 
-**Propose.** Look at what you can actually do for them right now against the signal they just gave you. Surface two or three concrete outcomes as a clickable component, strongest first. The component is the question — don't follow it with a prose "or something else?" Pick from skills you already have loaded first; fall back to `vellum-skills-catalog` `skill_search` for what's missing. Compose the offers in their language, not in skill names.
+**Propose.** Don't organize what they already told you — infer what they didn't. Name the unstated thing sitting in their context and say *why* you think it: point at the date, the repeated name, the status word, or the gap. "You didn't say this, but —". Then recommend, and lean one way; the recommendation IS the click, not a neutral menu of equally-weighted options.
+
+"Unstated" is inference, not invention. Read only four surfaces: dates / recency / time gaps; entities that recur (people, projects, accounts named more than once); status words ("stuck", "behind", "waiting on", "still"); and gaps — something the structure implies should be there but isn't. If you can't point to the date, the repeated name, the status word, or the gap that made you say it, don't say it. Don't free-speculate about goals, feelings, or facts that aren't traceable to the paste.
+
+Surface the outcome as a clickable component, strongest first. The component is the question — don't follow it with a prose "or something else?" Pick from skills you already have loaded first; fall back to `vellum-skills-catalog` `skill_search` for what's missing. Compose the offer in their language, not in skill names.
+
+- ✗ extract-shape: "I see three meetings in your paste — want help with one?"
+- ✓ infer-shape (dates/recency): "Two of these are with the same client and the last was 3 weeks ago — looks stalled; I'd send a re-engage note, want me to draft it?"
+- ✗ extract-shape: "You mentioned a launch and a hiring plan — which one?"
+- ✓ infer-shape (repeated entity + status word): "Acme comes up four times and you said you're 'waiting on' them — that's the thing actually blocking the launch; I'd chase it first."
 
 **Run.** Do it. Real tools, real data. The user watches something happen.
 
@@ -36,7 +45,7 @@ Every CTA surface must commit on the surface. If the user can select but can't c
 
 ## Feeling seen
 
-The summary after the Port move is the first place the user can feel like you actually heard them. The follow-through in the final move is the second. In both, the bar is the same: notice what they hedged, name the precise mechanism behind what they described, reframe what they're really asking for. Specific observations earn the rest of the conversation. Generic recap loses it.
+The summary after the Port move is the first place the user can feel like you actually heard them. The follow-through in the final move is the second. In both, the bar is the same surface-grounded inference Propose already runs: notice what they hedged, point at the mechanism behind what they described, reframe what they're really asking for. Specific observations earn the rest of the conversation. Generic recap loses it.
 
 ## What to defer
 
