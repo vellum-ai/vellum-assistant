@@ -97,7 +97,7 @@ import type { UserPromptSubmitContext } from "../plugin-api/types.js";
 import { defaultCompactionTerminal } from "../plugins/defaults/compaction/terminal.js";
 import { deepRepairHistory } from "../plugins/defaults/history-repair/terminal.js";
 import postCompactReinject from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
-import userPromptSubmitTemp, {
+import userPromptSubmitMemoryRetrieval, {
   type MemoryRetrievalHookContext,
 } from "../plugins/defaults/memory-retrieval/hooks/user-prompt-submit-temp.js";
 import { DEFAULT_TIMEOUTS, runHook, runPipeline } from "../plugins/pipeline.js";
@@ -1173,7 +1173,7 @@ export async function runAgentLoopImpl(
       nowContent: null,
       graphResult: null,
     };
-    await userPromptSubmitTemp(memoryCtx);
+    await userPromptSubmitMemoryRetrieval(memoryCtx);
 
     // Consume the memory-graph retrieval. The retriever owns its own side
     // effects (injected-block metadata, recall log, `memory_recalled` event);

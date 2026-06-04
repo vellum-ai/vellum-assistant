@@ -182,9 +182,9 @@ function recordRecallSideEffects(
  * slower turn. Cancellation still works via `ctx.signal`, which is threaded
  * into `prepareMemory`.
  */
-const userPromptSubmitTemp: PluginHookFn<MemoryRetrievalHookContext> = async (
-  ctx,
-) => {
+const userPromptSubmitMemoryRetrieval: PluginHookFn<
+  MemoryRetrievalHookContext
+> = async (ctx) => {
   // NOW.md and PKB are read unconditionally — the agent loop decides whether
   // to inject them based on first-turn / post-compaction gating.
   ctx.pkbContent = readPkbContext();
@@ -208,4 +208,4 @@ const userPromptSubmitTemp: PluginHookFn<MemoryRetrievalHookContext> = async (
   ctx.graphResult = graphResult;
 };
 
-export default userPromptSubmitTemp;
+export default userPromptSubmitMemoryRetrieval;

@@ -34,7 +34,7 @@ mock.module("../memory/memory-recall-log-store.js", () => ({
 import type { AssistantConfig } from "../config/schema.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
-import userPromptSubmitTemp, {
+import userPromptSubmitMemoryRetrieval, {
   type MemoryRetrievalHookContext,
 } from "../plugins/defaults/memory-retrieval/hooks/user-prompt-submit-temp.js";
 import type { Message } from "../providers/types.js";
@@ -133,7 +133,7 @@ describe("user-prompt-submit-temp hook (memory retrieval)", () => {
     const { memory, prepareMemoryMock } = makeFakeGraphMemory();
     const ctx = makeHookCtx({ graphMemory: memory, isTrustedActor: true });
 
-    await userPromptSubmitTemp(ctx);
+    await userPromptSubmitMemoryRetrieval(ctx);
 
     expect(ctx.pkbContent).toBe("pkb-default");
     expect(ctx.nowContent).toBe("now-default");
@@ -148,7 +148,7 @@ describe("user-prompt-submit-temp hook (memory retrieval)", () => {
     const { memory, prepareMemoryMock } = makeFakeGraphMemory();
     const ctx = makeHookCtx({ graphMemory: memory, isTrustedActor: false });
 
-    await userPromptSubmitTemp(ctx);
+    await userPromptSubmitMemoryRetrieval(ctx);
 
     expect(prepareMemoryMock).not.toHaveBeenCalled();
     expect(ctx.graphResult).toBeNull();
@@ -171,7 +171,7 @@ describe("user-prompt-submit-temp hook (memory retrieval)", () => {
       conversationId: "conv-42",
     });
 
-    await userPromptSubmitTemp(ctx);
+    await userPromptSubmitMemoryRetrieval(ctx);
 
     expect(updateMessageMetadataMock).toHaveBeenCalledWith("msg-42", {
       memoryInjectedBlock: "injected-block",
@@ -191,7 +191,7 @@ describe("user-prompt-submit-temp hook (memory retrieval)", () => {
     const { memory } = makeFakeGraphMemory({ injectedBlockText: null });
     const ctx = makeHookCtx({ graphMemory: memory });
 
-    await userPromptSubmitTemp(ctx);
+    await userPromptSubmitMemoryRetrieval(ctx);
 
     expect(updateMessageMetadataMock).not.toHaveBeenCalled();
     // The recall log is still written even without an injected block.
@@ -214,7 +214,9 @@ describe("user-prompt-submit-temp hook (memory retrieval)", () => {
     } as unknown as ConversationGraphMemory;
     const ctx = makeHookCtx({ graphMemory, isTrustedActor: true });
 
-    await expect(userPromptSubmitTemp(ctx)).rejects.toThrow("retrieval failed");
+    await expect(userPromptSubmitMemoryRetrieval(ctx)).rejects.toThrow(
+      "retrieval failed",
+    );
   });
 
   test("passes through null PKB and NOW when the files are absent", async () => {
@@ -222,7 +224,7 @@ describe("user-prompt-submit-temp hook (memory retrieval)", () => {
     readNowContextMock.mockImplementation(() => null);
     const ctx = makeHookCtx();
 
-    await userPromptSubmitTemp(ctx);
+    await userPromptSubmitMemoryRetrieval(ctx);
 
     expect(ctx.pkbContent).toBeNull();
     expect(ctx.nowContent).toBeNull();
@@ -256,7 +258,7 @@ describe("user-prompt-submit-temp hook (memory retrieval)", () => {
     const controller = new AbortController();
     const ctx = makeHookCtx({ graphMemory, signal: controller.signal });
 
-    await userPromptSubmitTemp(ctx);
+    await userPromptSubmitMemoryRetrieval(ctx);
 
     expect(capturedSignal).toBe(controller.signal);
   });
