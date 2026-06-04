@@ -11,6 +11,7 @@ import { getOrCreateConversation } from "../../daemon/conversation-store.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../../daemon/trust-context.js";
 import { bootstrapConversation } from "../../memory/conversation-bootstrap.js";
 import { getConversation } from "../../memory/conversation-crud.js";
+import { getUsageCostForConversationWindow } from "../../memory/llm-usage-store.js";
 import { normalizeScheduleSyntax } from "../../schedule/recurrence-types.js";
 import {
   runScript,
@@ -76,6 +77,9 @@ const scheduleRunSchema = z.object({
   output: z.string().nullable(),
   error: z.string().nullable(),
   conversationId: z.string().nullable(),
+  conversationExists: z.boolean(),
+  conversationArchivedAt: z.number().nullable(),
+  estimatedCostUsd: z.number(),
   createdAt: z.number(),
 });
 
@@ -291,19 +295,34 @@ function handleListScheduleRuns(
     ? Math.min(Math.max(Math.floor(rawLimit), 1), 100)
     : 10;
   const runs = getScheduleRuns(id, limit);
+  const now = Date.now();
   return {
-    runs: runs.map((r) => ({
-      id: r.id,
-      jobId: r.jobId,
-      status: r.status,
-      startedAt: r.startedAt,
-      finishedAt: r.finishedAt,
-      durationMs: r.durationMs,
-      output: r.output,
-      error: r.error,
-      conversationId: r.conversationId,
-      createdAt: r.createdAt,
-    })),
+    runs: runs.map((r) => {
+      const conversation = r.conversationId
+        ? getConversation(r.conversationId)
+        : null;
+      return {
+        id: r.id,
+        jobId: r.jobId,
+        status: r.status,
+        startedAt: r.startedAt,
+        finishedAt: r.finishedAt,
+        durationMs: r.durationMs,
+        output: r.output,
+        error: r.error,
+        conversationId: r.conversationId,
+        conversationExists: conversation != null,
+        conversationArchivedAt: conversation?.archivedAt ?? null,
+        estimatedCostUsd: r.conversationId
+          ? getUsageCostForConversationWindow({
+              conversationId: r.conversationId,
+              from: r.startedAt,
+              to: r.finishedAt ?? now,
+            })
+          : 0,
+        createdAt: r.createdAt,
+      };
+    }),
   };
 }
 

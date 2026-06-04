@@ -4611,6 +4611,14 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        conversationExists:
+                          type: boolean
+                        conversationArchivedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        estimatedCostUsd:
+                          type: number
                         createdAt:
                           type: number
                       required:
@@ -4623,6 +4631,9 @@ paths:
                         - skipReason
                         - error
                         - conversationId
+                        - conversationExists
+                        - conversationArchivedAt
+                        - estimatedCostUsd
                         - createdAt
                       additionalProperties: false
                     description: Consolidation run records
@@ -11488,6 +11499,14 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        conversationExists:
+                          type: boolean
+                        conversationArchivedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        estimatedCostUsd:
+                          type: number
                         createdAt:
                           type: number
                       required:
@@ -11500,6 +11519,9 @@ paths:
                         - skipReason
                         - error
                         - conversationId
+                        - conversationExists
+                        - conversationArchivedAt
+                        - estimatedCostUsd
                         - createdAt
                       additionalProperties: false
                     description: Heartbeat run records
@@ -19067,6 +19089,14 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        conversationExists:
+                          type: boolean
+                        conversationArchivedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        estimatedCostUsd:
+                          type: number
                         createdAt:
                           type: number
                       required:
@@ -19079,6 +19109,9 @@ paths:
                         - output
                         - error
                         - conversationId
+                        - conversationExists
+                        - conversationArchivedAt
+                        - estimatedCostUsd
                         - createdAt
                       additionalProperties: false
                     description: Schedule run objects

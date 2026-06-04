@@ -7,6 +7,28 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+mock.module("../config/loader.js", () => ({
+  getConfig: () => ({
+    heartbeat: {
+      enabled: false,
+      intervalMs: 60_000,
+      activeHoursStart: null,
+      activeHoursEnd: null,
+      cronExpression: null,
+      timezone: null,
+    },
+  }),
+  invalidateConfigCache: () => {},
+  loadRawConfig: () => ({}),
+  saveRawConfig: () => {},
+}));
+
+mock.module("../heartbeat/heartbeat-service.js", () => ({
+  HeartbeatService: {
+    getInstance: () => null,
+  },
+}));
+
 const getOrCreateCalls: Array<{
   conversationId: string;
   options?: Record<string, unknown>;
@@ -40,13 +62,22 @@ mock.module("../daemon/conversation-store.js", () => ({
 }));
 
 import { SYNC_TAGS } from "../daemon/message-types/sync.js";
+import {
+  insertPendingHeartbeatRun,
+  startHeartbeatRun,
+} from "../heartbeat/heartbeat-run-store.js";
+import { createConversation } from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
+import { recordUsageEvent } from "../memory/llm-usage-store.js";
+import { rawRun } from "../memory/raw-query.js";
 import type { AssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
-import { ROUTES } from "../runtime/routes/schedule-routes.js";
+import { ROUTES as HEARTBEAT_ROUTES } from "../runtime/routes/heartbeat-routes.js";
+import { ROUTES as SCHEDULE_ROUTES } from "../runtime/routes/schedule-routes.js";
 import type { RouteDefinition } from "../runtime/routes/types.js";
 import {
+  completeScheduleRun,
   createSchedule,
   createScheduleRun,
   listSchedules,
@@ -58,6 +89,8 @@ initializeDb();
 
 function clearTables(): void {
   const db = getDb();
+  db.run("DELETE FROM llm_usage_events");
+  db.run("DELETE FROM heartbeat_runs");
   db.run("DELETE FROM cron_runs");
   db.run("DELETE FROM cron_jobs");
   db.run("DELETE FROM task_runs");
@@ -67,11 +100,50 @@ function clearTables(): void {
 }
 
 function findRoute(endpoint: string, method: string): RouteDefinition {
-  const route = ROUTES.find(
+  const route = SCHEDULE_ROUTES.find(
     (r) => r.endpoint === endpoint && r.method === method,
   );
   if (!route) throw new Error(`Route ${method} ${endpoint} not found`);
   return route;
+}
+
+function findHeartbeatRoute(endpoint: string, method: string): RouteDefinition {
+  const route = HEARTBEAT_ROUTES.find(
+    (r) => r.endpoint === endpoint && r.method === method,
+  );
+  if (!route) throw new Error(`Route ${method} ${endpoint} not found`);
+  return route;
+}
+
+function recordUsageCostAt(
+  conversationId: string,
+  requestId: string,
+  createdAt: number,
+  estimatedCostUsd: number,
+) {
+  const event = recordUsageEvent(
+    {
+      conversationId,
+      runId: null,
+      requestId,
+      actor: "main_agent",
+      callSite: "mainAgent",
+      inferenceProfile: "balanced",
+      provider: "anthropic",
+      model: "claude-sonnet-4-20250514",
+      inputTokens: 100,
+      outputTokens: 50,
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: 0,
+      rawUsage: null,
+    },
+    { estimatedCostUsd, pricingStatus: "priced" },
+  );
+  rawRun(
+    "UPDATE llm_usage_events SET created_at = ? WHERE id = ?",
+    createdAt,
+    event.id,
+  );
 }
 
 async function waitFor(predicate: () => boolean): Promise<void> {
@@ -378,6 +450,209 @@ describe("schedule runs list — limit handling", () => {
       queryParams: { limit: "2.7" },
     }) as { runs: unknown[] };
     expect(result.runs).toHaveLength(2);
+  });
+});
+
+// ── run metadata ──────────────────────────────────────────────────────────
+
+describe("schedule and heartbeat run metadata", () => {
+  beforeEach(() => {
+    clearTables();
+  });
+
+  test("schedule runs expose conversation availability and cost by run window", () => {
+    const job = createSchedule({
+      name: "windowed run",
+      cronExpression: "* * * * *",
+      message: "hi",
+      syntax: "cron",
+      reuseConversation: true,
+    });
+    const conversation = createConversation({
+      title: "Reused schedule conversation",
+      source: "schedule",
+      scheduleJobId: job.id,
+    });
+    const runId = createScheduleRun(job.id, conversation.id);
+    completeScheduleRun(runId, { status: "ok" });
+    rawRun(
+      "UPDATE cron_runs SET started_at = ?, finished_at = ?, duration_ms = ?, created_at = ? WHERE id = ?",
+      1000,
+      2000,
+      1000,
+      1000,
+      runId,
+    );
+
+    recordUsageCostAt(conversation.id, "req-before-run", 500, 0.5);
+    recordUsageCostAt(conversation.id, "req-at-start", 1000, 0.01);
+    recordUsageCostAt(conversation.id, "req-inside-run", 1500, 0.02);
+    recordUsageCostAt(conversation.id, "req-at-finish", 2000, 0.03);
+    recordUsageCostAt(conversation.id, "req-after-run", 2500, 0.75);
+
+    const route = findRoute("schedules/:id/runs", "GET");
+    const result = route.handler({ pathParams: { id: job.id } }) as {
+      runs: Array<{
+        conversationId: string | null;
+        conversationExists: boolean;
+        conversationArchivedAt: number | null;
+        estimatedCostUsd: number;
+      }>;
+    };
+
+    expect(result.runs).toHaveLength(1);
+    expect(result.runs[0].conversationId).toBe(conversation.id);
+    expect(result.runs[0].conversationExists).toBe(true);
+    expect(result.runs[0].conversationArchivedAt).toBeNull();
+    expect(result.runs[0].estimatedCostUsd).toBeCloseTo(0.06);
+  });
+
+  test("schedule runs keep archived conversations distinguishable from missing ones", () => {
+    const job = createSchedule({
+      name: "archived conversation",
+      cronExpression: "* * * * *",
+      message: "hi",
+      syntax: "cron",
+    });
+    const conversation = createConversation({
+      title: "Archived schedule conversation",
+      source: "schedule",
+      scheduleJobId: job.id,
+    });
+    const archivedAt = 3000;
+    rawRun(
+      "UPDATE conversations SET archived_at = ? WHERE id = ?",
+      archivedAt,
+      conversation.id,
+    );
+    const runId = createScheduleRun(job.id, conversation.id);
+    completeScheduleRun(runId, { status: "ok" });
+
+    const route = findRoute("schedules/:id/runs", "GET");
+    const result = route.handler({ pathParams: { id: job.id } }) as {
+      runs: Array<{
+        conversationExists: boolean;
+        conversationArchivedAt: number | null;
+      }>;
+    };
+
+    expect(result.runs[0].conversationExists).toBe(true);
+    expect(result.runs[0].conversationArchivedAt).toBe(archivedAt);
+  });
+
+  test("schedule runs keep missing and synthetic conversation ids non-clickable", () => {
+    const missingJob = createSchedule({
+      name: "missing conversation",
+      cronExpression: "* * * * *",
+      message: "hi",
+      syntax: "cron",
+    });
+    const missingRunId = createScheduleRun(missingJob.id, "conv-missing");
+    completeScheduleRun(missingRunId, { status: "ok" });
+
+    const scriptJob = createSchedule({
+      name: "script schedule",
+      cronExpression: "* * * * *",
+      message: "",
+      script: "echo hi",
+      mode: "script",
+      syntax: "cron",
+    });
+    const syntheticId = `script:${scriptJob.id}`;
+    const scriptRunId = createScheduleRun(scriptJob.id, syntheticId);
+    completeScheduleRun(scriptRunId, { status: "ok" });
+
+    const route = findRoute("schedules/:id/runs", "GET");
+    const missingResult = route.handler({
+      pathParams: { id: missingJob.id },
+    }) as {
+      runs: Array<{
+        conversationId: string | null;
+        conversationExists: boolean;
+        conversationArchivedAt: number | null;
+      }>;
+    };
+    const scriptResult = route.handler({
+      pathParams: { id: scriptJob.id },
+    }) as {
+      runs: Array<{
+        conversationId: string | null;
+        conversationExists: boolean;
+        conversationArchivedAt: number | null;
+      }>;
+    };
+
+    expect(missingResult.runs[0].conversationId).toBe("conv-missing");
+    expect(missingResult.runs[0].conversationExists).toBe(false);
+    expect(missingResult.runs[0].conversationArchivedAt).toBeNull();
+    expect(scriptResult.runs[0].conversationId).toBe(syntheticId);
+    expect(scriptResult.runs[0].conversationExists).toBe(false);
+    expect(scriptResult.runs[0].conversationArchivedAt).toBeNull();
+  });
+
+  test("heartbeat runs expose conversation availability and cost from startedAt", () => {
+    const conversation = createConversation({
+      title: "Heartbeat conversation",
+      source: "heartbeat",
+    });
+    const runId = insertPendingHeartbeatRun(900);
+    startHeartbeatRun(runId);
+    rawRun(
+      "UPDATE heartbeat_runs SET status = 'ok', scheduled_for = ?, started_at = ?, finished_at = ?, duration_ms = ?, conversation_id = ?, created_at = ? WHERE id = ?",
+      900,
+      1000,
+      2000,
+      1000,
+      conversation.id,
+      900,
+      runId,
+    );
+
+    recordUsageCostAt(conversation.id, "hb-before", 900, 0.4);
+    recordUsageCostAt(conversation.id, "hb-at-start", 1000, 0.01);
+    recordUsageCostAt(conversation.id, "hb-inside", 1500, 0.02);
+    recordUsageCostAt(conversation.id, "hb-at-finish", 2000, 0.03);
+    recordUsageCostAt(conversation.id, "hb-after", 2100, 0.5);
+
+    const route = findHeartbeatRoute("heartbeat/runs", "GET");
+    const result = route.handler({}) as {
+      runs: Array<{
+        conversationId: string | null;
+        conversationExists: boolean;
+        conversationArchivedAt: number | null;
+        estimatedCostUsd: number;
+      }>;
+    };
+
+    expect(result.runs).toHaveLength(1);
+    expect(result.runs[0].conversationId).toBe(conversation.id);
+    expect(result.runs[0].conversationExists).toBe(true);
+    expect(result.runs[0].conversationArchivedAt).toBeNull();
+    expect(result.runs[0].estimatedCostUsd).toBeCloseTo(0.06);
+  });
+
+  test("heartbeat run cost falls back to scheduledFor when startedAt is missing", () => {
+    const conversation = createConversation({
+      title: "Heartbeat fallback conversation",
+      source: "heartbeat",
+    });
+    const runId = insertPendingHeartbeatRun(1000);
+    rawRun(
+      "UPDATE heartbeat_runs SET status = 'running', finished_at = NULL, conversation_id = ?, created_at = ? WHERE id = ?",
+      conversation.id,
+      1000,
+      runId,
+    );
+
+    recordUsageCostAt(conversation.id, "hb-fallback-before", 999, 0.4);
+    recordUsageCostAt(conversation.id, "hb-fallback-inside", 1500, 0.02);
+
+    const route = findHeartbeatRoute("heartbeat/runs", "GET");
+    const result = route.handler({}) as {
+      runs: Array<{ estimatedCostUsd: number }>;
+    };
+
+    expect(result.runs[0].estimatedCostUsd).toBeCloseTo(0.02);
   });
 });
 

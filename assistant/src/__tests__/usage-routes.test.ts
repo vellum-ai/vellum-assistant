@@ -9,7 +9,10 @@ mock.module("../util/logger.js", () => ({
 
 import { getSqlite } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
-import { recordUsageEvent } from "../memory/llm-usage-store.js";
+import {
+  getUsageCostForConversationWindow,
+  recordUsageEvent,
+} from "../memory/llm-usage-store.js";
 import { BadRequestError } from "../runtime/routes/errors.js";
 import { ROUTES } from "../runtime/routes/usage-routes.js";
 
@@ -118,12 +121,61 @@ function seedEvents() {
   return { day1, day2 };
 }
 
+function recordCostAt(
+  conversationId: string,
+  requestId: string,
+  createdAt: number,
+  estimatedCostUsd: number,
+) {
+  recordUsageEvent(
+    {
+      conversationId,
+      runId: null,
+      requestId,
+      actor: "main_agent",
+      callSite: "mainAgent",
+      inferenceProfile: "balanced",
+      provider: "anthropic",
+      model: "claude-sonnet-4-20250514",
+      inputTokens: 100,
+      outputTokens: 50,
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: 0,
+      rawUsage: null,
+    },
+    { estimatedCostUsd, pricingStatus: "priced" },
+  );
+  getSqlite().run(
+    "UPDATE llm_usage_events SET created_at = ? WHERE request_id = ?",
+    [createdAt, requestId],
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 describe("usage routes", () => {
   beforeEach(clearUsageEvents);
+
+  describe("getUsageCostForConversationWindow", () => {
+    test("sums only events for the conversation inside the inclusive window", () => {
+      recordCostAt("conv-window", "req-before", 999, 0.5);
+      recordCostAt("conv-window", "req-start", 1000, 0.01);
+      recordCostAt("conv-window", "req-middle", 1500, 0.02);
+      recordCostAt("conv-window", "req-end", 2000, 0.03);
+      recordCostAt("conv-window", "req-after", 2001, 0.75);
+      recordCostAt("conv-other", "req-other", 1500, 0.9);
+
+      const total = getUsageCostForConversationWindow({
+        conversationId: "conv-window",
+        from: 1000,
+        to: 2000,
+      });
+
+      expect(total).toBeCloseTo(0.06);
+    });
+  });
 
   // -- query parsing / validation --
 
