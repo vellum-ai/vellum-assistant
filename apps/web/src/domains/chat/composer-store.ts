@@ -276,8 +276,12 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
     // typed but not explicitly saved would be lost on assistant switch.
     if (currentAssistantId && currentAssistantId !== assistantId) {
       const input = get().input;
-      if (currentConversationKey && input.trim()) {
-        draftsMap.set(currentConversationKey, input);
+      if (currentConversationKey) {
+        if (input.trim()) {
+          draftsMap.set(currentConversationKey, input);
+        } else {
+          draftsMap.delete(currentConversationKey);
+        }
       }
       persistDrafts(currentAssistantId, draftsMap);
       // Reset input — the correct incoming draft (if any) will be restored
