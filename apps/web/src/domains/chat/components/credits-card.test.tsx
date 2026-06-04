@@ -15,18 +15,18 @@ afterEach(() => {
 });
 
 describe("CreditsCard", () => {
-  test("renders the balance, coins icon, and fires onAddCredits when Add is clicked", () => {
+  test("renders the balance, coins icon, and fires onAddCredits when Credits is clicked", () => {
     const onAddCredits = mock(() => {});
 
     const { getByText, getByRole, container } = render(
       <CreditsCard balance="60" onAddCredits={onAddCredits} />,
     );
 
-    expect(getByText("60 credits")).toBeTruthy();
+    expect(getByText("60 c")).toBeTruthy();
     // The Coins icon renders a lucide SVG; assert at least one is present.
     expect(container.querySelector("svg.lucide-coins")).toBeTruthy();
 
-    fireEvent.click(getByRole("button", { name: /add/i }));
+    fireEvent.click(getByRole("button", { name: /credits/i }));
     expect(onAddCredits).toHaveBeenCalledTimes(1);
   });
 

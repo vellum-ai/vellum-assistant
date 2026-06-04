@@ -10,7 +10,7 @@ interface CreditsCardProps {
 /**
  * Presentational credits card matching the preferences-drawer mock: a single
  * slim flat container with the coins icon + balance on the left and a ghost
- * "Add" button (plus icon) on the right. No nested background — the container
+ * "Credits" button (plus icon) on the right. No nested background — the container
  * is the only surface. Purely presentational; callers supply the formatted
  * balance and handler.
  *
@@ -29,8 +29,11 @@ export function CreditsCard({ balance, onAddCredits }: CreditsCardProps) {
           className="h-3.5 w-3.5 text-[color:var(--credits-accent)]"
           aria-hidden
         />
-        <span className="text-body-medium-default max-md:text-title-medium text-[color:var(--content-default)]">
-          {balance} credits
+        <span
+          className="text-body-medium-default max-md:text-title-medium text-[color:var(--content-default)]"
+          aria-label={`${balance} credits`}
+        >
+          {balance} c
         </span>
       </div>
       {/*
@@ -48,7 +51,7 @@ export function CreditsCard({ balance, onAddCredits }: CreditsCardProps) {
         className="h-6 gap-1 px-1.5"
       >
         <Plus className="h-3.5 w-3.5" aria-hidden />
-        Add
+        Credits
       </Button>
     </div>
   );
