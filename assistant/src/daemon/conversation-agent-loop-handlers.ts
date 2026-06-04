@@ -20,7 +20,6 @@ import { getCalibrationProviderKey } from "../context/token-estimator.js";
 import type { ContextWindowResult } from "../context/window-manager.js";
 import { projectAssistantMessage } from "../memory/conversation-attention-store.js";
 import {
-  addMessage,
   deleteMessageById,
   getConversation,
   getMessageById,
@@ -185,6 +184,14 @@ export interface EventHandlerState {
    */
   assistantRowAwaitingFinalization: boolean;
   readonly pendingToolResults: Map<string, PendingToolResult>;
+  /**
+   * Id of the grouped `user` tool-result row for the current batch of results,
+   * reserved when the first result of the batch arrives and rewritten in place
+   * as sibling parallel results land. `undefined` until the first result of a
+   * batch is persisted and again after the batch is finalized at
+   * `message_complete`.
+   */
+  pendingToolResultRowId: string | undefined;
   readonly persistedToolUseIds: Set<string>;
   readonly accumulatedDirectives: DirectiveRequest[];
   readonly accumulatedToolContentBlocks: ContentBlock[];
@@ -338,6 +345,7 @@ export function createEventHandlerState(): EventHandlerState {
     lastAssistantMessageId: undefined,
     assistantRowAwaitingFinalization: false,
     pendingToolResults: new Map(),
+    pendingToolResultRowId: undefined,
     persistedToolUseIds: new Set(),
     accumulatedDirectives: [],
     accumulatedToolContentBlocks: [],
@@ -970,11 +978,94 @@ export function handleInputJsonDelta(
   });
 }
 
-export function handleToolResult(
+/**
+ * Build the persisted `tool_result` content blocks for the buffered results,
+ * redacting secrets from both the flat content and any structured blocks. All
+ * results of one assistant turn share a single `user` row (the shape providers
+ * expect for tool_result-in-user-turn).
+ */
+function buildToolResultBlocks(
+  pending: ReadonlyMap<string, PendingToolResult>,
+) {
+  return Array.from(pending.entries()).map(([toolUseId, result]) => ({
+    type: "tool_result",
+    tool_use_id: toolUseId,
+    content: redactSecrets(result.content),
+    is_error: result.isError,
+    ...(result.contentBlocks
+      ? {
+          contentBlocks: result.contentBlocks.map((block) =>
+            block.type === "text"
+              ? { ...block, text: redactSecrets(block.text) }
+              : block,
+          ),
+        }
+      : {}),
+  }));
+}
+
+/**
+ * Channel/interface provenance metadata for the grouped tool-result row,
+ * stamped from the turn context so the row carries the same provenance the
+ * snapshot reflects from the moment it lands in SQLite.
+ */
+function buildToolResultMetadata(
+  deps: EventHandlerDeps,
+): Record<string, unknown> {
+  return {
+    ...provenanceFromTrustContext(deps.ctx.trustContext),
+    userMessageChannel: deps.turnChannelContext.userMessageChannel,
+    assistantMessageChannel: deps.turnChannelContext.assistantMessageChannel,
+    userMessageInterface: deps.turnInterfaceContext.userMessageInterface,
+    assistantMessageInterface:
+      deps.turnInterfaceContext.assistantMessageInterface,
+  };
+}
+
+/**
+ * Persist the buffered tool results into their grouped `user` row as each
+ * result arrives, so a long-running tool's output survives a refresh that
+ * outlives the SSE replay window. The row is reserved once per batch and
+ * rewritten in place as sibling parallel results land, keeping all
+ * `tool_result` blocks of one turn in a single message. `seq` is the position
+ * stamped on the triggering `tool_result` event, captured by the caller before
+ * any await so it reflects exactly the content now durable in the row.
+ * Indexing and the buffer drain are deferred to `message_complete`.
+ */
+async function persistPendingToolResultRow(
+  state: EventHandlerState,
+  deps: EventHandlerDeps,
+  seq: number,
+): Promise<void> {
+  if (state.pendingToolResults.size === 0) return;
+  const contentJson = JSON.stringify(
+    buildToolResultBlocks(state.pendingToolResults),
+  );
+  if (state.pendingToolResultRowId === undefined) {
+    const reserved = await reserveMessage(
+      deps.ctx.conversationId,
+      "user",
+      buildToolResultMetadata(deps),
+    );
+    state.pendingToolResultRowId = reserved.id;
+  }
+  updateMessageContent(state.pendingToolResultRowId, contentJson);
+  recordPersistedSeq(deps.ctx.conversationId, seq);
+  const conv = getConversation(deps.ctx.conversationId);
+  if (conv != null) {
+    syncMessageToDisk(
+      deps.ctx.conversationId,
+      state.pendingToolResultRowId,
+      conv.createdAt,
+    );
+  }
+}
+
+export async function handleToolResult(
   state: EventHandlerState,
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "tool_result" }>,
-): void {
+): Promise<void> {
   // A synthesized cancellation (the tool never executed) is captured for
   // persistence and forwarded to the client like any result, but skips every
   // side effect that assumes the tool ran. A real result already captured or
@@ -1000,6 +1091,19 @@ export function handleToolResult(
       messageId: state.lastAssistantMessageId,
       toolUseId: event.toolUseId,
     });
+    // Capture the seq synchronously (before the persist await) so it reflects
+    // the just-stamped tool_result event, then persist on arrival. A failure
+    // here is non-fatal: the buffered result is still drained at
+    // `message_complete`.
+    const cancelledSeq = getCurrentSeq();
+    try {
+      await persistPendingToolResultRow(state, deps, cancelledSeq);
+    } catch (err) {
+      log.warn(
+        { err, conversationId: deps.ctx.conversationId },
+        "Failed to persist cancelled tool result on arrival (non-fatal; retried at message_complete)",
+      );
+    }
     return;
   }
 
@@ -1134,6 +1238,20 @@ export function handleToolResult(
     riskThreshold: event.riskThreshold,
     activityMetadata: event.activityMetadata,
   });
+
+  // Capture the seq synchronously (before the persist await) so it reflects the
+  // just-stamped tool_result event, then persist the grouped row on arrival. A
+  // failure here is non-fatal: the buffered result is still drained at
+  // `message_complete`.
+  const resultSeq = getCurrentSeq();
+  try {
+    await persistPendingToolResultRow(state, deps, resultSeq);
+  } catch (err) {
+    log.warn(
+      { err, conversationId: deps.ctx.conversationId },
+      "Failed to persist tool result on arrival (non-fatal; retried at message_complete)",
+    );
+  }
 }
 
 /**
@@ -1406,56 +1524,95 @@ export async function handleMessageComplete(
     state.pendingDirectiveDisplayBuffer = "";
   }
 
-  // Persist pending tool results
+  // Finalize the grouped tool-result row. Each result was persisted into this
+  // row as it arrived (`persistPendingToolResultRow`); rewrite it once more so
+  // it reflects the full batch even if a mid-arrival write failed, then index
+  // it for memory recall and mark the results durable. The row is reserved here
+  // only as a fallback for the case where every on-arrival write failed.
   if (state.pendingToolResults.size > 0) {
-    const toolResultBlocks = Array.from(state.pendingToolResults.entries()).map(
-      ([toolUseId, result]) => ({
-        type: "tool_result",
-        tool_use_id: toolUseId,
-        content: redactSecrets(result.content),
-        is_error: result.isError,
-        ...(result.contentBlocks
-          ? {
-              contentBlocks: result.contentBlocks.map((block) =>
-                block.type === "text"
-                  ? { ...block, text: redactSecrets(block.text) }
-                  : block,
-              ),
-            }
-          : {}),
-      }),
+    const toolResultJson = JSON.stringify(
+      buildToolResultBlocks(state.pendingToolResults),
     );
-    const toolResultMetadata = {
-      ...provenanceFromTrustContext(deps.ctx.trustContext),
-      userMessageChannel: deps.turnChannelContext.userMessageChannel,
-      assistantMessageChannel: deps.turnChannelContext.assistantMessageChannel,
-      userMessageInterface: deps.turnInterfaceContext.userMessageInterface,
-      assistantMessageInterface:
-        deps.turnInterfaceContext.assistantMessageInterface,
-    };
-    // Persist the tool-result row, then sync it to the JSONL disk view so
-    // the disk view stays in lockstep with the DB. `getConversation`
-    // returns `ConversationRow | null`, so `!= null` gates on a real row
-    // (skipping the sync when the conversation was not found rather than
-    // asking the disk-view to resolve a missing id).
+    let toolResultRowId = state.pendingToolResultRowId;
+    if (toolResultRowId === undefined) {
+      const reserved = await reserveMessage(
+        deps.ctx.conversationId,
+        "user",
+        buildToolResultMetadata(deps),
+      );
+      toolResultRowId = reserved.id;
+    }
+    updateMessageContent(toolResultRowId, toolResultJson);
+    // Sync the row to the JSONL disk view so it stays in lockstep with the DB.
+    // `getConversation` returns `ConversationRow | null`, so `!= null` gates on
+    // a real row (skipping the sync when the conversation was not found rather
+    // than asking the disk-view to resolve a missing id).
     const convForToolResult = getConversation(deps.ctx.conversationId);
-    const toolResultRow = await addMessage(
-      deps.ctx.conversationId,
-      "user",
-      JSON.stringify(toolResultBlocks),
-      { metadata: toolResultMetadata },
-    );
     if (convForToolResult != null) {
       syncMessageToDisk(
         deps.ctx.conversationId,
-        toolResultRow.id,
+        toolResultRowId,
         convForToolResult.createdAt,
       );
+    }
+    // `reserveMessage` + `updateMessageContent` are CRUD-only, so index the
+    // finalized tool-result content explicitly here (mirroring the
+    // assistant-row finalize) once it is durable. Non-fatal: a memory hiccup
+    // must not escalate a successful turn into a throw.
+    const toolResultRow = getMessageById(
+      toolResultRowId,
+      deps.ctx.conversationId,
+    );
+    if (toolResultRow) {
+      let provenanceTrustClass:
+        | "guardian"
+        | "trusted_contact"
+        | "unknown"
+        | undefined;
+      let automated: boolean | undefined;
+      if (toolResultRow.metadata) {
+        try {
+          const parsedMeta = messageMetadataSchema.safeParse(
+            JSON.parse(toolResultRow.metadata),
+          );
+          if (parsedMeta.success) {
+            provenanceTrustClass = parsedMeta.data.provenanceTrustClass;
+            automated = parsedMeta.data.automated;
+          }
+        } catch {
+          // Malformed metadata JSON — index with undefined provenance fields.
+        }
+      }
+      try {
+        await indexMessageNow(
+          {
+            messageId: toolResultRowId,
+            conversationId: deps.ctx.conversationId,
+            role: "user",
+            content: toolResultJson,
+            createdAt: toolResultRow.createdAt,
+            scopeId: "default",
+            provenanceTrustClass,
+            automated,
+          },
+          getConfig().memory,
+        );
+      } catch (err) {
+        deps.rlog.warn(
+          {
+            err,
+            conversationId: deps.ctx.conversationId,
+            messageId: toolResultRowId,
+          },
+          "Failed to index tool-result message for memory (non-fatal)",
+        );
+      }
     }
     for (const id of state.pendingToolResults.keys()) {
       state.persistedToolUseIds.add(id);
     }
     state.pendingToolResults.clear();
+    state.pendingToolResultRowId = undefined;
   }
 
   // Accumulate directives + warnings from the assistant content for
@@ -1864,7 +2021,7 @@ export async function dispatchAgentEvent(
         handleInputJsonDelta(state, deps, event);
         break;
       case "tool_result":
-        handleToolResult(state, deps, event);
+        await handleToolResult(state, deps, event);
         break;
       case "server_tool_start": {
         const query =

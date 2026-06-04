@@ -40,13 +40,23 @@ mock.module("../config/loader.js", () => ({
 }));
 
 // ── Mock conversation-crud (used by handleToolResult/handleMessageComplete) ──
+// Reserve returns a role-distinct id so tests can tell the grouped tool-result
+// `user` row apart from the assistant row, and assert it is reserved exactly
+// once per batch. `updateMessageContent` is a spy so tests can inspect the
+// content written into the row on each arrival.
+const reserveMessageMock = mock(
+  async (_conversationId: string, role: string) => ({
+    id: role === "user" ? "tool-result-row" : "assistant-row",
+  }),
+);
+const updateMessageContentMock = mock((_id: string, _content: string) => {});
+
 mock.module("../memory/conversation-crud.js", () => ({
-  addMessage: () => ({ id: "mock-msg-id" }),
   getConversation: () => null,
   getMessageById: () => null,
-  updateMessageContent: () => {},
+  updateMessageContent: updateMessageContentMock,
   provenanceFromTrustContext: () => ({}),
-  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
+  reserveMessage: reserveMessageMock,
 }));
 
 mock.module("../memory/conversation-disk-view.js", () => ({
@@ -266,7 +276,7 @@ describe("tool preview lifecycle", () => {
       expect((emitted as any).conversationId).toBe("test-session-id");
     });
 
-    test("handleToolResult includes toolUseId", () => {
+    test("handleToolResult includes toolUseId", async () => {
       const collector = createEventCollector();
       const deps = createMockDeps({
         onEvent: collector.onEvent,
@@ -283,7 +293,7 @@ describe("tool preview lifecycle", () => {
       });
       state.currentTurnToolUseIds.push("toolu_result789");
 
-      handleToolResult(state, deps, {
+      await handleToolResult(state, deps, {
         type: "tool_result",
         toolUseId: "toolu_result789",
         content: "file1.txt\nfile2.txt",
@@ -460,54 +470,35 @@ describe("tool preview lifecycle", () => {
       );
     });
 
-    test("a deferred tool result is covered by the following finalized content", async () => {
+    test("a tool result advances the persisted seq on arrival", async () => {
       /**
-       * A tool result is buffered and written as its own row when the
-       * pending-results map drains at message_complete; it does not advance
-       * the persisted seq on its own. The streamed content of the call that
-       * drains it is stamped later, so recording that content's seq at
-       * message_complete already covers the earlier tool result.
+       * Tool results are persisted into their grouped row as they arrive (so a
+       * long-running tool's output survives a refresh), advancing the persisted
+       * seq to the just-stamped tool_result event rather than deferring to
+       * message_complete.
        */
-      // GIVEN a completed tool result that has been handled (deferred)
+      // GIVEN a tool whose result is about to arrive
       const { deps, events } = makeStampingDeps({ streamThinking: true });
       state.lastAssistantMessageId = "assistant-msg-1";
       state.toolUseIdToName.set("toolu_result", "bash");
       state.toolCallTimestamps.set("toolu_result", { startedAt: Date.now() });
       state.currentTurnToolUseIds.push("toolu_result");
-      handleToolResult(state, deps, {
+
+      // WHEN the tool result is handled
+      await handleToolResult(state, deps, {
         type: "tool_result",
         toolUseId: "toolu_result",
         content: "file1.txt\nfile2.txt",
         isError: false,
       });
-      // AND the tool result alone has not advanced the persisted seq
-      expect(getPersistedSeq(conversationId)).toBeNull();
 
-      // WHEN the call's content streams and the turn completes (draining it)
-      await dispatchAgentEvent(state, deps, {
-        type: "thinking_delta",
-        thinking: "The tool returned two files.",
-      } as Extract<AgentEvent, { type: "thinking_delta" }>);
-      await handleMessageComplete(state, deps, {
-        type: "message_complete",
-        message: {
-          role: "assistant",
-          content: [
-            { type: "thinking", thinking: "The tool returned two files." },
-          ],
-        },
-      } as Extract<AgentEvent, { type: "message_complete" }>);
-
-      // THEN the persisted seq advances to the finalized content, which is
-      // stamped at or after the tool result, so it covers the drained row
+      // THEN the persisted seq equals the just-stamped tool_result seq
       const toolResult = events.find((e) => e.type === "tool_result");
-      const thinkingDelta = events.find(
-        (e) => e.type === "assistant_thinking_delta",
+      expect(toolResult).toBeDefined();
+      expect(getPersistedSeq(conversationId)).toBe(getCurrentSeq());
+      expect(getPersistedSeq(conversationId)).toBe(
+        (toolResult as unknown as AssistantEvent).seq ?? null,
       );
-      const toolResultSeq = (toolResult as unknown as AssistantEvent).seq ?? 0;
-      const contentSeq = (thinkingDelta as unknown as AssistantEvent).seq ?? 0;
-      expect(getPersistedSeq(conversationId)).toBe(contentSeq);
-      expect(contentSeq).toBeGreaterThanOrEqual(toolResultSeq);
     });
 
     test("thinking that is not streamed leaves the persisted seq unset", async () => {
@@ -539,6 +530,155 @@ describe("tool preview lifecycle", () => {
       ).toBeUndefined();
       expect(state.lastPersistedContentSeq).toBeUndefined();
       expect(getPersistedSeq(conversationId)).toBeNull();
+    });
+  });
+
+  describe("tool results are persisted on arrival into a grouped row", () => {
+    const conversationId = "test-session-id";
+
+    beforeEach(() => {
+      _resetStreamStateForTesting();
+      reserveMessageMock.mockClear();
+      updateMessageContentMock.mockClear();
+    });
+
+    /** onEvent that stamps conversation-scoped events like the runtime hub. */
+    function makeStampingDeps(): {
+      deps: EventHandlerDeps;
+      events: ServerMessage[];
+    } {
+      const events: ServerMessage[] = [];
+      const deps = createMockDeps({
+        onEvent: (msg: ServerMessage) => {
+          events.push(msg);
+          stampAndBuffer(msg as unknown as AssistantEvent);
+        },
+        ctx: {
+          ...createMockDeps().ctx,
+          conversationId,
+        } as unknown as EventHandlerDeps["ctx"],
+      });
+      return { deps, events };
+    }
+
+    /** Register a tool as started so its result can be handled. */
+    function registerTool(toolUseId: string): void {
+      state.toolUseIdToName.set(toolUseId, "bash");
+      state.toolCallTimestamps.set(toolUseId, { startedAt: Date.now() });
+      state.currentTurnToolUseIds.push(toolUseId);
+    }
+
+    /** Parse the content of the most recent updateMessageContent call. */
+    function latestWrittenBlocks(): Array<Record<string, unknown>> {
+      const calls = updateMessageContentMock.mock.calls;
+      const last = calls[calls.length - 1];
+      return JSON.parse(last[1] as string);
+    }
+
+    test("the first result reserves one user row and writes its block", async () => {
+      /**
+       * The grouped tool-result row is a `user` message reserved when the first
+       * result of a batch arrives, then written via updateContent so the result
+       * is durable immediately.
+       */
+      // GIVEN a started tool
+      const { deps } = makeStampingDeps();
+      state.lastAssistantMessageId = "assistant-msg-1";
+      registerTool("toolu_a");
+
+      // WHEN its result arrives
+      await handleToolResult(state, deps, {
+        type: "tool_result",
+        toolUseId: "toolu_a",
+        content: "result-a",
+        isError: false,
+      });
+
+      // THEN a single user row was reserved and tracked, and its block written
+      const userReserves = reserveMessageMock.mock.calls.filter(
+        (call) => call[1] === "user",
+      );
+      expect(userReserves).toHaveLength(1);
+      expect(state.pendingToolResultRowId).toBe("tool-result-row");
+      const blocks = latestWrittenBlocks();
+      expect(blocks).toHaveLength(1);
+      expect(blocks[0]).toMatchObject({
+        type: "tool_result",
+        tool_use_id: "toolu_a",
+        content: "result-a",
+        is_error: false,
+      });
+    });
+
+    test("parallel results share one row, grouped as sibling blocks", async () => {
+      /**
+       * Results from parallel tool calls in the same turn must land in a single
+       * `user` row (the tool_result-in-user-turn shape providers expect), so the
+       * row is reserved once and rewritten in place as each result arrives.
+       */
+      // GIVEN two started tools
+      const { deps } = makeStampingDeps();
+      state.lastAssistantMessageId = "assistant-msg-1";
+      registerTool("toolu_a");
+      registerTool("toolu_b");
+
+      // WHEN both results arrive
+      await handleToolResult(state, deps, {
+        type: "tool_result",
+        toolUseId: "toolu_a",
+        content: "result-a",
+        isError: false,
+      });
+      await handleToolResult(state, deps, {
+        type: "tool_result",
+        toolUseId: "toolu_b",
+        content: "result-b",
+        isError: false,
+      });
+
+      // THEN the row was reserved exactly once and now holds both blocks
+      const userReserves = reserveMessageMock.mock.calls.filter(
+        (call) => call[1] === "user",
+      );
+      expect(userReserves).toHaveLength(1);
+      const blocks = latestWrittenBlocks();
+      expect(blocks.map((b) => b.tool_use_id)).toEqual(["toolu_a", "toolu_b"]);
+    });
+
+    test("message_complete finalizes the on-arrival row without a second reserve", async () => {
+      /**
+       * Because the row already exists from the on-arrival write, the
+       * message_complete drain finalizes it (rewrite + bookkeeping) instead of
+       * inserting a second row, then clears the batch state.
+       */
+      // GIVEN a result already persisted on arrival
+      const { deps } = makeStampingDeps();
+      state.lastAssistantMessageId = "assistant-msg-1";
+      registerTool("toolu_a");
+      await handleToolResult(state, deps, {
+        type: "tool_result",
+        toolUseId: "toolu_a",
+        content: "result-a",
+        isError: false,
+      });
+      const reservesAfterArrival = reserveMessageMock.mock.calls.filter(
+        (call) => call[1] === "user",
+      ).length;
+
+      // WHEN the next call completes, draining the buffered result
+      await handleMessageComplete(state, deps, {
+        type: "message_complete",
+        message: { role: "assistant", content: [{ type: "text", text: "ok" }] },
+      } as Extract<AgentEvent, { type: "message_complete" }>);
+
+      // THEN no additional user row was reserved and the batch state is cleared
+      const reservesAfterDrain = reserveMessageMock.mock.calls.filter(
+        (call) => call[1] === "user",
+      ).length;
+      expect(reservesAfterDrain).toBe(reservesAfterArrival);
+      expect(state.pendingToolResults.size).toBe(0);
+      expect(state.pendingToolResultRowId).toBeUndefined();
+      expect(state.persistedToolUseIds.has("toolu_a")).toBe(true);
     });
   });
 
