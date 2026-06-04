@@ -297,7 +297,7 @@ async function retireInner(): Promise<void> {
     // paired machine, which holds nothing but a pairing record. (Removing that
     // local record is `vellum unpair`'s job, not retire's.)
     console.error(
-      `Error: '${assistantId}' is a remote assistant paired from another machine — it can't be retired from here. Retiring tears down the assistant, which can only be done on its host machine. To remove the local pairing record on this machine, use \`vellum unpair\` (coming soon).`,
+      `Error: '${assistantId}' is a remote assistant paired from another machine — it can't be retired from here. Retiring tears down the assistant, which can only be done on its host machine. To remove the local pairing record on this machine, run \`vellum unpair ${assistantId}\`.`,
     );
     process.exit(1);
   }

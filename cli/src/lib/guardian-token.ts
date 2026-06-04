@@ -7,6 +7,7 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  rmdirSync,
   statSync,
   unlinkSync,
   writeFileSync,
@@ -43,6 +44,27 @@ function getGuardianTokenPath(assistantId: string): string {
     assistantId,
     "guardian-token.json",
   );
+}
+
+/**
+ * Best-effort removal of an assistant's stored guardian token (used by
+ * `vellum unpair` to forget a paired connection). Never throws if the token
+ * file or its per-assistant directory is already absent.
+ */
+export function deleteGuardianToken(assistantId: string): void {
+  const tokenPath = getGuardianTokenPath(assistantId);
+  try {
+    unlinkSync(tokenPath);
+  } catch {
+    /* already gone */
+  }
+  // Clean up the now-empty per-assistant directory; rmdir throws if it still
+  // holds other files, in which case we leave it.
+  try {
+    rmdirSync(dirname(tokenPath));
+  } catch {
+    /* not empty or absent */
+  }
 }
 
 function getPersistedDeviceIdPath(): string {
