@@ -304,7 +304,7 @@ describe("refreshGuardianToken", () => {
   test("returns null without calling the gateway when the refresh token is expired", async () => {
     seed(new Date(Date.now() - 1000).toISOString());
     let called = false;
-    globalThis.fetch = (async () => {
+    globalThis.fetch = (async (_url: unknown, _init?: RequestInit) => {
       called = true;
       return new Response("", { status: 200 });
     }) as typeof fetch;
@@ -315,7 +315,7 @@ describe("refreshGuardianToken", () => {
 
   test("returns null when there is no stored token", async () => {
     let called = false;
-    globalThis.fetch = (async () => {
+    globalThis.fetch = (async (_url: unknown, _init?: RequestInit) => {
       called = true;
       return new Response("", { status: 200 });
     }) as typeof fetch;
@@ -336,7 +336,7 @@ describe("refreshGuardianToken", () => {
     const old = new Date(Date.now() - 60_000);
     utimesSync(lp, old, old);
 
-    globalThis.fetch = (async () =>
+    globalThis.fetch = (async (_url: unknown, _init?: RequestInit) =>
       new Response(JSON.stringify({ accessToken: "new-acc" }), {
         status: 200,
         headers: { "content-type": "application/json" },
