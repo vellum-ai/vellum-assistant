@@ -17,7 +17,6 @@ import {
   extractErrorMessage,
 } from "@/utils/api-errors";
 import { recordDiagnostic } from "@/lib/diagnostics";
-import { recordSnapshotSeq } from "@/lib/streaming/snapshot-seq";
 import { summarizeDisplayMessages } from "@/domains/chat/utils/diagnostics";
 
 import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
@@ -135,16 +134,11 @@ export async function fetchLatestHistoryPage(
   conversationId: string,
   limit: number = DEFAULT_LATEST_LIMIT,
 ): Promise<PaginatedHistoryResult> {
-  const result = await fetchPaginatedHistory(assistantId, {
+  return fetchPaginatedHistory(assistantId, {
     conversationId,
     page: "latest",
     limit,
   });
-  // The latest page is the authoritative snapshot the live stream aligns
-  // against, so record its seq as the conversation's baseline. Older-page
-  // loads are scroll-back history and do not move the baseline.
-  recordSnapshotSeq(conversationId, result.seq);
-  return result;
 }
 
 /**

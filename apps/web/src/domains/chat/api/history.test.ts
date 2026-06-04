@@ -6,10 +6,6 @@ import {
   fetchLatestHistoryPage,
   fetchOlderHistoryPage,
 } from "@/domains/chat/api/history";
-import {
-  __resetSnapshotSeqForTesting,
-  getSnapshotSeq,
-} from "@/lib/streaming/snapshot-seq";
 
 import {
   messageText,
@@ -43,7 +39,6 @@ beforeEach(() => {
   originalFetch = globalThis.fetch;
   captured = [];
   nextResponse = null;
-  __resetSnapshotSeqForTesting();
   globalThis.fetch = mock((input: RequestInfo | URL, init?: RequestInit) => {
     const url =
       typeof input === "string"
@@ -261,12 +256,13 @@ describe("response parsing", () => {
 // Snapshot seq watermark (ATL-780)
 // ---------------------------------------------------------------------------
 
-describe("snapshot seq", () => {
-  test("threads the seq from /messages and records it as the conversation baseline", async () => {
+describe("snapshot seq threading", () => {
+  test("threads the seq from /messages onto the latest-page result", async () => {
     /**
      * The daemon advertises the conversation's durably-persisted seq on
-     * the snapshot; the latest page must expose it and stash it so the
-     * stream-alignment consumers can read it.
+     * the snapshot; the latest page must surface it so the accept-point
+     * caller can record it as the conversation baseline. Recording is the
+     * caller's job (after its stale-response guard), not the fetcher's.
      */
     // GIVEN a latest-page snapshot that reports a persisted seq
     nextResponse = makeJsonResponse({
@@ -280,14 +276,12 @@ describe("snapshot seq", () => {
 
     // THEN the result carries the seq
     expect(result.seq).toBe(42);
-    // AND it is recorded as the per-conversation baseline
-    expect(getSnapshotSeq("K")).toBe(42);
   });
 
-  test("treats an omitted seq (older daemon) as no baseline without crashing", async () => {
+  test("threads null when the daemon omits the seq field (older daemon)", async () => {
     /**
-     * An older daemon predates the seq field. The client must fall back
-     * to today's cold-start behavior: null seq, no recorded baseline.
+     * An older daemon predates the seq field. The result reports null so
+     * the caller falls back to today's cold-start behavior.
      */
     // GIVEN a snapshot from a daemon that omits the seq field
     nextResponse = makeJsonResponse({
@@ -298,12 +292,11 @@ describe("snapshot seq", () => {
     // WHEN the latest page is fetched
     const result = await fetchLatestHistoryPage("asst-1", "K");
 
-    // THEN no honest position is threaded or recorded
+    // THEN no honest position is threaded
     expect(result.seq).toBeNull();
-    expect(getSnapshotSeq("K")).toBeNull();
   });
 
-  test("treats an explicit null seq (cold conversation) as no baseline", async () => {
+  test("threads null when the daemon reports an explicit null seq", async () => {
     /**
      * The daemon returns null when nothing has been persisted in-process
      * (cold conversation, post-restart, aged-out map).
@@ -318,65 +311,8 @@ describe("snapshot seq", () => {
     // WHEN the latest page is fetched
     const result = await fetchLatestHistoryPage("asst-1", "K");
 
-    // THEN it is treated as no honest position
+    // THEN it is threaded as no honest position
     expect(result.seq).toBeNull();
-    expect(getSnapshotSeq("K")).toBeNull();
-  });
-
-  test("a null seq snapshot clears a previously recorded baseline", async () => {
-    /**
-     * After a daemon restart the same conversation reports null; a stale
-     * baseline from before the restart must not linger.
-     */
-    // GIVEN a conversation with a recorded baseline
-    nextResponse = makeJsonResponse({
-      messages: [{ id: "m1", role: "user", ...textBody("hi") }],
-      hasMore: false,
-      seq: 7,
-    });
-    await fetchLatestHistoryPage("asst-1", "K");
-    expect(getSnapshotSeq("K")).toBe(7);
-
-    // WHEN a later snapshot reports null (daemon restarted)
-    nextResponse = makeJsonResponse({
-      messages: [{ id: "m1", role: "user", ...textBody("hi") }],
-      hasMore: false,
-      seq: null,
-    });
-    await fetchLatestHistoryPage("asst-1", "K");
-
-    // THEN the stale baseline is cleared
-    expect(getSnapshotSeq("K")).toBeNull();
-  });
-
-  test("older-page loads do not move the snapshot baseline", async () => {
-    /**
-     * Scroll-back history pages are not the authoritative snapshot, so
-     * they must not overwrite the baseline set by the latest page.
-     */
-    // GIVEN a latest page established the baseline
-    nextResponse = makeJsonResponse({
-      messages: [{ id: "m1", role: "user", ...textBody("hi") }],
-      hasMore: true,
-      oldestTimestamp: 5,
-      oldestMessageId: "m1",
-      seq: 99,
-    });
-    await fetchLatestHistoryPage("asst-1", "K");
-    expect(getSnapshotSeq("K")).toBe(99);
-
-    // WHEN an older page is fetched (even if it echoes a seq)
-    nextResponse = makeJsonResponse({
-      messages: [{ id: "m0", role: "user", ...textBody("earlier") }],
-      hasMore: false,
-      oldestTimestamp: 0,
-      oldestMessageId: "m0",
-      seq: 12,
-    });
-    await fetchOlderHistoryPage("asst-1", "K", 5);
-
-    // THEN the baseline still reflects the latest page
-    expect(getSnapshotSeq("K")).toBe(99);
   });
 });
 
