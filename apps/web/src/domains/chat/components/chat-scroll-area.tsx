@@ -1,4 +1,4 @@
-import { type ForwardedRef } from "react";
+import { type ForwardedRef, type ReactNode } from "react";
 
 import {
   Transcript,
@@ -57,6 +57,8 @@ export interface ChatScrollAreaProps {
   transcriptRef: ForwardedRef<TranscriptHandle>;
   /** {@link TranscriptProps} forwarded to {@link Transcript}. */
   transcriptProps: TranscriptProps;
+  /** Optional content rendered at the top of non-empty transcripts. */
+  topSlot?: ReactNode;
 }
 
 export function ChatScrollArea({
@@ -67,6 +69,7 @@ export function ChatScrollArea({
   emptyStateProps,
   transcriptRef,
   transcriptProps,
+  topSlot,
 }: ChatScrollAreaProps) {
   // When the empty state is shown, this wrapper must NOT take `flex-1` so
   // the parent `ChatBody` can center it together with the composer +
@@ -81,7 +84,9 @@ export function ChatScrollArea({
       {isLoadingHistory && messageCount === 0 && <ChatSkeleton />}
       {showMaintenanceRecoveryCard && <MaintenanceRecoveryCard />}
       {showEmptyState && <ChatEmptyState {...emptyStateProps} />}
-      {messageCount > 0 && <Transcript ref={transcriptRef} {...transcriptProps} />}
+      {messageCount > 0 && (
+        <Transcript ref={transcriptRef} {...transcriptProps} topSlot={topSlot} />
+      )}
     </div>
   );
 }

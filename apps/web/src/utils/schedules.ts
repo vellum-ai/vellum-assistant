@@ -8,6 +8,30 @@ import {
 
 export type AssistantSchedule = SchedulesGetResponse["schedules"][number];
 
+export interface ScheduleSourceConversationFields {
+  createdFromConversationId?: string | null;
+  createdFromConversationExists?: boolean;
+  createdFromConversationArchivedAt?: number | null;
+}
+
+export function canOpenScheduleSourceConversation(
+  schedule: ScheduleSourceConversationFields,
+): boolean {
+  return (
+    !!schedule.createdFromConversationId &&
+    schedule.createdFromConversationExists === true &&
+    schedule.createdFromConversationArchivedAt == null
+  );
+}
+
+export function getOpenableScheduleSourceConversationId(
+  schedule: ScheduleSourceConversationFields,
+): string | null {
+  return canOpenScheduleSourceConversation(schedule)
+    ? (schedule.createdFromConversationId ?? null)
+    : null;
+}
+
 export async function fetchSchedules(
   assistantId: string,
 ): Promise<AssistantSchedule[]> {

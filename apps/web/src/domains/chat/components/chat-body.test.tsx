@@ -25,7 +25,12 @@ import type { ChatBodyProps } from "@/domains/chat/components/chat-body";
 mock.module(
   "@/domains/chat/transcript/transcript",
   () => ({
-    Transcript: () => <div data-testid="transcript">TRANSCRIPT</div>,
+    Transcript: ({ topSlot }: { topSlot?: ReactNode }) => (
+      <>
+        {topSlot}
+        <div data-testid="transcript">TRANSCRIPT</div>
+      </>
+    ),
   }),
 );
 
@@ -217,6 +222,25 @@ describe("ChatBody — startersSlot rendering", () => {
     expect(html).not.toContain("STARTER_CHIPS");
   });
 
+});
+
+describe("ChatBody — transcript top slot", () => {
+  test("renders scrollAreaProps.topSlot above the transcript when messages exist", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...baseProps({
+          scrollAreaProps: {
+            ...baseProps().scrollAreaProps,
+            messageCount: 1,
+            topSlot: <div data-testid="top-slot">TOP_SLOT</div>,
+          },
+        })}
+      />,
+    );
+
+    expect(html).toContain("TOP_SLOT");
+    expect(html.indexOf("TOP_SLOT")).toBeLessThan(html.indexOf("TRANSCRIPT"));
+  });
 });
 
 describe("ChatBody — read-only cancellation", () => {

@@ -37,6 +37,10 @@ import {
     assistantSchedulesQueryKey,
 } from "@/lib/sync/query-tags";
 import { routes } from "@/utils/routes";
+import {
+    canOpenScheduleSourceConversation,
+    getOpenableScheduleSourceConversationId,
+} from "@/utils/schedules";
 import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
@@ -60,6 +64,8 @@ import type {
     HeartbeatConfigGetResponse,
 } from "@/generated/daemon/types.gen";
 import type { TagTone } from "@vellumai/design-library/components/tag";
+
+export { canOpenScheduleSourceConversation };
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -99,28 +105,12 @@ function formatScheduleRunCount(count: number): string {
   return `${formatted} ${count === 1 ? "run" : "runs"}`;
 }
 
-export function canOpenScheduleSourceConversation(schedule: Schedule): boolean {
-  return (
-    !!schedule.createdFromConversationId &&
-    schedule.createdFromConversationExists === true &&
-    schedule.createdFromConversationArchivedAt == null
-  );
-}
-
 export function canOpenScheduleRunConversation(run: ScheduleRun): boolean {
   return (
     !!run.conversationId &&
     run.conversationExists === true &&
     run.conversationArchivedAt == null
   );
-}
-
-function getOpenableScheduleSourceConversationId(
-  schedule: Schedule,
-): string | null {
-  return canOpenScheduleSourceConversation(schedule)
-    ? (schedule.createdFromConversationId ?? null)
-    : null;
 }
 
 function getOpenableScheduleRunConversationId(run: ScheduleRun): string | null {

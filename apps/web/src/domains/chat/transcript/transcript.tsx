@@ -38,6 +38,8 @@ export type RefreshOutcome =
 export interface TranscriptProps {
   items: TranscriptItem[];
   conversationId: string | null;
+  /** Optional content rendered before the first transcript row. */
+  topSlot?: ReactNode;
   assistantDisplayName?: string | null;
   onSecretSubmit: (requestId: string, value: string) => void;
   onConfirmationDecision: (requestId: string, decision: string) => void;
@@ -152,8 +154,14 @@ export interface TranscriptHandle {
 
 export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
   function Transcript(props, ref) {
-    const { items, conversationId, onPullRefresh, pullRefreshEnabled, ...rest } =
-      props;
+    const {
+      items,
+      conversationId,
+      topSlot,
+      onPullRefresh,
+      pullRefreshEnabled,
+      ...rest
+    } = props;
     const scrollRef = useRef<HTMLDivElement | null>(null);
     const contentRef = useRef<HTMLDivElement | null>(null);
     const viewportMinHeight = useViewportMinHeight(scrollRef);
@@ -265,6 +273,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
          *  streaming growth). Wrapping all rows in a single observed
          *  element is cheaper than observing each row individually. */}
         <div ref={contentRef} className="flex w-full flex-col">
+          {topSlot}
           {/* History items in chronological order — oldest at top. */}
           {partition.historyItems.map((item) => (
             <Fragment key={item.key}>

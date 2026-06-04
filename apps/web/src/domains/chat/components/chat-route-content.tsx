@@ -40,6 +40,7 @@ import { QueuedMessagesDrawer } from "@/domains/chat/components/queued-messages-
 import { SecretPromptCard } from "@/domains/chat/components/secret-prompt-card";
 import { SendErrorModal } from "@/domains/chat/components/send-error-modal";
 import { SlackChannelFooter } from "@/domains/chat/components/slack-channel-footer";
+import { ScheduledConversationOriginBanner } from "@/domains/chat/components/scheduled-conversation-origin-banner";
 import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
 import { useConversationStarters } from "@/domains/chat/hooks/use-conversation-starters";
 import { useEditMessage } from "@/domains/chat/hooks/use-edit-message";
@@ -1321,6 +1322,12 @@ export function ChatRouteContent({
     emptyStateProps: chatEmptyStateProps,
     transcriptRef,
     transcriptProps: chatTranscriptProps,
+    topSlot: (
+      <ScheduledConversationOriginBanner
+        assistantId={assistantId}
+        conversation={activeConversation ?? null}
+      />
+    ),
   };
 
   const mainBannerSlot = nudges.showBanner ? (
