@@ -2209,34 +2209,20 @@ jobs:
           security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
           rm -rf ~/.private_keys 2>/dev/null || true
 
-  # arm64 macOS --no-compile build — produces a separate DMG using the
-  # --no-compile path (raw source + production node_modules instead of
-  # compiled bun binaries) so we can validate the no-compile shape
-  # end-to-end on every release.
-  #
-  # TEMPORARY: this separate job exists until we confirm the --no-compile
-  # bundling approach is safe to ship to end users. Once confirmed,
-  # build-macos-arm64 itself will switch over to --no-compile and this
-  # separate job will be removed (along with the Build binaries / Sparkle
-  # / dSYM steps in the regular arm64 job that are specific to the
-  # compiled path).
-  #
-  # Skips the Build binaries, dSYM upload, Sparkle ZIP, and appcast steps —
-  # those are tied to the compiled-binary path and aren't applicable here.
-  # Runs in parallel with build-macos-arm64 / build-macos-x64 and does NOT
-  # block the release job (continue-on-error: true). The resulting DMG is
-  # uploaded as the `macos-no-compile` GHA artifact.
-  build-macos-arm64-no-compile:
-    needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
+  # ── Electron macOS build (arm64) ──────────────────────────────────────
+  # Builds the Electron-wrapped macOS app, code-signs it, notarizes the
+  # DMG, and uploads it as a release asset. Non-blocking (continue-on-error)
+  # while the Electron client is WIP.
+  build-electron:
+    needs: [extract-version]
     runs-on: macos-26
-    timeout-minutes: 45
+    timeout-minutes: 30
     continue-on-error: true
     defaults:
       run:
-        working-directory: clients/macos
+        working-directory: apps/macos
     env:
-      DMG_PATH: build/vellum-assistant-no-compile.dmg
-      KEYCHAIN_NAME: build-no-compile.keychain
+      KEYCHAIN_NAME: build-electron.keychain
       KEYCHAIN_PASSWORD: temporary-ci-password
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -2271,132 +2257,48 @@ jobs:
       - name: Verify signing identity
         run: |
           security find-identity -v -p codesigning | grep -q "Developer ID Application" \
-            || { echo "::error::Developer ID Application identity not found in keychain. Check the DEVID_CERTIFICATE_P12 secret."; exit 1; }
-
-      - name: Set version
-        id: version
-        run: |
-          IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
-          if [ "$IS_STAGING" = "true" ]; then
-            DISPLAY_VERSION="${{ needs.extract-version.outputs.version }}"
-          else
-            DISPLAY_VERSION="${{ needs.extract-version.outputs.base_version }}"
-          fi
-          BUILD_VERSION=$(date -u +%Y%m%d%H%M)
-          echo "display_version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
-          echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
-          echo "Display version: $DISPLAY_VERSION / Build version: $BUILD_VERSION"
+            || { echo "::error::Developer ID Application identity not found"; exit 1; }
 
       - name: Install Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: '1.3.11'
 
-      - name: Install nested package dependencies
-        working-directory: .
-        run: |
-          for dir in packages/*/ skills/*/; do
-            [ -f "${dir}/package.json" ] || continue
-            echo "Installing dependencies in ${dir}"
-            (cd "${dir}" && bun install --frozen-lockfile 2>/dev/null || bun install)
-          done
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
 
-      - name: Build release .app (--no-compile)
-        run: |
-          IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
-          if [ "$IS_STAGING" = "true" ]; then
-            export BUNDLE_DISPLAY_NAME="Vellum Staging"
-            export SU_FEED_URL="https://storage.googleapis.com/vellum-staging-sparkle/staging/appcast.xml"
-          fi
-          BUNDLE_DISPLAY_NAME="${BUNDLE_DISPLAY_NAME:-Vellum}"
-          DISPLAY_VERSION="${{ steps.version.outputs.display_version }}" \
-          BUILD_VERSION="${{ steps.version.outputs.build_version }}" \
-          COMMIT_SHA="${{ github.sha }}" \
-          SU_PUBLIC_ED_KEY="${{ secrets.SPARKLE_ED_PUBLIC_KEY }}" \
-          SENTRY_DSN_MACOS="${{ secrets.SENTRY_DSN_MACOS }}" \
-          SENTRY_DSN_ASSISTANT="${{ secrets.SENTRY_DSN_ASSISTANT }}" \
-          SIGN_IDENTITY="Developer ID Application" \
-          RELEASE_ARCH_FLAGS="--arch arm64" \
-          ./build.sh release --no-compile
-
-          APP_PATH="dist/$BUNDLE_DISPLAY_NAME.app"
-          ls -la "$APP_PATH"
-          codesign --verify --strict "$APP_PATH"
-          echo "Code signature verified"
-
-      - name: Free disk space
-        run: |
-          rm -rf .build daemon-bin assistant-bin cli-bin gateway-bin ces-bin
-          rm -rf ../../assistant/node_modules ../../cli/node_modules ../../gateway/node_modules ../../credential-executor/node_modules
-          rm -rf ~/Library/Developer/Xcode/DerivedData 2>/dev/null || true
-          rm -rf ~/Library/Caches/org.swift.swiftpm 2>/dev/null || true
-          df -h .
-
-      - name: Cache Homebrew create-dmg
-        id: cache-create-dmg
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      - name: Install shared packages
+        uses: ./.github/actions/install-shared-packages
         with:
-          path: |
-            /usr/local/Cellar/create-dmg
-            /opt/homebrew/Cellar/create-dmg
-          key: create-dmg-v1-${{ runner.os }}-${{ runner.arch }}
+          packages: packages/environments packages/local-mode
 
-      - name: Install create-dmg
-        if: steps.cache-create-dmg.outputs.cache-hit != 'true'
-        run: brew install create-dmg
+      - name: Build and package Electron app
+        env:
+          VELLUM_ENVIRONMENT: ${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'production' }}
+          CSC_NAME: Developer ID Application
+        run: bun run pack
 
-      - name: Link create-dmg
-        if: steps.cache-create-dmg.outputs.cache-hit == 'true'
-        run: brew link create-dmg 2>/dev/null || true
-
-      - name: Create DMG
+      - name: Rename DMG for release
+        id: dmg
         run: |
-          IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
-          if [ "$IS_STAGING" = "true" ]; then
-            BUNDLE_DISPLAY_NAME="Vellum Staging"
-          else
-            BUNDLE_DISPLAY_NAME="Vellum"
+          ELECTRON_DMG=$(find dist -name "*.dmg" -type f | grep -m1 .)
+          if [ -z "$ELECTRON_DMG" ]; then
+            echo "::error::No DMG found in dist/"
+            ls -la dist/
+            exit 1
           fi
-          APP_PATH="dist/$BUNDLE_DISPLAY_NAME.app"
-
-          DMG_STAGING="build/dmg-staging"
-          mkdir -p "$DMG_STAGING"
-          cp -R "$APP_PATH" "$DMG_STAGING/"
-          ln -s /Applications "$DMG_STAGING/Applications"
-
-          create-dmg \
-            --volname "$BUNDLE_DISPLAY_NAME" \
-            --background "dmg/dmg-background@2x.png" \
-            --window-pos 200 120 \
-            --window-size 660 400 \
-            --icon-size 128 \
-            --text-size 10 \
-            --icon "$BUNDLE_DISPLAY_NAME.app" 175 190 \
-            --icon "Applications" 530 190 \
-            --hide-extension "$BUNDLE_DISPLAY_NAME.app" \
-            --no-internet-enable \
-            "$DMG_PATH" \
-            "$DMG_STAGING/" \
-          || {
-            EXIT_CODE=$?
-            if [ $EXIT_CODE -eq 2 ] && [ -f "$DMG_PATH" ]; then
-              echo "create-dmg exited with warning (code 2), but DMG was created successfully"
-            else
-              echo "create-dmg failed with exit code $EXIT_CODE"
-              exit $EXIT_CODE
-            fi
-          }
-
-          echo "DMG created at $DMG_PATH"
-          ls -lh "$DMG_PATH"
+          echo "Found DMG: $ELECTRON_DMG"
+          FINAL_DMG="dist/vellum-assistant-electron.dmg"
+          mv "$ELECTRON_DMG" "$FINAL_DMG"
+          echo "dmg_path=$FINAL_DMG" >> "$GITHUB_OUTPUT"
 
       - name: Sign DMG
         run: |
           codesign --sign "Developer ID Application" \
             --timestamp \
-            "$DMG_PATH"
-          codesign --verify --verbose "$DMG_PATH"
-          echo "DMG signature verified"
+            "${{ steps.dmg.outputs.dmg_path }}"
+          codesign --verify --verbose "${{ steps.dmg.outputs.dmg_path }}"
+          echo "Electron DMG signature verified"
 
       - name: Notarize DMG
         env:
@@ -2407,8 +2309,8 @@ jobs:
           mkdir -p ~/.private_keys
           echo "$ASC_KEY_P8" > ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8
 
-          echo "Submitting --no-compile DMG for notarization..."
-          NOTARIZE_OUTPUT=$(xcrun notarytool submit "$DMG_PATH" \
+          echo "Submitting Electron DMG for notarization..."
+          NOTARIZE_OUTPUT=$(xcrun notarytool submit "${{ steps.dmg.outputs.dmg_path }}" \
             --key ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8 \
             --key-id "$ASC_KEY_ID" \
             --issuer "$ASC_ISSUER_ID" \
@@ -2418,12 +2320,11 @@ jobs:
 
           echo "$NOTARIZE_OUTPUT"
 
-          SUBMISSION_ID=$(echo "$NOTARIZE_OUTPUT" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
+          SUBMISSION_ID=$(echo "$NOTARIZE_OUTPUT" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | grep -m1 .)
 
           if [ "$NOTARIZE_FAILED" = "true" ] || echo "$NOTARIZE_OUTPUT" | grep -q "status: Invalid"; then
-            echo "::error::Notarization failed (status: Invalid or command error)"
+            echo "::error::Electron notarization failed"
             if [ -n "$SUBMISSION_ID" ]; then
-              echo "Fetching notarization log for submission $SUBMISSION_ID..."
               xcrun notarytool log "$SUBMISSION_ID" \
                 --key ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8 \
                 --key-id "$ASC_KEY_ID" \
@@ -2433,14 +2334,14 @@ jobs:
             exit 1
           fi
 
-          echo "Notarization succeeded (status: Accepted)"
+          echo "Electron notarization succeeded"
 
       - name: Staple notarization ticket
         run: |
           MAX_ATTEMPTS=15
           WAIT_SECS=60
           for i in $(seq 1 $MAX_ATTEMPTS); do
-            STAPLE_OUTPUT=$(xcrun stapler staple "$DMG_PATH" 2>&1)
+            STAPLE_OUTPUT=$(xcrun stapler staple "${{ steps.dmg.outputs.dmg_path }}" 2>&1)
             STAPLE_EXIT=$?
             if [ $STAPLE_EXIT -eq 0 ]; then
               echo "Stapling succeeded on attempt $i"
@@ -2458,14 +2359,14 @@ jobs:
             WAIT_SECS=$((WAIT_SECS + 15))
           done
 
-          xcrun stapler validate "$DMG_PATH"
-          echo "--no-compile notarization ticket stapled and validated"
+          xcrun stapler validate "${{ steps.dmg.outputs.dmg_path }}"
+          echo "Electron notarization ticket stapled and validated"
 
-      - name: Upload --no-compile DMG artifact
+      - name: Upload Electron DMG artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: macos-no-compile
-          path: clients/macos/build/vellum-assistant-no-compile.dmg
+          name: macos-build-electron
+          path: apps/macos/dist/vellum-assistant-electron.dmg
           if-no-files-found: error
           retention-days: 7
 
@@ -2477,7 +2378,7 @@ jobs:
           rm -rf ~/.private_keys 2>/dev/null || true
 
   release:
-    needs: [extract-version, publish-npm, publish-web, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, ci-playwright, build-chrome-extension]
+    needs: [extract-version, publish-npm, publish-web, publish-meta, build-macos-arm64, build-macos-x64, build-electron, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, ci-playwright, build-chrome-extension]
     if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.extract-version.result == 'success' && needs.publish-npm.result == 'success' && needs.publish-web.result == 'success' && needs.publish-meta.result == 'success' && needs.build-macos-arm64.result == 'success' && (needs.ci-playwright.result == 'success' || inputs.playwright_blocks_release != true) && needs.push-assistant-manifest.result == 'success' && needs.push-gateway-manifest.result == 'success' && needs.push-credential-executor-manifest.result == 'success' && needs.push-dockerhub-image.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -2543,6 +2444,13 @@ jobs:
           name: chrome-extension-crx-zip
           path: chrome-extension-artifacts
 
+      - name: Download Electron DMG artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        continue-on-error: true
+        with:
+          name: macos-build-electron
+          path: electron-artifacts
+
       - name: Create GitHub Releases
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -2565,6 +2473,12 @@ jobs:
           if [ -d "macos-artifacts-x64" ]; then
             X64_DMG=$(find macos-artifacts-x64 -name "vellum-assistant-x64.dmg" -type f | head -1)
             [ -n "$X64_DMG" ] && ASSETS+=("$X64_DMG#vellum-assistant-x64.dmg")
+          fi
+
+          # Add Electron DMG if available (non-blocking — may not exist if Electron build failed)
+          if [ -d "electron-artifacts" ]; then
+            ELECTRON_DMG=$(find electron-artifacts -name "vellum-assistant-electron.dmg" -type f | grep -m1 .)
+            [ -n "$ELECTRON_DMG" ] && ASSETS+=("$ELECTRON_DMG#vellum-assistant-electron.dmg")
           fi
 
           INSTALL_SH="cli/src/adapters/install.sh"
@@ -3117,7 +3031,7 @@ jobs:
   notify-release:
     name: Slack Notification (Release)
     if: ${{ always() && !cancelled() }}
-    needs: [extract-version, publish-npm, publish-web, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, pack-cli, trigger-platform-qa, release-ios, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright, build-chrome-extension, publish-chrome-extension]
+    needs: [extract-version, publish-npm, publish-web, publish-meta, build-macos-arm64, build-macos-x64, build-electron, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, pack-cli, trigger-platform-qa, release-ios, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright, build-chrome-extension, publish-chrome-extension]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
@@ -3191,6 +3105,7 @@ jobs:
           P=$(ci_icon "${{ needs.ci-playwright.result }}")
           D=$(ci_icon "${{ needs.build-macos-arm64.result }}")
           DX=$(ci_icon "${{ needs.build-macos-x64.result }}")
+          DE=$(ci_icon "${{ needs.build-electron.result }}")
           AI=$(ci_icon "${{ needs.push-assistant-manifest.result }}")
           GI=$(ci_icon "${{ needs.push-gateway-manifest.result }}")
           CEI=$(ci_icon "${{ needs.push-credential-executor-manifest.result }}")
@@ -3215,7 +3130,7 @@ jobs:
             fi
           fi
 
-          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s credential-executor\n• %s gateway\n• %s playwright%s\n• %s desktop (arm64)\n• %s desktop (x64)\n• %s release-ios\n• %s chrome-extension\n• %s cws-publish\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s dockerhub\n• %s register-release\n• %s pack-cli\n• %s trigger-platform-qa\n• %s merge-release-branch' "$A" "$C" "$CE" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$DX" "$DI" "$CX" "$CXP" "$AI" "$GI" "$CEI" "$DH" "$RR" "$PC" "$TQ" "$MB")
+          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s credential-executor\n• %s gateway\n• %s playwright%s\n• %s desktop (arm64)\n• %s desktop (x64)\n• %s desktop-electron\n• %s release-ios\n• %s chrome-extension\n• %s cws-publish\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s dockerhub\n• %s register-release\n• %s pack-cli\n• %s trigger-platform-qa\n• %s merge-release-branch' "$A" "$C" "$CE" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$DX" "$DE" "$DI" "$CX" "$CXP" "$AI" "$GI" "$CEI" "$DH" "$RR" "$PC" "$TQ" "$MB")
 
           if [ -n "$SLACK_USER_ID" ]; then
             TRIGGERED_BY="<@${SLACK_USER_ID}>"
