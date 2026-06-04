@@ -115,6 +115,7 @@ declare global {
       mainWindow: {
         ensureVisible(): Promise<void>;
         setOnboarding(active: boolean): Promise<void>;
+        beginAuthFlow(): Promise<void>;
       };
       power: {
         onEvent(
