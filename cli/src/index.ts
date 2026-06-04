@@ -27,6 +27,7 @@ import { ssh } from "./commands/ssh";
 import { teleport } from "./commands/teleport";
 import { terminal } from "./commands/terminal";
 import { tunnel } from "./commands/tunnel";
+import { unpair } from "./commands/unpair";
 import { upgrade } from "./commands/upgrade";
 import { use } from "./commands/use";
 import { wake } from "./commands/wake";
@@ -62,6 +63,7 @@ const commands = {
   teleport,
   terminal,
   tunnel,
+  unpair,
   upgrade,
   use,
   wake,
@@ -107,6 +109,9 @@ function printHelp(): void {
   console.log("  teleport Transfer assistant data between environments");
   console.log("  terminal Open a terminal into a managed assistant container");
   console.log("  tunnel   Create a tunnel for a locally hosted assistant");
+  console.log(
+    "  unpair   Forget a paired assistant imported from another machine",
+  );
   console.log("  upgrade  Upgrade an assistant to a newer version");
   console.log("  use      Set the active assistant for commands");
   console.log("  wake     Start the assistant and gateway");
