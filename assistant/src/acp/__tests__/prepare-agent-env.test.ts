@@ -350,7 +350,9 @@ describe("prepareAgentEnv — claude-agent-acp gating", () => {
     expect(prepared.env?.ANTHROPIC_API_KEY).toBeUndefined();
   });
 
-  test("falls back to ambient process.env.ANTHROPIC_API_KEY when neither agent.env nor the vault has a credential", async () => {
+  test("LOCAL: falls back to ambient process.env.ANTHROPIC_API_KEY when neither agent.env nor the vault has a credential", async () => {
+    // beforeEach leaves IS_PLATFORM unset (local), where the ambient fallback
+    // is allowed.
     process.env.ANTHROPIC_API_KEY = "ambient-anthropic";
 
     const prepared = await prepareAgentEnv({
@@ -362,7 +364,7 @@ describe("prepareAgentEnv — claude-agent-acp gating", () => {
     expect(prepared.env?.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
   });
 
-  test("falls back to ambient process.env.CLAUDE_CODE_OAUTH_TOKEN, preferred over an ambient API key", async () => {
+  test("LOCAL: falls back to ambient process.env.CLAUDE_CODE_OAUTH_TOKEN, preferred over an ambient API key", async () => {
     process.env.CLAUDE_CODE_OAUTH_TOKEN = "ambient-oauth";
     process.env.ANTHROPIC_API_KEY = "ambient-anthropic";
 
@@ -372,6 +374,45 @@ describe("prepareAgentEnv — claude-agent-acp gating", () => {
     });
 
     expect(prepared.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe("ambient-oauth");
+    expect(prepared.env?.ANTHROPIC_API_KEY).toBeUndefined();
+  });
+
+  test("PLATFORM + ambient process.env.ANTHROPIC_API_KEY only (no agent.env, no vault) → THROWS; operator key is NOT injected", async () => {
+    // On platform-hosted pods the daemon's ambient ANTHROPIC_API_KEY is an
+    // OPERATOR/PROVIDER key, NOT the agent user's BYO credential. The ambient
+    // fallback is local-only, so on platform this key must be ignored: with no
+    // agent.env override and no user vault cred, the preflight fails fast rather
+    // than leaking the operator key into the untrusted ACP agent.
+    process.env.IS_PLATFORM = "true";
+    process.env.ANTHROPIC_API_KEY = "operator-ambient-anthropic";
+
+    await expect(
+      prepareAgentEnv({ command: "claude-agent-acp", args: [] }),
+    ).rejects.toThrow("ANTHROPIC_API_KEY");
+  });
+
+  test("PLATFORM + ambient process.env.CLAUDE_CODE_OAUTH_TOKEN only → THROWS; operator key is NOT injected", async () => {
+    process.env.IS_PLATFORM = "true";
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = "operator-ambient-oauth";
+
+    await expect(
+      prepareAgentEnv({ command: "claude-agent-acp", args: [] }),
+    ).rejects.toThrow("CLAUDE_CODE_OAUTH_TOKEN");
+  });
+
+  test("PLATFORM + ambient key but vault cred present → vault wins; ambient operator key ignored", async () => {
+    // The user's vault BYO cred is always allowed on platform; the ambient
+    // operator key must never be the resolved source.
+    process.env.IS_PLATFORM = "true";
+    process.env.ANTHROPIC_API_KEY = "operator-ambient-anthropic";
+    seedVaultToken("vault-user-oauth");
+
+    const prepared = await prepareAgentEnv({
+      command: "claude-agent-acp",
+      args: [],
+    });
+
+    expect(prepared.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe("vault-user-oauth");
     expect(prepared.env?.ANTHROPIC_API_KEY).toBeUndefined();
   });
 

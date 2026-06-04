@@ -246,7 +246,7 @@ mock.module("../../tools/credentials/broker.js", () => ({
   },
 }));
 
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
 import { getDb, getSqlite } from "../../memory/db-connection.js";
 import { initializeDb } from "../../memory/db-init.js";
@@ -846,6 +846,46 @@ describe("DELETE /v1/acp/sessions/:id", () => {
       .where(eq(acpSessionHistory.id, "sess-completed"))
       .all();
     expect(remaining).toHaveLength(0);
+  });
+
+  test("removes ALL rows for a reused session — base plus turn-suffixed `:1`/`:2`", async () => {
+    // A reused idle session persists each turn under a suffixed id
+    // (`historyRowId`: turn 0 = bare id, turn N = `<id>:N`). The single delete
+    // must remove the base row AND every turn row, not just turn 0.
+    insertHistoryRow({ id: "sess-reused", status: "completed" });
+    insertHistoryRow({ id: "sess-reused:1", status: "completed" });
+    insertHistoryRow({ id: "sess-reused:2", status: "completed" });
+    // A different session that shares the id prefix must NOT be swept.
+    insertHistoryRow({ id: "sess-reused-other", status: "completed" });
+
+    const handler = getDeleteSessionHandler();
+    const result = (await handler({
+      pathParams: { id: "sess-reused" },
+    })) as { deleted: boolean };
+    expect(result.deleted).toBe(true);
+
+    // Base + both turn rows gone.
+    expect(
+      getDb()
+        .select()
+        .from(acpSessionHistory)
+        .where(
+          inArray(acpSessionHistory.id, [
+            "sess-reused",
+            "sess-reused:1",
+            "sess-reused:2",
+          ]),
+        )
+        .all(),
+    ).toHaveLength(0);
+    // The prefix-sharing sibling is untouched.
+    expect(
+      getDb()
+        .select()
+        .from(acpSessionHistory)
+        .where(eq(acpSessionHistory.id, "sess-reused-other"))
+        .all(),
+    ).toHaveLength(1);
   });
 
   test.each([["running" as const], ["initializing" as const]])(

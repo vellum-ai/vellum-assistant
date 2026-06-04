@@ -4,7 +4,7 @@
  * Exposes spawn, steer, cancel, close, sessions, and permission operations
  * over HTTP and IPC.
  */
-import { desc, eq, inArray } from "drizzle-orm";
+import { desc, eq, inArray, like, or } from "drizzle-orm";
 import { z } from "zod";
 
 import {
@@ -379,7 +379,18 @@ function deleteSession({ pathParams }: RouteHandlerArgs) {
     // Not in memory — fall through to the (idempotent) DB delete.
   }
 
-  getDb().delete(acpSessionHistory).where(eq(acpSessionHistory.id, id)).run();
+  // Remove the base row (turn 0, bare id) AND any turn-suffixed rows a reused
+  // idle session persisted under `<id>:1`, `<id>:2`, … (see `historyRowId` in
+  // session-manager.ts). Matching only the bare id would orphan those turn
+  // rows; the bulk delete-by-status already sweeps them, but the single delete
+  // must too. `rawChanges()` may now report >1 row — fine; the contract is just
+  // `{ deleted }`.
+  getDb()
+    .delete(acpSessionHistory)
+    .where(
+      or(eq(acpSessionHistory.id, id), like(acpSessionHistory.id, `${id}:%`)),
+    )
+    .run();
   const deleted = rawChanges() > 0;
   log.info({ acpSessionId: id, deleted }, "ACP session history delete");
   return { deleted };

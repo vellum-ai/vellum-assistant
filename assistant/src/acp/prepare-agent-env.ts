@@ -116,11 +116,17 @@ async function resolveAcpCredential(
  *      (no vault/ambient OAuth over an explicit API key, and vice versa).
  *   2. Otherwise prefer the vault OAuth token, then the vault API key.
  *   3. Otherwise fall back to the ambient `process.env` OAuth token, then the
- *      ambient API key. This preserves local users who export a daemon-level
- *      `ANTHROPIC_API_KEY` / `CLAUDE_CODE_OAUTH_TOKEN`: sibling PR F1 strips
- *      the daemon's ambient env from the spawned agent, so the only way an
- *      ambient cred reaches the adapter is for us to read it here and inject
- *      it via the returned `config.env` (which survives the F1 strip).
+ *      ambient API key — but ONLY on local (non-platform) assistants. This
+ *      preserves local users who export a daemon-level `ANTHROPIC_API_KEY` /
+ *      `CLAUDE_CODE_OAUTH_TOKEN`: sibling PR F1 strips the daemon's ambient env
+ *      from the spawned agent, so the only way an ambient cred reaches the
+ *      adapter is for us to read it here and inject it via the returned
+ *      `config.env` (which survives the F1 strip). On platform-hosted pods the
+ *      daemon's ambient LLM key is an OPERATOR/PROVIDER credential, NOT the
+ *      agent user's BYO cred — injecting it would leak the operator key AND
+ *      mask a missing/broker-denied user credential, so on platform the ambient
+ *      route is skipped entirely (resolution stops at agent.env + vault and the
+ *      caller's preflight throws). This mirrors the codex-acp gating below.
  */
 async function resolveLlmCredential(
   env: Record<string, string>,
@@ -139,8 +145,16 @@ async function resolveLlmCredential(
   }
   if (env.CLAUDE_CODE_OAUTH_TOKEN || env.ANTHROPIC_API_KEY) return;
 
-  // (3) Ambient process.env: same OAuth-preferred ordering. Injected into the
+  // (3) Ambient process.env: same OAuth-preferred ordering. LOCAL-ONLY
+  // (non-platform). On platform-hosted pods the daemon's ambient
+  // CLAUDE_CODE_OAUTH_TOKEN/ANTHROPIC_API_KEY is an OPERATOR/PROVIDER key, NOT
+  // the agent user's credential. Passing it through would leak the operator key
+  // to the untrusted ACP agent AND mask a missing/broker-denied user cred, so
+  // on platform we resolve ONLY from agent.env + vault and never consult
+  // ambient env. Local dev keeps the fallback: F1 strips the daemon's ambient
+  // env from the spawned subprocess, so we re-inject it here. Injected into the
   // returned env so it survives F1's spawn-env strip.
+  if (getIsPlatform()) return;
   const ambientOAuth = process.env.CLAUDE_CODE_OAUTH_TOKEN;
   if (ambientOAuth) {
     env.CLAUDE_CODE_OAUTH_TOKEN = ambientOAuth;
@@ -210,11 +224,15 @@ async function resolveGitCredential(
  *   1. LLM auth — `CLAUDE_CODE_OAUTH_TOKEN` (preferred) OR `ANTHROPIC_API_KEY`,
  *      resolved by precedence: explicit `acp.agents.<id>.env` in `config.json`
  *      wins, then the secure store (`acp/claude_oauth_token` /
- *      `acp/anthropic_api_key`) read through the credential broker, then the
- *      ambient `process.env`. Once a source supplies a credential we never
- *      inject a competing one over it (the adapter prefers OAuth when both are
- *      set, so an explicit API key must not be shadowed by a vault/ambient
- *      OAuth token — and vice versa).
+ *      `acp/anthropic_api_key`) read through the credential broker, then —
+ *      LOCAL-ONLY (`!getIsPlatform()`) — the ambient `process.env`. On
+ *      platform-hosted pods the daemon's ambient LLM key is an OPERATOR/PROVIDER
+ *      credential, NOT the user's BYO cred, so the ambient route is skipped and
+ *      resolution stops at agent.env + vault (mirrors the codex-acp gating
+ *      below). Once a source supplies a credential we never inject a competing
+ *      one over it (the adapter prefers OAuth when both are set, so an explicit
+ *      API key must not be shadowed by a vault/ambient OAuth token — and vice
+ *      versa).
  * After resolution, this asserts at least one LLM credential is present
  * before spawning. The "fail-fast" throw is symmetric with the existing
  * `binary_not_found` preflight in `resolveAcpAgent` and strictly better
