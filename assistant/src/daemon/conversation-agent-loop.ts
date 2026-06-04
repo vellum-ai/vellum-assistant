@@ -93,7 +93,12 @@ import type { PermissionPrompter } from "../permissions/prompter.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
 import { defaultCompactionTerminal } from "../plugins/defaults/compaction/terminal.js";
-import { deepRepairHistory } from "../plugins/defaults/history-repair/terminal.js";
+import {
+  deepRepairHistory,
+  describeHistoryTail,
+  getHistoryRepairDiagnostics,
+  type HistoryRepairDiagnostics,
+} from "../plugins/defaults/history-repair/terminal.js";
 import {
   asDefaultGraphPayload,
   type DefaultMemoryRetrievalDeps,
@@ -216,6 +221,48 @@ import type { TrustContext } from "./trust-context.js";
 import { stripHistoricalWebSearchResults } from "./web-search-history.js";
 
 const log = getLogger("conversation-agent-loop");
+
+const INVALID_FINAL_ASSISTANT_TAIL_PATTERNS = [
+  /must end with a user message/i,
+  /final message.*user/i,
+  /assistant message in the final position/i,
+  /pre-?fill(?:ed)? the assistant response/i,
+];
+
+function isInvalidFinalAssistantTailError(message: string): boolean {
+  return INVALID_FINAL_ASSISTANT_TAIL_PATTERNS.some((pattern) =>
+    pattern.test(message),
+  );
+}
+
+function logSlackHistoryTailDiagnostics(args: {
+  conversationId: string;
+  requestId: string;
+  provider: string | undefined;
+  errorMessage: string;
+  matchesInvalidFinalAssistantTail: boolean;
+  phase: "initial_provider_rejection" | "deep_repair_retry_rejection";
+  logger: ReturnType<typeof getLogger>;
+  messages: Message[];
+  repairDiagnostics: HistoryRepairDiagnostics | null;
+  turnChannelContext: TurnChannelContext | null;
+}): void {
+  args.logger.warn(
+    {
+      phase: args.phase,
+      conversationId: args.conversationId,
+      requestId: args.requestId,
+      provider: args.provider,
+      providerErrorMessage: redactSecrets(args.errorMessage),
+      matchesInvalidFinalAssistantTail: args.matchesInvalidFinalAssistantTail,
+      userMessageChannel: args.turnChannelContext?.userMessageChannel,
+      assistantMessageChannel: args.turnChannelContext?.assistantMessageChannel,
+      repairDiagnostics: args.repairDiagnostics,
+      historyTail: describeHistoryTail(args.messages),
+    },
+    "Provider rejected repaired history tail during ordering recovery",
+  );
+}
 
 const DISK_PRESSURE_ERROR_CODE = "DISK_SPACE_CRITICAL" as const;
 const DISK_PRESSURE_ERROR_CATEGORY = "disk_pressure";
@@ -2005,6 +2052,8 @@ export async function runAgentLoopImpl(
       userPromptCtx,
     );
     runMessages = finalUserPromptCtx.latestMessages;
+    let historyRepairDiagnostics =
+      getHistoryRepairDiagnostics(runMessages) ?? null;
 
     let preRunHistoryLength = runMessages.length;
 
@@ -2167,6 +2216,25 @@ export async function runAgentLoopImpl(
       state.orderingErrorDetected &&
       updatedHistory.length === preRunHistoryLength
     ) {
+      const orderingErrorMessage = state.deferredOrderingError;
+      const matchesInvalidFinalAssistantTail =
+        orderingErrorMessage != null &&
+        isInvalidFinalAssistantTailError(orderingErrorMessage);
+      if (orderingErrorMessage && (isSlackConversation || matchesInvalidFinalAssistantTail)) {
+        logSlackHistoryTailDiagnostics({
+          phase: "initial_provider_rejection",
+          conversationId: ctx.conversationId,
+          requestId: reqId,
+          provider: state.exchangeProviderName ?? ctx.provider.name,
+          errorMessage: orderingErrorMessage,
+          matchesInvalidFinalAssistantTail,
+          logger: rlog,
+          messages: runMessages,
+          repairDiagnostics: historyRepairDiagnostics,
+          turnChannelContext: capturedTurnChannelContext,
+        });
+      }
+
       rlog.warn(
         { phase: "retry" },
         "Provider ordering error detected, attempting one-shot deep-repair retry",
@@ -2182,6 +2250,7 @@ export async function runAgentLoopImpl(
       // intentionally deferred until there's a concrete plugin-level use case.
       const retryRepair = deepRepairHistory(runMessages);
       runMessages = retryRepair.messages;
+      historyRepairDiagnostics = retryRepair.diagnostics;
       const retryStrip = stripHistoricalWebSearchResults(runMessages);
       runMessages = retryStrip.messages;
       preRepairMessages = runMessages;
@@ -2192,6 +2261,28 @@ export async function runAgentLoopImpl(
       updatedHistory = await runAgentLoop(runMessages);
 
       if (state.orderingErrorDetected) {
+        const retryOrderingErrorMessage = state.deferredOrderingError;
+        const retryMatchesInvalidFinalAssistantTail =
+          retryOrderingErrorMessage != null &&
+          isInvalidFinalAssistantTailError(retryOrderingErrorMessage);
+        if (
+          retryOrderingErrorMessage &&
+          (isSlackConversation || retryMatchesInvalidFinalAssistantTail)
+        ) {
+          logSlackHistoryTailDiagnostics({
+            phase: "deep_repair_retry_rejection",
+            conversationId: ctx.conversationId,
+            requestId: reqId,
+            provider: state.exchangeProviderName ?? ctx.provider.name,
+            errorMessage: retryOrderingErrorMessage,
+            matchesInvalidFinalAssistantTail:
+              retryMatchesInvalidFinalAssistantTail,
+            logger: rlog,
+            messages: runMessages,
+            repairDiagnostics: historyRepairDiagnostics,
+            turnChannelContext: capturedTurnChannelContext,
+          });
+        }
         rlog.error(
           { phase: "retry" },
           "Deep-repair retry also failed with ordering error. Consider starting a new conversation if this persists.",

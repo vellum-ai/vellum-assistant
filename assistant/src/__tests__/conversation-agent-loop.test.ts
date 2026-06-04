@@ -11,6 +11,7 @@ import type {
 import type { ContextWindowResult } from "../context/window-manager.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { defaultCompactionTerminal } from "../plugins/defaults/compaction/terminal.js";
+import type { HistoryTailSnapshot } from "../plugins/defaults/history-repair/terminal.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
@@ -36,9 +37,21 @@ let mockUiConfig: { userTimezone?: string; detectedTimezone?: string } = {};
 
 // ── Module mocks (must precede imports of the module under test) ─────
 
+const mockLoggerWarn = mock(() => {});
+const mockLoggerError = mock(() => {});
+const mockLoggerInfo = mock(() => {});
+const mockLoggerDebug = mock(() => {});
+const testLogger = {
+  warn: mockLoggerWarn,
+  error: mockLoggerError,
+  info: mockLoggerInfo,
+  debug: mockLoggerDebug,
+  trace: () => {},
+  child: () => testLogger,
+};
+
 mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
+  getLogger: () => testLogger,
 }));
 
 mock.module("../config/loader.js", () => ({
@@ -419,17 +432,117 @@ mock.module("../daemon/date-context.js", () => ({
   resolveTurnTimezoneContext: resolveTurnTimezoneContextMock,
 }));
 
-mock.module("../plugins/defaults/history-repair/terminal.js", () => ({
-  repairHistory: (msgs: Message[]) => ({
-    messages: msgs,
+const repairHistoryMock = mock((msgs: Message[]) => ({
+  messages: msgs,
+  stats: {
+    assistantToolResultsMigrated: 0,
+    missingToolResultsInserted: 0,
+    orphanToolResultsDowngraded: 0,
+    consecutiveSameRoleMerged: 0,
+  },
+  diagnostics: {
     stats: {
       assistantToolResultsMigrated: 0,
       missingToolResultsInserted: 0,
       orphanToolResultsDowngraded: 0,
       consecutiveSameRoleMerged: 0,
     },
-  }),
-  deepRepairHistory: (msgs: Message[]) => ({ messages: msgs, stats: {} }),
+    actions: {
+      migratedAssistantToolResults: false,
+      insertedSyntheticToolResults: false,
+      repairedOrphanToolResults: false,
+      mergedSameRoleMessages: false,
+    },
+  },
+}));
+const deepRepairHistoryMock = mock((msgs: Message[]) => ({
+  messages: msgs,
+  stats: {
+    assistantToolResultsMigrated: 0,
+    missingToolResultsInserted: 0,
+    orphanToolResultsDowngraded: 0,
+    consecutiveSameRoleMerged: 0,
+  },
+  diagnostics: {
+    stats: {
+      assistantToolResultsMigrated: 0,
+      missingToolResultsInserted: 0,
+      orphanToolResultsDowngraded: 0,
+      consecutiveSameRoleMerged: 0,
+    },
+    actions: {
+      migratedAssistantToolResults: false,
+      insertedSyntheticToolResults: false,
+      repairedOrphanToolResults: false,
+      mergedSameRoleMessages: false,
+    },
+  },
+}));
+const getHistoryRepairDiagnosticsMock = mock(
+  (): {
+    stats: {
+      assistantToolResultsMigrated: number;
+      missingToolResultsInserted: number;
+      orphanToolResultsDowngraded: number;
+      consecutiveSameRoleMerged: number;
+    };
+    actions: {
+      migratedAssistantToolResults: boolean;
+      insertedSyntheticToolResults: boolean;
+      repairedOrphanToolResults: boolean;
+      mergedSameRoleMessages: boolean;
+    };
+  } | null => null,
+);
+const describeHistoryTailMock = mock(
+  (): {
+    totalMessages: number;
+    tailLength: number;
+    roleSequence: Message["role"][];
+    endsWithUser: boolean;
+    consecutiveSameRoleTransitions: number;
+    pairingStats: {
+      toolUseCount: number;
+      toolResultCount: number;
+      toolUsesWithoutResult: number;
+      toolResultsWithoutUse: number;
+      syntheticToolResultCount: number;
+      assistantMessagesWithToolResults: number;
+      orphanToolResultTextCount: number;
+    };
+    tail: Array<{
+      role: Message["role"];
+      blockTypes: string[];
+      textBlockCount: number;
+      toolUseCount: number;
+      toolResultCount: number;
+      syntheticToolResultCount: number;
+      orphanToolResultTextCount: number;
+      serverToolUseCount: number;
+      webSearchToolResultCount: number;
+    }>;
+  } => ({
+  totalMessages: 0,
+  tailLength: 0,
+  roleSequence: [],
+  endsWithUser: false,
+  consecutiveSameRoleTransitions: 0,
+  pairingStats: {
+    toolUseCount: 0,
+    toolResultCount: 0,
+    toolUsesWithoutResult: 0,
+    toolResultsWithoutUse: 0,
+    syntheticToolResultCount: 0,
+    assistantMessagesWithToolResults: 0,
+    orphanToolResultTextCount: 0,
+  },
+  tail: [],
+}));
+mock.module("../plugins/defaults/history-repair/terminal.js", () => ({
+  repairHistory: repairHistoryMock,
+  deepRepairHistory: deepRepairHistoryMock,
+  getHistoryRepairDiagnostics: getHistoryRepairDiagnosticsMock,
+  describeHistoryTail: describeHistoryTailMock,
 }));
 
 const recordUsageMock = mock(() => {});
@@ -865,8 +978,16 @@ beforeEach(() => {
   mockReducerStepFn = null;
   mockOverflowAction = "fail_gracefully";
   mockDiskPressureDecision = { action: "allow-normal" };
+  mockLoggerWarn.mockClear();
+  mockLoggerError.mockClear();
+  mockLoggerInfo.mockClear();
+  mockLoggerDebug.mockClear();
   classifyDiskPressureTurnPolicyMock.mockClear();
   mockInjectionBlocks = {};
+  repairHistoryMock.mockClear();
+  deepRepairHistoryMock.mockClear();
+  getHistoryRepairDiagnosticsMock.mockClear();
+  describeHistoryTailMock.mockClear();
   recordUsageMock.mockClear();
   recordRequestLogMock.mockClear();
   backfillMessageIdOnLogsMock.mockClear();
@@ -2584,6 +2705,312 @@ describe("session-agent-loop", () => {
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
       expect(callCount).toBe(2);
+    });
+
+    test("repairs a trailing Slack assistant tail before the initial provider call", async () => {
+      const events: ServerMessage[] = [];
+      let callCount = 0;
+      const repairedDiagnostics = {
+        stats: {
+          assistantToolResultsMigrated: 0,
+          missingToolResultsInserted: 1,
+          orphanToolResultsDowngraded: 0,
+          consecutiveSameRoleMerged: 1,
+        },
+        actions: {
+          migratedAssistantToolResults: false,
+          insertedSyntheticToolResults: true,
+          repairedOrphanToolResults: false,
+          mergedSameRoleMessages: true,
+        },
+      };
+
+      repairHistoryMock.mockImplementation(() => ({
+        messages: [
+          {
+            role: "user" as const,
+            content: [{ type: "text", text: "Slack user message" }],
+          },
+          {
+            role: "assistant" as const,
+            content: [
+              {
+                type: "tool_use",
+                id: "tool-secret",
+                name: "bash",
+                input: { cmd: "echo hidden" },
+              },
+              {
+                type: "text",
+                text: "assistant trailing text should stay attached",
+              },
+            ] as ContentBlock[],
+          },
+          {
+            role: "user" as const,
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: "tool-secret",
+                content:
+                  "<synthesized_result>tool result missing from history</synthesized_result>",
+                is_error: true,
+              },
+            ] as ContentBlock[],
+          },
+        ],
+        stats: repairedDiagnostics.stats,
+        diagnostics: repairedDiagnostics,
+      }));
+      getHistoryRepairDiagnosticsMock.mockReturnValue(repairedDiagnostics);
+
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        await onEvent({ type: "llm_call_started" });
+        callCount++;
+        expect(messages.map((message) => message.role)).toEqual([
+          "user",
+          "assistant",
+          "user",
+        ]);
+        expect(messages[1].content.map((block) => block.type)).toEqual([
+          "tool_use",
+          "text",
+        ]);
+        expect(
+          messages[2].content.some(
+            (block) =>
+              block.type === "tool_result" &&
+              block.tool_use_id === "tool-secret",
+          ),
+        ).toBe(true);
+
+        onEvent({
+          type: "message_complete",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "fixed" }],
+          },
+        });
+        onEvent({
+          type: "usage",
+          inputTokens: 50,
+          outputTokens: 25,
+          model: "test-model",
+          providerDurationMs: 100,
+        });
+        return [
+          ...messages,
+          {
+            role: "assistant" as const,
+            content: [{ type: "text", text: "fixed" }] as ContentBlock[],
+          },
+        ];
+      };
+
+      const ctx = makeCtx({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Slack user message" }],
+          },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool_use",
+                id: "tool-secret",
+                name: "bash",
+                input: { cmd: "echo hidden" },
+              },
+            ],
+          },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "text",
+                text: "assistant trailing text should stay attached",
+              },
+            ],
+          },
+        ],
+        agentLoopRun,
+        channelCapabilities: {
+          channel: "slack",
+          dashboardCapable: false,
+          supportsDynamicUi: false,
+          supportsVoiceInput: false,
+          chatType: "im",
+        },
+        getTurnChannelContext: () => ({
+          userMessageChannel: "slack",
+          assistantMessageChannel: "slack",
+        }),
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+      expect(callCount).toBe(1);
+      expect(repairHistoryMock).toHaveBeenCalledTimes(1);
+      expect(deepRepairHistoryMock).not.toHaveBeenCalled();
+    });
+
+    test("logs redacted Slack tail diagnostics for final-assistant ordering failures", async () => {
+      const events: ServerMessage[] = [];
+      let callCount = 0;
+      const rawUserText = "SLACK USER SECRET SHOULD NOT APPEAR";
+      const rawAssistantText = "assistant trailing text should stay redacted";
+      const redactedTailSnapshot: HistoryTailSnapshot = {
+        totalMessages: 3,
+        tailLength: 3,
+        roleSequence: ["user", "assistant", "assistant"],
+        endsWithUser: false,
+        consecutiveSameRoleTransitions: 1,
+        pairingStats: {
+          toolUseCount: 1,
+          toolResultCount: 0,
+          toolUsesWithoutResult: 1,
+          toolResultsWithoutUse: 0,
+          syntheticToolResultCount: 0,
+          assistantMessagesWithToolResults: 0,
+          orphanToolResultTextCount: 0,
+        },
+        tail: [
+          {
+            role: "user",
+            blockTypes: ["text"],
+            textBlockCount: 1,
+            toolUseCount: 0,
+            toolResultCount: 0,
+            syntheticToolResultCount: 0,
+            orphanToolResultTextCount: 0,
+            serverToolUseCount: 0,
+            webSearchToolResultCount: 0,
+          },
+          {
+            role: "assistant",
+            blockTypes: ["tool_use"],
+            textBlockCount: 0,
+            toolUseCount: 1,
+            toolResultCount: 0,
+            syntheticToolResultCount: 0,
+            orphanToolResultTextCount: 0,
+            serverToolUseCount: 0,
+            webSearchToolResultCount: 0,
+          },
+          {
+            role: "assistant",
+            blockTypes: ["text"],
+            textBlockCount: 1,
+            toolUseCount: 0,
+            toolResultCount: 0,
+            syntheticToolResultCount: 0,
+            orphanToolResultTextCount: 0,
+            serverToolUseCount: 0,
+            webSearchToolResultCount: 0,
+          },
+        ],
+      };
+
+      getHistoryRepairDiagnosticsMock.mockReturnValue({
+        stats: {
+          assistantToolResultsMigrated: 1,
+          missingToolResultsInserted: 1,
+          orphanToolResultsDowngraded: 0,
+          consecutiveSameRoleMerged: 1,
+        },
+        actions: {
+          migratedAssistantToolResults: true,
+          insertedSyntheticToolResults: true,
+          repairedOrphanToolResults: false,
+          mergedSameRoleMessages: true,
+        },
+      });
+      describeHistoryTailMock.mockReturnValue(redactedTailSnapshot);
+
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        await onEvent({ type: "llm_call_started" });
+        callCount++;
+        if (callCount === 1) {
+          onEvent({
+            type: "error",
+            error: new Error(
+              "Anthropic API error (400): messages invalid order: conversation must end with a user message",
+            ),
+          });
+          onEvent({
+            type: "usage",
+            inputTokens: 100,
+            outputTokens: 0,
+            model: "test-model",
+            providerDurationMs: 50,
+          });
+          return messages;
+        }
+        onEvent({
+          type: "message_complete",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "fixed" }],
+          },
+        });
+        onEvent({
+          type: "usage",
+          inputTokens: 50,
+          outputTokens: 25,
+          model: "test-model",
+          providerDurationMs: 100,
+        });
+        return [
+          ...messages,
+          {
+            role: "assistant" as const,
+            content: [{ type: "text", text: "fixed" }] as ContentBlock[],
+          },
+        ];
+      };
+
+      const ctx = makeCtx({
+        messages: [
+          { role: "user", content: [{ type: "text", text: rawUserText }] },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool_use",
+                id: "tool-secret",
+                name: "bash",
+                input: { cmd: "echo hidden" },
+              },
+            ],
+          },
+          {
+            role: "assistant",
+            content: [{ type: "text", text: rawAssistantText }],
+          },
+        ],
+        agentLoopRun,
+        channelCapabilities: {
+          channel: "slack",
+          dashboardCapable: false,
+          supportsDynamicUi: false,
+          supportsVoiceInput: false,
+          chatType: "im",
+        },
+        getTurnChannelContext: () => ({
+          userMessageChannel: "slack",
+          assistantMessageChannel: "slack",
+        }),
+      });
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+      expect(callCount).toBe(2);
+      expect(getHistoryRepairDiagnosticsMock).toHaveBeenCalledTimes(1);
+      expect(describeHistoryTailMock).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(redactedTailSnapshot)).not.toContain(rawUserText);
+      expect(JSON.stringify(redactedTailSnapshot)).not.toContain(
+        rawAssistantText,
+      );
     });
 
     test("emits deferred ordering error when retry also fails", async () => {

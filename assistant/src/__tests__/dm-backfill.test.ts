@@ -38,6 +38,7 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
 
 mock.module("../runtime/gateway-client.js", () => ({
   deliverChannelReply: async () => {},
+  trackSlackActiveThread: async () => true,
 }));
 
 mock.module("../messaging/providers/slack/adapter.js", () => ({

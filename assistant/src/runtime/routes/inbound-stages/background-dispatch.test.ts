@@ -20,13 +20,27 @@ const replyDeliveryCalls: Array<{
   startFromSegment?: number;
   messageTs?: string;
 }> = [];
+const trackSlackActiveThreadCalls: Array<{
+  channelId: string;
+  threadTs: string;
+}> = [];
 let deliverChannelReplyImpl: (
   callbackUrl: string,
   payload: Record<string, unknown>,
 ) => Promise<Record<string, unknown>> = async () => ({ ok: true });
+let trackSlackActiveThreadImpl: (
+  channelId: string,
+  threadTs: string,
+) => Promise<boolean> = async () => true;
 let deliverReplyViaCallbackImpl: (
   ...args: unknown[]
 ) => Promise<void> = async () => {};
+const pendingApprovalInfos: Array<{
+  requestId: string;
+  toolName: string;
+  input: Record<string, unknown>;
+  riskLevel: string;
+}> = [];
 
 mock.module("../../../util/logger.js", () => ({
   getLogger: () =>
@@ -83,6 +97,10 @@ mock.module("../../gateway-client.js", () => ({
     deliveredChannelReplies.push({ callbackUrl, payload });
     return deliverChannelReplyImpl(callbackUrl, payload);
   },
+  trackSlackActiveThread: async (channelId: string, threadTs: string) => {
+    trackSlackActiveThreadCalls.push({ channelId, threadTs });
+    return trackSlackActiveThreadImpl(channelId, threadTs);
+  },
 }));
 
 mock.module("../channel-delivery-routes.js", () => ({
@@ -102,6 +120,24 @@ mock.module("../channel-delivery-routes.js", () => ({
     replyDeliveryCalls.push(call);
     return deliverReplyViaCallbackImpl(...args);
   },
+}));
+
+mock.module("../../channel-approvals.js", () => ({
+  buildApprovalUIMetadata: () => {
+    throw new Error("buildApprovalUIMetadata should not be called in this test");
+  },
+  getApprovalInfoByConversation: () => pendingApprovalInfos,
+  getChannelApprovalPrompt: () => null,
+}));
+
+mock.module("../../../contacts/contact-store.js", () => ({
+  findGuardianForChannel: () => ({
+    contact: { displayName: "Guardian Example" },
+  }),
+}));
+
+mock.module("../../../prompts/user-reference.js", () => ({
+  resolveGuardianName: (displayName?: string) => displayName ?? "your guardian",
 }));
 
 import type { TrustContext } from "../../../daemon/trust-context.js";
@@ -129,8 +165,11 @@ beforeEach(() => {
   operationOrder.length = 0;
   storedReplyMessageIds.length = 0;
   replyDeliveryCalls.length = 0;
+  trackSlackActiveThreadCalls.length = 0;
   deliverChannelReplyImpl = async () => ({ ok: true });
+  trackSlackActiveThreadImpl = async () => true;
   deliverReplyViaCallbackImpl = async () => {};
+  pendingApprovalInfos.length = 0;
 });
 
 describe("isBoundGuardianActor", () => {
@@ -722,6 +761,112 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
     expect(operationOrder).toEqual(["live:1", "processing-failure"]);
     expect(processingFailureEvents).toEqual([
       "evt-live-before-processing-failure",
+    ]);
+
+    clearThreadTs(conversationId);
+  });
+
+  test("activates Slack threads after trusted-contact waiting replies delivered directly to a thread", async () => {
+    const conversationId = "conv-trusted-contact-waiting-thread";
+    const channelId = "C-WAITING-THREAD";
+    const threadTs = "1700000000.000444";
+    const trustedContactTrustCtx: TrustContext = {
+      trustClass: "trusted_contact",
+      guardianExternalUserId: "guardian-1",
+      requesterExternalUserId: "trusted-contact-1",
+    } as unknown as TrustContext;
+    pendingApprovalInfos.push({
+      requestId: "req-1",
+      toolName: "web_search",
+      input: { query: "example" },
+      riskLevel: "medium",
+    });
+
+    const processMessage: MessageProcessor = async () => {
+      await flush();
+      return { messageId: "user-msg-trusted-contact" };
+    };
+
+    processChannelMessageInBackground({
+      processMessage,
+      conversationId,
+      eventId: "evt-trusted-contact-waiting-thread",
+      content: "can you ask my guardian?",
+      sourceChannel: "slack",
+      sourceInterface: "slack",
+      externalChatId: channelId,
+      trustCtx: trustedContactTrustCtx,
+      metadataHints: [],
+      chatType: "channel",
+      replyCallbackUrl: `https://example.test/deliver/slack?channel=${channelId}&threadTs=${threadTs}`,
+    });
+
+    await flush();
+
+    expect(
+      deliveredChannelReplies
+        .map((entry) => entry.payload.text)
+        .filter(Boolean),
+    ).toEqual(["Waiting for Guardian Example's approval..."]);
+    expect(trackSlackActiveThreadCalls).toEqual([
+      { channelId, threadTs },
+    ]);
+
+    clearThreadTs(conversationId);
+  });
+
+  test("retries Slack thread activation for trusted-contact waiting replies without re-delivering the waiting message", async () => {
+    const conversationId = "conv-trusted-contact-waiting-thread-retry";
+    const channelId = "C-WAITING-THREAD-RETRY";
+    const threadTs = "1700000000.000555";
+    const trustedContactTrustCtx: TrustContext = {
+      trustClass: "trusted_contact",
+      guardianExternalUserId: "guardian-1",
+      requesterExternalUserId: "trusted-contact-1",
+    } as unknown as TrustContext;
+    pendingApprovalInfos.push({
+      requestId: "req-retry-1",
+      toolName: "web_search",
+      input: { query: "example" },
+      riskLevel: "medium",
+    });
+    let activationAttempts = 0;
+    trackSlackActiveThreadImpl = async () => {
+      activationAttempts += 1;
+      return activationAttempts >= 4;
+    };
+
+    const processMessage: MessageProcessor = async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1_200));
+      return { messageId: "user-msg-trusted-contact-retry" };
+    };
+
+    processChannelMessageInBackground({
+      processMessage,
+      conversationId,
+      eventId: "evt-trusted-contact-waiting-thread-retry",
+      content: "can you ask my guardian?",
+      sourceChannel: "slack",
+      sourceInterface: "slack",
+      externalChatId: channelId,
+      trustCtx: trustedContactTrustCtx,
+      metadataHints: [],
+      chatType: "channel",
+      replyCallbackUrl: `https://example.test/deliver/slack?channel=${channelId}&threadTs=${threadTs}`,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 1_350));
+
+    expect(
+      deliveredChannelReplies
+        .map((entry) => entry.payload.text)
+        .filter(Boolean),
+    ).toEqual(["Waiting for Guardian Example's approval..."]);
+    expect(trackSlackActiveThreadCalls).toEqual([
+      { channelId, threadTs },
+      { channelId, threadTs },
+      { channelId, threadTs },
+      { channelId, threadTs },
     ]);
 
     clearThreadTs(conversationId);

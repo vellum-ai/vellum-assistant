@@ -121,6 +121,7 @@ mock.module("../runtime/gateway-client.js", () => ({
     deliveredReplies.push({ url, payload });
     return { ok: true };
   },
+  trackSlackActiveThread: async () => true,
 }));
 
 // Mock pending interactions (channel-approvals)
@@ -1087,4 +1088,3 @@ describe("cross-milestone integration checks", () => {
     expect(freshReq?.followupState).toBeNull();
   });
 });
-

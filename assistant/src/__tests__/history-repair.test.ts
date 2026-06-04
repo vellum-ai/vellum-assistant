@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
-import { deepRepairHistory } from "../plugins/defaults/history-repair/terminal.js";
-import { repairHistory } from "../plugins/defaults/history-repair/terminal.js";
+import {
+  deepRepairHistory,
+  describeHistoryTail,
+  getHistoryRepairDiagnostics,
+  repairHistory,
+} from "../plugins/defaults/history-repair/terminal.js";
 import type { Message } from "../providers/types.js";
 
 describe("repairHistory", () => {
@@ -116,7 +120,12 @@ describe("repairHistory", () => {
     const { messages: repaired, stats } = repairHistory(messages);
 
     expect(stats.missingToolResultsInserted).toBe(1);
-    expect(repaired).toHaveLength(4);
+    expect(stats.consecutiveSameRoleMerged).toBe(1);
+    expect(repaired).toHaveLength(3);
+    expect(repaired[1].content).toEqual([
+      { type: "tool_use", id: "tu_1", name: "bash", input: { cmd: "ls" } },
+      { type: "text", text: "Oops" },
+    ]);
     expect(repaired[2].role).toBe("user");
     expect(repaired[2].content[0].type).toBe("tool_result");
   });
@@ -310,20 +319,17 @@ describe("repairHistory", () => {
     expect(stats.assistantToolResultsMigrated).toBe(1);
     expect(stats.missingToolResultsInserted).toBe(0);
 
-    // assistant message should have tool_use only
+    // assistant message keeps the trailing text attached before the
+    // migrated tool_result user message is synthesized.
     expect(repaired[1].content).toEqual([
       { type: "tool_use", id: "tu_1", name: "bash", input: { cmd: "ls" } },
+      { type: "text", text: "Here are the files." },
     ]);
 
     // injected user message should carry the original result, not a synthetic error
     expect(repaired[2].role).toBe("user");
     expect(repaired[2].content).toEqual([
       { type: "tool_result", tool_use_id: "tu_1", content: "file1\nfile2" },
-    ]);
-
-    // original second assistant message follows
-    expect(repaired[3].content).toEqual([
-      { type: "text", text: "Here are the files." },
     ]);
   });
 
@@ -928,6 +934,129 @@ describe("repairHistory", () => {
       tool_use_id: "tu_1",
       is_error: true,
     });
+  });
+
+  test("exposes structural diagnostics for repaired actions without message text", () => {
+    const userSecretA = "user secret alpha";
+    const userSecretB = "user secret beta";
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: userSecretA }] },
+      { role: "user", content: [{ type: "text", text: userSecretB }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "tu_1", name: "bash", input: { cmd: "ls" } },
+          {
+            type: "tool_result",
+            tool_use_id: "tu_1",
+            content: "already captured",
+          },
+          {
+            type: "tool_use",
+            id: "tu_2",
+            name: "read",
+            input: { path: "/tmp/file.txt" },
+          },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Trailing assistant" }],
+      },
+    ];
+
+    const result = repairHistory(messages);
+    const rememberedDiagnostics = getHistoryRepairDiagnostics(result.messages);
+
+    expect(result.diagnostics).toEqual({
+      stats: {
+        assistantToolResultsMigrated: 1,
+        missingToolResultsInserted: 1,
+        orphanToolResultsDowngraded: 0,
+        consecutiveSameRoleMerged: 2,
+      },
+      actions: {
+        migratedAssistantToolResults: true,
+        insertedSyntheticToolResults: true,
+        repairedOrphanToolResults: false,
+        mergedSameRoleMessages: true,
+      },
+    });
+    expect(rememberedDiagnostics).toEqual(result.diagnostics);
+    expect(rememberedDiagnostics).not.toBe(result.diagnostics);
+    expect(JSON.stringify(result.diagnostics)).not.toContain(userSecretA);
+    expect(JSON.stringify(result.diagnostics)).not.toContain(userSecretB);
+  });
+
+  test("describes malformed trailing assistant tails structurally without raw text", () => {
+    const rawUserText = "slack user content that should stay redacted";
+    const rawAssistantText = "assistant trailing content should stay redacted";
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: rawUserText }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "tu_1", name: "bash", input: { cmd: "ls" } },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: rawAssistantText }],
+      },
+    ];
+
+    const snapshot = describeHistoryTail(messages);
+
+    expect(snapshot).toMatchObject({
+      totalMessages: 3,
+      tailLength: 3,
+      roleSequence: ["user", "assistant", "assistant"],
+      endsWithUser: false,
+      consecutiveSameRoleTransitions: 1,
+      pairingStats: {
+        toolUseCount: 1,
+        toolResultCount: 0,
+        toolUsesWithoutResult: 1,
+        toolResultsWithoutUse: 0,
+      },
+    });
+    expect(snapshot.tail).toEqual([
+      {
+        role: "user",
+        blockTypes: ["text"],
+        textBlockCount: 1,
+        toolUseCount: 0,
+        toolResultCount: 0,
+        syntheticToolResultCount: 0,
+        orphanToolResultTextCount: 0,
+        serverToolUseCount: 0,
+        webSearchToolResultCount: 0,
+      },
+      {
+        role: "assistant",
+        blockTypes: ["tool_use"],
+        textBlockCount: 0,
+        toolUseCount: 1,
+        toolResultCount: 0,
+        syntheticToolResultCount: 0,
+        orphanToolResultTextCount: 0,
+        serverToolUseCount: 0,
+        webSearchToolResultCount: 0,
+      },
+      {
+        role: "assistant",
+        blockTypes: ["text"],
+        textBlockCount: 1,
+        toolUseCount: 0,
+        toolResultCount: 0,
+        syntheticToolResultCount: 0,
+        orphanToolResultTextCount: 0,
+        serverToolUseCount: 0,
+        webSearchToolResultCount: 0,
+      },
+    ]);
+    expect(JSON.stringify(snapshot)).not.toContain(rawUserText);
+    expect(JSON.stringify(snapshot)).not.toContain(rawAssistantText);
   });
 });
 

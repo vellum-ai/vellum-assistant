@@ -16,6 +16,7 @@ mock.module("../runtime/gateway-client.js", () => ({
   deliverChannelReply: async (url: string, body: Record<string, unknown>) => {
     deliveredMessages.push({ url, body });
   },
+  trackSlackActiveThread: async () => true,
 }));
 
 import {

@@ -407,7 +407,7 @@ describe("SlackSocketModeClient thread tracking", () => {
     }
   });
 
-  test("accepts unmentioned thread replies immediately after an app mention", async () => {
+  test("does not accept unmentioned thread replies after an app mention until the assistant replies", async () => {
     const { rawDb, store } = createSlackStore();
     const emitted: NormalizedSlackEvent[] = [];
     const client = createHarness(store, (event) => emitted.push(event));
@@ -443,6 +443,69 @@ describe("SlackSocketModeClient thread tracking", () => {
       expect(emitted[0].event.source.updateId).toBe("Ev-mention");
       expect(emitted[0].threadTs).toBe("1700000000.000000");
       expect(emitted[0].event.source.threadId).toBe("1700000000.000000");
+      expect(store.hasThread("1700000000.000000")).toBe(false);
+
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-reply",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-reply",
+            event: {
+              type: "message",
+              user: "U-reply",
+              text: "following up without mentioning the bot",
+              ts: "1700000000.000200",
+              channel: "C-thread",
+              channel_type: "channel",
+              thread_ts: "1700000000.000000",
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(1);
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("accepts unmentioned thread replies after a successful assistant reply activates the thread", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+
+    try {
+      await Promise.all([
+        resolveSlackUser("U-mentioned", "xoxb-test"),
+        resolveSlackUser("U-reply", "xoxb-test"),
+      ]);
+
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-mention",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-mention",
+            event: {
+              type: "app_mention",
+              user: "U-mentioned",
+              text: "<@UBOT> can you help here?",
+              ts: "1700000000.000100",
+              channel: "C-thread",
+              thread_ts: "1700000000.000000",
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(1);
+      store.trackThread("1700000000.000000", "C-thread", 60_000);
 
       client.handleMessage(
         JSON.stringify({
@@ -478,7 +541,7 @@ describe("SlackSocketModeClient thread tracking", () => {
     }
   });
 
-  test("emits a slow app mention before its immediate thread reply", async () => {
+  test("does not admit an immediate thread reply while a slow app mention is still resolving", async () => {
     const { rawDb, store } = createSlackStore();
     const emitted: NormalizedSlackEvent[] = [];
     const client = createHarness(store, (event) => emitted.push(event));
@@ -543,15 +606,12 @@ describe("SlackSocketModeClient thread tracking", () => {
       resolveDelayedMention!(makeSlackUserResponse());
       await flushAsyncEventEmission();
 
-      expect(emitted).toHaveLength(2);
+      expect(emitted).toHaveLength(1);
       expect(emitted[0].event.source.updateId).toBe("Ev-race-mention");
       expect(emitted[0].event.message.content).toBe(
         "@Example User @Example User can you help here?",
       );
-      expect(emitted[1].event.source.updateId).toBe("Ev-race-reply");
-      expect(emitted[1].event.message.content).toBe(
-        "following up while lookup is still pending",
-      );
+      expect(store.hasThread("1700000000.000140")).toBe(false);
     } finally {
       rawDb.close();
     }
@@ -628,7 +688,7 @@ describe("SlackSocketModeClient thread tracking", () => {
     }
   });
 
-  test("accepts unmentioned thread replies after a top-level app mention", async () => {
+  test("does not accept thread replies after a top-level app mention until the assistant replies", async () => {
     const { rawDb, store } = createSlackStore();
     const emitted: NormalizedSlackEvent[] = [];
     const client = createHarness(store, (event) => emitted.push(event));
@@ -663,6 +723,68 @@ describe("SlackSocketModeClient thread tracking", () => {
       expect(emitted[0].event.source.updateId).toBe("Ev-top-level-mention");
       expect(emitted[0].threadTs).toBe("1700000000.000300");
       expect(emitted[0].event.source.threadId).toBeUndefined();
+      expect(store.hasThread("1700000000.000300")).toBe(false);
+
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-top-level-reply",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-top-level-reply",
+            event: {
+              type: "message",
+              user: "U-reply",
+              text: "following up in the new thread",
+              ts: "1700000000.000400",
+              channel: "C-thread",
+              channel_type: "channel",
+              thread_ts: "1700000000.000300",
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(1);
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("accepts thread replies after a top-level app mention once the assistant activates the new thread", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+
+    try {
+      await Promise.all([
+        resolveSlackUser("U-mentioned", "xoxb-test"),
+        resolveSlackUser("U-reply", "xoxb-test"),
+      ]);
+
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-top-level-mention",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-top-level-mention",
+            event: {
+              type: "app_mention",
+              user: "U-mentioned",
+              text: "<@UBOT> can you help here?",
+              ts: "1700000000.000300",
+              channel: "C-thread",
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(1);
+      store.trackThread("1700000000.000300", "C-thread", 60_000);
 
       client.handleMessage(
         JSON.stringify({

@@ -42,7 +42,10 @@ import {
   getApprovalInfoByConversation,
   getChannelApprovalPrompt,
 } from "../../channel-approvals.js";
-import { deliverChannelReply } from "../../gateway-client.js";
+import {
+  deliverChannelReply,
+  trackSlackActiveThread,
+} from "../../gateway-client.js";
 import type {
   ApprovalCopyGenerator,
   MessageProcessor,
@@ -820,6 +823,50 @@ function setSlackThinkingStatus(
 // ---------------------------------------------------------------------------
 
 const PENDING_APPROVAL_POLL_INTERVAL_MS = 300;
+const SLACK_DIRECT_REPLY_THREAD_ACTIVATION_ATTEMPTS = 3;
+const SLACK_DIRECT_REPLY_THREAD_ACTIVATION_RETRY_MS = 100;
+
+async function activateSlackThreadAfterDirectReply(params: {
+  sourceChannel: ChannelId;
+  replyCallbackUrl: string;
+  chatId: string;
+}): Promise<boolean> {
+  if (params.sourceChannel !== "slack") return true;
+
+  const channelId = extractChannelFromCallbackUrl(params.replyCallbackUrl);
+  const threadTs = extractThreadTsFromCallbackUrl(params.replyCallbackUrl);
+  if (!channelId || !threadTs) return true;
+
+  let lastErr: unknown;
+  for (
+    let attempt = 1;
+    attempt <= SLACK_DIRECT_REPLY_THREAD_ACTIVATION_ATTEMPTS;
+    attempt++
+  ) {
+    try {
+      if (await trackSlackActiveThread(channelId, threadTs)) {
+        return true;
+      }
+    } catch (err) {
+      lastErr = err;
+    }
+
+    if (attempt < SLACK_DIRECT_REPLY_THREAD_ACTIVATION_ATTEMPTS) {
+      await delay(SLACK_DIRECT_REPLY_THREAD_ACTIVATION_RETRY_MS);
+    }
+  }
+
+  log.warn(
+    {
+      chatId: params.chatId,
+      channelId,
+      threadTs,
+      err: lastErr,
+    },
+    "Failed to activate Slack thread after direct reply delivery",
+  );
+  return false;
+}
 
 function startPendingApprovalPromptWatcher(params: {
   conversationId: string;
@@ -860,6 +907,7 @@ function startPendingApprovalPromptWatcher(params: {
 
   let active = true;
   const deliveredRequestIds = new Set<string>();
+  const activationPendingRequestIds = new Set<string>();
 
   const poll = async (): Promise<void> => {
     while (active) {
@@ -867,9 +915,28 @@ function startPendingApprovalPromptWatcher(params: {
         const prompt = getChannelApprovalPrompt(conversationId);
         const pending = getApprovalInfoByConversation(conversationId);
         const info = pending[0];
+        const pendingRequestIds = new Set(pending.map((item) => item.requestId));
+        for (const requestId of activationPendingRequestIds) {
+          if (!pendingRequestIds.has(requestId)) {
+            activationPendingRequestIds.delete(requestId);
+          }
+        }
+
+        if (
+          info &&
+          activationPendingRequestIds.has(info.requestId) &&
+          (await activateSlackThreadAfterDirectReply({
+            sourceChannel,
+            replyCallbackUrl,
+            chatId: externalChatId,
+          }))
+        ) {
+          activationPendingRequestIds.delete(info.requestId);
+        }
+
         if (prompt && info && !deliveredRequestIds.has(info.requestId)) {
           deliveredRequestIds.add(info.requestId);
-          const delivered = await deliverGeneratedApprovalPrompt({
+          const result = await deliverGeneratedApprovalPrompt({
             replyCallbackUrl,
             chatId: externalChatId,
             sourceChannel,
@@ -883,10 +950,15 @@ function startPendingApprovalPromptWatcher(params: {
             },
             approvalCopyGenerator,
           });
-          if (!delivered) {
+          if (!result.delivered) {
             // Delivery can fail transiently (network or gateway outage).
             // Keep polling and retry prompt delivery for the same request.
             deliveredRequestIds.delete(info.requestId);
+            activationPendingRequestIds.delete(info.requestId);
+          } else if (result.activationPending) {
+            activationPendingRequestIds.add(info.requestId);
+          } else {
+            activationPendingRequestIds.delete(info.requestId);
           }
         }
       } catch (err) {
@@ -915,6 +987,7 @@ function startPendingApprovalPromptWatcher(params: {
 // concurrent pollers from different conversations from evicting each
 // other's entries.
 const globalNotifiedApprovalRequestIds = new Map<string, string>();
+const globalActivationPendingApprovalRequestIds = new Map<string, string>();
 
 /**
  * Start a poller that sends a one-shot "waiting for guardian approval" message
@@ -966,6 +1039,23 @@ function startTrustedContactApprovalNotifier(params: {
             globalNotifiedApprovalRequestIds.delete(rid);
           }
         }
+        for (const [rid, cid] of globalActivationPendingApprovalRequestIds) {
+          if (cid === conversationId && !currentPendingIds.has(rid)) {
+            globalActivationPendingApprovalRequestIds.delete(rid);
+          }
+        }
+
+        if (
+          info &&
+          globalActivationPendingApprovalRequestIds.has(info.requestId) &&
+          (await activateSlackThreadAfterDirectReply({
+            sourceChannel,
+            replyCallbackUrl,
+            chatId: externalChatId,
+          }))
+        ) {
+          globalActivationPendingApprovalRequestIds.delete(info.requestId);
+        }
 
         if (info && !globalNotifiedApprovalRequestIds.has(info.requestId)) {
           globalNotifiedApprovalRequestIds.set(info.requestId, conversationId);
@@ -980,6 +1070,19 @@ function startTrustedContactApprovalNotifier(params: {
               text: waitingText,
               assistantId: assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
             });
+            const activated = await activateSlackThreadAfterDirectReply({
+              sourceChannel,
+              replyCallbackUrl,
+              chatId: externalChatId,
+            });
+            if (!activated) {
+              globalActivationPendingApprovalRequestIds.set(
+                info.requestId,
+                conversationId,
+              );
+            } else {
+              globalActivationPendingApprovalRequestIds.delete(info.requestId);
+            }
           } catch (err) {
             log.warn(
               { err, conversationId },
@@ -987,6 +1090,7 @@ function startTrustedContactApprovalNotifier(params: {
             );
             // Remove from notified set so delivery is retried on next poll
             globalNotifiedApprovalRequestIds.delete(info.requestId);
+            globalActivationPendingApprovalRequestIds.delete(info.requestId);
           }
         }
       } catch (err) {
@@ -1008,6 +1112,11 @@ function startTrustedContactApprovalNotifier(params: {
     for (const [rid, cid] of globalNotifiedApprovalRequestIds) {
       if (cid === conversationId) {
         globalNotifiedApprovalRequestIds.delete(rid);
+      }
+    }
+    for (const [rid, cid] of globalActivationPendingApprovalRequestIds) {
+      if (cid === conversationId) {
+        globalActivationPendingApprovalRequestIds.delete(rid);
       }
     }
   };

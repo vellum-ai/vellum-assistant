@@ -86,6 +86,7 @@ mock.module("../runtime/gateway-client.js", () => ({
   ) => {
     deliveredReplies.push(payload);
   },
+  trackSlackActiveThread: async () => true,
 }));
 
 import { applyCanonicalGuardianDecision } from "../approvals/guardian-decision-primitive.js";

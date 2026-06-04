@@ -25,6 +25,7 @@ mock.module("../runtime/gateway-client.js", () => ({
     }
     deliveredMessages.push({ url, body });
   },
+  trackSlackActiveThread: async () => true,
 }));
 
 mock.module("../runtime/approval-message-composer.js", () => ({

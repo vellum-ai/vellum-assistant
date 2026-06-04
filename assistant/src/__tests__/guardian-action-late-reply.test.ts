@@ -9,6 +9,7 @@ mock.module("../util/logger.js", () => ({
 
 mock.module("../runtime/gateway-client.js", () => ({
   deliverChannelReply: async () => {},
+  trackSlackActiveThread: async () => true,
 }));
 
 import { isTerminalState } from "../calls/call-state-machine.js";

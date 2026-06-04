@@ -6,10 +6,17 @@ import {
   getMessages,
   updateMessageMetadata,
 } from "../memory/conversation-crud.js";
+import {
+  extractChannelFromCallbackUrl,
+  extractThreadTsFromCallbackUrl,
+} from "../memory/slack-thread-store.js";
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
 import { getLogger } from "../util/logger.js";
 import type { ChannelDeliveryResult } from "./gateway-client.js";
-import { deliverChannelReply } from "./gateway-client.js";
+import {
+  deliverChannelReply,
+  trackSlackActiveThread,
+} from "./gateway-client.js";
 import type { RuntimeAttachmentMetadata } from "./http-types.js";
 import {
   isSlackCallbackUrl,
@@ -19,6 +26,8 @@ import {
 const log = getLogger("channel-reply-delivery");
 
 const INTER_SEGMENT_DELAY_MS = 150;
+const SLACK_THREAD_ACTIVATION_PENDING_CODE =
+  "SLACK_THREAD_ACTIVATION_PENDING";
 
 type DeliverRenderedReplyParams = {
   callbackUrl: string;
@@ -30,8 +39,11 @@ type DeliverRenderedReplyParams = {
   interSegmentDelayMs?: number;
   /** Skip segments already delivered on a previous attempt. */
   startFromSegment?: number;
-  /** Called after each segment is successfully delivered, with the
-   *  1-based count of segments delivered so far (including prior attempts). */
+  /** Called after each successful delivery step with a 1-based progress
+   *  count. Attachment-only replies report `1` after the attachment send,
+   *  and replies whose final text segment also carries attachments report
+   *  one extra terminal count (`textSegmentCount + 1`) so retries can
+   *  distinguish "all text delivered" from "text + attachments delivered". */
   onSegmentDelivered?: (deliveredCount: number) => void;
   /**
    * When true, deliver via ephemeral messaging so only the target `user`
@@ -89,6 +101,66 @@ function hasDeliverableReply(
   );
 }
 
+type SlackActiveThreadTarget = {
+  channelId: string;
+  threadTs: string;
+};
+
+function getSlackActiveThreadTarget(
+  callbackUrl: string,
+): SlackActiveThreadTarget | null {
+  if (!isSlackCallbackUrl(callbackUrl)) {
+    return null;
+  }
+
+  const channelId = extractChannelFromCallbackUrl(callbackUrl);
+  const threadTs = extractThreadTsFromCallbackUrl(callbackUrl);
+  if (!channelId || !threadTs) {
+    return null;
+  }
+
+  return { channelId, threadTs };
+}
+
+async function activateSlackThreadIfNeeded(
+  target: SlackActiveThreadTarget | null,
+): Promise<SlackActiveThreadTarget | null> {
+  if (!target) {
+    return null;
+  }
+
+  try {
+    const tracked = await trackSlackActiveThread(
+      target.channelId,
+      target.threadTs,
+    );
+    return tracked ? null : target;
+  } catch (err) {
+    log.warn(
+      {
+        err,
+        channelId: target.channelId,
+        threadTs: target.threadTs,
+      },
+      "Slack active thread activation threw after reply delivery; deferring activation to retry path",
+    );
+    return target;
+  }
+}
+
+function throwIfSlackThreadActivationPending(
+  target: SlackActiveThreadTarget | null,
+): void {
+  if (!target) {
+    return;
+  }
+  const err = new Error(
+    `Slack active thread activation failed after reply delivery (${target.channelId}:${target.threadTs})`,
+  ) as Error & { code?: string };
+  err.code = SLACK_THREAD_ACTIVATION_PENDING_CODE;
+  throw err;
+}
+
 export async function deliverRenderedReplyViaCallback(
   params: DeliverRenderedReplyParams,
 ): Promise<void> {
@@ -114,6 +186,10 @@ export async function deliverRenderedReplyViaCallback(
   );
   const replyAttachments =
     attachments && attachments.length > 0 ? attachments : undefined;
+  const attachmentsAlreadyDelivered =
+    replyAttachments !== undefined &&
+    startFromSegment > deliverableSegments.length;
+  let pendingSlackThreadActivation = getSlackActiveThreadTarget(callbackUrl);
 
   // If the model output <no_response/> and no other deliverable text remains,
   // suppress all delivery — including attachments — so nothing is posted.
@@ -122,7 +198,7 @@ export async function deliverRenderedReplyViaCallback(
   }
 
   if (deliverableSegments.length === 0) {
-    if (replyAttachments) {
+    if (replyAttachments && !attachmentsAlreadyDelivered) {
       const result: ChannelDeliveryResult = await deliverChannelReply(
         callbackUrl,
         {
@@ -137,12 +213,24 @@ export async function deliverRenderedReplyViaCallback(
       if (result.ts) {
         onMessageTs?.(result.ts);
       }
+      pendingSlackThreadActivation = await activateSlackThreadIfNeeded(
+        pendingSlackThreadActivation,
+      );
+      onSegmentDelivered?.(1);
+      throwIfSlackThreadActivationPending(pendingSlackThreadActivation);
+      return;
+    }
+    if (attachmentsAlreadyDelivered) {
+      pendingSlackThreadActivation = await activateSlackThreadIfNeeded(
+        pendingSlackThreadActivation,
+      );
+      throwIfSlackThreadActivationPending(pendingSlackThreadActivation);
     }
     return;
   }
 
   if (startFromSegment >= deliverableSegments.length) {
-    if (replyAttachments) {
+    if (replyAttachments && !attachmentsAlreadyDelivered) {
       const result: ChannelDeliveryResult = await deliverChannelReply(
         callbackUrl,
         {
@@ -158,9 +246,19 @@ export async function deliverRenderedReplyViaCallback(
       if (deliveredTs) {
         onMessageTs?.(deliveredTs);
       }
+      pendingSlackThreadActivation = await activateSlackThreadIfNeeded(
+        pendingSlackThreadActivation,
+      );
+      onSegmentDelivered?.(deliverableSegments.length + 1);
     } else if (messageTs) {
       onMessageTs?.(messageTs);
     }
+    if (startFromSegment > 0 && (!replyAttachments || attachmentsAlreadyDelivered)) {
+      pendingSlackThreadActivation = await activateSlackThreadIfNeeded(
+        pendingSlackThreadActivation,
+      );
+    }
+    throwIfSlackThreadActivationPending(pendingSlackThreadActivation);
     return;
   }
 
@@ -194,7 +292,12 @@ export async function deliverRenderedReplyViaCallback(
       onMessageTs?.(result.ts);
     }
 
-    onSegmentDelivered?.(i + 1);
+    pendingSlackThreadActivation = await activateSlackThreadIfNeeded(
+      pendingSlackThreadActivation,
+    );
+    onSegmentDelivered?.(
+      isLastSegment && replyAttachments ? i + 2 : i + 1,
+    );
 
     // Send split messages in-order with a short gap so downstream channel
     // providers preserve the original turn ordering around tool boundaries.
@@ -202,6 +305,8 @@ export async function deliverRenderedReplyViaCallback(
       await sleep(interSegmentDelayMs);
     }
   }
+
+  throwIfSlackThreadActivationPending(pendingSlackThreadActivation);
 }
 
 export type DeliverReplyOptions = {

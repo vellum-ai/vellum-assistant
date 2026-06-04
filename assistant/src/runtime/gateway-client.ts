@@ -19,6 +19,7 @@ import {
   deliverChannelReply as _deliverChannelReply,
 } from "@vellumai/gateway-client/http-delivery";
 
+import { ipcCall } from "../ipc/gateway-client.js";
 import {
   deliverDirect,
   isDirectDelivery,
@@ -27,6 +28,7 @@ import { getLogger } from "../util/logger.js";
 import type { ApprovalUIMetadata } from "./channel-approval-types.js";
 
 const log = getLogger("gateway-client");
+const SLACK_ACTIVE_THREAD_IPC_TIMEOUT_MS = 1_000;
 
 // Re-export the error class and types so existing import sites are unchanged.
 export { ChannelDeliveryError };
@@ -62,4 +64,25 @@ export async function deliverApprovalPrompt(
     undefined,
     log,
   );
+}
+
+export async function trackSlackActiveThread(
+  channelId: string,
+  threadTs: string,
+  ttlMs?: number,
+): Promise<boolean> {
+  const result = await ipcCall(
+    "track_slack_active_thread",
+    { channelId, threadTs, ttlMs },
+    SLACK_ACTIVE_THREAD_IPC_TIMEOUT_MS,
+  );
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    log.warn(
+      { channelId, threadTs, result },
+      "Failed to activate Slack thread after successful reply delivery",
+    );
+    return false;
+  }
+
+  return (result as { tracked?: unknown }).tracked === true;
 }

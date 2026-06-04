@@ -178,7 +178,11 @@ describe("loadFromDb history repair", () => {
     const messages = conversation.getMessages();
 
     // Repair should have inserted a synthetic user message with tool_result
-    expect(messages).toHaveLength(4);
+    expect(messages).toHaveLength(3);
+    expect(messages[1].content).toEqual([
+      { type: "tool_use", id: "tu_1", name: "bash", input: { cmd: "ls" } },
+      { type: "text", text: "Done" },
+    ]);
     expect(messages[2].role).toBe("user");
     const trBlocks = messages[2].content.filter(
       (b) => b.type === "tool_result",

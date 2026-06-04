@@ -6,7 +6,6 @@ import { getLogger } from "../logger.js";
 import { fetchImpl } from "../fetch.js";
 import type { GatewayConfig } from "../config.js";
 import { SlackStore } from "../db/slack-store.js";
-import { isRejection, resolveAssistant } from "../routing/resolve-assistant.js";
 import {
   SLACK_THREAD_ALREADY_MUTED,
   SLACK_THREAD_MUTE_SUCCESS,
@@ -796,23 +795,6 @@ export class SlackSocketModeClient {
       return;
     }
 
-    if (isAppMention) {
-      const appMentionEvent = event as SlackAppMentionEvent;
-      const threadTs = appMentionEvent.thread_ts ?? appMentionEvent.ts;
-      const routing = resolveAssistant(
-        this.config.gatewayConfig,
-        appMentionEvent.channel,
-        appMentionEvent.user,
-      );
-      if (threadTs && !isRejection(routing) && appMentionEvent.channel) {
-        this.store.trackThread(
-          threadTs,
-          appMentionEvent.channel,
-          ACTIVE_THREAD_TTL_MS,
-        );
-      }
-    }
-
     this.enqueueNormalizeAndEmit(
       event,
       eventId,
@@ -1088,13 +1070,12 @@ export class SlackSocketModeClient {
       return;
     }
 
-    // Track threads only for real participation signals so follow-up replies
-    // continue after app mentions and admitted messages, without reactions,
-    // edits, or deletes arming unrelated threads.
+    // Track threads only after the assistant has already participated.
+    // App mentions alone are not enough; assistant-side delivery activates
+    // threads via IPC after a successful Slack send/update.
     const threadTs = normalized.threadTs;
     const channelId = normalized.event.message.conversationExternalId;
-    const shouldTrackActiveThread = isAppMention || isActiveThreadReply;
-    if (shouldTrackActiveThread && threadTs && channelId) {
+    if (isActiveThreadReply && threadTs && channelId) {
       this.store.trackThread(threadTs, channelId, ACTIVE_THREAD_TTL_MS);
     }
 

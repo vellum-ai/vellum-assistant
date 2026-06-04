@@ -33,6 +33,7 @@ mock.module("../runtime/gateway-client.js", () => ({
     }
     deliverReplyCalls.push({ url, payload });
   },
+  trackSlackActiveThread: async () => true,
 }));
 
 import { getDb } from "../memory/db-connection.js";
