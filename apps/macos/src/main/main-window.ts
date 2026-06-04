@@ -153,11 +153,13 @@ const createWindow = (): BrowserWindow => {
   const loadTarget = getRendererRootUrl(app.isPackaged);
 
   // Onboarding opens at the 440×630 default (matching the Swift client);
-  // the post-onboarding app restores the user's saved bounds. Both layouts
-  // are fully resizable — onboarding just starts smaller. The flag is
-  // persisted main-side so this first window is built at the correct size
-  // with no open-large-then-shrink flash; the renderer reconciles via
-  // `setOnboarding` once it knows the live route.
+  // otherwise restore the user's saved main-app bounds. Both layouts are
+  // fully resizable — onboarding just starts smaller. The persisted flag
+  // lets a relaunch *during* onboarding rebuild the small window directly
+  // (no flash); the absent-flag default is `false` (open large) so we
+  // never cramp the `/account/*` screens that render outside RootLayout —
+  // a brand-new user entering onboarding briefly sees large then the
+  // renderer's `setOnboarding` reconcile shrinks it.
   const onboardingActive = readOnboardingActive();
   const sizing = onboardingActive
     ? { ...ONBOARDING_CONTENT_SIZE, useContentSize: true }

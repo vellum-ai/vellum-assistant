@@ -21,13 +21,11 @@ interface SavedWindowState extends Rectangle {
 
 interface StoreSchema {
   windows: Record<string, SavedWindowState>;
-  // Whether the main window should open in the onboarding layout (440×630
-  // default; see `main-window.ts`). Persisted here — rather than read from
-  // the renderer's localStorage onboarding store — so the very first
-  // window of a launch is constructed at the right size with no
-  // open-large-then-shrink flash. Optional: when absent, the default is
-  // derived from saved window state (see `readOnboardingActive`) so an
-  // upgraded install that predates this key isn't forced into onboarding.
+  // Whether the main window should open in the onboarding layout (440×630)
+  // rather than the full main-app size. Persisted here — not read from the
+  // renderer's localStorage onboarding store — so the first window of a
+  // launch is built at the right size before the renderer loads. Optional:
+  // absent means "not yet decided" (see `readOnboardingActive`).
   onboardingActive?: boolean;
 }
 
@@ -44,22 +42,20 @@ const store = (): Store<StoreSchema> => {
 };
 
 /**
- * Whether the main window should open in onboarding (440×630 default)
- * mode.
+ * Whether the main window should open in onboarding (440×630) mode.
  *
- * The flag is the source of truth once written. When it's absent, the
- * default is derived from saved main-window bounds rather than assumed
- * `true`: a fresh install has no saved `windows.main` and should onboard,
- * but an install upgraded from a build that predates this key already has
- * saved bounds and is past onboarding — forcing it small would open at
- * 440×630 (and stick there on the `/account/*` routes, which render
- * outside `RootLayout` and never call the reconcile hook).
+ * The flag is the source of truth once written. When it's absent we
+ * default to `false` (open the full main-app size). The bias is
+ * deliberate: opening too large is recoverable — onboarding routes live
+ * inside `RootLayout` and the reconcile hook shrinks the window once they
+ * render — but opening too small is not, since `/account/*` routes
+ * (login, signup, OAuth callbacks) render outside `RootLayout` and never
+ * call the hook, so a too-small window there would stay cramped. The app
+ * is built for the larger size, so we err large and let onboarding shrink
+ * itself.
  */
-export const readOnboardingActive = (): boolean => {
-  const stored = store().get("onboardingActive");
-  if (typeof stored === "boolean") return stored;
-  return store().get("windows", {}).main === undefined;
-};
+export const readOnboardingActive = (): boolean =>
+  store().get("onboardingActive", false);
 
 /**
  * Persist the onboarding-window-mode flag. No-op when the effective value

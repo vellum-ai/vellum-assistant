@@ -20,7 +20,9 @@ const storeSetMock = mock((_key: string, _value: unknown) => {});
 mock.module("electron-store", () => ({
   default: class {
     get(key: string, fallback?: unknown) {
-      if (key === "onboardingActive") return savedOnboardingActive;
+      // Mirror electron-store: return the stored value, or the fallback
+      // when the key is absent.
+      if (key === "onboardingActive") return savedOnboardingActive ?? fallback;
       if (key === "windows") return savedWindows;
       return fallback;
     }
@@ -213,13 +215,15 @@ describe("track persistence gating", () => {
 });
 
 describe("readOnboardingActive default", () => {
-  test("fresh install (no flag, no saved main window) → onboarding", () => {
+  test("absent flag defaults to false — open large, not onboarding", () => {
+    // Erring large is recoverable (onboarding self-shrinks via the hook);
+    // erring small would strand the out-of-RootLayout /account/* screens.
     savedOnboardingActive = undefined;
     savedWindows = {};
-    expect(readOnboardingActive()).toBe(true);
+    expect(readOnboardingActive()).toBe(false);
   });
 
-  test("upgraded install (no flag, but saved main window) → not onboarding", () => {
+  test("absent flag stays false regardless of saved window state", () => {
     savedOnboardingActive = undefined;
     savedWindows.main = {
       x: 0,
@@ -231,32 +235,18 @@ describe("readOnboardingActive default", () => {
     expect(readOnboardingActive()).toBe(false);
   });
 
-  test("an explicit persisted flag wins over the derived default", () => {
-    savedWindows.main = {
-      x: 0,
-      y: 0,
-      width: 1000,
-      height: 700,
-      isFullScreen: false,
-    };
+  test("an explicit persisted flag wins over the default", () => {
     savedOnboardingActive = true;
     expect(readOnboardingActive()).toBe(true);
 
     savedOnboardingActive = false;
-    savedWindows = {};
     expect(readOnboardingActive()).toBe(false);
   });
 
   test("writeOnboardingActive skips persisting when the effective value is unchanged", () => {
-    // Upgraded install: derived default is already `false`, so re-asserting
-    // `false` must not write.
-    savedWindows.main = {
-      x: 0,
-      y: 0,
-      width: 1000,
-      height: 700,
-      isFullScreen: false,
-    };
+    // Absent flag → effective value is already `false`, so re-asserting
+    // `false` must not write; flipping to `true` does.
+    savedOnboardingActive = undefined;
     writeOnboardingActive(false);
     expect(storeSetMock).not.toHaveBeenCalled();
 
