@@ -187,6 +187,7 @@ export async function fetchHeartbeatRuns(
     );
   }
   return (data?.runs ?? []).map((run) => ({
+    ...run,
     id: run.id,
     jobId: "heartbeat",
     status: run.status,

@@ -4,6 +4,7 @@ import {
   Calendar,
   ChevronRight,
   Loader2,
+  MessageSquare,
   Play,
   Plus,
   Trash2,
@@ -72,6 +73,48 @@ function formatDuration(ms: number | null | undefined): string {
   if (ms == null) return "—";
   if (ms < 1000) return `${ms}ms`;
   return `${(ms / 1000).toFixed(1)}s`;
+}
+
+const costFormatter = new Intl.NumberFormat(undefined, {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 4,
+});
+
+export function formatScheduleCost(cost: number | null | undefined): string {
+  if (cost == null || !Number.isFinite(cost)) return "—";
+  return costFormatter.format(cost);
+}
+
+export function canOpenScheduleSourceConversation(schedule: Schedule): boolean {
+  return (
+    !!schedule.createdFromConversationId &&
+    schedule.createdFromConversationExists === true &&
+    schedule.createdFromConversationArchivedAt == null
+  );
+}
+
+export function canOpenScheduleRunConversation(run: ScheduleRun): boolean {
+  return (
+    !!run.conversationId &&
+    run.conversationExists === true &&
+    run.conversationArchivedAt == null
+  );
+}
+
+function getOpenableScheduleSourceConversationId(
+  schedule: Schedule,
+): string | null {
+  return canOpenScheduleSourceConversation(schedule)
+    ? (schedule.createdFromConversationId ?? null)
+    : null;
+}
+
+function getOpenableScheduleRunConversationId(run: ScheduleRun): string | null {
+  return canOpenScheduleRunConversation(run)
+    ? (run.conversationId ?? null)
+    : null;
 }
 
 function formatInterval(ms: number): string {
@@ -181,82 +224,19 @@ function UnknownScheduleState({ onBack }: { onBack: () => void }) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Run log view
-// ---------------------------------------------------------------------------
-
-function RunLogView({ run, onBack }: { run: ScheduleRun; onBack: () => void }) {
-  return (
-    <div className="mx-auto max-w-[940px] space-y-4">
-      <button
-        type="button"
-        onClick={onBack}
-        className="flex items-center gap-1.5 text-body-medium-lighter text-[var(--content-secondary)] hover:text-[var(--content-default)] transition-colors"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Back to runs
-      </button>
-
-      <DetailCard title="Run details">
-        <div className="space-y-3 text-body-medium-lighter">
-          <div className="flex items-center justify-between">
-            <span className="text-[var(--content-secondary)]">Status</span>
-            <span className="flex items-center gap-2">
-              <StatusDot status={run.status} />
-              {run.status}
-            </span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-[var(--content-secondary)]">Started</span>
-            <span>{formatTimestamp(run.startedAt)}</span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-[var(--content-secondary)]">Duration</span>
-            <span>{formatDuration(run.durationMs)}</span>
-          </div>
-        </div>
-      </DetailCard>
-
-      {run.output && (
-        <DetailCard title="Output">
-          <pre className="max-h-80 overflow-auto rounded-md bg-[var(--surface-sunken)] p-3 text-body-small-default font-mono text-[var(--content-default)] whitespace-pre-wrap break-all">
-            {run.output}
-          </pre>
-        </DetailCard>
-      )}
-
-      {run.error && (
-        <DetailCard title="Error">
-          <pre className="max-h-80 overflow-auto rounded-md bg-[var(--system-negative-weak)] p-3 text-body-small-default font-mono text-[var(--system-negative-strong)] whitespace-pre-wrap break-all">
-            {run.error}
-          </pre>
-        </DetailCard>
-      )}
-
-      {!run.output && !run.error && (
-        <DetailCard>
-          <p className="text-body-medium-lighter text-[var(--content-tertiary)] italic">
-            No output or errors captured for this run.
-          </p>
-        </DetailCard>
-      )}
-    </div>
-  );
-}
-
 interface RecentRunsCardProps {
   runs: ScheduleRun[] | undefined;
   isLoading: boolean;
-  onSelectRun: (run: ScheduleRun) => void;
   emptyMessage?: string;
 }
 
 function RecentRunsCard({
   runs,
   isLoading,
-  onSelectRun,
   emptyMessage = "No runs yet.",
 }: RecentRunsCardProps) {
+  const navigate = useNavigate();
+
   return (
     <DetailCard title="Recent runs">
       {isLoading ? (
@@ -269,35 +249,44 @@ function RecentRunsCard({
         </p>
       ) : (
         <div className="divide-y divide-[var(--border-base)]">
-          {runs.map((run) => (
-            <PanelItem
-              key={run.id}
-              asChild
-              label={`Run at ${formatTimestamp(run.startedAt)}`}
-              className="h-auto py-2.5 gap-3 -mx-2 px-2"
-            >
-              <button type="button" onClick={() => onSelectRun(run)}>
-                <span className="flex min-w-0 flex-1 items-center gap-3">
-                  <StatusDot status={run.status} />
-                  <div className="min-w-0 flex-1">
-                    <div className="text-body-medium-lighter text-[var(--content-default)]">
-                      {formatTimestamp(run.startedAt)}
-                    </div>
-                    <div className="text-body-small-default text-[var(--content-tertiary)]">
-                      {formatDuration(run.durationMs)}
-                      {run.status === "error" && run.error && (
-                        <span className="ml-2 text-[var(--system-negative-strong)]">
-                          {run.error.slice(0, 80)}
-                          {run.error.length > 80 ? "…" : ""}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </span>
-                <ChevronRight className="h-4 w-4 shrink-0 text-[var(--content-tertiary)]" />
-              </button>
-            </PanelItem>
-          ))}
+          {runs.map((run) => {
+            const conversationId = getOpenableScheduleRunConversationId(run);
+            return (
+              <PanelItem
+                key={run.id}
+                label={
+                  <span className="flex min-w-0 flex-1 items-center gap-3">
+                    <StatusDot status={run.status} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-body-medium-lighter text-[var(--content-default)]">
+                        {formatTimestamp(run.startedAt)}
+                      </span>
+                      <span className="block text-body-small-default text-[var(--content-tertiary)]">
+                        {formatDuration(run.durationMs)} ·{" "}
+                        {formatScheduleCost(run.estimatedCostUsd)}
+                        {run.status === "error" && run.error && (
+                          <span className="ml-2 text-[var(--system-negative-strong)]">
+                            {run.error.slice(0, 80)}
+                            {run.error.length > 80 ? "…" : ""}
+                          </span>
+                        )}
+                      </span>
+                    </span>
+                    {conversationId ? (
+                      <ChevronRight className="h-4 w-4 shrink-0 text-[var(--content-tertiary)]" />
+                    ) : null}
+                  </span>
+                }
+                onSelect={
+                  conversationId
+                    ? () => navigate(routes.conversation(conversationId))
+                    : undefined
+                }
+                aria-label={`Run at ${formatTimestamp(run.startedAt)}`}
+                className="h-auto py-2.5 gap-3 -mx-2 px-2"
+              />
+            );
+          })}
         </div>
       )}
     </DetailCard>
@@ -439,7 +428,7 @@ export function ScheduleDetailView({
   onDeleted: () => void;
   onUpdated: () => void;
 }) {
-  const [selectedRun, setSelectedRun] = useState<ScheduleRun | null>(null);
+  const navigate = useNavigate();
 
   const {
     data: runs,
@@ -482,9 +471,8 @@ export function ScheduleDetailView({
     }
   }, [assistantId, schedule.id, onDeleted]);
 
-  if (selectedRun) {
-    return <RunLogView run={selectedRun} onBack={() => setSelectedRun(null)} />;
-  }
+  const sourceConversationId =
+    getOpenableScheduleSourceConversationId(schedule);
 
   return (
     <div className="mx-auto max-w-[940px] space-y-4">
@@ -505,6 +493,18 @@ export function ScheduleDetailView({
             <Tag tone={MODE_TONE[schedule.mode] ?? "neutral"}>
               {schedule.mode}
             </Tag>
+            {sourceConversationId ? (
+              <Button
+                variant="outlined"
+                size="compact"
+                leftIcon={<MessageSquare className="h-3.5 w-3.5" />}
+                onClick={() =>
+                  navigate(routes.conversation(sourceConversationId))
+                }
+              >
+                Source
+              </Button>
+            ) : null}
             {schedule.mode === "script" && (
               <Button
                 variant="outlined"
@@ -566,7 +566,6 @@ export function ScheduleDetailView({
       <RecentRunsCard
         runs={runs}
         isLoading={isLoading}
-        onSelectRun={setSelectedRun}
       />
 
       <DetailCard title="Danger zone">
@@ -732,8 +731,6 @@ function SystemTaskDetailView({
   onBack,
   onRunNow,
 }: SystemTaskDetailViewProps) {
-  const [selectedRun, setSelectedRun] = useState<ScheduleRun | null>(null);
-
   const { data: runs, isLoading } = useQuery({
     queryKey: ["system-task-runs", assistantId, kind],
     queryFn: () =>
@@ -741,10 +738,6 @@ function SystemTaskDetailView({
     enabled: kind === "heartbeat",
     staleTime: 10_000,
   });
-
-  if (selectedRun) {
-    return <RunLogView run={selectedRun} onBack={() => setSelectedRun(null)} />;
-  }
 
   return (
     <div className="mx-auto max-w-[940px] space-y-4">
@@ -800,7 +793,6 @@ function SystemTaskDetailView({
       <RecentRunsCard
         runs={kind === "heartbeat" ? runs : []}
         isLoading={kind === "heartbeat" ? isLoading : false}
-        onSelectRun={setSelectedRun}
         emptyMessage={
           kind === "heartbeat"
             ? "No runs yet."
