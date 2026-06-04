@@ -145,4 +145,104 @@ describe("pair command", () => {
     // Resolution succeeded (no exit), so the mint request was made.
     expect(fetchCalled).toBe(true);
   });
+
+  test("refuses to advertise a loopback URL without --url", async () => {
+    // Local hatch: runtimeUrl is itself loopback.
+    writeFileSync(
+      join(testDir, ".vellum.lock.json"),
+      JSON.stringify({
+        assistants: [
+          {
+            assistantId: "pair-test",
+            runtimeUrl: LOCAL_URL,
+            localUrl: LOCAL_URL,
+            cloud: "local",
+          },
+        ],
+        activeAssistant: "pair-test",
+      }),
+    );
+
+    let fetchCalled = false;
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      fetchCalled = true;
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+    const errSpy = spyOn(console, "error").mockImplementation(() => {});
+    const exitSpy = spyOn(process, "exit").mockImplementation(((
+      code?: number,
+    ) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+
+    process.argv = ["bun", "vellum", "pair"];
+    let exited = false;
+    try {
+      await pair();
+    } catch (e) {
+      exited = (e as Error).message === "exit:1";
+    } finally {
+      errSpy.mockRestore();
+      exitSpy.mockRestore();
+      globalThis.fetch = origFetch;
+    }
+
+    // Exited with an error before minting — no token created for a dead URL.
+    expect(exited).toBe(true);
+    expect(fetchCalled).toBe(false);
+  });
+
+  test("--url override allows pairing even when the runtime URL is loopback", async () => {
+    writeFileSync(
+      join(testDir, ".vellum.lock.json"),
+      JSON.stringify({
+        assistants: [
+          {
+            assistantId: "pair-test",
+            runtimeUrl: LOCAL_URL,
+            localUrl: LOCAL_URL,
+            cloud: "local",
+          },
+        ],
+        activeAssistant: "pair-test",
+      }),
+    );
+
+    const calls: Array<[string, RequestInit]> = [];
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string, init: RequestInit) => {
+      calls.push([url, init]);
+      return new Response(
+        JSON.stringify({
+          token: "t",
+          expiresAt: "2026-06-04T00:00:00.000Z",
+          guardianId: "g",
+          assistantId: "self",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+    const logs: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation(
+      (...a: unknown[]) => {
+        logs.push(a.join(" "));
+      },
+    );
+
+    const OVERRIDE = "https://abc123.ngrok.app";
+    process.argv = ["bun", "vellum", "pair", "--url", OVERRIDE, "--json"];
+    try {
+      await pair();
+    } finally {
+      logSpy.mockRestore();
+      globalThis.fetch = origFetch;
+    }
+
+    // Mint still over loopback; bundle advertises the override.
+    expect(calls).toHaveLength(1);
+    expect(calls[0][0]).toBe(`${LOCAL_URL}/v1/pair`);
+    const out = JSON.parse(logs.join("\n"));
+    expect(out.gatewayUrl).toBe(OVERRIDE);
+  });
 });

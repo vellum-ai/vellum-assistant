@@ -25,6 +25,16 @@ import {
   getClientRegistrationHeaders,
 } from "../lib/client-identity.js";
 import { GATEWAY_PORT } from "../lib/constants.js";
+import { getLocalLanIPv4 } from "../lib/local.js";
+
+function isLoopbackHost(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return host === "localhost" || host === "::1" || host.startsWith("127.");
+  } catch {
+    return false;
+  }
+}
 
 function printUsage(): void {
   console.log(`vellum pair - Mint a device-scoped token for another machine
@@ -105,6 +115,25 @@ export async function pair(): Promise<void> {
     /\/+$/,
     "",
   );
+
+  // A local hatch's runtimeUrl is itself loopback (http://localhost:<port>),
+  // so without an explicit --url the bundle would point the other machine at
+  // its own localhost. Refuse to advertise a loopback URL unless the user
+  // explicitly passed one. (An explicit --url is trusted as-is.)
+  if (!urlOverride && isLoopbackHost(advertisedUrl)) {
+    const lan = getLocalLanIPv4();
+    const suggestion = lan
+      ? `http://${lan}:${GATEWAY_PORT}`
+      : "http://<this-machine-ip>:" + GATEWAY_PORT;
+    console.error(
+      "Error: this assistant has no reachable gateway URL — its address is " +
+        `loopback (${advertisedUrl}), which the other machine can't connect to.`,
+    );
+    console.error(
+      `Re-run with a reachable URL, e.g.:\n  vellum pair --url ${suggestion}`,
+    );
+    process.exit(1);
+  }
 
   // Fresh per-pairing device identity — each `vellum pair` is independently
   // revocable.
