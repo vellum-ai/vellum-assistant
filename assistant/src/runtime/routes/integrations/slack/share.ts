@@ -5,6 +5,8 @@
  * without going through the legacy Slack share flow.
  */
 
+import { z } from "zod";
+
 import { getApp } from "../../../../memory/app-store.js";
 import {
   listConversations,
@@ -29,12 +31,24 @@ const log = getLogger("slack-share");
 // GET /v1/slack/channels
 // ---------------------------------------------------------------------------
 
-interface NormalizedChannel {
-  id: string;
-  name: string;
-  type: "channel" | "group" | "dm";
-  isPrivate: boolean;
-}
+const NormalizedChannelSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  type: z.enum(["channel", "group", "dm"]),
+  isPrivate: z.boolean(),
+});
+
+type NormalizedChannel = z.infer<typeof NormalizedChannelSchema>;
+
+const SlackChannelsListResultSchema = z.object({
+  channels: z.array(NormalizedChannelSchema),
+});
+
+const SlackShareResultSchema = z.object({
+  ok: z.boolean(),
+  ts: z.string(),
+  channel: z.string(),
+});
 
 function classifyConversation(
   conv: SlackConversation,
@@ -205,6 +219,7 @@ export const ROUTES: RouteDefinition[] = [
     summary: "List Slack channels",
     description: "List Slack channels, groups, and DMs for the channel picker.",
     tags: ["integrations"],
+    responseBody: SlackChannelsListResultSchema,
     handler: () => handleListSlackChannels(),
   },
   {
@@ -218,6 +233,12 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Share to Slack channel",
     description: "Post an app link directly to a Slack channel.",
     tags: ["integrations"],
+    requestBody: z.object({
+      appId: z.string().describe("App to share"),
+      channelId: z.string().describe("Target Slack channel ID"),
+      message: z.string().optional().describe("Optional accompanying message"),
+    }),
+    responseBody: SlackShareResultSchema,
     handler: handleShareToSlackChannel,
   },
 ];
