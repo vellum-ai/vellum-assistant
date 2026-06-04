@@ -90,9 +90,11 @@ mock.module("../../tools/credentials/broker.js", () => ({
       }
       const value = vaultStore.get(key);
       if (!value) {
+        // Mirror the real broker's not-found sentinel verbatim so the helper's
+        // miss-vs-denial classification is exercised against the same wording.
         return {
           success: false,
-          reason: `No stored value for ${key}`,
+          reason: `Credential metadata exists but no stored value for ${key}`,
         };
       }
       const result = await request.execute(value);
@@ -219,6 +221,36 @@ describe("prepareAgentEnv — claude-agent-acp gating", () => {
 
     const meta = metadataStore.get("acp/claude_oauth_token");
     expect(meta!.allowedTools).toEqual(["other_tool"]);
+  });
+
+  test("LOCAL: a broker POLICY DENIAL on the OAuth field THROWS and does NOT fall through to the ambient process.env key", async () => {
+    // The OAuth credential IS stored but its policy excludes acp_spawn (the user
+    // explicitly blocked ACP agent access). A daemon-level ambient key is also
+    // present. On LOCAL the ambient fallback is normally allowed, but a policy
+    // DENIAL must stop the chain so the operator/ambient key is never injected
+    // and the denial is not silently masked. (P2 policy-bypass fix.)
+    metadataStore.set("acp/claude_oauth_token", {
+      allowedTools: ["other_tool"],
+    });
+    seedVaultToken("vault-restricted");
+    process.env.ANTHROPIC_API_KEY = "ambient-anthropic-should-not-leak";
+
+    await expect(
+      prepareAgentEnv({ command: "claude-agent-acp", args: [] }),
+    ).rejects.toThrow("acp_spawn");
+  });
+
+  test("LOCAL: a genuine MISS still falls through to the ambient key (denial-vs-miss distinction)", async () => {
+    // No stored credential at all (a MISS, not a denial). The ambient fallback
+    // remains intact for genuine misses — only policy denials stop the chain.
+    process.env.ANTHROPIC_API_KEY = "ambient-anthropic";
+
+    const prepared = await prepareAgentEnv({
+      command: "claude-agent-acp",
+      args: [],
+    });
+
+    expect(prepared.env?.ANTHROPIC_API_KEY).toBe("ambient-anthropic");
   });
 
   test("accepts CLAUDE_CODE_OAUTH_TOKEN from agent.env (config.json override) with no vault entry", async () => {
@@ -622,6 +654,20 @@ describe("prepareAgentEnv — codex-acp gating", () => {
 
     const meta = metadataStore.get("acp/openai_api_key");
     expect(meta!.allowedTools).toEqual(["other_tool"]);
+  });
+
+  test("LOCAL: a broker POLICY DENIAL THROWS and does NOT fall through to the ambient process.env key", async () => {
+    // The OpenAI key IS stored but its policy excludes acp_spawn, and a
+    // daemon-level ambient key is present. On LOCAL the ambient fallback is
+    // normally allowed, but a policy DENIAL must stop the chain so the
+    // operator/ambient key is never injected and the denial is not masked.
+    metadataStore.set("acp/openai_api_key", { allowedTools: ["other_tool"] });
+    seedVaultOpenAiKey("vault-openai-restricted");
+    process.env.OPENAI_API_KEY = "ambient-openai-should-not-leak";
+
+    await expect(
+      prepareAgentEnv({ command: "codex-acp", args: [] }),
+    ).rejects.toThrow("acp_spawn");
   });
 
   test("accepts OPENAI_API_KEY from agent.env (config.json override) with no vault entry", async () => {

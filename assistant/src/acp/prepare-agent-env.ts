@@ -72,11 +72,53 @@ function ensureAcpTokenPolicy(field: string, usageDescription: string): void {
 }
 
 /**
+ * Tri-state outcome of a broker-mediated `acp/<field>` credential read.
+ *
+ *  - `injected`: the credential resolved and was written into `env` (this also
+ *    covers the no-op short-circuit where the caller already supplied the var
+ *    via `agent.env` — nothing more to do up the chain).
+ *  - `missing`: a genuine MISS — no credential is stored for this field (or its
+ *    metadata exists but no value). The caller MAY fall through to a
+ *    lower-precedence source (another vault field, or the ambient `process.env`).
+ *  - `denied`: a POLICY DENIAL — the credential IS stored but its tool policy
+ *    blocks `acp_spawn` (the user/admin explicitly excluded ACP agent access),
+ *    or any other non-miss broker failure. The caller MUST STOP and never fall
+ *    through to an ambient/operator key, so a denied policy can't be silently
+ *    masked by a daemon-level credential.
+ */
+type AcpCredentialOutcome = "injected" | "missing" | "denied";
+
+/**
+ * Sentinel prefix the broker's `serverUse` uses for a genuine MISS (no metadata
+ * stored, or metadata-without-value). The broker only surfaces a string `reason`
+ * on failure — there is no machine-readable code field — so we match this
+ * not-found sentinel and treat any OTHER `success:false` (tool-policy denial,
+ * domain restriction, …) as a DENIAL. This is the conservative direction:
+ * ambiguous failures stop the chain rather than falling through to ambient keys.
+ * Kept in sync with `CredentialBroker.serverUse` in `tools/credentials/broker.ts`.
+ */
+const BROKER_MISS_REASON_PREFIXES = [
+  "No credential found for ",
+  "Credential metadata exists but no stored value for ",
+] as const;
+
+function isBrokerMiss(reason: string | undefined): boolean {
+  return BROKER_MISS_REASON_PREFIXES.some((prefix) =>
+    (reason ?? "").startsWith(prefix),
+  );
+}
+
+/**
  * Resolve a broker-stored `acp/<field>` credential into one or more env vars
  * unless the caller already supplied any of them via `agent.env`. Mirrors the
  * OAuth-token resolution: seed the read policy, then read through the broker
  * (which only runs `execute` on a successful, policy-allowed read). config.json
  * overrides always win, so we never clobber an explicit user-supplied value.
+ *
+ * Returns a tri-state {@link AcpCredentialOutcome} so callers can distinguish a
+ * genuine MISS (fall through to the next source) from a POLICY DENIAL (STOP —
+ * never fall through to an ambient/operator key). A `success:false` whose reason
+ * is the broker's not-found sentinel is a miss; any other failure is a denial.
  *
  * `envVars` is a list so a single vault value can populate every var an adapter
  * accepts — e.g. codex reads its API key from BOTH `OPENAI_API_KEY` and
@@ -88,10 +130,10 @@ async function resolveAcpCredential(
   env: Record<string, string>,
   envVars: string[],
   field: keyof typeof LINKABLE_FIELD_DESCRIPTIONS,
-): Promise<void> {
-  if (envVars.some((v) => env[v])) return;
+): Promise<AcpCredentialOutcome> {
+  if (envVars.some((v) => env[v])) return "injected";
   ensureAcpTokenPolicy(field, LINKABLE_FIELD_DESCRIPTIONS[field]);
-  await credentialBroker.serverUse<void>({
+  const result = await credentialBroker.serverUse<void>({
     service: "acp",
     field,
     toolName: ACP_SPAWN_TOOL,
@@ -99,6 +141,24 @@ async function resolveAcpCredential(
       for (const envVar of envVars) env[envVar] = value;
     },
   });
+  if (result.success) return "injected";
+  return isBrokerMiss(result.reason) ? "missing" : "denied";
+}
+
+/**
+ * Throw a `FailedDependencyError` explaining that the credential exists but its
+ * tool policy blocks `acp_spawn`. Surfaced when a broker read returns a DENIAL
+ * so the denial is never silently masked by an ambient/operator key.
+ */
+function throwAcpPolicyDenied(envVars: string[], field: string): never {
+  throw new FailedDependencyError(
+    `The acp/${field} credential exists but its tool policy blocks acp_spawn, ` +
+      `so it cannot be injected as ${envVars.join("/")}. The ambient/operator ` +
+      "credential is intentionally NOT used as a fallback. Allow acp_spawn on " +
+      `this credential (assistant credentials set --service acp --field ${field} ` +
+      "--allowed-tools acp_spawn ...) or supply the credential via " +
+      "acp.agents.<id>.env in config.json.",
+  );
 }
 
 /**
@@ -135,13 +195,29 @@ async function resolveLlmCredential(
   if (env.CLAUDE_CODE_OAUTH_TOKEN || env.ANTHROPIC_API_KEY) return;
 
   // (2) Vault: prefer the OAuth token, fall back to an Anthropic API key.
-  await resolveAcpCredential(
+  //
+  // A broker POLICY DENIAL on EITHER field stops the whole chain: the stored
+  // credential's policy explicitly blocks acp_spawn, so we must NOT fall
+  // through to the OTHER vault field or to the ambient/operator key (which
+  // would silently mask the denial). A genuine MISS on the OAuth field falls
+  // through to the API key, and a MISS on both falls through to ambient below.
+  const oauthOutcome = await resolveAcpCredential(
     env,
     ["CLAUDE_CODE_OAUTH_TOKEN"],
     "claude_oauth_token",
   );
+  if (oauthOutcome === "denied") {
+    throwAcpPolicyDenied(["CLAUDE_CODE_OAUTH_TOKEN"], "claude_oauth_token");
+  }
   if (!env.CLAUDE_CODE_OAUTH_TOKEN) {
-    await resolveAcpCredential(env, ["ANTHROPIC_API_KEY"], "anthropic_api_key");
+    const apiKeyOutcome = await resolveAcpCredential(
+      env,
+      ["ANTHROPIC_API_KEY"],
+      "anthropic_api_key",
+    );
+    if (apiKeyOutcome === "denied") {
+      throwAcpPolicyDenied(["ANTHROPIC_API_KEY"], "anthropic_api_key");
+    }
   }
   if (env.CLAUDE_CODE_OAUTH_TOKEN || env.ANTHROPIC_API_KEY) return;
 
@@ -311,11 +387,17 @@ export async function prepareAgentEnv(
     // A config.json env override (under either var) wins over the vault, so
     // explicit per-workspace/rotated keys are never silently clobbered. One
     // vault `acp/openai_api_key` read fills BOTH vars (shared helper).
-    await resolveAcpCredential(
+    // A broker POLICY DENIAL stops the chain: the stored key's policy blocks
+    // acp_spawn, so we must NOT fall through to the ambient/operator key (which
+    // would silently mask the denial). A genuine MISS falls through normally.
+    const codexOutcome = await resolveAcpCredential(
       env,
       ["OPENAI_API_KEY", "CODEX_API_KEY"],
       "openai_api_key",
     );
+    if (codexOutcome === "denied") {
+      throwAcpPolicyDenied(["OPENAI_API_KEY", "CODEX_API_KEY"], "openai_api_key");
+    }
     if (!env.OPENAI_API_KEY && !env.CODEX_API_KEY && !getIsPlatform()) {
       // Lowest-precedence fallback: the daemon's ambient process.env. This is
       // LOCAL-ONLY (non-platform). On platform-hosted pods the daemon's
