@@ -1,13 +1,16 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { createElement } from "react";
 
+import * as schedulesApi from "@/domains/settings/api/schedules";
 import { routes } from "@/utils/routes";
 
 import type {
   Schedule,
   ScheduleRun,
+  ScheduleUsageSummary,
 } from "@/domains/settings/types/schedules";
+import type { ScheduleUsageSummaryRange } from "@/domains/settings/api/schedules";
 
 const navigateCalls: string[] = [];
 const navigateMock = (to: string) => {
@@ -19,16 +22,34 @@ mock.module("react-router", () => ({
   useParams: () => ({}),
 }));
 
+const fetchScheduleUsageSummaryMock = mock(
+  async (
+    _assistantId: string,
+    _range: ScheduleUsageSummaryRange,
+  ): Promise<ScheduleUsageSummary[]> => [],
+);
+let nowSpy: ReturnType<typeof spyOn> | null = null;
+
+mock.module("@/domains/settings/api/schedules", () => ({
+  ...schedulesApi,
+  fetchScheduleUsageSummary: fetchScheduleUsageSummaryMock,
+}));
+
 const {
+  scheduleUsageSummaryQueryOptions,
   canOpenScheduleRunConversation,
   canOpenScheduleSourceConversation,
   formatScheduleCost,
   RecentRunsCard,
+  ScheduleRow,
 } = await import("./schedules-page");
 
 afterEach(() => {
   cleanup();
   navigateCalls.length = 0;
+  fetchScheduleUsageSummaryMock.mockClear();
+  nowSpy?.mockRestore();
+  nowSpy = null;
 });
 
 function schedule(
@@ -99,6 +120,42 @@ describe("formatScheduleCost", () => {
   test("falls back when cost is missing or invalid", () => {
     expect(formatScheduleCost(null)).toBe("—");
     expect(formatScheduleCost(Number.NaN)).toBe("—");
+  });
+});
+
+describe("scheduleUsageSummaryQueryOptions", () => {
+  test("resolves the usage window when the query fetches", async () => {
+    const firstNow = Date.UTC(2026, 5, 2, 18, 30, 0);
+    const secondNow = firstNow + 60_000;
+    nowSpy = spyOn(Date, "now").mockReturnValue(firstNow);
+    const options = scheduleUsageSummaryQueryOptions("assistant-1", "UTC");
+
+    expect(options.queryKey).toEqual([
+      "schedule-usage-summary",
+      "assistant-1",
+      "UTC",
+    ]);
+
+    await options.queryFn();
+    nowSpy.mockReturnValue(secondNow);
+    await options.queryFn();
+
+    expect(fetchScheduleUsageSummaryMock.mock.calls).toEqual([
+      [
+        "assistant-1",
+        {
+          from: Date.UTC(2026, 4, 27, 0, 0, 0),
+          to: firstNow,
+        },
+      ],
+      [
+        "assistant-1",
+        {
+          from: Date.UTC(2026, 4, 27, 0, 0, 0),
+          to: secondNow,
+        },
+      ],
+    ]);
   });
 });
 
@@ -183,5 +240,111 @@ describe("RecentRunsCard", () => {
     expect(document.body.textContent).not.toContain("Run details");
     expect(document.body.textContent).not.toContain("Back to runs");
     expect(routes.settings.schedule("schedule-1")).not.toContain("/runs/");
+  });
+});
+
+describe("ScheduleRow", () => {
+  function rowSchedule(overrides: Partial<Schedule> = {}): Schedule {
+    return schedule({
+      id: "schedule-123",
+      name: "Daily summary",
+      description: "Summarize the day",
+      mode: "execute",
+      enabled: true,
+      lastRunAt: null,
+      lastStatus: null,
+      ...overrides,
+    });
+  }
+
+  test("cost metric opens usage without opening row details", () => {
+    let detailClicks = 0;
+    let usageClicks = 0;
+
+    render(
+      createElement(ScheduleRow, {
+        schedule: rowSchedule(),
+        usage: {
+          status: "ready",
+          summary: {
+            scheduleId: "schedule-123",
+            runCount: 2,
+            totalEstimatedCostUsd: 0.42,
+            eventCount: 7,
+          },
+        },
+        onClick: () => {
+          detailClicks += 1;
+        },
+        onToggle: () => {},
+        onOpenUsage: () => {
+          usageClicks += 1;
+        },
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /view usage/i }));
+
+    expect(usageClicks).toBe(1);
+    expect(detailClicks).toBe(0);
+    expect(navigateCalls).toEqual([]);
+  });
+
+  test("run count metric is not clickable", () => {
+    let detailClicks = 0;
+    let usageClicks = 0;
+
+    render(
+      createElement(ScheduleRow, {
+        schedule: rowSchedule(),
+        usage: {
+          status: "ready",
+          summary: {
+            scheduleId: "schedule-123",
+            runCount: 2,
+            totalEstimatedCostUsd: 0.42,
+            eventCount: 7,
+          },
+        },
+        onClick: () => {
+          detailClicks += 1;
+        },
+        onToggle: () => {},
+        onOpenUsage: () => {
+          usageClicks += 1;
+        },
+      }),
+    );
+
+    fireEvent.click(screen.getByText("2 runs"));
+
+    expect(usageClicks).toBe(0);
+    expect(detailClicks).toBe(0);
+  });
+
+  test("renders loading placeholders and unavailable error stats", () => {
+    const { rerender } = render(
+      createElement(ScheduleRow, {
+        schedule: rowSchedule(),
+        usage: { status: "loading" },
+        onClick: () => {},
+        onToggle: () => {},
+        onOpenUsage: () => {},
+      }),
+    );
+
+    expect(screen.getByLabelText("Loading schedule usage")).toBeTruthy();
+
+    rerender(
+      createElement(ScheduleRow, {
+        schedule: rowSchedule(),
+        usage: { status: "error" },
+        onClick: () => {},
+        onToggle: () => {},
+        onOpenUsage: () => {},
+      }),
+    );
+
+    expect(screen.getAllByText("--")).toHaveLength(2);
   });
 });

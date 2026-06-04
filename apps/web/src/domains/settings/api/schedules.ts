@@ -14,6 +14,7 @@ import {
   schedulesByIdRunPost,
   schedulesByIdRunsGet,
   schedulesByIdTogglePost,
+  schedulesUsagesummaryGet,
   schedulesPost,
 } from "@/generated/daemon/sdk.gen";
 import type {
@@ -29,7 +30,11 @@ import {
 } from "@/utils/api-errors";
 import { fetchSchedules as fetchSharedSchedules } from "@/utils/schedules";
 
-import type { Schedule, ScheduleRun } from "@/domains/settings/types/schedules";
+import type {
+  Schedule,
+  ScheduleRun,
+  ScheduleUsageSummary,
+} from "@/domains/settings/types/schedules";
 
 export { ApiError };
 
@@ -104,6 +109,30 @@ export async function fetchScheduleRuns(
     );
   }
   return data?.runs ?? [];
+}
+
+export interface ScheduleUsageSummaryRange {
+  from: number;
+  to: number;
+}
+
+export async function fetchScheduleUsageSummary(
+  assistantId: string,
+  range: ScheduleUsageSummaryRange,
+): Promise<ScheduleUsageSummary[]> {
+  const { data, error, response } = await schedulesUsagesummaryGet({
+    path: { assistant_id: assistantId },
+    query: { from: range.from, to: range.to },
+    throwOnError: false,
+  });
+  assertHasResponse(response, error, "Failed to load schedule usage.");
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      extractErrorMessage(error, response, "Failed to load schedule usage."),
+    );
+  }
+  return data?.summaries ?? [];
 }
 
 export async function toggleSchedule(
