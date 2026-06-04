@@ -58,6 +58,10 @@ import type {
   Message,
 } from "../providers/types.js";
 import { isContextOverflowError } from "../providers/types.js";
+import {
+  getCurrentSeq,
+  recordPersistedSeq,
+} from "../runtime/assistant-stream-state.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { redactSecrets } from "../security/secret-scanner.js";
 import { extractDomain } from "../tools/network/domain-normalize.js";
@@ -284,6 +288,14 @@ export interface EventHandlerState {
   /** Running mirror of the in-flight assistant message's content. */
   currentMessageContent: ContentBlock[];
   /**
+   * `seq` of the most recent conversation-scoped event whose content has
+   * been mirrored into `currentMessageContent`. Snapshotted at each
+   * persistence flush so the daemon can record how far the durable rows
+   * reflect the live stream (see `recordPersistedSeq`). `undefined` until
+   * the first content delta of the in-flight message.
+   */
+  lastStreamedContentSeq: number | undefined;
+  /**
    * Whether the workspace top-level block should be (re)injected on this
    * turn. Compaction's prepare phase strips the workspace / NOW.md / PKB
    * blocks off the tail, so it is set after any successful compaction to
@@ -376,6 +388,7 @@ export function createEventHandlerState(): EventHandlerState {
     pendingPartialFlushTimer: undefined,
     pendingPartialFlushPromise: undefined,
     currentMessageContent: [],
+    lastStreamedContentSeq: undefined,
     shouldInjectWorkspace: false,
     reducerCompacted: false,
   };
@@ -434,6 +447,7 @@ function resetPartialPersistAccumulator(state: EventHandlerState): void {
     state.pendingPartialFlushTimer = undefined;
   }
   state.currentMessageContent = [];
+  state.lastStreamedContentSeq = undefined;
   state.pendingPartialFlushPromise = undefined;
 }
 
@@ -448,6 +462,10 @@ async function flushAccumulatedContent(
 
   const built = buildPersistedAssistantContent(state.currentMessageContent, []);
   const contentJson = JSON.stringify(built);
+  // Pair the seq with the exact content snapshot taken above: deltas that
+  // arrive while the write is in flight bump `lastStreamedContentSeq`
+  // again, but they are not part of this write.
+  const flushedSeq = state.lastStreamedContentSeq;
 
   try {
     await runPipeline<PersistArgs, PersistResult>(
@@ -462,6 +480,11 @@ async function flushAccumulatedContent(
       buildHandlerTurnContext(deps),
       DEFAULT_TIMEOUTS.persistence,
     );
+    // Record only after the write commits, so the snapshot seq never
+    // claims content that is not yet durable.
+    if (flushedSeq != null) {
+      recordPersistedSeq(deps.ctx.conversationId, flushedSeq);
+    }
   } catch (err) {
     deps.rlog.warn(
       { err, messageId },
@@ -775,6 +798,11 @@ function handleTextDelta(
     // Mirror the drained delta into state.currentMessageContent so partial
     // flushes mid-turn see the same content the user is watching live.
     appendTextToCurrentMessage(state, drained.emitText);
+    // The hub stamps `seq` synchronously on the delta emitted above, so
+    // `getCurrentSeq()` here is that delta's seq -- the position the
+    // mirrored content now reflects. A partial flush snapshots this to
+    // record how far the durable rows track the live stream.
+    state.lastStreamedContentSeq = getCurrentSeq();
     schedulePartialFlush(state, deps);
   }
 }
@@ -1484,6 +1512,13 @@ export async function handleMessageComplete(
     DEFAULT_TIMEOUTS.persistence,
   );
   state.assistantRowAwaitingFinalization = false;
+  // The full message row (text + tool_use blocks from `event.message`) is
+  // now durable. `tool_use_start` SSE events fire after `message_complete`,
+  // so the last stamped event at this point is the final text delta;
+  // recording its seq is honest and never over-claims unpersisted state.
+  if (state.lastStreamedContentSeq != null) {
+    recordPersistedSeq(deps.ctx.conversationId, state.lastStreamedContentSeq);
+  }
   // Reset the partial-persist mirror so subsequent calls in this turn
   // start with an empty running view.
   state.currentMessageContent = [];

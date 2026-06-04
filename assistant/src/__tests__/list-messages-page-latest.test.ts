@@ -42,6 +42,10 @@ import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { messages } from "../memory/schema.js";
 import { writeSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
+import {
+  _resetStreamStateForTesting,
+  recordPersistedSeq,
+} from "../runtime/assistant-stream-state.js";
 import { handleListMessages } from "../runtime/routes/conversation-routes.js";
 import { BadRequestError } from "../runtime/routes/errors.js";
 
@@ -107,6 +111,7 @@ interface ListResponse {
   hasMore?: boolean;
   oldestTimestamp?: number | null;
   oldestMessageId?: string | null;
+  seq?: number | null;
 }
 
 function callList(query: Record<string, string>): ListResponse {
@@ -118,7 +123,62 @@ function callList(query: Record<string, string>): ListResponse {
 describe("handleListMessages page=latest", () => {
   beforeEach(() => {
     resetTables();
+    _resetStreamStateForTesting();
     mockAssistantName = null;
+  });
+
+  describe("persisted seq", () => {
+    test("returns the recorded persisted seq for the conversation", () => {
+      /**
+       * The snapshot must advertise the `seq` of the last durably-persisted
+       * event so a client can align it with the `/events` stream.
+       */
+
+      // GIVEN a conversation with persisted messages
+      const conv = createConversation();
+      seedMessages(conv.id, 3);
+      // AND the daemon has recorded a persisted seq for it
+      recordPersistedSeq(conv.id, 42);
+
+      // WHEN the snapshot is fetched
+      const body = callList({ conversationId: conv.id, page: "latest" });
+
+      // THEN the response carries that seq
+      expect(body.seq).toBe(42);
+    });
+
+    test("returns null seq when nothing has been persisted in-process", () => {
+      /**
+       * A cold conversation (or one aged out / post-restart) reports no seq,
+       * signalling the client to cold-start rather than align to a stale
+       * position.
+       */
+
+      // GIVEN a conversation with no recorded persisted seq
+      const conv = createConversation();
+      seedMessages(conv.id, 2);
+
+      // WHEN the snapshot is fetched
+      const body = callList({ conversationId: conv.id, page: "latest" });
+
+      // THEN seq is null
+      expect(body.seq).toBeNull();
+    });
+
+    test("the no-pagination path also returns the persisted seq", () => {
+      /** `seq` is present on every resolved-conversation response shape. */
+
+      // GIVEN a conversation with a recorded persisted seq
+      const conv = createConversation();
+      seedMessages(conv.id, 2);
+      recordPersistedSeq(conv.id, 7);
+
+      // WHEN fetched with no pagination params
+      const body = callList({ conversationId: conv.id });
+
+      // THEN the seq still rides along
+      expect(body.seq).toBe(7);
+    });
   });
 
   test("page=latest with no limit returns all messages chronologically", () => {

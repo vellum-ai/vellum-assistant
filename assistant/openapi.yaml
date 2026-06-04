@@ -15523,6 +15523,16 @@ paths:
                     anyOf:
                       - type: string
                       - type: "null"
+                  seq:
+                    description:
+                      Global SSE `seq` of the last event whose content is durably persisted for this conversation in the current
+                      daemon process. A client can align this snapshot with the `/events` stream by applying only events
+                      with `seq` greater than this value. Null when no events have been persisted in this process (cold
+                      conversation, after a daemon restart, or when the conversation has aged out of the in-memory map)
+                      — clients should cold-start in that case. Absent on older daemons that predate this field.
+                    anyOf:
+                      - type: number
+                      - type: "null"
                 required:
                   - messages
                 additionalProperties: false

@@ -113,6 +113,7 @@ import { getWorkspacePromptPath } from "../../util/platform.js";
 import { silentlyWithLog } from "../../util/silently.js";
 import { assistantEventHub, broadcastMessage } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
+import { getPersistedSeq } from "../assistant-stream-state.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { routeGuardianReply } from "../guardian-reply-router.js";
 import { healGuardianBindingDrift } from "../guardian-vellum-migration.js";
@@ -632,6 +633,7 @@ export function handleListMessages({
         hasMore: false,
         oldestTimestamp: null,
         oldestMessageId: null,
+        seq: null,
       };
     }
     return { messages: [] };
@@ -913,6 +915,13 @@ export function handleListMessages({
     };
   });
 
+  // Snapshot↔stream alignment token: the `seq` of the last event whose
+  // content is durably persisted for this conversation in the current
+  // daemon process. Returned on every resolved-conversation response so a
+  // client can apply only stream events with a higher `seq`. Null when
+  // nothing has been persisted in-process (cold/aged-out/post-restart).
+  const persistedSeq = getPersistedSeq(resolvedConversationId);
+
   if (isPaginated) {
     // Prefer the page's oldest visible row (the documented cursor semantic).
     // When a scan-cap-truncated page comes back empty there's no visible row
@@ -934,6 +943,7 @@ export function handleListMessages({
         hasMore,
         oldestTimestamp: oldestTimestamp ?? null,
         oldestMessageId: oldestMessageId ?? null,
+        seq: persistedSeq,
       };
     }
 
@@ -942,10 +952,11 @@ export function handleListMessages({
       hasMore,
       ...(oldestTimestamp != null ? { oldestTimestamp } : {}),
       ...(oldestMessageId != null ? { oldestMessageId } : {}),
+      seq: persistedSeq,
     };
   }
 
-  return { messages };
+  return { messages, seq: persistedSeq };
 }
 
 /**
@@ -2570,6 +2581,13 @@ export const ROUTES: RouteDefinition[] = [
         .nullable()
         .optional()
         .describe("ID of the oldest message in this page"),
+      seq: z
+        .number()
+        .nullable()
+        .optional()
+        .describe(
+          "Global SSE `seq` of the last event whose content is durably persisted for this conversation in the current daemon process. A client can align this snapshot with the `/events` stream by applying only events with `seq` greater than this value. Null when no events have been persisted in this process (cold conversation, after a daemon restart, or when the conversation has aged out of the in-memory map) — clients should cold-start in that case. Absent on older daemons that predate this field.",
+        ),
     }),
     handler: (args) => handleListMessages(args),
   },
