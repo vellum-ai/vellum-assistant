@@ -38,7 +38,9 @@ import type { HostAppControlProxy } from "./host-app-control-proxy.js";
 import type { HostCuProxy } from "./host-cu-proxy.js";
 import type {
   CardSurfaceData,
+  ChoiceSurfaceData,
   ConfirmationSurfaceData,
+  CopyBlockSurfaceData,
   DynamicPageSurfaceData,
   FormSurfaceData,
   ListSurfaceData,
@@ -393,6 +395,89 @@ function normalizeTaskProgressCardPatch(
   }
 
   return normalizedPatch;
+}
+
+function normalizeChoiceShowData(
+  rawData: Record<string, unknown>,
+): ChoiceSurfaceData {
+  const options = Array.isArray(rawData.options)
+    ? rawData.options
+        .filter((option): option is Record<string, unknown> =>
+          isPlainObject(option),
+        )
+        .map((option) => {
+          const id = typeof option.id === "string" ? option.id.trim() : "";
+          const title =
+            typeof option.title === "string"
+              ? option.title.trim()
+              : typeof option.label === "string"
+                ? option.label.trim()
+                : "";
+          if (!id || !title) return null;
+          return {
+            id,
+            title,
+            ...(typeof option.description === "string"
+              ? { description: option.description }
+              : {}),
+            ...(option.recommended === true ? { recommended: true } : {}),
+            ...(isPlainObject(option.data)
+              ? { data: option.data as Record<string, unknown> }
+              : {}),
+          };
+        })
+        .filter(
+          (option): option is NonNullable<typeof option> => option !== null,
+        )
+    : [];
+
+  return {
+    ...(typeof rawData.description === "string"
+      ? { description: rawData.description }
+      : {}),
+    options,
+    selectionMode: rawData.selectionMode === "multiple" ? "multiple" : "single",
+    ...(typeof rawData.submitLabel === "string"
+      ? { submitLabel: rawData.submitLabel }
+      : {}),
+    ...(typeof rawData.commitOnSelect === "boolean"
+      ? { commitOnSelect: rawData.commitOnSelect }
+      : {}),
+  };
+}
+
+function normalizeCopyBlockShowData(
+  rawData: Record<string, unknown>,
+): CopyBlockSurfaceData {
+  return {
+    text: typeof rawData.text === "string" ? rawData.text : "",
+    ...(typeof rawData.label === "string" ? { label: rawData.label } : {}),
+    ...(typeof rawData.language === "string"
+      ? { language: rawData.language }
+      : {}),
+  };
+}
+
+function buildChoiceActions(data: ChoiceSurfaceData): Array<{
+  id: string;
+  label: string;
+  style?: string;
+  data?: Record<string, unknown>;
+}> {
+  return data.options.map((option) => ({
+    id: option.id,
+    label: option.title,
+    style: option.recommended ? "primary" : "secondary",
+    data: {
+      choiceId: option.id,
+      choiceTitle: option.title,
+      selectedIds: [option.id],
+      selectedTitles: [option.title],
+      ...(option.description ? { choiceDescription: option.description } : {}),
+      ...(option.recommended ? { recommended: true } : {}),
+      ...(option.data ?? {}),
+    },
+  }));
 }
 
 function isTaskProgressCardData(data: SurfaceData | Record<string, unknown>) {
@@ -1860,6 +1945,12 @@ export function buildCompletionSummary(
   data?: Record<string, unknown>,
   surfaceData?: Record<string, unknown>,
 ): string {
+  const selectedTitles = Array.isArray(data?.selectedTitles)
+    ? data.selectedTitles.filter(
+        (title): title is string => typeof title === "string",
+      )
+    : [];
+
   if (surfaceType === "confirmation") {
     if (actionId === "cancel") {
       const cancelLabel =
@@ -1892,6 +1983,19 @@ export function buildCompletionSummary(
   if (surfaceType === "form") {
     return "Submitted";
   }
+  if (surfaceType === "choice" && data) {
+    const choiceTitle =
+      typeof data.choiceTitle === "string" ? data.choiceTitle : undefined;
+    if (choiceTitle) return `User chose: "${choiceTitle}"`;
+    if (selectedTitles.length === 1)
+      return `User chose: "${selectedTitles[0]}"`;
+    if (selectedTitles.length > 1) {
+      return `User chose ${selectedTitles.length} options: ${selectedTitles
+        .map((title) => `"${title}"`)
+        .join(", ")}`;
+    }
+    return `User chose: ${actionId}`;
+  }
   if (surfaceType === "list" && data) {
     const selectedIds = data.selectedIds as string[] | undefined;
     const actionSuffix = actionId ? ` (action: ${actionId})` : "";
@@ -1922,6 +2026,11 @@ function buildUserFacingLabel(
   surfaceData?: Record<string, unknown>,
 ): string {
   const count = (data?.selectedIds as string[] | undefined)?.length;
+  const selectedTitles = Array.isArray(data?.selectedTitles)
+    ? data.selectedTitles.filter(
+        (title): title is string => typeof title === "string",
+      )
+    : [];
 
   if (surfaceType === "confirmation") {
     if (actionId === "cancel") {
@@ -1948,6 +2057,15 @@ function buildUserFacingLabel(
     return `Selected: ${actionId}`;
   }
   if (surfaceType === "form") return "Submitted";
+  if (surfaceType === "choice") {
+    const choiceTitle =
+      typeof data?.choiceTitle === "string" ? data.choiceTitle : undefined;
+    if (choiceTitle) return choiceTitle;
+    if (selectedTitles.length === 1) return selectedTitles[0];
+    if (selectedTitles.length > 1)
+      return `Selected ${selectedTitles.length} options`;
+    return "Selected";
+  }
 
   // Table / list selection actions
   if (count) {
@@ -2213,11 +2331,15 @@ export async function surfaceProxyResolver(
     const data = (
       surfaceType === "card"
         ? normalizeCardShowData(input, rawData)
-        : surfaceType === "dynamic_page"
-          ? normalizeDynamicPageShowData(input, rawData)
-          : rawData
+        : surfaceType === "choice"
+          ? normalizeChoiceShowData(rawData)
+          : surfaceType === "copy_block"
+            ? normalizeCopyBlockShowData(rawData)
+            : surfaceType === "dynamic_page"
+              ? normalizeDynamicPageShowData(input, rawData)
+              : rawData
     ) as SurfaceData;
-    const actions = input.actions as
+    const inputActions = input.actions as
       | Array<{
           id: string;
           label: string;
@@ -2225,8 +2347,19 @@ export async function surfaceProxyResolver(
           data?: Record<string, unknown>;
         }>
       | undefined;
+    const actions =
+      surfaceType === "choice"
+        ? buildChoiceActions(data as ChoiceSurfaceData)
+        : inputActions;
     // Interactive surfaces default to awaiting user action.
     const hasActions = Array.isArray(actions) && actions.length > 0;
+    if (surfaceType === "choice" && !hasActions) {
+      return {
+        content:
+          "choice surfaces require at least one option with both id and title.",
+        isError: true,
+      };
+    }
     const isInteractive =
       surfaceType === "card"
         ? hasActions

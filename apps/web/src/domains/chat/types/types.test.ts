@@ -7,9 +7,7 @@ import {
   type Surface,
 } from "@/domains/chat/types/types";
 
-function makeSurface(
-  overrides: Partial<Surface> = {},
-): Surface {
+function makeSurface(overrides: Partial<Surface> = {}): Surface {
   return {
     surfaceId: "test-surface",
     surfaceType: "card",
@@ -32,7 +30,9 @@ function makeToolCall(
 
 describe("isSurfaceInteractive", () => {
   test("card without actions is not interactive", () => {
-    expect(isSurfaceInteractive(makeSurface({ surfaceType: "card" }))).toBe(false);
+    expect(isSurfaceInteractive(makeSurface({ surfaceType: "card" }))).toBe(
+      false,
+    );
   });
 
   test("card with actions is interactive", () => {
@@ -47,7 +47,9 @@ describe("isSurfaceInteractive", () => {
   });
 
   test("table without actions is not interactive", () => {
-    expect(isSurfaceInteractive(makeSurface({ surfaceType: "table" }))).toBe(false);
+    expect(isSurfaceInteractive(makeSurface({ surfaceType: "table" }))).toBe(
+      false,
+    );
   });
 
   test("table with actions is interactive", () => {
@@ -62,7 +64,9 @@ describe("isSurfaceInteractive", () => {
   });
 
   test("list without actions is not interactive", () => {
-    expect(isSurfaceInteractive(makeSurface({ surfaceType: "list" }))).toBe(false);
+    expect(isSurfaceInteractive(makeSurface({ surfaceType: "list" }))).toBe(
+      false,
+    );
   });
 
   test("list with actions is interactive", () => {
@@ -77,19 +81,39 @@ describe("isSurfaceInteractive", () => {
   });
 
   test("form is always interactive", () => {
-    expect(isSurfaceInteractive(makeSurface({ surfaceType: "form" }))).toBe(true);
+    expect(isSurfaceInteractive(makeSurface({ surfaceType: "form" }))).toBe(
+      true,
+    );
   });
 
   test("confirmation is always interactive", () => {
-    expect(isSurfaceInteractive(makeSurface({ surfaceType: "confirmation" }))).toBe(true);
+    expect(
+      isSurfaceInteractive(makeSurface({ surfaceType: "confirmation" })),
+    ).toBe(true);
   });
 
   test("file_upload is always interactive", () => {
-    expect(isSurfaceInteractive(makeSurface({ surfaceType: "file_upload" }))).toBe(true);
+    expect(
+      isSurfaceInteractive(makeSurface({ surfaceType: "file_upload" })),
+    ).toBe(true);
+  });
+
+  test("choice is always interactive", () => {
+    expect(isSurfaceInteractive(makeSurface({ surfaceType: "choice" }))).toBe(
+      true,
+    );
+  });
+
+  test("copy_block is display-only without actions", () => {
+    expect(
+      isSurfaceInteractive(makeSurface({ surfaceType: "copy_block" })),
+    ).toBe(false);
   });
 
   test("dynamic_page without actions is not interactive", () => {
-    expect(isSurfaceInteractive(makeSurface({ surfaceType: "dynamic_page" }))).toBe(false);
+    expect(
+      isSurfaceInteractive(makeSurface({ surfaceType: "dynamic_page" })),
+    ).toBe(false);
   });
 
   test("dynamic_page with actions is interactive", () => {
@@ -112,44 +136,40 @@ describe("isSurfaceInteractive", () => {
 
 describe("isSurfaceToolCallComplete", () => {
   test("surface without a linked tool call is complete", () => {
-    expect(
-      isSurfaceToolCallComplete(makeSurface(), [makeToolCall()]),
-    ).toBe(true);
+    expect(isSurfaceToolCallComplete(makeSurface(), [makeToolCall()])).toBe(
+      true,
+    );
   });
 
   test("complete when the linked tool call has completed", () => {
     expect(
-      isSurfaceToolCallComplete(
-        makeSurface({ toolCallId: "tc-1" }),
-        [makeToolCall({ id: "tc-1", status: "completed" })],
-      ),
+      isSurfaceToolCallComplete(makeSurface({ toolCallId: "tc-1" }), [
+        makeToolCall({ id: "tc-1", status: "completed" }),
+      ]),
     ).toBe(true);
   });
 
   test("incomplete while the linked tool call is still running", () => {
     expect(
-      isSurfaceToolCallComplete(
-        makeSurface({ toolCallId: "tc-1" }),
-        [makeToolCall({ id: "tc-1", status: "running" })],
-      ),
+      isSurfaceToolCallComplete(makeSurface({ toolCallId: "tc-1" }), [
+        makeToolCall({ id: "tc-1", status: "running" }),
+      ]),
     ).toBe(false);
   });
 
   test("incomplete when the linked tool call errored", () => {
     expect(
-      isSurfaceToolCallComplete(
-        makeSurface({ toolCallId: "tc-1" }),
-        [makeToolCall({ id: "tc-1", status: "error" })],
-      ),
+      isSurfaceToolCallComplete(makeSurface({ toolCallId: "tc-1" }), [
+        makeToolCall({ id: "tc-1", status: "error" }),
+      ]),
     ).toBe(false);
   });
 
   test("complete when the linked tool call is not present in the message", () => {
     expect(
-      isSurfaceToolCallComplete(
-        makeSurface({ toolCallId: "tc-missing" }),
-        [makeToolCall({ id: "tc-1", status: "running" })],
-      ),
+      isSurfaceToolCallComplete(makeSurface({ toolCallId: "tc-missing" }), [
+        makeToolCall({ id: "tc-1", status: "running" }),
+      ]),
     ).toBe(true);
   });
 

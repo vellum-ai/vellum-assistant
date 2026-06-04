@@ -105,6 +105,8 @@ export const uiShowTool = {
     'Surface structured data or UI in the conversation. For long-form writing use the document skill. For interactive apps, dashboards, games, calculators, or durable tools, call `skill_load` with `skill: "app-builder"` and use the app-builder workflow; do not use `dynamic_page` as a substitute for a persistent app. App-like `dynamic_page` calls are rejected.\n\n' +
     "Surface types (data shapes):\n" +
     '- card: { title, subtitle?, body, metadata?: [{ label, value }], template?, templateData? }. Templates: "weather_forecast" (native weather widget), "task_progress" (live step tracker - update via ui_update on data.templateData; shape: { title, status: "in_progress"|"completed"|"failed", steps: [{ label, status: "pending"|"in_progress"|"completed"|"failed", detail? }] })\n' +
+    "- copy_block: { text, label?, language? }. Shows copyable text with a visible copy button; use for prompts, commands, paths, or snippets the user should copy.\n" +
+    '- choice: { description?, options: [{ id, title, description?, recommended?, data? }], selectionMode?: "single"|"multiple", commitOnSelect?, submitLabel? }. Single-select choices commit on option click by default. Use for outcome offers and follow-up choices; mark the strongest option with recommended: true.\n' +
     '- table: { columns: [{ id, label }], rows: [{ id, cells: Record<id, string | { text, icon?, iconColor?: "success"|"warning"|"error"|"muted" }>, selectable?, selected? }], selectionMode?: "none"|"single"|"multiple", caption? }\n' +
     '- form: { description?, fields: [{ id, type: "text"|"textarea"|"select"|"toggle"|"number"|"password", label, placeholder?, required?, defaultValue?, options?: [{ label, value }] }], submitLabel? }. Multi-page: { pages: [{ id, title, description?, fields }], pageLabels?: { next?, back?, submit? }, submitLabel? }\n' +
     '- list: { items: [{ id, title, subtitle?, icon?, selected? }], selectionMode: "single"|"multiple"|"none" }\n' +
@@ -124,6 +126,8 @@ export const uiShowTool = {
         type: "string",
         enum: [
           "card",
+          "choice",
+          "copy_block",
           "form",
           "list",
           "table",

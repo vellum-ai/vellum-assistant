@@ -13,7 +13,10 @@ import type { SlackMessageLink } from "@/utils/slack-message-link";
 export type { DisplayAttachment } from "@/types/attachment-types";
 
 export type { SlackMessageLink } from "@/utils/slack-message-link";
-export { parseSlackMessageLink, getSlackLinkUrl } from "@/utils/slack-message-link";
+export {
+  parseSlackMessageLink,
+  getSlackLinkUrl,
+} from "@/utils/slack-message-link";
 
 export interface SlackMessageSender {
   id?: string;
@@ -127,6 +130,7 @@ export interface Surface extends ConversationMessageSurface {
  * which is handled by the `hasActions` check below.
  */
 const INHERENTLY_INTERACTIVE_SURFACE_TYPES = [
+  "choice",
   "form",
   "confirmation",
   "file_upload",
@@ -137,15 +141,18 @@ const INHERENTLY_INTERACTIVE_SURFACE_TYPES = [
  * Whether a surface requires user interaction to "complete".
  *
  * A surface is interactive when it either carries explicit action buttons
- * or is an inherently interactive type (form, confirmation, file_upload).
- * Display-only surfaces — tables, cards, lists, and dynamic pages without
+ * or is an inherently interactive type (choice, form, confirmation, file_upload).
+ * Display-only surfaces — copy blocks, tables, cards, lists, and dynamic pages without
  * actions — are non-interactive and should never block the composer.
  */
 export function isSurfaceInteractive(surface: Surface): boolean {
   if (surface.completed) return false;
   const hasActions =
     Array.isArray(surface.actions) && surface.actions.length > 0;
-  return hasActions || INHERENTLY_INTERACTIVE_SURFACE_TYPES.includes(surface.surfaceType);
+  return (
+    hasActions ||
+    INHERENTLY_INTERACTIVE_SURFACE_TYPES.includes(surface.surfaceType)
+  );
 }
 
 /**

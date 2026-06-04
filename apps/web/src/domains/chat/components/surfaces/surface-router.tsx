@@ -1,4 +1,3 @@
-
 import { CheckCircle, XCircle } from "lucide-react";
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
@@ -7,7 +6,9 @@ import type { Surface } from "@/domains/chat/types/types";
 import { BrowserViewSurface } from "@/domains/chat/components/surfaces/browser-view-surface";
 import { CallSummarySurface } from "@/domains/chat/components/surfaces/call-summary-surface";
 import { CardSurface } from "@/domains/chat/components/surfaces/card-surface";
+import { ChoiceSurface } from "@/domains/chat/components/surfaces/choice-surface";
 import { ConfirmationSurface } from "@/domains/chat/components/surfaces/confirmation-surface";
+import { CopyBlockSurface } from "@/domains/chat/components/surfaces/copy-block-surface";
 import { DocumentPreviewSurface } from "@/domains/chat/components/surfaces/document-preview-surface";
 import { DynamicPageSurface } from "@/domains/chat/components/surfaces/dynamic-page-surface";
 import { FileUploadSurface } from "@/domains/chat/components/surfaces/file-upload-surface";
@@ -19,7 +20,11 @@ import { TaskPreferencesSurface } from "@/domains/chat/components/surfaces/task-
 
 export interface SurfaceRouterProps {
   surface: Surface;
-  onAction: (surfaceId: string, actionId: string, data?: Record<string, unknown>) => void;
+  onAction: (
+    surfaceId: string,
+    actionId: string,
+    data?: Record<string, unknown>,
+  ) => void;
   assistantId?: string | null;
   onOpenApp?: (appId: string) => void;
   onOpenDocument?: (documentSurfaceId: string) => void;
@@ -37,7 +42,13 @@ export function SurfaceRouter({
   onOpenDocument,
   toolCalls,
 }: SurfaceRouterProps) {
-  const CHIP_COLLAPSE_TYPES = ["form", "confirmation", "file_upload", "task_preferences"];
+  const CHIP_COLLAPSE_TYPES = [
+    "choice",
+    "form",
+    "confirmation",
+    "file_upload",
+    "task_preferences",
+  ];
   if (surface.completed && CHIP_COLLAPSE_TYPES.includes(surface.surfaceType)) {
     const isCancelled = surface.completionSummary === "Cancelled";
     if (isCancelled) {
@@ -68,6 +79,12 @@ export function SurfaceRouter({
 
     case "card":
       return <CardSurface surface={surface} onAction={onAction} />;
+
+    case "choice":
+      return <ChoiceSurface surface={surface} onAction={onAction} />;
+
+    case "copy_block":
+      return <CopyBlockSurface surface={surface} onAction={onAction} />;
 
     case "list":
       return <ListSurface surface={surface} onAction={onAction} />;
