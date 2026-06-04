@@ -171,8 +171,15 @@ export interface ComposerActions {
     previousKey: string | null;
     nextKey: string | null;
   }) => void;
-  /** Load the drafts map from localStorage for a new assistant. */
-  loadAssistantDrafts: (assistantId: string) => void;
+  /**
+   * Load the drafts map from localStorage for a new assistant.
+   * Pass `currentConversationKey` so the current composer input can be saved
+   * into the outgoing assistant's draft map before switching.
+   */
+  loadAssistantDrafts: (
+    assistantId: string,
+    currentConversationKey?: string | null,
+  ) => void;
   /** Clear the restored draft notice. */
   clearRestoredDraftNotice: () => void;
 
@@ -263,10 +270,19 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
     }
   },
 
-  loadAssistantDrafts: (assistantId) => {
-    // If switching assistants, flush outgoing drafts first.
+  loadAssistantDrafts: (assistantId, currentConversationKey) => {
+    // If switching assistants, save the current composer input into the
+    // outgoing assistant's draft map before persisting. Without this, text
+    // typed but not explicitly saved would be lost on assistant switch.
     if (currentAssistantId && currentAssistantId !== assistantId) {
+      const input = get().input;
+      if (currentConversationKey && input.trim()) {
+        draftsMap.set(currentConversationKey, input);
+      }
       persistDrafts(currentAssistantId, draftsMap);
+      // Reset input — the correct incoming draft (if any) will be restored
+      // by handleConversationSwitch when it fires in the post-render effect.
+      set({ input: "", restoredDraftConversationId: null });
     }
     draftsMap = loadDrafts(assistantId);
     currentAssistantId = assistantId;

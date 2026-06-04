@@ -186,7 +186,10 @@ export function ActiveChatView() {
   // drafts are available on first paint without a flash of empty state.
   useMemo(() => {
     if (assistantId) {
-      useComposerStore.getState().loadAssistantDrafts(assistantId);
+      // Pass the current conversation key so loadAssistantDrafts can save
+      // any unsaved composer input into the outgoing assistant's draft map.
+      const prevConvId = useChatSessionStore.getState().previousConversationId;
+      useComposerStore.getState().loadAssistantDrafts(assistantId, prevConvId);
     }
   }, [assistantId]);
 
