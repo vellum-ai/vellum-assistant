@@ -2081,14 +2081,11 @@ export async function runAgentLoopImpl(
           isTrustedActor,
         });
         runMessages = injection.messages;
-        const midLoopCompactStrip =
-          stripHistoricalWebSearchResults(runMessages);
-        if (midLoopCompactStrip.stats.blocksStripped > 0) {
+        if (injection.webSearchStripStats.blocksStripped > 0) {
           rlog.info(
-            { phase: "mid-loop-compact", ...midLoopCompactStrip.stats },
+            { phase: "mid-loop-compact", ...injection.webSearchStripStats },
             "Converted historical web_search_tool_result blocks to text summaries",
           );
-          runMessages = midLoopCompactStrip.messages;
         }
         preRepairMessages = runMessages;
         preRunHistoryLength = runMessages.length;
