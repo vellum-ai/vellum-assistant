@@ -448,6 +448,17 @@ describe("requireEdgeAuth — trustProxy loopback fallback", () => {
     expect(res).toBeNull();
   });
 
+  test("trustProxy=true: direct non-loopback peer cannot spoof XFF=127.0.0.1 → 401", async () => {
+    // Raw socket peer is NOT loopback (e.g. gateway port exposed directly), so
+    // X-Forwarded-For is not trusted and the fallback is refused.
+    const { requireEdgeAuth } = makeMiddleware(true);
+    const res = await requireEdgeAuth(
+      makeReq({ "x-forwarded-for": "127.0.0.1" }),
+      makeLoopbackServer("203.0.113.9"),
+    );
+    expect(res?.status).toBe(401);
+  });
+
   test("trustProxy=false (default): X-Forwarded-For is ignored, loopback socket still gets the fallback → null", async () => {
     const { requireEdgeAuth } = makeMiddleware(false);
     const res = await requireEdgeAuth(

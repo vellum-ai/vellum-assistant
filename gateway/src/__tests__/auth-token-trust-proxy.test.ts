@@ -65,6 +65,20 @@ describe("handleCreateToken — trustProxy loopback gate", () => {
     expect(res.status).toBe(401);
   });
 
+  test("trustProxy=true: direct non-loopback peer cannot spoof XFF=127.0.0.1 → 403", async () => {
+    // Raw socket peer is NOT loopback (e.g. gateway port exposed directly), so
+    // X-Forwarded-For is not trusted and the loopback gate rejects.
+    const res = await handleCreateToken(
+      makeReq({
+        "x-forwarded-for": "127.0.0.1",
+        origin: LOOPBACK_ORIGIN,
+      }),
+      makeLoopbackServer("203.0.113.9"),
+      true,
+    );
+    expect(res.status).toBe(403);
+  });
+
   test("trustProxy=false (default): X-Forwarded-For is ignored, loopback socket passes the gate → reaches 401", async () => {
     const res = await handleCreateToken(
       makeReq({
