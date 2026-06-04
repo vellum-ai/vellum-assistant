@@ -32,15 +32,13 @@
  * The endpoint scopes the minted token to the caller's active org and the
  * requested assistant; velay validates it on the WS upgrade.
  *
- * No generated SDK function exists for this route yet (the OpenAPI regen
- * hasn't picked it up — the backend endpoint is a separate plan). We call
- * `client.post` directly with the URL, matching sibling hand-rolled platform
- * fetchers (e.g. `domains/chat/inspector/compaction-trail-fetch.ts`). Routing
- * through the platform `client` is what attaches the session cookie + CSRF +
- * `Vellum-Organization-Id` via the request interceptor.
+ * We call the generated platform SDK function `authLiveVoiceTokenCreate`, which
+ * routes through the platform `client` — that interceptor attaches the session
+ * cookie + CSRF + `Vellum-Organization-Id`.
  */
 
-import { client } from "@/generated/api/client.gen";
+import { authLiveVoiceTokenCreate } from "@/generated/api/sdk.gen";
+import type { LiveVoiceTokenResponse } from "@/generated/api/types.gen";
 import {
   getSelfHostedActorToken,
   getSelfHostedIngressUrl,
@@ -49,12 +47,6 @@ import { assertHasResponse } from "@/utils/api-errors";
 
 /** Production velay host (no scheme). Overridable via `VITE_VELAY_HOST`. */
 const DEFAULT_VELAY_HOST = "velay.vellum.ai";
-
-export interface LiveVoiceToken {
-  token: string;
-  /** ISO-8601 timestamp after which the token is no longer accepted by velay. */
-  expiresAt: string;
-}
 
 export class LiveVoiceTokenError extends Error {
   readonly status: number;
@@ -67,11 +59,11 @@ export class LiveVoiceTokenError extends Error {
 }
 
 /**
- * Type guard for the mint endpoint's wire shape. `client.post` is typed but
- * the body is `unknown` on the wire — narrow defensively rather than trusting
+ * Type guard for the mint endpoint's wire shape. The SDK function is typed but
+ * the body is unverified on the wire — narrow defensively rather than trusting
  * the generic.
  */
-function isLiveVoiceToken(value: unknown): value is LiveVoiceToken {
+function isLiveVoiceToken(value: unknown): value is LiveVoiceTokenResponse {
   if (!value || typeof value !== "object") return false;
   const v = value as Record<string, unknown>;
   return typeof v.token === "string" && typeof v.expiresAt === "string";
@@ -86,9 +78,8 @@ function isLiveVoiceToken(value: unknown): value is LiveVoiceToken {
  */
 export async function mintLiveVoiceToken(
   assistantId: string,
-): Promise<LiveVoiceToken> {
-  const { data, error, response } = await client.post<LiveVoiceToken, unknown>({
-    url: "/v1/auth/live-voice-token/",
+): Promise<LiveVoiceTokenResponse> {
+  const { data, error, response } = await authLiveVoiceTokenCreate({
     body: { assistantId },
     throwOnError: false,
   });
