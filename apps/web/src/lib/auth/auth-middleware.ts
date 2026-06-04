@@ -43,9 +43,10 @@ export const authMiddleware: MiddlewareFunction = async ({ request, context }, n
       if (url.pathname.startsWith("/assistant/onboarding/")) {
         return next();
       }
-      // Fresh user: route to the onboarding welcome. Returning user
-      // with an expired session: route to login so they re-auth.
-      if (!readOnboardingCompleted()) {
+      // Fresh user with no assistants: route to onboarding welcome.
+      // Returning user with existing assistants: fall through to
+      // login so the local login page can auto-connect them.
+      if (!hasAssistants() && !readOnboardingCompleted()) {
         throw redirect(routes.onboarding.welcome);
       }
     }

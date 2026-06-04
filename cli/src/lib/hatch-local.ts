@@ -270,9 +270,13 @@ export async function hatchLocal(
         );
         await new Promise((r) => setTimeout(r, delayMs));
       } else {
+        reporter.error(
+          `\n❌ Guardian token lease failed — stopping assistant to avoid orphaned processes.`,
+        );
+        await stopLocalProcesses(resources);
         throw new Error(
           `Guardian token lease failed after ${maxLeaseAttempts} attempts: ${err}\n` +
-            `The assistant started but cannot be authenticated. Re-run \`vellum hatch\` to retry.`,
+            `The assistant was stopped. Re-run \`vellum hatch\` to retry.`,
         );
       }
     }
