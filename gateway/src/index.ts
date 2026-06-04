@@ -89,6 +89,10 @@ import { createTwilioControlPlaneProxyHandler } from "./http/routes/twilio-contr
 import { createVercelControlPlaneProxyHandler } from "./http/routes/vercel-control-plane-proxy.js";
 import { createContactsControlPlaneProxyHandler } from "./http/routes/contacts-control-plane-proxy.js";
 import { handleContactPromptSubmit } from "./http/routes/contact-prompt.js";
+import {
+  handleListDevices,
+  handleRevokeDevice,
+} from "./http/routes/devices.js";
 import { handlePair } from "./http/routes/pair.js";
 import { createSlackControlPlaneProxyHandler } from "./http/routes/slack-control-plane-proxy.js";
 import { createOAuthAppsProxyHandler } from "./http/routes/oauth-apps-proxy.js";
@@ -823,6 +827,21 @@ async function main() {
       method: "POST",
       auth: "none",
       handler: (req, _params, getClientIp) => handlePair(req, getClientIp()),
+    },
+    // ── Device management (localhost-only, auth: none; self-guards loopback) ──
+    {
+      path: "/v1/devices",
+      method: "GET",
+      auth: "none",
+      handler: (req, _params, getClientIp) =>
+        handleListDevices(req, getClientIp()),
+    },
+    {
+      path: "/v1/devices/revoke",
+      method: "POST",
+      auth: "none",
+      handler: (req, _params, getClientIp) =>
+        handleRevokeDevice(req, getClientIp()),
     },
 
     // ── Channel verification sessions ──

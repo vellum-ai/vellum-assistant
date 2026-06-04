@@ -33,9 +33,7 @@ import { mintToken } from "../../auth/token-service.js";
 import { KNOWN_EXTENSION_ORIGINS } from "../../chrome-extension-origins.js";
 import { assistantDbQuery } from "../../db/assistant-db-proxy.js";
 import { getLogger } from "../../logger.js";
-import { isLoopbackAddress } from "../../util/is-loopback-address.js";
-import { VELAY_FORWARDED_HEADER } from "../../velay/bridge-utils.js";
-import { requestArrivedViaEdgeProxy } from "../edge-forwarded-header.js";
+import { enforceLoopbackOnly, errorResponse } from "../loopback-guard.js";
 
 const log = getLogger("pair");
 
@@ -101,37 +99,6 @@ export function resetPairRateLimiterForTests(): void {
 }
 
 // ---------------------------------------------------------------------------
-// Host header parsing
-// ---------------------------------------------------------------------------
-
-export function parseHostHeader(raw: string): string | null {
-  if (raw.length === 0) return null;
-  if (raw.startsWith("[")) {
-    const end = raw.indexOf("]");
-    if (end < 0) return null;
-    const after = raw.substring(end + 1);
-    if (after.length > 0 && !after.startsWith(":")) return null;
-    return raw.substring(1, end);
-  }
-  const firstColon = raw.indexOf(":");
-  if (firstColon < 0) return raw;
-  const secondColon = raw.indexOf(":", firstColon + 1);
-  if (secondColon >= 0) {
-    return raw;
-  }
-  return raw.substring(0, firstColon);
-}
-
-function isLoopbackHostHeader(host: string | null): boolean {
-  if (!host) return true;
-  const parsed = parseHostHeader(host);
-  if (parsed === null) return false;
-  const hostname = parsed.toLowerCase();
-  if (hostname === "localhost") return true;
-  return isLoopbackAddress(hostname);
-}
-
-// ---------------------------------------------------------------------------
 // Guardian resolution
 // ---------------------------------------------------------------------------
 
@@ -139,7 +106,7 @@ interface GuardianPrincipalRow {
   principalId: string | null;
 }
 
-async function resolveLocalGuardianPrincipalId(): Promise<string> {
+export async function resolveLocalGuardianPrincipalId(): Promise<string> {
   try {
     const rows = await assistantDbQuery<GuardianPrincipalRow>(
       `SELECT c.principal_id AS principalId
@@ -190,14 +157,6 @@ function auditDeny(
 // Handler
 // ---------------------------------------------------------------------------
 
-function errorResponse(
-  code: string,
-  message: string,
-  status: number,
-): Response {
-  return Response.json({ error: { code, message } }, { status });
-}
-
 function getExternalAssistantId(): string {
   return (
     process.env.VELLUM_ASSISTANT_NAME?.trim() || DAEMON_INTERNAL_ASSISTANT_ID
@@ -215,38 +174,10 @@ export async function handlePair(
     });
   }
 
-  // Defense-in-depth: reject Velay-bridged requests. The bridge injects this
-  // header on every forwarded request; it cannot be stripped by a Velay client.
-  if (req.headers.get(VELAY_FORWARDED_HEADER)) {
-    auditDeny(req, clientIp, "velay_bridged");
-    return errorResponse("FORBIDDEN", "endpoint is local-only", 403);
-  }
-
-  // Defense-in-depth: reject requests forwarded by the self-hosted nginx edge
-  // (e.g. the SPA reached over an ngrok tunnel). The edge sets this marker
-  // unconditionally and it cannot be spoofed or stripped by the client — see
-  // edge-forwarded-header.ts. The X-Forwarded-For check below also catches the
-  // edge today, but this marker is the explicit, unspoofable signal.
-  if (requestArrivedViaEdgeProxy(req)) {
-    auditDeny(req, clientIp, "edge_proxy_forwarded");
-    return errorResponse("FORBIDDEN", "endpoint is local-only", 403);
-  }
-
-  if (!clientIp || !isLoopbackAddress(clientIp)) {
-    auditDeny(req, clientIp, "non_loopback_peer");
-    return errorResponse("FORBIDDEN", "endpoint is local-only", 403);
-  }
-
-  const host = req.headers.get("host");
-  if (!isLoopbackHostHeader(host)) {
-    auditDeny(req, clientIp, "non_loopback_host_header");
-    return errorResponse("FORBIDDEN", "endpoint is local-only", 403);
-  }
-
-  if (req.headers.get("x-forwarded-for")) {
-    auditDeny(req, clientIp, "x_forwarded_for_present");
-    return errorResponse("FORBIDDEN", "endpoint is local-only", 403);
-  }
+  // Loopback-only boundary (Velay/edge markers, peer IP, Host header,
+  // X-Forwarded-For) — shared with the other local-machine endpoints.
+  const guardError = enforceLoopbackOnly(req, clientIp);
+  if (guardError) return guardError;
 
   const rateResult = checkRateLimit(clientIp);
   if (!rateResult.allowed) {

@@ -415,7 +415,7 @@ export interface DeviceBoundTokenPair {
 /**
  * Revoke active actor tokens for a device binding.
  */
-function revokeActorTokensByDevice(
+export function revokeActorTokensByDevice(
   guardianPrincipalId: string,
   hashedDeviceId: string,
 ): void {
@@ -436,7 +436,7 @@ function revokeActorTokensByDevice(
 /**
  * Revoke active refresh tokens for a device binding.
  */
-function revokeRefreshTokensByDevice(
+export function revokeRefreshTokensByDevice(
   guardianPrincipalId: string,
   hashedDeviceId: string,
 ): void {
