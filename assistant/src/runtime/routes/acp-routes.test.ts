@@ -66,8 +66,27 @@ const capturedSpawns: CapturedSpawn[] = [];
 // longer surfaces the session, matching the real map removal).
 const closedSessionIds: string[] = [];
 
+// Records (id, instruction) pairs passed to manager.steer so the
+// acp/continue route tests can assert the follow-up reached the right
+// session. Set `steerShouldThrow` to simulate a closed/non-reusable session.
+interface SteerCall {
+  id: string;
+  instruction: string;
+}
+const steerCalls: SteerCall[] = [];
+let steerShouldThrow = false;
+// Most-recent live session returned by getLiveSessionForConversation, keyed
+// by conversation id; absent → null (no live session).
+const liveByConversation = new Map<string, AcpSessionState>();
+
 mock.module("../../acp/index.js", () => ({
   getAcpSessionManager: () => ({
+    steer: async (id: string, instruction: string) => {
+      if (steerShouldThrow) throw new Error(`ACP session "${id}" not found`);
+      steerCalls.push({ id, instruction });
+    },
+    getLiveSessionForConversation: (conversationId: string) =>
+      liveByConversation.get(conversationId) ?? null,
     getStatus: (id?: string) => {
       if (id === undefined) {
         return Array.from(inMemoryStates.values());
@@ -134,8 +153,7 @@ mock.module("../../tools/credentials/metadata-store.js", () => ({
     const existing = metadataStore.get(key);
     metadataStore.set(key, {
       allowedTools: policy?.allowedTools ?? existing?.allowedTools ?? [],
-      usageDescription:
-        policy?.usageDescription ?? existing?.usageDescription,
+      usageDescription: policy?.usageDescription ?? existing?.usageDescription,
     });
     return {
       credentialId: `cred-${key}`,
@@ -200,8 +218,88 @@ beforeEach(() => {
   which.setWhich((cmd) => `/usr/local/bin/${cmd}`);
   capturedSpawns.length = 0;
   closedSessionIds.length = 0;
+  steerCalls.length = 0;
+  steerShouldThrow = false;
+  liveByConversation.clear();
   vaultStore.clear();
   metadataStore.clear();
+});
+
+// ---------------------------------------------------------------------------
+// POST /v1/acp/continue — follow-up turn on an existing live session
+// ---------------------------------------------------------------------------
+
+function getContinueHandler() {
+  const route = ROUTES.find(
+    (r: { endpoint: string; method: string }) =>
+      r.endpoint === "acp/continue" && r.method === "POST",
+  );
+  if (!route) throw new Error("acp/continue route not registered");
+  return route.handler;
+}
+
+describe("POST /v1/acp/continue", () => {
+  test("explicit acpSessionId: follow-up reaches that session via steer", async () => {
+    const handler = getContinueHandler();
+    const result = (await handler({
+      body: { acpSessionId: "acp-123", instruction: "now add tests" },
+    })) as { acpSessionId: string; continued: boolean };
+
+    expect(result).toEqual({ acpSessionId: "acp-123", continued: true });
+    expect(steerCalls).toEqual([
+      { id: "acp-123", instruction: "now add tests" },
+    ]);
+  });
+
+  test("resolves the conversation's live session when acpSessionId is omitted", async () => {
+    liveByConversation.set("conv-1", {
+      id: "acp-live",
+      agentId: "claude",
+      acpSessionId: "proto-live",
+      parentConversationId: "conv-1",
+      status: "idle",
+      startedAt: 1,
+    });
+
+    const handler = getContinueHandler();
+    const result = (await handler({
+      body: { conversationId: "conv-1", instruction: "keep going" },
+    })) as { acpSessionId: string; continued: boolean };
+
+    expect(result).toEqual({ acpSessionId: "acp-live", continued: true });
+    expect(steerCalls).toEqual([{ id: "acp-live", instruction: "keep going" }]);
+  });
+
+  test("missing instruction throws 400", async () => {
+    const handler = getContinueHandler();
+    await expect(
+      handler({ body: { acpSessionId: "acp-123" } }),
+    ).rejects.toThrow("instruction is required");
+    expect(steerCalls).toEqual([]);
+  });
+
+  test("no acpSessionId and no conversationId throws 400", async () => {
+    const handler = getContinueHandler();
+    await expect(handler({ body: { instruction: "go" } })).rejects.toThrow(
+      "acpSessionId or conversationId is required",
+    );
+  });
+
+  test("no live session for the conversation throws 404", async () => {
+    const handler = getContinueHandler();
+    await expect(
+      handler({ body: { conversationId: "conv-none", instruction: "go" } }),
+    ).rejects.toThrow("No live ACP session");
+    expect(steerCalls).toEqual([]);
+  });
+
+  test("closed/non-existent session: steer rejection maps to 404", async () => {
+    steerShouldThrow = true;
+    const handler = getContinueHandler();
+    await expect(
+      handler({ body: { acpSessionId: "acp-gone", instruction: "go" } }),
+    ).rejects.toThrow("ACP session not found or not reusable");
+  });
 });
 
 // ---------------------------------------------------------------------------

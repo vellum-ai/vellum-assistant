@@ -230,6 +230,51 @@ async function steerSession({ pathParams, body }: RouteHandlerArgs) {
   return { acpSessionId: id, steered: true };
 }
 
+/**
+ * Send a follow-up turn to an existing LIVE (running/idle) ACP session so the
+ * agent builds on the same context and workspace.
+ *
+ * Distinct from `spawnSession` (fresh process/session) and `steerSession`
+ * (the HTTP verb is the same `manager.steer`, but `acp_continue` targets a
+ * session left `idle` after its previous task completed — the multi-turn
+ * continuity path). The target session is resolved from an explicit
+ * `acpSessionId` when provided, otherwise from the conversation's most-recent
+ * live session via `getLiveSessionForConversation`. A closed / non-existent
+ * session errors cleanly with a 404 RouteError — never a crash.
+ */
+async function continueSession({ body }: RouteHandlerArgs) {
+  const instruction = body?.instruction as string | undefined;
+  const explicitId = body?.acpSessionId as string | undefined;
+  const conversationId = body?.conversationId as string | undefined;
+
+  if (!instruction) {
+    throw new BadRequestError("instruction is required");
+  }
+  if (!explicitId && !conversationId) {
+    throw new BadRequestError("acpSessionId or conversationId is required");
+  }
+
+  const manager = getAcpSessionManager();
+
+  let acpSessionId = explicitId;
+  if (!acpSessionId) {
+    const live = manager.getLiveSessionForConversation(conversationId!);
+    if (!live) {
+      throw new NotFoundError(
+        "No live ACP session to continue for this conversation",
+      );
+    }
+    acpSessionId = live.id;
+  }
+
+  try {
+    await manager.steer(acpSessionId, instruction);
+  } catch {
+    throw new NotFoundError("ACP session not found or not reusable");
+  }
+  return { acpSessionId, continued: true };
+}
+
 async function cancelSession({ pathParams }: RouteHandlerArgs) {
   const id = pathParams?.id as string;
   const manager = getAcpSessionManager();
@@ -412,6 +457,41 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({
       acpSessionId: z.string(),
       steered: z.boolean(),
+    }),
+  },
+  {
+    operationId: "acp_continue",
+    endpoint: "acp/continue",
+    method: "POST",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    handler: continueSession,
+    summary: "Continue ACP session",
+    description:
+      "Send a follow-up turn to an existing live (running/idle) ACP session " +
+      "so the agent builds on the same context and workspace. Resolve the " +
+      "target by explicit acpSessionId, or by the conversation's most-recent " +
+      "live session via conversationId. Errors cleanly (404) for a closed or " +
+      "non-existent session.",
+    tags: ["acp"],
+    requestBody: z.object({
+      instruction: z.string().describe("The follow-up task for this turn"),
+      acpSessionId: z
+        .string()
+        .describe("Explicit live session to continue")
+        .optional(),
+      conversationId: z
+        .string()
+        .describe(
+          "Resolve the most-recent live session for this conversation when acpSessionId is omitted",
+        )
+        .optional(),
+    }),
+    responseBody: z.object({
+      acpSessionId: z.string(),
+      continued: z.boolean(),
     }),
   },
   {

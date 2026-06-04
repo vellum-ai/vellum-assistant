@@ -65,7 +65,7 @@
     },
     {
       "name": "acp_steer",
-      "description": "**Interrupts** the in-flight prompt of a running ACP session and replaces it with `instruction`. Use to redirect the agent (e.g., 'stop, do X instead'). For follow-up work that should happen *after* the current task, do NOT use this — wait for `acp_session_completed` and `acp_spawn` again.",
+      "description": "**Interrupts** the in-flight prompt of a running ACP session and replaces it with `instruction`. Use to redirect the agent (e.g., 'stop, do X instead'). For follow-up work that should happen *after* the current task, do NOT use this — wait for `acp_session_completed` and use `acp_continue` to add a new turn on the SAME session.",
       "category": "orchestration",
       "risk": "high",
       "input_schema": {
@@ -83,6 +83,28 @@
         "required": ["acp_session_id", "instruction"]
       },
       "executor": "tools/acp-steer.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "acp_continue",
+      "description": "Send a follow-up turn to an EXISTING live ACP session so the agent builds on the SAME context and workspace it already established. Use this after a session reports `acp_session_completed` to keep iterating ('now also do Y', 'fix the test you just broke') without losing state. Resolves the target session automatically from the current conversation's most-recent live session, or pass an explicit `acp_session_id`. Use `acp_spawn` ONLY when you want a FRESH session/process; use `acp_steer` ONLY to interrupt an in-flight prompt. Targeting a closed or non-existent session fails cleanly.",
+      "category": "orchestration",
+      "risk": "high",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instruction": {
+            "type": "string",
+            "description": "The follow-up task for this new turn on the existing session."
+          },
+          "acp_session_id": {
+            "type": "string",
+            "description": "Optional ID of the live session to continue. When omitted, the most-recent live session for the current conversation is used."
+          }
+        },
+        "required": ["instruction"]
+      },
+      "executor": "tools/acp-continue.ts",
       "execution_target": "host"
     },
     {
