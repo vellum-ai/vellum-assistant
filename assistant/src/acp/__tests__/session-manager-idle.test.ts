@@ -744,6 +744,54 @@ describe("AcpSessionManager — prompt-fire / cancel / steer state-machine fixes
     expect(rows[0]!.status).toBe("cancelled");
   });
 
+  test("Bug 5: cancel() whose process.cancel RPC rejects resets cancelRequested so the live session is not poisoned", async () => {
+    const id = "cancel-rpc-reject";
+    let resolvePrompt!: (v: { stopReason: string }) => void;
+    const fake: ControllableFake = {
+      promptCalls: [],
+      killed: false,
+      prompt(_sessionId, text) {
+        this.promptCalls.push(text);
+        return new Promise<{ stopReason: string }>((res) => {
+          resolvePrompt = res;
+        });
+      },
+      cancel: () => Promise.reject(new Error("cancel RPC failed")),
+      kill() {
+        this.killed = true;
+      },
+    };
+
+    const { manager, sent } = injectControllableSession({
+      id,
+      parentConversationId: "conv-cancel-rpc-reject",
+      fake,
+    });
+
+    // The cancel RPC fails: cancel() rejects and the still-running session must
+    // NOT be poisoned (cancelRequested undone, status stays running, not killed).
+    await expect(manager.cancel(id)).rejects.toThrow("cancel RPC failed");
+    const entry = (
+      manager as unknown as {
+        sessions: Map<
+          string,
+          { cancelRequested: boolean; state: { status: string } }
+        >;
+      }
+    ).sessions.get(id)!;
+    expect(entry.cancelRequested).toBe(false);
+    expect(entry.state.status).toBe("running");
+    expect(fake.killed).toBe(false);
+
+    // A later NORMAL completion is treated as completed → idle (NOT cancelled),
+    // proving the failed cancel didn't poison the session.
+    resolvePrompt({ stopReason: "end_turn" });
+    await flush();
+    expect((manager.getStatus(id) as { status: string }).status).toBe("idle");
+    expect(sent.filter((m) => m.type === "acp_session_error").length).toBe(0);
+    expect(readTurnRows(id)[0]!.status).toBe("completed");
+  });
+
   test("Bug 3: cancel() arriving during steer()'s cancel-await is honored — steer() THROWS SessionCancelledError, session ends cancelled + torn down, no re-fire", async () => {
     const id = "cancel-races-steer";
     let cancelGate!: () => void;

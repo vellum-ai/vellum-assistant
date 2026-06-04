@@ -664,7 +664,17 @@ export class AcpSessionManager {
       return;
     }
 
-    await entry.process.cancel(entry.state.acpSessionId);
+    try {
+      await entry.process.cancel(entry.state.acpSessionId);
+    } catch (err) {
+      // The cancel RPC failed, so the session was NOT cancelled and is still
+      // running. Undo the synchronous intent flag — otherwise it poisons the
+      // live session: a later normal prompt completion would be treated as
+      // cancelled and any subsequent steer would tear it down. Surface the
+      // failure to the caller.
+      entry.cancelRequested = false;
+      throw err;
+    }
     entry.state.status = "cancelled";
     entry.state.completedAt = Date.now();
   }
