@@ -22,6 +22,7 @@ const ORIGINAL_CONFIG_HOME = process.env.XDG_CONFIG_HOME;
 const ORIGINAL_ARGV = [...process.argv];
 
 import { saveAssistantEntry } from "../lib/assistant-config.js";
+import { retire } from "../commands/retire.js";
 import { sleep } from "../commands/sleep.js";
 import { wake } from "../commands/wake.js";
 
@@ -100,5 +101,16 @@ describe("paired lifecycle guards", () => {
     expect(errors).toContain("paired from another machine");
     expect(errors).toContain("vellum client px");
     expect(errors).not.toContain("only works with local and docker");
+  });
+
+  test("retire refuses a paired entry and points to unpair", async () => {
+    process.argv = ["bun", "vellum", "retire", "px", "--yes"];
+    const { exited, errors } = await runGuarded(retire);
+
+    expect(exited).toBe(true);
+    expect(errors).toContain("paired from another machine");
+    expect(errors).toContain("vellum unpair");
+    // It must NOT fall through to the generic "Unknown cloud type" path.
+    expect(errors).not.toContain("Unknown cloud type");
   });
 });
