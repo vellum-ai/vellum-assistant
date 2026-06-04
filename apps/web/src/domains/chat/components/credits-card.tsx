@@ -1,5 +1,5 @@
 import { Button } from "@vellum/design-library";
-import { Coins } from "lucide-react";
+import { Coins, Plus } from "lucide-react";
 
 interface CreditsCardProps {
   /** Formatted whole-credits string, or null when unavailable. */
@@ -10,7 +10,7 @@ interface CreditsCardProps {
 /**
  * Presentational credits card matching the preferences-drawer mock: a single
  * slim flat container with the coins icon + balance on the left and a ghost
- * "Add Credits" text button on the right. No nested background — the container
+ * "Add" button (plus icon) on the right. No nested background — the container
  * is the only surface. Purely presentational; callers supply the formatted
  * balance and handler.
  *
@@ -39,7 +39,8 @@ export function CreditsCard({ balance, onAddCredits }: CreditsCardProps) {
         onClick={onAddCredits}
         className="max-md:text-body-medium-default"
       >
-        Add Credits
+        <Plus className="h-3 w-3" aria-hidden />
+        Add
       </Button>
     </div>
   );
