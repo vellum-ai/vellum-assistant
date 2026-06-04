@@ -2080,14 +2080,9 @@ export async function runAgentLoopImpl(
           history: ctx.messages,
           graphMemory: ctx.graphMemory,
           isTrustedActor,
+          logger: rlog,
         });
         runMessages = injection.messages;
-        if (injection.webSearchStripStats.blocksStripped > 0) {
-          rlog.info(
-            { phase: "mid-loop-compact", ...injection.webSearchStripStats },
-            "Converted historical web_search_tool_result blocks to text summaries",
-          );
-        }
         preRepairMessages = runMessages;
         preRunHistoryLength = runMessages.length;
         return runMessages;
