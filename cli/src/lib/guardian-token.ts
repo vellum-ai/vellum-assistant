@@ -255,6 +255,15 @@ export async function refreshGuardianToken(
     if (current && current.refreshToken !== before.refreshToken) {
       return current;
     }
+
+    // We did NOT acquire the lock (another process is likely mid-refresh) and
+    // the stored token hasn't been rotated yet. Do NOT call the gateway: our
+    // refresh token may be the one the winner is rotating right now, and
+    // replaying a rotated token revokes the whole family (forcing re-pair).
+    // Give up — the caller surfaces the original 401, and the next attempt
+    // picks up the winner's persisted token.
+    if (!locked) return null;
+
     const tokenData = current ?? before;
 
     const response = await fetch(`${gatewayUrl}/v1/guardian/refresh`, {
