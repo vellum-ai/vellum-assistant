@@ -14,6 +14,7 @@ import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types
 
 const OPTIMISTIC_COMPLETION_SURFACE_TYPES = [
   "choice",
+  "oauth_connect",
   "form",
   "confirmation",
   "file_upload",

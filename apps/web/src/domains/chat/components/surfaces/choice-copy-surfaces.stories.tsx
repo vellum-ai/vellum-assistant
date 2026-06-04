@@ -2,7 +2,10 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 
 import type { Surface } from "@/domains/chat/types/types";
+import type { ManagedOAuthConnectClient } from "@/domains/chat/api/managed-oauth";
+import type { OAuthConnection } from "@/generated/api/types.gen";
 
+import { OAuthConnectSurface } from "./oauth-connect-surface";
 import { SurfaceRouter } from "./surface-router";
 
 const meta: Meta = {
@@ -69,6 +72,51 @@ function makeCopyBlockSurface(overrides: Partial<Surface> = {}): Surface {
   };
 }
 
+function makeOAuthConnectSurface(overrides: Partial<Surface> = {}): Surface {
+  return {
+    surfaceId: "oauth-connect-surface",
+    surfaceType: "oauth_connect",
+    title: "Connect Google",
+    data: {
+      providerKey: "google",
+      displayName: "Google",
+      description: "Connect Gmail, Calendar, and Drive for this task.",
+      connectLabel: "Connect Google",
+    },
+    ...overrides,
+  };
+}
+
+const storyOAuthClient: ManagedOAuthConnectClient = {
+  fetchProvider: async () => ({
+    provider_key: "google",
+    display_name: "Google",
+    description: "Gmail, Calendar, and Drive",
+    dashboard_url: null,
+    client_id_placeholder: null,
+    requires_client_secret: false,
+    logo_url: null,
+    supports_managed_mode: true,
+    managed_service_is_paid: false,
+    feature_flag: null,
+  }),
+  connect: async () => {
+    await new Promise((resolve) => setTimeout(resolve, 650));
+    return {
+      status: "connected",
+      connection: {
+        id: "conn-story",
+        provider: "google",
+        status: "ACTIVE",
+        connected: true,
+        account_label: "user@example.com",
+        scopes_granted: ["gmail.readonly", "calendar.readonly"],
+        expires_at: null,
+      } as OAuthConnection,
+    };
+  },
+};
+
 function InteractiveSurfacePreview({
   initialSurface,
 }: {
@@ -99,6 +147,37 @@ function InteractiveSurfacePreview({
           ...current,
           completed: true,
           completionSummary: `User chose: "${label}"`,
+        }));
+      }}
+    />
+  );
+}
+
+function OAuthSurfacePreview() {
+  const [surface, setSurface] = useState(makeOAuthConnectSurface());
+  if (surface.completed) {
+    return <SurfaceRouter surface={surface} onAction={() => {}} />;
+  }
+  return (
+    <OAuthConnectSurface
+      surface={surface}
+      assistantId="assistant-story"
+      oauthClient={storyOAuthClient}
+      onAction={(_surfaceId, _actionId, data) => {
+        const providerLabel =
+          typeof data?.providerLabel === "string"
+            ? data.providerLabel
+            : "Google";
+        const accountLabel =
+          typeof data?.accountLabel === "string"
+            ? data.accountLabel
+            : undefined;
+        setSurface((current) => ({
+          ...current,
+          completed: true,
+          completionSummary: accountLabel
+            ? `Connected ${providerLabel}: ${accountLabel}`
+            : `Connected ${providerLabel}`,
         }));
       }}
     />
@@ -152,11 +231,17 @@ export const CopyBlock: Story = {
   ),
 };
 
+export const OauthConnect: Story = {
+  name: "OAuth Connect",
+  render: () => <OAuthSurfacePreview />,
+};
+
 export const ActivationRailStack: Story = {
   render: () => (
     <div className="flex flex-col gap-4">
       <SurfaceRouter surface={makeCopyBlockSurface()} onAction={() => {}} />
       <InteractiveSurfacePreview initialSurface={makeChoiceSurface()} />
+      <OAuthSurfacePreview />
     </div>
   ),
 };
@@ -167,6 +252,19 @@ export const CompletedChoice: Story = {
       surface={makeChoiceSurface({
         completed: true,
         completionSummary: 'User chose: "Clean up my inbox"',
+      })}
+      onAction={() => {}}
+    />
+  ),
+};
+
+export const CompletedOauthConnect: Story = {
+  name: "Completed OAuth Connect",
+  render: () => (
+    <SurfaceRouter
+      surface={makeOAuthConnectSurface({
+        completed: true,
+        completionSummary: "Connected Google: user@example.com",
       })}
       onAction={() => {}}
     />

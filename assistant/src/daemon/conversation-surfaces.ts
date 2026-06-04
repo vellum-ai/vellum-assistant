@@ -1785,6 +1785,7 @@ export async function handleSurfaceAction(
   // active and retryable if the queue was full.
   const ONE_SHOT_SURFACE_TYPES = [
     "choice",
+    "oauth_connect",
     "form",
     "confirmation",
     "file_upload",
@@ -1997,6 +1998,30 @@ export function buildCompletionSummary(
     }
     return `User chose: ${actionId}`;
   }
+  if (surfaceType === "oauth_connect") {
+    const providerLabel =
+      typeof data?.providerLabel === "string"
+        ? data.providerLabel
+        : typeof data?.displayName === "string"
+          ? data.displayName
+          : typeof data?.providerKey === "string"
+            ? data.providerKey
+            : "OAuth";
+    const accountLabel =
+      typeof data?.accountLabel === "string" ? data.accountLabel : undefined;
+    if (actionId === "connect" || data?.status === "connected") {
+      return accountLabel
+        ? `Connected ${providerLabel}: ${accountLabel}`
+        : `Connected ${providerLabel}`;
+    }
+    if (actionId === "cancel" || data?.status === "cancelled") {
+      return `Cancelled ${providerLabel} connection`;
+    }
+    if (data?.status === "error") {
+      return `${providerLabel} connection failed`;
+    }
+    return `${providerLabel} connection ${actionId}`;
+  }
   if (surfaceType === "list" && data) {
     const selectedIds = data.selectedIds as string[] | undefined;
     const actionSuffix = actionId ? ` (action: ${actionId})` : "";
@@ -2066,6 +2091,30 @@ function buildUserFacingLabel(
     if (selectedTitles.length > 1)
       return `Selected ${selectedTitles.length} options`;
     return "Selected";
+  }
+  if (surfaceType === "oauth_connect") {
+    const providerLabel =
+      typeof data?.providerLabel === "string"
+        ? data.providerLabel
+        : typeof data?.displayName === "string"
+          ? data.displayName
+          : typeof data?.providerKey === "string"
+            ? data.providerKey
+            : "OAuth";
+    const accountLabel =
+      typeof data?.accountLabel === "string" ? data.accountLabel : undefined;
+    if (actionId === "connect" || data?.status === "connected") {
+      return accountLabel
+        ? `Connected ${providerLabel}: ${accountLabel}`
+        : `Connected ${providerLabel}`;
+    }
+    if (actionId === "cancel" || data?.status === "cancelled") {
+      return "Cancelled";
+    }
+    if (data?.status === "error") {
+      return `${providerLabel} connection failed`;
+    }
+    return `Selected: ${actionId}`;
   }
 
   // Table / list selection actions
@@ -2358,6 +2407,16 @@ export async function surfaceProxyResolver(
       return {
         content:
           "choice surfaces require at least one option with both id and title.",
+        isError: true,
+      };
+    }
+    if (
+      surfaceType === "oauth_connect" &&
+      typeof (data as unknown as Record<string, unknown>).providerKey !==
+        "string"
+    ) {
+      return {
+        content: "oauth_connect surfaces require data.providerKey.",
         isError: true,
       };
     }

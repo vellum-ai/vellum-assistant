@@ -6,6 +6,7 @@ export type SurfaceType =
   | "card"
   | "choice"
   | "copy_block"
+  | "oauth_connect"
   | "form"
   | "list"
   | "table"
@@ -17,6 +18,7 @@ export type SurfaceType =
 
 export const INTERACTIVE_SURFACE_TYPES: SurfaceType[] = [
   "choice",
+  "oauth_connect",
   "form",
   "confirmation",
   "dynamic_page",
@@ -69,6 +71,21 @@ export interface CopyBlockSurfaceData {
   text: string;
   label?: string;
   language?: string;
+}
+
+export interface OAuthConnectSurfaceData {
+  /** OAuth provider key from the managed provider catalog, e.g. "google". */
+  providerKey: string;
+  /** Optional display label. The client falls back to the provider catalog. */
+  displayName?: string;
+  /** Optional helper text. The client falls back to the provider catalog. */
+  description?: string;
+  /** Optional provider logo URL. The client falls back to the provider catalog. */
+  logoUrl?: string | null;
+  /** Optional OAuth scopes requested for this task. Defaults to provider/platform defaults. */
+  requestedScopes?: string[];
+  /** Optional button label. */
+  connectLabel?: string;
 }
 
 export interface FormField {
@@ -183,6 +200,7 @@ export type SurfaceData =
   | CardSurfaceData
   | ChoiceSurfaceData
   | CopyBlockSurfaceData
+  | OAuthConnectSurfaceData
   | FormSurfaceData
   | ListSurfaceData
   | TableSurfaceData
@@ -240,6 +258,11 @@ export interface UiSurfaceShowCopyBlock extends UiSurfaceShowBase {
   data: CopyBlockSurfaceData;
 }
 
+export interface UiSurfaceShowOAuthConnect extends UiSurfaceShowBase {
+  surfaceType: "oauth_connect";
+  data: OAuthConnectSurfaceData;
+}
+
 export interface UiSurfaceShowForm extends UiSurfaceShowBase {
   surfaceType: "form";
   data: FormSurfaceData;
@@ -279,6 +302,7 @@ export type UiSurfaceShow =
   | UiSurfaceShowCard
   | UiSurfaceShowChoice
   | UiSurfaceShowCopyBlock
+  | UiSurfaceShowOAuthConnect
   | UiSurfaceShowForm
   | UiSurfaceShowList
   | UiSurfaceShowTable

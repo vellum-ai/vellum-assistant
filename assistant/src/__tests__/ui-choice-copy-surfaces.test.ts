@@ -9,6 +9,7 @@ import {
 import type {
   ChoiceSurfaceData,
   CopyBlockSurfaceData,
+  OAuthConnectSurfaceData,
   ServerMessage,
   SurfaceData,
   SurfaceType,
@@ -65,12 +66,15 @@ describe("choice and copy_block surface definitions", () => {
   test("ui_show advertises the new surface types", () => {
     expect(getSurfaceTypeEnum()).toContain("choice");
     expect(getSurfaceTypeEnum()).toContain("copy_block");
+    expect(getSurfaceTypeEnum()).toContain("oauth_connect");
     expect(uiShowTool.description).toContain("recommended");
     expect(uiShowTool.description).toContain("visible copy button");
+    expect(uiShowTool.description).toContain("managed OAuth");
   });
 
-  test("choice is interactive but copy_block is display-only", () => {
+  test("choice and oauth_connect are interactive but copy_block is display-only", () => {
     expect(INTERACTIVE_SURFACE_TYPES).toContain("choice");
+    expect(INTERACTIVE_SURFACE_TYPES).toContain("oauth_connect");
     expect(INTERACTIVE_SURFACE_TYPES).not.toContain("copy_block");
   });
 });
@@ -179,6 +183,53 @@ describe("choice and copy_block surface proxying", () => {
     expect(ctx.pendingSurfaceActions.has(showMessage.surfaceId)).toBe(false);
   });
 
+  test("ui_show passes oauth_connect data through and awaits action", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    const result = await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "oauth_connect",
+      title: "Connect Google",
+      data: {
+        providerKey: "google",
+        displayName: "Google",
+        description: "Connect Gmail for this task.",
+      },
+    });
+
+    expect(result.isError).toBe(false);
+    expect(result.yieldToUser).toBe(true);
+
+    const showMessage = sent.find(
+      (msg): msg is UiSurfaceShow => msg.type === "ui_surface_show",
+    );
+    expect(showMessage).toBeDefined();
+    if (!showMessage || showMessage.surfaceType !== "oauth_connect") return;
+
+    expect(showMessage.data as OAuthConnectSurfaceData).toEqual({
+      providerKey: "google",
+      displayName: "Google",
+      description: "Connect Gmail for this task.",
+    });
+    expect(ctx.pendingSurfaceActions.get(showMessage.surfaceId)).toEqual({
+      surfaceType: "oauth_connect",
+    });
+  });
+
+  test("ui_show rejects oauth_connect without providerKey", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    const result = await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "oauth_connect",
+      data: { displayName: "Google" },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("data.providerKey");
+    expect(sent).toHaveLength(0);
+  });
+
   test("choice completion summary names multi-select choices", () => {
     expect(
       buildCompletionSummary("choice", "submit", {
@@ -186,5 +237,16 @@ describe("choice and copy_block surface proxying", () => {
         selectedTitles: ["Clean up my inbox", "Plan my week"],
       }),
     ).toBe('User chose 2 options: "Clean up my inbox", "Plan my week"');
+  });
+
+  test("oauth_connect completion summary names the connected account", () => {
+    expect(
+      buildCompletionSummary("oauth_connect", "connect", {
+        providerKey: "google",
+        providerLabel: "Google",
+        accountLabel: "user@example.com",
+        status: "connected",
+      }),
+    ).toBe("Connected Google: user@example.com");
   });
 });

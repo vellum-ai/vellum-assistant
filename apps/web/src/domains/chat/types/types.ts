@@ -131,6 +131,7 @@ export interface Surface extends ConversationMessageSurface {
  */
 const INHERENTLY_INTERACTIVE_SURFACE_TYPES = [
   "choice",
+  "oauth_connect",
   "form",
   "confirmation",
   "file_upload",
@@ -141,7 +142,7 @@ const INHERENTLY_INTERACTIVE_SURFACE_TYPES = [
  * Whether a surface requires user interaction to "complete".
  *
  * A surface is interactive when it either carries explicit action buttons
- * or is an inherently interactive type (choice, form, confirmation, file_upload).
+ * or is an inherently interactive type (choice, oauth_connect, form, confirmation, file_upload).
  * Display-only surfaces — copy blocks, tables, cards, lists, and dynamic pages without
  * actions — are non-interactive and should never block the composer.
  */

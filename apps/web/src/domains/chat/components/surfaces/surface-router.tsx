@@ -14,6 +14,7 @@ import { DynamicPageSurface } from "@/domains/chat/components/surfaces/dynamic-p
 import { FileUploadSurface } from "@/domains/chat/components/surfaces/file-upload-surface";
 import { FormSurface } from "@/domains/chat/components/surfaces/form-surface";
 import { ListSurface } from "@/domains/chat/components/surfaces/list-surface";
+import { OAuthConnectSurface } from "@/domains/chat/components/surfaces/oauth-connect-surface";
 import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container";
 import { TableSurface } from "@/domains/chat/components/surfaces/table-surface";
 import { TaskPreferencesSurface } from "@/domains/chat/components/surfaces/task-preferences-surface";
@@ -44,6 +45,7 @@ export function SurfaceRouter({
 }: SurfaceRouterProps) {
   const CHIP_COLLAPSE_TYPES = [
     "choice",
+    "oauth_connect",
     "form",
     "confirmation",
     "file_upload",
@@ -85,6 +87,15 @@ export function SurfaceRouter({
 
     case "copy_block":
       return <CopyBlockSurface surface={surface} onAction={onAction} />;
+
+    case "oauth_connect":
+      return (
+        <OAuthConnectSurface
+          surface={surface}
+          onAction={onAction}
+          assistantId={assistantId}
+        />
+      );
 
     case "list":
       return <ListSurface surface={surface} onAction={onAction} />;
