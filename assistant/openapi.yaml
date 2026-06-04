@@ -14776,6 +14776,33 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pages:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        slug:
+                          type: string
+                        bodyBytes:
+                          type: number
+                        edgeCount:
+                          type: number
+                        updatedAtMs:
+                          type: number
+                      required:
+                        - slug
+                        - bodyBytes
+                        - edgeCount
+                        - updatedAtMs
+                      additionalProperties: false
+                required:
+                  - pages
+                additionalProperties: false
       requestBody:
         required: true
         content:

@@ -23,7 +23,7 @@ import {
   assertHasResponse,
   extractErrorMessage,
 } from "@/utils/api-errors";
-import type { ConceptPageSummary, ListConceptPagesResult } from "./types";
+import type { ListConceptPagesResult } from "./types";
 
 export function listConceptPagesOptions(assistantId: string) {
   return queryOptions<ListConceptPagesResult>({
@@ -64,8 +64,7 @@ export function listConceptPagesOptions(assistantId: string) {
         );
       }
 
-      const body = data as { pages: ConceptPageSummary[] } | undefined;
-      return { kind: "success", pages: body?.pages ?? [] };
+      return { kind: "success", pages: data?.pages ?? [] };
     },
   });
 }
