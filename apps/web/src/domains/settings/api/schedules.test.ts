@@ -4,6 +4,7 @@ import * as sdkGen from "@/generated/daemon/sdk.gen";
 
 import type {
   ConsolidationRunsGetResponse,
+  HeartbeatRunsGetResponse,
   SchedulesUsagesummaryGetResponse,
 } from "@/generated/daemon/types.gen";
 
@@ -14,6 +15,12 @@ interface UsageSummaryCall {
 }
 
 interface ConsolidationRunsCall {
+  path: { assistant_id: string };
+  query: { limit: number };
+  throwOnError: false;
+}
+
+interface HeartbeatRunsCall {
   path: { assistant_id: string };
   query: { limit: number };
   throwOnError: false;
@@ -46,8 +53,27 @@ const consolidationRows: ConsolidationRunsGetResponse["runs"] = [
   },
 ];
 
+const heartbeatRows: HeartbeatRunsGetResponse["runs"] = [
+  {
+    id: "heartbeat-run-1",
+    scheduledFor: 1_761_792_000_000,
+    startedAt: 1_761_792_001_000,
+    finishedAt: 1_761_792_004_000,
+    durationMs: 3000,
+    status: "ok",
+    skipReason: null,
+    error: null,
+    conversationId: "conv-heartbeat-1",
+    conversationExists: true,
+    conversationArchivedAt: null,
+    estimatedCostUsd: 0.0567,
+    createdAt: 1_761_792_000_000,
+  },
+];
+
 let usageSummaryCalls: UsageSummaryCall[] = [];
 let consolidationRunsCalls: ConsolidationRunsCall[] = [];
+let heartbeatRunsCalls: HeartbeatRunsCall[] = [];
 let responseOk = true;
 let responseStatus = 200;
 
@@ -57,6 +83,14 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
     consolidationRunsCalls.push(opts);
     return Promise.resolve({
       data: responseOk ? { runs: consolidationRows } : undefined,
+      error: undefined,
+      response: { ok: responseOk, status: responseStatus },
+    });
+  },
+  heartbeatRunsGet: (opts: HeartbeatRunsCall) => {
+    heartbeatRunsCalls.push(opts);
+    return Promise.resolve({
+      data: responseOk ? { runs: heartbeatRows } : undefined,
       error: undefined,
       response: { ok: responseOk, status: responseStatus },
     });
@@ -71,15 +105,46 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   },
 }));
 
-const { fetchConsolidationRuns, fetchScheduleUsageSummary } = await import(
-  "./schedules"
-);
+const { fetchConsolidationRuns, fetchHeartbeatRuns, fetchScheduleUsageSummary } =
+  await import("./schedules");
 
 afterEach(() => {
   usageSummaryCalls = [];
   consolidationRunsCalls = [];
+  heartbeatRunsCalls = [];
   responseOk = true;
   responseStatus = 200;
+});
+
+describe("fetchHeartbeatRuns", () => {
+  test("preserves conversation availability and cost metadata", async () => {
+    const result = await fetchHeartbeatRuns("assistant-1");
+
+    expect(heartbeatRunsCalls).toEqual([
+      {
+        path: { assistant_id: "assistant-1" },
+        query: { limit: 10 },
+        throwOnError: false,
+      },
+    ]);
+    expect(result).toEqual([
+      {
+        id: "heartbeat-run-1",
+        jobId: "heartbeat",
+        status: "ok",
+        startedAt: 1_761_792_001_000,
+        finishedAt: 1_761_792_004_000,
+        durationMs: 3000,
+        output: null,
+        error: null,
+        conversationId: "conv-heartbeat-1",
+        conversationExists: true,
+        conversationArchivedAt: null,
+        estimatedCostUsd: 0.0567,
+        createdAt: 1_761_792_000_000,
+      },
+    ]);
+  });
 });
 
 describe("fetchConsolidationRuns", () => {

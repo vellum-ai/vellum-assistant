@@ -1,8 +1,5 @@
-import {
-  timezoneDayStartEpoch,
-  toTimezoneDateString,
-} from "@/components/charts/format-date-label";
 import { LLM_USAGE_DIMENSION_LABELS } from "@/utils/llm-dimension";
+import { resolveUsageRangeWindow } from "@/utils/usage-window";
 import { UsageRequestError } from "./usage-api";
 import type {
   UsageGranularity,
@@ -199,14 +196,6 @@ function isHourlyDate(date: string) {
   return /^\d{4}-\d{2}-\d{2} ([01]\d|2[0-3]):00$/.test(date);
 }
 
-const RANGE_START_DAY_OFFSETS: Record<Exclude<UsageTimeRange, "all">, number> =
-  {
-    today: 0,
-    [DEFAULT_USAGE_RANGE]: 6,
-    "30d": 29,
-    "90d": 89,
-  };
-
 /**
  * Resolve the `{ from, to }` epoch-ms window for a usage range, with calendar
  * day boundaries computed in the effective `tz` so they stay aligned with the
@@ -221,20 +210,7 @@ export function resolveRangeWindow(
   from: number;
   to: number;
 } {
-  const to = typeof now === "number" ? now : now.getTime();
-  if (range === "all") {
-    return { from: 0, to };
-  }
-  const dayOffset = RANGE_START_DAY_OFFSETS[range];
-  // Today's calendar date in `tz`, then step back whole days on a UTC-noon
-  // anchor to avoid DST slips before resolving zone-local midnight.
-  const todayInTz = toTimezoneDateString(new Date(to), tz);
-  const [y, m, d] = todayInTz.split("-").map(Number);
-  const anchor = new Date(Date.UTC(y, m - 1, d, 12));
-  anchor.setUTCDate(anchor.getUTCDate() - dayOffset);
-  const fromDate = toTimezoneDateString(anchor, "UTC");
-  const from = timezoneDayStartEpoch(fromDate, tz);
-  return { from, to };
+  return resolveUsageRangeWindow(range, tz, now);
 }
 
 export function resolveUsageGranularity(

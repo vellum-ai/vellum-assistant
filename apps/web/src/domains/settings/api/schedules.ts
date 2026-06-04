@@ -206,7 +206,6 @@ export async function fetchHeartbeatRuns(
     );
   }
   return (data?.runs ?? []).map((run) => ({
-    ...run,
     id: run.id,
     jobId: "heartbeat",
     status: run.status,
@@ -216,6 +215,9 @@ export async function fetchHeartbeatRuns(
     output: run.skipReason ? `Skipped: ${run.skipReason}` : null,
     error: run.error,
     conversationId: run.conversationId,
+    conversationExists: run.conversationExists,
+    conversationArchivedAt: run.conversationArchivedAt,
+    estimatedCostUsd: run.estimatedCostUsd,
     createdAt: run.createdAt,
   }));
 }
