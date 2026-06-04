@@ -1362,8 +1362,7 @@ export async function runAgentLoopImpl(
     // Inject NOW.md and PKB content only on the first turn (or after
     // compaction re-strips them).  Old injections persist in history and
     // are never stripped on normal turns — this preserves the cached prefix.
-    // PKB/NOW content is sourced from the `memoryRetrieval` pipeline above
-    // so plugins can override either source without touching the agent loop.
+    // PKB/NOW content is sourced from the `user-prompt-submit-temp` hook above.
     // NOW.md injection can be disabled via `memory.retrieval.scratchpadInjection.enabled`.
     const scratchpadInjectionEnabled =
       getConfig().memory.retrieval.scratchpadInjection.enabled;
