@@ -1,4 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { Tooltip } from "@vellum/design-library";
+import { Info } from "lucide-react";
 import { useState } from "react";
 
 import type { Surface } from "@/domains/chat/types/types";
@@ -24,6 +26,9 @@ const meta: Meta = {
 
 export default meta;
 type Story = StoryObj;
+
+const OAUTH_APPROVAL_TOOLTIP =
+  "{assistant_name} never acts on your behalf without your approval";
 
 function makeChoiceSurface(overrides: Partial<Surface> = {}): Surface {
   return {
@@ -152,6 +157,20 @@ function InteractiveSurfacePreview({
   );
 }
 
+function StoryOnlyOAuthApprovalInfo() {
+  return (
+    <Tooltip content={OAUTH_APPROVAL_TOOLTIP} side="top" align="end">
+      <button
+        type="button"
+        aria-label="About assistant approval"
+        className="inline-flex h-5 w-5 items-center justify-center rounded-md text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--content-strong)] keyboard-focus:outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
+      >
+        <Info className="h-3.5 w-3.5" />
+      </button>
+    </Tooltip>
+  );
+}
+
 function OAuthSurfacePreview() {
   const [surface, setSurface] = useState(makeOAuthConnectSurface());
   if (surface.completed) {
@@ -162,6 +181,7 @@ function OAuthSurfacePreview() {
       surface={surface}
       assistantId="assistant-story"
       oauthClient={storyOAuthClient}
+      descriptionAccessory={<StoryOnlyOAuthApprovalInfo />}
       onAction={(_surfaceId, _actionId, data) => {
         const providerLabel =
           typeof data?.providerLabel === "string"

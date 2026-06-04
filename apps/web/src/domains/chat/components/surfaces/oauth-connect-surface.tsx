@@ -1,5 +1,5 @@
 import { CheckCircle2, ExternalLink, Loader2, X, XCircle } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { IntegrationIcon } from "@/components/integrations/integration-icon";
 import {
@@ -25,6 +25,7 @@ interface OAuthConnectSurfaceProps {
   ) => void;
   assistantId?: string | null;
   oauthClient?: ManagedOAuthConnectClient;
+  descriptionAccessory?: ReactNode;
 }
 
 type ConnectState = "idle" | "connecting" | "connected" | "error";
@@ -52,6 +53,7 @@ export function OAuthConnectSurface({
   onAction,
   assistantId,
   oauthClient = defaultManagedOAuthConnectClient,
+  descriptionAccessory,
 }: OAuthConnectSurfaceProps) {
   const data = surface.data as OAuthConnectSurfaceData;
   const providerKey = data.providerKey ?? "";
@@ -148,7 +150,12 @@ export function OAuthConnectSurface({
               {surface.title ?? `Connect ${providerLabel}`}
             </div>
             <p className="mt-1 text-body-medium-lighter text-[var(--content-quiet)]">
-              {description}
+              <span>{description}</span>
+              {descriptionAccessory && (
+                <span className="ml-1.5 inline-flex align-middle">
+                  {descriptionAccessory}
+                </span>
+              )}
             </p>
 
             {missingConfiguration && (
