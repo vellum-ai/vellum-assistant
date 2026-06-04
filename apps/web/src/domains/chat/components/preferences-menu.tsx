@@ -3,6 +3,7 @@ import {
   ChartColumn,
   ChevronDown,
   ChevronUp,
+  Gift,
   LogOut,
   MessageSquareText,
   Settings as SettingsIcon,
@@ -186,6 +187,17 @@ function PreferencesMenuContent({
             }}
           />
         </div>
+      ) : null}
+
+      {showBillingRows ? (
+        <PanelItem
+          icon={Gift}
+          label="Earn Free Credits"
+          onSelect={() => {
+            onClose();
+            onEarnCredits();
+          }}
+        />
       ) : null}
 
       <PanelItem
