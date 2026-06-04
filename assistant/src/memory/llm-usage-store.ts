@@ -9,6 +9,13 @@ import type {
 import { APP_VERSION } from "../version.js";
 import { getDb } from "./db-connection.js";
 import { rawAll } from "./raw-query.js";
+import {
+  buildScheduleAttributionSubquery,
+  buildScheduleRunWindowExists,
+  normalizeScheduleAttributionFilter,
+  type ScheduleAttributionFilter,
+  type ScheduleAttributionSqlParam,
+} from "./schedule-attribution-sql.js";
 import { conversations, llmUsageEvents } from "./schema.js";
 import {
   bucketEventsByDay,
@@ -282,9 +289,7 @@ export interface UsageTimeRange {
   to: number;
 }
 
-export interface UsageAggregationFilter {
-  scheduleId?: string;
-}
+export type UsageAggregationFilter = ScheduleAttributionFilter;
 
 /** Aggregate totals across a time range. */
 export interface UsageTotals {
@@ -381,38 +386,12 @@ interface GroupRow {
   event_count: number;
 }
 
-type UsageQueryParam = string | number;
+type UsageQueryParam = ScheduleAttributionSqlParam;
 
 function normalizeUsageAggregationFilter(
   filter?: UsageAggregationFilter,
 ): UsageAggregationFilter {
-  const scheduleId = filter?.scheduleId?.trim();
-  return scheduleId ? { scheduleId } : {};
-}
-
-function usageColumn(column: string, eventAlias?: string): string {
-  return eventAlias ? `${eventAlias}.${column}` : column;
-}
-
-function scheduleRunWindowSql(
-  eventAlias: string,
-  runAlias: string,
-  filter: UsageAggregationFilter,
-): string {
-  const scheduleClause = filter.scheduleId ? `${runAlias}.job_id = ? AND ` : "";
-  return `${scheduleClause}${runAlias}.conversation_id = ${usageColumn(
-    "conversation_id",
-    eventAlias,
-  )}
-    AND ${usageColumn("created_at", eventAlias)} >= ${runAlias}.started_at
-    AND ${usageColumn("created_at", eventAlias)} <= COALESCE(${runAlias}.finished_at, ?)`;
-}
-
-function scheduleRunWindowParams(
-  filter: UsageAggregationFilter,
-  now: number,
-): UsageQueryParam[] {
-  return filter.scheduleId ? [filter.scheduleId, now] : [now];
+  return normalizeScheduleAttributionFilter(filter);
 }
 
 function buildUsageAggregationWhere(
@@ -422,40 +401,22 @@ function buildUsageAggregationWhere(
   now: number = Date.now(),
 ): { sql: string; params: UsageQueryParam[] } {
   const normalized = normalizeUsageAggregationFilter(filter);
-  const createdAt = usageColumn("created_at", eventAlias);
+  const eventTable = eventAlias ?? "llm_usage_events";
+  const createdAt = `${eventTable}.created_at`;
   const clauses = [`${createdAt} >= ? AND ${createdAt} <= ?`];
   const params: UsageQueryParam[] = [range.from, range.to];
 
   if (normalized.scheduleId) {
-    clauses.push(`EXISTS (
-      SELECT 1
-      FROM cron_runs schedule_filter_runs
-      WHERE ${scheduleRunWindowSql(
-        eventAlias ?? "llm_usage_events",
-        "schedule_filter_runs",
-        normalized,
-      )}
-    )`);
-    params.push(...scheduleRunWindowParams(normalized, now));
+    const exists = buildScheduleRunWindowExists({
+      eventAlias: eventTable,
+      filter: normalized,
+      now,
+    });
+    clauses.push(exists.sql);
+    params.push(...exists.params);
   }
 
   return { sql: clauses.join(" AND "), params };
-}
-
-function scheduleAttributionSubquery(
-  eventAlias: string,
-  filter: UsageAggregationFilter,
-  selectExpression: string,
-): string {
-  return `(
-    SELECT ${selectExpression}
-    FROM cron_runs schedule_attr_runs
-    LEFT JOIN cron_jobs schedule_attr_jobs
-      ON schedule_attr_jobs.id = schedule_attr_runs.job_id
-    WHERE ${scheduleRunWindowSql(eventAlias, "schedule_attr_runs", filter)}
-    ORDER BY schedule_attr_runs.started_at DESC, schedule_attr_runs.id DESC
-    LIMIT 1
-  )`;
 }
 
 /**
@@ -729,12 +690,12 @@ export function getUsageGroupBreakdown(
   if (groupBy === "schedule") {
     const now = Date.now();
     const where = buildUsageAggregationWhere(range, normalizedFilter, "e", now);
-    const groupKeySubquery = scheduleAttributionSubquery(
-      "e",
-      normalizedFilter,
-      "schedule_attr_runs.job_id",
-    );
-    const scheduleParams = scheduleRunWindowParams(normalizedFilter, now);
+    const groupKeySubquery = buildScheduleAttributionSubquery({
+      eventAlias: "e",
+      filter: normalizedFilter,
+      now,
+      selectExpression: "schedule_attr_runs.job_id",
+    });
     const rows = rawAll<GroupRow>(
       /*sql*/ `
       WITH schedule_usage AS (
@@ -745,7 +706,7 @@ export function getUsageGroupBreakdown(
           e.cache_read_input_tokens,
           e.estimated_cost_usd,
           e.llm_call_count,
-          ${groupKeySubquery} AS group_key
+          ${groupKeySubquery.sql} AS group_key
         FROM llm_usage_events e
         WHERE ${where.sql}
       )
@@ -765,7 +726,7 @@ export function getUsageGroupBreakdown(
       GROUP BY schedule_usage.group_key
       ORDER BY total_estimated_cost_usd DESC
       `,
-      ...scheduleParams,
+      ...groupKeySubquery.params,
       ...where.params,
     );
     return rows.map((row) => mapGroupRow(row, groupBy));
@@ -814,12 +775,12 @@ export function getUsageGroupedSeries(
   if (groupBy === "schedule") {
     const now = Date.now();
     const where = buildUsageAggregationWhere(range, normalizedFilter, "e", now);
-    const groupKeySubquery = scheduleAttributionSubquery(
-      "e",
-      normalizedFilter,
-      "schedule_attr_runs.job_id",
-    );
-    const scheduleParams = scheduleRunWindowParams(normalizedFilter, now);
+    const groupKeySubquery = buildScheduleAttributionSubquery({
+      eventAlias: "e",
+      filter: normalizedFilter,
+      now,
+      selectExpression: "schedule_attr_runs.job_id",
+    });
     rows = rawAll<UsageGroupedBucketRow>(
       /*sql*/ `
       WITH schedule_usage AS (
@@ -829,7 +790,7 @@ export function getUsageGroupedSeries(
           e.output_tokens,
           e.estimated_cost_usd,
           e.llm_call_count,
-          ${groupKeySubquery} AS group_key
+          ${groupKeySubquery.sql} AS group_key
         FROM llm_usage_events e
         WHERE ${where.sql}
       )
@@ -846,7 +807,7 @@ export function getUsageGroupedSeries(
         ON schedule_group_jobs.id = schedule_usage.group_key
       ORDER BY schedule_usage.created_at ASC
       `,
-      ...scheduleParams,
+      ...groupKeySubquery.params,
       ...where.params,
     );
   } else {

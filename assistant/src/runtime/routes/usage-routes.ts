@@ -23,6 +23,7 @@ import {
 } from "../../memory/llm-usage-store.js";
 import { validateTimezone } from "../../memory/usage-buckets.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import { parseEpochMillisRange } from "./epoch-millis-range.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -89,35 +90,6 @@ function resolveTimezone(queryParams: Record<string, string>): string {
   return tz;
 }
 
-function parseTimeRange(queryParams: Record<string, string>): {
-  from: number;
-  to: number;
-} {
-  const fromRaw = queryParams.from;
-  const toRaw = queryParams.to;
-
-  if (!fromRaw || !toRaw) {
-    throw new BadRequestError(
-      'Missing required query parameters: "from" and "to" (epoch milliseconds)',
-    );
-  }
-
-  const from = Number(fromRaw);
-  const to = Number(toRaw);
-
-  if (!Number.isFinite(from) || !Number.isFinite(to)) {
-    throw new BadRequestError(
-      '"from" and "to" must be valid numbers (epoch milliseconds)',
-    );
-  }
-
-  if (from > to) {
-    throw new BadRequestError('"from" must be less than or equal to "to"');
-  }
-
-  return { from, to };
-}
-
 function parseUsageAggregationFilter(
   queryParams: Record<string, string>,
 ): UsageAggregationFilter {
@@ -127,14 +99,14 @@ function parseUsageAggregationFilter(
 
 function handleUsageTotals({ queryParams }: RouteHandlerArgs) {
   const qp = queryParams ?? {};
-  const range = parseTimeRange(qp);
+  const range = parseEpochMillisRange(qp);
   const filter = parseUsageAggregationFilter(qp);
   return getUsageTotals(range, filter);
 }
 
 function handleUsageDaily({ queryParams }: RouteHandlerArgs) {
   const qp = queryParams ?? {};
-  const range = parseTimeRange(qp);
+  const range = parseEpochMillisRange(qp);
   const granularity = qp.granularity ?? "daily";
   if (granularity !== "daily" && granularity !== "hourly") {
     throw new BadRequestError(
@@ -152,7 +124,7 @@ function handleUsageDaily({ queryParams }: RouteHandlerArgs) {
 
 function handleUsageBreakdown({ queryParams }: RouteHandlerArgs) {
   const qp = queryParams ?? {};
-  const range = parseTimeRange(qp);
+  const range = parseEpochMillisRange(qp);
 
   const groupBy = qp.groupBy;
   if (!groupBy) {
@@ -177,7 +149,7 @@ function handleUsageBreakdown({ queryParams }: RouteHandlerArgs) {
 
 function handleUsageSeries({ queryParams }: RouteHandlerArgs) {
   const qp = queryParams ?? {};
-  const range = parseTimeRange(qp);
+  const range = parseEpochMillisRange(qp);
   const granularity = qp.granularity ?? "daily";
   if (granularity !== "daily" && granularity !== "hourly") {
     throw new BadRequestError(
