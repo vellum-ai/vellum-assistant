@@ -137,6 +137,13 @@ export async function connectImport(): Promise<void> {
     assistantId: localId,
     name: nameFlag ?? `paired (${new URL(bundle.gatewayUrl).host})`,
     runtimeUrl: bundle.gatewayUrl,
+    // Tagged "local" for now because that selects the bearer-token auth path
+    // in client.ts (vs the platform X-Session-Token path), which is what a
+    // paired token needs. Caveat: lifecycle/status commands (`vellum ps`,
+    // `vellum wake`) then treat the entry as an on-machine process.
+    // TODO: introduce a distinct `cloud: "paired"` topology + lifecycle guards
+    // so ps/wake don't try to manage a remote pairing as a local instance,
+    // while keeping bearer auth. Tracked with the devices/unpair work.
     cloud: "local",
     species: "vellum",
   });
