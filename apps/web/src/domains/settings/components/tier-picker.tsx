@@ -9,6 +9,7 @@ import type {
   StorageTier,
   StorageTierEnum,
 } from "@/generated/api/types.gen";
+import { formatDelta, formatMonthly } from "./tier-pricing";
 
 /**
  * Display labels for the Pro machine tiers. Uses a static label map so casing
@@ -33,23 +34,6 @@ export function isTierDisabled(tier: MachineTier | StorageTier): boolean {
   return (tier as unknown as { disabled?: boolean }).disabled === true;
 }
 
-/** "$50/mo" for whole-dollar tiers; "$50.50/mo" only when cents are present. */
-function formatMonthly(totalCents: number): string {
-  const dollars = totalCents / 100;
-  return Number.isInteger(dollars)
-    ? `$${dollars}/mo`
-    : `$${dollars.toFixed(2)}/mo`;
-}
-
-function formatDelta(deltaCents: number): string {
-  const prefix = deltaCents > 0 ? "+" : "−";
-  const absDollars = Math.abs(deltaCents) / 100;
-  const formatted = Number.isInteger(absDollars)
-    ? `$${absDollars}`
-    : `$${absDollars.toFixed(2)}`;
-  return `${prefix}${formatted}/mo`;
-}
-
 export interface TierPickerProps {
   machineTiers: MachineTier[];
   storageTiers: StorageTier[];
@@ -60,6 +44,13 @@ export interface TierPickerProps {
   onStorageTierChange: (tier: StorageTierEnum) => void;
   currentMachinePriceCents?: number | null;
   currentStoragePriceCents?: number | null;
+  // The credit bundle is a changed "dimension" alongside machine/storage: its
+  // monthly price folds into the headline Total (and its delta) so the figure
+  // reflects the chosen bundle and reconciles with the modal's "Currently $X"
+  // baseline (which already includes the current bundle). Default 0 leaves
+  // non-credit callers byte-identical to before.
+  creditPriceCents?: number | null;
+  currentCreditPriceCents?: number | null;
 }
 
 export function TierPicker({
@@ -72,6 +63,8 @@ export function TierPicker({
   onStorageTierChange,
   currentMachinePriceCents,
   currentStoragePriceCents,
+  creditPriceCents,
+  currentCreditPriceCents,
 }: TierPickerProps) {
   const selectedMachine = machineTiers.find(
     (t) => t.tier === selectedMachineTier,
@@ -83,11 +76,15 @@ export function TierPicker({
     selectedMachine && selectedStorage
       ? basePriceCents +
         selectedMachine.price_cents +
-        selectedStorage.price_cents
+        selectedStorage.price_cents +
+        (creditPriceCents ?? 0)
       : null;
   const currentTotalCents =
     currentMachinePriceCents != null && currentStoragePriceCents != null
-      ? basePriceCents + currentMachinePriceCents + currentStoragePriceCents
+      ? basePriceCents +
+        currentMachinePriceCents +
+        currentStoragePriceCents +
+        (currentCreditPriceCents ?? 0)
       : null;
   const totalDelta =
     totalCents != null && currentTotalCents != null
