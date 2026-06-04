@@ -21,6 +21,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 const { parseProcStat, selectReapable } = await import("./orphan-reaper.js");
+const { DaemonConfigSchema } = await import("../config/schemas/platform.js");
 
 describe("parseProcStat", () => {
   test("parses a normal stat line", () => {
@@ -85,6 +86,24 @@ describe("selectReapable", () => {
     const { nextSeen } = selectReapable([101], new Set([100, 101]));
     // THEN only currently-present pids are retained
     expect([...nextSeen]).toEqual([101]);
+  });
+});
+
+describe("daemon.reapOrphanedSubprocesses gate", () => {
+  test("defaults to off so the reaper is opt-in", () => {
+    // GIVEN a daemon config with the reaper flag unspecified
+    // WHEN it is parsed with schema defaults
+    const parsed = DaemonConfigSchema.parse({});
+    // THEN the reaper is disabled unless explicitly turned on
+    expect(parsed.reapOrphanedSubprocesses).toBe(false);
+  });
+
+  test("honors an explicit opt-in", () => {
+    // GIVEN a daemon config that explicitly enables the reaper
+    // WHEN it is parsed
+    const parsed = DaemonConfigSchema.parse({ reapOrphanedSubprocesses: true });
+    // THEN the flag is respected
+    expect(parsed.reapOrphanedSubprocesses).toBe(true);
   });
 });
 
