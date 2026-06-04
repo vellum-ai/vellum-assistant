@@ -3125,6 +3125,147 @@ describe("parseAssistantEvent", () => {
   });
 });
 
+describe("tool_use_preview_start (schema-validated)", () => {
+  test("parses tool_use_preview_start with all fields", () => {
+    const event = parseEvent({
+      type: "tool_use_preview_start",
+      toolUseId: "toolu_01",
+      toolName: "bash",
+      conversationId: "conv-1",
+      messageId: "asst-msg-1",
+    });
+    expect(event).toEqual({
+      type: "tool_use_preview_start",
+      toolUseId: "toolu_01",
+      toolName: "bash",
+      conversationId: "conv-1",
+      messageId: "asst-msg-1",
+    });
+  });
+
+  test("parses tool_use_preview_start with only required fields", () => {
+    const event = parseEvent({
+      type: "tool_use_preview_start",
+      toolUseId: "toolu_02",
+      toolName: "bash",
+    });
+    expect(event).toEqual({
+      type: "tool_use_preview_start",
+      toolUseId: "toolu_02",
+      toolName: "bash",
+    });
+  });
+
+  test("returns unknown tool_use_preview_start when toolName is missing", () => {
+    const data = {
+      type: "tool_use_preview_start",
+      toolUseId: "toolu_03",
+      conversationId: "conv-3",
+    };
+    expect(parseEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "tool_use_preview_start",
+      data,
+      conversationId: "conv-3",
+    });
+  });
+
+  test("strips unknown fields from tool_use_preview_start", () => {
+    const event = parseEvent({
+      type: "tool_use_preview_start",
+      toolUseId: "toolu_04",
+      toolName: "bash",
+      legacyField: "x",
+    });
+    expect(event).toEqual({
+      type: "tool_use_preview_start",
+      toolUseId: "toolu_04",
+      toolName: "bash",
+    });
+  });
+});
+
+describe("tool_output_chunk (schema-validated)", () => {
+  test("parses tool_output_chunk with all fields", () => {
+    const event = parseEvent({
+      type: "tool_output_chunk",
+      chunk: "stdout line\n",
+      conversationId: "conv-1",
+      toolUseId: "toolu_01",
+      subType: "tool_start",
+      subToolName: "grep",
+      subToolInput: "pattern",
+      subToolIsError: false,
+      subToolId: "sub-1",
+      messageId: "asst-msg-1",
+    });
+    expect(event).toEqual({
+      type: "tool_output_chunk",
+      chunk: "stdout line\n",
+      conversationId: "conv-1",
+      toolUseId: "toolu_01",
+      subType: "tool_start",
+      subToolName: "grep",
+      subToolInput: "pattern",
+      subToolIsError: false,
+      subToolId: "sub-1",
+      messageId: "asst-msg-1",
+    });
+  });
+
+  test("parses tool_output_chunk with only required fields", () => {
+    const event = parseEvent({
+      type: "tool_output_chunk",
+      chunk: "partial output",
+    });
+    expect(event).toEqual({
+      type: "tool_output_chunk",
+      chunk: "partial output",
+    });
+  });
+
+  test("returns unknown tool_output_chunk when chunk is missing", () => {
+    const data = {
+      type: "tool_output_chunk",
+      conversationId: "conv-3",
+      toolUseId: "toolu_03",
+    };
+    expect(parseEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "tool_output_chunk",
+      data,
+      conversationId: "conv-3",
+    });
+  });
+
+  test("returns unknown tool_output_chunk when subType is not a known value", () => {
+    const data = {
+      type: "tool_output_chunk",
+      chunk: "x",
+      conversationId: "conv-4",
+      subType: "not_a_real_subtype",
+    };
+    expect(parseEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "tool_output_chunk",
+      data,
+      conversationId: "conv-4",
+    });
+  });
+
+  test("strips unknown fields from tool_output_chunk", () => {
+    const event = parseEvent({
+      type: "tool_output_chunk",
+      chunk: "y",
+      legacyField: "x",
+    });
+    expect(event).toEqual({
+      type: "tool_output_chunk",
+      chunk: "y",
+    });
+  });
+});
+
 describe("envelope format parsing", () => {
   test("flat payloads pass through unchanged", () => {
     const event = parseEvent({

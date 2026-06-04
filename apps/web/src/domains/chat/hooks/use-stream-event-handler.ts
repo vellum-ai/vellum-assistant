@@ -317,6 +317,12 @@ export function useStreamEventHandler(
         case "tool_result":
           handleToolResult(event, ctx);
           break;
+        // The web transcript renders tool activity from `tool_use_start`
+        // and `tool_result`. It does not surface the optimistic pre-input
+        // affordance or incremental output chunks, so these are ignored.
+        case "tool_use_preview_start":
+        case "tool_output_chunk":
+          break;
         case "usage_update":
           handleUsageUpdate(event, ctx);
           break;

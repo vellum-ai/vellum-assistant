@@ -39,7 +39,9 @@ import { SubagentEventEventSchema } from "./events/subagent-event.js";
 import { SubagentSpawnedEventSchema } from "./events/subagent-spawned.js";
 import { SubagentStatusChangedEventSchema } from "./events/subagent-status-changed.js";
 import { SyncChangedEventSchema } from "./events/sync-changed.js";
+import { ToolOutputChunkEventSchema } from "./events/tool-output-chunk.js";
 import { ToolResultEventSchema } from "./events/tool-result.js";
+import { ToolUsePreviewStartEventSchema } from "./events/tool-use-preview-start.js";
 import { ToolUseStartEventSchema } from "./events/tool-use-start.js";
 import { TraceEventSchema } from "./events/trace-event.js";
 import { TurnProfileAutoRoutedEventSchema } from "./events/turn-profile-auto-routed.js";
@@ -249,6 +251,12 @@ export {
   SyncChangedEventSchema,
 } from "./events/sync-changed.js";
 export {
+  type ToolOutputChunkEvent,
+  ToolOutputChunkEventSchema,
+  type ToolOutputChunkSubType,
+  ToolOutputChunkSubTypeSchema,
+} from "./events/tool-output-chunk.js";
+export {
   type RiskScopeOption,
   RiskScopeOptionSchema,
   type ToolActivityMetadata,
@@ -264,6 +272,10 @@ export {
   type WebSearchResultItem,
   WebSearchResultItemSchema,
 } from "./events/tool-result.js";
+export {
+  type ToolUsePreviewStartEvent,
+  ToolUsePreviewStartEventSchema,
+} from "./events/tool-use-preview-start.js";
 export {
   type ToolUseStartEvent,
   ToolUseStartEventSchema,
@@ -463,7 +475,9 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   SubagentSpawnedEventSchema,
   SubagentStatusChangedEventSchema,
   SyncChangedEventSchema,
+  ToolOutputChunkEventSchema,
   ToolResultEventSchema,
+  ToolUsePreviewStartEventSchema,
   ToolUseStartEventSchema,
   TraceEventSchema,
   TurnProfileAutoRoutedEventSchema,

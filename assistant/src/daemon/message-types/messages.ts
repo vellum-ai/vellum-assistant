@@ -13,7 +13,9 @@ import type { MessageQueuedDeletedEvent } from "../../api/events/message-queued-
 import type { MessageRequestCompleteEvent } from "../../api/events/message-request-complete.js";
 import type { QuestionRequestEvent } from "../../api/events/question-request.js";
 import type { SecretRequestEvent } from "../../api/events/secret-request.js";
+import type { ToolOutputChunkEvent } from "../../api/events/tool-output-chunk.js";
 import type { ToolResultEvent } from "../../api/events/tool-result.js";
+import type { ToolUsePreviewStartEvent } from "../../api/events/tool-use-preview-start.js";
 import type { ToolUseStartEvent } from "../../api/events/tool-use-start.js";
 import type {
   TraceEvent,
@@ -79,31 +81,6 @@ export interface AssistantThinkingDelta {
   thinking: string;
   conversationId?: string;
   /** Database ID of the assistant message this thinking delta belongs to.
-   *  Same semantics as `AssistantTextDeltaEvent.messageId`. */
-  messageId?: string;
-}
-
-export interface ToolOutputChunk {
-  type: "tool_output_chunk";
-  chunk: string;
-  conversationId?: string;
-  toolUseId?: string;
-  subType?: "tool_start" | "tool_complete" | "status";
-  subToolName?: string;
-  subToolInput?: string;
-  subToolIsError?: boolean;
-  subToolId?: string;
-  /** Database ID of the assistant message that owns the parent tool_use
-   *  block. Same semantics as `AssistantTextDeltaEvent.messageId`. */
-  messageId?: string;
-}
-
-export interface ToolUsePreviewStart {
-  type: "tool_use_preview_start";
-  toolUseId: string;
-  toolName: string;
-  conversationId?: string;
-  /** Database ID of the assistant message that owns this tool_use block.
    *  Same semantics as `AssistantTextDeltaEvent.messageId`. */
   messageId?: string;
 }
@@ -185,8 +162,8 @@ export type _MessagesServerMessages =
   | AssistantTextDeltaEvent
   | AssistantThinkingDelta
   | ToolUseStartEvent
-  | ToolUsePreviewStart
-  | ToolOutputChunk
+  | ToolUsePreviewStartEvent
+  | ToolOutputChunkEvent
   | ToolInputDelta
   | ToolResultEvent
   | ConfirmationRequestEvent
