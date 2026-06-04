@@ -1,4 +1,5 @@
 import { rawAll } from "../memory/raw-query.js";
+import { buildScheduleAttributionSubquery } from "../memory/schedule-attribution-sql.js";
 
 export interface ScheduleUsageSummary {
   scheduleId: string;
@@ -22,6 +23,11 @@ export function getScheduleUsageSummaries({
   to: number;
 }): ScheduleUsageSummary[] {
   const now = Date.now();
+  const scheduleAttribution = buildScheduleAttributionSubquery({
+    eventAlias: "e",
+    now,
+    selectExpression: "schedule_attr_runs.job_id",
+  });
   const rows = rawAll<ScheduleUsageSummaryRow>(
     /*sql*/ `
     WITH run_counts AS (
@@ -29,26 +35,18 @@ export function getScheduleUsageSummaries({
         job_id AS schedule_id,
         COUNT(*) AS run_count
       FROM cron_runs
-      WHERE started_at >= ?1
-        AND started_at <= ?2
+      WHERE started_at >= ?
+        AND started_at <= ?
       GROUP BY job_id
     ),
     attributed_usage AS (
       SELECT
         e.estimated_cost_usd,
         COALESCE(e.llm_call_count, 1) AS event_count,
-        (
-          SELECT schedule_attr_runs.job_id
-          FROM cron_runs schedule_attr_runs
-          WHERE schedule_attr_runs.conversation_id = e.conversation_id
-            AND e.created_at >= schedule_attr_runs.started_at
-            AND e.created_at <= COALESCE(schedule_attr_runs.finished_at, ?3)
-          ORDER BY schedule_attr_runs.started_at DESC, schedule_attr_runs.id DESC
-          LIMIT 1
-        ) AS schedule_id
+        ${scheduleAttribution.sql} AS schedule_id
       FROM llm_usage_events e
-      WHERE e.created_at >= ?1
-        AND e.created_at <= ?2
+      WHERE e.created_at >= ?
+        AND e.created_at <= ?
     ),
     usage_totals AS (
       SELECT
@@ -71,7 +69,9 @@ export function getScheduleUsageSummaries({
     `,
     from,
     to,
-    now,
+    ...scheduleAttribution.params,
+    from,
+    to,
   );
 
   return rows.map((row) => ({
