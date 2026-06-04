@@ -78,6 +78,7 @@ function makeTarget(): WakeTarget {
         history: messages,
         exitReason: null,
         appendedNewMessages: false,
+        newMessages: [],
       })) as WakeTarget["agentLoop"]["run"],
     },
     getMessages: () => history,

@@ -269,6 +269,7 @@ mock.module("../agent/loop.js", () => ({
         history: [...messages, assistantMessage],
         exitReason: null,
         appendedNewMessages: true,
+        newMessages: [assistantMessage],
       };
     }
   },

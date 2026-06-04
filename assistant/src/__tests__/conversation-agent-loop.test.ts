@@ -725,7 +725,12 @@ const asAgentLoopRun = (
     // never return a compaction-shrunk history) means the returned history grew
     // past the input.
     const appendedNewMessages = history.length > messages.length;
-    return { history, exitReason, appendedNewMessages };
+    return {
+      history,
+      exitReason,
+      appendedNewMessages,
+      newMessages: history.slice(messages.length),
+    };
   };
 };
 
@@ -4864,7 +4869,7 @@ describe("session-agent-loop", () => {
         await onEvent({ type: "llm_call_started" });
         if (callCount === 1) {
           // Trigger convergence path: error + appended assistant message so
-          // updatedHistory.length > preRunHistoryLength at the strip site.
+          // the loop reports appendedNewMessages at the strip site.
           onEvent({
             type: "error",
             error: new Error("context_length_exceeded"),

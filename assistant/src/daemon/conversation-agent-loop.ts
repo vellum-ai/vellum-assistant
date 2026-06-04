@@ -564,6 +564,9 @@ export async function runAgentLoopImpl(
   // message — the loop's own forward-progress signal, used by the ordering
   // retry gate and the overflow convergence fold.
   let lastRunAppendedNewMessages = false;
+  // The messages the most recent agent-loop run appended on top of its base —
+  // the loop's own new-output boundary, persisted as this turn's new messages.
+  let lastRunNewMessages: Message[] = [];
   let pendingCheckpointYield: "budget" | "handoff" | null = null;
   // Captured when the auto_compress_latest_turn rerun yields at the mid-loop
   // budget checkpoint. SSE emission happens immediately at the detection site;
@@ -1994,10 +1997,9 @@ export async function runAgentLoopImpl(
     // context with a fresh array; `runHook` forwards whichever the chain
     // settles on. Order is plugin registration order.
     //
-    // Fires BEFORE `preRunHistoryLength` is captured so the boundary
-    // between pre-existing and hook-emitted messages — consumed by the
-    // new-message extraction for persistence — reflects exactly what
-    // `agentLoop.run` receives.
+    // Fires BEFORE the agent loop runs so the hook-emitted messages are part
+    // of the loop's input; the loop then reports its own appended output via
+    // `AgentLoopRunResult.newMessages`, which is what persistence consumes.
     const userPromptCtx: UserPromptSubmitContext = {
       conversationId: ctx.conversationId,
       prompt: options?.titleText ?? content,
@@ -2010,8 +2012,6 @@ export async function runAgentLoopImpl(
       userPromptCtx,
     );
     runMessages = finalUserPromptCtx.latestMessages;
-
-    let preRunHistoryLength = runMessages.length;
 
     const shouldGenerateTitle = isReplaceableTitle(
       getConversation(ctx.conversationId)?.title ?? null,
@@ -2087,7 +2087,6 @@ export async function runAgentLoopImpl(
         });
         runMessages = injection.messages;
         preRepairMessages = runMessages;
-        preRunHistoryLength = runMessages.length;
         return runMessages;
       },
     };
@@ -2104,7 +2103,7 @@ export async function runAgentLoopImpl(
       msgs: Message[],
       compaction?: MidLoopCompaction,
     ): Promise<Message[]> => {
-      const { history, exitReason, appendedNewMessages } =
+      const { history, exitReason, appendedNewMessages, newMessages } =
         await ctx.agentLoop.run(msgs, eventHandler, {
           signal: abortController.signal,
           requestId: reqId,
@@ -2121,6 +2120,7 @@ export async function runAgentLoopImpl(
           mutableLatestUserMessage: memoryV3Live,
         });
       lastRunAppendedNewMessages = appendedNewMessages;
+      lastRunNewMessages = newMessages;
       if (exitReason === "handoff") {
         yieldedForHandoff = true;
         pendingCheckpointYield = "handoff";
@@ -2177,7 +2177,6 @@ export async function runAgentLoopImpl(
       const retryStrip = stripHistoricalWebSearchResults(runMessages);
       runMessages = retryStrip.messages;
       preRepairMessages = runMessages;
-      preRunHistoryLength = runMessages.length;
       state.orderingErrorDetected = false;
       state.deferredOrderingError = null;
 
@@ -2293,7 +2292,6 @@ export async function runAgentLoopImpl(
         markHistoryStrippedBestEffort(ctx.conversationId);
         convergenceStripped = true;
         preRepairMessages = updatedHistory;
-        preRunHistoryLength = updatedHistory.length;
       }
       if (!reducerState) {
         reducerState = createInitialReducerState();
@@ -2496,7 +2494,6 @@ export async function runAgentLoopImpl(
           runMessages = convergenceStrip.messages;
         }
         preRepairMessages = runMessages;
-        preRunHistoryLength = runMessages.length;
         state.contextTooLargeDetected = false;
         yieldedForBudget = false;
 
@@ -2524,7 +2521,6 @@ export async function runAgentLoopImpl(
             markHistoryStrippedBestEffort(ctx.conversationId);
             convergenceStripped = true;
             preRepairMessages = updatedHistory;
-            preRunHistoryLength = updatedHistory.length;
           }
         }
       }
@@ -2640,7 +2636,6 @@ export async function runAgentLoopImpl(
             runMessages = fallbackStrip.messages;
           }
           preRepairMessages = runMessages;
-          preRunHistoryLength = runMessages.length;
           state.contextTooLargeDetected = false;
 
           updatedHistory = await runAgentLoop(runMessages);
@@ -2833,7 +2828,7 @@ export async function runAgentLoopImpl(
     }
 
     // Reconstruct history
-    const newMessages = updatedHistory.slice(preRunHistoryLength).map((msg) => {
+    const newMessages = lastRunNewMessages.map((msg) => {
       if (msg.role !== "assistant") return msg;
       const { cleanedContent } = cleanAssistantContent(msg.content);
       const cleanedBlocks = cleanedContent as ContentBlock[];

@@ -100,11 +100,19 @@ export type CheckpointDecision = "continue" | ExitReason;
  * convergence fold) instead of diffing the returned history length against a
  * pre-run index, which in-loop compaction can shrink below the start length —
  * masking real progress.
+ *
+ * `newMessages` is the slice of `history` the loop appended this run, measured
+ * from its input (or from the compacted base when the loop compacted in
+ * place). The orchestrator persists these directly instead of slicing the
+ * returned history at a pre-run index it reconstructs across compaction
+ * boundaries — the loop owns its own history mutations, so this slice cannot
+ * desync the way an externally-held index can.
  */
 export interface AgentLoopRunResult {
   history: Message[];
   exitReason: ExitReason | null;
   appendedNewMessages: boolean;
+  newMessages: Message[];
 }
 
 /**
@@ -831,6 +839,11 @@ export class AgentLoop {
       mutableLatestUserMessage,
     } = options ?? {};
     let history = [...messages];
+    // Index into `history` where this run's appended output begins. It starts
+    // after the input and resets to the compacted base whenever the loop
+    // compacts in place, so `history.slice(newMessagesStart)` is always exactly
+    // what the loop produced since the last (re-injected) base.
+    let newMessagesStart = history.length;
     let producedVisibleTextThisRun = false;
     let toolUseTurns = 0;
     let stopContinueRetries = 0;
@@ -1588,6 +1601,9 @@ export class AgentLoop {
               );
               if (compacted) {
                 history = compacted;
+                // The compacted, re-injected array is the new base; output
+                // produced after this point is what the orchestrator persists.
+                newMessagesStart = history.length;
                 continue;
               }
             }
@@ -1653,7 +1669,12 @@ export class AgentLoop {
       "Agent loop exited",
     );
 
-    return { history, exitReason, appendedNewMessages };
+    return {
+      history,
+      exitReason,
+      appendedNewMessages,
+      newMessages: history.slice(newMessagesStart),
+    };
   }
 }
 
