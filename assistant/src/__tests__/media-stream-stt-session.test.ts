@@ -19,18 +19,40 @@ import type {
 // Module mocks — must be declared before the module under test is imported.
 // ---------------------------------------------------------------------------
 
-// Mock the STT resolve module
+// Controllable streaming flag + configured STT provider, read by the session
+// via getConfig(). The provider drives isRealtimeStreamingProvider(), which
+// gates the realtime streaming path against the (real, unmocked) catalog:
+// "deepgram"/"google-gemini"/"xai" are realtime-ws; "openai-whisper" is
+// incremental-batch and must use the batch path even when the flag is on.
+// Declared before the resolve.js mock factory so its
+// isRealtimeStreamingProvider stub can read the current provider.
+let telephonyStreamingFlag = false;
+let sttProvider = "deepgram";
+
+// Realtime-streaming providers per the catalog's conversationStreamingMode.
+// Mirrors provider-catalog.ts: deepgram/google-gemini/xai are "realtime-ws";
+// openai-whisper is "incremental-batch". Kept in sync with the catalog so the
+// streaming-gating behaviour under test matches production semantics.
+const REALTIME_STREAMING_PROVIDERS = new Set([
+  "deepgram",
+  "google-gemini",
+  "xai",
+]);
+
+// Mock the STT resolve module. isRealtimeStreamingProvider reflects the
+// configured `sttProvider` against the realtime-provider set above, so the
+// streaming-gating behaviour under test is exercised faithfully.
 mock.module("../providers/speech-to-text/resolve.js", () => ({
   resolveTelephonySttCapability: jest.fn(),
   resolveBatchTranscriber: jest.fn(),
   resolveStreamingTranscriber: jest.fn(),
+  isRealtimeStreamingProvider: () =>
+    REALTIME_STREAMING_PROVIDERS.has(sttProvider),
 }));
-
-// Controllable streaming flag, read by the session via getConfig().
-let telephonyStreamingFlag = false;
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     calls: { voice: { telephonyStreaming: telephonyStreamingFlag } },
+    services: { stt: { provider: sttProvider } },
   }),
 }));
 
@@ -174,6 +196,9 @@ describe("MediaStreamSttSession", () => {
 
     // Default to the batch path so existing batch tests are unaffected.
     telephonyStreamingFlag = false;
+    // Default to a realtime-ws provider so streaming-path tests (which set the
+    // flag on) take the streaming path unless they opt into a batch provider.
+    sttProvider = "deepgram";
     (resolveStreamingTranscriber as jest.Mock).mockClear();
     (resolveStreamingTranscriber as jest.Mock).mockResolvedValue(null);
 
@@ -960,6 +985,185 @@ describe("MediaStreamSttSession", () => {
       expect(onTranscriptFinal).toHaveBeenCalledTimes(1);
 
       session.dispose();
+    });
+  });
+
+  // ── Realtime-provider gating (Finding 1) ─────────────────────────
+  //
+  // The realtime streaming path emits mid-call finals only for providers
+  // whose streaming is genuinely realtime (conversationStreamingMode
+  // "realtime-ws"). incremental-batch providers (OpenAI Whisper) only emit a
+  // final on stop(), so they MUST use the batch turn-segmenting path even when
+  // the telephonyStreaming flag is on.
+  describe("realtime-provider gating", () => {
+    test("incremental-batch provider (whisper) uses the BATCH path even when telephonyStreaming is on", async () => {
+      telephonyStreamingFlag = true;
+      sttProvider = "openai-whisper"; // conversationStreamingMode: incremental-batch
+      // If the session wrongly took the streaming path, this fake would be used.
+      const fake = makeFakeStreamingTranscriber();
+      (resolveStreamingTranscriber as jest.Mock).mockResolvedValue(fake);
+
+      const mockTranscriber = makeMockTranscriber("whisper mid-call");
+      (resolveBatchTranscriber as jest.Mock).mockResolvedValue(mockTranscriber);
+
+      const onTranscriptFinal = jest.fn();
+      const onSpeechStart = jest.fn();
+      const session = new MediaStreamSttSession(
+        { turnDetector: { silenceThresholdMs: 300 } },
+        { onTranscriptFinal, onSpeechStart },
+      );
+
+      session.handleMessage(makeStartMessage());
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+
+      // Streaming resolver must never be consulted for a batch provider.
+      expect(resolveStreamingTranscriber as jest.Mock).not.toHaveBeenCalled();
+      expect(fake.start).not.toHaveBeenCalled();
+
+      // Speech then silence segments a turn mid-"call" via the batch path.
+      const speechPayload = Buffer.alloc(160, 0x00).toString("base64");
+      for (let i = 0; i < 5; i++) {
+        session.handleMessage(makeMediaMessage(speechPayload));
+        jest.advanceTimersByTime(20);
+      }
+      expect(onSpeechStart).toHaveBeenCalledTimes(1);
+
+      const silencePayload = Buffer.alloc(160, 0xff).toString("base64");
+      for (let i = 0; i < 5; i++) {
+        session.handleMessage(makeMediaMessage(silencePayload));
+        jest.advanceTimersByTime(20);
+      }
+      jest.advanceTimersByTime(400);
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+
+      // Turn-detector final fired mid-call (before any stop), via batch STT.
+      expect(onTranscriptFinal).toHaveBeenCalledTimes(1);
+      expect(onTranscriptFinal).toHaveBeenCalledWith(
+        "whisper mid-call",
+        expect.any(Number),
+      );
+      expect(fake.start).not.toHaveBeenCalled();
+
+      session.dispose();
+    });
+
+    test("realtime-ws provider (deepgram) still uses the streaming path", async () => {
+      telephonyStreamingFlag = true;
+      sttProvider = "deepgram"; // conversationStreamingMode: realtime-ws
+      const fake = makeFakeStreamingTranscriber();
+      (resolveStreamingTranscriber as jest.Mock).mockResolvedValue(fake);
+
+      const onTranscriptFinal = jest.fn();
+      const session = new MediaStreamSttSession({}, { onTranscriptFinal });
+
+      session.handleMessage(makeStartMessage());
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+
+      // The realtime path resolved and started a streaming transcriber.
+      expect(resolveStreamingTranscriber as jest.Mock).toHaveBeenCalledTimes(1);
+      expect(fake.start).toHaveBeenCalledTimes(1);
+
+      fake.resolveStart();
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+
+      // Provider final maps straight through (no stop needed).
+      fake.emit({ type: "final", text: "realtime final" });
+      expect(onTranscriptFinal).toHaveBeenCalledWith(
+        "realtime final",
+        expect.any(Number),
+      );
+
+      session.dispose();
+    });
+  });
+
+  // ── Stop/dispose during streaming-pending (Finding 2) ────────────
+  describe("stop during streaming-pending", () => {
+    test("stop while the resolver is still pending replays buffered frames through the batch path so the final utterance is transcribed", async () => {
+      telephonyStreamingFlag = true;
+      sttProvider = "deepgram"; // realtime-ws → streaming path attempted
+      // Keep the resolver pending so frames land in the streaming-pending window.
+      let resolveResolver: (t: StreamingTranscriber | null) => void = () => {};
+      (resolveStreamingTranscriber as jest.Mock).mockReturnValue(
+        new Promise<StreamingTranscriber | null>((resolve) => {
+          resolveResolver = resolve;
+        }),
+      );
+
+      const mockTranscriber = makeMockTranscriber("buffered utterance");
+      (resolveBatchTranscriber as jest.Mock).mockResolvedValue(mockTranscriber);
+
+      const onTranscriptFinal = jest.fn();
+      const onStop = jest.fn();
+      const session = new MediaStreamSttSession(
+        { turnDetector: { silenceThresholdMs: 300 } },
+        { onTranscriptFinal, onStop },
+      );
+
+      session.handleMessage(makeStartMessage());
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      // Resolver still pending — start() not yet called.
+      expect((resolveStreamingTranscriber as jest.Mock).mock.calls.length).toBe(
+        1,
+      );
+
+      // Caller's final utterance arrives during the pending window — buffered.
+      const speechPayload = Buffer.alloc(160, 0x00).toString("base64");
+      for (let i = 0; i < 5; i++) {
+        session.handleMessage(makeMediaMessage(speechPayload));
+      }
+
+      // Twilio sends stop before the resolver settles (short call / slow handshake).
+      session.handleMessage(makeStopMessage());
+      expect(onStop).toHaveBeenCalledTimes(1);
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+
+      // The buffered utterance was replayed through the batch path and
+      // transcribed — not lost.
+      expect(onTranscriptFinal).toHaveBeenCalledTimes(1);
+      expect(onTranscriptFinal).toHaveBeenCalledWith(
+        "buffered utterance",
+        expect.any(Number),
+      );
+      const transcribeMock = mockTranscriber.transcribe as jest.Mock;
+      expect(transcribeMock).toHaveBeenCalledTimes(1);
+      const req = transcribeMock.mock.calls[0][0] as SttTranscribeRequest;
+      expect(req.audio.length).toBeGreaterThan(0);
+
+      // A late-resolving transcriber must NOT resurrect the streaming path or
+      // re-transcribe; it is stopped and discarded.
+      const fake = makeFakeStreamingTranscriber();
+      resolveResolver(fake);
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      expect(fake.start).not.toHaveBeenCalled();
+      expect(onTranscriptFinal).toHaveBeenCalledTimes(1);
+
+      session.dispose();
+    });
+
+    test("dispose during streaming-pending stops a late-resolved transcriber and does not leak", async () => {
+      telephonyStreamingFlag = true;
+      sttProvider = "deepgram";
+      let resolveResolver: (t: StreamingTranscriber | null) => void = () => {};
+      (resolveStreamingTranscriber as jest.Mock).mockReturnValue(
+        new Promise<StreamingTranscriber | null>((resolve) => {
+          resolveResolver = resolve;
+        }),
+      );
+
+      const session = new MediaStreamSttSession({}, {});
+      session.handleMessage(makeStartMessage());
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+
+      // Dispose before the resolver settles.
+      session.dispose();
+
+      // Resolver settles late — its transcriber must be torn down, never started.
+      const fake = makeFakeStreamingTranscriber();
+      resolveResolver(fake);
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      expect(fake.start).not.toHaveBeenCalled();
+      expect(fake.stop).toHaveBeenCalledTimes(1);
     });
   });
 });

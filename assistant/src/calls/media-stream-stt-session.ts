@@ -19,6 +19,7 @@
 
 import { getConfig } from "../config/loader.js";
 import {
+  isRealtimeStreamingProvider,
   resolveStreamingTranscriber,
   resolveTelephonySttCapability,
   type TelephonySttCapability,
@@ -181,6 +182,17 @@ export class MediaStreamSttSession {
   private streamingReady = false;
 
   /**
+   * Set when a Twilio `stop` arrives (or {@link dispose} is called) while the
+   * session is still in `"streaming-pending"` — i.e. before the streaming
+   * resolver/`start()` has settled. Once set, the in-flight
+   * {@link startStreamingMode} must NOT commit to streaming: a late-resolved
+   * transcriber is stopped and discarded so it doesn't resurrect the streaming
+   * path after the call has already ended (and its buffered frames flushed to
+   * batch).
+   */
+  private streamingAborted = false;
+
+  /**
    * Inbound raw base64 mu-law payloads buffered during the
    * `"streaming-pending"` window. Held as raw payloads (not decoded PCM) so
    * they can be flushed into EITHER path once the mode resolves: decoded and
@@ -255,6 +267,10 @@ export class MediaStreamSttSession {
    */
   dispose(): void {
     this.disposed = true;
+    // If a streaming startup is still in flight, mark it aborted so the
+    // pending resolver tears down (and does not leak) any late-resolved
+    // transcriber rather than committing to streaming on a dead session.
+    this.streamingAborted = true;
     this.activeTranscriptionAbort?.abort();
     this.activeTranscriptionAbort = null;
     this.turnDetector.dispose();
@@ -312,19 +328,37 @@ export class MediaStreamSttSession {
   }
 
   /**
-   * Whether streaming STT should be attempted for this session, per the
-   * `calls.voice.telephonyStreaming` config flag (or an explicit override).
+   * Whether the realtime streaming STT path should be attempted for this
+   * session.
+   *
+   * Two conditions must hold:
+   * 1. The `calls.voice.telephonyStreaming` config flag is on (or
+   *    `forceStreaming` overrides it — primarily for tests).
+   * 2. The configured STT provider's streaming is *genuinely realtime*
+   *    (`conversationStreamingMode === "realtime-ws"`). Providers like OpenAI
+   *    Whisper are `incremental-batch`: their streaming transcriber only emits
+   *    a `final` on `stop()`, so the realtime path would never produce a
+   *    mid-call transcript. Those must use the batch turn-segmenting path.
+   *
+   * When `forceStreaming` is set it bypasses BOTH the config flag and the
+   * provider realtime check, so tests can exercise the streaming path with a
+   * fake transcriber regardless of the configured provider.
    */
   private streamingEnabled(): boolean {
     if (this.config.forceStreaming !== undefined) {
       return this.config.forceStreaming;
     }
+    let flagOn = false;
     try {
-      return getConfig().calls.voice.telephonyStreaming;
+      flagOn = getConfig().calls.voice.telephonyStreaming;
     } catch {
       // Config unavailable (early startup / tests) — default to batch path.
       return false;
     }
+    if (!flagOn) return false;
+    // Only take the realtime path for providers that stream in true realtime;
+    // incremental-batch providers (e.g. Whisper) use the batch path.
+    return isRealtimeStreamingProvider();
   }
 
   /**
@@ -341,7 +375,7 @@ export class MediaStreamSttSession {
         sampleRate: STREAMING_SAMPLE_RATE,
       });
     } catch (err) {
-      if (this.disposed) return;
+      if (this.disposed || this.streamingAborted) return;
       // Resolver threw — definitively fall back to batch and replay the
       // frames buffered during the pending window so none are lost.
       const normalized = normalizeSttError(err);
@@ -349,7 +383,9 @@ export class MediaStreamSttSession {
       this.fallBackToBatch();
       return;
     }
-    if (this.disposed) {
+    if (this.disposed || this.streamingAborted) {
+      // Stop/dispose landed during the pending window; the buffered frames
+      // were already flushed to the batch path. Discard the late transcriber.
       transcriber?.stop();
       return;
     }
@@ -370,7 +406,10 @@ export class MediaStreamSttSession {
     try {
       await transcriber.start((event) => this.handleStreamingEvent(event));
     } catch (err) {
-      if (this.disposed) return;
+      if (this.disposed || this.streamingAborted) {
+        this.streamingTranscriber = null;
+        return;
+      }
       // `start()` threw — drop the transcriber and fall back to batch,
       // replaying the buffered frames into the batch path.
       this.streamingTranscriber = null;
@@ -379,8 +418,11 @@ export class MediaStreamSttSession {
       this.fallBackToBatch();
       return;
     }
-    if (this.disposed) {
+    if (this.disposed || this.streamingAborted) {
+      // Stop/dispose landed during the pending window; buffered frames already
+      // went to the batch path. Tear the late transcriber down.
       transcriber.stop();
+      this.streamingTranscriber = null;
       return;
     }
 
@@ -541,6 +583,16 @@ export class MediaStreamSttSession {
       this.streamingTranscriber.stop();
       this.callbacks.onStop?.();
       return;
+    }
+
+    if (this.mode === "streaming-pending") {
+      // Stop arrived before the streaming resolver settled. The buffered
+      // startup frames live only in streamingStartupBuffer and have not
+      // reached the turn detector. Abort the in-flight streaming startup and
+      // replay those frames through the batch path so the caller's final
+      // utterance is transcribed instead of lost.
+      this.streamingAborted = true;
+      this.fallBackToBatch();
     }
 
     // Batch path: finalize any in-flight turn.
