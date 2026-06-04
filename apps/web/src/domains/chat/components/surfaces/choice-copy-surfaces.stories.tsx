@@ -1,4 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { Tooltip } from "@vellum/design-library";
+import { Info } from "lucide-react";
 import { useState } from "react";
 
 import type { Surface } from "@/domains/chat/types/types";
@@ -24,6 +26,9 @@ const meta: Meta = {
 
 export default meta;
 type Story = StoryObj;
+
+const OAUTH_APPROVAL_TOOLTIP =
+  "{assistant_name} never acts on your behalf without your approval";
 
 function makeChoiceSurface(overrides: Partial<Surface> = {}): Surface {
   return {
@@ -152,34 +157,53 @@ function InteractiveSurfacePreview({
   );
 }
 
+function StoryOnlyOAuthApprovalInfo() {
+  return (
+    <Tooltip content={OAUTH_APPROVAL_TOOLTIP} side="top" align="end">
+      <button
+        type="button"
+        aria-label="About assistant approval"
+        className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--content-strong)] keyboard-focus:outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
+      >
+        <Info className="h-4 w-4" />
+      </button>
+    </Tooltip>
+  );
+}
+
 function OAuthSurfacePreview() {
   const [surface, setSurface] = useState(makeOAuthConnectSurface());
   if (surface.completed) {
     return <SurfaceRouter surface={surface} onAction={() => {}} />;
   }
   return (
-    <OAuthConnectSurface
-      surface={surface}
-      assistantId="assistant-story"
-      oauthClient={storyOAuthClient}
-      onAction={(_surfaceId, _actionId, data) => {
-        const providerLabel =
-          typeof data?.providerLabel === "string"
-            ? data.providerLabel
-            : "Google";
-        const accountLabel =
-          typeof data?.accountLabel === "string"
-            ? data.accountLabel
-            : undefined;
-        setSurface((current) => ({
-          ...current,
-          completed: true,
-          completionSummary: accountLabel
-            ? `Connected ${providerLabel}: ${accountLabel}`
-            : `Connected ${providerLabel}`,
-        }));
-      }}
-    />
+    <div className="relative">
+      <div className="absolute left-[22.5rem] top-[2.55rem] z-10 max-sm:left-auto max-sm:right-28 max-sm:top-[4.9rem]">
+        <StoryOnlyOAuthApprovalInfo />
+      </div>
+      <OAuthConnectSurface
+        surface={surface}
+        assistantId="assistant-story"
+        oauthClient={storyOAuthClient}
+        onAction={(_surfaceId, _actionId, data) => {
+          const providerLabel =
+            typeof data?.providerLabel === "string"
+              ? data.providerLabel
+              : "Google";
+          const accountLabel =
+            typeof data?.accountLabel === "string"
+              ? data.accountLabel
+              : undefined;
+          setSurface((current) => ({
+            ...current,
+            completed: true,
+            completionSummary: accountLabel
+              ? `Connected ${providerLabel}: ${accountLabel}`
+              : `Connected ${providerLabel}`,
+          }));
+        }}
+      />
+    </div>
   );
 }
 
