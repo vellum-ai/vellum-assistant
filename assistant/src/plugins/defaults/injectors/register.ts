@@ -52,6 +52,7 @@ import { getInContextPkbPaths } from "../../../daemon/pkb-context-tracker.js";
 import { buildPkbReminder } from "../../../daemon/pkb-reminder-builder.js";
 import { listComments } from "../../../documents/document-comments-store.js";
 import { searchPkbFiles } from "../../../memory/pkb/pkb-search.js";
+import { PKB_WORKSPACE_SCOPE } from "../../../memory/pkb/types.js";
 import { getLogger } from "../../../util/logger.js";
 import {
   type InjectionBlock,
@@ -318,7 +319,6 @@ async function buildPkbReminderWithHints(
   if (
     queryVector &&
     queryVector.length > 0 &&
-    inputs.pkbScopeId &&
     inputs.pkbConversation &&
     inputs.pkbRoot
   ) {
@@ -327,7 +327,7 @@ async function buildPkbReminderWithHints(
         queryVector,
         inputs.pkbSparseVector,
         8,
-        [inputs.pkbScopeId],
+        [PKB_WORKSPACE_SCOPE],
       );
       const workingDir = inputs.pkbWorkingDir ?? inputs.pkbRoot;
       const inContext = getInContextPkbPaths(

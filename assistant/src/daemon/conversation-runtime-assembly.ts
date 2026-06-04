@@ -1921,8 +1921,6 @@ export interface RuntimeInjectionOptions {
   pkbQueryVector?: number[];
   /** Optional sparse vector accompanying `pkbQueryVector`. */
   pkbSparseVector?: QdrantSparseVector;
-  /** Memory scope id used to filter PKB search results. */
-  pkbScopeId?: string;
   /**
    * The live conversation (or a minimal shape containing `messages`) used
    * to compute which PKB paths are already "in context" and therefore
@@ -2044,7 +2042,6 @@ function buildTurnInjectionInputs(
     pkbActive: options.pkbActive,
     pkbQueryVector: options.pkbQueryVector,
     pkbSparseVector: options.pkbSparseVector,
-    pkbScopeId: options.pkbScopeId,
     pkbConversation: options.pkbConversation,
     pkbAutoInjectList: options.pkbAutoInjectList,
     pkbRoot: options.pkbRoot,

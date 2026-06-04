@@ -424,8 +424,6 @@ export interface TurnInjectionInputs {
   readonly pkbQueryVector?: number[];
   /** Optional sparse vector accompanying `pkbQueryVector`. */
   readonly pkbSparseVector?: QdrantSparseVector;
-  /** Memory scope id used to filter PKB search results. */
-  readonly pkbScopeId?: string;
   /**
    * Live conversation (or a minimal shape containing `messages`) used to
    * compute which PKB paths are already "in context" and therefore suppressed

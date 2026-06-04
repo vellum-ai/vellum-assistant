@@ -2042,7 +2042,6 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
     return {
       pkbActive: true,
       pkbQueryVector: [0.1, 0.2, 0.3],
-      pkbScopeId: "scope-1",
       pkbConversation: { messages: baseMessages },
       pkbRoot,
       pkbWorkingDir,
@@ -2343,7 +2342,6 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
       {
         pkbActive: true,
         pkbQueryVector: [0.1, 0.2],
-        pkbScopeId: "scope-1",
         pkbConversation: preCompactionConversation,
         pkbRoot,
         pkbWorkingDir,
@@ -2389,7 +2387,6 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
       {
         pkbActive: true,
         pkbQueryVector: [0.1, 0.2],
-        pkbScopeId: "scope-1",
         pkbConversation: postCompactionConversation,
         pkbRoot,
         pkbWorkingDir,

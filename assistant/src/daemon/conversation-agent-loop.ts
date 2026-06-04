@@ -85,7 +85,6 @@ import {
   recordSyntheticAgentErrorMessageLog,
 } from "../memory/llm-request-log-store.js";
 import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrospective-enqueue.js";
-import { PKB_WORKSPACE_SCOPE } from "../memory/pkb/types.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
 import {
   readMemoryV2StaticContent,
@@ -1425,9 +1424,6 @@ export async function runAgentLoopImpl(
     // `getInContextPkbPaths` re-reads `conversation.messages` on each call,
     // so post-compaction re-injects see the updated history.
     const pkbConversation = pkbActive ? ctx : undefined;
-    // PKB points live under a single workspace sentinel scope.
-    // See `PKB_WORKSPACE_SCOPE` for why.
-    const pkbScopeId = pkbActive ? PKB_WORKSPACE_SCOPE : undefined;
 
     // Subagent status injection — gives the parent LLM visibility into active/completed children.
     // Skipped when this conversation IS a subagent (no nesting) or has no children.
@@ -1513,7 +1509,6 @@ export async function runAgentLoopImpl(
       pkbActive,
       pkbQueryVector,
       pkbSparseVector,
-      pkbScopeId,
       pkbConversation,
       pkbAutoInjectList,
       pkbRoot,
