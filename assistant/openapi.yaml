@@ -13587,6 +13587,24 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  enabled:
+                    type: boolean
+                  activeConnections:
+                    type: number
+                  error:
+                    type: string
+                required:
+                  - success
+                  - enabled
+                  - activeConnections
+                additionalProperties: false
     get:
       operationId: integrations_a2a_config_get
       summary: Get A2A config
@@ -13596,6 +13614,24 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  enabled:
+                    type: boolean
+                  activeConnections:
+                    type: number
+                  error:
+                    type: string
+                required:
+                  - success
+                  - enabled
+                  - activeConnections
+                additionalProperties: false
     post:
       operationId: integrations_a2a_config_post
       summary: Enable A2A channel
@@ -13605,6 +13641,24 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  enabled:
+                    type: boolean
+                  activeConnections:
+                    type: number
+                  error:
+                    type: string
+                required:
+                  - success
+                  - enabled
+                  - activeConnections
+                additionalProperties: false
   /v1/integrations/a2a/invite:
     post:
       operationId: integrations_a2a_invite_post
@@ -13647,6 +13701,24 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  contactId:
+                    type: string
+                  alreadyConnected:
+                    type: boolean
+                  error:
+                    type: string
+                  errorCode:
+                    type: string
+                required:
+                  - success
+                additionalProperties: false
   /v1/integrations/a2a/invite/complete:
     post:
       operationId: integrations_a2a_invite_complete_post
@@ -13657,6 +13729,32 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  sender:
+                    type: object
+                    properties:
+                      assistantId:
+                        type: string
+                      displayName:
+                        type: string
+                      gatewayUrl:
+                        type: string
+                    required:
+                      - assistantId
+                      - displayName
+                      - gatewayUrl
+                    additionalProperties: false
+                  error:
+                    type: string
+                required:
+                  - success
+                additionalProperties: false
   /v1/integrations/a2a/invite/redeem:
     post:
       operationId: integrations_a2a_invite_redeem_post
@@ -13667,6 +13765,22 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  contactId:
+                    type: string
+                  alreadyConnected:
+                    type: boolean
+                  error:
+                    type: string
+                required:
+                  - success
+                additionalProperties: false
   /v1/integrations/ingress/config:
     get:
       operationId: integrations_ingress_config_get
