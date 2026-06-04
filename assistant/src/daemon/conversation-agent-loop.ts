@@ -97,7 +97,9 @@ import type { UserPromptSubmitContext } from "../plugin-api/types.js";
 import { defaultCompactionTerminal } from "../plugins/defaults/compaction/terminal.js";
 import { deepRepairHistory } from "../plugins/defaults/history-repair/terminal.js";
 import postCompactReinject from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
-import type { MemoryRetrievalHookContext } from "../plugins/defaults/memory-retrieval/hooks/user-prompt-submit-temp.js";
+import userPromptSubmitTemp, {
+  type MemoryRetrievalHookContext,
+} from "../plugins/defaults/memory-retrieval/hooks/user-prompt-submit-temp.js";
 import { DEFAULT_TIMEOUTS, runHook, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
@@ -1145,15 +1147,17 @@ export async function runAgentLoopImpl(
 
     let runMessages = ctx.messages;
 
-    // Memory retrieval — fetches PKB, NOW.md, and memory-graph outputs via
-    // the `user-prompt-submit-temp` hook, which also persists the retrieval's
-    // own side effects (injected-block metadata, recall log, `memory_recalled`
-    // event). The hook fires at the early "prompt submitted" moment because
-    // its outputs feed the injection and overflow-reduction transforms below;
-    // it stays distinct from the late `user-prompt-submit` hook (history
-    // repair, title) until compaction is cleared from the gap between them.
+    // Memory retrieval — fetches PKB, NOW.md, and memory-graph outputs and
+    // persists the retrieval's own side effects (injected-block metadata,
+    // recall log, `memory_recalled` event). Runs at the early "prompt
+    // submitted, before context assembly" moment because its outputs feed the
+    // injection and overflow-reduction transforms below. It is shaped as the
+    // `user-prompt-submit-temp` hook handler but invoked directly for now: it
+    // must run early, while the canonical late `user-prompt-submit` hook
+    // (history repair, title) runs after those transforms, so the two cannot
+    // share a fire site until compaction is cleared from the gap between them.
     const isTrustedActor = resolveTrustClass(ctx.trustContext) === "guardian";
-    const memoryHookCtx: MemoryRetrievalHookContext = {
+    const memoryCtx: MemoryRetrievalHookContext = {
       messages: ctx.messages,
       graphMemory: ctx.graphMemory,
       config: getConfig(),
@@ -1169,16 +1173,13 @@ export async function runAgentLoopImpl(
       nowContent: null,
       graphResult: null,
     };
-    const memoryResult = await runHook(
-      HOOKS.USER_PROMPT_SUBMIT_TEMP,
-      memoryHookCtx,
-    );
+    await userPromptSubmitTemp(memoryCtx);
 
     // Consume the memory-graph retrieval. The retriever owns its own side
     // effects (injected-block metadata, recall log, `memory_recalled` event);
     // here the loop only takes the turn-scoped context it reuses downstream —
     // the injected message list and the PKB query vectors.
-    const graphResult = memoryResult.graphResult;
+    const graphResult = memoryCtx.graphResult;
     let pkbQueryVector: number[] | undefined;
     let pkbSparseVector: QdrantSparseVector | undefined;
     if (graphResult) {
@@ -1368,13 +1369,13 @@ export async function runAgentLoopImpl(
       getConfig().memory.retrieval.scratchpadInjection.enabled;
     const currentNowContent =
       personalMemoryAllowed && scratchpadInjectionEnabled
-        ? memoryResult.nowContent
+        ? memoryCtx.nowContent
         : null;
     const shouldInjectNowAndPkb = isFirstMessage || compactedThisTurn;
     const nowScratchpad = shouldInjectNowAndPkb ? currentNowContent : null;
 
     const currentPkbContent = personalMemoryAllowed
-      ? memoryResult.pkbContent
+      ? memoryCtx.pkbContent
       : null;
     const pkbContext = shouldInjectNowAndPkb ? currentPkbContent : null;
     const pkbActive = currentPkbContent !== null;

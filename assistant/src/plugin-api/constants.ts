@@ -20,16 +20,6 @@ export const HOOKS = {
   SHUTDOWN: "shutdown",
   /** Fires once per user turn, immediately before the agent loop receives `runMessages`. */
   USER_PROMPT_SUBMIT: "user-prompt-submit",
-  /**
-   * Transitional internal hook. Fires once per user turn at the early
-   * "prompt submitted, before context assembly" moment — before memory/PKB
-   * injection and overflow reduction — so memory retrieval can produce the
-   * turn-state those transforms consume. Distinct from `user-prompt-submit`
-   * (which fires late, after those transforms) until compaction is cleared
-   * from the gap between the two moments, at which point it folds into
-   * `user-prompt-submit`. Not part of the stable external hook surface.
-   */
-  USER_PROMPT_SUBMIT_TEMP: "user-prompt-submit-temp",
   /** Fires once per tool result, after the tool returns and before the result is sent to the provider. */
   POST_TOOL_USE: "post-tool-use",
   /** Fires when the model yields a response with no tool calls — the run's stop boundary. Decides whether to stop or continue with a follow-up turn. */

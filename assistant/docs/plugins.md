@@ -420,14 +420,13 @@ mutates it in place (returning `void`) or returns a replacement. Hooks
 from multiple plugins chain in registration order, and defaults register
 first.
 
-| Hook                      | Fires                                                                                                                                                                                                                   | Context                      |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
-| `init`                    | Once when the plugin is registered.                                                                                                                                                                                     | `PluginInitContext`          |
-| `shutdown`                | Once when the plugin is torn down.                                                                                                                                                                                      | `PluginShutdownContext`      |
-| `user-prompt-submit`      | Once per user turn, before the agent loop receives the messages.                                                                                                                                                        | `UserPromptSubmitContext`    |
-| `user-prompt-submit-temp` | Once per user turn, at the early "prompt submitted, before context assembly" moment (memory retrieval). Transitional — folds into `user-prompt-submit` once compaction is cleared from the gap between the two moments. | `MemoryRetrievalHookContext` |
-| `post-tool-use`           | Once per tool result, before it joins the provider-bound history.                                                                                                                                                       | `PostToolUseContext`         |
-| `stop`                    | Once per run when the model yields a turn with no tool calls.                                                                                                                                                           | `StopContext`                |
+| Hook                 | Fires                                                             | Context                   |
+| -------------------- | ----------------------------------------------------------------- | ------------------------- |
+| `init`               | Once when the plugin is registered.                               | `PluginInitContext`       |
+| `shutdown`           | Once when the plugin is torn down.                                | `PluginShutdownContext`   |
+| `user-prompt-submit` | Once per user turn, before the agent loop receives the messages.  | `UserPromptSubmitContext` |
+| `post-tool-use`      | Once per tool result, before it joins the provider-bound history. | `PostToolUseContext`      |
+| `stop`               | Once per run when the model yields a turn with no tool calls.     | `StopContext`             |
 
 ## Pipeline reference
 
