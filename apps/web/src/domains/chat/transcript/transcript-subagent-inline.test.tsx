@@ -336,7 +336,6 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
           id: "tc-0",
           name: "subagent_spawn",
           input: { label: "agent-0", objective: "" },
-          status: "running",
         },
       ],
     };
@@ -412,7 +411,6 @@ describe("Transcript — toolUseId anchor (PR 3)", () => {
           id: "tool-use-abc",
           name: "subagent_spawn",
           input: { label: "agent-0", objective: "do a thing" },
-          status: "running",
           // No `result` — the daemon hasn't acked the spawn yet.
         },
       ],
@@ -484,13 +482,11 @@ describe("Transcript — cross-group claimed-set (fix-r1-c)", () => {
           id: "tc-0",
           name: "subagent_spawn",
           input: { label: "agent-0", objective: "do a thing" },
-          status: "running",
         },
         {
           id: "tc-1",
           name: "subagent_spawn",
           input: { label: "agent-1", objective: "do another thing" },
-          status: "running",
         },
       ],
     };
@@ -539,7 +535,6 @@ describe("Transcript — live → reconcile card lifecycle (PR 6)", () => {
           id: toolUseId,
           name: "skill_execute",
           input: { tool: "subagent_spawn", label: "agent-0", objective: "do a thing" },
-          status: "running",
           // No `result` — daemon hasn't acked the spawn yet.
         },
       ],

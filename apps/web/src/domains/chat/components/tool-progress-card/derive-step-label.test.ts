@@ -16,7 +16,6 @@ function buildToolCall(
   return {
     id: "tc-test",
     input: {},
-    status: "running",
     ...overrides,
   };
 }

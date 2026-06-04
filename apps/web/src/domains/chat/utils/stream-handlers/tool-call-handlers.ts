@@ -21,7 +21,6 @@ export function handleToolUseStart(
     id: toolCallId,
     name: event.toolName,
     input: event.input,
-    status: "running",
     startedAt: Date.now(),
   };
   ctx.setMessages((prev) => {
