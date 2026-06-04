@@ -25,6 +25,55 @@ mock.module("../../util/logger.js", () => ({
     }),
 }));
 
+/**
+ * Registry of the most recent fake AcpAgentProcess per spawning manager, keyed
+ * by the cwd passed to spawn() (the concurrency tests use a distinct cwd per
+ * session so each spawned fake is individually addressable). Each fake exposes
+ * a `resolvePrompt` to drive its prompt to completion (→ idle) and a `killed`
+ * flag to assert teardown. Registered process-globally via mock.module before
+ * session-manager.js is imported, so spawn()'s `new AcpAgentProcess` resolves
+ * to this fake.
+ */
+const spawnedFakes: FakeSpawnedProcess[] = [];
+
+interface FakeSpawnedProcess {
+  cwd: string;
+  killed: boolean;
+  resolvePrompt: (v: { stopReason: string }) => void;
+}
+
+mock.module("../agent-process.js", () => ({
+  AcpAgentProcess: class FakeAcpAgentProcess {
+    private record: FakeSpawnedProcess = {
+      cwd: "",
+      killed: false,
+      resolvePrompt: () => {},
+    };
+    constructor(
+      public readonly agentId: string,
+      _config: unknown,
+      _factory: unknown,
+    ) {}
+    spawn(cwd: string): void {
+      this.record.cwd = cwd;
+      spawnedFakes.push(this.record);
+    }
+    async initialize(): Promise<void> {}
+    async createSession(_cwd: string): Promise<string> {
+      return `proto-${this.agentId}`;
+    }
+    prompt(): Promise<{ stopReason: string }> {
+      return new Promise((res) => {
+        this.record.resolvePrompt = res;
+      });
+    }
+    async cancel(): Promise<void> {}
+    kill(): void {
+      this.record.killed = true;
+    }
+  },
+}));
+
 import { VellumAcpClientHandler } from "../../acp/client-handler.js";
 import { AcpSessionManager } from "../../acp/session-manager.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
@@ -326,5 +375,127 @@ describe("AcpSessionManager — idle keep-alive lifecycle", () => {
 
     // Completed history row was not clobbered to 'cancelled'.
     expect(readStatus(id)).toBe("completed");
+  });
+});
+
+describe("AcpSessionManager — idle sessions don't wedge the spawn limit", () => {
+  const noopSend = () => {};
+
+  beforeEach(() => {
+    clearHistory();
+    spawnedFakes.length = 0;
+  });
+
+  /** Spawns a session in `manager` at a unique cwd; returns id + its fake. */
+  async function spawnSession(
+    manager: AcpSessionManager,
+    cwd: string,
+  ): Promise<{ id: string; fake: FakeSpawnedProcess }> {
+    const before = spawnedFakes.length;
+    const { acpSessionId } = await manager.spawn(
+      "agent-X",
+      { command: "codex-acp", args: [] },
+      "do work",
+      cwd,
+      `conv-${cwd}`,
+      noopSend,
+    );
+    const fake = spawnedFakes[before]!;
+    return { id: acpSessionId, fake };
+  }
+
+  test("N completed→idle sessions do NOT block an (N+1)th spawn — oldest idle is reaped", async () => {
+    const max = 3;
+    const manager = new AcpSessionManager(max, 60_000);
+
+    // Fill the budget with `max` sessions and drive each to idle.
+    const sessions: { id: string; fake: FakeSpawnedProcess }[] = [];
+    for (let i = 0; i < max; i++) {
+      const s = await spawnSession(manager, `/cwd-${i}`);
+      s.fake.resolvePrompt({ stopReason: "end_turn" });
+      await flush();
+      expect((manager.getStatus(s.id) as { status: string }).status).toBe(
+        "idle",
+      );
+      sessions.push(s);
+    }
+
+    // Map is full and at the limit.
+    expect((manager.getStatus() as unknown[]).length).toBe(max);
+
+    // The (N+1)th spawn must succeed by reaping the OLDEST idle session.
+    const extra = await spawnSession(manager, "/cwd-new");
+    expect(extra.id).toBeTruthy();
+
+    // Oldest idle (the first one started) was torn down: process killed and
+    // removed from the map.
+    expect(sessions[0]!.fake.killed).toBe(true);
+    expect(() => manager.getStatus(sessions[0]!.id)).toThrow();
+
+    // Newer idle sessions are untouched and the new one is tracked.
+    expect(sessions[1]!.fake.killed).toBe(false);
+    expect(sessions[2]!.fake.killed).toBe(false);
+    expect((manager.getStatus(extra.id) as { status: string }).status).toBe(
+      "running",
+    );
+
+    // Still at the limit (one reaped, one added), no leak above max.
+    expect((manager.getStatus() as unknown[]).length).toBe(max);
+
+    // The reaped session's completed history row was not clobbered.
+    expect(readStatus(sessions[0]!.id)).toBe("completed");
+  });
+
+  test("a genuinely RUNNING session still counts toward the limit (no idle to reap → reject)", async () => {
+    const max = 2;
+    const manager = new AcpSessionManager(max, 60_000);
+
+    // Two running sessions (prompts never resolved → stay `running`).
+    const a = await spawnSession(manager, "/run-a");
+    const b = await spawnSession(manager, "/run-b");
+    expect((manager.getStatus(a.id) as { status: string }).status).toBe(
+      "running",
+    );
+    expect((manager.getStatus(b.id) as { status: string }).status).toBe(
+      "running",
+    );
+
+    // No idle session to reap — the third spawn must reject.
+    await expect(spawnSession(manager, "/run-c")).rejects.toThrow(
+      /concurrency limit reached/,
+    );
+
+    // Neither running session was torn down by the failed spawn.
+    expect(a.fake.killed).toBe(false);
+    expect(b.fake.killed).toBe(false);
+    expect((manager.getStatus() as unknown[]).length).toBe(max);
+  });
+
+  test("reaping the oldest idle session clears its idle timer (no leaked reaper)", async () => {
+    const max = 1;
+    // Tiny idle timeout: if the reaped session's timer leaked, it would fire
+    // against a dangling entry after teardown. The reaper guards against that,
+    // but clearing the timer on teardown is the real fix under test.
+    const manager = new AcpSessionManager(max, 10);
+
+    const first = await spawnSession(manager, "/timer-a");
+    first.fake.resolvePrompt({ stopReason: "end_turn" });
+    await flush();
+    expect((manager.getStatus(first.id) as { status: string }).status).toBe(
+      "idle",
+    );
+
+    // Second spawn reaps the single idle session to free the only slot.
+    const second = await spawnSession(manager, "/timer-b");
+    expect(first.fake.killed).toBe(true);
+    expect(() => manager.getStatus(first.id)).toThrow();
+
+    // Let the would-be idle timer interval elapse: the reaped session's timer
+    // must NOT fire and disturb the new session.
+    await new Promise((r) => setTimeout(r, 40));
+    expect((manager.getStatus(second.id) as { status: string }).status).toBe(
+      "running",
+    );
+    expect(second.fake.killed).toBe(false);
   });
 });

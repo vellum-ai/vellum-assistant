@@ -142,10 +142,27 @@ export class AcpSessionManager {
     sendToVellum: (msg: ServerMessage) => void,
   ): Promise<{ acpSessionId: string; protocolSessionId: string }> {
     if (this.sessions.size >= this.maxConcurrent) {
-      throw new Error(
-        `ACP concurrency limit reached (max ${this.maxConcurrent}). ` +
-          `Close an existing session before spawning a new one.`,
-      );
+      // Completed sessions linger as `idle` (process alive) for follow-up
+      // reuse, but a few of them would otherwise occupy the whole concurrency
+      // budget and block all new spawns until the idle timeout fires — even
+      // with zero prompts in flight. Reclaim the oldest idle session to free a
+      // slot before rejecting. Its completed task already wrote a terminal
+      // history row, so close() tears it down without re-persisting; this also
+      // bounds the number of resident adapter processes. Only reject when every
+      // tracked session is genuinely running/initializing.
+      const oldestIdle = this.oldestIdleSession();
+      if (oldestIdle) {
+        log.info(
+          { reapedAcpSessionId: oldestIdle, maxConcurrent: this.maxConcurrent },
+          "Reaping oldest idle ACP session to free a spawn slot",
+        );
+        this.close(oldestIdle);
+      } else {
+        throw new Error(
+          `ACP concurrency limit reached (max ${this.maxConcurrent}). ` +
+            `Close an existing session before spawning a new one.`,
+        );
+      }
     }
 
     const acpSessionId = randomUUID();
@@ -339,6 +356,25 @@ export class AcpSessionManager {
       }
     }
     return best;
+  }
+
+  /**
+   * Returns the acpSessionId of the least-recently-started `idle` session, or
+   * null if none are idle. Used to free a concurrency slot when a new spawn
+   * hits the limit: idle sessions have no in-flight prompt, so reaping the
+   * oldest one is the least-disruptive way to make room.
+   */
+  private oldestIdleSession(): string | null {
+    let bestId: string | null = null;
+    let bestStartedAt = Infinity;
+    for (const [id, entry] of this.sessions) {
+      if (entry.state.status !== "idle") continue;
+      if (entry.state.startedAt < bestStartedAt) {
+        bestStartedAt = entry.state.startedAt;
+        bestId = id;
+      }
+    }
+    return bestId;
   }
 
   /**
