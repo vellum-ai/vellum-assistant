@@ -119,6 +119,35 @@ describe("connect import", () => {
     expect(findAssistantByName("desk-box")).not.toBeNull();
   });
 
+  test("sanitizes a malicious bundle deviceId (no path traversal in the local id)", async () => {
+    process.argv = [
+      "bun",
+      "vellum",
+      "connect",
+      "import",
+      bundleFor({ deviceId: "-/../../tmp/x", token: "tokX" }),
+    ];
+    const logs: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation(
+      (...a: unknown[]) => {
+        logs.push(a.join(" "));
+      },
+    );
+    try {
+      await connectImport();
+    } finally {
+      logSpy.mockRestore();
+    }
+
+    // The registered id must contain no path separators or `..`.
+    const m = logs.join("\n").match(/paired assistant '([^']+)'/);
+    expect(m).not.toBeNull();
+    const id = m![1];
+    expect(id).not.toContain("/");
+    expect(id).not.toContain("..");
+    expect(loadGuardianToken(id)?.accessToken).toBe("tokX");
+  });
+
   test("a malformed bundle exits 1 and registers nothing", async () => {
     process.argv = ["bun", "vellum", "connect", "import", "not-valid-base64!!"];
     const errSpy = spyOn(console, "error").mockImplementation(() => {});

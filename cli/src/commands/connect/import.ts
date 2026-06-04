@@ -118,9 +118,12 @@ export async function connectImport(): Promise<void> {
 
   // Unique local id: a --name slug, or paired-<deviceId> (deviceId is unique
   // per pairing). Never the bundle's "self" assistantId — that would collide.
+  // The deviceId comes from an untrusted bundle and is used as a path component
+  // by saveGuardianToken, so it MUST be slugified (no `../` traversal); fall
+  // back to a random id if it sanitizes to empty.
   const localId = nameFlag
     ? slugify(nameFlag)
-    : `paired-${bundle.deviceId || nanoid()}`;
+    : `paired-${slugify(bundle.deviceId ?? "") || nanoid()}`;
   if (!localId) {
     console.error(
       "Error: --name must contain at least one alphanumeric character.",
