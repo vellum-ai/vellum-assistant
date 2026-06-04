@@ -495,9 +495,8 @@ function deriveCardState(
 // ---------------------------------------------------------------------------
 
 /**
- * Pure projection of (toolCalls, liveWebActivity, leadingThinkingText) →
- * card data. Split out from the hook so tests can drive it without React
- * context plumbing.
+ * Pure projection of (toolCalls, liveWebActivity) → card data. Split out
+ * from the hook so tests can drive it without React context plumbing.
  *
  * Always returns a `ToolCallCardData` (never null) so non-web groups still
  * render the unified card. Callers that need legacy "no web tools → bail
@@ -507,7 +506,6 @@ function deriveCardState(
 export function computeToolCallCardData(
   toolCalls: ChatMessageToolCall[],
   liveWebActivity: Record<string, ToolActivityMetadata>,
-  leadingThinkingText: string | null,
 ): ToolCallCardData {
   // `subagent_spawn` calls are rendered inline by `SubagentInlineProgressCard`
   // at the transcript level — surfacing them as steps inside the unified card
@@ -521,14 +519,6 @@ export function computeToolCallCardData(
   );
 
   const steps: ToolCallCardStep[] = [];
-
-  if (leadingThinkingText) {
-    steps.push({
-      kind: "thinking",
-      durationLabel: "",
-      text: leadingThinkingText,
-    });
-  }
 
   for (const tc of renderableToolCalls) {
     if (!isWebTool(tc)) {

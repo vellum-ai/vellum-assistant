@@ -17,10 +17,6 @@ import { SubagentInlineProgressCard } from "@/domains/chat/components/subagent-i
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router";
 import { ThinkingBlock } from "@/domains/chat/components/thinking-block";
 import { ToolCallProgressCard } from "@/domains/chat/components/tool-call-progress-card/tool-call-progress-card";
-import {
-  getLeadingThinkingText,
-  getLegacyLeadingThinkingText,
-} from "@/domains/chat/components/tool-progress-card/get-leading-thinking-text";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
@@ -725,7 +721,6 @@ export function TranscriptMessageBody({
                       pendingConfirmationToolCallId={pendingConfirmationToolCallId}
                       unknownNudgeToolCallIds={unknownNudgeToolCallIds}
                       onDismissUnknownNudge={onDismissUnknownNudge}
-                      leadingThinkingText={getLeadingThinkingText(message, gi)}
                     />
                   )}
                   {renderInlineSubagentCards(toolCalls)}
@@ -986,7 +981,6 @@ export function TranscriptMessageBody({
               pendingConfirmationToolCallId={pendingConfirmationToolCallId}
               unknownNudgeToolCallIds={unknownNudgeToolCallIds}
               onDismissUnknownNudge={onDismissUnknownNudge}
-              leadingThinkingText={getLegacyLeadingThinkingText(message)}
             />
             {renderInlineSubagentCards(legacyToolCalls)}
           </>
