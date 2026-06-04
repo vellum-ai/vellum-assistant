@@ -168,6 +168,7 @@ const SYSTEM_TASK_URL_IDS = {
   heartbeat: "system-heartbeat",
   consolidation: "system-consolidation",
 } as const satisfies Record<SystemTaskKind, string>;
+const SYSTEM_TASK_STATS_RUN_LIMIT = 100;
 
 function systemTaskKindFromUrlId(
   scheduleId: string | undefined,
@@ -721,6 +722,29 @@ function zeroScheduleUsageSummary(scheduleId: string): ScheduleUsageSummary {
   };
 }
 
+function summarizeRunsForUsage(
+  scheduleId: string,
+  runs: ScheduleRun[] | undefined,
+  range: { from: number; to: number },
+): ScheduleUsageSummary {
+  const runsInRange = (runs ?? []).filter((run) => {
+    const startedAt = run.startedAt ?? run.createdAt;
+    return startedAt >= range.from && startedAt <= range.to;
+  });
+
+  return {
+    scheduleId,
+    runCount: runsInRange.length,
+    totalEstimatedCostUsd: runsInRange.reduce((total, run) => {
+      const cost = run.estimatedCostUsd;
+      return typeof cost === "number" && Number.isFinite(cost)
+        ? total + cost
+        : total;
+    }, 0),
+    eventCount: 0,
+  };
+}
+
 function ScheduleUsageStats({
   scheduleName,
   usage,
@@ -728,7 +752,7 @@ function ScheduleUsageStats({
 }: {
   scheduleName: string;
   usage: ScheduleRowUsage;
-  onOpenUsage: () => void;
+  onOpenUsage?: () => void;
 }) {
   if (usage.status === "loading") {
     return (
@@ -752,19 +776,33 @@ function ScheduleUsageStats({
 
   return (
     <div className="flex w-[136px] shrink-0 items-center justify-end gap-3 text-right">
-      <button
-        type="button"
-        onClick={onOpenUsage}
-        aria-label={`View usage for ${scheduleName}`}
-        className="min-w-[54px] cursor-pointer rounded px-1 py-0.5 text-right transition-colors hover:bg-[var(--surface-hover)]"
-      >
-        <span className="block text-label-small-default text-[var(--content-tertiary)]">
-          Cost
+      {onOpenUsage ? (
+        <button
+          type="button"
+          onClick={onOpenUsage}
+          aria-label={`View usage for ${scheduleName}`}
+          className="min-w-[54px] cursor-pointer rounded px-1 py-0.5 text-right transition-colors hover:bg-[var(--surface-hover)]"
+        >
+          <span className="block text-label-small-default text-[var(--content-tertiary)]">
+            Cost
+          </span>
+          <span className="block text-body-small-default text-[var(--content-default)]">
+            {cost}
+          </span>
+        </button>
+      ) : (
+        <span
+          aria-label={`Cost for ${scheduleName} in the last 7 days: ${cost}`}
+          className="block min-w-[54px] px-1 py-0.5"
+        >
+          <span className="block text-label-small-default text-[var(--content-tertiary)]">
+            Cost
+          </span>
+          <span className="block text-body-small-default text-[var(--content-default)]">
+            {cost}
+          </span>
         </span>
-        <span className="block text-body-small-default text-[var(--content-default)]">
-          {cost}
-        </span>
-      </button>
+      )}
       <span
         aria-label={`Runs for ${scheduleName} in the last 7 days: ${runs}`}
         className="block min-w-[54px] px-1 py-0.5"
@@ -981,6 +1019,7 @@ interface SystemTaskRowProps {
   enabled: boolean;
   nextRunAt: number | null;
   lastRunAt: number | null;
+  usage: ScheduleRowUsage;
   isRunning: boolean;
   onClick: () => void;
   onRunNow: () => void;
@@ -992,12 +1031,13 @@ function SystemTaskRow({
   enabled,
   nextRunAt,
   lastRunAt,
+  usage,
   isRunning,
   onClick,
   onRunNow,
 }: SystemTaskRowProps) {
   return (
-    <div className="flex items-center gap-3 py-3 first:pt-0 last:pb-0 [&+&]:border-t [&+&]:border-[var(--border-base)]">
+    <div className="flex flex-wrap items-center gap-3 py-3 first:pt-0 last:pb-0 [&+&]:border-t [&+&]:border-[var(--border-base)]">
       <button
         type="button"
         onClick={onClick}
@@ -1017,7 +1057,8 @@ function SystemTaskRow({
           {lastRunAt ? <span>Last: {formatTimestamp(lastRunAt)}</span> : null}
         </div>
       </button>
-      <div className="flex shrink-0 items-center gap-2">
+      <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">
+        <ScheduleUsageStats scheduleName={name} usage={usage} />
         <Button
           variant="ghost"
           size="compact"
@@ -1057,6 +1098,8 @@ function SystemTaskRow({
 interface SystemTasksSectionProps {
   heartbeatConfig: HeartbeatConfigGetResponse | undefined;
   consolidationConfig: ConsolidationConfigGetResponse | undefined;
+  heartbeatUsage: ScheduleRowUsage;
+  consolidationUsage: ScheduleRowUsage;
   isLoading: boolean;
   hasError: boolean;
   onRetry: () => void;
@@ -1071,6 +1114,8 @@ interface SystemTasksSectionProps {
 function SystemTasksSection({
   heartbeatConfig,
   consolidationConfig,
+  heartbeatUsage,
+  consolidationUsage,
   isLoading,
   hasError,
   onRetry,
@@ -1117,6 +1162,7 @@ function SystemTasksSection({
               enabled={heartbeatConfig.enabled}
               nextRunAt={heartbeatConfig.nextRunAt}
               lastRunAt={heartbeatConfig.lastRunAt}
+              usage={heartbeatUsage}
               isRunning={isHeartbeatRunning}
               onClick={onSelectHeartbeat}
               onRunNow={onRunHeartbeatNow}
@@ -1129,6 +1175,7 @@ function SystemTasksSection({
               enabled={consolidationConfig.enabled}
               nextRunAt={consolidationConfig.nextRunAt}
               lastRunAt={consolidationConfig.lastRunAt}
+              usage={consolidationUsage}
               isRunning={isConsolidationRunning}
               onClick={onSelectConsolidation}
               onRunNow={onRunConsolidationNow}
@@ -1215,6 +1262,41 @@ export function SchedulesPage() {
     staleTime: 10_000,
   });
 
+  const {
+    data: heartbeatRunsForStats,
+    isLoading: isHeartbeatStatsLoading,
+    isError: isHeartbeatStatsError,
+    refetch: refetchHeartbeatStats,
+  } = useQuery({
+    queryKey: [
+      "system-task-runs-summary",
+      assistantId,
+      "heartbeat",
+      SYSTEM_TASK_STATS_RUN_LIMIT,
+    ],
+    queryFn: () => fetchHeartbeatRuns(assistantId!, SYSTEM_TASK_STATS_RUN_LIMIT),
+    enabled: !!assistantId && heartbeatConfig != null,
+    staleTime: 10_000,
+  });
+
+  const {
+    data: consolidationRunsForStats,
+    isLoading: isConsolidationStatsLoading,
+    isError: isConsolidationStatsError,
+    refetch: refetchConsolidationStats,
+  } = useQuery({
+    queryKey: [
+      "system-task-runs-summary",
+      assistantId,
+      "consolidation",
+      SYSTEM_TASK_STATS_RUN_LIMIT,
+    ],
+    queryFn: () =>
+      fetchConsolidationRuns(assistantId!, SYSTEM_TASK_STATS_RUN_LIMIT),
+    enabled: !!assistantId && consolidationConfig?.available === true,
+    staleTime: 10_000,
+  });
+
   const selectedSystemTask = systemTaskKindFromUrlId(scheduleId);
   const [createOpen, setCreateOpen] = useState(false);
   const [isHeartbeatRunning, setIsHeartbeatRunning] = useState(false);
@@ -1256,6 +1338,53 @@ export function SchedulesPage() {
     [isUsageSummaryError, isUsageSummaryLoading, usageSummaryByScheduleId],
   );
 
+  const systemStatsRange = useMemo(
+    () => resolveScheduleUsageWindow(tz),
+    [tz],
+  );
+  const heartbeatUsage: ScheduleRowUsage = useMemo(() => {
+    if (isHeartbeatStatsLoading) {
+      return { status: "loading" };
+    }
+    if (isHeartbeatStatsError) {
+      return { status: "error" };
+    }
+    return {
+      status: "ready",
+      summary: summarizeRunsForUsage(
+        SYSTEM_TASK_URL_IDS.heartbeat,
+        heartbeatRunsForStats,
+        systemStatsRange,
+      ),
+    };
+  }, [
+    heartbeatRunsForStats,
+    isHeartbeatStatsError,
+    isHeartbeatStatsLoading,
+    systemStatsRange,
+  ]);
+  const consolidationUsage: ScheduleRowUsage = useMemo(() => {
+    if (isConsolidationStatsLoading) {
+      return { status: "loading" };
+    }
+    if (isConsolidationStatsError) {
+      return { status: "error" };
+    }
+    return {
+      status: "ready",
+      summary: summarizeRunsForUsage(
+        SYSTEM_TASK_URL_IDS.consolidation,
+        consolidationRunsForStats,
+        systemStatsRange,
+      ),
+    };
+  }, [
+    consolidationRunsForStats,
+    isConsolidationStatsError,
+    isConsolidationStatsLoading,
+    systemStatsRange,
+  ]);
+
   const navigateToSchedules = useCallback(() => {
     navigate(routes.settings.schedules);
   }, [navigate]);
@@ -1295,7 +1424,14 @@ export function SchedulesPage() {
   const refetchSystemTasks = useCallback(() => {
     void refetchHeartbeat();
     void refetchConsolidation();
-  }, [refetchHeartbeat, refetchConsolidation]);
+    void refetchHeartbeatStats();
+    void refetchConsolidationStats();
+  }, [
+    refetchConsolidation,
+    refetchConsolidationStats,
+    refetchHeartbeat,
+    refetchHeartbeatStats,
+  ]);
 
   const refreshSystemTaskRuns = useCallback(
     (kind: SystemTaskKind, delayed = false) => {
@@ -1321,6 +1457,7 @@ export function SchedulesPage() {
       const result = await runHeartbeatNow(assistantId);
       void refetchHeartbeat();
       refreshSystemTaskRuns("heartbeat");
+      void refetchHeartbeatStats();
       if (result.ran) {
         toast.success("Heartbeat started.");
       } else {
@@ -1332,7 +1469,12 @@ export function SchedulesPage() {
     } finally {
       setIsHeartbeatRunning(false);
     }
-  }, [assistantId, refetchHeartbeat, refreshSystemTaskRuns]);
+  }, [
+    assistantId,
+    refetchHeartbeat,
+    refetchHeartbeatStats,
+    refreshSystemTaskRuns,
+  ]);
 
   const handleRunConsolidationNow = useCallback(async () => {
     if (!assistantId) return;
@@ -1341,6 +1483,7 @@ export function SchedulesPage() {
       const result = await runConsolidationNow(assistantId);
       void refetchConsolidation();
       refreshSystemTaskRuns("consolidation", result.ran);
+      void refetchConsolidationStats();
       if (result.ran) {
         toast.success("Consolidation queued.");
       } else {
@@ -1352,7 +1495,12 @@ export function SchedulesPage() {
     } finally {
       setIsConsolidationRunning(false);
     }
-  }, [assistantId, refetchConsolidation, refreshSystemTaskRuns]);
+  }, [
+    assistantId,
+    refetchConsolidation,
+    refetchConsolidationStats,
+    refreshSystemTaskRuns,
+  ]);
 
   const isLoading = isAssistantLoading || isSchedulesLoading;
   const isSelectedSystemTaskLoading =
@@ -1548,6 +1696,8 @@ export function SchedulesPage() {
       <SystemTasksSection
         heartbeatConfig={heartbeatConfig}
         consolidationConfig={consolidationConfig}
+        heartbeatUsage={heartbeatUsage}
+        consolidationUsage={consolidationUsage}
         isLoading={isSystemLoading}
         hasError={hasSystemError}
         onRetry={refetchSystemTasks}

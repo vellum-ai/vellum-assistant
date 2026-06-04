@@ -367,13 +367,17 @@ export function UsageTab({ assistantId }: UsageTabProps) {
   const isHourly = effectiveGranularity === "hourly";
   const trendGroupBy =
     seriesGroupBy && seriesQuery.error ? undefined : effectiveGroupBy;
+  const showScheduleFilter = effectiveGroupBy === "schedule";
 
   const handleGroupByChange = (nextGroupBy: UsageGroupBy) => {
     if (nextGroupBy === groupBy && effectiveGroupBy !== groupBy) {
       void breakdownQuery.refetch();
       void seriesQuery.refetch();
     }
-    updateUsageSearchParams({ groupBy: nextGroupBy });
+    updateUsageSearchParams({
+      groupBy: nextGroupBy,
+      scheduleId: nextGroupBy === "schedule" ? undefined : null,
+    });
   };
 
   return (
@@ -386,12 +390,6 @@ export function UsageTab({ assistantId }: UsageTabProps) {
           Usage
         </h3>
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <ScheduleFilterPicker
-            scheduleId={scheduleId}
-            schedules={schedulesQuery.data}
-            onChange={handleScheduleFilterChange}
-            onClear={handleClearScheduleFilter}
-          />
           <TimeRangeStrip range={range} onChange={handleRangeChange} />
         </div>
       </div>
@@ -413,10 +411,20 @@ export function UsageTab({ assistantId }: UsageTabProps) {
             >
               {trendTitle(effectiveGranularity, trendGroupBy)}
             </h4>
-            <GroupByPicker
-              value={effectiveGroupBy}
-              onChange={handleGroupByChange}
-            />
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {showScheduleFilter ? (
+                <ScheduleFilterPicker
+                  scheduleId={scheduleId}
+                  schedules={schedulesQuery.data}
+                  onChange={handleScheduleFilterChange}
+                  onClear={handleClearScheduleFilter}
+                />
+              ) : null}
+              <GroupByPicker
+                value={effectiveGroupBy}
+                onChange={handleGroupByChange}
+              />
+            </div>
           </div>
           <QueryState
             query={trendQuery}

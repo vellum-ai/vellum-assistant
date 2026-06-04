@@ -161,6 +161,18 @@ describe("usage URL state", () => {
     });
   });
 
+  test("ignores schedule id params outside schedule grouping", () => {
+    const params = new URLSearchParams(
+      "range=7d&groupBy=task&scheduleId=schedule-123",
+    );
+
+    expect(readUsageUrlState(params)).toEqual({
+      range: "7d",
+      groupBy: "task",
+      scheduleId: undefined,
+    });
+  });
+
   test("updates range without dropping group-by, schedule, or unrelated params", () => {
     const params = buildUsageSearchParams(
       new URLSearchParams(
@@ -174,14 +186,23 @@ describe("usage URL state", () => {
     );
   });
 
-  test("updates group-by without dropping a schedule filter", () => {
+  test("updates group-by away from schedule and drops the schedule filter", () => {
     const params = buildUsageSearchParams(
       new URLSearchParams("range=90d&groupBy=schedule&scheduleId=schedule-123"),
       { groupBy: "profile" },
     );
 
+    expect(params.toString()).toBe("range=90d&groupBy=profile");
+  });
+
+  test("updates group-by to schedule without dropping a schedule filter", () => {
+    const params = buildUsageSearchParams(
+      new URLSearchParams("range=90d&groupBy=task&scheduleId=schedule-123"),
+      { groupBy: "schedule" },
+    );
+
     expect(params.toString()).toBe(
-      "range=90d&groupBy=profile&scheduleId=schedule-123",
+      "range=90d&groupBy=schedule&scheduleId=schedule-123",
     );
   });
 

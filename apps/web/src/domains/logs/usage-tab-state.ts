@@ -69,11 +69,15 @@ export function readUsageUrlState(
   searchParams: URLSearchParams,
 ): UsageUrlState {
   const range = searchParams.get("range");
-  const groupBy = searchParams.get("groupBy");
+  const rawGroupBy = searchParams.get("groupBy");
+  const groupBy = isUsageGroupBy(rawGroupBy)
+    ? rawGroupBy
+    : DEFAULT_USAGE_GROUP_BY;
   return {
     range: isUsageTimeRange(range) ? range : DEFAULT_USAGE_RANGE,
-    groupBy: isUsageGroupBy(groupBy) ? groupBy : DEFAULT_USAGE_GROUP_BY,
-    scheduleId: readUsageScheduleId(searchParams),
+    groupBy,
+    scheduleId:
+      groupBy === "schedule" ? readUsageScheduleId(searchParams) : undefined,
   };
 }
 
@@ -105,6 +109,9 @@ export function buildUsageSearchParams(
     } else {
       next.set("scheduleId", update.scheduleId);
     }
+  }
+  if (next.get("groupBy") !== "schedule") {
+    next.delete("scheduleId");
   }
 
   return next;
