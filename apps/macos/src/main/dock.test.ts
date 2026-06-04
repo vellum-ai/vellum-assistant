@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // `./main-window` (which `./dock` imports `current` /
 // `onMainWindowVisibilityChange` from) transitively pulls in
@@ -11,7 +11,49 @@ mock.module("./main-window", () => ({
   onMainWindowVisibilityChange: () => undefined,
 }));
 
-const { computePolicy, formatBadge } = await import("./dock");
+// `./avatar` and `./ipc` transitively reach `electron`'s `ipcMain`; stub the
+// two seams `./dock` actually uses so the module loads without a real Electron
+// runtime. `avatarBitmap` is the single knob the Dock-icon tests turn.
+mock.module("./ipc", () => ({ handle: () => undefined, on: () => undefined }));
+mock.module("./avatar", () => ({ onAvatarChange: () => () => undefined }));
+
+const avatarBitmapMock = mock((_size: number): Buffer | null => null);
+mock.module("./avatar-image", () => ({ avatarBitmap: avatarBitmapMock }));
+
+const setIconMock = mock((_icon: unknown) => undefined);
+const createFromBitmapMock = mock((_buf: Buffer, _opts: unknown) => ({
+  __kind: "bitmap",
+}));
+const createEmptyMock = mock(() => ({ __kind: "empty" }));
+mock.module("electron", () => ({
+  app: { dock: { setIcon: setIconMock } },
+  nativeImage: {
+    createFromBitmap: createFromBitmapMock,
+    createEmpty: createEmptyMock,
+  },
+}));
+
+const {
+  computePolicy,
+  formatBadge,
+  buildDockIcon,
+  applyDockIcon,
+  __resetForTesting,
+} = await import("./dock");
+
+// A 418×418 BGRA buffer the size `buildDockIcon` requests, so masking and
+// compositing run over a real-sized canvas.
+const DOCK_ICON_PX = 418;
+const fakeAvatar = (): Buffer => Buffer.alloc(DOCK_ICON_PX * DOCK_ICON_PX * 4, 255);
+
+beforeEach(() => {
+  __resetForTesting();
+  avatarBitmapMock.mockReset();
+  avatarBitmapMock.mockReturnValue(null);
+  setIconMock.mockClear();
+  createFromBitmapMock.mockClear();
+  createEmptyMock.mockClear();
+});
 
 describe("formatBadge", () => {
   test("returns empty string for zero", () => {
@@ -75,5 +117,57 @@ describe("computePolicy", () => {
   test("main-window visibility overrides every other signal", () => {
     expect(computePolicy(true, false, true)).toBe("regular");
     expect(computePolicy(true, true, true)).toBe("regular");
+  });
+});
+
+describe("buildDockIcon", () => {
+  test("returns null when no avatar is cached, leaving the bundle icon in place", () => {
+    avatarBitmapMock.mockReturnValue(null);
+    expect(buildDockIcon()).toBeNull();
+    expect(createFromBitmapMock).not.toHaveBeenCalled();
+  });
+
+  test("masks and composites the avatar into a 512px canvas when one exists", () => {
+    avatarBitmapMock.mockReturnValue(fakeAvatar());
+    const icon = buildDockIcon();
+
+    expect(icon).not.toBeNull();
+    expect(createFromBitmapMock).toHaveBeenCalledTimes(1);
+    expect(avatarBitmapMock).toHaveBeenCalledWith(DOCK_ICON_PX);
+    // The composited canvas is the padded 512px square, not the 418px artwork.
+    const [, opts] = createFromBitmapMock.mock.calls[0]!;
+    expect(opts).toEqual({ width: 512, height: 512 });
+  });
+});
+
+describe("applyDockIcon", () => {
+  test("sets the masked avatar icon when one is available", () => {
+    avatarBitmapMock.mockReturnValue(fakeAvatar());
+    applyDockIcon();
+    expect(setIconMock).toHaveBeenCalledTimes(1);
+    expect(setIconMock).toHaveBeenCalledWith({ __kind: "bitmap" });
+  });
+
+  test("never touches the Dock icon before an avatar is ever set", () => {
+    avatarBitmapMock.mockReturnValue(null);
+    applyDockIcon();
+    expect(setIconMock).not.toHaveBeenCalled();
+  });
+
+  test("restores the bundle icon once a previously-set avatar is cleared", () => {
+    avatarBitmapMock.mockReturnValue(fakeAvatar());
+    applyDockIcon();
+    setIconMock.mockClear();
+
+    // Avatar cleared after one was applied → restore via an empty image.
+    avatarBitmapMock.mockReturnValue(null);
+    applyDockIcon();
+    expect(createEmptyMock).toHaveBeenCalledTimes(1);
+    expect(setIconMock).toHaveBeenCalledWith({ __kind: "empty" });
+
+    // A second clear is a no-op: nothing to restore again.
+    setIconMock.mockClear();
+    applyDockIcon();
+    expect(setIconMock).not.toHaveBeenCalled();
   });
 });

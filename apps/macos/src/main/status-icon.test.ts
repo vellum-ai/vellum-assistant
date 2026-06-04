@@ -14,20 +14,29 @@ const toBitmapMock = mock(() => Buffer.alloc(CANVAS_PX * CANVAS_PX * 4));
 const resizeMock = mock((_opts: unknown) => ({ toBitmap: toBitmapMock }));
 const createFromBufferMock = mock((_buf: unknown) => ({ resize: resizeMock }));
 
+// `getSystemColor` returns a fixed `#RRGGBBAA` so `statusColor` exercises its
+// live-color parse path deterministically; the dot tests pass the resolved
+// color explicitly, so a single value across statuses keeps them consistent.
+const getSystemColorMock = mock((_name: string) => "#34c759ff");
+
 mock.module("electron", () => ({
   nativeImage: {
     createFromBuffer: createFromBufferMock,
     createFromBitmap: createFromBitmapMock,
+  },
+  systemPreferences: {
+    getSystemColor: getSystemColorMock,
   },
 }));
 
 const {
   buildStatusIcon,
   compositeStatusDot,
+  statusColor,
   statusFrames,
   __resetForTesting,
 } = await import("./status-icon");
-const { PULSE_FRAME_COUNT, STATUS_COLORS } = await import("./status");
+const { PULSE_FRAME_COUNT } = await import("./status");
 
 const px = (bitmap: Buffer, x: number, y: number): number[] => {
   const offset = (y * CANVAS_PX + x) * 4;
@@ -51,7 +60,7 @@ beforeEach(() => {
 describe("compositeStatusDot", () => {
   test("fills the dot center with the status color (BGRA) at full alpha", () => {
     const bitmap = Buffer.alloc(CANVAS_PX * CANVAS_PX * 4);
-    const green = STATUS_COLORS.thinking;
+    const green = statusColor("thinking");
     compositeStatusDot(bitmap, CANVAS_PX, green, 1);
     // Dot center sits inset from the bottom-right corner (margin + radius).
     const [b, g, r, a] = px(bitmap, 28, 28);
@@ -63,13 +72,13 @@ describe("compositeStatusDot", () => {
 
   test("leaves the opposite (top-left) corner untouched", () => {
     const bitmap = Buffer.alloc(CANVAS_PX * CANVAS_PX * 4);
-    compositeStatusDot(bitmap, CANVAS_PX, STATUS_COLORS.error, 1);
+    compositeStatusDot(bitmap, CANVAS_PX, statusColor("error"), 1);
     expect(px(bitmap, 0, 0)).toEqual([0, 0, 0, 0]);
   });
 
   test("strokes a semi-transparent dark ring around the fill", () => {
     const bitmap = Buffer.alloc(CANVAS_PX * CANVAS_PX * 4);
-    compositeStatusDot(bitmap, CANVAS_PX, STATUS_COLORS.idle, 1);
+    compositeStatusDot(bitmap, CANVAS_PX, statusColor("idle"), 1);
     // A pixel in the ring annulus (outside the 4px fill radius, inside the
     // 6px outer radius) is dark at ~0.5 alpha.
     const [b, g, r, a] = px(bitmap, 33, 28);
@@ -82,7 +91,7 @@ describe("compositeStatusDot", () => {
 
   test("opacity 0 is a no-op so a fully-faded pulse frame shows only the glyph", () => {
     const bitmap = Buffer.alloc(CANVAS_PX * CANVAS_PX * 4);
-    compositeStatusDot(bitmap, CANVAS_PX, STATUS_COLORS.thinking, 0);
+    compositeStatusDot(bitmap, CANVAS_PX, statusColor("thinking"), 0);
     expect(px(bitmap, 28, 28)).toEqual([0, 0, 0, 0]);
   });
 });

@@ -27,6 +27,8 @@ import { useAssistantFeatureFlagSync } from "@/hooks/use-assistant-feature-flag-
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useDynamicFavicon } from "@/hooks/use-dynamic-favicon";
+import { useElectronIconSync } from "@/hooks/use-electron-icon-sync";
+import { useElectronStatusSync } from "@/hooks/use-electron-status-sync";
 import { TimezoneSync } from "@/components/timezone-sync";
 
 /**
@@ -95,6 +97,11 @@ export function RootLayout() {
   // so the favicon persists when navigating between sibling layouts.
   const avatar = useAssistantAvatar(assistantId);
   useDynamicFavicon(avatar.customImageUrl, avatar.components, avatar.traits);
+
+  // Feed the same avatar to the Electron Dock + menu-bar icons, and publish
+  // the live connection status to the menu-bar dot. Both no-op off Electron.
+  useElectronIconSync(avatar.customImageUrl, avatar.components, avatar.traits);
+  useElectronStatusSync();
 
   useEventBusInit({ assistantId, isAssistantActive });
   // Inbound deep-link navigation + window activation. Mounted here

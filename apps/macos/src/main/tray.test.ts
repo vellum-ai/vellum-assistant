@@ -1,14 +1,12 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-// Tray stub: records constructions, event listeners, image swaps, and
-// supports the `removeAllListeners` the status-driven rebuild relies on.
+// Tray stub: records constructions, event listeners, and image swaps.
 type TrayCall = { event: string; handler: (...args: unknown[]) => void };
 type StubTray = {
   setIgnoreDoubleClickEvents: ReturnType<typeof mock>;
   setToolTip: ReturnType<typeof mock>;
   setImage: ReturnType<typeof mock>;
   on: (event: string, handler: (...args: unknown[]) => void) => StubTray;
-  removeAllListeners: (event: string) => StubTray;
   popUpContextMenu: ReturnType<typeof mock>;
   destroy: ReturnType<typeof mock>;
   events: TrayCall[];
@@ -24,12 +22,6 @@ const makeTray = (): StubTray => {
     setImage: mock(() => undefined),
     on: (event, handler) => {
       events.push({ event, handler });
-      return stub;
-    },
-    removeAllListeners: (event) => {
-      for (let i = events.length - 1; i >= 0; i--) {
-        if (events[i]?.event === event) events.splice(i, 1);
-      }
       return stub;
     },
     popUpContextMenu: mock(() => undefined),
@@ -48,6 +40,8 @@ const buildFromTemplateMock = mock((_template: unknown) => ({
 
 // Capture app lifecycle listeners (e.g. before-quit) so cleanup is testable.
 const appListeners = new Map<string, () => void>();
+// Capture nativeTheme listeners so the appearance-change path is testable.
+const themeListeners = new Map<string, () => void>();
 
 mock.module("electron", () => ({
   app: {
@@ -74,6 +68,14 @@ mock.module("electron", () => ({
       Object.assign(this, stub);
     }
   },
+  nativeTheme: {
+    on: (event: string, handler: () => void) => {
+      themeListeners.set(event, handler);
+    },
+    removeListener: (event: string) => {
+      themeListeners.delete(event);
+    },
+  },
 }));
 
 mock.module("./settings", () => ({
@@ -92,8 +94,22 @@ const THINKING_FRAMES = [{ id: "thinking-0" }, { id: "thinking-1" }];
 const statusFramesMock = mock((status: string) =>
   status === "thinking" ? THINKING_FRAMES : [{ id: status }],
 );
+const invalidateIconCacheMock = mock(() => undefined);
 mock.module("./status-icon", () => ({
   statusFrames: statusFramesMock,
+  invalidateIconCache: invalidateIconCacheMock,
+}));
+
+// A controllable in-memory avatar-change publisher standing in for `./avatar`.
+const avatarListeners = new Set<() => void>();
+const publishAvatarChange = () => {
+  for (const listener of avatarListeners) listener();
+};
+mock.module("./avatar", () => ({
+  onAvatarChange: (listener: () => void) => {
+    avatarListeners.add(listener);
+    return () => avatarListeners.delete(listener);
+  },
 }));
 
 // A controllable in-memory status state machine standing in for `./status`.
@@ -133,8 +149,11 @@ beforeEach(() => {
   __resetForTesting();
   trays.length = 0;
   appListeners.clear();
+  themeListeners.clear();
+  avatarListeners.clear();
   buildFromTemplateMock.mockClear();
   statusFramesMock.mockClear();
+  invalidateIconCacheMock.mockClear();
   currentStatus = "idle";
   statusListeners.clear();
   intervalCallback = null;
@@ -186,8 +205,9 @@ describe("installTray", () => {
     expect(tray?.popUpContextMenu.mock.calls.length).toBe(before + 1);
   });
 
-  test("the menu leads with a disabled status header and the canonical actions", () => {
+  test("the menu, built on right-click, leads with a disabled status header and the canonical actions", () => {
     installTray(handlers);
+    handlerFor(trays[0], "right-click")?.();
     const template = buildFromTemplateMock.mock.calls[0]?.[0] as Array<{
       label?: string;
       role?: string;
@@ -209,6 +229,7 @@ describe("installTray", () => {
 
   test("conversation items surface the window before dispatching", async () => {
     installTray(handlers);
+    handlerFor(trays[0], "right-click")?.();
     const template = buildFromTemplateMock.mock.calls[0]?.[0] as Array<{
       label?: string;
       click?: () => void | Promise<void>;
@@ -226,7 +247,7 @@ describe("installTray", () => {
 });
 
 describe("status-driven updates", () => {
-  test("a status change swaps the icon, tooltip, and status header", () => {
+  test("a status change swaps the icon and tooltip", () => {
     installTray(handlers);
     const tray = trays[0];
     tray?.setImage.mockClear();
@@ -236,23 +257,30 @@ describe("status-driven updates", () => {
     expect(statusFramesMock).toHaveBeenLastCalledWith("disconnected");
     expect(tray?.setImage).toHaveBeenLastCalledWith({ id: "disconnected" });
     expect(tray?.setToolTip).toHaveBeenLastCalledWith("title:disconnected");
-    const latestMenu = buildFromTemplateMock.mock.calls.at(-1)?.[0] as Array<{
-      label?: string;
-    }>;
-    expect(latestMenu[0]?.label).toBe("title:disconnected");
   });
 
-  test("right-click after a status change pops the rebuilt menu", () => {
+  test("the menu is built lazily at pop time, not rebuilt on every status tick", () => {
     installTray(handlers);
-    const tray = trays[0];
+    // No menu is constructed until the user actually right-clicks.
+    expect(buildFromTemplateMock).not.toHaveBeenCalled();
+
+    setStatus("thinking");
+    setStatus("idle");
     setStatus("error");
-    // Exactly one right-click listener survives the rebuild.
+    expect(buildFromTemplateMock).not.toHaveBeenCalled();
+
+    // A single right-click listener survives every tick, and the menu it
+    // builds reflects the status current at pop time.
+    const tray = trays[0];
     expect(tray?.events.filter((e) => e.event === "right-click")).toHaveLength(
       1,
     );
-    const before = tray?.popUpContextMenu.mock.calls.length ?? 0;
     handlerFor(tray, "right-click")?.();
-    expect(tray?.popUpContextMenu.mock.calls.length).toBe(before + 1);
+    expect(buildFromTemplateMock).toHaveBeenCalledTimes(1);
+    const menu = buildFromTemplateMock.mock.calls[0]?.[0] as Array<{
+      label?: string;
+    }>;
+    expect(menu[0]?.label).toBe("title:error");
   });
 
   test("thinking starts the pulse and cycles frames; leaving it stops the pulse", () => {
@@ -273,7 +301,7 @@ describe("status-driven updates", () => {
     expect(clearIntervalMock.mock.calls.length).toBe(clearedBefore + 1);
   });
 
-  test("before-quit stops the pulse and destroys the tray", () => {
+  test("before-quit stops the pulse, removes the theme listener, and destroys the tray", () => {
     installTray(handlers);
     setStatus("thinking");
     const tray = trays[0];
@@ -281,6 +309,34 @@ describe("status-driven updates", () => {
     appListeners.get("before-quit")?.();
 
     expect(clearIntervalMock).toHaveBeenCalled();
+    expect(themeListeners.has("updated")).toBe(false);
     expect(tray?.destroy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("avatar and appearance updates", () => {
+  test("an avatar change invalidates the icon cache and reapplies the current status", () => {
+    installTray(handlers);
+    setStatus("error");
+    const tray = trays[0];
+    tray?.setImage.mockClear();
+    invalidateIconCacheMock.mockClear();
+
+    publishAvatarChange();
+
+    expect(invalidateIconCacheMock).toHaveBeenCalledTimes(1);
+    expect(tray?.setImage).toHaveBeenLastCalledWith({ id: "error" });
+  });
+
+  test("a system appearance change invalidates the icon cache and reapplies the current status", () => {
+    installTray(handlers);
+    const tray = trays[0];
+    tray?.setImage.mockClear();
+    invalidateIconCacheMock.mockClear();
+
+    themeListeners.get("updated")?.();
+
+    expect(invalidateIconCacheMock).toHaveBeenCalledTimes(1);
+    expect(tray?.setImage).toHaveBeenLastCalledWith({ id: "idle" });
   });
 });

@@ -41,14 +41,25 @@ beforeEach(() => {
 });
 
 describe("statusMenuTitle", () => {
-  test("matches the Swift menu copy and defaults the assistant name", () => {
+  test("produces the header line for each status and defaults the assistant name", () => {
     expect(statusMenuTitle("idle")).toBe("Assistant is idle");
     expect(statusMenuTitle("thinking")).toBe("Assistant is thinking…");
     expect(statusMenuTitle("error")).toBe("Assistant encountered an error");
     expect(statusMenuTitle("disconnected")).toBe("Disconnected from Assistant");
+    // The authFailed line must not point at a control the menu doesn't have
+    // yet (there is no Re-pair item), so it states the failure generically.
     expect(statusMenuTitle("authFailed")).toBe(
-      "Authentication failed — re-pair Assistant",
+      "Authentication failed — reconnect to continue",
     );
+  });
+
+  test("uses a single Unicode ellipsis for the thinking line, per the HIG", () => {
+    // macOS Human Interface Guidelines call for the ellipsis character
+    // (U+2026), not three periods, in status and in-progress text.
+    // https://developer.apple.com/design/human-interface-guidelines/typography
+    const thinking = statusMenuTitle("thinking");
+    expect(thinking.endsWith("…")).toBe(true);
+    expect(thinking).not.toContain("...");
   });
 
   test("interpolates a provided assistant name", () => {

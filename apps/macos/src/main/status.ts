@@ -26,27 +26,6 @@ export const ASSISTANT_STATUSES = [
 
 export type AssistantStatus = (typeof ASSISTANT_STATUSES)[number];
 
-export interface Rgb {
-  r: number;
-  g: number;
-  b: number;
-}
-
-/**
- * Status-dot colors, matching the Swift app's `AssistantStatus.statusColor`
- * (`systemGray`/`systemGreen`/`systemRed`/`systemOrange`/`systemYellow`).
- * Values are Apple's sRGB system-color components so the two apps render an
- * identical dot. Reference:
- * https://developer.apple.com/design/human-interface-guidelines/color#System-colors
- */
-export const STATUS_COLORS: Record<AssistantStatus, Rgb> = {
-  idle: { r: 142, g: 142, b: 147 }, // systemGray
-  thinking: { r: 52, g: 199, b: 89 }, // systemGreen
-  error: { r: 255, g: 59, b: 48 }, // systemRed
-  disconnected: { r: 255, g: 149, b: 0 }, // systemOrange
-  authFailed: { r: 255, g: 204, b: 0 }, // systemYellow
-};
-
 /**
  * Tooltip / menu-header text per status, matching the Swift app's
  * `AssistantStatus.menuTitle(assistantName:)`. `assistantName` falls back to
@@ -68,7 +47,7 @@ export const statusMenuTitle = (
     case "disconnected":
       return `Disconnected from ${name}`;
     case "authFailed":
-      return `Authentication failed — re-pair ${name}`;
+      return "Authentication failed — reconnect to continue";
   }
 };
 

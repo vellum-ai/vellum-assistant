@@ -1,6 +1,9 @@
-import { app } from "electron";
+import { app, nativeImage, type NativeImage } from "electron";
 import { z } from "zod";
 
+import { onAvatarChange } from "./avatar";
+import { avatarBitmap } from "./avatar-image";
+import { applyAlphaMask, compositeCentered, roundedRectCoverage } from "./image-mask";
 import { handle } from "./ipc";
 import {
   current as currentMainWindow,
@@ -8,12 +11,26 @@ import {
 } from "./main-window";
 
 /**
- * Dock integration: unread-count badge + visibility state machine.
+ * Dock integration: avatar icon + unread-count badge + visibility state
+ * machine.
  *
  * Mirrors what the Swift app does today (`AppDelegate+WindowsAndSurfaces.swift`
  * → `NSApp.dockTile.badgeLabel`, `NSApplication.ActivationPolicy.regular`
- * ⇄ `.accessory`) so users see no regression when they cut over to
- * Electron.
+ * ⇄ `.accessory`, and `AvatarAppearanceManager` →
+ * `NSApplication.applicationIconImage`) so users see no regression when they
+ * cut over to Electron.
+ *
+ * The Dock icon is the assistant avatar clipped to a rounded square
+ * ("squircle"), inset with ~10% padding inside a 512px canvas to match the
+ * macOS icon grid. The renderer publishes the avatar over
+ * `vellum:icon:setAvatar`; this module masks and applies it via
+ * `app.dock.setIcon`. With no avatar the bundled app icon shows through
+ * naturally, exactly as the native app falls back to its bundled mark.
+ *
+ * The Dock tile is the only icon surface Electron exposes directly;
+ * LaunchServices-resolved surfaces (Finder, the notification daemon) read
+ * the on-disk bundle icon, which would need a native `NSWorkspace.setIcon`
+ * bridge to mirror — out of scope here and tracked separately.
  *
  * The state machine has two inputs:
  *
@@ -149,6 +166,63 @@ const applyBadge = (): void => {
   app.dock.setBadge(formatBadge(state.badgeCount));
 };
 
+// Dock-icon geometry, matching the native app's `composeDockIcon`
+// (`AvatarAppearanceManager.swift`): a 418px squircle inset inside a 512px
+// canvas (~10% padding) so the artwork doesn't crowd the Dock
+// running-indicator dot, with the squircle corner radius at 0.23× the icon
+// size to match `NSBezierPath(roundedRect:xRadius:)`.
+const DOCK_CANVAS_PX = 512;
+const DOCK_ICON_PX = 418;
+const DOCK_CORNER_RADIUS_RATIO = 0.23;
+
+// Tracks whether we've applied an avatar-derived Dock icon. Drives the
+// restore-to-bundle-icon path: we only override the bundled icon once an
+// avatar exists, and only reset when a previously-set avatar is cleared.
+let dockIconApplied = false;
+
+/**
+ * Build the Dock icon from the cached avatar: clip to a squircle and inset
+ * it inside a transparent 512px canvas. Returns `null` when no avatar is
+ * available, so the caller can leave the bundled app icon in place.
+ */
+export const buildDockIcon = (): NativeImage | null => {
+  const avatar = avatarBitmap(DOCK_ICON_PX);
+  if (!avatar) return null;
+
+  const masked = applyAlphaMask(
+    avatar,
+    DOCK_ICON_PX,
+    roundedRectCoverage(DOCK_ICON_PX, DOCK_ICON_PX * DOCK_CORNER_RADIUS_RATIO),
+  );
+  const canvas = compositeCentered(masked, DOCK_ICON_PX, DOCK_CANVAS_PX);
+  return nativeImage.createFromBitmap(canvas, {
+    width: DOCK_CANVAS_PX,
+    height: DOCK_CANVAS_PX,
+  });
+};
+
+/**
+ * Apply (or restore) the Dock icon for the current avatar.
+ *
+ *   - Avatar present → mask to a squircle and set it via `app.dock.setIcon`.
+ *   - Avatar cleared after one was set → restore the bundled app icon by
+ *     setting an empty image (Electron falls back to the bundle icon).
+ *   - No avatar and none ever set → leave the bundled icon untouched so the
+ *     first paint shows it naturally, matching the native fallback.
+ */
+export const applyDockIcon = (): void => {
+  if (!app.dock) return;
+
+  const icon = buildDockIcon();
+  if (icon) {
+    app.dock.setIcon(icon);
+    dockIconApplied = true;
+  } else if (dockIconApplied) {
+    app.dock.setIcon(nativeImage.createEmpty());
+    dockIconApplied = false;
+  }
+};
+
 /**
  * Wire the dock state machine. Call once from `whenReady`. Idempotent
  * — repeated calls are no-ops, so it's safe under hot-reload of the
@@ -192,6 +266,10 @@ export const installDock = (): void => {
   // otherwise briefly flicker the dock icon to `regular` and back.
   onMainWindowVisibilityChange(scheduleRefresh);
 
+  // Re-render the Dock icon whenever the renderer publishes a new (or
+  // cleared) avatar, mirroring the native app's `updateDockIcon`.
+  onAvatarChange(applyDockIcon);
+
   // macOS convention: clear the Dock badge before the process exits so
   // a relaunch doesn't briefly show a stale count from the OS's cache.
   app.on("before-quit", () => {
@@ -211,4 +289,10 @@ export const installDock = (): void => {
     computePolicy(isMainWindowVisible(), state.signedIn, ALLOW_ACCESSORY_MODE),
   );
   applyBadge();
+};
+
+// Test seam — resets the avatar-applied flag so a test starts from the
+// first-paint state (no icon ever set). Production code never calls this.
+export const __resetForTesting = (): void => {
+  dockIconApplied = false;
 };

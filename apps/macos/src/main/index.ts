@@ -20,6 +20,7 @@ import {
   handleDeepLink,
   installDeepLinks,
 } from "./deep-links";
+import { installAvatarIpc } from "./avatar";
 import { installDock } from "./dock";
 import { installLocalMode } from "./local-mode";
 import {
@@ -245,6 +246,10 @@ app
     installLocalMode();
     installAbout();
     installApplicationMenu();
+    // Register the avatar channel before the Dock and Tray install so their
+    // initial render reflects any avatar the renderer publishes during
+    // bootstrap rather than briefly showing the bundled fallback mark.
+    installAvatarIpc();
     installDock();
     installPowerEvents();
     // Register the status channel before the tray installs so the tray's

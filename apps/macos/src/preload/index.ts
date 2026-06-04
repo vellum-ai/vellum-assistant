@@ -127,6 +127,21 @@ export interface VellumBridge {
      */
     setConnection(status: AssistantStatus): void;
   };
+  icon: {
+    /**
+     * Publish the assistant's avatar as raw PNG bytes so the main process
+     * can drive both icon surfaces — the Dock icon (`app.dock.setIcon`) and
+     * the menu-bar (Tray) base image under the status dot — from one source.
+     * Pass `null` when the assistant has no custom avatar so main restores
+     * the bundled Vellum mark, mirroring the native app's avatar fallback.
+     *
+     * The renderer owns avatar identity and rasterization because Electron's
+     * `nativeImage` only decodes PNG/JPEG, not the trait-composited SVG; main
+     * owns per-surface masking (circular tray, rounded-rect dock).
+     * Fire-and-forget — no acknowledgement.
+     */
+    setAvatar(png: Uint8Array | null): void;
+  };
   dock: {
     /**
      * Publish the unread count so the main process can update the macOS
@@ -295,6 +310,11 @@ const bridge: VellumBridge = {
   status: {
     setConnection: (status: AssistantStatus): void => {
       ipcRenderer.send("vellum:status:connection", status);
+    },
+  },
+  icon: {
+    setAvatar: (png: Uint8Array | null): void => {
+      ipcRenderer.send("vellum:icon:setAvatar", png);
     },
   },
   dock: {

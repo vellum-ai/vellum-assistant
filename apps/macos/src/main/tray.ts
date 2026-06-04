@@ -1,5 +1,6 @@
-import { Menu, Tray, app } from "electron";
+import { Menu, Tray, app, nativeTheme } from "electron";
 
+import { onAvatarChange } from "./avatar";
 import { resolveAccelerator } from "./commands";
 import { dispatchToMain } from "./main-window";
 import {
@@ -10,18 +11,18 @@ import {
   statusMenuTitle,
   type AssistantStatus,
 } from "./status";
-import { statusFrames } from "./status-icon";
+import { invalidateIconCache, statusFrames } from "./status-icon";
 
 /**
  * macOS menu-bar (Tray) status item.
  *
  * Mirrors what the Swift app's `NSStatusItem` does in
  * `AppDelegate+MenuBar.swift`: a persistent menu-bar icon showing the
- * brand glyph with a live status dot, single-click toggles the main
- * window, right-click pops a quick-actions menu led by a status line.
+ * assistant avatar (brand glyph when no avatar is set) with a live status
+ * dot, single-click toggles the main window, right-click pops a
+ * quick-actions menu led by a status line.
  *
- * Implementation notes carried over from `apps/macos/docs/PATTERNS.md`
- * (state ownership) and the Electron tray gotchas:
+ * Electron tray gotchas:
  *
  *   - Don't call `tray.setContextMenu()`. With it, left and right click
  *     both open the same menu — overriding the documented Linear /
@@ -31,9 +32,9 @@ import { statusFrames } from "./status-icon";
  *   - `tray.setIgnoreDoubleClickEvents(true)` so two fast single clicks
  *     are treated as two `click` events instead of being coalesced into
  *     a swallowed double-click on macOS.
- *   - The icon is a colored, non-template image (brand mark + status
- *     dot), matching the Swift app. Template images auto-invert for
- *     dark mode but are masked to one color and can't carry the dot;
+ *   - The icon is a colored, non-template image (avatar or brand mark +
+ *     status dot), matching the Swift app. Template images auto-invert
+ *     for dark mode but are masked to one color and can't carry the dot;
  *     see `status-icon.ts` for the full rationale.
  *   - Hold a module-scope `Tray` reference. Without it Node's GC can
  *     collect the JS handle and the icon disappears from the menu bar
@@ -130,26 +131,20 @@ const stopPulse = (): void => {
 };
 
 /**
- * Reflect `status` on the tray: swap the icon, refresh the tooltip and the
- * status-line menu header, and start or stop the pulse. Static states show
- * their single frame; `thinking` cycles its pre-rendered opacity frames on a
- * timer. The timer is always cleared first so a state change can't leave two
- * pulses running or a stale timer driving the wrong icon.
+ * Reflect `status` on the tray: swap the icon, refresh the tooltip, and start
+ * or stop the pulse. Static states show their single frame; `thinking` cycles
+ * its pre-rendered opacity frames on a timer. The timer is always cleared
+ * first so a state change can't leave two pulses running or a stale timer
+ * driving the wrong icon. The right-click menu is built lazily at pop time
+ * (see `installTray`), so it reflects the current status without rebuilding
+ * here on every tick.
  */
-const applyStatus = (handlers: TrayHandlers, status: AssistantStatus): void => {
+const applyStatus = (status: AssistantStatus): void => {
   const tray = trayInstance;
   if (!tray) return;
 
   stopPulse();
   tray.setToolTip(statusMenuTitle(status));
-  // Rebuild the menu so the status-line header tracks the current state, and
-  // re-bind it to the right-click handler (popUpContextMenu takes the menu by
-  // value at pop time, so the latest reference must be the one captured).
-  const menu = buildTrayMenu(handlers, status);
-  tray.removeAllListeners("right-click");
-  tray.on("right-click", () => {
-    trayInstance?.popUpContextMenu(menu);
-  });
 
   const frames = statusFrames(status);
   tray.setImage(frames[0]!);
@@ -174,8 +169,10 @@ const applyStatus = (handlers: TrayHandlers, status: AssistantStatus): void => {
  * today, and that knowledge stays there.
  *
  * The tray subscribes to `onStatusChange` so the renderer-published
- * connection status drives the icon, tooltip, pulse, and status header
- * without `index.ts` having to relay each transition.
+ * connection status drives the icon, tooltip, and pulse; to `onAvatarChange`
+ * so a new (or cleared) avatar re-renders the icon base; and to
+ * `nativeTheme` updates so the live status-dot color tracks Dark Mode and
+ * accessibility changes — all without `index.ts` having to relay transitions.
  */
 export const installTray = (handlers: TrayHandlers): void => {
   if (installed) return;
@@ -189,19 +186,38 @@ export const installTray = (handlers: TrayHandlers): void => {
     handlers.toggleMainWindow();
   });
 
-  applyStatus(handlers, initialStatus);
-  const unsubscribe = onStatusChange((status) => {
-    applyStatus(handlers, status);
+  // Build the right-click menu lazily, once, at pop time. `popUpContextMenu`
+  // takes the menu by value when called, so building it here — reading the
+  // current `getStatus()` for the header line — keeps the status line fresh
+  // without rebuilding the menu and rebinding this listener on every status
+  // tick (idle↔thinking fires on every turn).
+  trayInstance.on("right-click", () => {
+    trayInstance?.popUpContextMenu(buildTrayMenu(handlers, getStatus()));
   });
+
+  // Re-render the icon when the avatar or the system appearance changes: both
+  // invalidate the cached base/frames, then re-apply the current status so the
+  // new base image or dot color shows immediately.
+  const refreshIcon = (): void => {
+    invalidateIconCache();
+    applyStatus(getStatus());
+  };
+
+  applyStatus(initialStatus);
+  const unsubscribeStatus = onStatusChange(applyStatus);
+  const unsubscribeAvatar = onAvatarChange(refreshIcon);
+  nativeTheme.on("updated", refreshIcon);
 
   // Explicit destroy on quit. In production the OS releases the
   // NSStatusItem when the process exits anyway; in dev with main-process
   // hot reload, freeing the JS handle ourselves avoids a ghost menu-bar
   // icon for a beat between reloads. Stopping the pulse + unsubscribing
-  // keeps the timer and listener from outliving the tray.
+  // keeps the timers and listeners from outliving the tray.
   app.on("before-quit", () => {
     stopPulse();
-    unsubscribe();
+    unsubscribeStatus();
+    unsubscribeAvatar();
+    nativeTheme.removeListener("updated", refreshIcon);
     trayInstance?.destroy();
     trayInstance = null;
   });
