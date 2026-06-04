@@ -1,7 +1,7 @@
-import { AlertTriangle, Sparkles, Wand2 } from "lucide-react";
+import { AlertTriangle, Sparkles, Wand2, X } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState, type ReactNode } from "react";
-import { useNavigate } from "react-router";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useNavigate, useSearchParams } from "react-router";
 
 import { Dropdown } from "@vellum/design-library";
 
@@ -15,6 +15,8 @@ import {
 } from "@/domains/logs/call-site-metadata";
 import { decorateUsageBreakdownGroups } from "@/domains/logs/group-labels";
 import { fetchUsageProfileMetadata } from "@/domains/logs/profile-metadata";
+import { assistantSchedulesQueryKey } from "@/lib/sync/query-tags";
+import { fetchSchedules, type AssistantSchedule } from "@/utils/schedules";
 import type {
   UsageBreakdownResponse,
   UsageGroupBreakdown,
@@ -37,8 +39,9 @@ import {
   seriesFromDailyBuckets,
 } from "@/domains/logs/usage-series";
 import {
-  DEFAULT_USAGE_GROUP_BY,
+  buildUsageSearchParams,
   FALLBACK_USAGE_GROUP_BY,
+  readUsageUrlState,
   resolveEffectiveUsageGranularity,
   resolveRangeWindow,
   resolveUsageGranularity,
@@ -46,6 +49,7 @@ import {
   shouldFetchUsageSeries,
   shouldRetryUsageGroupQuery,
   trendTitle,
+  type UsageSearchParamsUpdate,
   USAGE_GROUP_BY_OPTIONS,
 } from "@/domains/logs/usage-tab-state";
 import {
@@ -70,6 +74,7 @@ const RANGE_OPTIONS: { value: UsageTimeRange; label: string }[] = [
   { value: "all", label: "All time" },
 ];
 
+const ALL_USAGE_FILTER_VALUE = "";
 const PROFILE_METADATA_STALE_TIME_MS = 5 * 60 * 1000;
 const COST_ANALYSIS_PROMPT = [
   "Please load the llm-cost-optimizer skill.",
@@ -86,11 +91,21 @@ const COST_OPTIMIZATION_PROMPT = [
 
 export function UsageTab({ assistantId }: UsageTabProps) {
   const navigate = useNavigate();
-  const [range, setRange] = useState<UsageTimeRange>("7d");
-  const [groupBy, setGroupBy] = useState<UsageGroupBy>(
-    DEFAULT_USAGE_GROUP_BY,
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { range, groupBy, scheduleId } = useMemo(
+    () => readUsageUrlState(searchParams),
+    [searchParams],
   );
   const timezone = useEffectiveTimezone();
+  const updateUsageSearchParams = useCallback(
+    (update: UsageSearchParamsUpdate) => {
+      setSearchParams(
+        (prev) => buildUsageSearchParams(prev, update),
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
   // Depend on `timezone` so bounded ranges (e.g. "Today", "Last 7 days")
   // recompute their from/to boundaries in the effective zone when it changes
   // (OS or `device:timezone` update). `resolveRangeWindow` derives the calendar
@@ -102,10 +117,34 @@ export function UsageTab({ assistantId }: UsageTabProps) {
   );
   const granularity = useMemo(() => resolveUsageGranularity(range), [range]);
 
+  const schedulesQuery = useQuery({
+    queryKey: assistantSchedulesQueryKey(assistantId),
+    queryFn: () => fetchSchedules(assistantId),
+    staleTime: 10_000,
+  });
+
   const startCostConversation = (message: string) => {
     storePendingInitialMessage(message);
     void navigate(routes.assistant);
   };
+
+  const handleRangeChange = useCallback(
+    (nextRange: UsageTimeRange) => {
+      updateUsageSearchParams({ range: nextRange });
+    },
+    [updateUsageSearchParams],
+  );
+
+  const handleScheduleFilterChange = useCallback(
+    (nextScheduleId: string | null) => {
+      updateUsageSearchParams({ scheduleId: nextScheduleId });
+    },
+    [updateUsageSearchParams],
+  );
+
+  const handleClearScheduleFilter = useCallback(() => {
+    updateUsageSearchParams({ scheduleId: null });
+  }, [updateUsageSearchParams]);
 
   const totalsQuery = useQuery({
     queryKey: [
@@ -113,11 +152,13 @@ export function UsageTab({ assistantId }: UsageTabProps) {
       assistantId,
       rangeWindow.from,
       rangeWindow.to,
+      scheduleId ?? null,
     ],
     queryFn: () =>
       fetchUsageTotals(assistantId, {
         from: rangeWindow.from,
         to: rangeWindow.to,
+        scheduleId,
       }),
   });
 
@@ -128,6 +169,7 @@ export function UsageTab({ assistantId }: UsageTabProps) {
       rangeWindow.from,
       rangeWindow.to,
       groupBy,
+      scheduleId ?? null,
     ],
     queryFn: async () => {
       try {
@@ -137,6 +179,7 @@ export function UsageTab({ assistantId }: UsageTabProps) {
             from: rangeWindow.from,
             to: rangeWindow.to,
             groupBy,
+            scheduleId,
           }),
         };
       } catch (error) {
@@ -150,6 +193,7 @@ export function UsageTab({ assistantId }: UsageTabProps) {
             from: rangeWindow.from,
             to: rangeWindow.to,
             groupBy: FALLBACK_USAGE_GROUP_BY,
+            scheduleId,
           }),
         };
       }
@@ -171,6 +215,7 @@ export function UsageTab({ assistantId }: UsageTabProps) {
       granularity,
       timezone,
       effectiveGroupBy,
+      scheduleId ?? null,
     ],
     queryFn: () => {
       if (!seriesGroupBy) {
@@ -183,6 +228,7 @@ export function UsageTab({ assistantId }: UsageTabProps) {
         granularity,
         groupBy: seriesGroupBy,
         tz: timezone,
+        scheduleId,
       });
     },
     enabled: Boolean(seriesGroupBy),
@@ -197,6 +243,7 @@ export function UsageTab({ assistantId }: UsageTabProps) {
       rangeWindow.to,
       granularity,
       timezone,
+      scheduleId ?? null,
     ],
     queryFn: () =>
       fetchUsageDaily(assistantId, {
@@ -204,6 +251,7 @@ export function UsageTab({ assistantId }: UsageTabProps) {
         to: rangeWindow.to,
         granularity,
         tz: timezone,
+        scheduleId,
       }),
     enabled: !seriesGroupBy || seriesQuery.isError,
   });
@@ -325,19 +373,27 @@ export function UsageTab({ assistantId }: UsageTabProps) {
       void breakdownQuery.refetch();
       void seriesQuery.refetch();
     }
-    setGroupBy(nextGroupBy);
+    updateUsageSearchParams({ groupBy: nextGroupBy });
   };
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h3
           className="text-title-small"
           style={{ color: "var(--content-default)" }}
         >
           Usage
         </h3>
-        <TimeRangeStrip range={range} onChange={setRange} />
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <ScheduleFilterPicker
+            scheduleId={scheduleId}
+            schedules={schedulesQuery.data}
+            onChange={handleScheduleFilterChange}
+            onClear={handleClearScheduleFilter}
+          />
+          <TimeRangeStrip range={range} onChange={handleRangeChange} />
+        </div>
       </div>
 
       <section aria-label="Totals">
@@ -383,6 +439,88 @@ export function UsageTab({ assistantId }: UsageTabProps) {
       />
     </div>
   );
+}
+
+function ScheduleFilterPicker({
+  scheduleId,
+  schedules,
+  onChange,
+  onClear,
+}: {
+  scheduleId: string | undefined;
+  schedules: AssistantSchedule[] | undefined;
+  onChange: (scheduleId: string | null) => void;
+  onClear: () => void;
+}) {
+  const options = useMemo(
+    () => buildScheduleFilterOptions(schedules, scheduleId),
+    [schedules, scheduleId],
+  );
+
+  return (
+    <div className="flex items-center gap-1">
+      <Dropdown<string>
+        value={scheduleId ?? ALL_USAGE_FILTER_VALUE}
+        onChange={(value) =>
+          onChange(value === ALL_USAGE_FILTER_VALUE ? null : value)
+        }
+        options={options}
+        className="w-44"
+        menuMinWidth={220}
+        aria-label="Schedule usage filter"
+      />
+      {scheduleId ? (
+        <button
+          type="button"
+          onClick={onClear}
+          className="inline-flex h-9 w-9 items-center justify-center rounded-md border transition-colors"
+          style={{
+            borderColor: "var(--border-base)",
+            color: "var(--content-secondary)",
+            background: "transparent",
+          }}
+          aria-label="Clear schedule filter"
+          title="Clear schedule filter"
+        >
+          <X className="h-3.5 w-3.5" aria-hidden />
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function buildScheduleFilterOptions(
+  schedules: readonly Pick<AssistantSchedule, "id" | "name">[] | undefined,
+  selectedScheduleId: string | undefined,
+): Array<{ value: string; label: string }> {
+  const options: Array<{ value: string; label: string }> = [
+    { value: ALL_USAGE_FILTER_VALUE, label: "All usage" },
+  ];
+  const knownScheduleIds = new Set<string>();
+
+  for (const schedule of schedules ?? []) {
+    knownScheduleIds.add(schedule.id);
+  }
+
+  if (selectedScheduleId && !knownScheduleIds.has(selectedScheduleId)) {
+    options.push({
+      value: selectedScheduleId,
+      label: unknownScheduleLabel(selectedScheduleId),
+    });
+  }
+
+  for (const schedule of schedules ?? []) {
+    options.push({
+      value: schedule.id,
+      label: schedule.name || schedule.id,
+    });
+  }
+
+  return options;
+}
+
+function unknownScheduleLabel(scheduleId: string) {
+  return `Unknown schedule (${scheduleId})`;
 }
 
 function CostAssistantSection({
