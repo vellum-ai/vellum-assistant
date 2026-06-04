@@ -181,10 +181,6 @@ function PreferencesMenuContent({
               onClose();
               navigate(routes.settings.billing);
             }}
-            onEarnCredits={() => {
-              onClose();
-              onEarnCredits();
-            }}
           />
         </div>
       ) : null}
