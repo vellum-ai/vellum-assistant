@@ -15,6 +15,7 @@ import { getLogger } from "../util/logger.js";
 import {
   DEFAULT_PLAYABLE_TTS_PROVIDER,
   resolveTelephonyTtsCapability,
+  resolveTelephonyTtsCapabilityFor,
 } from "./telephony-tts-capability.js";
 import { resolveCallStrategy } from "./tts-call-strategy.js";
 
@@ -123,9 +124,18 @@ export function resolveCallTtsProvider(): ResolvedCallTts {
 // Media-stream playability guard
 // ---------------------------------------------------------------------------
 
-/** A media-stream TTS provider guaranteed to emit transcodable audio. */
+/**
+ * A media-stream TTS provider guaranteed to emit transcodable audio.
+ *
+ * `provider` is `null` to signal **no playable provider** — neither the
+ * configured provider nor the fallback default could synthesize transcodable,
+ * credentialed audio (or the registry is unavailable). Callers MUST treat a
+ * null provider as "do not attempt synthesized media-stream playback" and
+ * degrade safely (native token path / end-of-turn signal) rather than dialing
+ * into silence.
+ */
 export interface PlayableCallTts {
-  /** The resolved, PCM/WAV-capable, credentialed provider (or null). */
+  /** The resolved, PCM/WAV-capable, credentialed provider, or `null`. */
   provider: TtsProvider | null;
 
   /** Audio format to request for synthesized audio (always `"wav"`). */
@@ -137,16 +147,18 @@ export interface PlayableCallTts {
  * that the returned provider can actually feed the PCM -> mu-law transcoder.
  *
  * On media-stream every byte of telephony audio is daemon-synthesized and
- * transcoded, so a provider that cannot emit PCM/WAV (or whose credential is
- * missing) would produce a silent call. When the configured provider is
- * {@link resolveTelephonyTtsCapability not playable}, this falls back to a
- * known PCM-capable, credentialed default ({@link DEFAULT_PLAYABLE_TTS_PROVIDER})
- * instead of leaving the call silent, logging a clear warning with the
- * configured provider id and the reason.
+ * transcoded, so a provider that cannot emit PCM/WAV (or whose credential or
+ * required config is missing) would produce a silent call. When the configured
+ * provider is {@link resolveTelephonyTtsCapability not playable}, this falls
+ * back to a known PCM-capable default ({@link DEFAULT_PLAYABLE_TTS_PROVIDER}) —
+ * **but only after re-running the same playability check on that default**, so
+ * an uncredentialed default is never silently returned.
  *
- * Returns `{ provider: null }` only when neither the configured provider nor
- * the fallback can be resolved (e.g. registry empty in tests / early startup),
- * so callers can degrade without throwing.
+ * Returns `{ provider: null }` when neither the configured provider nor the
+ * fallback default is playable (e.g. the default is also uncredentialed), or
+ * when the registry/config is unavailable (tests / early startup). This is the
+ * explicit "no playable provider" signal: callers (and the call preflight)
+ * fail loudly / degrade safely rather than dialing into silence.
  */
 export async function resolvePlayableCallTtsProvider(): Promise<PlayableCallTts> {
   try {
@@ -159,9 +171,29 @@ export async function resolvePlayableCallTtsProvider(): Promise<PlayableCallTts>
       };
     }
 
-    // Configured provider cannot feed the media-stream transcoder. Fall back
-    // to a known PCM-capable, credentialed default rather than emitting a
-    // silent call.
+    // Configured provider cannot feed the media-stream transcoder. Before
+    // falling back to the default, verify the default is ITSELF playable
+    // (credentialed + required config present) so we never return an unusable
+    // provider that would dial into silence.
+    const fallbackCapability = await resolveTelephonyTtsCapabilityFor(
+      DEFAULT_PLAYABLE_TTS_PROVIDER,
+    );
+
+    if (fallbackCapability.status !== "playable") {
+      log.error(
+        {
+          configuredProvider: capability.providerId,
+          configuredReason: capability.reason,
+          fallbackProvider: DEFAULT_PLAYABLE_TTS_PROVIDER,
+          fallbackReason: fallbackCapability.reason,
+        },
+        "No playable media-stream TTS provider — configured provider cannot " +
+          "synthesize playable audio and the default fallback is also not " +
+          "playable; degrading instead of returning a silent provider",
+      );
+      return { provider: null, audioFormat: "wav" };
+    }
+
     log.warn(
       {
         configuredProvider: capability.providerId,

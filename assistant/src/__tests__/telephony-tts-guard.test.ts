@@ -9,7 +9,10 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { MediaStreamPlaybackFormat } from "../tts/provider-catalog.js";
+import type {
+  MediaStreamPlaybackFormat,
+  TtsCredentialLookup,
+} from "../tts/provider-catalog.js";
 import type { TtsProvider, TtsProviderId } from "../tts/types.js";
 
 // ---------------------------------------------------------------------------
@@ -27,6 +30,10 @@ mock.module("../util/logger.js", () => ({
 
 // Configured provider id (mutated per test).
 let configuredProvider: TtsProviderId = "elevenlabs";
+// Per-provider config blocks (mutated per test), keyed by provider id. Used by
+// both resolveTtsConfig (active provider) and resolveProviderTtsConfig (any
+// provider, e.g. the fallback default).
+let providerConfigs: Record<string, Record<string, unknown>> = {};
 
 mock.module("../config/loader.js", () => ({
   loadConfig: () => ({ services: { tts: { provider: configuredProvider } } }),
@@ -35,35 +42,52 @@ mock.module("../config/loader.js", () => ({
 mock.module("../tts/tts-config-resolver.js", () => ({
   resolveTtsConfig: () => ({
     provider: configuredProvider,
-    providerConfig: {},
+    providerConfig: providerConfigs[configuredProvider] ?? {},
   }),
+  resolveProviderTtsConfig: (_config: unknown, provider: string) =>
+    providerConfigs[provider] ?? {},
 }));
 
-// Synthetic catalog: each entry declares a media-stream output format and a
-// credential store key. Real adapter behavior is irrelevant to the guard.
+// Synthetic catalog: each entry declares a media-stream output format, a
+// credential store key, and the lookup semantics its adapter uses. The probe
+// MUST mirror that lookup, so the catalog declares it.
 const fakeCatalog: Record<
   string,
   {
     mediaStreamPlayback: { outputFormat: MediaStreamPlaybackFormat };
     key: string;
+    credentialLookup: TtsCredentialLookup;
   }
 > = {
-  elevenlabs: { mediaStreamPlayback: { outputFormat: "pcm" }, key: "k/eleven" },
+  // ElevenLabs reads ONLY the namespaced key (no legacy bare/env fallback).
+  elevenlabs: {
+    mediaStreamPlayback: { outputFormat: "pcm" },
+    key: "credential/elevenlabs/api_key",
+    credentialLookup: "namespaced-only",
+  },
   "wav-provider": {
     mediaStreamPlayback: { outputFormat: "wav" },
-    key: "k/wav",
+    key: "credential/wav-provider/api_key",
+    credentialLookup: "namespaced-only",
   },
   "compressed-only": {
     mediaStreamPlayback: { outputFormat: "none" },
-    key: "k/compressed",
+    key: "credential/compressed-only/api_key",
+    credentialLookup: "namespaced-only",
   },
-  // Provider whose catalog requirement uses the standard namespaced api_key
-  // store key (credential/{id}/api_key), exercising the getProviderKeyAsync
-  // path: a key configured only under the legacy bare or env form must still
-  // be recognized as available.
-  "legacy-keyed": {
+  // Deepgram-style provider: reads via getProviderKeyAsync, so a key
+  // configured only under the legacy bare or env form is still recognized.
+  "deepgram-like": {
     mediaStreamPlayback: { outputFormat: "pcm" },
-    key: "credential/legacy-keyed/api_key",
+    key: "credential/deepgram-like/api_key",
+    credentialLookup: "provider-key",
+  },
+  // Fish Audio: namespaced-only key; PCM-capable and credentialed, but
+  // requires a non-empty referenceId before it can synthesize any audio.
+  "fish-audio": {
+    mediaStreamPlayback: { outputFormat: "pcm" },
+    key: "credential/fish-audio/api_key",
+    credentialLookup: "namespaced-only",
   },
 };
 
@@ -77,6 +101,7 @@ mock.module("../tts/provider-catalog.js", () => ({
       secretRequirements: [
         {
           credentialStoreKey: entry.key,
+          credentialLookup: entry.credentialLookup,
           displayName: `${id} key`,
           setCommand: "set",
         },
@@ -142,6 +167,7 @@ beforeEach(() => {
   configuredProvider = "elevenlabs";
   storedKeys = {};
   envProviderKeys = {};
+  providerConfigs = {};
   for (const key of Object.keys(registeredProviders)) {
     delete registeredProviders[key];
   }
@@ -155,7 +181,7 @@ beforeEach(() => {
 describe("resolveTelephonyTtsCapability", () => {
   test("pcm provider with credentials is playable", async () => {
     configuredProvider = "elevenlabs";
-    storedKeys["k/eleven"] = "sk_test";
+    storedKeys["credential/elevenlabs/api_key"] = "sk_test";
 
     const result = await resolveTelephonyTtsCapability();
     expect(result.status).toBe("playable");
@@ -164,7 +190,7 @@ describe("resolveTelephonyTtsCapability", () => {
 
   test("wav provider with credentials is playable", async () => {
     configuredProvider = "wav-provider";
-    storedKeys["k/wav"] = "sk_test";
+    storedKeys["credential/wav-provider/api_key"] = "sk_test";
 
     const result = await resolveTelephonyTtsCapability();
     expect(result.status).toBe("playable");
@@ -172,7 +198,7 @@ describe("resolveTelephonyTtsCapability", () => {
 
   test("none-format provider is not-playable (unsupported-format)", async () => {
     configuredProvider = "compressed-only";
-    storedKeys["k/compressed"] = "sk_test"; // credential present, format still no good
+    storedKeys["credential/compressed-only/api_key"] = "sk_test"; // credential present, format still no good
 
     const result = await resolveTelephonyTtsCapability();
     expect(result.status).toBe("not-playable");
@@ -196,7 +222,7 @@ describe("resolveTelephonyTtsCapability", () => {
 
   test("blank credential is treated as missing", async () => {
     configuredProvider = "elevenlabs";
-    storedKeys["k/eleven"] = "   ";
+    storedKeys["credential/elevenlabs/api_key"] = "   ";
 
     const result = await resolveTelephonyTtsCapability();
     expect(result.status).toBe("not-playable");
@@ -205,36 +231,119 @@ describe("resolveTelephonyTtsCapability", () => {
     }
   });
 
-  test("playable when key exists only under the legacy bare store key", async () => {
-    configuredProvider = "legacy-keyed";
-    // Namespaced credential/legacy-keyed/api_key is absent; only the legacy
+  test("provider-key provider is playable when key exists only under the legacy bare store key", async () => {
+    configuredProvider = "deepgram-like";
+    // Namespaced credential/deepgram-like/api_key is absent; only the legacy
     // bare key is present — the adapter (getProviderKeyAsync) would find it.
-    storedKeys["legacy-keyed"] = "sk_legacy";
+    storedKeys["deepgram-like"] = "sk_legacy";
 
     const result = await resolveTelephonyTtsCapability();
     expect(result.status).toBe("playable");
-    expect(result.providerId).toBe("legacy-keyed");
+    expect(result.providerId).toBe("deepgram-like");
   });
 
-  test("playable when key exists only via the env-var fallback", async () => {
-    configuredProvider = "legacy-keyed";
+  test("provider-key provider is playable when key exists only via the env-var fallback", async () => {
+    configuredProvider = "deepgram-like";
     // Neither store key is set; only the provider env-var fallback resolves.
-    envProviderKeys["legacy-keyed"] = "sk_from_env";
+    envProviderKeys["deepgram-like"] = "sk_from_env";
 
     const result = await resolveTelephonyTtsCapability();
     expect(result.status).toBe("playable");
-    expect(result.providerId).toBe("legacy-keyed");
+    expect(result.providerId).toBe("deepgram-like");
   });
 
-  test("missing-credentials when no key resolves under any lookup", async () => {
-    configuredProvider = "legacy-keyed";
+  test("provider-key provider is missing-credentials when no key resolves under any lookup", async () => {
+    configuredProvider = "deepgram-like";
     // No namespaced, bare, or env key present.
 
     const result = await resolveTelephonyTtsCapability();
     expect(result.status).toBe("not-playable");
     if (result.status === "not-playable") {
       expect(result.reason).toBe("missing-credentials");
-      expect(result.providerId).toBe("legacy-keyed");
+      expect(result.providerId).toBe("deepgram-like");
+    }
+  });
+
+  test("namespaced-only provider is NOT playable when only the legacy bare key is set", async () => {
+    // ElevenLabs reads only the namespaced key — a legacy bare key must NOT
+    // satisfy the probe, or synthesis would throw ELEVENLABS_TTS_NO_API_KEY.
+    configuredProvider = "elevenlabs";
+    storedKeys["elevenlabs"] = "sk_legacy_bare";
+
+    const result = await resolveTelephonyTtsCapability();
+    expect(result.status).toBe("not-playable");
+    if (result.status === "not-playable") {
+      expect(result.reason).toBe("missing-credentials");
+      expect(result.providerId).toBe("elevenlabs");
+    }
+  });
+
+  test("namespaced-only provider is NOT playable when only the env-var fallback resolves", async () => {
+    configuredProvider = "elevenlabs";
+    envProviderKeys["elevenlabs"] = "sk_from_env";
+
+    const result = await resolveTelephonyTtsCapability();
+    expect(result.status).toBe("not-playable");
+    if (result.status === "not-playable") {
+      expect(result.reason).toBe("missing-credentials");
+      expect(result.providerId).toBe("elevenlabs");
+    }
+  });
+
+  test("namespaced-only provider is playable with the namespaced key", async () => {
+    configuredProvider = "elevenlabs";
+    storedKeys["credential/elevenlabs/api_key"] = "sk_namespaced";
+
+    const result = await resolveTelephonyTtsCapability();
+    expect(result.status).toBe("playable");
+    expect(result.providerId).toBe("elevenlabs");
+  });
+
+  test("fish-audio with API key but empty referenceId is not-playable (missing-required-config)", async () => {
+    configuredProvider = "fish-audio";
+    storedKeys["credential/fish-audio/api_key"] = "sk_test"; // credentialed
+    providerConfigs["fish-audio"] = { referenceId: "   " }; // blank reference id
+
+    const result = await resolveTelephonyTtsCapability();
+    expect(result.status).toBe("not-playable");
+    if (result.status === "not-playable") {
+      expect(result.reason).toBe("missing-required-config");
+      expect(result.providerId).toBe("fish-audio");
+    }
+  });
+
+  test("fish-audio with API key but missing referenceId is not-playable (missing-required-config)", async () => {
+    configuredProvider = "fish-audio";
+    storedKeys["credential/fish-audio/api_key"] = "sk_test"; // credentialed, no referenceId in config
+
+    const result = await resolveTelephonyTtsCapability();
+    expect(result.status).toBe("not-playable");
+    if (result.status === "not-playable") {
+      expect(result.reason).toBe("missing-required-config");
+    }
+  });
+
+  test("fish-audio with API key and referenceId is playable", async () => {
+    configuredProvider = "fish-audio";
+    storedKeys["credential/fish-audio/api_key"] = "sk_test";
+    providerConfigs["fish-audio"] = { referenceId: "voice_abc123" };
+
+    const result = await resolveTelephonyTtsCapability();
+    expect(result.status).toBe("playable");
+    expect(result.providerId).toBe("fish-audio");
+  });
+
+  test("fish-audio is NOT playable when only a legacy bare key is set", async () => {
+    // Fish Audio reads only the namespaced key — a legacy bare key must not
+    // satisfy the probe even when referenceId is present.
+    configuredProvider = "fish-audio";
+    storedKeys["fish-audio"] = "sk_legacy_bare";
+    providerConfigs["fish-audio"] = { referenceId: "voice_abc123" };
+
+    const result = await resolveTelephonyTtsCapability();
+    expect(result.status).toBe("not-playable");
+    if (result.status === "not-playable") {
+      expect(result.reason).toBe("missing-credentials");
     }
   });
 });
@@ -244,8 +353,8 @@ describe("resolveTelephonyTtsCapability", () => {
 // ---------------------------------------------------------------------------
 
 describe("isTtsProviderCredentialAvailable", () => {
-  test("true when the catalog credential key has a value", async () => {
-    storedKeys["k/eleven"] = "sk_test";
+  test("true when the namespaced credential key has a value", async () => {
+    storedKeys["credential/elevenlabs/api_key"] = "sk_test";
     expect(await isTtsProviderCredentialAvailable("elevenlabs")).toBe(true);
   });
 
@@ -253,14 +362,24 @@ describe("isTtsProviderCredentialAvailable", () => {
     expect(await isTtsProviderCredentialAvailable("elevenlabs")).toBe(false);
   });
 
-  test("true when only the legacy bare key is set", async () => {
-    storedKeys["legacy-keyed"] = "sk_legacy";
-    expect(await isTtsProviderCredentialAvailable("legacy-keyed")).toBe(true);
+  test("namespaced-only provider: false when only the legacy bare key is set", async () => {
+    storedKeys["elevenlabs"] = "sk_legacy";
+    expect(await isTtsProviderCredentialAvailable("elevenlabs")).toBe(false);
   });
 
-  test("true when only the env-var fallback resolves", async () => {
-    envProviderKeys["legacy-keyed"] = "sk_from_env";
-    expect(await isTtsProviderCredentialAvailable("legacy-keyed")).toBe(true);
+  test("namespaced-only provider: false when only the env-var fallback resolves", async () => {
+    envProviderKeys["elevenlabs"] = "sk_from_env";
+    expect(await isTtsProviderCredentialAvailable("elevenlabs")).toBe(false);
+  });
+
+  test("provider-key provider: true when only the legacy bare key is set", async () => {
+    storedKeys["deepgram-like"] = "sk_legacy";
+    expect(await isTtsProviderCredentialAvailable("deepgram-like")).toBe(true);
+  });
+
+  test("provider-key provider: true when only the env-var fallback resolves", async () => {
+    envProviderKeys["deepgram-like"] = "sk_from_env";
+    expect(await isTtsProviderCredentialAvailable("deepgram-like")).toBe(true);
   });
 });
 
@@ -271,7 +390,7 @@ describe("isTtsProviderCredentialAvailable", () => {
 describe("resolvePlayableCallTtsProvider", () => {
   test("returns the configured provider when it is playable", async () => {
     configuredProvider = "wav-provider";
-    storedKeys["k/wav"] = "sk_test";
+    storedKeys["credential/wav-provider/api_key"] = "sk_test";
     registeredProviders["wav-provider"] = makeProvider("wav-provider");
 
     const result = await resolvePlayableCallTtsProvider();
@@ -282,8 +401,8 @@ describe("resolvePlayableCallTtsProvider", () => {
 
   test("falls back to the PCM-capable default when format is unsupported", async () => {
     configuredProvider = "compressed-only";
-    storedKeys["k/compressed"] = "sk_test";
-    storedKeys["k/eleven"] = "sk_default"; // default provider is credentialed
+    storedKeys["credential/compressed-only/api_key"] = "sk_test";
+    storedKeys["credential/elevenlabs/api_key"] = "sk_default"; // default provider is credentialed
 
     const result = await resolvePlayableCallTtsProvider();
     // No silent path: a usable provider is returned (the default), not null.
@@ -294,11 +413,52 @@ describe("resolvePlayableCallTtsProvider", () => {
 
   test("falls back to the PCM-capable default when credentials are missing", async () => {
     configuredProvider = "wav-provider"; // playable format but no key
-    storedKeys["k/eleven"] = "sk_default";
+    storedKeys["credential/elevenlabs/api_key"] = "sk_default";
     registeredProviders["wav-provider"] = makeProvider("wav-provider");
 
     const result = await resolvePlayableCallTtsProvider();
     expect(result.provider).not.toBeNull();
     expect(result.provider!.id).toBe("elevenlabs");
+  });
+
+  test("falls back to the default for fish-audio without a referenceId", async () => {
+    configuredProvider = "fish-audio";
+    storedKeys["credential/fish-audio/api_key"] = "sk_fish"; // credentialed but no referenceId
+    storedKeys["credential/elevenlabs/api_key"] = "sk_default"; // default is playable
+    registeredProviders["fish-audio"] = makeProvider("fish-audio");
+
+    const result = await resolvePlayableCallTtsProvider();
+    // fish-audio would throw FISH_AUDIO_TTS_NO_REFERENCE_ID at synthesis, so
+    // the guard must NOT return it; it falls back to the playable default.
+    expect(result.provider).not.toBeNull();
+    expect(result.provider!.id).toBe("elevenlabs");
+  });
+
+  test("returns no-playable-provider signal when configured AND default are both unplayable", async () => {
+    // Configured provider can't emit a transcodable format...
+    configuredProvider = "compressed-only";
+    storedKeys["credential/compressed-only/api_key"] = "sk_test";
+    // ...and the default (elevenlabs) is NOT credentialed, so it is also not
+    // playable. The guard must surface null rather than a silent provider.
+    // (no namespaced elevenlabs key stored)
+
+    const result = await resolvePlayableCallTtsProvider();
+    expect(result.provider).toBeNull();
+    expect(result.audioFormat).toBe("wav");
+  });
+
+  test("does NOT accept the ElevenLabs fallback when it only has a legacy bare key", async () => {
+    // Configured provider is unplayable, and the ElevenLabs default has ONLY a
+    // legacy bare key — which the namespaced-only adapter would not read. The
+    // fallback must be rejected and the no-playable-provider signal returned,
+    // rather than dialing into silence.
+    configuredProvider = "compressed-only";
+    storedKeys["credential/compressed-only/api_key"] = "sk_test";
+    storedKeys["elevenlabs"] = "sk_legacy_bare"; // legacy bare key only
+    envProviderKeys["elevenlabs"] = "sk_from_env"; // env fallback also ignored
+
+    const result = await resolvePlayableCallTtsProvider();
+    expect(result.provider).toBeNull();
+    expect(result.audioFormat).toBe("wav");
   });
 });

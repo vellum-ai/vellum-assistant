@@ -18,6 +18,24 @@ import type { TtsCallMode, TtsProviderId } from "./types.js";
 // ---------------------------------------------------------------------------
 
 /**
+ * How a provider's adapter actually resolves its API key at synthesis time.
+ *
+ * This is the contract any credential-presence probe MUST mirror so that a
+ * "credential available" verdict agrees with whether the adapter would in
+ * fact obtain a key. Mismatching it lets a probe mark a provider playable
+ * while synthesis throws a no-key error (silent media-stream call).
+ *
+ * - `"namespaced-only"` — the adapter reads ONLY the namespaced
+ *   `credential/{provider}/api_key` store key via `getSecureKeyAsync`. It does
+ *   NOT honor the legacy bare `{provider}` key or any env-var fallback.
+ *   (ElevenLabs, Fish Audio, xAI.)
+ * - `"provider-key"` — the adapter reads via `getProviderKeyAsync`, which
+ *   consults the namespaced key, then the legacy bare `{provider}` key, then
+ *   the provider's env-var fallback. (Deepgram, which shares its key with STT.)
+ */
+export type TtsCredentialLookup = "namespaced-only" | "provider-key";
+
+/**
  * Metadata about a secret (API key / credential) required by a provider.
  */
 interface TtsProviderSecretRequirement {
@@ -29,6 +47,15 @@ interface TtsProviderSecretRequirement {
    * convention (e.g. `"credential/fish-audio/api_key"`).
    */
   readonly credentialStoreKey: string;
+
+  /**
+   * The lookup semantics the provider's adapter uses to read THIS secret.
+   *
+   * A credential-presence probe must use the matching lookup so its verdict
+   * agrees with whether the adapter would actually obtain the key. See
+   * {@link TtsCredentialLookup}.
+   */
+  readonly credentialLookup: TtsCredentialLookup;
 
   /** Human-readable label shown in settings UI and error messages. */
   readonly displayName: string;
@@ -184,6 +211,10 @@ const CATALOG: readonly TtsProviderCatalogEntry[] = [
     secretRequirements: [
       {
         credentialStoreKey: "credential/elevenlabs/api_key",
+        // The ElevenLabs adapter reads ONLY the namespaced key
+        // (getSecureKeyAsync(credentialKey("elevenlabs","api_key"))) — no
+        // legacy bare key or env fallback.
+        credentialLookup: "namespaced-only",
         displayName: "ElevenLabs API Key",
         setCommand:
           "assistant credentials set --service elevenlabs --field api_key <key>",
@@ -214,6 +245,10 @@ const CATALOG: readonly TtsProviderCatalogEntry[] = [
     secretRequirements: [
       {
         credentialStoreKey: "credential/fish-audio/api_key",
+        // The Fish Audio client reads ONLY the namespaced key
+        // (getSecureKeyAsync(credentialKey("fish-audio","api_key"))) — no
+        // legacy bare key or env fallback.
+        credentialLookup: "namespaced-only",
         displayName: "Fish Audio API Key",
         setCommand:
           "assistant credentials set --service fish-audio --field api_key <key>",
@@ -244,6 +279,10 @@ const CATALOG: readonly TtsProviderCatalogEntry[] = [
     secretRequirements: [
       {
         credentialStoreKey: "credential/deepgram/api_key",
+        // The Deepgram adapter reads via getProviderKeyAsync("deepgram"),
+        // which honors the namespaced key, the legacy bare "deepgram" key, and
+        // the env-var fallback (key is shared with Deepgram STT).
+        credentialLookup: "provider-key",
         displayName: "Deepgram API Key",
         setCommand: "assistant keys set deepgram <key>",
       },
@@ -273,6 +312,10 @@ const CATALOG: readonly TtsProviderCatalogEntry[] = [
     secretRequirements: [
       {
         credentialStoreKey: "credential/xai/api_key",
+        // The xAI adapter reads ONLY the namespaced key
+        // (getSecureKeyAsync(credentialKey("xai","api_key"))) — no legacy bare
+        // key or env fallback.
+        credentialLookup: "namespaced-only",
         displayName: "xAI API Key",
         setCommand:
           "assistant credentials set --service xai --field api_key <key>",
