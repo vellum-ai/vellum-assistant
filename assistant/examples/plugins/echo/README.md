@@ -4,8 +4,8 @@ Minimal example plugin. Observes every assistant pipeline and logs one JSON
 line per invocation to `stderr`:
 
 ```json
-{"plugin":"echo","pipeline":"memoryRetrieval","durationMs":64,"outcome":"success"}
 {"plugin":"echo","pipeline":"compaction","durationMs":1590,"outcome":"success"}
+{"plugin":"echo","pipeline":"overflowReduce","durationMs":42,"outcome":"success"}
 ```
 
 Use this as a starting point for writing your own plugin, or as a quick way
@@ -18,8 +18,8 @@ For the full plugin authoring guide, see
 ## What it does
 
 - Registers one observer middleware per slot in
-  `PipelineMiddlewareMap` — `memoryRetrieval`, `compaction`,
-  `overflowReduce`, and `circuitBreaker`.
+  `PipelineMiddlewareMap` — `compaction`, `overflowReduce`, and
+  `circuitBreaker`.
 - Each middleware calls `next(args)` to pass the request through unchanged,
   measures wall-clock duration, and emits one line to `stderr` whether the
   downstream succeeded or threw.
@@ -94,8 +94,8 @@ tail -f ~/.vellum/daemon.log
 You should see one line per pipeline invocation, similar to:
 
 ```json
-{"plugin":"echo","pipeline":"memoryRetrieval","durationMs":64,"outcome":"success"}
 {"plugin":"echo","pipeline":"compaction","durationMs":1590,"outcome":"success"}
+{"plugin":"echo","pipeline":"overflowReduce","durationMs":42,"outcome":"success"}
 ```
 
 If a pipeline throws (for example, a tool that errors out), you'll see a

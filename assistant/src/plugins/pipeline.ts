@@ -50,7 +50,6 @@ const moduleLogger = getLogger("plugin-pipeline");
  * a design update.
  */
 export const DEFAULT_TIMEOUTS: Record<PipelineName, number | null> = {
-  memoryRetrieval: null,
   compaction: null,
   overflowReduce: null,
   circuitBreaker: null,
@@ -305,7 +304,7 @@ export async function runPipeline<A, R>(
  *
  * `runHook` is the hook-side counterpart to {@link runPipeline}:
  * `runPipeline` composes middleware around a terminal handler for stateful
- * request/response pipelines (memory retrieval, compaction, etc.);
+ * request/response pipelines (compaction, overflow reduction, etc.);
  * `runHook` walks ordered hook functions for declarative chain-style
  * context transformations (`user-prompt-submit`, `post-tool-use`).
  *

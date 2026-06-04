@@ -46,8 +46,6 @@ import type {
   CircuitBreakerResult,
   CompactionArgs,
   CompactionResult,
-  MemoryArgs,
-  MemoryResult,
   OverflowReduceArgs,
   OverflowReduceResult,
   Plugin,
@@ -130,7 +128,6 @@ const echoPlugin: Plugin = {
     version: "0.1.0",
   },
   middleware: {
-    memoryRetrieval: makeObserver<MemoryArgs, MemoryResult>("memoryRetrieval"),
     compaction: makeObserver<CompactionArgs, CompactionResult>("compaction"),
     overflowReduce: makeObserver<OverflowReduceArgs, OverflowReduceResult>(
       "overflowReduce",

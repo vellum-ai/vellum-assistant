@@ -210,7 +210,7 @@ describe("runPipeline — timeout", () => {
     let caught: unknown;
     try {
       await runPipeline(
-        "memoryRetrieval",
+        "compaction",
         [sleeper],
         terminal,
         { value: 1 },
@@ -223,10 +223,10 @@ describe("runPipeline — timeout", () => {
 
     expect(caught).toBeInstanceOf(PluginTimeoutError);
     const tErr = caught as PluginTimeoutError;
-    expect(tErr.pipeline).toBe("memoryRetrieval");
+    expect(tErr.pipeline).toBe("compaction");
     expect(tErr.pluginName).toBe("slow-plugin");
     expect(tErr.elapsedMs).toBeGreaterThanOrEqual(0);
-    expect(tErr.message).toContain("memoryRetrieval");
+    expect(tErr.message).toContain("compaction");
     expect(tErr.message).toContain("slow-plugin");
   });
 
@@ -546,7 +546,6 @@ describe("runPipeline — structured log record", () => {
 describe("DEFAULT_TIMEOUTS", () => {
   test("matches the design-doc table exactly", () => {
     expect(DEFAULT_TIMEOUTS).toEqual({
-      memoryRetrieval: null,
       compaction: null,
       overflowReduce: null,
       circuitBreaker: null,

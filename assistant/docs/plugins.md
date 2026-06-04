@@ -388,10 +388,10 @@ through any outer middleware unchanged — there is no internal
 `try`/`catch` around user middleware.
 
 ```typescript
-const denyIfUntrusted: Middleware<MemoryArgs, MemoryResult> =
+const denyIfUntrusted: Middleware<CompactionArgs, CompactionResult> =
   async function denyIfUntrusted(args, next, ctx) {
     if (!isTrusted(ctx.trust)) {
-      throw new Error(`memoryRetrieval denied by policy`);
+      throw new Error(`compaction denied by policy`);
     }
     return next(args);
   };
@@ -404,7 +404,7 @@ pipeline runner pulls `Function.name` into its `chain` log field so
 operators can see the registered chain at a glance:
 
 ```
-plugin.pipeline pipeline=memoryRetrieval chain=["observeRetrieval","dropNow","defaultMemoryRetrieval"] durationMs=1840 outcome=success
+plugin.pipeline pipeline=compaction chain=["observeCompaction","defaultCompaction"] durationMs=1840 outcome=success
 ```
 
 ## Hooks
@@ -420,25 +420,25 @@ mutates it in place (returning `void`) or returns a replacement. Hooks
 from multiple plugins chain in registration order, and defaults register
 first.
 
-| Hook                 | Fires                                                             | Context                   |
-| -------------------- | ----------------------------------------------------------------- | ------------------------- |
-| `init`               | Once when the plugin is registered.                               | `PluginInitContext`       |
-| `shutdown`           | Once when the plugin is torn down.                                | `PluginShutdownContext`   |
-| `user-prompt-submit` | Once per user turn, before the agent loop receives the messages.  | `UserPromptSubmitContext` |
-| `post-tool-use`      | Once per tool result, before it joins the provider-bound history. | `PostToolUseContext`      |
-| `stop`               | Once per run when the model yields a turn with no tool calls.     | `StopContext`             |
+| Hook                      | Fires                                                                                                                                                                                                                   | Context                      |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| `init`                    | Once when the plugin is registered.                                                                                                                                                                                     | `PluginInitContext`          |
+| `shutdown`                | Once when the plugin is torn down.                                                                                                                                                                                      | `PluginShutdownContext`      |
+| `user-prompt-submit`      | Once per user turn, before the agent loop receives the messages.                                                                                                                                                        | `UserPromptSubmitContext`    |
+| `user-prompt-submit-temp` | Once per user turn, at the early "prompt submitted, before context assembly" moment (memory retrieval). Transitional — folds into `user-prompt-submit` once compaction is cleared from the gap between the two moments. | `MemoryRetrievalHookContext` |
+| `post-tool-use`           | Once per tool result, before it joins the provider-bound history.                                                                                                                                                       | `PostToolUseContext`         |
+| `stop`                    | Once per run when the model yields a turn with no tool calls.                                                                                                                                                           | `StopContext`                |
 
 ## Pipeline reference
 
 Every pipeline slot and its purpose. Type details live in
 [`types.ts`](../src/plugins/types.ts).
 
-| Pipeline          | Purpose                                                                                                |
-| ----------------- | ------------------------------------------------------------------------------------------------------ |
-| `memoryRetrieval` | PKB, NOW.md, and memory-graph retrieval for a turn. Output is a merged `MemoryResult`.                 |
-| `compaction`      | The conversation-compaction step. Wraps `ContextWindowManager.maybeCompact`.                           |
-| `overflowReduce`  | The reducer tier loop invoked when a turn blows the context budget.                                    |
-| `circuitBreaker`  | The compaction circuit breaker. Tracks consecutive-failure state, decides whether to open the circuit. |
+| Pipeline         | Purpose                                                                                                |
+| ---------------- | ------------------------------------------------------------------------------------------------------ |
+| `compaction`     | The conversation-compaction step. Wraps `ContextWindowManager.maybeCompact`.                           |
+| `overflowReduce` | The reducer tier loop invoked when a turn blows the context budget.                                    |
+| `circuitBreaker` | The compaction circuit breaker. Tracks consecutive-failure state, decides whether to open the circuit. |
 
 ## Timeouts
 
@@ -449,12 +449,11 @@ duration. See
 [`assistant/src/plugins/pipeline.ts`](../src/plugins/pipeline.ts) for the
 current values.
 
-| Pipeline          | Timeout  | Rationale                                                                                                      |
-| ----------------- | -------- | -------------------------------------------------------------------------------------------------------------- |
-| `memoryRetrieval` | 5000 ms  | Memory reads may hit Qdrant and disk; 5 s leaves slack for cold caches without blocking the turn indefinitely. |
-| `compaction`      | 30000 ms | Summarization involves a provider call; mirrors the pipeline-level budget for LLM-backed operations.           |
-| `overflowReduce`  | 30000 ms | Iterative compaction; matches the `compaction` budget since each tier step may invoke it.                      |
-| `circuitBreaker`  | 500 ms   | Numeric state update — must be near-instant.                                                                   |
+| Pipeline         | Timeout  | Rationale                                                                                            |
+| ---------------- | -------- | ---------------------------------------------------------------------------------------------------- |
+| `compaction`     | 30000 ms | Summarization involves a provider call; mirrors the pipeline-level budget for LLM-backed operations. |
+| `overflowReduce` | 30000 ms | Iterative compaction; matches the `compaction` budget since each tier step may invoke it.            |
+| `circuitBreaker` | 500 ms   | Numeric state update — must be near-instant.                                                         |
 
 `null` timeouts skip the timer entirely. Finite timeouts arm a
 `setTimeout` that races the pipeline via `Promise.race`.

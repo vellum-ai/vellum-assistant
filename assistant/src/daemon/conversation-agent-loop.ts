@@ -97,17 +97,12 @@ import type { UserPromptSubmitContext } from "../plugin-api/types.js";
 import { defaultCompactionTerminal } from "../plugins/defaults/compaction/terminal.js";
 import { deepRepairHistory } from "../plugins/defaults/history-repair/terminal.js";
 import postCompactReinject from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
-import {
-  type DefaultMemoryRetrievalDeps,
-  runDefaultMemoryRetrieval,
-} from "../plugins/defaults/memory-retrieval/register.js";
+import type { MemoryRetrievalHookContext } from "../plugins/defaults/memory-retrieval/hooks/user-prompt-submit-temp.js";
 import { DEFAULT_TIMEOUTS, runHook, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
   CompactionArgs,
   CompactionResult,
-  MemoryArgs,
-  MemoryResult,
   OverflowReduceArgs,
   OverflowReduceResult,
   TurnContext as PluginTurnContext,
@@ -1150,33 +1145,15 @@ export async function runAgentLoopImpl(
 
     let runMessages = ctx.messages;
 
-    // Memory retrieval pipeline — fetches PKB, NOW.md, and memory-graph
-    // outputs through a single `memoryRetrieval` pipeline. Plugins may
-    // replace the terminal behavior by registering a middleware that
-    // short-circuits with its own `MemoryResult`; the default terminal runs
-    // `runDefaultMemoryRetrieval` (PKB/NOW reads + gated graph call), which
-    // also persists the retrieval's own side effects (injected-block
-    // metadata, recall log, `memory_recalled` event).
+    // Memory retrieval — fetches PKB, NOW.md, and memory-graph outputs via
+    // the `user-prompt-submit-temp` hook, which also persists the retrieval's
+    // own side effects (injected-block metadata, recall log, `memory_recalled`
+    // event). The hook fires at the early "prompt submitted" moment because
+    // its outputs feed the injection and overflow-reduction transforms below;
+    // it stays distinct from the late `user-prompt-submit` hook (history
+    // repair, title) until compaction is cleared from the gap between them.
     const isTrustedActor = resolveTrustClass(ctx.trustContext) === "guardian";
-    // Canonical builder — pulls trust from per-turn snapshot, then
-    // conversation-level, then the synthetic fallback. Memory retrieval
-    // does not need the context-window handle the builder attaches, but
-    // keeping every call site on one helper is load-bearing for log
-    // coherence across pipeline slots.
-    const memoryPluginTurnCtx = buildPluginTurnContext(ctx, reqId);
-    const memoryArgs: MemoryArgs = {
-      conversationId: ctx.conversationId,
-      trustContext: ctx.trustContext,
-      turnIndex: ctx.turnCount,
-      // Pass the abort signal via `args` (not `deps`) so the pipeline
-      // runner's `linkAbortSignal` can swap it for a signal linked to the
-      // pipeline's internal controller — on a plugin-set timeout or
-      // external cancel, the linked signal aborts and `prepareMemory`
-      // stops mutating graph state / emitting events after the pipeline
-      // has already errored.
-      signal: abortController.signal,
-    };
-    const memoryDeps: DefaultMemoryRetrievalDeps = {
+    const memoryHookCtx: MemoryRetrievalHookContext = {
       messages: ctx.messages,
       graphMemory: ctx.graphMemory,
       config: getConfig(),
@@ -1185,14 +1162,16 @@ export async function runAgentLoopImpl(
       conversationId: ctx.conversationId,
       userMessageId,
       logger: rlog,
+      // An external cancel aborts `prepareMemory` instead of letting it run
+      // to completion after the turn has already been torn down.
+      signal: abortController.signal,
+      pkbContent: null,
+      nowContent: null,
+      graphResult: null,
     };
-    const memoryResult: MemoryResult = await runPipeline(
-      "memoryRetrieval",
-      getMiddlewaresFor("memoryRetrieval"),
-      (args) => runDefaultMemoryRetrieval(args, memoryDeps),
-      memoryArgs,
-      memoryPluginTurnCtx,
-      DEFAULT_TIMEOUTS.memoryRetrieval,
+    const memoryResult = await runHook(
+      HOOKS.USER_PROMPT_SUBMIT_TEMP,
+      memoryHookCtx,
     );
 
     // Consume the memory-graph retrieval. The retriever owns its own side

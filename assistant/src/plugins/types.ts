@@ -7,7 +7,7 @@
  * placeholders) and add the pipeline runner, registry, and bootstrap.
  *
  * The assistant composes behavior around a small set of named pipelines
- * (`turn`, `memoryRetrieval`, ...). Each plugin may contribute one
+ * (`compaction`, `overflowReduce`, ...). Each plugin may contribute one
  * {@link Middleware} per pipeline; the registry composes them in onion
  * order at runtime. Plugins may also contribute {@link Injector}s that emit
  * system-prompt-time content, as well as model-visible capabilities
@@ -110,11 +110,7 @@ export type Middleware<A, R> = (
  * Exhaustive list of pipeline slot names. New pipelines must be added here
  * and in `DEFAULT_TIMEOUTS` (PR 12). The registry only understands these.
  */
-export type PipelineName =
-  | "memoryRetrieval"
-  | "compaction"
-  | "overflowReduce"
-  | "circuitBreaker";
+export type PipelineName = "compaction" | "overflowReduce" | "circuitBreaker";
 
 // ─── Per-pipeline args / results (placeholder shapes) ────────────────────────
 // Concrete field-level types land in M2/M3 PRs as each pipeline is wrapped.
@@ -130,41 +126,6 @@ export type PipelineName =
 export type GraphMemoryResult = Awaited<
   ReturnType<ConversationGraphMemory["prepareMemory"]>
 >;
-
-/**
- * Inputs to the memory-retrieval pipeline. The pipeline takes only
- * identifiers and the trust context — the actual data sources (PKB files,
- * NOW.md, memory graph) are side-effectful and read by the terminal.
- *
- * `signal` is the per-turn abort signal forwarded to the memory graph's
- * `prepareMemory` call. Carrying it on `args` (rather than on the
- * `DefaultMemoryRetrievalDeps` extra-state bundle) is load-bearing: the
- * pipeline runner's `linkAbortSignal` swaps any `AbortSignal`-typed
- * property on top-level args for an internal linked signal, so a plugin
- * timeout (or external cancel) actually reaches `prepareMemory` and cancels
- * the underlying retrieval instead of letting it run to completion after
- * the pipeline has already errored.
- */
-export interface MemoryArgs {
-  readonly conversationId: string;
-  readonly trustContext: TrustContext | undefined;
-  readonly turnIndex: number;
-  readonly signal: AbortSignal;
-}
-
-/**
- * Outputs of the memory-retrieval pipeline.
- *
- * - `pkbContent` / `nowContent`: trimmed file contents ready for injection,
- *   or `null` when the file is missing/empty.
- * - `graphResult`: the memory-graph retrieval, or `null` when the actor is
- *   not trusted (the graph call is skipped entirely in that case).
- */
-export interface MemoryResult {
-  readonly pkbContent: string | null;
-  readonly nowContent: string | null;
-  readonly graphResult: GraphMemoryResult | null;
-}
 
 /**
  * Pipeline inputs for the `compaction` slot — the arguments the assistant
@@ -376,7 +337,6 @@ export type CircuitBreakerResult = {
  * `getMiddlewaresFor<P>()` type narrowing in PR 13.
  */
 export interface PipelineMiddlewareMap {
-  memoryRetrieval: Middleware<MemoryArgs, MemoryResult>;
   compaction: Middleware<CompactionArgs, CompactionResult>;
   overflowReduce: Middleware<OverflowReduceArgs, OverflowReduceResult>;
   circuitBreaker: Middleware<CircuitBreakerArgs, CircuitBreakerResult>;

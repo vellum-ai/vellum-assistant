@@ -18,8 +18,6 @@ import {
   type CompactionArgs,
   type CompactionResult,
   type Injector,
-  type MemoryArgs,
-  type MemoryResult,
   type Middleware,
   type OverflowReduceArgs,
   type OverflowReduceResult,
@@ -54,15 +52,6 @@ describe("plugin core types", () => {
       requiresFlag: ["sample-feature"],
       config: { parse: (input: unknown) => input },
     };
-
-    // `memoryRetrieval` has a concrete typed signature (MemoryArgs →
-    // MemoryResult) introduced in PR 20, so it can't use the generic
-    // `{ input }` passthrough above.
-    const memoryPassthrough: Middleware<MemoryArgs, MemoryResult> = async (
-      args,
-      next,
-      _ctx,
-    ) => next(args);
 
     // `overflowReduce` has a concrete arg/result shape (PR 23). Uses a
     // dedicated passthrough that returns a structurally-correct result so
@@ -154,7 +143,6 @@ describe("plugin core types", () => {
       ],
       injectors: [injector],
       middleware: {
-        memoryRetrieval: memoryPassthrough,
         compaction: compactionPassthrough,
         overflowReduce: overflowReducePassthrough,
         circuitBreaker: circuitPassthrough,
@@ -163,7 +151,7 @@ describe("plugin core types", () => {
 
     // Minimal runtime check so the test body is non-empty.
     expect(plugin.manifest.name).toBe("sample-plugin");
-    expect(plugin.middleware.memoryRetrieval).toBe(memoryPassthrough);
+    expect(plugin.middleware.compaction).toBe(compactionPassthrough);
   });
 
   test("PluginTimeoutError carries pipeline, plugin, and elapsed fields", () => {
