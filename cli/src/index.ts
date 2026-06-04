@@ -5,6 +5,7 @@ import { backup } from "./commands/backup";
 import { clean } from "./commands/clean";
 import { client } from "./commands/client";
 import { connect } from "./commands/connect";
+import { devices } from "./commands/devices";
 import { env } from "./commands/env";
 import { events } from "./commands/events";
 import { exec } from "./commands/exec";
@@ -40,6 +41,7 @@ const commands = {
   clean,
   client,
   connect,
+  devices,
   env,
   events,
   exec,
@@ -80,6 +82,7 @@ function printHelp(): void {
   console.log("  clean    Kill orphaned vellum processes");
   console.log("  client   Connect to a hatched assistant");
   console.log("  connect  Import an assistant paired from another machine");
+  console.log("  devices  List or revoke devices paired to a local assistant");
   console.log("  env      Manage the default CLI environment");
   console.log("  events   Stream events from a running assistant");
   console.log("  exec     Execute a command inside an assistant's container");
