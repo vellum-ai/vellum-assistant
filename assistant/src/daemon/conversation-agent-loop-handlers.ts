@@ -262,6 +262,25 @@ export interface EventHandlerState {
    */
   lastStreamedContentSeq: number | undefined;
   /**
+   * `seq` of the most recent conversation-scoped event whose content is
+   * committed to a message row by the end of the turn -- text and thinking
+   * deltas (finalized into the assistant row at `message_complete`) and
+   * tool results (persisted as their own row when the pending-results map is
+   * drained at `message_complete`). Recorded as the conversation's persisted
+   * `seq` at `message_complete`, after those writes commit.
+   *
+   * Distinct from `lastStreamedContentSeq`, which tracks only text mirrored
+   * into `currentMessageContent` and is consumed by mid-turn partial flushes:
+   * thinking and tool-result content are NOT in `currentMessageContent`, so
+   * advancing the partial-flush seq to them would over-claim unpersisted
+   * content. This field is read only at `message_complete`, where that
+   * content is genuinely durable, so recording it there is honest. Global
+   * `seq` is monotonic and `recordPersistedSeq` clamps, so it never needs
+   * resetting between LLM calls within a turn (required: a tool result
+   * emitted in one call is persisted at the next call's `message_complete`).
+   */
+  lastContentEventSeq: number | undefined;
+  /**
    * Whether the workspace top-level block should be (re)injected on this
    * turn. Compaction's prepare phase strips the workspace / NOW.md / PKB
    * blocks off the tail, so it is set after any successful compaction to
@@ -355,6 +374,7 @@ export function createEventHandlerState(): EventHandlerState {
     pendingPartialFlushPromise: undefined,
     currentMessageContent: [],
     lastStreamedContentSeq: undefined,
+    lastContentEventSeq: undefined,
     shouldInjectWorkspace: false,
     reducerCompacted: false,
   };
@@ -744,6 +764,7 @@ function handleTextDelta(
     // mirrored content now reflects. A partial flush snapshots this to
     // record how far the durable rows track the live stream.
     state.lastStreamedContentSeq = getCurrentSeq();
+    state.lastContentEventSeq = getCurrentSeq();
     schedulePartialFlush(state, deps);
   }
 }
@@ -779,6 +800,12 @@ function handleThinkingDelta(
     conversationId: deps.ctx.conversationId,
     messageId: state.lastAssistantMessageId,
   });
+  // Thinking content is persisted into the assistant row at message_complete
+  // (from the authoritative `event.message.content`), not via partial flush.
+  // Capture the emitted seq so the turn-boundary persist records it -- without
+  // this, a thinking-only turn (reasoning models that emit no text delta)
+  // would persist its content but never advance the conversation's seq.
+  state.lastContentEventSeq = getCurrentSeq();
 }
 
 export function handleToolUse(
@@ -961,6 +988,7 @@ export function handleToolResult(
       messageId: state.lastAssistantMessageId,
       toolUseId: event.toolUseId,
     });
+    state.lastContentEventSeq = getCurrentSeq();
     return;
   }
 
@@ -1095,6 +1123,12 @@ export function handleToolResult(
     riskThreshold: event.riskThreshold,
     activityMetadata: event.activityMetadata,
   });
+  // The tool-result content is persisted as its own row when the
+  // pending-results map is drained at the next message_complete. Capture the
+  // emitted seq so that turn-boundary persist advances the conversation's seq
+  // to cover the tool output (otherwise a turn ending in a tool result with
+  // no closing assistant text would leave the watermark behind it).
+  state.lastContentEventSeq = getCurrentSeq();
 }
 
 /**
@@ -1473,12 +1507,16 @@ export async function handleMessageComplete(
   const contentJson = JSON.stringify(contentForPersistence);
   updateMessageContent(assistantMessageId, contentJson);
   state.assistantRowAwaitingFinalization = false;
-  // The full message row (text + tool_use blocks from `event.message`) is
-  // now durable. `tool_use_start` SSE events fire after `message_complete`,
-  // so the last stamped event at this point is the final text delta;
-  // recording its seq is honest and never over-claims unpersisted state.
-  if (state.lastStreamedContentSeq != null) {
-    recordPersistedSeq(deps.ctx.conversationId, state.lastStreamedContentSeq);
+  // The full message row (text + thinking + tool_use blocks from
+  // `event.message`) and any drained tool-result rows are now durable.
+  // `tool_use_start` SSE events fire after `message_complete`, so the highest
+  // stamped content event at this point is the last text/thinking delta (or a
+  // tool result drained just above); recording `lastContentEventSeq` is honest
+  // and never over-claims unpersisted state. Using it instead of
+  // `lastStreamedContentSeq` advances the watermark for thinking-only and
+  // tool-terminated turns, which mirror no text into the partial-flush view.
+  if (state.lastContentEventSeq != null) {
+    recordPersistedSeq(deps.ctx.conversationId, state.lastContentEventSeq);
   }
   // Reset the partial-persist mirror so subsequent calls in this turn
   // start with an empty running view.
