@@ -170,7 +170,7 @@ export function ToolCallProgressCard(props: ToolCallProgressCardProps) {
  */
 function isPurelyWebGroup(toolCalls: ChatMessageToolCall[]): boolean {
   if (toolCalls.length === 0) return false;
-  return toolCalls.every((tc) => WEB_TOOL_NAMES.has(tc.toolName));
+  return toolCalls.every((tc) => WEB_TOOL_NAMES.has(tc.name));
 }
 
 /**
@@ -303,7 +303,7 @@ function UnifiedToolCallProgressCard({
                     onCardExpandChange(true);
                     openToolDetail({
                       toolCallId: tc.id,
-                      toolName: tc.toolName,
+                      toolName: tc.name,
                       title: step.title,
                       activity: step.activity,
                       input: tc.input ?? {},
@@ -393,14 +393,14 @@ function UnknownCommandNudge({
         type="button"
         onClick={() =>
           onOpenRuleEditor({
-            toolName: toolCall.toolName,
+            toolName: toolCall.name,
             riskLevel: toolCall.riskLevel,
             riskReason: toolCall.riskReason,
             input: toolCall.input ?? {},
-            allowlistOptions: toolCall.allowlistOptions ?? [],
+            allowlistOptions: toolCall.riskAllowlistOptions ?? [],
             scopeOptions: toolCall.scopeOptions ?? [],
             riskScopeOptions: toolCall.riskScopeOptions ?? [],
-            directoryScopeOptions: toolCall.directoryScopeOptions ?? [],
+            directoryScopeOptions: toolCall.riskDirectoryScopeOptions ?? [],
           })
         }
         // typography: off-scale — inline link within body-small nudge

@@ -23,7 +23,7 @@ function makeToolCall(
 ): ChatMessageToolCall {
   return {
     id: "tc-1",
-    toolName: "ui_show",
+    name: "ui_show",
     input: {},
     status: "completed",
     ...overrides,
@@ -162,7 +162,7 @@ describe("isSurfaceToolCallComplete", () => {
   test("falls back to the latest surface tool call when the surface has no link", () => {
     expect(
       isSurfaceToolCallComplete(makeSurface(), [
-        makeToolCall({ id: "tc-1", toolName: "app_create", status: "running" }),
+        makeToolCall({ id: "tc-1", name: "app_create", status: "running" }),
       ]),
     ).toBe(false);
   });
@@ -170,8 +170,8 @@ describe("isSurfaceToolCallComplete", () => {
   test("fallback picks the latest surface tool call, not an earlier completed one", () => {
     expect(
       isSurfaceToolCallComplete(makeSurface(), [
-        makeToolCall({ id: "tc-1", toolName: "ui_show", status: "completed" }),
-        makeToolCall({ id: "tc-2", toolName: "app_create", status: "running" }),
+        makeToolCall({ id: "tc-1", name: "ui_show", status: "completed" }),
+        makeToolCall({ id: "tc-2", name: "app_create", status: "running" }),
       ]),
     ).toBe(false);
   });
@@ -179,7 +179,7 @@ describe("isSurfaceToolCallComplete", () => {
   test("fallback ignores non-surface tool calls", () => {
     expect(
       isSurfaceToolCallComplete(makeSurface(), [
-        makeToolCall({ id: "tc-1", toolName: "bash", status: "running" }),
+        makeToolCall({ id: "tc-1", name: "bash", status: "running" }),
       ]),
     ).toBe(true);
   });

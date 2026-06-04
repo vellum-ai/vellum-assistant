@@ -760,10 +760,10 @@ export function applyToolResult(
     approvalMode?: string;
     approvalReason?: string;
     riskThreshold?: string;
-    allowlistOptions?: AllowlistOption[];
+    riskAllowlistOptions?: AllowlistOption[];
     scopeOptions?: ScopeOption[];
     riskScopeOptions?: RiskScopeOption[];
-    directoryScopeOptions?: DirectoryScopeOption[];
+    riskDirectoryScopeOptions?: DirectoryScopeOption[];
     /**
      * Structured activity metadata from the tool_result event. Persisted on
      * the tool call so the new `WebSearchProgressCard` can keep rendering
@@ -821,10 +821,10 @@ export function applyToolResult(
     approvalMode: opts.approvalMode,
     approvalReason: opts.approvalReason,
     riskThreshold: opts.riskThreshold,
-    allowlistOptions: opts.allowlistOptions,
+    riskAllowlistOptions: opts.riskAllowlistOptions,
     scopeOptions: opts.scopeOptions,
     riskScopeOptions: opts.riskScopeOptions,
-    directoryScopeOptions: opts.directoryScopeOptions,
+    riskDirectoryScopeOptions: opts.riskDirectoryScopeOptions,
     // Preserve any pre-existing metadata when the new event omits it
     // (no overwrite with undefined on re-applied tool results).
     ...(opts.activityMetadata !== undefined

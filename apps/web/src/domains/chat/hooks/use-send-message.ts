@@ -68,7 +68,8 @@ import { useMessageQueue } from "@/domains/chat/hooks/use-message-queue";
 import { conversationsByIdCancelPost } from "@/generated/daemon/sdk.gen";
 import type { Conversation } from "@/types/conversation-types";
 import { getPendingInteractions } from "@/domains/chat/api/interactions";
-import { type RuntimeMessage, fetchConversationMessages, postChatMessage, pollForResponse } from "@/domains/chat/api/messages";
+import { fetchConversationMessages, postChatMessage, pollForResponse } from "@/domains/chat/api/messages";
+import type { ConversationMessage } from "@vellumai/assistant-api";
 import { supportsServerMintedConversation } from "@/lib/backwards-compat/server-minted-conversation";
 
 // ---------------------------------------------------------------------------
@@ -384,7 +385,7 @@ export function useSendMessage({
             setError({ message: "Assistant did not respond in time." });
             return;
           }
-          let serverMessages: RuntimeMessage[] = [];
+          let serverMessages: ConversationMessage[] = [];
           try {
             serverMessages = await fetchConversationMessages(
               postResult.assistantId,

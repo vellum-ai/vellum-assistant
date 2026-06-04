@@ -98,7 +98,7 @@ function isInvalidMessage(message: DisplayMessage): boolean {
   if (message.surfaces && message.surfaces.length > 0) return false;
   if (message.attachments && message.attachments.length > 0) return false;
   if (message.slackMessage) return false;
-  if (message.toolCalls?.some((tc) => tc.toolName !== "unknown")) return false;
+  if (message.toolCalls?.some((tc) => tc.name !== "unknown")) return false;
 
   return true;
 }
@@ -120,7 +120,7 @@ function isInvalidMessage(message: DisplayMessage): boolean {
 //     `textSegments`/`toolCalls` is non-empty. Guards against accidentally
 //     dropping two empty placeholders that happen to be sequentially equal,
 //   - their `textSegments` arrays match position-for-position,
-//   - their `toolCalls` arrays match position-for-position on `toolName` and
+//   - their `toolCalls` arrays match position-for-position on `name` and
 //     `result`.
 // When all four hold, drop the trailing row.
 //
@@ -166,7 +166,7 @@ function toolCallsMatch(a: DisplayMessage, b: DisplayMessage): boolean {
   for (let i = 0; i < aTcs.length; i++) {
     const aTc = aTcs[i]!;
     const bTc = bTcs[i]!;
-    if (aTc.toolName !== bTc.toolName) return false;
+    if (aTc.name !== bTc.name) return false;
     if (aTc.result !== bTc.result) return false;
   }
   return true;

@@ -3203,14 +3203,14 @@ describe("envelope format parsing", () => {
 });
 
 // ---------------------------------------------------------------------------
-// RuntimeMessage wire shape
+// ConversationMessage wire shape
 // ---------------------------------------------------------------------------
 
-describe("RuntimeMessage wire shape", () => {
-  test("RuntimeMessage carries wire-shape content fields", () => {
+describe("ConversationMessage wire shape", () => {
+  test("ConversationMessage carries wire-shape content fields", () => {
     // Type-level test: the canonical wire contract encodes textSegments as
     // plain strings and contentOrder as positional "<type>:<index>" strings.
-    const msg: import("@/domains/chat/api/messages").RuntimeMessage = {
+    const msg: import("@vellumai/assistant-api").ConversationMessage = {
       id: "msg-1",
       role: "assistant",
       timestamp: "2024-01-01T00:00:00.000Z",
@@ -3230,8 +3230,8 @@ describe("RuntimeMessage wire shape", () => {
     expect(msg.contentOrder).toHaveLength(2);
   });
 
-  test("RuntimeMessage works with only the required fields", () => {
-    const msg: import("@/domains/chat/api/messages").RuntimeMessage = {
+  test("ConversationMessage works with only the required fields", () => {
+    const msg: import("@vellumai/assistant-api").ConversationMessage = {
       id: "msg-2",
       role: "user",
       timestamp: "2024-01-01T00:00:00.000Z",

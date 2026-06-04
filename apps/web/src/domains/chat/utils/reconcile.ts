@@ -4,7 +4,7 @@ import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters
 import { dedupeDisplayMessages, mergeLatestHistoryMessage, mergeThinkingSegments, messagesEqual } from "@/domains/chat/utils/message-merge";
 import { sortByTimestamp, sortedByTimestamp, timestampToMs } from "@/domains/chat/utils/message-sorting";
 import type { DisplayMessage } from "@/domains/chat/types/types";
-import type { RuntimeMessage } from "@/domains/chat/api/messages";
+import type { ConversationMessage } from "@vellumai/assistant-api";
 
 // Re-export public types and utilities so existing consumers that import
 // from `./reconcile` continue to work without changes.
@@ -64,7 +64,7 @@ function indexDisplayMessageByIdentity(
 
 function findDisplayMessageByRuntimeIdentity(
   indexById: Map<string, DisplayMessage>,
-  message: RuntimeMessage,
+  message: ConversationMessage,
 ): DisplayMessage | undefined {
   for (const id of messageIdentityKeys(message)) {
     const existing = indexById.get(id);
@@ -257,7 +257,7 @@ export function reconcileDisplayMessagesWithLatestHistory(
  */
 export function reconcileMessages(
   local: DisplayMessage[],
-  server: RuntimeMessage[],
+  server: ConversationMessage[],
   options?: { oldestPageTimestamp?: number | null },
 ): DisplayMessage[] {
   if (server.length === 0) return dedupeDisplayMessages(local);
