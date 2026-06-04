@@ -311,7 +311,7 @@ terminal runs at the innermost layer. See
 [`assistant/src/plugins/pipeline.ts`](../src/plugins/pipeline.ts) for the
 composition algorithm.
 
-Four common patterns emerge from that signature:
+Five common patterns emerge from that signature:
 
 ### Observe-only
 
@@ -320,8 +320,8 @@ return the result unchanged. Wrap the call in `try`/`finally` so your
 observer runs on both success and failure paths.
 
 ```typescript
-const observer: Middleware<TokenEstimateArgs, TokenEstimateResult> =
-  async function observeEstimate(args, next, ctx) {
+const observer: Middleware<MemoryArgs, MemoryResult> =
+  async function observeRetrieval(args, next, ctx) {
     const start = performance.now();
     let outcome: "success" | "error" = "success";
     try {
@@ -332,7 +332,7 @@ const observer: Middleware<TokenEstimateArgs, TokenEstimateResult> =
     } finally {
       const ms = Math.round(performance.now() - start);
       console.error(
-        JSON.stringify({ messages: args.history.length, ms, outcome }),
+        JSON.stringify({ conversationId: args.conversationId, ms, outcome }),
       );
     }
   };
@@ -341,13 +341,12 @@ const observer: Middleware<TokenEstimateArgs, TokenEstimateResult> =
 ### Transform input
 
 Rewrite `args` before calling downstream. Useful for reshaping the inputs
-(dropping tool cost from the budget, swapping the calibration provider).
+(forcing an untrusted read, narrowing the turn the retriever sees).
 
 ```typescript
-const ignoreToolCost: Middleware<TokenEstimateArgs, TokenEstimateResult> =
-  async function ignoreToolCost(args, next, ctx) {
-    const trimmed = { ...args, tools: [] };
-    return next(trimmed);
+const untrustedRead: Middleware<MemoryArgs, MemoryResult> =
+  async function untrustedRead(args, next, ctx) {
+    return next({ ...args, trustContext: undefined });
   };
 ```
 
@@ -356,11 +355,14 @@ const ignoreToolCost: Middleware<TokenEstimateArgs, TokenEstimateResult> =
 Call `next(args)` first, then modify the result before returning.
 
 ```typescript
-const addSafetyMargin: Middleware<TokenEstimateArgs, TokenEstimateResult> =
-  async function addSafetyMargin(args, next, ctx) {
-    const estimate = await next(args);
-    return Math.ceil(estimate * 1.1);
-  };
+const dropNow: Middleware<MemoryArgs, MemoryResult> = async function dropNow(
+  args,
+  next,
+  ctx,
+) {
+  const result = await next(args);
+  return { ...result, nowContent: null };
+};
 ```
 
 ### Short-circuit
@@ -370,10 +372,11 @@ terminal and any inner middleware are skipped. Use this to stub, cache,
 or mock a pipeline.
 
 ```typescript
-const cachedEstimate: Middleware<TokenEstimateArgs, TokenEstimateResult> =
-  async function cachedEstimate(args, next, ctx) {
-    const cached = lookupCache(args);
-    if (cached !== undefined) return cached;
+const skipUntrusted: Middleware<MemoryArgs, MemoryResult> =
+  async function skipUntrusted(args, next, ctx) {
+    if (!isTrusted(ctx.trust)) {
+      return { pkbContent: null, nowContent: null, graphResult: null };
+    }
     return next(args);
   };
 ```
@@ -385,10 +388,10 @@ through any outer middleware unchanged — there is no internal
 `try`/`catch` around user middleware.
 
 ```typescript
-const denyIfUntrusted: Middleware<TokenEstimateArgs, TokenEstimateResult> =
+const denyIfUntrusted: Middleware<MemoryArgs, MemoryResult> =
   async function denyIfUntrusted(args, next, ctx) {
     if (!isTrusted(ctx.trust)) {
-      throw new Error(`tokenEstimate denied by policy`);
+      throw new Error(`memoryRetrieval denied by policy`);
     }
     return next(args);
   };
@@ -401,7 +404,7 @@ pipeline runner pulls `Function.name` into its `chain` log field so
 operators can see the registered chain at a glance:
 
 ```
-plugin.pipeline pipeline=tokenEstimate chain=["observeEstimate","addSafetyMargin","defaultTokenEstimate"] durationMs=1840 outcome=success
+plugin.pipeline pipeline=memoryRetrieval chain=["observeRetrieval","dropNow","defaultMemoryRetrieval"] durationMs=1840 outcome=success
 ```
 
 ## Hooks
@@ -433,10 +436,8 @@ Every pipeline slot and its purpose. Type details live in
 | Pipeline          | Purpose                                                                                                |
 | ----------------- | ------------------------------------------------------------------------------------------------------ |
 | `memoryRetrieval` | PKB, NOW.md, and memory-graph retrieval for a turn. Output is a merged `MemoryResult`.                 |
-| `tokenEstimate`   | The token-count estimate used for budgeting. Wraps `estimatePromptTokensRaw`.                          |
 | `compaction`      | The conversation-compaction step. Wraps `ContextWindowManager.maybeCompact`.                           |
 | `overflowReduce`  | The reducer tier loop invoked when a turn blows the context budget.                                    |
-| `persistence`     | Every message CRUD op (`add` / `update` / `delete`). Discriminated by `args.op`.                       |
 | `circuitBreaker`  | The compaction circuit breaker. Tracks consecutive-failure state, decides whether to open the circuit. |
 
 ## Timeouts
@@ -451,10 +452,8 @@ current values.
 | Pipeline          | Timeout  | Rationale                                                                                                      |
 | ----------------- | -------- | -------------------------------------------------------------------------------------------------------------- |
 | `memoryRetrieval` | 5000 ms  | Memory reads may hit Qdrant and disk; 5 s leaves slack for cold caches without blocking the turn indefinitely. |
-| `tokenEstimate`   | 1000 ms  | Same — CPU-bound, should return instantly.                                                                     |
 | `compaction`      | 30000 ms | Summarization involves a provider call; mirrors the pipeline-level budget for LLM-backed operations.           |
 | `overflowReduce`  | 30000 ms | Iterative compaction; matches the `compaction` budget since each tier step may invoke it.                      |
-| `persistence`     | 10000 ms | SQLite writes, Qdrant deletes, and disk syncs. 10 s is generous for the slowest op (batched segment inserts).  |
 | `circuitBreaker`  | 500 ms   | Numeric state update — must be near-instant.                                                                   |
 
 `null` timeouts skip the timer entirely. Finite timeouts arm a
@@ -792,7 +791,7 @@ Every pipeline invocation emits one structured line tagged
 
 | Field                                      | Meaning                                                                 |
 | ------------------------------------------ | ----------------------------------------------------------------------- |
-| `pipeline`                                 | Pipeline name (`compaction`, `persistence`, …).                         |
+| `pipeline`                                 | Pipeline name (`compaction`, `overflowReduce`, …).                      |
 | `chain`                                    | Ordered list of middleware function names, outermost first.             |
 | `durationMs`                               | Total time spent in the composed chain.                                 |
 | `outcome`                                  | `"success"`, `"error"`, or `"timeout"`.                                 |

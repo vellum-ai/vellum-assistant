@@ -91,7 +91,7 @@ export function PrivacyPage() {
   };
 
   return (
-    <div className="mx-auto max-w-[940px] space-y-4">
+    <div className="space-y-4">
       <BiometricSettingsCard />
       <TrustRules />
       <RiskToleranceSettings />

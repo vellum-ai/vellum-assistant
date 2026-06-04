@@ -33,10 +33,10 @@ import type {
 } from "../daemon/conversation-runtime-assembly.js";
 import type { PkbContextConversation } from "../daemon/pkb-context-tracker.js";
 import type { TrustContext } from "../daemon/trust-context.js";
-import type { MessageRole } from "../memory/conversation-crud.js";
+import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
 import type { PluginHookFn } from "../plugin-api/types.js";
-import type { Message, ToolDefinition } from "../providers/types.js";
+import type { Message } from "../providers/types.js";
 import type { SkillRoute } from "../runtime/skill-route-registry.js";
 import type { Tool } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
@@ -112,10 +112,8 @@ export type Middleware<A, R> = (
  */
 export type PipelineName =
   | "memoryRetrieval"
-  | "tokenEstimate"
   | "compaction"
   | "overflowReduce"
-  | "persistence"
   | "circuitBreaker";
 
 // ─── Per-pipeline args / results (placeholder shapes) ────────────────────────
@@ -124,18 +122,14 @@ export type PipelineName =
 // the types without depending on unstable internal shapes.
 
 /**
- * A single retrieved memory artifact.
- *
- * The memory-graph retriever emits complex, tightly-coupled state (content
- * blocks, query vectors, metrics, events, etc.) that downstream code in the
- * agent loop consumes holistically. Representing each memory-graph output as
- * an opaque `MemoryBlock` lets plugins swap in completely different shapes
- * (custom retrievers, mocks for testing) without requiring the plugin surface
- * to re-declare the graph result schema here. Refined by consumers via
- * runtime narrowing — the default retriever attaches a structural marker so
- * the agent loop can safely unwrap its own output.
+ * Full output of a single memory-graph retrieval — the object returned by
+ * {@link ConversationGraphMemory.prepareMemory} (injected messages, query
+ * vectors, metrics). The agent loop consumes these fields directly to drive
+ * PKB hint search and runtime injection.
  */
-export type MemoryBlock = unknown;
+export type GraphMemoryResult = Awaited<
+  ReturnType<ConversationGraphMemory["prepareMemory"]>
+>;
 
 /**
  * Inputs to the memory-retrieval pipeline. The pipeline takes only
@@ -163,49 +157,14 @@ export interface MemoryArgs {
  *
  * - `pkbContent` / `nowContent`: trimmed file contents ready for injection,
  *   or `null` when the file is missing/empty.
- * - `memoryGraphBlocks`: zero or one memory-graph retrievals (the default
- *   retriever yields exactly one when the actor is trusted and the graph
- *   produced output, zero otherwise). Multi-entry arrays are reserved for
- *   future multi-source retrievers; the current agent loop consumes only
- *   the first entry.
+ * - `graphResult`: the memory-graph retrieval, or `null` when the actor is
+ *   not trusted (the graph call is skipped entirely in that case).
  */
 export interface MemoryResult {
   readonly pkbContent: string | null;
   readonly nowContent: string | null;
-  readonly memoryGraphBlocks: ReadonlyArray<MemoryBlock>;
+  readonly graphResult: GraphMemoryResult | null;
 }
-
-/**
- * Inputs to the `tokenEstimate` pipeline. The default middleware delegates
- * these straight to {@link estimatePromptTokensRaw}; custom plugins may
- * substitute an alternate estimator (e.g. provider-native tokenization) by
- * short-circuiting the pipeline with their own {@link EstimateResult}.
- *
- * Fields:
- * - `history` — current message list to estimate over.
- * - `systemPrompt` — system prompt string, or `undefined` when absent.
- * - `tools` — tool definitions visible on this turn. The default plugin
- *   sums their token budget via `estimateToolsTokens(tools)` and hands the
- *   result to the raw estimator via `toolTokenBudget`. Plugins that want to
- *   ignore tool cost can skip that term.
- * - `providerName` — canonical calibration provider key (the value returned
- *   by `getCalibrationProviderKey(provider)`). Drives provider-specific
- *   heuristics inside the raw estimator (e.g. Anthropic image sizing).
- */
-export type EstimateArgs = {
-  readonly history: Message[];
-  readonly systemPrompt: string | undefined;
-  readonly tools: ToolDefinition[];
-  readonly providerName: string | undefined;
-};
-
-/** Result of the `tokenEstimate` pipeline — total estimated prompt tokens. */
-export type EstimateResult = number;
-
-/** Alias retained for symmetry with the rest of the pipeline-name family. */
-export type TokenEstimateArgs = EstimateArgs;
-/** Alias retained for symmetry with the rest of the pipeline-name family. */
-export type TokenEstimateResult = EstimateResult;
 
 /**
  * Pipeline inputs for the `compaction` slot — the arguments the assistant
@@ -350,134 +309,6 @@ export interface OverflowReduceResult {
 }
 
 /**
- * Pipeline arguments for `persistence` — a discriminated union over the
- * message-CRUD operations plugins may observe, redirect, or short-circuit:
- *
- * - `add`           — append a new message (`addMessage`). Mirrors
- *                     `addMessage(conversationId, role, content, options?)`.
- *                     When `syncToDisk` is set, the default plugin also runs
- *                     {@link syncMessageToDisk} against the just-persisted row
- *                     so the JSONL disk view stays consistent. The
- *                     `createdAtMs` field carries the conversation's creation
- *                     timestamp — needed to resolve the disk-view directory.
- * - `reserve`       — pre-allocate an empty assistant anchor row
- *                     (`reserveMessage`) so the agent loop can stamp streaming
- *                     events with stable identity before any content is
- *                     produced. Returns the same row shape as `add`.
- * - `updateContent` — overwrite the content of an existing message
- *                     (`updateMessageContent`). Used to finalize a previously
- *                     reserved row, and by consolidation paths.
- * - `update`        — shallow-merge metadata into an existing message
- *                     (`updateMessageMetadata`). Returns `void`.
- * - `delete`        — remove a single message (`deleteMessageById`). Returns
- *                     the {@link DeletedMemoryIds}-shaped segment/summary IDs
- *                     the caller must clean up out-of-band.
- *
- * The discriminated `op` field lets plugin middleware narrow the union and
- * tailor behavior per-operation (e.g. "only observe deletes", "redirect
- * adds to a mock store").
- */
-export type PersistAddArgs = {
-  readonly op: "add";
-  readonly conversationId: string;
-  readonly role: MessageRole;
-  readonly content: string;
-  readonly metadata?: Record<string, unknown>;
-  readonly addOptions?: { readonly skipIndexing?: boolean };
-  /**
-   * When `true`, the default plugin additionally invokes
-   * {@link syncMessageToDisk} with the returned message's id. Requires
-   * {@link createdAtMs} to resolve the conversation's disk-view directory.
-   */
-  readonly syncToDisk?: boolean;
-  /** Conversation creation timestamp — only read when `syncToDisk` is true. */
-  readonly createdAtMs?: number;
-};
-
-export type PersistReserveArgs = {
-  readonly op: "reserve";
-  readonly conversationId: string;
-  readonly role: MessageRole;
-  readonly metadata?: Record<string, unknown>;
-};
-
-export type PersistUpdateContentArgs = {
-  readonly op: "updateContent";
-  readonly messageId: string;
-  readonly content: string;
-};
-
-export type PersistUpdateArgs = {
-  readonly op: "update";
-  readonly messageId: string;
-  readonly updates: Record<string, unknown>;
-};
-
-export type PersistDeleteArgs = {
-  readonly op: "delete";
-  readonly messageId: string;
-};
-
-export type PersistArgs =
-  | PersistAddArgs
-  | PersistReserveArgs
-  | PersistUpdateContentArgs
-  | PersistUpdateArgs
-  | PersistDeleteArgs;
-
-/**
- * Result row returned by an `add` op — matches the shape produced by
- * {@link addMessage}. Kept structural (not imported from `memory/`) so the
- * plugin types module stays decoupled from the storage layer.
- */
-export type PersistAddResult = {
-  readonly op: "add";
-  readonly message: {
-    readonly id: string;
-    readonly conversationId: string;
-    readonly role: string;
-    readonly content: string;
-    readonly createdAt: number;
-    readonly metadata?: string;
-  };
-};
-
-/**
- * Result row returned by a `reserve` op — same row shape as `add` but with
- * empty `content` (`"[]"`) and tagged distinctly so middleware can branch
- * on intent.
- */
-export type PersistReserveResult = {
-  readonly op: "reserve";
-  readonly message: {
-    readonly id: string;
-    readonly conversationId: string;
-    readonly role: string;
-    readonly content: string;
-    readonly createdAt: number;
-    readonly metadata?: string;
-  };
-};
-
-export type PersistUpdateContentResult = { readonly op: "updateContent" };
-
-export type PersistUpdateResult = { readonly op: "update" };
-
-/** IDs of segments/summaries the caller must remove from Qdrant. */
-export type PersistDeleteResult = {
-  readonly op: "delete";
-  readonly segmentIds: string[];
-  readonly deletedSummaryIds: string[];
-};
-
-export type PersistResult =
-  | PersistAddResult
-  | PersistReserveResult
-  | PersistUpdateContentResult
-  | PersistUpdateResult
-  | PersistDeleteResult;
-
-/**
  * Arguments for the `circuitBreaker` pipeline.
  *
  * A single call pattern handles both querying and updating the breaker:
@@ -546,10 +377,8 @@ export type CircuitBreakerResult = {
  */
 export interface PipelineMiddlewareMap {
   memoryRetrieval: Middleware<MemoryArgs, MemoryResult>;
-  tokenEstimate: Middleware<TokenEstimateArgs, TokenEstimateResult>;
   compaction: Middleware<CompactionArgs, CompactionResult>;
   overflowReduce: Middleware<OverflowReduceArgs, OverflowReduceResult>;
-  persistence: Middleware<PersistArgs, PersistResult>;
   circuitBreaker: Middleware<CircuitBreakerArgs, CircuitBreakerResult>;
 }
 

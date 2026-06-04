@@ -1,4 +1,12 @@
-import { CheckCircle2, ExternalLink, Loader2, X, XCircle } from "lucide-react";
+import { Tooltip } from "@vellum/design-library";
+import {
+  CheckCircle2,
+  ExternalLink,
+  Info,
+  Loader2,
+  X,
+  XCircle,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { IntegrationIcon } from "@/components/integrations/integration-icon";
@@ -24,6 +32,7 @@ interface OAuthConnectSurfaceProps {
     data?: Record<string, unknown>,
   ) => void;
   assistantId?: string | null;
+  assistantDisplayName?: string | null;
   oauthClient?: ManagedOAuthConnectClient;
 }
 
@@ -47,10 +56,34 @@ function getProviderLabel(
   return "this account";
 }
 
+function OAuthApprovalInfo({
+  assistantDisplayName,
+}: {
+  assistantDisplayName?: string | null;
+}) {
+  const assistantLabel = assistantDisplayName?.trim() || "Your assistant";
+  return (
+    <Tooltip
+      content={`${assistantLabel} never acts on your behalf without your approval`}
+      side="top"
+      align="end"
+    >
+      <button
+        type="button"
+        aria-label="About assistant approval"
+        className="inline-flex h-5 w-5 items-center justify-center rounded-md text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--content-strong)] keyboard-focus:outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
+      >
+        <Info className="h-3.5 w-3.5" />
+      </button>
+    </Tooltip>
+  );
+}
+
 export function OAuthConnectSurface({
   surface,
   onAction,
   assistantId,
+  assistantDisplayName,
   oauthClient = defaultManagedOAuthConnectClient,
 }: OAuthConnectSurfaceProps) {
   const data = surface.data as OAuthConnectSurfaceData;
@@ -148,7 +181,12 @@ export function OAuthConnectSurface({
               {surface.title ?? `Connect ${providerLabel}`}
             </div>
             <p className="mt-1 text-body-medium-lighter text-[var(--content-quiet)]">
-              {description}
+              <span>{description}</span>
+              <span className="ml-1.5 inline-flex align-middle">
+                <OAuthApprovalInfo
+                  assistantDisplayName={assistantDisplayName}
+                />
+              </span>
             </p>
 
             {missingConfiguration && (

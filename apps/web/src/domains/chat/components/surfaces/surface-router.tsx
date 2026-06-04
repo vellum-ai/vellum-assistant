@@ -18,6 +18,7 @@ import { OAuthConnectSurface } from "@/domains/chat/components/surfaces/oauth-co
 import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container";
 import { TableSurface } from "@/domains/chat/components/surfaces/table-surface";
 import { TaskPreferencesSurface } from "@/domains/chat/components/surfaces/task-preferences-surface";
+import { WorkResultSurface } from "@/domains/chat/components/surfaces/work-result-surface";
 
 export interface SurfaceRouterProps {
   surface: Surface;
@@ -27,6 +28,7 @@ export interface SurfaceRouterProps {
     data?: Record<string, unknown>,
   ) => void;
   assistantId?: string | null;
+  assistantDisplayName?: string | null;
   onOpenApp?: (appId: string) => void;
   onOpenDocument?: (documentSurfaceId: string) => void;
   /** Tool calls of the message this surface belongs to. Threaded to
@@ -39,6 +41,7 @@ export function SurfaceRouter({
   surface,
   onAction,
   assistantId,
+  assistantDisplayName,
   onOpenApp,
   onOpenDocument,
   toolCalls,
@@ -94,6 +97,7 @@ export function SurfaceRouter({
           surface={surface}
           onAction={onAction}
           assistantId={assistantId}
+          assistantDisplayName={assistantDisplayName}
         />
       );
 
@@ -122,6 +126,9 @@ export function SurfaceRouter({
 
     case "task_preferences":
       return <TaskPreferencesSurface surface={surface} onAction={onAction} />;
+
+    case "work_result":
+      return <WorkResultSurface surface={surface} onAction={onAction} />;
 
     case "document_preview":
       return (

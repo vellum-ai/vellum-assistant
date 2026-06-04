@@ -21,10 +21,13 @@
  * as a gateway edge token — send it as `Authorization: Bearer <token>` on
  * subsequent runtime requests.
  *
- * Response body: `{ token, expiresAt, guardianId, assistantId }`
+ * Response body: `{ token, expiresAt, guardianId, assistantId }`. The
+ * device-bound path (a `deviceId` is supplied) additionally returns
+ * `{ refreshToken, refreshTokenExpiresAt, refreshAfter }` so the client can
+ * renew via `/v1/guardian/refresh` instead of re-pairing.
  */
 
-import { mintAndRecordDeviceBoundAccessToken } from "../../auth/guardian-bootstrap.js";
+import { mintAndRecordDeviceBoundTokenPair } from "../../auth/guardian-bootstrap.js";
 import { CURRENT_POLICY_EPOCH } from "../../auth/policy.js";
 import { mintToken } from "../../auth/token-service.js";
 import { KNOWN_EXTENSION_ORIGINS } from "../../chrome-extension-origins.js";
@@ -367,11 +370,22 @@ export async function handlePair(
   }
 
   // CLI pairing (e.g. `vellum pair`): a loopback-local caller mints a
-  // device-bound token for another machine. No extension-origin check applies
-  // (the CLI is not a browser); the loopback / X-Forwarded-For / edge-marker
-  // guards above are the boundary. A deviceId is required — CLI pairing is
-  // always device-scoped (and thus revocable).
+  // device-bound token for another machine. The loopback / X-Forwarded-For /
+  // edge-marker guards above are the boundary. A deviceId is required — CLI
+  // pairing is always device-scoped (and thus revocable).
   if (interfaceId === "cli") {
+    // A real `vellum pair` is a terminal process and never sends an Origin
+    // header; any Origin means a browser/WebView is calling (e.g. dynamic
+    // surface JS at https://<appId>.vellum.local). Reject it: combined with the
+    // gateway's WebView CORS allowance, such JS could otherwise mint and read
+    // back a broadly-scoped actor_client_v1 token. (A local non-browser process
+    // omitting Origin can still mint — that's the intentional loopback trust
+    // model; this guard closes the browser/WebView sandbox-escape vector.)
+    const origin = req.headers.get("origin");
+    if (origin) {
+      auditDeny(req, clientIp, "cli_browser_origin", { origin });
+      return errorResponse("FORBIDDEN", "endpoint is local-only", 403);
+    }
     if (!deviceId) {
       return errorResponse(
         "BAD_REQUEST",
@@ -398,14 +412,18 @@ export async function handlePair(
 }
 
 /**
- * Mint a device-bound, recorded, per-device-revocable access token (short pair
- * TTL, no refresh token) and build the pair response. Shared by the
- * chrome-extension (deviceId) and cli pairing paths.
+ * Mint a device-bound, recorded, per-device-revocable credential and build the
+ * pair response. Shared by the chrome-extension (deviceId) and cli pairing
+ * paths.
  *
- * No refresh token is issued: a long-lived refresh could silently re-mint long
- * access tokens, so refreshable pairing is deferred until that's handled
- * explicitly. The recorded token is immediately revocable; the short TTL bounds
- * its reach in the interim.
+ * Issues the standard access + long-lived device-scoped refresh token pair, so
+ * a paired client renews via `/v1/guardian/refresh` instead of re-pairing.
+ * Both are revocable per device on the hot path (actor-token revocation is
+ * enforced on live requests), and the refresh endpoint rejects revoked/rotated
+ * tokens — so revocation, not a short TTL, bounds a leaked token's reach. The
+ * access TTL matches what `/v1/guardian/refresh` mints on rotation, so it stays
+ * consistent across the token's life (rather than 24h at mint then 30d after
+ * the first refresh).
  */
 function mintDeviceBoundPairResponse(opts: {
   guardianPrincipalId: string;
@@ -415,11 +433,10 @@ function mintDeviceBoundPairResponse(opts: {
   interfaceId: string;
   clientId: string | null;
 }): Response {
-  const access = mintAndRecordDeviceBoundAccessToken({
+  const pair = mintAndRecordDeviceBoundTokenPair({
     guardianPrincipalId: opts.guardianPrincipalId,
     deviceId: opts.deviceId,
     platform: opts.platform,
-    ttlSeconds: PAIR_TOKEN_TTL_SECONDS,
   });
 
   log.info(
@@ -433,8 +450,11 @@ function mintDeviceBoundPairResponse(opts: {
   );
 
   return Response.json({
-    token: access.accessToken,
-    expiresAt: new Date(access.accessTokenExpiresAt).toISOString(),
+    token: pair.accessToken,
+    expiresAt: new Date(pair.accessTokenExpiresAt).toISOString(),
+    refreshToken: pair.refreshToken,
+    refreshTokenExpiresAt: new Date(pair.refreshTokenExpiresAt).toISOString(),
+    refreshAfter: new Date(pair.refreshAfter).toISOString(),
     guardianId: opts.guardianPrincipalId,
     assistantId: opts.assistantId,
   });

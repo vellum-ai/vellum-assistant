@@ -12,6 +12,9 @@ import {
   useIsSessionInitializing,
   useHasPlatformSession,
 } from "@/stores/auth-store";
+import { getOnboardingEntrypoint } from "@/domains/onboarding/gate";
+import { setMenuPlatformSession } from "@/runtime/menu";
+import { useVellumCommands } from "@/runtime/vellum-commands";
 import { useEnvironmentStore } from "@/stores/environment-store";
 import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
 import { useDocumentEditorSync } from "@/hooks/use-document-editor-sync";
@@ -101,6 +104,16 @@ export function RootLayout() {
   // `useDeepLinkConsumer` because it owns `setInput`; the two
   // hand off via `pending-deep-link-store`.
   useGlobalDeepLinkConsumer();
+
+  useVellumCommands({
+    logout: () => {
+      void setMenuPlatformSession(false).then(() =>
+        useAuthStore.getState().logout(),
+      ).then(() => {
+        navigate(getOnboardingEntrypoint());
+      });
+    },
+  });
 
   const keyboardOpen =
     isMobile &&

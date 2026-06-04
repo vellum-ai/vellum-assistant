@@ -34,9 +34,35 @@ RUN id -u mitmproxy >/dev/null 2>&1 \
   && [ "$(id -u mitmproxy)" = "1000" ]
 
 COPY apply-recording-jail.sh entrypoint.sh /opt/recording/
-COPY addon.py usage_parser.py /opt/recording/
+COPY addon.py usage_parser.py mock_github_handler.py /opt/recording/
 RUN chmod +x /opt/recording/apply-recording-jail.sh /opt/recording/entrypoint.sh \
   && chown -R mitmproxy:mitmproxy /opt/recording
+
+# Pre-generate the mitmproxy CA at build time. The CA file is needed
+# in the assistant container's trust store before any plugin install
+# runs — the entrypoint copies it to /recording at startup, then
+# docker-jail.ts grabs it from the bind-mount and installs it into
+# the assistant container.
+#
+# mitmproxy generates the CA on first launch in `confdir`. Running
+# mitmdump briefly on an unused port forces the cert chain to land on
+# disk; we then kill it and assert the file exists so the build fails
+# loudly if the upstream image ever changes this behavior. Pinning
+# the CA at build means every container instance trusts the same CA
+# (acceptable for an eval-local sidecar; would not be for a multi-
+# tenant proxy).
+RUN su -s /bin/sh -c '\
+  mitmdump --set confdir=/home/mitmproxy/.mitmproxy --listen-port 19999 & \
+  PID=$!; \
+  i=0; \
+  while [ ! -f /home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem ] && [ $i -lt 50 ]; do \
+    sleep 0.1; \
+    i=$((i+1)); \
+  done; \
+  kill $PID 2>/dev/null; \
+  wait $PID 2>/dev/null || true; \
+  [ -f /home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem ]\
+' mitmproxy
 
 # Recording output volume target. The `evals run` harness mounts the
 # per-run artifacts dir here so mitmproxy writes egress-usage.ndjson

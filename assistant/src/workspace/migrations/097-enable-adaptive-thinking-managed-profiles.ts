@@ -28,7 +28,7 @@ const TARGET_PROFILES = ["balanced", "quality-optimized"] as const;
 
 export const enableAdaptiveThinkingManagedProfilesMigration: WorkspaceMigration =
   {
-    id: "096-enable-adaptive-thinking-managed-profiles",
+    id: "097-enable-adaptive-thinking-managed-profiles",
     description:
       "Enable adaptive thinking on managed balanced and quality-optimized profiles",
     run(workspaceDir: string): void {

@@ -50,11 +50,7 @@ import type {
   MemoryResult,
   OverflowReduceArgs,
   OverflowReduceResult,
-  PersistArgs,
-  PersistResult,
   Plugin,
-  TokenEstimateArgs,
-  TokenEstimateResult,
 } from "../../../src/plugins/types.js";
 
 const runtime = (globalThis as { __vellumPluginRuntime?: VellumPluginRuntime })
@@ -135,14 +131,10 @@ const echoPlugin: Plugin = {
   },
   middleware: {
     memoryRetrieval: makeObserver<MemoryArgs, MemoryResult>("memoryRetrieval"),
-    tokenEstimate: makeObserver<TokenEstimateArgs, TokenEstimateResult>(
-      "tokenEstimate",
-    ),
     compaction: makeObserver<CompactionArgs, CompactionResult>("compaction"),
     overflowReduce: makeObserver<OverflowReduceArgs, OverflowReduceResult>(
       "overflowReduce",
     ),
-    persistence: makeObserver<PersistArgs, PersistResult>("persistence"),
     circuitBreaker: makeObserver<CircuitBreakerArgs, CircuitBreakerResult>(
       "circuitBreaker",
     ),

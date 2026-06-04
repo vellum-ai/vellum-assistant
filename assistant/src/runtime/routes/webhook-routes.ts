@@ -10,6 +10,8 @@
  *     with the platform for this assistant.
  */
 
+import { z } from "zod";
+
 import { getIsPlatform } from "../../config/env-registry.js";
 import { getConfig } from "../../config/loader.js";
 import {
@@ -24,6 +26,38 @@ import {
   UnprocessableEntityError,
 } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+
+// ---------------------------------------------------------------------------
+// Schemas
+// ---------------------------------------------------------------------------
+
+const WebhooksRegisterRequestSchema = z.object({
+  type: z.string(),
+  path: z.string().optional(),
+  source: z.string().optional(),
+});
+
+const WebhooksRegisterResponseSchema = z.object({
+  callbackUrl: z.string(),
+  type: z.string(),
+  path: z.string(),
+  mode: z.enum(["platform", "self-hosted"]),
+});
+type WebhooksRegisterResponse = z.infer<typeof WebhooksRegisterResponseSchema>;
+
+const WebhookCallbackRouteSchema = z.object({
+  id: z.string(),
+  assistant_id: z.string(),
+  type: z.string(),
+  callback_path: z.string(),
+  callback_url: z.string(),
+  source_identifier: z.string().nullable(),
+});
+
+const WebhooksListResponseSchema = z.object({
+  routes: z.array(WebhookCallbackRouteSchema),
+});
+type WebhooksListResponse = z.infer<typeof WebhooksListResponseSchema>;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -49,7 +83,7 @@ function deriveWebhookPath(type: string): string {
 
 async function handleWebhooksRegister(
   args: RouteHandlerArgs,
-): Promise<unknown> {
+): Promise<WebhooksRegisterResponse> {
   const { type, path: pathOverride, source } = args.body ?? {};
 
   if (!type || typeof type !== "string") {
@@ -93,7 +127,9 @@ async function handleWebhooksRegister(
   };
 }
 
-async function handleWebhooksList(_args: RouteHandlerArgs): Promise<unknown> {
+async function handleWebhooksList(
+  _args: RouteHandlerArgs,
+): Promise<WebhooksListResponse> {
   const context = await resolvePlatformCallbackRegistrationContext();
 
   if (!context.platformBaseUrl || !context.authHeader) {
@@ -155,6 +191,8 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Resolves a stable callback URL for a webhook type. On platform-managed assistants, registers the route with the platform gateway. On self-hosted assistants, uses the configured ingress.publicBaseUrl.",
     tags: ["webhooks"],
+    requestBody: WebhooksRegisterRequestSchema,
+    responseBody: WebhooksRegisterResponseSchema,
     handler: handleWebhooksRegister,
   },
   {
@@ -169,6 +207,7 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Lists all webhook callback routes registered with the platform for this assistant.",
     tags: ["webhooks"],
+    responseBody: WebhooksListResponseSchema,
     handler: handleWebhooksList,
   },
 ];

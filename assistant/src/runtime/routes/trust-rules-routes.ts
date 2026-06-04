@@ -43,9 +43,30 @@ const TrustRulesListParams = z
   })
   .strict();
 
+const TrustRuleSchema = z.object({
+  id: z.string(),
+  tool: z.string(),
+  pattern: z.string(),
+  risk: z.enum(["low", "medium", "high"]),
+  description: z.string(),
+  origin: z.enum(["default", "user_defined"]),
+  userModified: z.boolean(),
+  deleted: z.boolean(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+const TrustRulesListResponseSchema = z.object({
+  rules: z.array(TrustRuleSchema),
+});
+type TrustRulesListResponse = z.infer<typeof TrustRulesListResponseSchema>;
+
 // ── Handlers ────────────────────────────────────────────────────────────
 
-async function handleList({ queryParams = {}, body = {} }: RouteHandlerArgs) {
+async function handleList({
+  queryParams = {},
+  body = {},
+}: RouteHandlerArgs): Promise<TrustRulesListResponse> {
   // HTTP GET delivers filters via queryParams; CLI IPC puts them in body.
   const source = Object.keys(queryParams).length > 0 ? queryParams : body;
   const p = TrustRulesListParams.parse(source);
@@ -54,7 +75,9 @@ async function handleList({ queryParams = {}, body = {} }: RouteHandlerArgs) {
   if (p.origin) qs.set("origin", p.origin);
   if (p.include_all) qs.set("include_all", "true");
   const query = qs.toString();
-  return gatewayFetch(`/v1/trust-rules${query ? `?${query}` : ""}`);
+  return gatewayFetch(
+    `/v1/trust-rules${query ? `?${query}` : ""}`,
+  ) as Promise<TrustRulesListResponse>;
 }
 
 // ── Route definitions ───────────────────────────────────────────────────
@@ -73,6 +96,7 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "List trust rules, optionally filtered by tool, origin, or include_all.",
     tags: ["trust-rules"],
+    responseBody: TrustRulesListResponseSchema,
     queryParams: [
       { name: "tool", description: "Filter by tool name" },
       { name: "origin", description: "Filter by origin" },

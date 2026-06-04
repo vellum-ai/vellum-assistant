@@ -4,6 +4,7 @@ import type { LLMCallSite } from "../config/schemas/llm.js";
 import { stripInjectionsForCompaction } from "../context/strip-injections.js";
 import {
   estimatePromptTokensRaw,
+  estimatePromptTokensWithTools,
   estimateToolsTokens,
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
@@ -12,15 +13,13 @@ import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.
 import { HOOKS } from "../plugin-api/constants.js";
 import type { PostToolUseContext, StopContext } from "../plugin-api/types.js";
 import { defaultCompactionTerminal } from "../plugins/defaults/compaction/terminal.js";
-import { defaultTokenEstimateTerminal } from "../plugins/defaults/token-estimate/terminal.js";
+import type { PostCompactionHookInput } from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
 import { DEFAULT_TIMEOUTS, runHook, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
   CompactionArgs,
   CompactionCircuitEvent,
   CompactionResult,
-  EstimateArgs,
-  EstimateResult,
   TurnContext,
 } from "../plugins/types.js";
 import { PluginTimeoutError } from "../plugins/types.js";
@@ -86,17 +85,28 @@ export type ExitReason = "handoff" | "budget";
 
 export type CheckpointDecision = "continue" | ExitReason;
 
-/**
- * Result of {@link AgentLoop.run}.
- *
- * `exitReason` carries the reason the loop paused at a checkpoint so the
- * orchestrator reads the loop's own signal instead of inferring it from
- * callback side-effects. It is `null` whenever the loop reached a terminal
- * stop (completion, error, abort, or a tool-requested yield-to-user).
- */
+/** Result of {@link AgentLoop.run}. */
 export interface AgentLoopRunResult {
+  /** Full conversation history after the run, including everything appended this run. */
   history: Message[];
+  /**
+   * Reason the loop paused at a checkpoint, or `null` on a terminal stop
+   * (completion, error, abort, or a tool-requested yield-to-user).
+   */
   exitReason: ExitReason | null;
+  /**
+   * Whether the loop produced at least one new assistant message this run —
+   * the forward-progress signal for the ordering-error retry gate and the
+   * overflow convergence fold (immune to in-loop compaction shrinking history
+   * below a pre-run length).
+   */
+  appendedNewMessages: boolean;
+  /**
+   * Slice of `history` appended this run, measured from the loop's input or
+   * from the compacted base when it compacts in place. The loop owns this
+   * boundary, so it cannot desync the way an externally-held index can.
+   */
+  newMessages: Message[];
 }
 
 /**
@@ -480,8 +490,16 @@ export interface ResolvedSystemPrompt {
  * for now and is expected to move into the loop in a future change.
  */
 export interface MidLoopCompaction {
-  /** Re-apply runtime injections and return the history to continue from. */
-  reinject: () => Promise<Message[]>;
+  /**
+   * Re-apply runtime injections onto the post-compaction history the loop
+   * passes in and return the history to continue from. The loop supplies the
+   * committed base (the compacted messages when the pipeline compacted, the
+   * stripped pre-compaction history otherwise) via {@link PostCompactionHookInput}
+   * so the hook re-injects onto the loop's own working history rather than
+   * reading it back from orchestrator state. The input is an object so further
+   * re-injection inputs can migrate loop-ward by growing that type.
+   */
+  postCompactionHook: (input: PostCompactionHookInput) => Promise<Message[]>;
 }
 
 export interface AgentLoopRunOptions {
@@ -638,10 +656,9 @@ export class AgentLoop {
    * Resolve the tool definitions sent to the provider for the given turn.
    *
    * Mirrors the logic of {@link getToolTokenBudget} but returns the tool
-   * array itself — callers that need to thread the tool set into a plugin
-   * pipeline (e.g. `tokenEstimate`, where the pipeline's args include
-   * `tools`) use this rather than re-implementing the dynamic-vs-static
-   * resolver fork.
+   * array itself — callers that need to thread the tool set into the token
+   * estimate (`estimatePromptTokensWithTools`, whose args include `tools`)
+   * use this rather than re-implementing the dynamic-vs-static resolver fork.
    */
   getResolvedTools(history?: Message[]): ToolDefinition[] {
     return history && this.resolveTools
@@ -662,28 +679,15 @@ export class AgentLoop {
   }
 
   /**
-   * Estimate total prompt tokens for `history` via the `tokenEstimate`
-   * pipeline. Args are shallow-frozen so a mutating middleware cannot strip
-   * context from the loop's live `history`.
+   * Calibrated prompt-token estimate for `history`, including the
+   * resolved-tool budget for the turn.
    */
-  private estimateTokens(
-    history: Message[],
-    turnContext: TurnContext,
-  ): Promise<EstimateResult> {
-    return runPipeline<EstimateArgs, EstimateResult>(
-      "tokenEstimate",
-      getMiddlewaresFor("tokenEstimate"),
-      defaultTokenEstimateTerminal,
-      {
-        history: Object.freeze([...history]) as Message[],
-        systemPrompt: this.systemPrompt,
-        tools: Object.freeze([
-          ...this.getResolvedTools(history),
-        ]) as ToolDefinition[],
-        providerName: getCalibrationProviderKey(this.provider),
-      },
-      turnContext,
-      DEFAULT_TIMEOUTS.tokenEstimate,
+  private estimateTokens(history: Message[]): number {
+    return estimatePromptTokensWithTools(
+      history,
+      this.systemPrompt,
+      this.getResolvedTools(history),
+      getCalibrationProviderKey(this.provider),
     );
   }
 
@@ -802,7 +806,13 @@ export class AgentLoop {
     if (compactResult.exhausted ?? false) {
       return null;
     }
-    return compaction.reinject();
+    // Re-inject onto the same base the `compaction_completed` dispatch commits:
+    // the compacted messages when the pipeline compacted, the stripped
+    // pre-compaction history otherwise.
+    const reinjectBase = compactResult.compacted
+      ? compactResult.messages
+      : rawHistory;
+    return compaction.postCompactionHook({ history: reinjectBase });
   }
 
   async run(
@@ -823,11 +833,17 @@ export class AgentLoop {
       mutableLatestUserMessage,
     } = options ?? {};
     let history = [...messages];
+    // Index into `history` where this run's appended output begins. It starts
+    // after the input and resets to the compacted base whenever the loop
+    // compacts in place, so `history.slice(newMessagesStart)` is always exactly
+    // what the loop produced since the last (re-injected) base.
+    let newMessagesStart = history.length;
     let producedVisibleTextThisRun = false;
     let toolUseTurns = 0;
     let stopContinueRetries = 0;
     let lastLlmCallTime = 0;
     let exitReason: ExitReason | null = null;
+    let appendedNewMessages = false;
     const rlog = requestId ? log.child({ requestId }) : log;
 
     // Resolve the inference-profile override that applies right now. The
@@ -1225,6 +1241,7 @@ export class AgentLoop {
             "LLM response reached output token limit",
           );
           history.push(safeAssistantMessage);
+          appendedNewMessages = true;
           await onEvent({
             type: "max_tokens_reached",
             stopReason: response.stopReason,
@@ -1295,6 +1312,7 @@ export class AgentLoop {
         }
 
         history.push(assistantMessage);
+        appendedNewMessages = true;
 
         await onEvent({ type: "message_complete", message: assistantMessage });
 
@@ -1560,7 +1578,7 @@ export class AgentLoop {
           );
           const midLoopThreshold =
             preflightBudget * MID_LOOP_YIELD_THRESHOLD_RATIO;
-          const estimated = await this.estimateTokens(history, turnCtx);
+          const estimated = this.estimateTokens(history);
           if (estimated > midLoopThreshold) {
             if (compaction) {
               rlog.info(
@@ -1577,6 +1595,9 @@ export class AgentLoop {
               );
               if (compacted) {
                 history = compacted;
+                // The compacted, re-injected array is the new base; output
+                // produced after this point is what the orchestrator persists.
+                newMessagesStart = history.length;
                 continue;
               }
             }
@@ -1642,7 +1663,12 @@ export class AgentLoop {
       "Agent loop exited",
     );
 
-    return { history, exitReason };
+    return {
+      history,
+      exitReason,
+      appendedNewMessages,
+      newMessages: history.slice(newMessagesStart),
+    };
   }
 }
 

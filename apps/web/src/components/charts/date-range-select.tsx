@@ -5,8 +5,8 @@ import {
   type DropdownOption,
 } from "@vellum/design-library/components/dropdown";
 
-import { toTimezoneDateString } from "@/components/charts/format-date-label";
 import { getEffectiveTimezone } from "@/utils/effective-timezone";
+import { resolveLastTimezoneCalendarDays } from "@/utils/usage-window";
 import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 
 export interface DateRange {
@@ -52,12 +52,8 @@ export function computeRangeInTimezone(
   days: number,
   tz: string = getEffectiveTimezone(),
 ): DateRange {
-  const to = toTimezoneDateString(new Date(), tz);
-  const [y, m, d] = to.split("-").map(Number);
-  const anchor = new Date(Date.UTC(y, m - 1, d, 12));
-  anchor.setUTCDate(anchor.getUTCDate() - (days - 1));
-  const from = toTimezoneDateString(anchor, "UTC");
-  return { from, to };
+  const { fromDate, toDate } = resolveLastTimezoneCalendarDays(days, tz);
+  return { from: fromDate, to: toDate };
 }
 
 function daysBetween(from: string, to: string): number {

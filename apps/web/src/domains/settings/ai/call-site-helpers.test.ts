@@ -5,7 +5,7 @@ import { buildOrderedProfiles } from "@/domains/settings/ai/ai-utils";
 import {
   isDraftActive,
   draftsEqual,
-} from "@/domains/settings/ai/call-site-overrides-modal";
+} from "@/domains/settings/ai/call-site-helpers";
 
 // ---------------------------------------------------------------------------
 // isDraftActive

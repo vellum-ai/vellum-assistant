@@ -209,6 +209,7 @@ describe("OAuthConnectSurface", () => {
           },
         })}
         assistantId="assistant-1"
+        assistantDisplayName="Assistant"
         oauthClient={oauthClient}
         onAction={onAction}
       />,
@@ -216,6 +217,9 @@ describe("OAuthConnectSurface", () => {
 
     expect(queryByText("gmail.readonly")).toBeNull();
     expect(queryByText("Connect Google Account")).toBeNull();
+    expect(
+      getByRole("button", { name: "About assistant approval" }),
+    ).toBeTruthy();
 
     fireEvent.click(getByRole("button", { name: "Connect" }));
 

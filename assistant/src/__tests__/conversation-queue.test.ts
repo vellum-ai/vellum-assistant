@@ -368,6 +368,8 @@ mock.module("../agent/loop.js", () => ({
             resolveResult({
               history,
               exitReason: pending.exitReason,
+              appendedNewMessages: history.length > messages.length,
+              newMessages: history.slice(messages.length),
             }),
           reject,
           messages,

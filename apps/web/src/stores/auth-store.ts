@@ -276,18 +276,17 @@ export async function whenPlatformSessionSettled(): Promise<void> {
 }
 
 /**
- * Probe the platform session only when one could exist — non-local mode, or
- * local mode with at least one platform assistant in the lockfile. When there
- * is nothing to probe, settle directly to `"absent"` rather than leaving the
- * status `"unknown"`. Centralizes the reachability gate shared by the local
- * gateway auth entry points (`initSession`, `refreshSession`,
- * `connectLocalAssistant`).
+ * Probe the platform session when one could exist: non-local mode, gateway
+ * auth enabled, or local mode with platform assistants in the lockfile.
+ * Gateway auth always probes because the user may have logged into the
+ * platform (e.g. via the login flow) without having added platform
+ * assistants yet. When nothing qualifies, settle to `"absent"`.
  */
 function probePlatformSessionIfReachable(
   set: AuthSet,
   options?: { setUserOnSuccess?: boolean; clearOnFailure?: boolean },
 ): void {
-  if (!isLocalMode() || getPlatformAssistants().length > 0) {
+  if (!isLocalMode() || isGatewayAuthEnabled() || getPlatformAssistants().length > 0) {
     probePlatformSession(set, options);
   } else {
     set({ platformSession: "absent" });

@@ -161,6 +161,7 @@ function OAuthSurfacePreview() {
     <OAuthConnectSurface
       surface={surface}
       assistantId="assistant-story"
+      assistantDisplayName="Assistant"
       oauthClient={storyOAuthClient}
       onAction={(_surfaceId, _actionId, data) => {
         const providerLabel =

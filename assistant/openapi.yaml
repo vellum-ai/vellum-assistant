@@ -4616,6 +4616,14 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        conversationExists:
+                          type: boolean
+                        conversationArchivedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        estimatedCostUsd:
+                          type: number
                         createdAt:
                           type: number
                       required:
@@ -4628,6 +4636,9 @@ paths:
                         - skipReason
                         - error
                         - conversationId
+                        - conversationExists
+                        - conversationArchivedAt
+                        - estimatedCostUsd
                         - createdAt
                       additionalProperties: false
                     description: Consolidation run records
@@ -8264,6 +8275,17 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+                required:
+                  - ok
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -10696,6 +10718,24 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  lines:
+                    type: array
+                    items:
+                      type: object
+                      propertyNames:
+                        type: string
+                      additionalProperties: {}
+                  truncated:
+                    type: boolean
+                required:
+                  - lines
+                  - truncated
+                additionalProperties: false
       parameters:
         - name: n
           in: query
@@ -11604,6 +11644,14 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        conversationExists:
+                          type: boolean
+                        conversationArchivedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        estimatedCostUsd:
+                          type: number
                         createdAt:
                           type: number
                       required:
@@ -11616,6 +11664,9 @@ paths:
                         - skipReason
                         - error
                         - conversationId
+                        - conversationExists
+                        - conversationArchivedAt
+                        - estimatedCostUsd
                         - createdAt
                       additionalProperties: false
                     description: Heartbeat run records
@@ -12773,6 +12824,68 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  images:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        mimeType:
+                          type: string
+                        dataBase64:
+                          type: string
+                        title:
+                          type: string
+                      required:
+                        - mimeType
+                        - dataBase64
+                      additionalProperties: false
+                  text:
+                    type: string
+                  resolvedModel:
+                    type: string
+                required:
+                  - images
+                  - resolvedModel
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                prompt:
+                  type: string
+                mode:
+                  type: string
+                  enum:
+                    - generate
+                    - edit
+                sourceImages:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      mimeType:
+                        type: string
+                      dataBase64:
+                        type: string
+                    required:
+                      - mimeType
+                      - dataBase64
+                    additionalProperties: false
+                model:
+                  type: string
+                variants:
+                  type: number
+              required:
+                - prompt
+              additionalProperties: false
   /v1/inference/chatgpt-subscription/auth:
     post:
       operationId: inference_chatgptsubscription_auth_post
@@ -15682,6 +15795,37 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rendered:
+                    type: string
+                  counts:
+                    type: object
+                    properties:
+                      unassigned:
+                        type: number
+                      danglingRefs:
+                        type: number
+                      novelClusters:
+                        type: number
+                      oversizedLeaves:
+                        type: number
+                      tinyLeaves:
+                        type: number
+                    required:
+                      - unassigned
+                      - danglingRefs
+                      - novelClusters
+                      - oversizedLeaves
+                      - tinyLeaves
+                    additionalProperties: false
+                required:
+                  - rendered
+                  - counts
+                additionalProperties: false
   /v1/memory/v3/rebuild-index:
     post:
       operationId: memory_v3_rebuildindex_post
@@ -15691,6 +15835,17 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+                required:
+                  - ok
+                additionalProperties: false
   /v1/memory/v3/reconcile:
     post:
       operationId: memory_v3_reconcile_post
@@ -15700,6 +15855,39 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  renames:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        oldPath:
+                          type: string
+                        newPath:
+                          type: string
+                      required:
+                        - oldPath
+                        - newPath
+                      additionalProperties: false
+                  deleted:
+                    type: array
+                    items:
+                      type: string
+                  prunedCore:
+                    type: array
+                    items:
+                      type: string
+                required:
+                  - renames
+                  - deleted
+                  - prunedCore
+                additionalProperties: false
   /v1/memory/v3/set-core:
     post:
       operationId: memory_v3_setcore_post
@@ -15709,6 +15897,42 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  nextCore:
+                    type: array
+                    items:
+                      type: string
+                  alwaysOnPageCount:
+                    type: number
+                  written:
+                    type: boolean
+                required:
+                  - nextCore
+                  - alwaysOnPageCount
+                  - written
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                add:
+                  type: array
+                  items:
+                    type: string
+                remove:
+                  type: array
+                  items:
+                    type: string
+                write:
+                  type: boolean
+              additionalProperties: false
   /v1/messages:
     get:
       operationId: messages_get
@@ -17937,6 +18161,41 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  routes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        assistant_id:
+                          type: string
+                        type:
+                          type: string
+                        callback_path:
+                          type: string
+                        callback_url:
+                          type: string
+                        source_identifier:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                      required:
+                        - id
+                        - assistant_id
+                        - type
+                        - callback_path
+                        - callback_url
+                        - source_identifier
+                      additionalProperties: false
+                required:
+                  - routes
+                additionalProperties: false
   /v1/platform/callback-routes/register:
     post:
       operationId: platform_callbackroutes_register_post
@@ -17947,6 +18206,37 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  callbackUrl:
+                    type: string
+                  callbackPath:
+                    type: string
+                  type:
+                    type: string
+                required:
+                  - callbackUrl
+                  - callbackPath
+                  - type
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                type:
+                  type: string
+              required:
+                - path
+                - type
+              additionalProperties: false
   /v1/platform/connect:
     post:
       operationId: platform_connect_post
@@ -17957,6 +18247,18 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  alreadyConnected:
+                    type: boolean
+                  baseUrl:
+                    type: string
+                  showPlatformLogin:
+                    type: boolean
+                additionalProperties: false
   /v1/platform/disconnect:
     post:
       operationId: platform_disconnect_post
@@ -17967,6 +18269,22 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  disconnected:
+                    type: boolean
+                    const: true
+                  previousBaseUrl:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                required:
+                  - disconnected
+                  - previousBaseUrl
+                additionalProperties: false
   /v1/platform/status:
     get:
       operationId: platform_status_get
@@ -17977,6 +18295,57 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  isPlatform:
+                    type: boolean
+                  baseUrl:
+                    type: string
+                  assistantId:
+                    type: string
+                  hasAssistantApiKey:
+                    type: boolean
+                  hasWebhookSecret:
+                    type: boolean
+                  available:
+                    type: boolean
+                  organizationId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  userId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  velayTunnel:
+                    anyOf:
+                      - type: object
+                        properties:
+                          connected:
+                            type: boolean
+                          publicUrl:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                        required:
+                          - connected
+                          - publicUrl
+                        additionalProperties: false
+                      - type: "null"
+                required:
+                  - isPlatform
+                  - baseUrl
+                  - assistantId
+                  - hasAssistantApiKey
+                  - hasWebhookSecret
+                  - available
+                  - organizationId
+                  - userId
+                  - velayTunnel
+                additionalProperties: false
   /v1/playground/seed-conversation:
     post:
       operationId: playground_seedconversation_post
@@ -18875,6 +19244,16 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        createdFromConversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        createdFromConversationExists:
+                          type: boolean
+                        createdFromConversationArchivedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
                         description:
                           anyOf:
                             - type: string
@@ -18924,6 +19303,9 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - createdFromConversationId
+                        - createdFromConversationExists
+                        - createdFromConversationArchivedAt
                         - description
                         - mode
                         - status
@@ -19011,6 +19393,16 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        createdFromConversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        createdFromConversationExists:
+                          type: boolean
+                        createdFromConversationArchivedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
                         description:
                           anyOf:
                             - type: string
@@ -19060,6 +19452,9 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - createdFromConversationId
+                        - createdFromConversationExists
+                        - createdFromConversationArchivedAt
                         - description
                         - mode
                         - status
@@ -19173,6 +19568,16 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        createdFromConversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        createdFromConversationExists:
+                          type: boolean
+                        createdFromConversationArchivedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
                         description:
                           anyOf:
                             - type: string
@@ -19222,6 +19627,9 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - createdFromConversationId
+                        - createdFromConversationExists
+                        - createdFromConversationArchivedAt
                         - description
                         - mode
                         - status
@@ -19308,6 +19716,16 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        createdFromConversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        createdFromConversationExists:
+                          type: boolean
+                        createdFromConversationArchivedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
                         description:
                           anyOf:
                             - type: string
@@ -19357,6 +19775,9 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - createdFromConversationId
+                        - createdFromConversationExists
+                        - createdFromConversationArchivedAt
                         - description
                         - mode
                         - status
@@ -19486,6 +19907,16 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        createdFromConversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        createdFromConversationExists:
+                          type: boolean
+                        createdFromConversationArchivedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
                         description:
                           anyOf:
                             - type: string
@@ -19535,6 +19966,9 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - createdFromConversationId
+                        - createdFromConversationExists
+                        - createdFromConversationArchivedAt
                         - description
                         - mode
                         - status
@@ -19622,6 +20056,16 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        createdFromConversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        createdFromConversationExists:
+                          type: boolean
+                        createdFromConversationArchivedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
                         description:
                           anyOf:
                             - type: string
@@ -19671,6 +20115,9 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - createdFromConversationId
+                        - createdFromConversationExists
+                        - createdFromConversationArchivedAt
                         - description
                         - mode
                         - status
@@ -19737,6 +20184,14 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        conversationExists:
+                          type: boolean
+                        conversationArchivedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        estimatedCostUsd:
+                          type: number
                         createdAt:
                           type: number
                       required:
@@ -19749,6 +20204,9 @@ paths:
                         - output
                         - error
                         - conversationId
+                        - conversationExists
+                        - conversationArchivedAt
+                        - estimatedCostUsd
                         - createdAt
                       additionalProperties: false
                     description: Schedule run objects
@@ -19836,6 +20294,16 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        createdFromConversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        createdFromConversationExists:
+                          type: boolean
+                        createdFromConversationArchivedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
                         description:
                           anyOf:
                             - type: string
@@ -19885,6 +20353,9 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - createdFromConversationId
+                        - createdFromConversationExists
+                        - createdFromConversationArchivedAt
                         - description
                         - mode
                         - status
@@ -19916,6 +20387,57 @@ paths:
               required:
                 - enabled
               additionalProperties: false
+  /v1/schedules/usage-summary:
+    get:
+      operationId: schedules_usagesummary_get
+      summary: Get schedule usage summaries
+      description: Return per-schedule run counts and usage totals for a time range.
+      tags:
+        - schedules
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  summaries:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        scheduleId:
+                          type: string
+                        runCount:
+                          type: number
+                        totalEstimatedCostUsd:
+                          type: number
+                        eventCount:
+                          type: number
+                      required:
+                        - scheduleId
+                        - runCount
+                        - totalEstimatedCostUsd
+                        - eventCount
+                      additionalProperties: false
+                    description: Schedule usage summary rows
+                required:
+                  - summaries
+                additionalProperties: false
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: integer
+          description: Start epoch millis (required)
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: integer
+          description: End epoch millis (required)
   /v1/search:
     get:
       operationId: search_get
@@ -23298,6 +23820,58 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rules:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        tool:
+                          type: string
+                        pattern:
+                          type: string
+                        risk:
+                          type: string
+                          enum:
+                            - low
+                            - medium
+                            - high
+                        description:
+                          type: string
+                        origin:
+                          type: string
+                          enum:
+                            - default
+                            - user_defined
+                        userModified:
+                          type: boolean
+                        deleted:
+                          type: boolean
+                        createdAt:
+                          type: string
+                        updatedAt:
+                          type: string
+                      required:
+                        - id
+                        - tool
+                        - pattern
+                        - risk
+                        - description
+                        - origin
+                        - userModified
+                        - deleted
+                        - createdAt
+                        - updatedAt
+                      additionalProperties: false
+                required:
+                  - rules
+                additionalProperties: false
       parameters:
         - name: tool
           in: query
@@ -23723,7 +24297,13 @@ paths:
           required: false
           schema:
             type: string
-          description: "Group by: actor, provider, model, conversation, call_site, inference_profile (required)"
+          description: "Group by: actor, provider, model, conversation, call_site, inference_profile, schedule (required)"
+        - name: scheduleId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional schedule id. When set, usage is attributed by cron run windows for that schedule.
   /v1/usage/daily:
     get:
       operationId: usage_daily_get
@@ -23800,6 +24380,12 @@ paths:
           description:
             IANA timezone identifier (e.g. "America/Los_Angeles"). Bucket boundaries and display labels are computed in
             this timezone. Defaults to "UTC" for backwards compatibility.
+        - name: scheduleId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional schedule id. When set, usage is attributed by cron run windows for that schedule.
   /v1/usage/series:
     get:
       operationId: usage_series_get
@@ -23903,7 +24489,7 @@ paths:
           required: false
           schema:
             type: string
-          description: "Group by: actor, provider, model, call_site, inference_profile (required)"
+          description: "Group by: actor, provider, model, call_site, inference_profile, schedule (required)"
         - name: tz
           in: query
           required: false
@@ -23912,6 +24498,12 @@ paths:
           description:
             IANA timezone identifier (e.g. "America/Los_Angeles"). Bucket boundaries and display labels are computed in
             this timezone. Defaults to "UTC".
+        - name: scheduleId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional schedule id. When set, usage is attributed by cron run windows for that schedule.
   /v1/usage/totals:
     get:
       operationId: usage_totals_get
@@ -23966,6 +24558,12 @@ paths:
           schema:
             type: integer
           description: End epoch millis (required)
+        - name: scheduleId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional schedule id. When set, usage is attributed by cron run windows for that schedule.
   /v1/user-routes/inspect:
     post:
       operationId: userroutes_inspect_post
@@ -24194,6 +24792,41 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  routes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        assistant_id:
+                          type: string
+                        type:
+                          type: string
+                        callback_path:
+                          type: string
+                        callback_url:
+                          type: string
+                        source_identifier:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                      required:
+                        - id
+                        - assistant_id
+                        - type
+                        - callback_path
+                        - callback_url
+                        - source_identifier
+                      additionalProperties: false
+                required:
+                  - routes
+                additionalProperties: false
   /v1/webhooks/register:
     post:
       operationId: webhooks_register_post
@@ -24206,6 +24839,44 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  callbackUrl:
+                    type: string
+                  type:
+                    type: string
+                  path:
+                    type: string
+                  mode:
+                    type: string
+                    enum:
+                      - platform
+                      - self-hosted
+                required:
+                  - callbackUrl
+                  - type
+                  - path
+                  - mode
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                type:
+                  type: string
+                path:
+                  type: string
+                source:
+                  type: string
+              required:
+                - type
+              additionalProperties: false
   /v1/work-items:
     get:
       operationId: workitems_get
