@@ -139,6 +139,22 @@ interface SessionEntry {
    * the first turn's row id (and all existing behavior) is unchanged.
    */
   turnIndex: number;
+  /**
+   * Set SYNCHRONOUSLY at the very start of `cancel()` — before any `await` —
+   * to record cancellation intent the instant a cancel is requested. This is
+   * the race-closer for cancel-vs-steer: `steer()` issues its own
+   * `await process.cancel(...)` before re-firing, and a concurrent `cancel()`
+   * may land while that await is suspended. `cancel()` only flips
+   * `state.status` to `cancelled` AFTER its own `await process.cancel(...)`
+   * resolves, so if steer's await wins the race steer would still read
+   * `status === "running"` and wrongly re-fire. Observing this synchronous flag
+   * (which is set before either await) makes the outcome independent of which
+   * await resolves first: steer sees the intent and aborts. Lives on the
+   * in-memory entry only (never persisted to the wire state); a fresh
+   * spawn/steer entry is built without it, and teardown removes the entry, so a
+   * later session never inherits a stale flag.
+   */
+  cancelRequested: boolean;
 }
 
 export class AcpSessionManager {
@@ -296,6 +312,7 @@ export class AcpSessionManager {
       lastActiveAt: Date.now(),
       historyPersisted: false,
       turnIndex: 0,
+      cancelRequested: false,
     };
 
     this.sessions.set(acpSessionId, entry);
@@ -378,6 +395,15 @@ export class AcpSessionManager {
     // recently active (not stale) by the idle eviction picker.
     entry.lastActiveAt = Date.now();
 
+    // A `cancel()` may already have landed before we even reached the
+    // cancel-await below — it sets `cancelRequested` synchronously, before any
+    // await. (Its `state.status` flip lags behind its own await, so the flag is
+    // the only reliable pre-await signal.) Honor it up front rather than
+    // re-firing into a session the user already asked to stop.
+    if (entry.cancelRequested) {
+      return this.abortSteerForCancel(acpSessionId);
+    }
+
     // Cancel any in-flight prompt before starting a new one.
     // Clear currentPrompt BEFORE awaiting cancel so the old prompt's
     // catch handler sees currentPrompt !== promptPromise and skips teardown.
@@ -393,35 +419,24 @@ export class AcpSessionManager {
       }
     }
 
-    // A `cancel(acpSessionId)` can land DURING the `await` above: the entry is
-    // still `running` with `currentPrompt: null`, so cancel() takes its running
-    // branch — flipping the status to `cancelled` (and stamping completedAt) but
-    // deferring teardown to a prompt handler that will never fire for this
-    // already-cleared prompt. If we blindly re-fired here we'd overwrite that
-    // `cancelled` back to `running` and silently drop the user's cancel. Honor
-    // it instead by closing the session (persist the cancelled row + tear down)
-    // rather than re-running.
+    // A `cancel(acpSessionId)` can land DURING the `await` above. `cancel()`
+    // records its intent SYNCHRONOUSLY via `entry.cancelRequested` (before its
+    // own `await process.cancel(...)`), and only flips `state.status` to
+    // `cancelled` after that await resolves. If steer's await wins the race,
+    // `state.status` may still read `running` even though a cancel is in
+    // flight — so we observe `cancelRequested` (set first, regardless of await
+    // ordering) as the authoritative signal, alongside the already-flipped
+    // status. Either one means: honor the cancel, do NOT re-fire. Blindly
+    // re-firing would overwrite the cancel back to `running` and silently drop
+    // the user's cancel.
     //
     // `entry.state.status` is statically narrowed to "running" | "idle" here,
     // but the `await` yields control, so a concurrent cancel() may have mutated
-    // it to "cancelled" at runtime. Read through the full union type to detect
-    // that race (the narrowing doesn't model cross-await mutation).
+    // it at runtime. Read through the full union type to detect that race (the
+    // narrowing doesn't model cross-await mutation).
     const statusAfterCancel = entry.state.status as AcpSessionState["status"];
-    if (statusAfterCancel === "cancelled") {
-      log.info(
-        { acpSessionId },
-        "Cancel raced steer — aborting re-fire and tearing down",
-      );
-      this.close(acpSessionId);
-      // The new instruction was NEVER fired and the session is now torn down.
-      // Returning normally here would make callers report a successful steer
-      // for work that will never run. Signal the not-steered outcome instead
-      // so they surface failure (tool → isError, route → 409).
-      throw new SessionCancelledError(
-        acpSessionId,
-        `ACP session "${acpSessionId}" was cancelled before the instruction ` +
-          "could run.",
-      );
+    if (entry.cancelRequested || statusAfterCancel === "cancelled") {
+      return this.abortSteerForCancel(acpSessionId);
     }
 
     // Reset per-turn streaming state so this follow-up's events are buffered
@@ -452,6 +467,28 @@ export class AcpSessionManager {
       entry,
       entry.state.acpSessionId,
       instruction,
+    );
+  }
+
+  /**
+   * Shared handling for a `cancel()` that raced `steer()`: the new instruction
+   * was NEVER fired, so tear the session down (persist the cancelled row + kill
+   * the process) and signal the not-steered outcome to callers. Returning
+   * normally would make them report a successful steer for work that will never
+   * run, so this throws {@link SessionCancelledError} instead (tool → isError,
+   * route → 409). The torn-down entry is removed from the map, so its
+   * `cancelRequested` flag goes with it — a fresh spawn/steer starts clean.
+   */
+  private abortSteerForCancel(acpSessionId: string): never {
+    log.info(
+      { acpSessionId },
+      "Cancel raced steer — aborting re-fire and tearing down",
+    );
+    this.close(acpSessionId);
+    throw new SessionCancelledError(
+      acpSessionId,
+      `ACP session "${acpSessionId}" was cancelled before the instruction ` +
+        "could run.",
     );
   }
 
@@ -601,6 +638,14 @@ export class AcpSessionManager {
     if (!entry) {
       throw new Error(`ACP session "${acpSessionId}" not found`);
     }
+
+    // Record cancellation intent SYNCHRONOUSLY — before any `await` — so a
+    // concurrent `steer()` suspended on its own `await process.cancel(...)` can
+    // observe the cancel regardless of which await resolves first. `cancel()`
+    // doesn't set `state.status = "cancelled"` until after its own await below,
+    // which can lose the race to steer's await; this flag (set first) is what
+    // makes the race deterministic.
+    entry.cancelRequested = true;
 
     // An `idle` session has no in-flight prompt, so there is no catch handler
     // to persist + tear it down. Cancelling it must therefore drive the
@@ -863,6 +908,7 @@ export class AcpSessionManager {
           // prompt can reuse the same process and context.
           const wasCancelled =
             current.state.status === "cancelled" ||
+            current.cancelRequested ||
             response.stopReason === "cancelled";
           current.currentPrompt = null;
           log.info(
@@ -955,9 +1001,12 @@ export class AcpSessionManager {
           // `acp_session_completed` with stopReason `cancelled` (NOT a spurious
           // `acp_session_error` that would contradict the persisted cancelled
           // row). Only genuine failures take the `failed`/error path.
-          const wasCancelled = current.state.status === "cancelled";
+          const wasCancelled =
+            current.state.status === "cancelled" || current.cancelRequested;
           current.currentPrompt = null;
           if (wasCancelled) {
+            current.state.status = "cancelled";
+            current.state.completedAt ??= Date.now();
             current.state.stopReason = "cancelled";
             log.info(
               { acpSessionId },

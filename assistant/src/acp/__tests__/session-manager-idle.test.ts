@@ -194,6 +194,7 @@ function buildIdleSession(opts: {
     idleTimer: null,
     historyPersisted: false,
     turnIndex: 0,
+    cancelRequested: false,
   };
   sessions.set(opts.id, entry);
 
@@ -591,6 +592,7 @@ function injectControllableSession(opts: {
     lastActiveAt: Date.now(),
     historyPersisted: false,
     turnIndex: 0,
+    cancelRequested: false,
   };
   const sessions = (manager as unknown as { sessions: Map<string, unknown> })
     .sessions;
@@ -816,6 +818,99 @@ describe("AcpSessionManager — prompt-fire / cancel / steer state-machine fixes
     expect(rows[0]!.status).toBe("cancelled");
 
     // No leaked idle timer fires against the dangling entry.
+    await new Promise((r) => setTimeout(r, 40));
+    expect(() => manager.getStatus(id)).toThrow();
+  });
+
+  test("Bug 4: cancel() observed via cancelRequested (its status-flip hasn't landed yet) still aborts the steer — steer THROWS SessionCancelledError, no re-fire", async () => {
+    // ROOT-CAUSE coverage: this reproduces the remaining hole where steer()'s
+    // own cancel-await RESOLVES BEFORE cancel() sets `state.status = "cancelled"`.
+    // cancel() records intent synchronously (`cancelRequested`) before its own
+    // `await process.cancel(...)`, which is gated open here so the status flip
+    // is still pending when steer resumes. With only the old
+    // `status === "cancelled"` check, steer would read `running` and wrongly
+    // re-fire; observing `cancelRequested` closes the race regardless of await
+    // ordering.
+    const id = "cancel-requested-races-steer";
+    let steerCancelGate!: () => void;
+    let cancelOwnGate!: () => void;
+    let cancelCalls = 0;
+    const fake: ControllableFake = {
+      promptCalls: [],
+      killed: false,
+      prompt(_sessionId, text) {
+        this.promptCalls.push(text);
+        return new Promise<{ stopReason: string }>(() => {});
+      },
+      cancel: () => {
+        cancelCalls += 1;
+        if (cancelCalls === 1) {
+          // steer()'s cancel-await: gated so we can land cancel() during it.
+          return new Promise<void>((resolve) => {
+            steerCancelGate = resolve;
+          });
+        }
+        // cancel()'s OWN process.cancel: gated so cancel() can't flip
+        // state.status to "cancelled" until after steer has already resumed.
+        return new Promise<void>((resolve) => {
+          cancelOwnGate = resolve;
+        });
+      },
+      kill() {
+        this.killed = true;
+      },
+    };
+
+    const { manager } = injectControllableSession({
+      id,
+      parentConversationId: "conv-cancel-requested-race-steer",
+      idleTimeoutMs: 10,
+      fake,
+    });
+
+    // Begin steering. steer() clears currentPrompt then blocks on its own
+    // `await process.cancel(...)` (steerCancelGate not yet opened).
+    const steerPromise = manager.steer(id, "follow-up after cancel");
+    await flush();
+
+    // cancel() lands DURING steer's await. It sets `cancelRequested = true`
+    // SYNCHRONOUSLY, then blocks on its own gated process.cancel — so it has
+    // NOT yet flipped state.status. Don't await it (it's parked on the gate).
+    const cancelPromise = manager.cancel(id);
+    await flush();
+
+    // Status is still "running": cancel()'s status-flip is parked behind its
+    // gated await. The ONLY signal of the pending cancel is `cancelRequested`.
+    expect((manager.getStatus(id) as { status: string }).status).toBe(
+      "running",
+    );
+
+    // Release steer's cancel-await. steer resumes and must observe
+    // `cancelRequested` (status still "running") and abort the re-fire by
+    // throwing SessionCancelledError — never a false success.
+    steerCancelGate();
+    await expect(steerPromise).rejects.toMatchObject({
+      name: "SessionCancelledError",
+      acpSessionId: id,
+    });
+
+    // Let cancel() finish (steer's close() already tore the session down; the
+    // remaining cancel just settles its gated await).
+    cancelOwnGate();
+    await cancelPromise.catch(() => {});
+    await flush();
+
+    // The follow-up prompt was NEVER fired — only the first turn's prompt ran.
+    expect(fake.promptCalls).toEqual(["do work"]);
+
+    // Session ended cancelled + torn down.
+    expect(fake.killed).toBe(true);
+    expect(() => manager.getStatus(id)).toThrow();
+    const rows = readTurnRows(id);
+    expect(rows.map((r) => r.id)).toEqual([id]);
+    expect(rows[0]!.status).toBe("cancelled");
+
+    // No leaked idle timer.
     await new Promise((r) => setTimeout(r, 40));
     expect(() => manager.getStatus(id)).toThrow();
   });

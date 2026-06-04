@@ -161,10 +161,11 @@ export function AcpCredentialsCard() {
 
       <div className="mt-4 space-y-5">
         <Notice tone="info" icon={<ShieldCheck className="h-4 w-4" aria-hidden />}>
-          These secrets are stored only in your private environment and are
-          never sent to our servers. They&apos;re write-only: once linked, the
-          value can&apos;t be read back. To rotate a token, use Replace to
-          overwrite the stored value — removing a credential entirely
+          Credentials are sent over an encrypted connection and stored only in
+          your private assistant environment — they aren&apos;t persisted or
+          readable on Vellum&apos;s servers. They&apos;re write-only: once
+          linked, the value can&apos;t be read back. To rotate a token, use
+          Replace to overwrite the stored value — removing a credential entirely
           isn&apos;t available here yet.
         </Notice>
 

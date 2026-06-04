@@ -74,12 +74,18 @@ afterEach(() => {
 });
 
 describe("AcpCredentialsCard", () => {
-  test("states the in-pod privacy model", () => {
+  test("states the in-pod privacy model (transport vs storage)", () => {
     const { getByText } = render(<AcpCredentialsCard />);
-    expect(
-      getByText(/stored only in your private environment/i),
-    ).toBeDefined();
-    expect(getByText(/never sent to our servers/i)).toBeDefined();
+    // Distinguishes transport (sent over an encrypted connection, which DOES
+    // transit Vellum) from storage (only in the private pod, not persisted
+    // centrally) — it must NOT claim the secret is "never sent to our servers".
+    const notice = getByText(/private assistant environment/i);
+    expect(notice).toBeDefined();
+    expect(notice.textContent).toMatch(/sent over an encrypted connection/i);
+    expect(notice.textContent).toMatch(
+      /aren't persisted or readable on Vellum's servers/i,
+    );
+    expect(notice.textContent).not.toMatch(/never sent to our servers/i);
   });
 
   test("links the git token, then Replace overwrites the stored secret", async () => {
