@@ -44,6 +44,7 @@ export const routes = {
     usage: LOGS_USAGE_PATH,
     usageForSchedule: (scheduleId: string) => {
       const params = new URLSearchParams({
+        range: "7d",
         groupBy: "schedule",
         scheduleId,
       });

@@ -27,6 +27,7 @@ import {
   fetchConsolidationConfig,
   fetchHeartbeatConfig,
   fetchHeartbeatRuns,
+  fetchScheduleUsageSummary,
   fetchScheduleRuns,
   fetchSchedules,
   runConsolidationNow,
@@ -41,8 +42,10 @@ import {
   assistantSchedulesQueryKey,
 } from "@/lib/sync/query-tags";
 import { routes } from "@/utils/routes";
+import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 
 import { CreateScheduleModal } from "@/domains/settings/components/create-schedule-modal";
+import { resolveScheduleUsageWindow } from "@/domains/settings/utils/schedule-usage-window";
 
 import type {
   ConsolidationConfigGetResponse,
@@ -51,6 +54,7 @@ import type {
 import type {
   Schedule,
   ScheduleRun,
+  ScheduleUsageSummary,
   SystemTaskKind,
 } from "@/domains/settings/types/schedules";
 import type { TagTone } from "@vellum/design-library/components/tag";
@@ -86,6 +90,11 @@ const costFormatter = new Intl.NumberFormat(undefined, {
 export function formatScheduleCost(cost: number | null | undefined): string {
   if (cost == null || !Number.isFinite(cost)) return "—";
   return costFormatter.format(cost);
+}
+
+function formatScheduleRunCount(count: number): string {
+  const formatted = count.toLocaleString();
+  return `${formatted} ${count === 1 ? "run" : "runs"}`;
 }
 
 export function canOpenScheduleSourceConversation(schedule: Schedule): boolean {
@@ -675,17 +684,94 @@ export function ScheduleDetailView({
 // Schedule list row
 // ---------------------------------------------------------------------------
 
-function ScheduleRow({
+export type ScheduleRowUsage =
+  | { status: "loading" }
+  | { status: "error" }
+  | { status: "ready"; summary: ScheduleUsageSummary };
+
+function zeroScheduleUsageSummary(scheduleId: string): ScheduleUsageSummary {
+  return {
+    scheduleId,
+    runCount: 0,
+    totalEstimatedCostUsd: 0,
+    eventCount: 0,
+  };
+}
+
+function ScheduleUsageStats({
+  scheduleName,
+  usage,
+  onOpenUsage,
+}: {
+  scheduleName: string;
+  usage: ScheduleRowUsage;
+  onOpenUsage: () => void;
+}) {
+  if (usage.status === "loading") {
+    return (
+      <div
+        aria-label="Loading schedule usage"
+        className="flex w-[136px] shrink-0 items-center justify-end gap-3"
+      >
+        <span className="h-8 w-14 animate-pulse rounded bg-[var(--surface-muted)]" />
+        <span className="h-8 w-14 animate-pulse rounded bg-[var(--surface-muted)]" />
+      </div>
+    );
+  }
+
+  const isUnavailable = usage.status === "error";
+  const cost = isUnavailable
+    ? "--"
+    : formatScheduleCost(usage.summary.totalEstimatedCostUsd);
+  const runs = isUnavailable
+    ? "--"
+    : formatScheduleRunCount(usage.summary.runCount);
+
+  return (
+    <div className="flex w-[136px] shrink-0 items-center justify-end gap-3 text-right">
+      <button
+        type="button"
+        onClick={onOpenUsage}
+        aria-label={`View usage for ${scheduleName}`}
+        className="min-w-[54px] cursor-pointer rounded px-1 py-0.5 text-right transition-colors hover:bg-[var(--surface-hover)]"
+      >
+        <span className="block text-label-small-default text-[var(--content-tertiary)]">
+          Cost
+        </span>
+        <span className="block text-body-small-default text-[var(--content-default)]">
+          {cost}
+        </span>
+      </button>
+      <span
+        aria-label={`Runs for ${scheduleName} in the last 7 days: ${runs}`}
+        className="block min-w-[54px] px-1 py-0.5"
+      >
+        <span className="block text-label-small-default text-[var(--content-tertiary)]">
+          Runs
+        </span>
+        <span className="block text-body-small-default text-[var(--content-default)]">
+          {runs}
+        </span>
+      </span>
+    </div>
+  );
+}
+
+export function ScheduleRow({
   schedule,
+  usage,
   onClick,
   onToggle,
+  onOpenUsage,
 }: {
   schedule: Schedule;
+  usage: ScheduleRowUsage;
   onClick: () => void;
   onToggle: (enabled: boolean) => void;
+  onOpenUsage: () => void;
 }) {
   return (
-    <div className="flex items-center gap-3 py-3 first:pt-0 last:pb-0 [&+&]:border-t [&+&]:border-[var(--border-base)]">
+    <div className="flex flex-wrap items-center gap-3 py-3 first:pt-0 last:pb-0 [&+&]:border-t [&+&]:border-[var(--border-base)]">
       <button
         type="button"
         onClick={onClick}
@@ -710,15 +796,24 @@ function ScheduleRow({
         </div>
       </button>
       <div className="flex shrink-0 items-center gap-3">
+        <ScheduleUsageStats
+          scheduleName={schedule.name}
+          usage={usage}
+          onOpenUsage={onOpenUsage}
+        />
         <Toggle
           checked={schedule.enabled}
           onChange={onToggle}
           aria-label={`Toggle ${schedule.name}`}
         />
-        <ChevronRight
-          className="h-4 w-4 text-[var(--content-tertiary)] cursor-pointer"
+        <button
+          type="button"
           onClick={onClick}
-        />
+          aria-label={`Open ${schedule.name}`}
+          className="flex h-7 w-7 cursor-pointer items-center justify-center rounded text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-hover)]"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </button>
       </div>
     </div>
   );
@@ -1050,6 +1145,7 @@ function SystemTasksSection({
 export function SchedulesPage() {
   const navigate = useNavigate();
   const { scheduleId } = useParams<{ scheduleId?: string }>();
+  const tz = useEffectiveTimezone();
   const {
     data: assistantList,
     isLoading: isAssistantLoading,
@@ -1066,6 +1162,23 @@ export function SchedulesPage() {
   } = useQuery({
     queryKey: assistantSchedulesQueryKey(assistantId),
     queryFn: () => fetchSchedules(assistantId!),
+    enabled: !!assistantId,
+    staleTime: 10_000,
+  });
+
+  const usageWindow = useMemo(() => resolveScheduleUsageWindow(tz), [tz]);
+  const {
+    data: usageSummaries,
+    isLoading: isUsageSummaryLoading,
+    isError: isUsageSummaryError,
+  } = useQuery({
+    queryKey: [
+      "schedule-usage-summary",
+      assistantId,
+      usageWindow.from,
+      usageWindow.to,
+    ],
+    queryFn: () => fetchScheduleUsageSummary(assistantId!, usageWindow),
     enabled: !!assistantId,
     staleTime: 10_000,
   });
@@ -1105,6 +1218,34 @@ export function SchedulesPage() {
           null)
         : null,
     [schedules, scheduleId, selectedSystemTask],
+  );
+  const usageSummaryByScheduleId = useMemo(
+    () =>
+      new Map(
+        (usageSummaries ?? []).map((summary) => [
+          summary.scheduleId,
+          summary,
+        ]),
+      ),
+    [usageSummaries],
+  );
+
+  const usageForSchedule = useCallback(
+    (scheduleId: string): ScheduleRowUsage => {
+      if (isUsageSummaryLoading) {
+        return { status: "loading" };
+      }
+      if (isUsageSummaryError) {
+        return { status: "error" };
+      }
+      return {
+        status: "ready",
+        summary:
+          usageSummaryByScheduleId.get(scheduleId) ??
+          zeroScheduleUsageSummary(scheduleId),
+      };
+    },
+    [isUsageSummaryError, isUsageSummaryLoading, usageSummaryByScheduleId],
   );
 
   const navigateToSchedules = useCallback(() => {
@@ -1349,6 +1490,12 @@ export function SchedulesPage() {
         </Button>
       </div>
 
+      {isUsageSummaryError ? (
+        <Notice tone="warning" className="py-2 text-body-small-default">
+          Schedule usage stats are unavailable right now.
+        </Notice>
+      ) : null}
+
       {recurring.length > 0 && (
         <DetailCard
           title="Schedules"
@@ -1359,8 +1506,12 @@ export function SchedulesPage() {
               <ScheduleRow
                 key={schedule.id}
                 schedule={schedule}
+                usage={usageForSchedule(schedule.id)}
                 onClick={() => navigateToSchedule(schedule.id)}
                 onToggle={(enabled) => void handleToggle(schedule.id, enabled)}
+                onOpenUsage={() =>
+                  navigate(routes.logs.usageForSchedule(schedule.id))
+                }
               />
             ))}
           </div>
@@ -1395,8 +1546,12 @@ export function SchedulesPage() {
               <ScheduleRow
                 key={schedule.id}
                 schedule={schedule}
+                usage={usageForSchedule(schedule.id)}
                 onClick={() => navigateToSchedule(schedule.id)}
                 onToggle={(enabled) => void handleToggle(schedule.id, enabled)}
+                onOpenUsage={() =>
+                  navigate(routes.logs.usageForSchedule(schedule.id))
+                }
               />
             ))}
           </div>

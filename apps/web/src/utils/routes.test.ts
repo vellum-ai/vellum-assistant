@@ -24,13 +24,13 @@ describe("routes", () => {
 
   test("builds schedule-filtered usage URLs", () => {
     expect(routes.logs.usageForSchedule("schedule-123")).toBe(
-      "/assistant/logs/usage?groupBy=schedule&scheduleId=schedule-123",
+      "/assistant/logs/usage?range=7d&groupBy=schedule&scheduleId=schedule-123",
     );
   });
 
   test("encodes schedule ids in usage URLs", () => {
     expect(routes.logs.usageForSchedule("schedule with spaces")).toBe(
-      "/assistant/logs/usage?groupBy=schedule&scheduleId=schedule+with+spaces",
+      "/assistant/logs/usage?range=7d&groupBy=schedule&scheduleId=schedule+with+spaces",
     );
   });
 });
