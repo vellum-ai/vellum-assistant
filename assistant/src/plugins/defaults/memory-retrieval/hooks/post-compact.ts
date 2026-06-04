@@ -10,11 +10,13 @@
  * history (and the blocks it captured), with no dependency on the agent loop's
  * closure state.
  *
- * It delegates to {@link applyRuntimeInjections} and re-tracks the memory
- * graph's cached nodes against the re-injected history. The remaining
- * orchestrator-side re-injection steps (historical web-search stripping and
- * the post-injection bookkeeping the loop records) are expected to migrate
- * here as the hook subsumes the loop's re-injection ceremony.
+ * It re-applies the runtime injections via {@link applyRuntimeInjections},
+ * re-tracks the memory graph's cached nodes against the re-injected history,
+ * and converts now-historical `web_search_tool_result` blocks to text so their
+ * expired `encrypted_content` tokens are not replayed. The remaining
+ * orchestrator-side step (the post-injection bookkeeping the loop records) is
+ * expected to migrate here as the hook subsumes the loop's re-injection
+ * ceremony.
  */
 
 import {
@@ -22,6 +24,10 @@ import {
   type RuntimeInjectionOptions,
   type RuntimeInjectionResult,
 } from "../../../../daemon/conversation-runtime-assembly.js";
+import {
+  stripHistoricalWebSearchResults,
+  type StripStats,
+} from "../../../../daemon/web-search-history.js";
 import type { ConversationGraphMemory } from "../../../../memory/graph/conversation-graph-memory.js";
 import type { Message } from "../../../../providers/types.js";
 
@@ -41,9 +47,14 @@ export interface PostCompactContext extends RuntimeInjectionOptions {
   isTrustedActor: boolean;
 }
 
+export interface PostCompactResult extends RuntimeInjectionResult {
+  /** Stats from converting historical web-search results to text summaries. */
+  webSearchStripStats: StripStats;
+}
+
 export default async function postCompactReinject(
   ctx: PostCompactContext,
-): Promise<RuntimeInjectionResult> {
+): Promise<PostCompactResult> {
   const { history, graphMemory, isTrustedActor, ...options } = ctx;
   const result = await applyRuntimeInjections(history, options);
   // Re-track the nodes the memory graph last injected so they survive against
@@ -52,5 +63,10 @@ export default async function postCompactReinject(
   if (isTrustedActor && options.mode !== "minimal") {
     graphMemory.retrackCachedNodes();
   }
-  return result;
+  const strip = stripHistoricalWebSearchResults(result.messages);
+  return {
+    ...result,
+    messages: strip.messages,
+    webSearchStripStats: strip.stats,
+  };
 }
