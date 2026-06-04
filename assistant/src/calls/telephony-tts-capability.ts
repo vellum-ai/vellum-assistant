@@ -30,7 +30,10 @@ import {
   getCatalogProvider,
   type MediaStreamPlaybackFormat,
 } from "../tts/provider-catalog.js";
-import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
+import {
+  resolveProviderTtsConfig,
+  resolveTtsConfig,
+} from "../tts/tts-config-resolver.js";
 import type { TtsProviderId } from "../tts/types.js";
 
 // ---------------------------------------------------------------------------
@@ -51,14 +54,20 @@ export const DEFAULT_PLAYABLE_TTS_PROVIDER: TtsProviderId = "elevenlabs";
 /**
  * Why a configured provider cannot feed the media-stream transcoder.
  *
- * - `unsupported-format`  — the provider's declared media-stream output
- *                            format is `"none"` (it cannot emit PCM/WAV).
- * - `missing-credentials` — the provider could emit PCM/WAV but its
- *                            credential is not available.
+ * - `unsupported-format`    — the provider's declared media-stream output
+ *                              format is `"none"` (it cannot emit PCM/WAV).
+ * - `missing-credentials`   — the provider could emit PCM/WAV but its
+ *                              credential is not available.
+ * - `missing-required-config` — the provider is credentialed and can emit
+ *                              PCM/WAV, but a required provider-specific config
+ *                              value is missing, so synthesis would throw
+ *                              before producing audio (e.g. fish-audio's
+ *                              `referenceId`).
  */
 export type TelephonyTtsNotPlayableReason =
   | "unsupported-format"
-  | "missing-credentials";
+  | "missing-credentials"
+  | "missing-required-config";
 
 /** Result of {@link resolveTelephonyTtsCapability}. */
 export type TelephonyTtsCapability =
@@ -129,17 +138,60 @@ function isPlayableFormat(format: MediaStreamPlaybackFormat): boolean {
 }
 
 /**
- * Resolve whether the currently configured `services.tts.provider` can feed
- * the media-stream transcoder with playable audio.
+ * Provider-specific required-config invariants that must hold before the
+ * provider can synthesize ANY audio on the telephony path.
  *
- * Returns `{ status: "playable" }` only when the provider's declared
- * media-stream output format is PCM/WAV **and** its credential is available.
+ * A provider listed here will throw at first synthesis (not emit silence)
+ * when the predicate returns false, so the capability check must treat it as
+ * NOT playable — the media-stream path has no native fallback, so it would go
+ * silent otherwise.
+ *
+ * Each predicate receives the provider's resolved `services.tts.providers.<id>`
+ * config block and returns true when the required config is present.
+ *
+ * - `fish-audio`: `createFishAudioProvider().synthesize()` throws
+ *   `FISH_AUDIO_TTS_NO_REFERENCE_ID` when neither a per-request voiceId nor a
+ *   configured `referenceId` is available. Telephony synthesis does not pass a
+ *   voiceId, so a non-empty configured `referenceId` is required.
+ */
+const REQUIRED_CONFIG_CHECKS: Partial<
+  Record<TtsProviderId, (providerConfig: Record<string, unknown>) => boolean>
+> = {
+  "fish-audio": (providerConfig) => {
+    const referenceId = providerConfig.referenceId;
+    return typeof referenceId === "string" && referenceId.trim().length > 0;
+  },
+};
+
+/**
+ * Whether the provider's required provider-specific config is present.
+ *
+ * Providers without a registered check are considered to have no required
+ * config (always satisfied).
+ */
+function hasRequiredProviderConfig(
+  providerId: TtsProviderId,
+  providerConfig: Record<string, unknown>,
+): boolean {
+  const check = REQUIRED_CONFIG_CHECKS[providerId];
+  return check ? check(providerConfig) : true;
+}
+
+/**
+ * Resolve whether a specific provider (with its resolved config block) can
+ * feed the media-stream transcoder with playable audio.
+ *
+ * Returns `{ status: "playable" }` only when ALL of the following hold:
+ *   1. the provider's declared media-stream output format is PCM/WAV,
+ *   2. its credential is available, and
+ *   3. any provider-specific required config (e.g. fish-audio's `referenceId`)
+ *      is present.
  * Otherwise returns `{ status: "not-playable"; providerId; reason }`.
  */
-export async function resolveTelephonyTtsCapability(): Promise<TelephonyTtsCapability> {
-  const config = loadConfig();
-  const resolved = resolveTtsConfig(config);
-  const providerId = resolved.provider;
+export async function resolveProviderTelephonyCapability(
+  providerId: TtsProviderId,
+  providerConfig: Record<string, unknown>,
+): Promise<TelephonyTtsCapability> {
   const entry = getCatalogProvider(providerId);
 
   if (!isPlayableFormat(entry.mediaStreamPlayback.outputFormat)) {
@@ -155,5 +207,44 @@ export async function resolveTelephonyTtsCapability(): Promise<TelephonyTtsCapab
     };
   }
 
+  if (!hasRequiredProviderConfig(providerId, providerConfig)) {
+    return {
+      status: "not-playable",
+      providerId,
+      reason: "missing-required-config",
+    };
+  }
+
   return { status: "playable", providerId };
+}
+
+/**
+ * Resolve whether the currently configured `services.tts.provider` can feed
+ * the media-stream transcoder with playable audio.
+ *
+ * Returns `{ status: "playable" }` only when the provider's declared
+ * media-stream output format is PCM/WAV, its credential is available, **and**
+ * any provider-specific required config (e.g. fish-audio's `referenceId`) is
+ * present. Otherwise returns `{ status: "not-playable"; providerId; reason }`.
+ */
+export async function resolveTelephonyTtsCapability(): Promise<TelephonyTtsCapability> {
+  const config = loadConfig();
+  const resolved = resolveTtsConfig(config);
+  return resolveProviderTelephonyCapability(
+    resolved.provider,
+    resolved.providerConfig,
+  );
+}
+
+/**
+ * Resolve whether an explicit provider id (e.g. the fallback default) can feed
+ * the media-stream transcoder, reading that provider's config from the active
+ * assistant config regardless of which provider is currently selected.
+ */
+export async function resolveTelephonyTtsCapabilityFor(
+  providerId: TtsProviderId,
+): Promise<TelephonyTtsCapability> {
+  const config = loadConfig();
+  const providerConfig = resolveProviderTtsConfig(config, providerId);
+  return resolveProviderTelephonyCapability(providerId, providerConfig);
 }

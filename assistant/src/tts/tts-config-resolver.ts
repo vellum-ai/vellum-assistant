@@ -51,6 +51,21 @@ export function resolveTtsConfig(config: AssistantConfig): ResolvedTtsConfig {
   return { provider, providerConfig };
 }
 
+/**
+ * Build the provider-specific config object for an explicit provider id from
+ * the canonical `services.tts.providers.<id>` block.
+ *
+ * Unlike {@link resolveTtsConfig}, this does NOT key off the active
+ * `services.tts.provider` — it lets callers inspect the config of any provider
+ * (e.g. a fallback default) regardless of which one is currently selected.
+ */
+export function resolveProviderTtsConfig(
+  config: AssistantConfig,
+  provider: TtsProviderId,
+): Record<string, unknown> {
+  return resolveProviderConfig(config, provider);
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------

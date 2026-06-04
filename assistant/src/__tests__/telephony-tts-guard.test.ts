@@ -27,6 +27,10 @@ mock.module("../util/logger.js", () => ({
 
 // Configured provider id (mutated per test).
 let configuredProvider: TtsProviderId = "elevenlabs";
+// Per-provider config blocks (mutated per test), keyed by provider id. Used by
+// both resolveTtsConfig (active provider) and resolveProviderTtsConfig (any
+// provider, e.g. the fallback default).
+let providerConfigs: Record<string, Record<string, unknown>> = {};
 
 mock.module("../config/loader.js", () => ({
   loadConfig: () => ({ services: { tts: { provider: configuredProvider } } }),
@@ -35,8 +39,10 @@ mock.module("../config/loader.js", () => ({
 mock.module("../tts/tts-config-resolver.js", () => ({
   resolveTtsConfig: () => ({
     provider: configuredProvider,
-    providerConfig: {},
+    providerConfig: providerConfigs[configuredProvider] ?? {},
   }),
+  resolveProviderTtsConfig: (_config: unknown, provider: string) =>
+    providerConfigs[provider] ?? {},
 }));
 
 // Synthetic catalog: each entry declares a media-stream output format and a
@@ -64,6 +70,12 @@ const fakeCatalog: Record<
   "legacy-keyed": {
     mediaStreamPlayback: { outputFormat: "pcm" },
     key: "credential/legacy-keyed/api_key",
+  },
+  // Fish Audio: PCM-capable and credentialed, but requires a non-empty
+  // referenceId in its provider config before it can synthesize any audio.
+  "fish-audio": {
+    mediaStreamPlayback: { outputFormat: "pcm" },
+    key: "k/fish",
   },
 };
 
@@ -142,6 +154,7 @@ beforeEach(() => {
   configuredProvider = "elevenlabs";
   storedKeys = {};
   envProviderKeys = {};
+  providerConfigs = {};
   for (const key of Object.keys(registeredProviders)) {
     delete registeredProviders[key];
   }
@@ -237,6 +250,40 @@ describe("resolveTelephonyTtsCapability", () => {
       expect(result.providerId).toBe("legacy-keyed");
     }
   });
+
+  test("fish-audio with API key but empty referenceId is not-playable (missing-required-config)", async () => {
+    configuredProvider = "fish-audio";
+    storedKeys["k/fish"] = "sk_test"; // credentialed
+    providerConfigs["fish-audio"] = { referenceId: "   " }; // blank reference id
+
+    const result = await resolveTelephonyTtsCapability();
+    expect(result.status).toBe("not-playable");
+    if (result.status === "not-playable") {
+      expect(result.reason).toBe("missing-required-config");
+      expect(result.providerId).toBe("fish-audio");
+    }
+  });
+
+  test("fish-audio with API key but missing referenceId is not-playable (missing-required-config)", async () => {
+    configuredProvider = "fish-audio";
+    storedKeys["k/fish"] = "sk_test"; // credentialed, no referenceId in config
+
+    const result = await resolveTelephonyTtsCapability();
+    expect(result.status).toBe("not-playable");
+    if (result.status === "not-playable") {
+      expect(result.reason).toBe("missing-required-config");
+    }
+  });
+
+  test("fish-audio with API key and referenceId is playable", async () => {
+    configuredProvider = "fish-audio";
+    storedKeys["k/fish"] = "sk_test";
+    providerConfigs["fish-audio"] = { referenceId: "voice_abc123" };
+
+    const result = await resolveTelephonyTtsCapability();
+    expect(result.status).toBe("playable");
+    expect(result.providerId).toBe("fish-audio");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -300,5 +347,31 @@ describe("resolvePlayableCallTtsProvider", () => {
     const result = await resolvePlayableCallTtsProvider();
     expect(result.provider).not.toBeNull();
     expect(result.provider!.id).toBe("elevenlabs");
+  });
+
+  test("falls back to the default for fish-audio without a referenceId", async () => {
+    configuredProvider = "fish-audio";
+    storedKeys["k/fish"] = "sk_fish"; // credentialed but no referenceId
+    storedKeys["k/eleven"] = "sk_default"; // default is playable
+    registeredProviders["fish-audio"] = makeProvider("fish-audio");
+
+    const result = await resolvePlayableCallTtsProvider();
+    // fish-audio would throw FISH_AUDIO_TTS_NO_REFERENCE_ID at synthesis, so
+    // the guard must NOT return it; it falls back to the playable default.
+    expect(result.provider).not.toBeNull();
+    expect(result.provider!.id).toBe("elevenlabs");
+  });
+
+  test("returns no-playable-provider signal when configured AND default are both unplayable", async () => {
+    // Configured provider can't emit a transcodable format...
+    configuredProvider = "compressed-only";
+    storedKeys["k/compressed"] = "sk_test";
+    // ...and the default (elevenlabs) is NOT credentialed, so it is also not
+    // playable. The guard must surface null rather than a silent provider.
+    // (no k/eleven key stored)
+
+    const result = await resolvePlayableCallTtsProvider();
+    expect(result.provider).toBeNull();
+    expect(result.audioFormat).toBe("wav");
   });
 });
