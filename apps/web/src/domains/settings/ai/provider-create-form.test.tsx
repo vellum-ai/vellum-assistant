@@ -91,6 +91,16 @@ mock.module("@/domains/settings/ai/use-provider-credentials-list", () => ({
   }),
 }));
 
+// Provider Name/Key pre-fill is gated by the provider-first client flag.
+// Default it ON so the seeding tests below exercise the new behavior; an
+// individual test flips it to false to assert the legacy (no pre-fill) path.
+const providerFirstFlag = { value: true };
+mock.module("@/stores/client-feature-flag-store", () => ({
+  useClientFeatureFlagStore: {
+    use: { providerFirstProfileCreation: () => providerFirstFlag.value },
+  },
+}));
+
 const { ProviderCreateForm } = await import(
   "@/domains/settings/ai/provider-create-form"
 );
@@ -193,6 +203,7 @@ beforeEach(() => {
   createResponseOk = true;
   createResponseStatus = 200;
   toastSuccessCalls = [];
+  providerFirstFlag.value = true;
 });
 
 afterEach(() => {
@@ -442,6 +453,26 @@ describe("ProviderCreateForm submit sequence", () => {
     expect(getInputByPlaceholder("e.g. anthropic-personal").value).toBe(
       "anthropic",
     );
+  });
+
+  test("with the provider-first flag OFF, Name/Key are NOT pre-filled (legacy Add Provider)", () => {
+    providerFirstFlag.value = false;
+    render(
+      <ModalWrapper>
+        <ProviderCreateForm
+          assistantId={ASSISTANT_ID}
+          existingNames={[]}
+          defaultProviderType="anthropic"
+          onCreated={() => {}}
+          onCancel={() => {}}
+        />
+      </ModalWrapper>,
+    );
+
+    // Standalone Settings → Providers → Add Provider must behave as before the
+    // rollout: empty Name/Key, no provider-type seeding.
+    expect(getInputByPlaceholder("e.g. My Anthropic Key").value).toBe("");
+    expect(getInputByPlaceholder("e.g. anthropic-personal").value).toBe("");
   });
 
   test("dedupes the seeded Key against existingNames", () => {

@@ -30,6 +30,7 @@ import {
   parseCredentialRef,
 } from "@/domains/settings/ai/provider-editor-constants";
 import { deriveProviderDefaults } from "@/domains/settings/ai/profile-prefill";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { ProviderEditorApiKeySection } from "@/domains/settings/ai/provider-editor-api-key-section";
 import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
 import { useLabelKeySync } from "@/domains/settings/ai/use-label-key-sync";
@@ -83,12 +84,21 @@ export function ProviderCreateForm({
 }: ProviderCreateFormProps) {
   const initialProvider: ConnectionProvider = defaultProviderType ?? "anthropic";
 
+  // Provider Name/Key pre-fill is part of the provider-first rollout, so it is
+  // gated by the same client flag. When off, this form — including the
+  // standalone Settings → Providers → Add Provider entry point — behaves as
+  // before: empty Name/Key and no provider-type re-seed.
+  const providerFirstEnabled =
+    useClientFeatureFlagStore.use.providerFirstProfileCreation();
+
   // Seed Display Name (label) + Key (name) from the initial provider type so
   // the form opens pre-filled (e.g. Anthropic → "Anthropic" / "anthropic"),
   // deduped against existing connection names. The user can override both, and
   // a provider-type change re-seeds only while they haven't edited the fields
   // (see the dirty guard in the Provider dropdown's onChange below).
-  const initialDefaults = deriveProviderDefaults(initialProvider, existingNames);
+  const initialDefaults = providerFirstEnabled
+    ? deriveProviderDefaults(initialProvider, existingNames)
+    : { name: "", key: "" };
 
   const [label, setLabel] = useState(initialDefaults.name);
   const [name, setName] = useState(initialDefaults.key);
@@ -333,7 +343,7 @@ export function ProviderCreateForm({
             // only while the user hasn't manually edited either field (dirty
             // tracking lives in useLabelKeySync). Seeding writes state
             // directly so it doesn't itself flip the dirty flag.
-            if (!getDirty()) {
+            if (providerFirstEnabled && !getDirty()) {
               const { name: seedName, key: seedKey } = deriveProviderDefaults(
                 newProvider,
                 existingNames,
