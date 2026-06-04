@@ -137,9 +137,10 @@ paths:
       operationId: acp_continue_post
       summary: Continue ACP session
       description:
-        Send a follow-up turn to an existing live (running/idle) ACP session so the agent builds on the same
-        context and workspace. Resolve the target by explicit acpSessionId, or by the conversation's most-recent live
-        session via conversationId. Errors cleanly (404) for a closed or non-existent session.
+        Send a follow-up turn to an existing idle ACP session so the agent builds on the same context and
+        workspace. Resolve the target by explicit acpSessionId, or by the conversation's most-recent live session via
+        conversationId. Errors cleanly (404) for a closed or non-existent session, and (409) when the session is busy
+        with a prompt still in flight.
       tags:
         - acp
       responses:

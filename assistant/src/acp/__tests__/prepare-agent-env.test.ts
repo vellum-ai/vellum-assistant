@@ -422,6 +422,64 @@ describe("prepareAgentEnv — claude-agent-acp gating", () => {
     expect(prepared.env?.GH_TOKEN).toBe("vault-git");
   });
 
+  test("a git token also wires the GIT_CONFIG_* URL-rewrite so plain git over HTTPS authenticates", async () => {
+    seedVaultToken("vault-oauth");
+    seedVaultField("git_token", "vault-git");
+
+    const prepared = await prepareAgentEnv({
+      command: "claude-agent-acp",
+      args: [],
+    });
+
+    // GH_TOKEN covers the gh CLI; the GIT_CONFIG_* trio makes a bare
+    // `git clone/push` over HTTPS rewrite github.com URLs to embed the token.
+    expect(prepared.env?.GH_TOKEN).toBe("vault-git");
+    expect(prepared.env?.GIT_CONFIG_COUNT).toBe("1");
+    expect(prepared.env?.GIT_CONFIG_KEY_0).toBe(
+      "url.https://x-access-token:vault-git@github.com/.insteadOf",
+    );
+    expect(prepared.env?.GIT_CONFIG_VALUE_0).toBe("https://github.com/");
+  });
+
+  test("does NOT set GIT_CONFIG_* when no git token is present", async () => {
+    seedVaultToken("vault-oauth");
+
+    const prepared = await prepareAgentEnv({
+      command: "claude-agent-acp",
+      args: [],
+    });
+
+    expect(prepared.env?.GH_TOKEN).toBeUndefined();
+    expect(prepared.env?.GIT_CONFIG_COUNT).toBeUndefined();
+    expect(prepared.env?.GIT_CONFIG_KEY_0).toBeUndefined();
+    expect(prepared.env?.GIT_CONFIG_VALUE_0).toBeUndefined();
+  });
+
+  test("appends to an existing GIT_CONFIG_COUNT rather than clobbering it", async () => {
+    seedVaultToken("vault-oauth");
+    seedVaultField("git_token", "vault-git");
+
+    const prepared = await prepareAgentEnv({
+      command: "claude-agent-acp",
+      args: [],
+      // Simulate a user-supplied ad-hoc git config entry already in agent.env.
+      env: {
+        GIT_CONFIG_COUNT: "1",
+        GIT_CONFIG_KEY_0: "user.name",
+        GIT_CONFIG_VALUE_0: "Existing User",
+      },
+    });
+
+    // Existing entry is preserved; ours is appended at the next index.
+    expect(prepared.env?.GIT_CONFIG_COUNT).toBe("2");
+    expect(prepared.env?.GIT_CONFIG_KEY_0).toBe("user.name");
+    expect(prepared.env?.GIT_CONFIG_VALUE_0).toBe("Existing User");
+    expect(prepared.env?.GIT_CONFIG_KEY_1).toBe(
+      "url.https://x-access-token:vault-git@github.com/.insteadOf",
+    );
+    expect(prepared.env?.GIT_CONFIG_VALUE_1).toBe("https://github.com/");
+  });
+
   test("git token works alongside the API-key-only LLM credential", async () => {
     seedVaultField("anthropic_api_key", "vault-anthropic-key");
     seedVaultField("git_token", "vault-git");
