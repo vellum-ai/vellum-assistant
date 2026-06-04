@@ -226,7 +226,7 @@ describe("renderHistoryContent", () => {
 
     expect(output.text).toBe("");
     expect(output.toolCalls).toEqual([
-      { name: "web_fetch", input: { url: "https://example.com" } },
+      { id: "tu_1", name: "web_fetch", input: { url: "https://example.com" } },
     ]);
     expect(output.toolCallsBeforeText).toBe(true);
   });
@@ -244,6 +244,7 @@ describe("renderHistoryContent", () => {
 
     expect(output.toolCalls).toEqual([
       {
+        id: "tu_1",
         name: "bash",
         input: { command: "ls" },
         result: "file1.txt\nfile2.txt",
@@ -265,11 +266,40 @@ describe("renderHistoryContent", () => {
 
     expect(output.toolCalls).toEqual([
       {
+        id: "tu_1",
         name: "bash",
         input: { command: "bad" },
         result: "command not found",
         isError: true,
       },
+    ]);
+  });
+
+  test("omits id when the tool_use block carries none", () => {
+    const output = renderHistoryContent([
+      { type: "tool_use", name: "bash", input: { command: "ls" } },
+    ]);
+
+    // No provider id on the block — emit the entry without an `id` rather than
+    // materializing an empty string, so clients fall back to a synthesized id.
+    expect(output.toolCalls).toEqual([
+      { name: "bash", input: { command: "ls" } },
+    ]);
+    expect(output.toolCalls[0]).not.toHaveProperty("id");
+  });
+
+  test("carries the provider id for server_tool_use blocks", () => {
+    const output = renderHistoryContent([
+      {
+        type: "server_tool_use",
+        id: "srvtu_1",
+        name: "web_search",
+        input: { query: "vellum" },
+      },
+    ]);
+
+    expect(output.toolCalls).toEqual([
+      { id: "srvtu_1", name: "web_search", input: { query: "vellum" } },
     ]);
   });
 

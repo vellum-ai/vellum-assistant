@@ -73,6 +73,14 @@ const RiskDirectoryScopeOptionSchema = z.object({
  * `tool:N` where `N` indexes into `toolCalls`.
  */
 export const ConversationMessageToolCallSchema = z.object({
+  /**
+   * Provider tool-use id (the `tool_use` block's `id`). Stable across the
+   * history snapshot and the live `tool_use_start`/`tool_result` stream, so
+   * clients can key tool calls by it instead of synthesizing positional ids.
+   * Optional for backwards compatibility: daemons predating this field omit
+   * it, and clients fall back to a synthesized id in that case.
+   */
+  id: z.string().optional(),
   name: z.string(),
   input: z.record(z.string(), z.unknown()),
   result: z.string().optional(),

@@ -476,6 +476,7 @@ export function renderHistoryContent(
         : {};
       const id = typeof block.id === "string" ? block.id : "";
       const entry: HistoryToolCall = { name, input };
+      if (id) entry.id = id;
       // Extract persisted timing/confirmation metadata
       if (typeof block._startedAt === "number")
         entry.startedAt = block._startedAt;
@@ -531,6 +532,7 @@ export function renderHistoryContent(
         : {};
       const id = typeof block.id === "string" ? block.id : "";
       const entry: HistoryToolCall = { name, input };
+      if (id) entry.id = id;
       toolCalls.push(entry);
       if (id) pendingToolUses.set(id, entry);
       contentOrder.push(`tool:${toolCalls.length - 1}`);

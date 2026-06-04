@@ -35,12 +35,16 @@ export interface PendingToolConfirmation {
  * A tool call as rendered in the transcript. Extends the canonical wire
  * `ConversationMessageToolCall` (carrying `name`, `input`, `result`, the
  * risk/approval fields, and the `risk*Options` rule-editor ladders) with the
- * client-only live state the wire deliberately omits — a synthesized row `id`,
- * a derived `status`, the in-flight confirmation prompt, and activity metadata
- * accumulated from SSE events.
+ * client-only live state the wire deliberately omits — a derived `status`, the
+ * in-flight confirmation prompt, and activity metadata accumulated from SSE
+ * events.
  */
 export interface ChatMessageToolCall extends ConversationMessageToolCall {
-  /** Client-synthesized stable id for the tool call (wire blocks are keyed positionally). */
+  /**
+   * Stable tool-call id. Narrows the inherited optional wire `id` (the provider
+   * tool-use id) to required: the client always resolves one, falling back to a
+   * synthesized positional id for daemons predating the wire `id` field.
+   */
   id: string;
   /** Live execution state derived from SSE events. */
   status: "running" | "completed" | "error";

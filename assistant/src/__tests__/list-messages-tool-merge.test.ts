@@ -118,6 +118,7 @@ describe("handleListMessages tool_result merging", () => {
       {
         type: "tool_use",
         toolCall: {
+          id: "tu1",
           name: "bash",
           input: { command: "ls" },
           result: "file1.txt\nfile2.txt",

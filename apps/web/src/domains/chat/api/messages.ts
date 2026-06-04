@@ -132,9 +132,11 @@ function narrowConfirmationDecision(
  * Project a canonical wire tool call onto the `ChatMessageToolCall` rendered in
  * the transcript. The wire base already carries every shared field (`name`,
  * `input`, `result`, the risk/approval fields, the `risk*Options` ladders), so
- * we only layer the client-only live state: a synthesized stable `id` and a
- * `status` derived from `isError`/`result`. The `id` uses the array index,
- * matching how `contentOrder` references tool calls positionally in history.
+ * we only layer the client-only live state: the stable `id` and a `status`
+ * derived from `isError`/`result`. The `id` is the provider tool-use id the
+ * wire now carries — the same id the live `tool_use_start` stream uses, so
+ * reconcile matches snapshot and stream tool calls by it. We fall back to a
+ * positional synthesized id only for daemons predating the wire `id` field.
  */
 export function mapRuntimeToolCalls(
   toolCalls: ConversationMessageToolCall[],
@@ -150,7 +152,7 @@ export function mapRuntimeToolCalls(
     const confirmationDecision = narrowConfirmationDecision(wireDecision);
     return {
       ...rest,
-      id: `tool-history-${messageId}-${idx}`,
+      id: tc.id ?? `tool-history-${messageId}-${idx}`,
       status: tc.isError
         ? ("error" as const)
         : tc.result === undefined
