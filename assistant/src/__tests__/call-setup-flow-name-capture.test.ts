@@ -465,6 +465,27 @@ describe("CallSetupFlow name-capture sub-flow", () => {
       "Inbound voice ACL: name capture timed out",
     ]);
   });
+
+  test("late transcript after timeout fires is ignored (no guardian wait started)", async () => {
+    const transport = makeTransport();
+    const fake = makeFakeController();
+    const ctx = makeDeps(SESSION, fake);
+    const flow = new CallSetupFlow("call_1", transport.transport, ctx.deps);
+
+    const started = flow.start(NAME_CAPTURE, RESOLVED);
+    expect(ctx.nameTimers).toHaveLength(1);
+
+    // Timeout fires, then a late final transcript arrives during the async
+    // finalize/TTS window. It must NOT start a guardian wait or open an
+    // access request for the already-failing call.
+    ctx.nameTimers[0]!.fn();
+    flow.pushTranscriptFinal("Robin");
+
+    const result = await started;
+    expect(result).toEqual({ kind: "ended", reason: "Name capture timed out" });
+    expect(fake.record.started).toHaveLength(0);
+    expect(ctx.accessRequestArgs).toHaveLength(0);
+  });
 });
 
 describe("CallSetupFlow unverified-caller sub-flow", () => {

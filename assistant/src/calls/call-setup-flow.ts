@@ -922,6 +922,13 @@ export class CallSetupFlow implements SetupFlowInput {
   private async handleNameCaptureTimeout(): Promise<void> {
     this.clearNameCaptureTimeout();
     const c = this.capturingName;
+    // Stop accepting names before the async finalize/TTS awaits below. Without
+    // this, a late final transcript arriving during that window (common with
+    // media/STT lag right as the timeout fires) would still reach
+    // handleNameCaptureResponse() and start a guardian wait for a call that is
+    // already being failed and scheduled for hangup. Clearing capturingName
+    // makes that handler's guard short-circuit.
+    this.capturingName = null;
     this.deps.recordCallEvent(
       this.callSessionId,
       "inbound_acl_name_capture_timeout",
