@@ -198,6 +198,14 @@ export type AgentEvent =
       approvalReason?: string;
       riskThreshold?: string;
       activityMetadata?: ToolActivityMetadata;
+      /**
+       * Set when the loop synthesizes this result for a tool_use that never
+       * executed (a "Cancelled by user" block on abort). The daemon still
+       * captures it into `pendingToolResults` and forwards it to the client,
+       * but skips the side effects that assume the tool ran — marking the
+       * workspace dirty and emitting a post-tool "thinking" activity state.
+       */
+      cancelled?: boolean;
     }
   | { type: "tool_use_preview_start"; toolUseId: string; toolName: string }
   | {
@@ -1316,6 +1324,15 @@ export class AgentLoop {
             }),
           );
           history.push({ role: "user", content: cancelledBlocks });
+          for (const toolUse of toolUseBlocks) {
+            await onEvent({
+              type: "tool_result",
+              toolUseId: toolUse.id,
+              content: "Cancelled by user",
+              isError: true,
+              cancelled: true,
+            });
+          }
           await emitExit("aborted_post_response");
           break;
         }
@@ -1586,6 +1603,15 @@ export class AgentLoop {
               }),
             );
             history.push({ role: "user", content: cancelledBlocks });
+            for (const toolUse of toolUseBlocks) {
+              await onEvent({
+                type: "tool_result",
+                toolUseId: toolUse.id,
+                content: "Cancelled by user",
+                isError: true,
+                cancelled: true,
+              });
+            }
           }
           await emitExit("aborted_via_error");
           break;

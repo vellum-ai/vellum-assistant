@@ -995,6 +995,34 @@ export function handleToolResult(
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "tool_result" }>,
 ): void {
+  // A synthesized cancellation (the tool never executed) is captured for
+  // persistence and forwarded to the client like any result, but skips every
+  // side effect that assumes the tool ran. A real result already captured or
+  // persisted for the same tool wins, so only fill genuine gaps.
+  if (event.cancelled) {
+    if (
+      state.pendingToolResults.has(event.toolUseId) ||
+      state.persistedToolUseIds.has(event.toolUseId)
+    ) {
+      return;
+    }
+    state.pendingToolResults.set(event.toolUseId, {
+      content: event.content,
+      isError: event.isError,
+    });
+    state.currentToolUseId = undefined;
+    deps.onEvent({
+      type: "tool_result",
+      toolName: "",
+      result: event.content,
+      isError: event.isError,
+      conversationId: deps.ctx.conversationId,
+      messageId: state.lastAssistantMessageId,
+      toolUseId: event.toolUseId,
+    });
+    return;
+  }
+
   const imageBlocks = event.contentBlocks?.filter(
     (b): b is ImageContent => b.type === "image",
   );
