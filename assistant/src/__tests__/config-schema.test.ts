@@ -820,6 +820,7 @@ describe("AssistantConfigSchema", () => {
         language: "en-US",
         hints: [],
         interruptSensitivity: "low",
+        telephonyStreaming: true,
       },
       callerIdentity: {
         allowPerCallOverride: true,

@@ -8,7 +8,12 @@ import {
   test,
 } from "bun:test";
 
-import type { BatchTranscriber, SttTranscribeRequest } from "../stt/types.js";
+import type {
+  BatchTranscriber,
+  StreamingTranscriber,
+  SttStreamServerEvent,
+  SttTranscribeRequest,
+} from "../stt/types.js";
 
 // ---------------------------------------------------------------------------
 // Module mocks — must be declared before the module under test is imported.
@@ -18,6 +23,15 @@ import type { BatchTranscriber, SttTranscribeRequest } from "../stt/types.js";
 mock.module("../providers/speech-to-text/resolve.js", () => ({
   resolveTelephonySttCapability: jest.fn(),
   resolveBatchTranscriber: jest.fn(),
+  resolveStreamingTranscriber: jest.fn(),
+}));
+
+// Controllable streaming flag, read by the session via getConfig().
+let telephonyStreamingFlag = false;
+mock.module("../config/loader.js", () => ({
+  getConfig: () => ({
+    calls: { voice: { telephonyStreaming: telephonyStreamingFlag } },
+  }),
 }));
 
 // Mock the logger to suppress output during tests
@@ -34,6 +48,7 @@ mock.module("../util/logger.js", () => ({
 import { MediaStreamSttSession } from "../calls/media-stream-stt-session.js";
 import {
   resolveBatchTranscriber,
+  resolveStreamingTranscriber,
   resolveTelephonySttCapability,
 } from "../providers/speech-to-text/resolve.js";
 
@@ -110,6 +125,45 @@ function makeMockTranscriber(text = "hello world"): BatchTranscriber {
   };
 }
 
+/**
+ * A controllable fake {@link StreamingTranscriber}. `start()` does not resolve
+ * until {@link resolveStart} is called, letting tests assert that frames
+ * arriving before startup are buffered, then flushed on resolution.
+ */
+interface FakeStreamingTranscriber extends StreamingTranscriber {
+  /** Frames passed to sendAudio, in order. */
+  readonly sent: Buffer[];
+  /** Resolve the pending `start()` promise. */
+  resolveStart: () => void;
+  /** Emit a server event to the registered onEvent callback. */
+  emit: (event: SttStreamServerEvent) => void;
+  stop: jest.Mock;
+}
+
+function makeFakeStreamingTranscriber(): FakeStreamingTranscriber {
+  const sent: Buffer[] = [];
+  let onEvent: ((event: SttStreamServerEvent) => void) | null = null;
+  let resolveStartFn: () => void = () => {};
+
+  return {
+    providerId: "deepgram",
+    boundaryId: "daemon-streaming",
+    sent,
+    start: jest.fn((cb: (event: SttStreamServerEvent) => void) => {
+      onEvent = cb;
+      return new Promise<void>((resolve) => {
+        resolveStartFn = resolve;
+      });
+    }),
+    sendAudio: jest.fn((audio: Buffer) => {
+      sent.push(audio);
+    }),
+    stop: jest.fn(),
+    resolveStart: () => resolveStartFn(),
+    emit: (event: SttStreamServerEvent) => onEvent?.(event),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -117,6 +171,11 @@ function makeMockTranscriber(text = "hello world"): BatchTranscriber {
 describe("MediaStreamSttSession", () => {
   beforeEach(() => {
     jest.useFakeTimers();
+
+    // Default to the batch path so existing batch tests are unaffected.
+    telephonyStreamingFlag = false;
+    (resolveStreamingTranscriber as jest.Mock).mockClear();
+    (resolveStreamingTranscriber as jest.Mock).mockResolvedValue(null);
 
     // Default: provider is supported and transcriber is available
     (resolveTelephonySttCapability as jest.Mock).mockResolvedValue({
@@ -581,6 +640,212 @@ describe("MediaStreamSttSession", () => {
       // No turn should have started, so no transcript emitted
       expect(onSpeechStart).not.toHaveBeenCalled();
       expect(onTranscriptFinal).not.toHaveBeenCalled();
+
+      session.dispose();
+    });
+  });
+
+  // ── Streaming mode ───────────────────────────────────────────────
+
+  describe("streaming mode", () => {
+    test("buffers frames during startup then flushes on start()", async () => {
+      telephonyStreamingFlag = true;
+      const fake = makeFakeStreamingTranscriber();
+      (resolveStreamingTranscriber as jest.Mock).mockResolvedValue(fake);
+
+      const session = new MediaStreamSttSession({}, {});
+
+      session.handleMessage(makeStartMessage());
+      // Let resolveStreamingTranscriber resolve and start() be invoked.
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      expect(fake.start).toHaveBeenCalledTimes(1);
+
+      // Frames arriving before start() resolves are buffered, not sent.
+      session.handleMessage(makeMediaMessage());
+      session.handleMessage(makeMediaMessage());
+      expect(fake.sent.length).toBe(0);
+
+      // Resolve start() — buffered frames flush in order.
+      fake.resolveStart();
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      expect(fake.sent.length).toBe(2);
+
+      // Subsequent frames go straight through.
+      session.handleMessage(makeMediaMessage());
+      expect(fake.sent.length).toBe(3);
+
+      session.dispose();
+    });
+
+    test("drops oldest over-cap startup frames and counts them", async () => {
+      telephonyStreamingFlag = true;
+      const fake = makeFakeStreamingTranscriber();
+      (resolveStreamingTranscriber as jest.Mock).mockResolvedValue(fake);
+
+      const session = new MediaStreamSttSession({}, {});
+      session.handleMessage(makeStartMessage());
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+
+      // Feed more than the 500-frame cap while still in startup.
+      const total = 600;
+      for (let i = 0; i < total; i++) {
+        session.handleMessage(makeMediaMessage());
+      }
+      expect(fake.sent.length).toBe(0);
+
+      // Flush — only the most recent 500 frames survive.
+      fake.resolveStart();
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      expect(fake.sent.length).toBe(500);
+
+      session.dispose();
+    });
+
+    test("fires onSpeechStart from local VAD before any partial", async () => {
+      telephonyStreamingFlag = true;
+      const fake = makeFakeStreamingTranscriber();
+      (resolveStreamingTranscriber as jest.Mock).mockResolvedValue(fake);
+
+      const onSpeechStart = jest.fn();
+      const session = new MediaStreamSttSession({}, { onSpeechStart });
+
+      session.handleMessage(makeStartMessage());
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+
+      // A speech frame fires local-VAD onSpeechStart even before start()
+      // resolves and before any transcriber partial arrives.
+      session.handleMessage(makeMediaMessage());
+      expect(onSpeechStart).toHaveBeenCalledTimes(1);
+
+      session.dispose();
+    });
+
+    test("ignores transcriber partials for barge-in", async () => {
+      telephonyStreamingFlag = true;
+      const fake = makeFakeStreamingTranscriber();
+      (resolveStreamingTranscriber as jest.Mock).mockResolvedValue(fake);
+
+      const onSpeechStart = jest.fn();
+      const onTranscriptFinal = jest.fn();
+      const session = new MediaStreamSttSession(
+        {},
+        { onSpeechStart, onTranscriptFinal },
+      );
+
+      session.handleMessage(makeStartMessage());
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      fake.resolveStart();
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+
+      fake.emit({ type: "partial", text: "hel" });
+      expect(onSpeechStart).not.toHaveBeenCalled();
+      expect(onTranscriptFinal).not.toHaveBeenCalled();
+
+      session.dispose();
+    });
+
+    test("maps transcriber final to onTranscriptFinal", async () => {
+      telephonyStreamingFlag = true;
+      const fake = makeFakeStreamingTranscriber();
+      (resolveStreamingTranscriber as jest.Mock).mockResolvedValue(fake);
+
+      const onTranscriptFinal = jest.fn();
+      const session = new MediaStreamSttSession({}, { onTranscriptFinal });
+
+      session.handleMessage(makeStartMessage());
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      fake.resolveStart();
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+
+      fake.emit({ type: "final", text: "hello streaming" });
+      expect(onTranscriptFinal).toHaveBeenCalledTimes(1);
+      expect(onTranscriptFinal).toHaveBeenCalledWith(
+        "hello streaming",
+        expect.any(Number),
+      );
+
+      session.dispose();
+    });
+
+    test("maps transcriber error to onError", async () => {
+      telephonyStreamingFlag = true;
+      const fake = makeFakeStreamingTranscriber();
+      (resolveStreamingTranscriber as jest.Mock).mockResolvedValue(fake);
+
+      const onError = jest.fn();
+      const session = new MediaStreamSttSession({}, { onError });
+
+      session.handleMessage(makeStartMessage());
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      fake.resolveStart();
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+
+      fake.emit({ type: "error", category: "provider-error", message: "boom" });
+      expect(onError).toHaveBeenCalledWith("provider-error", "boom");
+
+      session.dispose();
+    });
+
+    test("calls transcriber.stop() on dispose", async () => {
+      telephonyStreamingFlag = true;
+      const fake = makeFakeStreamingTranscriber();
+      (resolveStreamingTranscriber as jest.Mock).mockResolvedValue(fake);
+
+      const session = new MediaStreamSttSession({}, {});
+      session.handleMessage(makeStartMessage());
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      fake.resolveStart();
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+
+      session.dispose();
+      expect(fake.stop).toHaveBeenCalledTimes(1);
+    });
+
+    test("flag disabled falls back to batch path", async () => {
+      telephonyStreamingFlag = false;
+      const fake = makeFakeStreamingTranscriber();
+      (resolveStreamingTranscriber as jest.Mock).mockResolvedValue(fake);
+
+      const onTranscriptFinal = jest.fn();
+      const session = new MediaStreamSttSession(
+        { turnDetector: { silenceThresholdMs: 300 } },
+        { onTranscriptFinal },
+      );
+
+      session.handleMessage(makeStartMessage());
+      session.handleMessage(makeMediaMessage());
+
+      // Streaming transcriber must not be touched in batch mode.
+      expect(resolveStreamingTranscriber as jest.Mock).not.toHaveBeenCalled();
+      expect(fake.start).not.toHaveBeenCalled();
+
+      // Batch transcription still completes.
+      jest.advanceTimersByTime(400);
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      expect(onTranscriptFinal).toHaveBeenCalledTimes(1);
+
+      session.dispose();
+    });
+
+    test("falls back to batch when no streaming transcriber resolves", async () => {
+      telephonyStreamingFlag = true;
+      (resolveStreamingTranscriber as jest.Mock).mockResolvedValue(null);
+
+      const onTranscriptFinal = jest.fn();
+      const session = new MediaStreamSttSession(
+        { turnDetector: { silenceThresholdMs: 300 } },
+        { onTranscriptFinal },
+      );
+
+      session.handleMessage(makeStartMessage());
+      // Let startStreamingMode resolve and fall through to batch capability.
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+
+      session.handleMessage(makeMediaMessage());
+      jest.advanceTimersByTime(400);
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+
+      expect(onTranscriptFinal).toHaveBeenCalledTimes(1);
 
       session.dispose();
     });

@@ -17,14 +17,21 @@
  *   are reported through `onError` without tearing down the session.
  */
 
+import { getConfig } from "../config/loader.js";
 import {
+  resolveStreamingTranscriber,
   resolveTelephonySttCapability,
   type TelephonySttCapability,
 } from "../providers/speech-to-text/resolve.js";
 import { resolveBatchTranscriber } from "../providers/speech-to-text/resolve.js";
 import { normalizeSttError } from "../stt/daemon-batch-transcriber.js";
-import type { SttCallContextHints } from "../stt/types.js";
+import type {
+  StreamingTranscriber,
+  SttCallContextHints,
+  SttStreamServerEvent,
+} from "../stt/types.js";
 import { getLogger } from "../util/logger.js";
+import { mulawToPcm16, resamplePcm16 } from "./media-stream-audio-transcode.js";
 import { parseMediaStreamFrame } from "./media-stream-parser.js";
 import type {
   MediaStreamMediaEvent,
@@ -50,9 +57,39 @@ export interface MediaStreamSttSessionConfig {
 
   /** Optional call-context hints forwarded to the STT provider. */
   callContextHints?: SttCallContextHints;
+
+  /**
+   * Force streaming on/off, bypassing the `calls.voice.telephonyStreaming`
+   * config flag. Primarily for tests. When omitted, the config flag decides.
+   */
+  forceStreaming?: boolean;
 }
 
 const DEFAULT_TRANSCRIPTION_TIMEOUT_MS = 10_000;
+
+/**
+ * Sample rate (Hz) of Twilio telephony media-stream audio.
+ */
+const TELEPHONY_SAMPLE_RATE = 8_000;
+
+/**
+ * Sample rate (Hz) we upsample telephony audio to before feeding the
+ * streaming transcriber. Streaming adapters default to 16 kHz, so we
+ * resample once and configure the transcriber for the same rate.
+ */
+const STREAMING_SAMPLE_RATE = 16_000;
+
+/** MIME type for the raw PCM16 frames sent to the streaming transcriber. */
+const STREAMING_PCM_MIME = "audio/pcm";
+
+/**
+ * Maximum number of inbound PCM frames buffered while the streaming
+ * transcriber is starting up. Each frame is ~20 ms of audio, so this caps
+ * the startup buffer at roughly 10 seconds — far longer than any real
+ * provider handshake. Frames beyond the cap drop oldest-first and increment
+ * a diagnostic counter logged on teardown.
+ */
+const MAX_STREAMING_STARTUP_FRAMES = 500;
 
 // ---------------------------------------------------------------------------
 // Callback hooks
@@ -115,6 +152,29 @@ export class MediaStreamSttSession {
 
   /** Session-level abort controller for the active transcription request. */
   private activeTranscriptionAbort: AbortController | null = null;
+
+  // ── Streaming-mode state ───────────────────────────────────────────
+
+  /**
+   * Active streaming transcriber, set once at `handleStart` when streaming
+   * mode is selected. `null` means the batch fallback path is in use.
+   */
+  private streamingTranscriber: StreamingTranscriber | null = null;
+
+  /** Whether the streaming transcriber's `start()` promise has resolved. */
+  private streamingReady = false;
+
+  /**
+   * Inbound PCM frames buffered while the streaming transcriber starts up.
+   * Flushed (and cleared) once `start()` resolves.
+   */
+  private streamingStartupBuffer: Buffer[] = [];
+
+  /**
+   * Count of frames dropped from the bounded startup buffer because it
+   * exceeded {@link MAX_STREAMING_STARTUP_FRAMES}. Logged on teardown.
+   */
+  private streamingStartupFramesDropped = 0;
 
   constructor(
     config: MediaStreamSttSessionConfig = {},
@@ -180,6 +240,23 @@ export class MediaStreamSttSession {
     this.activeTranscriptionAbort = null;
     this.turnDetector.dispose();
     this.currentTurnChunks = [];
+
+    if (this.streamingStartupFramesDropped > 0) {
+      log.warn(
+        {
+          streamSid: this.streamSid,
+          dropped: this.streamingStartupFramesDropped,
+        },
+        "Dropped media frames from streaming startup buffer (over cap)",
+      );
+    }
+
+    if (this.streamingTranscriber) {
+      this.streamingTranscriber.stop();
+      this.streamingTranscriber = null;
+    }
+    this.streamingReady = false;
+    this.streamingStartupBuffer = [];
   }
 
   // ── Event handlers ─────────────────────────────────────────────────
@@ -199,18 +276,135 @@ export class MediaStreamSttSession {
       "Media stream STT session started",
     );
 
-    // Eagerly resolve capability so it's cached by the time the first
-    // turn completes.
+    // Select streaming vs batch ONCE at start; do not mix paths thereafter.
+    if (this.streamingEnabled()) {
+      void this.startStreamingMode();
+      return;
+    }
+
+    // Batch fallback path: eagerly resolve capability so it's cached by the
+    // time the first turn completes.
     this.capabilityPromise = resolveTelephonySttCapability();
+  }
+
+  /**
+   * Whether streaming STT should be attempted for this session, per the
+   * `calls.voice.telephonyStreaming` config flag (or an explicit override).
+   */
+  private streamingEnabled(): boolean {
+    if (this.config.forceStreaming !== undefined) {
+      return this.config.forceStreaming;
+    }
+    try {
+      return getConfig().calls.voice.telephonyStreaming;
+    } catch {
+      // Config unavailable (early startup / tests) — default to batch path.
+      return false;
+    }
+  }
+
+  /**
+   * Open a streaming transcriber for the session. Inbound frames that arrive
+   * before `start()` resolves are buffered (bounded) and flushed on success.
+   * Falls back to the batch path if no streaming transcriber is available.
+   */
+  private async startStreamingMode(): Promise<void> {
+    let transcriber: StreamingTranscriber | null;
+    try {
+      transcriber = await resolveStreamingTranscriber({
+        // We resample telephony audio up to STREAMING_SAMPLE_RATE before
+        // sending, so configure the transcriber for that selected rate.
+        sampleRate: STREAMING_SAMPLE_RATE,
+      });
+    } catch (err) {
+      if (this.disposed) return;
+      const normalized = normalizeSttError(err);
+      this.callbacks.onError?.(normalized.category, normalized.message);
+      return;
+    }
+    if (this.disposed) {
+      transcriber?.stop();
+      return;
+    }
+
+    if (!transcriber) {
+      // No streaming transcriber — fall back to the batch path.
+      log.info(
+        { streamSid: this.streamSid },
+        "No streaming transcriber available; falling back to batch STT",
+      );
+      this.capabilityPromise = resolveTelephonySttCapability();
+      return;
+    }
+
+    this.streamingTranscriber = transcriber;
+
+    try {
+      await transcriber.start((event) => this.handleStreamingEvent(event));
+    } catch (err) {
+      if (this.disposed) return;
+      this.streamingTranscriber = null;
+      this.streamingStartupBuffer = [];
+      const normalized = normalizeSttError(err);
+      this.callbacks.onError?.(normalized.category, normalized.message);
+      return;
+    }
+    if (this.disposed) {
+      transcriber.stop();
+      return;
+    }
+
+    // Flush any frames buffered during startup, then enter steady state.
+    this.streamingReady = true;
+    const buffered = this.streamingStartupBuffer;
+    this.streamingStartupBuffer = [];
+    for (const frame of buffered) {
+      transcriber.sendAudio(frame, STREAMING_PCM_MIME);
+    }
+  }
+
+  /**
+   * Handle a server event from the streaming transcriber. `onSpeechStart`
+   * is driven by local VAD (for barge-in latency), so partials are not
+   * surfaced here — only finals, errors, and close.
+   */
+  private handleStreamingEvent(event: SttStreamServerEvent): void {
+    if (this.disposed) return;
+    switch (event.type) {
+      case "final":
+        this.callbacks.onTranscriptFinal?.(event.text, 0);
+        break;
+      case "error":
+        this.callbacks.onError?.(event.category, event.message);
+        break;
+      case "closed":
+        // Session-level `onStop` is driven by the Twilio `stop` event
+        // (`handleStop`); the provider `closed` event is teardown only.
+        this.streamingReady = false;
+        break;
+      case "partial":
+        // Partials are intentionally ignored — barge-in is driven by the
+        // fast local VAD instead of waiting for the first partial.
+        break;
+    }
   }
 
   private handleMedia(event: MediaStreamMediaEvent): void {
     // Only process inbound (caller) audio
     if (event.media.track !== "inbound") return;
 
-    // Compute speech activity from the audio payload using a lightweight
-    // energy heuristic. mu-law encoded audio has a companded dynamic
-    // range — silence sits near 0xFF/0x7F while speech has higher energy.
+    // Streaming mode: route decoded PCM into the transcriber and drive
+    // barge-in (`onSpeechStart`) from the fast local energy VAD rather than
+    // waiting for the transcriber's first partial.
+    if (this.streamingTranscriber) {
+      this.handleStreamingMedia(event.media.payload);
+      return;
+    }
+
+    // Batch path: compute speech activity from the audio payload using a
+    // lightweight energy heuristic. mu-law encoded audio has a companded
+    // dynamic range — silence sits near 0xFF/0x7F while speech has higher
+    // energy.
     //
     // The detector call runs BEFORE the push so that the onTurnStart
     // callback can clear stale inter-turn silence from the buffer
@@ -221,8 +415,56 @@ export class MediaStreamSttSession {
     this.currentTurnChunks.push(event.media.payload);
   }
 
+  /**
+   * Route a single inbound media frame through the streaming pipeline:
+   * decode mu-law → PCM16, resample to the streaming rate, fire local-VAD
+   * barge-in, and either send to the transcriber or buffer during startup.
+   */
+  private handleStreamingMedia(base64Payload: string): void {
+    // Drive barge-in from the fast local VAD (energy heuristic).
+    if (detectSpeechActivity(base64Payload)) {
+      this.callbacks.onSpeechStart?.();
+    }
+
+    let mulaw: Buffer;
+    try {
+      mulaw = Buffer.from(base64Payload, "base64");
+    } catch {
+      return;
+    }
+    if (mulaw.length === 0) return;
+
+    const pcm8k = mulawToPcm16(mulaw);
+    const pcm = resamplePcm16(
+      pcm8k,
+      TELEPHONY_SAMPLE_RATE,
+      STREAMING_SAMPLE_RATE,
+    );
+
+    if (this.streamingReady) {
+      this.streamingTranscriber?.sendAudio(pcm, STREAMING_PCM_MIME);
+      return;
+    }
+
+    // Transcriber still starting up — buffer with a bounded cap, dropping
+    // oldest frames (and counting them) rather than growing unbounded.
+    this.streamingStartupBuffer.push(pcm);
+    while (this.streamingStartupBuffer.length > MAX_STREAMING_STARTUP_FRAMES) {
+      this.streamingStartupBuffer.shift();
+      this.streamingStartupFramesDropped++;
+    }
+  }
+
   private handleStop(): void {
-    // Finalize any in-flight turn
+    if (this.streamingTranscriber) {
+      // Streaming mode: signal end-of-audio. The transcriber may emit a
+      // final transcript and then a `closed` event (which drives onStop).
+      this.streamingTranscriber.stop();
+      this.callbacks.onStop?.();
+      return;
+    }
+
+    // Batch path: finalize any in-flight turn.
     this.turnDetector.forceEnd();
     this.callbacks.onStop?.();
   }
