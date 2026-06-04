@@ -18,6 +18,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import {
+  isToolCallCompleted,
+  isToolCallRunning,
+} from "@/domains/chat/utils/tool-call-status";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useStreamStore } from "@/domains/chat/stream-store";
 import { INITIAL_TURN_STATE, type TurnState, useTurnStore } from "@/domains/chat/turn-store";
@@ -72,9 +76,8 @@ mock.module("@/domains/chat/api/messages", () => ({
   ) =>
     toolCalls.map((tc, idx) => ({
       id: `tool-history-${messageId}-${idx}`,
-      toolName: tc.name,
+      name: tc.name,
       input: tc.input,
-      status: tc.isError ? "error" : tc.result === undefined ? "running" : "completed",
       ...(tc.result !== undefined ? { result: tc.result } : {}),
       ...(tc.isError !== undefined ? { isError: tc.isError } : {}),
     })),
@@ -1055,7 +1058,7 @@ describe("reconcileActiveConversation — stale tool call cleanup", () => {
         role: "assistant",
         ...textBody(""),
         toolCalls: [
-          { id: "tc-1", name: "web_search", input: {}, status: "running" as const },
+          { id: "tc-1", name: "web_search", input: {} },
         ],
       }),
     ];
@@ -1078,7 +1081,7 @@ describe("reconcileActiveConversation — stale tool call cleanup", () => {
     await reconcileActiveConversation();
 
     // The running tool call should be force-completed once the turn is idle.
-    expect(messages[1]!.toolCalls![0]!.status).toBe("completed");
+    expect(isToolCallCompleted(messages[1]!.toolCalls![0]!)).toBe(true);
     expect(messages[1]!.toolCalls![0]!.completedAt).toBeDefined();
   });
 
@@ -1090,8 +1093,8 @@ describe("reconcileActiveConversation — stale tool call cleanup", () => {
         role: "assistant",
         ...textBody("partial"),
         toolCalls: [
-          { id: "tc-1", name: "web_search", input: {}, status: "running" as const },
-          { id: "tc-2", name: "bash", input: {}, status: "completed" as const },
+          { id: "tc-1", name: "web_search", input: {} },
+          { id: "tc-2", name: "bash", input: {}, completedAt: 1 },
         ],
       }),
     ];
@@ -1114,10 +1117,10 @@ describe("reconcileActiveConversation — stale tool call cleanup", () => {
     await reconcileActiveConversation();
 
     // The running tool call should be force-completed
-    expect(messages[1]!.toolCalls![0]!.status).toBe("completed");
+    expect(isToolCallCompleted(messages[1]!.toolCalls![0]!)).toBe(true);
     expect(messages[1]!.toolCalls![0]!.completedAt).toBeDefined();
     // The already-completed tool call should be unchanged
-    expect(messages[1]!.toolCalls![1]!.status).toBe("completed");
+    expect(isToolCallCompleted(messages[1]!.toolCalls![1]!)).toBe(true);
   });
 
   test("does NOT force-complete tool calls when turn is still sending", async () => {
@@ -1128,7 +1131,7 @@ describe("reconcileActiveConversation — stale tool call cleanup", () => {
         role: "assistant",
         ...textBody(""),
         toolCalls: [
-          { id: "tc-1", name: "web_search", input: {}, status: "running" as const },
+          { id: "tc-1", name: "web_search", input: {} },
         ],
       }),
     ];
@@ -1151,6 +1154,6 @@ describe("reconcileActiveConversation — stale tool call cleanup", () => {
     await reconcileActiveConversation();
 
     // Tool call should remain running since the turn is still active
-    expect(messages[1]!.toolCalls![0]!.status).toBe("running");
+    expect(isToolCallRunning(messages[1]!.toolCalls![0]!)).toBe(true);
   });
 });

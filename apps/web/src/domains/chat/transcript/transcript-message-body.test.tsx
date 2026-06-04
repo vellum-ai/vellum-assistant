@@ -118,7 +118,6 @@ describe("TranscriptMessageBody", () => {
           id: "tc-1",
           name: "bash",
           input: {},
-          status: "completed",
           startedAt: 1_500,
           completedAt: 2_000,
         },
@@ -140,7 +139,6 @@ describe("TranscriptMessageBody", () => {
           id: "tc-1",
           name: "bash",
           input: {},
-          status: "running",
           startedAt: 1_500,
         },
       ],
@@ -313,7 +311,6 @@ describe("TranscriptMessageBody", () => {
               id: "tc-1",
               name: "bash",
               input: {},
-              status: "running",
             },
           ],
         }}
@@ -342,7 +339,7 @@ describe("TranscriptMessageBody", () => {
               id: "tc-1",
               name: "bash",
               input: {},
-              status: "completed",
+              completedAt: 1,
             },
           ],
         }}
@@ -370,7 +367,7 @@ describe("TranscriptMessageBody", () => {
               id: "tc-1",
               name: "bash",
               input: {},
-              status: "completed",
+              completedAt: 1,
             },
           ],
         }}
@@ -404,13 +401,13 @@ describe("TranscriptMessageBody", () => {
               id: "tc-1",
               name: "bash",
               input: {},
-              status: "completed",
+              completedAt: 1,
             },
             {
               id: "tc-2",
               name: "bash",
               input: {},
-              status: "completed",
+              completedAt: 1,
             },
           ],
         }}
@@ -445,7 +442,7 @@ describe("TranscriptMessageBody", () => {
               id: "tc-1",
               name: "bash",
               input: {},
-              status: "completed",
+              completedAt: 1,
             },
           ],
         }}
@@ -478,7 +475,7 @@ describe("TranscriptMessageBody", () => {
               id: "tc-1",
               name: "bash",
               input: {},
-              status: "completed",
+              completedAt: 1,
             },
           ],
         }}
@@ -511,13 +508,12 @@ describe("TranscriptMessageBody", () => {
               id: "tc-1",
               name: "bash",
               input: {},
-              status: "completed",
+              completedAt: 1,
             },
             {
               id: "tc-2",
               name: "bash",
               input: {},
-              status: "running",
             },
           ],
         }}
@@ -738,7 +734,7 @@ describe("TranscriptMessageBody", () => {
               id: "tc-1",
               name: "bash",
               input: {},
-              status: "completed",
+              completedAt: 1,
             },
           ],
         }}
@@ -792,7 +788,7 @@ describe("TranscriptMessageBody", () => {
               id: "tc-1",
               name: "bash",
               input: {},
-              status: "completed",
+              completedAt: 1,
             },
           ],
         }}
@@ -826,7 +822,6 @@ describe("TranscriptMessageBody", () => {
               id: "tc-1",
               name: "bash",
               input: {},
-              status: "running",
             },
           ],
         }}
@@ -851,7 +846,7 @@ describe("TranscriptMessageBody", () => {
               id: "tc-1",
               name: "bash",
               input: {},
-              status: "completed",
+              completedAt: 1,
             },
           ],
         }}
@@ -940,7 +935,7 @@ describe("TranscriptMessageBody", () => {
         { type: "text", id: "0" },
       ],
       toolCalls: [
-        { id: "tc-1", name: "bash", input: {}, status: "completed" },
+        { id: "tc-1", name: "bash", input: {}, completedAt: 1 },
       ],
       timestamp: 1_000,
     });

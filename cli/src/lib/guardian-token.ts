@@ -272,7 +272,13 @@ export async function refreshGuardianToken(
         "Content-Type": "application/json",
         Authorization: `Bearer ${tokenData.accessToken}`,
       },
-      body: JSON.stringify({ refreshToken: tokenData.refreshToken }),
+      body: JSON.stringify({
+        refreshToken: tokenData.refreshToken,
+        // The refresh token is device-bound; send the device id used at init
+        // (falling back to a fresh computation for tokens persisted before the
+        // field was stored) so the gateway can verify the binding.
+        deviceId: tokenData.deviceId || computeDeviceId(),
+      }),
       signal: AbortSignal.timeout(REFRESH_FETCH_TIMEOUT_MS),
     });
     if (!response.ok) return null;
