@@ -363,7 +363,7 @@
     },
     {
       "id": "home-page",
-      "scope": "both",
+      "scope": "client",
       "key": "home-page",
       "label": "Home Page",
       "description": "Enable the Home page as the default landing view.",

@@ -21,7 +21,6 @@
 import type { ConversationStrategy } from "../channels/config.js";
 import { getConversationStrategy } from "../channels/config.js";
 import type { ChannelId } from "../channels/types.js";
-import { isHomePageEnabled } from "../home/feature-gate.js";
 import {
   addMessage,
   createConversation,
@@ -127,16 +126,7 @@ export async function pairDeliveryWithConversation(
     // to a conversation that the user didn't ask for, and a failed reuse
     // (stale target / source mismatch) falls through to `createConversation`
     // — producing exactly the graveyard entry we want to avoid.
-    //
-    // Gated on `home-page`: the home feed is the surface that hosts passive
-    // notifications, so when the flag is off there is nowhere for them to
-    // land — fall through and create a conversation (the pre-home-feed
-    // behavior) to preserve the notification's only surface.
-    if (
-      strategy === "start_new_conversation" &&
-      !signal.requiresConversation &&
-      isHomePageEnabled()
-    ) {
+    if (strategy === "start_new_conversation" && !signal.requiresConversation) {
       return {
         conversationId: null,
         messageId: null,
