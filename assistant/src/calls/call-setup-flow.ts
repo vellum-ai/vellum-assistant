@@ -6,15 +6,19 @@
  * conversational turn, and reports back (via {@link SetupFlowResult}) which
  * greeting/handoff continuation the controller should perform.
  *
- * This is the scaffold introduced by PR 2 of the media-stream migration. It
- * implements only the two terminal-in-one-step routing outcomes:
+ * Introduced as a scaffold by PR 2 of the media-stream migration and grown by
+ * later PRs to cover every `routeSetup` outcome:
  *
  * - `normal_call` → {@link SetupFlowResult} `proceed-initial-greeting`
- * - `deny` → speak the denial copy, end the session, `ended`
+ * - `deny` / `unverified_caller` → speak the copy, end the session, `ended`
+ * - `verification` / `outbound_verification` / `callee_verification` /
+ *   `invite_redemption` → collect a code, then proceed/handoff/end
+ * - `name_capture` → capture the caller's name, open a canonical access
+ *   request, and delegate the guardian-decision wait to a
+ *   {@link GuardianWaitController}
  *
- * Every other `routeSetup` outcome throws {@link UnsupportedSetupFlowError};
- * later PRs (5/6/7/8) add the verification / invite / name-capture
- * sub-flows, and PR 9 wires the flow into the media-stream transport.
+ * An off-contract action throws {@link UnsupportedSetupFlowError}. PR 9 wires
+ * the flow into the media-stream transport.
  *
  * The flow is the source of truth for its own wait state via
  * {@link getState}; it never derives wait state from the transport.
@@ -41,12 +45,19 @@ import type {
   SetupFlowState,
   SetupFlowTransport,
 } from "./call-setup-flow-types.js";
+import {
+  GuardianWaitController,
+  type GuardianWaitControllerDeps,
+} from "./guardian-wait-controller.js";
 import type { SetupOutcome, SetupResolved } from "./relay-setup-router.js";
 import {
   attemptInviteCodeRedemption,
   attemptVerificationCode,
   parseDigitsFromSpeech,
 } from "./relay-verification.js";
+
+/** Default silent-caller name-capture window (matches relay-server.ts). */
+const DEFAULT_NAME_CAPTURE_TIMEOUT_MS = 30_000;
 
 const log = getLogger("call-setup-flow");
 
@@ -183,6 +194,103 @@ export interface CallSetupFlowDeps {
    */
   resolveActorTrust?(input: ResolveActorTrustInput): ActorTrustContext;
   /**
+   * Resolve a human-readable label for the guardian, used in the name-capture
+   * greeting, the unverified-caller guidance, and the guardian-wait copy. A
+   * plain default ("your contact") is used when the dep is absent. Injected so
+   * the flow needn't reach into the contact/persona machinery.
+   */
+  resolveGuardianLabel?(): string;
+  /**
+   * Resolve the assistant's display name for the name-capture greeting (mirrors
+   * `relay-server.resolveAssistantLabel`). `null` omits the self-introduction.
+   */
+  resolveAssistantLabel?(): string | null;
+  /**
+   * Compose the unknown-caller name-capture greeting. Mirrors the per-direction
+   * copy assembled in `relay-server.startNameCapture`. A default is used when
+   * the dep is absent.
+   */
+  composeNameCapturePrompt?(input: {
+    guardianLabel: string;
+    assistantLabel: string | null;
+  }): string;
+  /**
+   * Compose the verification guidance spoken to a known-but-unverified caller
+   * before the call ends. Mirrors `relay-server.handleUnverifiedCaller`. A
+   * default is used when the dep is absent.
+   */
+  composeUnverifiedCallerMessage?(input: {
+    displayName: string;
+    isGuardian: boolean;
+  }): string;
+  /**
+   * Compose the deterministic handoff copy spoken once the guardian approves an
+   * access request. Mirrors the `activationReason: "access_approved"` branch of
+   * `relay-server.continueCallAfterTrustedContactActivation`. A default is used
+   * when the dep is absent.
+   */
+  composeAccessApprovedHandoffText?(input: { guardianLabel: string }): string;
+  /**
+   * Compose the deterministic copy spoken on guardian denial / wait timeout
+   * before the call ends. Mirrors the copy in
+   * `relay-server.handleAccessRequestDenied` / `handleAccessRequestTimeout`. A
+   * default is used when the dep is absent.
+   */
+  composeAccessDeniedText?(input: { guardianLabel: string }): string;
+  composeAccessTimeoutText?(input: {
+    guardianLabel: string;
+    callbackOptIn: boolean;
+  }): string;
+  /**
+   * Create (or dedupe) the canonical access request and notify the guardian,
+   * returning the request id to poll, or `null` when the guardian could not be
+   * notified (no sender id) so the flow can fail closed. Mirrors
+   * `relay-server.handleNameCaptureResponse`'s `notifyGuardianOfAccessRequest`
+   * call. Injected so the flow stays storage-agnostic.
+   */
+  createAccessRequest?(input: {
+    assistantId: string;
+    fromNumber: string;
+    callerName: string;
+  }): string | null;
+  /**
+   * Persist the call session's transition to `waiting_on_user` when the
+   * guardian wait starts. Forwarded to the {@link GuardianWaitController} (PR 7
+   * made this REQUIRED there); mirrors `relay-server`'s
+   * `updateCallSession({ status: "waiting_on_user" })`.
+   */
+  markWaitingOnUser?(): void;
+  // Note: the name-capture terminal paths (denial / timeout / unverified)
+  // reuse the existing {@link CallSetupFlowDeps.finalizeFailedCall} dep for the
+  // `updateCallSession({ status: "failed" })` + `finalizeCall(...)` writes.
+  /**
+   * Timing/canonical-request overrides forwarded to the
+   * {@link GuardianWaitController} so guardian-wait tests can drive timers
+   * deterministically. Merged over the controller's own defaults.
+   */
+  guardianWaitOverrides?: Partial<
+    Omit<
+      GuardianWaitControllerDeps,
+      | "speakSystemPrompt"
+      | "resolveGuardianLabel"
+      | "markWaitingOnUser"
+      | "onApproved"
+      | "onDenied"
+      | "onTimeout"
+    >
+  >;
+  /**
+   * Factory for the guardian-wait controller. Defaults to constructing a real
+   * {@link GuardianWaitController}; injectable so tests can substitute a fake.
+   */
+  makeGuardianWaitController?(
+    callSessionId: string,
+    transport: SetupFlowTransport,
+    deps: GuardianWaitControllerDeps,
+  ): GuardianWaitController;
+  /** Silent-caller name-capture timeout (ms). Defaults to 30s. */
+  nameCaptureTimeoutMs?: number;
+  /**
    * Delay (ms) to wait after speaking a terminal prompt before tearing down
    * the transport, so queued TTS playback isn't flushed by `endSession()`.
    * Defaults to {@link getTtsPlaybackDelayMs}; overridable (e.g. `0`) so unit
@@ -195,6 +303,17 @@ export interface CallSetupFlowDeps {
    * after roughly `delayMs`.
    */
   schedule?: (fn: () => void, delayMs: number) => void;
+  /**
+   * One-shot timer used for the name-capture silence timeout. Defaults to
+   * `setTimeout`; injectable so tests drive it deterministically. Must return a
+   * handle accepted by {@link clearNameCaptureTimer}.
+   */
+  setNameCaptureTimer?: (
+    fn: () => void,
+    delayMs: number,
+  ) => ReturnType<typeof setTimeout>;
+  /** Clears a {@link setNameCaptureTimer} handle. Defaults to `clearTimeout`. */
+  clearNameCaptureTimer?: (handle: ReturnType<typeof setTimeout>) => void;
 }
 
 // ── Digit-collection sub-flow ────────────────────────────────────────
@@ -252,6 +371,25 @@ export class CallSetupFlow implements SetupFlowInput {
    */
   private collecting: CodeCollection | null = null;
 
+  /**
+   * Active name-capture sub-flow context, if any. Holds the identity to attach
+   * to the access request and the silence-timeout handle. Non-null exactly
+   * while `state === "capturing_name"`.
+   */
+  private capturingName: {
+    assistantId: string;
+    fromNumber: string;
+    timeoutHandle: ReturnType<typeof setTimeout> | null;
+  } | null = null;
+
+  /**
+   * Active guardian-wait controller, if any. Created once a name is captured
+   * and an access request is opened; disposed on teardown so its timers never
+   * leak. Non-null while `state === "awaiting_guardian_decision"` (and until
+   * disposed).
+   */
+  private guardianWait: GuardianWaitController | null = null;
+
   constructor(
     private readonly callSessionId: string,
     private readonly transport: SetupFlowTransport,
@@ -261,6 +399,22 @@ export class CallSetupFlow implements SetupFlowInput {
   /** Explicit wait-state surface — the source of truth, never transport-derived. */
   getState(): SetupFlowState {
     return this.state;
+  }
+
+  /**
+   * Tear down the flow: dispose the guardian-wait controller (clearing its
+   * timers and, if the caller had opted into a callback while a wait was still
+   * active, emitting the transport-closed callback handoff) and clear the
+   * name-capture silence timeout. Idempotent and safe to call on any path.
+   *
+   * Mirrors `relay-server.handleTransportClosed`'s wait teardown so a caller
+   * who hangs up mid-wait neither leaks timers nor loses a callback handoff.
+   */
+  dispose(): void {
+    this.clearNameCaptureTimeout();
+    const controller = this.guardianWait;
+    this.guardianWait = null;
+    controller?.dispose();
   }
 
   /**
@@ -297,8 +451,16 @@ export class CallSetupFlow implements SetupFlowInput {
       case "invite_redemption":
         return this.startInviteRedemption(outcome, resolved);
 
+      case "name_capture":
+        return this.startNameCapture(outcome, resolved);
+
+      case "unverified_caller":
+        return this.handleUnverifiedCaller(outcome);
+
       default:
-        throw new UnsupportedSetupFlowError(outcome.action);
+        throw new UnsupportedSetupFlowError(
+          (outcome as { action: string }).action,
+        );
     }
   }
 
@@ -313,6 +475,22 @@ export class CallSetupFlow implements SetupFlowInput {
   }
 
   pushTranscriptFinal(text: string): void {
+    // During name capture, the caller's response is their name.
+    if (this.state === "capturing_name") {
+      const callerName = text.trim();
+      // Whitespace-only or empty transcript (e.g. silence/noise) — keep
+      // waiting; the name-capture timeout still fires if no name ever arrives.
+      if (callerName) this.handleNameCaptureResponse(callerName);
+      return;
+    }
+
+    // During the guardian decision wait, route the utterance into the
+    // controller for patience/impatience/callback handling.
+    if (this.state === "awaiting_guardian_decision") {
+      this.guardianWait?.handleTranscript(text);
+      return;
+    }
+
     if (!this.collecting) return;
     const digits = parseDigitsFromSpeech(text);
     if (digits.length === 0) return;
@@ -509,6 +687,308 @@ export class CallSetupFlow implements SetupFlowInput {
         outcome.guardianName ?? "your contact"
       } provided you to verify your identity.`;
     return this.speakAndWait(prompt);
+  }
+
+  // ── Name-capture + guardian-wait sub-flow ───────────────────────────
+
+  /**
+   * Unknown inbound caller: greet, ask for a name, and start a silence
+   * timeout. The captured name (the next finalized transcript) creates a
+   * canonical access request and hands off to a {@link GuardianWaitController}.
+   * Ports `relay-server.startNameCapture`.
+   */
+  private startNameCapture(
+    outcome: Extract<SetupOutcome, { action: "name_capture" }>,
+    resolved: SetupResolved,
+  ): Promise<SetupFlowResult> {
+    const guardianLabel = this.guardianLabel();
+    const assistantLabel = this.deps.resolveAssistantLabel?.() ?? null;
+    const greeting =
+      this.deps.composeNameCapturePrompt?.({ guardianLabel, assistantLabel }) ??
+      (assistantLabel
+        ? `Hi, this is ${assistantLabel}, ${guardianLabel}'s assistant. Sorry, I don't recognize this number. I'll let ${guardianLabel} know you called and see if I have permission to speak with you. Can I get your name?`
+        : `Hi, this is ${guardianLabel}'s assistant. Sorry, I don't recognize this number. I'll let ${guardianLabel} know you called and see if I have permission to speak with you. Can I get your name?`);
+
+    const timeoutMs =
+      this.deps.nameCaptureTimeoutMs ?? DEFAULT_NAME_CAPTURE_TIMEOUT_MS;
+    const armTimer = () => {
+      if (this.state !== "capturing_name") return;
+      void this.handleNameCaptureTimeout();
+    };
+    const timeoutHandle = this.deps.setNameCaptureTimer
+      ? this.deps.setNameCaptureTimer(armTimer, timeoutMs)
+      : setTimeout(armTimer, timeoutMs);
+
+    this.capturingName = {
+      assistantId: outcome.assistantId,
+      fromNumber: outcome.fromNumber,
+      timeoutHandle,
+    };
+    this.state = "capturing_name";
+    this.resolved = resolved;
+
+    this.deps.recordCallEvent(
+      this.callSessionId,
+      "inbound_acl_name_capture_started",
+      { from: outcome.fromNumber, trustClass: resolved.actorTrust.trustClass },
+    );
+
+    void this.deps.speakSystemPrompt(this.transport, greeting);
+
+    const pending = new Promise<SetupFlowResult>((resolve) => {
+      this.resolveCollection = resolve;
+    });
+    this.flushPendingCollectionResult();
+    return pending;
+  }
+
+  /**
+   * Captured the caller's name: clear the silence timeout, record the capture,
+   * create the canonical access request, and start the guardian wait. Fails
+   * closed (timeout path) when no access request could be opened. Ports
+   * `relay-server.handleNameCaptureResponse`.
+   */
+  private handleNameCaptureResponse(callerName: string): void {
+    const c = this.capturingName;
+    if (!c) return;
+    this.clearNameCaptureTimeout();
+
+    this.deps.recordCallEvent(this.callSessionId, "inbound_acl_name_captured", {
+      from: c.fromNumber,
+      callerName,
+    });
+
+    const accessRequestId =
+      this.deps.createAccessRequest?.({
+        assistantId: c.assistantId,
+        fromNumber: c.fromNumber,
+        callerName,
+      }) ?? null;
+
+    // Fail closed if no access request was opened (no guardian to notify /
+    // poll target) rather than leaving the caller stuck on hold.
+    if (!accessRequestId) {
+      log.warn(
+        { callSessionId: this.callSessionId },
+        "No access request opened after name capture — failing closed",
+      );
+      void this.handleAccessRequestTimeoutEnded(this.guardianLabel(), false);
+      return;
+    }
+
+    this.startGuardianWait({
+      accessRequestId,
+      assistantId: c.assistantId,
+      fromNumber: c.fromNumber,
+      callerName,
+    });
+  }
+
+  /**
+   * Construct the {@link GuardianWaitController}, transition to
+   * `awaiting_guardian_decision`, and begin the bounded wait. The controller's
+   * resolution callbacks complete this flow:
+   * - `onApproved` → speak the approval handoff copy → `proceed-handoff-spoken`
+   * - `onDenied`   → speak denial copy → `ended` (deferred hangup)
+   * - `onTimeout`  → speak timeout copy → `ended` (deferred hangup)
+   */
+  private startGuardianWait(params: {
+    accessRequestId: string;
+    assistantId: string;
+    fromNumber: string;
+    callerName: string;
+  }): void {
+    this.capturingName = null;
+    this.state = "awaiting_guardian_decision";
+
+    const controllerDeps: GuardianWaitControllerDeps = {
+      speakSystemPrompt: (t, text) => this.deps.speakSystemPrompt(t, text),
+      resolveGuardianLabel: () => this.guardianLabel(),
+      markWaitingOnUser: () => this.deps.markWaitingOnUser?.(),
+      onApproved: ({ assistantId, fromNumber }) =>
+        this.handleAccessRequestApproved(assistantId, fromNumber),
+      onDenied: ({ guardianLabel }) =>
+        void this.handleAccessRequestDenied(guardianLabel),
+      onTimeout: ({ guardianLabel, callbackOptIn }) =>
+        void this.handleAccessRequestTimeoutEnded(guardianLabel, callbackOptIn),
+      ...this.deps.guardianWaitOverrides,
+    };
+
+    this.guardianWait = this.deps.makeGuardianWaitController
+      ? this.deps.makeGuardianWaitController(
+          this.callSessionId,
+          this.transport,
+          controllerDeps,
+        )
+      : new GuardianWaitController(
+          this.callSessionId,
+          this.transport,
+          controllerDeps,
+        );
+
+    this.guardianWait.start({
+      accessRequestId: params.accessRequestId,
+      assistantId: params.assistantId,
+      fromNumber: params.fromNumber,
+      callerName: params.callerName,
+    });
+  }
+
+  /**
+   * Guardian approved the access request: speak the handoff copy, fire the
+   * `assistant_spoke` event + transcript notifier, re-resolve the caller's
+   * trust, and resolve `proceed-handoff-spoken`. Ports the
+   * `activationReason: "access_approved"` branch of
+   * `relay-server.continueCallAfterTrustedContactActivation`.
+   */
+  private handleAccessRequestApproved(
+    assistantId: string,
+    fromNumber: string,
+  ): void {
+    // The controller has resolved itself before invoking this callback; drop
+    // the reference so a later dispose() is a no-op (no double teardown).
+    this.guardianWait = null;
+    const guardianLabel = this.guardianLabel();
+    const handoffText =
+      this.deps.composeAccessApprovedHandoffText?.({ guardianLabel }) ??
+      `Great! ${guardianLabel} said I can speak with you. How can I help?`;
+
+    const resolved = this.resolved ?? {
+      assistantId,
+      isInbound: true,
+      otherPartyNumber: fromNumber,
+      actorTrust: {} as ActorTrustContext,
+    };
+
+    this.deps.recordCallEvent(
+      this.callSessionId,
+      "inbound_acl_post_approval_handoff_spoken",
+      { from: fromNumber },
+    );
+    this.finishCollection(
+      this.speakHandoffAndComplete(handoffText, resolved, fromNumber),
+    );
+  }
+
+  /** Guardian denied: speak denial copy, finalize failed, end the session. */
+  private async handleAccessRequestDenied(
+    guardianLabel: string,
+  ): Promise<void> {
+    this.guardianWait = null;
+    const message =
+      this.deps.composeAccessDeniedText?.({ guardianLabel }) ??
+      `Sorry, ${guardianLabel} says I'm not allowed to speak with you. Goodbye.`;
+    await this.finalizeFailedAccessRequest(
+      "Inbound voice ACL: guardian denied access request",
+    );
+    await this.speakThenEnd(message, "Access request denied");
+  }
+
+  /** Wait timed out: speak timeout copy, finalize failed, end the session. */
+  private async handleAccessRequestTimeoutEnded(
+    guardianLabel: string,
+    callbackOptIn: boolean,
+  ): Promise<void> {
+    this.guardianWait = null;
+    const message =
+      this.deps.composeAccessTimeoutText?.({ guardianLabel, callbackOptIn }) ??
+      `Sorry, I can't get ahold of ${guardianLabel} right now. I'll let them know you called.${
+        callbackOptIn
+          ? ` I've noted that you'd like a callback — I'll pass that along to ${guardianLabel}.`
+          : ""
+      }`;
+    await this.finalizeFailedAccessRequest(
+      "Inbound voice ACL: guardian approval wait timed out",
+    );
+    await this.speakThenEnd(message, "Access request timed out");
+  }
+
+  /** Silent-caller name-capture timeout: speak copy, finalize, end session. */
+  private async handleNameCaptureTimeout(): Promise<void> {
+    this.clearNameCaptureTimeout();
+    const c = this.capturingName;
+    this.deps.recordCallEvent(
+      this.callSessionId,
+      "inbound_acl_name_capture_timeout",
+      { from: c?.fromNumber },
+    );
+    await this.finalizeFailedAccessRequest(
+      "Inbound voice ACL: name capture timed out",
+    );
+    await this.speakThenEnd(
+      "Sorry, I didn't catch your name. Please try calling back. Goodbye.",
+      "Name capture timed out",
+    );
+  }
+
+  /**
+   * Speak verification guidance to a known-but-unverified caller, then end the
+   * session (deferred hangup). Ports `relay-server.handleUnverifiedCaller`.
+   */
+  private async handleUnverifiedCaller(
+    outcome: Extract<SetupOutcome, { action: "unverified_caller" }>,
+  ): Promise<SetupFlowResult> {
+    this.deps.recordCallEvent(
+      this.callSessionId,
+      "inbound_acl_unverified_caller",
+      { callSessionId: this.callSessionId, isGuardian: outcome.isGuardian },
+    );
+
+    const action = outcome.isGuardian
+      ? `To verify, open your assistant's contacts page, click Verify next to the phone channel, and follow the prompts. Then call back once the verification session is active.`
+      : `Please reach out to the account guardian to start a new verification session, then call back once the verification session is active.`;
+    const message =
+      this.deps.composeUnverifiedCallerMessage?.({
+        displayName: outcome.displayName,
+        isGuardian: outcome.isGuardian,
+      }) ??
+      `This number is registered as ${outcome.displayName}'s phone but has not been verified yet. ${action}`;
+
+    await this.finalizeFailedAccessRequest(
+      "Inbound voice ACL: caller channel unverified",
+    );
+    await this.deps.speakSystemPrompt(this.transport, message);
+    const result = this.complete({
+      kind: "ended",
+      reason: "Inbound voice ACL: caller channel unverified",
+    });
+    this.scheduleHangup(() =>
+      this.transport.endSession("Inbound voice ACL: caller channel unverified"),
+    );
+    return result;
+  }
+
+  /** Clear the name-capture silence timeout, if armed. */
+  private clearNameCaptureTimeout(): void {
+    const handle = this.capturingName?.timeoutHandle;
+    if (handle == null) return;
+    (this.deps.clearNameCaptureTimer ?? clearTimeout)(handle);
+    if (this.capturingName) this.capturingName.timeoutHandle = null;
+  }
+
+  /**
+   * Best-effort failed-call finalization for the name-capture terminal paths
+   * (denial / timeout / unverified). Mirrors relay's
+   * `updateCallSession({ status: "failed" })` + `finalizeCall(...)`; a storage
+   * rejection never strands the flow — the session still ends.
+   */
+  private async finalizeFailedAccessRequest(reason: string): Promise<void> {
+    try {
+      await this.deps.finalizeFailedCall?.(reason);
+    } catch (err) {
+      log.warn(
+        { callSessionId: this.callSessionId, err },
+        "Skipping failed-call finalization — call session may be gone",
+      );
+    }
+  }
+
+  /** Pre-verification routing context, retained for the guardian-wait paths. */
+  private resolved: SetupResolved | null = null;
+
+  /** Resolve the guardian label, defaulting when the dep is absent. */
+  private guardianLabel(): string {
+    return this.deps.resolveGuardianLabel?.() ?? "your contact";
   }
 
   /** Resolver for the pending digit-collection promise (set on start). */
