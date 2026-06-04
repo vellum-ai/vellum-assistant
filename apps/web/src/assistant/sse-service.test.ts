@@ -11,6 +11,8 @@ type ReconnectHandler = (cause: "error" | "watchdog") => void;
 let activeOnEvent: EventHandler | null = null;
 let activeOnError: ((err: Error) => void) | null = null;
 let activeOnReconnect: ReconnectHandler | null = null;
+let activeOnStreamOpen: (() => void) | null = null;
+let activeOnStreamClose: (() => void) | null = null;
 let lastSubscribeArgs: {
   assistantId: string;
 } | null = null;
@@ -20,12 +22,18 @@ const subscribeEventsMock = mock(
     assistantId: string,
     onEvent: EventHandler,
     onError: (err: Error) => void,
-    options?: { onReconnect?: ReconnectHandler },
+    options?: {
+      onReconnect?: ReconnectHandler;
+      onStreamOpen?: () => void;
+      onStreamClose?: () => void;
+    },
   ) => {
     lastSubscribeArgs = { assistantId };
     activeOnEvent = onEvent;
     activeOnError = onError;
     activeOnReconnect = options?.onReconnect ?? null;
+    activeOnStreamOpen = options?.onStreamOpen ?? null;
+    activeOnStreamClose = options?.onStreamClose ?? null;
     return { cancel: cancelMock };
   },
 );
@@ -54,6 +62,8 @@ beforeEach(() => {
   activeOnEvent = null;
   activeOnError = null;
   activeOnReconnect = null;
+  activeOnStreamOpen = null;
+  activeOnStreamClose = null;
   lastSubscribeArgs = null;
   cancelMock.mockClear();
   subscribeEventsMock.mockClear();
@@ -143,22 +153,54 @@ describe("sseService.attach — connection lifecycle", () => {
 
 // Locks the wire that drives the menu-bar status dot: `deriveAssistantStatus`
 // reads `useSSEConnectedStore`, which is meaningless unless the SSE service
-// keeps it in sync with the live stream. The store is driven off the `current`
-// transition (not the bus) so graceful teardowns — which intentionally don't
-// publish `sse.closed` — still flip it back to disconnected.
+// keeps it in sync with the live stream. Connection is mirrored off the
+// transport's `onStreamOpen` / `onStreamClose` (genuine establish/end), not
+// handle creation — so a failing initial connect and its backoff window read
+// as disconnected. Graceful teardowns — which intentionally don't publish
+// `sse.closed` — still flip it back to disconnected via the explicit `false`.
 describe("sseService.attach — SSE-connected store wiring", () => {
   beforeEach(() => {
     useSSEConnectedStore.setState({ isConnected: false });
   });
 
-  test("marks the store connected once the stream opens", () => {
+  test("does NOT mark the store connected merely on handle creation", () => {
     expect(useSSEConnectedStore.getState().isConnected).toBe(false);
     sseService.attach("asst-1");
+    // The handle exists but the fetch is still in flight — the store must
+    // stay disconnected until the transport reports a genuine open.
+    expect(useSSEConnectedStore.getState().isConnected).toBe(false);
+  });
+
+  test("marks the store connected once the stream genuinely opens", () => {
+    sseService.attach("asst-1");
+    expect(useSSEConnectedStore.getState().isConnected).toBe(false);
+
+    activeOnStreamOpen!();
     expect(useSSEConnectedStore.getState().isConnected).toBe(true);
   });
 
-  test("marks the store disconnected on a transport error", () => {
+  test("marks the store disconnected when an established attempt ends (backoff window)", () => {
     sseService.attach("asst-1");
+    activeOnStreamOpen!();
+    expect(useSSEConnectedStore.getState().isConnected).toBe(true);
+
+    activeOnStreamClose!();
+    expect(useSSEConnectedStore.getState().isConnected).toBe(false);
+  });
+
+  test("re-marks the store connected when a reconnect attempt re-establishes", () => {
+    sseService.attach("asst-1");
+    activeOnStreamOpen!();
+    activeOnStreamClose!();
+    expect(useSSEConnectedStore.getState().isConnected).toBe(false);
+
+    activeOnStreamOpen!();
+    expect(useSSEConnectedStore.getState().isConnected).toBe(true);
+  });
+
+  test("marks the store disconnected on a transport error (retries exhausted)", () => {
+    sseService.attach("asst-1");
+    activeOnStreamOpen!();
     expect(useSSEConnectedStore.getState().isConnected).toBe(true);
 
     activeOnError!(new Error("network error"));
@@ -167,6 +209,7 @@ describe("sseService.attach — SSE-connected store wiring", () => {
 
   test("marks the store disconnected on a graceful teardown (app.hidden)", () => {
     sseService.attach("asst-1");
+    activeOnStreamOpen!();
     expect(useSSEConnectedStore.getState().isConnected).toBe(true);
 
     eventBus.publish("app.hidden", { signal: "visibility" });
@@ -175,6 +218,7 @@ describe("sseService.attach — SSE-connected store wiring", () => {
 
   test("marks the store disconnected on detach", () => {
     const detach = sseService.attach("asst-1");
+    activeOnStreamOpen!();
     expect(useSSEConnectedStore.getState().isConnected).toBe(true);
 
     detach();

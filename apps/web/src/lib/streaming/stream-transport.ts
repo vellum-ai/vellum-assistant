@@ -53,6 +53,28 @@ export interface EventStreamOptions {
    */
   onReconnect?: (cause: StreamReconnectCause) => void | Promise<void>;
   /**
+   * Fired when an SSE connection is genuinely established — the first frame
+   * (a data event or a heartbeat comment) has arrived, proving the lazily
+   * started fetch actually connected and bytes are flowing — for both the
+   * initial connect and every internal reconnect attempt. Pairs with
+   * {@link onStreamClose}.
+   *
+   * This is deliberately later than both the handle returned by
+   * {@link subscribeEvents} (which exists synchronously, while the fetch is
+   * still in flight and across every backoff retry) and the `client.sse.get`
+   * await (which only builds the lazy generator — the fetch fires on the
+   * first iterator pull). Keying off either would report "connected"
+   * throughout a failing initial connect, when nothing is open.
+   */
+  onStreamOpen?: () => void;
+  /**
+   * Fired when an established connection attempt ends — transport error,
+   * idle-watchdog abort, natural close, or cancel — before any reconnect
+   * backoff begins. Pairs with {@link onStreamOpen}; only fires for attempts
+   * that previously opened.
+   */
+  onStreamClose?: () => void;
+  /**
    * Maximum interval, in milliseconds, with no SSE traffic from the
    * server (events OR heartbeat comments) before the client treats the
    * stream as silently stalled and force-reconnects.
@@ -203,6 +225,10 @@ export function subscribeEvents(
     // lifetime.
     watchdog.resetCounters();
     let streamError: Error | null = null;
+    // Tracks whether this attempt ever received a frame. Gates the open /
+    // close signals so liveness is mirrored off real traffic, and so a
+    // never-established attempt never emits a spurious close.
+    let streamOpened = false;
     try {
       const query = buildEventsQuery(isReconnect);
       const { stream } = await client.sse.get<Record<string, unknown> | string>(
@@ -225,6 +251,14 @@ export function subscribeEvents(
             // Fires for every parsed SSE chunk including heartbeat
             // comments (which the SDK surfaces with `data === undefined`
             // because comment frames have no `data:` line).
+            // The first frame of any kind proves the stream is genuinely
+            // live — the lazy fetch connected and bytes are flowing — so
+            // this, not handle creation or the generator-setup await, is
+            // the real "connected" boundary. Pairs with onStreamClose.
+            if (!cancelled && !streamOpened) {
+              streamOpened = true;
+              options.onStreamOpen?.();
+            }
             const isData =
               typeof (event as { data?: unknown }).data !== "undefined";
             if (isData) {
@@ -326,6 +360,15 @@ export function subscribeEvents(
         // timer run during the reconnect backoff and falsely set
         // lastAbortCause = "watchdog" on a recoverable error path.
         watchdog.clear();
+        // An attempt that actually opened has now ended (drop, error,
+        // watchdog abort, natural close, or cancel) — fired before
+        // reconnect() schedules the next attempt, so a backoff window
+        // reads as disconnected. Gated on streamOpened so a connect that
+        // never received a frame doesn't emit a spurious close. Pairs
+        // with onStreamOpen.
+        if (streamOpened) {
+          options.onStreamClose?.();
+        }
       }
       if (cancelled) {
         return;

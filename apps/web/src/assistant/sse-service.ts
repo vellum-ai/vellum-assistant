@@ -56,17 +56,28 @@ export const sseService: SseService = {
   attach(assistantId) {
     let current: EventStream | null = null;
     let cancelled = false;
-    // Mirror live-stream presence into the shared store so consumers can read
-    // SSE liveness reactively — the menu-bar status dot
-    // (`useElectronStatusSync`) and push-notification suppression. Driven off
-    // the `current` transition rather than the bus: `sse.opened` / `sse.closed`
-    // are discrete reconnect *triggers* (carrying a cause) used for reconcile
-    // passes, and graceful teardowns (hide, suspend, detach) deliberately do
-    // not publish `sse.closed` (it would wrongly end in-flight turns), so a
-    // bus subscription would leave the store stuck `true` after a clean close.
+    // Track the live stream handle for cancellation and the resume/bounce
+    // dedup guards below. Holding a handle does NOT mean the socket is open:
+    // `subscribeEvents` returns synchronously while its fetch is still in
+    // flight and keeps the same handle across backoff retries, so liveness is
+    // mirrored separately by `setConnected` off the transport's open/close
+    // signals.
     const setCurrent = (stream: EventStream | null): void => {
       current = stream;
-      useSSEConnectedStore.getState().setConnected(stream !== null);
+    };
+    // Mirror *established* live-stream presence into the shared store so
+    // consumers can read SSE liveness reactively — the menu-bar status dot
+    // (`useElectronStatusSync`) and push-notification suppression. Driven by
+    // the transport's `onStreamOpen` / `onStreamClose` (which fire when the
+    // SSE response actually opens / ends), never by handle creation: keying
+    // off the handle would report `connected` throughout a failing initial
+    // connect and its backoff window, when nothing is open. Also set `false`
+    // explicitly on intentional teardown and on give-up (`onError`), which
+    // are authoritative "no live stream" points; the bus is not used because
+    // `sse.opened` / `sse.closed` are reconnect *triggers* (carrying a cause)
+    // and graceful teardowns deliberately don't publish `sse.closed`.
+    const setConnected = (connected: boolean): void => {
+      useSSEConnectedStore.getState().setConnected(connected);
     };
     // Independent dedup windows per handler. A shared timestamp was
     // wrong: `app.resume`'s no-op (current already non-null) would
@@ -92,6 +103,7 @@ export const sseService: SseService = {
         },
         (err) => {
           setCurrent(null);
+          setConnected(false);
           publish("sse.closed", { reason: err.message });
           Sentry.addBreadcrumb({
             category: "event_bus.sse",
@@ -103,6 +115,8 @@ export const sseService: SseService = {
           onReconnect: (cause) => {
             publish("sse.opened", { assistantId, cause });
           },
+          onStreamOpen: () => setConnected(true),
+          onStreamClose: () => setConnected(false),
         },
       );
       if (cancelled) {
@@ -116,6 +130,7 @@ export const sseService: SseService = {
     const teardown = () => {
       current?.cancel();
       setCurrent(null);
+      setConnected(false);
     };
 
     // App lifecycle (renderer-visibility resume): tear down on
@@ -234,6 +249,7 @@ export const sseService: SseService = {
       unsubReachabilityRetry();
       current?.cancel();
       setCurrent(null);
+      setConnected(false);
     };
   },
 };
