@@ -91,11 +91,7 @@ export function DebugPage() {
         aria-labelledby={`debug-tab-${activeTab}`}
         className="flex min-h-0 flex-1 flex-col pt-6"
       >
-        {activeTab === "general" && (
-          <div className="max-w-[940px]">
-            <DebugControlsPanel />
-          </div>
-        )}
+        {activeTab === "general" && <DebugControlsPanel />}
         {activeTab === "terminal" && <AssistantTerminalPanel />}
         {activeTab === "doctor" && doctorEnabled && <DoctorPanel />}
       </div>

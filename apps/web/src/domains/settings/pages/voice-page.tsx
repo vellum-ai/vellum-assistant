@@ -64,7 +64,7 @@ const labelClasses =
 
 export function VoicePage() {
   return (
-    <div className="mx-auto max-w-[940px] flex flex-col gap-6">
+    <div className="flex flex-col gap-6">
       <SpeechServicesBanner />
       <PushToTalkCard />
       <ConversationTimeoutCard />

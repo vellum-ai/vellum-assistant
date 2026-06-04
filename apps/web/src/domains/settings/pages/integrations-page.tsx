@@ -374,7 +374,7 @@ function IntegrationsPanelInner() {
 
 export function IntegrationsPage() {
   return (
-    <div className="mx-auto max-w-[940px] space-y-6">
+    <div className="space-y-6">
       <Suspense>
         <IntegrationsPanelInner />
       </Suspense>
