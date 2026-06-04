@@ -551,11 +551,17 @@ function mintRefreshToken(
  * needs a full refreshable credential). The device binding enforces one active
  * token per (guardianPrincipalId, hashedDeviceId) via a unique index, so
  * re-minting for the same device first revokes the prior tokens.
+ *
+ * `accessTtlSeconds` overrides the access token lifetime (default
+ * ACCESS_TOKEN_TTL_SECONDS); the refresh token's lifetime is unaffected.
+ * Loopback pairing passes a short access TTL so a leaked access token has a
+ * tight blast radius while the refresh token quietly renews it.
  */
 export function mintAndRecordDeviceBoundTokenPair(params: {
   guardianPrincipalId: string;
   deviceId: string;
   platform: string;
+  accessTtlSeconds?: number;
 }): DeviceBoundTokenPair {
   const hashedDeviceId = hashToken(params.deviceId);
 
@@ -566,6 +572,7 @@ export function mintAndRecordDeviceBoundTokenPair(params: {
     params.guardianPrincipalId,
     hashedDeviceId,
     params.platform,
+    params.accessTtlSeconds,
   );
   const refresh = mintRefreshToken(
     params.guardianPrincipalId,
@@ -580,39 +587,6 @@ export function mintAndRecordDeviceBoundTokenPair(params: {
     refreshTokenExpiresAt: refresh.refreshTokenExpiresAt,
     refreshAfter: refresh.refreshAfter,
   };
-}
-
-/**
- * Revoke any existing credentials for a (guardian, device) pair and mint a
- * fresh, DB-recorded access token bound to that device — WITHOUT a refresh
- * token.
- *
- * Used by loopback pairing: the recorded token is revocable per device (once
- * hot-path revocation is enforced), and `ttlSeconds` keeps it short so its
- * blast radius stays bounded in the interim. No refresh token is issued —
- * refreshable pairing is deferred until revocation is enforced on live
- * requests, so a long-lived refresh can't silently re-mint long access tokens.
- * Callers re-pair when the access token expires.
- */
-export function mintAndRecordDeviceBoundAccessToken(params: {
-  guardianPrincipalId: string;
-  deviceId: string;
-  platform: string;
-  ttlSeconds: number;
-}): { accessToken: string; accessTokenExpiresAt: number } {
-  const hashedDeviceId = hashToken(params.deviceId);
-
-  revokeActorTokensByDevice(params.guardianPrincipalId, hashedDeviceId);
-  revokeRefreshTokensByDevice(params.guardianPrincipalId, hashedDeviceId);
-
-  const access = mintAccessToken(
-    params.guardianPrincipalId,
-    hashedDeviceId,
-    params.platform,
-    params.ttlSeconds,
-  );
-
-  return { accessToken: access.token, accessTokenExpiresAt: access.expiresAt };
 }
 
 // ---------------------------------------------------------------------------
