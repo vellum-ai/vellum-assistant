@@ -10,7 +10,9 @@ import {
 import { Box, render as inkRender, Text, useInput, useStdout } from "ink";
 
 import { SPECIES_CONFIG, type Species } from "../lib/constants";
+import { lookupAssistantByIdentifier } from "../lib/assistant-config";
 import { checkHealth } from "../lib/health-check";
+import { loadGuardianToken, refreshGuardianToken } from "../lib/guardian-token";
 import { appendHistory, loadHistory } from "../lib/input-history";
 import { tuiLog } from "../lib/tui-log";
 import { segmentsToPlainText } from "../lib/segments-to-plain-text";
@@ -177,6 +179,44 @@ function friendlyErrorMessage(status: number, body: string): string {
   return `HTTP ${status}: ${body || "Unknown error"}`;
 }
 
+/**
+ * On a 401, refresh a stale PAIRED-assistant guardian token and update the
+ * shared `auth` headers IN PLACE, returning true if the caller should retry.
+ *
+ * Scoped to paired assistants only (a remote assistant on another machine,
+ * `cloud: "paired"`) — the local/docker TUI flow and platform sessions are left
+ * untouched. Also self-gating: skips platform session auth (no `Authorization`
+ * header), ephemeral `--token` overrides (whose bearer won't match the store),
+ * and access-only tokens. Because the TUI threads one shared `auth` object by
+ * reference, mutating it here propagates to every later request and the SSE
+ * reconnect — no callback threading needed.
+ */
+export async function maybeRefreshAuthHeaders(
+  baseUrl: string,
+  assistantId: string,
+  auth?: Record<string, string>,
+): Promise<boolean> {
+  if (!auth) return false;
+  const bearer = auth["Authorization"]?.replace(/^Bearer /, "");
+  if (!bearer) return false;
+
+  // Only paired (remote-on-another-machine) assistants use refreshable pair
+  // tokens; don't perturb the local/docker session flow.
+  const lookup = lookupAssistantByIdentifier(assistantId);
+  if (lookup.status !== "found" || lookup.entry.cloud !== "paired") {
+    return false;
+  }
+
+  const stored = loadGuardianToken(assistantId);
+  if (!stored || stored.accessToken !== bearer || !stored.refreshToken) {
+    return false;
+  }
+  const refreshed = await refreshGuardianToken(baseUrl, assistantId);
+  if (!refreshed?.accessToken) return false;
+  auth["Authorization"] = `Bearer ${refreshed.accessToken}`;
+  return true;
+}
+
 async function runtimeRequest<T>(
   baseUrl: string,
   assistantId: string,
@@ -185,14 +225,25 @@ async function runtimeRequest<T>(
   auth?: Record<string, string>,
 ): Promise<T> {
   const url = `${baseUrl}/v1/assistants/${assistantId}${path}`;
-  const response = await fetch(url, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...auth,
-      ...(init?.headers as Record<string, string> | undefined),
-    },
-  });
+  const doFetch = () =>
+    fetch(url, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...auth,
+        ...(init?.headers as Record<string, string> | undefined),
+      },
+    });
+
+  let response = await doFetch();
+  // Mid-session token expiry → 401: refresh once and retry (auth headers are
+  // mutated in place by the helper, so the retry carries the new token).
+  if (
+    response.status === 401 &&
+    (await maybeRefreshAuthHeaders(baseUrl, assistantId, auth))
+  ) {
+    response = await doFetch();
+  }
 
   if (!response.ok) {
     const body = await response.text().catch(() => "");
@@ -374,13 +425,24 @@ async function* streamEvents(
   const params = new URLSearchParams({ conversationKey });
   const url = `${baseUrl}/v1/assistants/${assistantId}/events?${params.toString()}`;
   tuiLog.info("sse connect", { url, authHeaders: Object.keys(auth ?? {}) });
-  const response = await fetch(url, {
-    headers: {
-      Accept: "text/event-stream",
-      ...auth,
-    },
-    signal,
-  });
+  const doFetch = () =>
+    fetch(url, {
+      headers: {
+        Accept: "text/event-stream",
+        ...auth,
+      },
+      signal,
+    });
+
+  let response = await doFetch();
+  // Mid-session token expiry → 401 at connect: refresh once and reconnect with
+  // the new token (auth headers are mutated in place by the helper).
+  if (
+    response.status === 401 &&
+    (await maybeRefreshAuthHeaders(baseUrl, assistantId, auth))
+  ) {
+    response = await doFetch();
+  }
 
   tuiLog.info("sse response", {
     status: response.status,
@@ -1984,9 +2046,8 @@ function ChatApp({
         if (!isConnected) return;
 
         try {
-          const res = await fetch(
-            `${runtimeUrl}/v1/assistants/${assistantId}/btw`,
-            {
+          const btwFetch = () =>
+            fetch(`${runtimeUrl}/v1/assistants/${assistantId}/btw`, {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
@@ -1997,8 +2058,16 @@ function ChatApp({
                 content: question,
               }),
               signal: AbortSignal.timeout(30_000),
-            },
-          );
+            });
+
+          let res = await btwFetch();
+          // Mid-session token expiry → 401: refresh once and retry.
+          if (
+            res.status === 401 &&
+            (await maybeRefreshAuthHeaders(runtimeUrl, assistantId, auth))
+          ) {
+            res = await btwFetch();
+          }
 
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
