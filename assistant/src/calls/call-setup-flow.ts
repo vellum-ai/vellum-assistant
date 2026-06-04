@@ -6,8 +6,7 @@
  * conversational turn, and reports back (via {@link SetupFlowResult}) which
  * greeting/handoff continuation the controller should perform.
  *
- * Introduced as a scaffold by PR 2 of the media-stream migration and grown by
- * later PRs to cover every `routeSetup` outcome:
+ * It covers every `routeSetup` outcome:
  *
  * - `normal_call` → {@link SetupFlowResult} `proceed-initial-greeting`
  * - `deny` / `unverified_caller` → speak the copy, end the session, `ended`
@@ -17,8 +16,7 @@
  *   request, and delegate the guardian-decision wait to a
  *   {@link GuardianWaitController}
  *
- * An off-contract action throws {@link UnsupportedSetupFlowError}. PR 9 wires
- * the flow into the media-stream transport.
+ * An off-contract action throws {@link UnsupportedSetupFlowError}.
  *
  * The flow is the source of truth for its own wait state via
  * {@link getState}; it never derives wait state from the transport.
