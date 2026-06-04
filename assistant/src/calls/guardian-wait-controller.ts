@@ -431,8 +431,40 @@ export class GuardianWaitController {
     }
   }
 
-  /** Clear all timers and mark the wait resolved. Safe to call repeatedly. */
+  /**
+   * Clear all timers and mark the wait resolved. Safe to call repeatedly.
+   *
+   * Models the transport closing (caller hangs up / stream disconnects). If the
+   * wait is still active AND the caller had opted into a callback, emit the
+   * callback-handoff notification before clearing state — mirroring
+   * `relay-server.ts`'s `handleTransportClosed`, which fires
+   * `emitAccessRequestCallbackHandoff(reason: "transport_closed")` under the
+   * same `accessRequestWaitActive && callbackOptIn` condition. Without this, a
+   * caller who opted in then hung up before any decision/timeout would silently
+   * lose the guardian callback notification.
+   *
+   * Idempotent: a dispose after a normal resolution (approve/deny/timeout) does
+   * not emit a handoff (the wait is no longer active), and double-dispose cannot
+   * emit twice (the second call sees a resolved state, and
+   * `callbackHandoffNotified` guards the helper regardless).
+   */
   dispose(): void {
+    if (this.state === "awaiting_guardian_decision" && this.callbackOptIn) {
+      // Emit before clearing wait state so the opt-in flag and request identity
+      // are still available. Matches the timeout path's call shape.
+      const handoff = emitAccessRequestCallbackHandoff({
+        reason: "transport_closed",
+        callbackOptIn: this.callbackOptIn,
+        accessRequestId: this.accessRequestId,
+        callbackHandoffNotified: this.callbackHandoffNotified,
+        accessRequestAssistantId: this.assistantId,
+        accessRequestFromNumber: this.fromNumber,
+        accessRequestCallerName: this.callerName,
+        callSessionId: this.callSessionId,
+      });
+      this.callbackHandoffNotified = handoff.callbackHandoffNotified;
+    }
+
     this.clearWait();
     this.state = "resolved";
   }

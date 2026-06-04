@@ -373,4 +373,86 @@ describe("GuardianWaitController", () => {
     expect(h.clock.pendingIntervals()).toBe(0);
     expect(h.clock.pendingOneShots()).toBe(0);
   });
+
+  test("dispose() while opted-in (transport close) emits callback handoff", () => {
+    controller.start(START);
+    // An offer must be made before "yes" is read as a callback opt-in.
+    controller.handleTranscript("this is taking too long"); // → callback offer
+    controller.handleTranscript("yes, call me back"); // → opt-in
+    expect(controller.getState()).toBe("awaiting_guardian_decision");
+
+    // Transport closes before any decision/timeout.
+    controller.dispose();
+
+    expect(controller.getState()).toBe("resolved");
+    // Mirrors relay-server's handleTransportClosed: emits the handoff under the
+    // same active+opt-in condition, with reason "transport_closed".
+    expect(emittedSignals).toHaveLength(1);
+    expect(emittedSignals[0]!.sourceEventName).toBe(
+      "ingress.access_request.callback_handoff",
+    );
+    expect(h.clock.pendingIntervals()).toBe(0);
+    expect(h.clock.pendingOneShots()).toBe(0);
+  });
+
+  test("dispose() without callback opt-in emits no handoff", () => {
+    controller.start(START);
+    expect(controller.getState()).toBe("awaiting_guardian_decision");
+
+    controller.dispose();
+
+    expect(emittedSignals).toHaveLength(0);
+  });
+
+  test("dispose() after approval emits no handoff", () => {
+    controller.start(START);
+    controller.handleTranscript("this is taking too long");
+    controller.handleTranscript("yes, call me back"); // opt-in
+    h.setRequestStatus("approved");
+    h.clock.tickPolls();
+    expect(controller.getState()).toBe("resolved");
+
+    controller.dispose();
+
+    // No handoff: the wait was already resolved normally, not by transport close.
+    expect(emittedSignals).toHaveLength(0);
+  });
+
+  test("dispose() after denial emits no handoff", () => {
+    controller.start(START);
+    controller.handleTranscript("this is taking too long");
+    controller.handleTranscript("yes, call me back"); // opt-in
+    h.setRequestStatus("denied");
+    h.clock.tickPolls();
+    expect(controller.getState()).toBe("resolved");
+
+    controller.dispose();
+
+    expect(emittedSignals).toHaveLength(0);
+  });
+
+  test("dispose() after timeout does not emit a second handoff", () => {
+    controller.start(START);
+    controller.handleTranscript("this is taking too long");
+    controller.handleTranscript("yes, call me back"); // opt-in
+    h.clock.fireOneShots(); // fires the timeout handler → handoff #1
+    expect(controller.getState()).toBe("resolved");
+    expect(emittedSignals).toHaveLength(1);
+
+    controller.dispose();
+
+    // Timeout already emitted; dispose must not emit again.
+    expect(emittedSignals).toHaveLength(1);
+  });
+
+  test("double dispose() while opted-in emits the handoff at most once", () => {
+    controller.start(START);
+    controller.handleTranscript("this is taking too long");
+    controller.handleTranscript("yes, call me back"); // opt-in
+
+    controller.dispose();
+    controller.dispose();
+
+    expect(emittedSignals).toHaveLength(1);
+  });
 });
