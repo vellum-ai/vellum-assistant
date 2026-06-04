@@ -536,7 +536,10 @@ async function simulateInlineCompaction(
   if (compactResult.exhausted ?? false) {
     return null;
   }
-  return compaction.reinject();
+  const reinjectBase = compactResult.compacted
+    ? compactResult.messages
+    : rawHistory;
+  return compaction.postCompactionHook({ history: reinjectBase });
 }
 
 /**

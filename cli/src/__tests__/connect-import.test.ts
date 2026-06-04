@@ -71,6 +71,63 @@ describe("connect import", () => {
     expect(entry!.runtimeUrl).toBe("http://10.0.0.5:7830");
     expect(entry!.cloud).toBe("paired");
     expect(loadGuardianToken("paired-dev-aaa")?.accessToken).toBe("test-token");
+    // Back-compat: a bundle without refresh fields imports access-only.
+    expect(loadGuardianToken("paired-dev-aaa")?.refreshToken).toBe("");
+  });
+
+  test("persists the refresh credential when the bundle carries one", async () => {
+    process.argv = [
+      "bun",
+      "vellum",
+      "connect",
+      "import",
+      bundleFor({
+        deviceId: "dev-refresh",
+        token: "acc-tok",
+        refreshToken: "refresh-tok",
+        refreshTokenExpiresAt: "2027-01-01T00:00:00.000Z",
+        refreshAfter: "2026-07-01T00:00:00.000Z",
+      }),
+    ];
+    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await connectImport();
+    } finally {
+      logSpy.mockRestore();
+    }
+
+    const tok = loadGuardianToken("paired-dev-refresh");
+    expect(tok?.accessToken).toBe("acc-tok");
+    expect(tok?.refreshToken).toBe("refresh-tok");
+    expect(tok?.refreshTokenExpiresAt).toBe("2027-01-01T00:00:00.000Z");
+    expect(tok?.refreshAfter).toBe("2026-07-01T00:00:00.000Z");
+  });
+
+  test("preserves a numeric (epoch-ms) refreshTokenExpiresAt", async () => {
+    // GuardianTokenData allows refreshTokenExpiresAt to be an epoch-ms number;
+    // a numeric value in the bundle must round-trip, not be dropped to 0.
+    const expiresMs = 1893456000000; // 2030-01-01
+    process.argv = [
+      "bun",
+      "vellum",
+      "connect",
+      "import",
+      bundleFor({
+        deviceId: "dev-num",
+        refreshToken: "refresh-tok",
+        refreshTokenExpiresAt: expiresMs,
+      }),
+    ];
+    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await connectImport();
+    } finally {
+      logSpy.mockRestore();
+    }
+
+    expect(loadGuardianToken("paired-dev-num")?.refreshTokenExpiresAt).toBe(
+      expiresMs,
+    );
   });
 
   test("two different bundles (both assistantId 'self') do not collide", async () => {

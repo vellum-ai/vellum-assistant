@@ -1,9 +1,11 @@
-import { resolve } from "node:path";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
 
 import { describe, expect, test } from "bun:test";
 
 import type { AgentEvent } from "../adapter";
 import { VellumAgent, normalizeVellumEventStream } from "../adapters/vellum";
+import { runArtifacts } from "../metrics";
 import type { Profile } from "../profile";
 import type {
   CommandResult,
@@ -85,6 +87,16 @@ const profile: Profile = {
   workspaceDir: "/profiles/vellum-bare/workspace",
 };
 
+async function preStageRecordingCa(runId: string): Promise<void> {
+  // applyDockerEgressJail's installRecordingCa polls for this file
+  // for 10s before timing out. In production the recording sidecar's
+  // entrypoint drops it at boot; tests skip that path, so we pre-stage
+  // a fake CA in the host-side recordingDir directly.
+  const runDir = runArtifacts(runId).runDir;
+  await mkdir(runDir, { recursive: true });
+  await writeFile(join(runDir, "mitmproxy-ca-cert.pem"), "fake-ca-pem");
+}
+
 describe("VellumAgent", () => {
   test("hatches a fresh docker assistant, applies the jail externally, runs setup, and subscribes to events", async () => {
     const runner = new FakeRunner();
@@ -100,6 +112,7 @@ describe("VellumAgent", () => {
       processEnv: {},
     });
 
+    await preStageRecordingCa(agent.id);
     await agent.hatch();
 
     expect(agent.id).toBe("eval-run-1");
@@ -151,10 +164,11 @@ describe("VellumAgent", () => {
     expect(runner.runs[3].args).toContain("--cap-add");
     expect(runner.runs[3].args).toContain("NET_ADMIN");
     expect(runner.runs[3].args).toContain("evals.vellum.ai/egress-recording=1");
-    // Species default feature flag — runs between jail apply and the
-    // first setup command. See VELLUM_DEFAULT_FEATURE_FLAGS in the
-    // adapter for the canonical list.
-    expect(runner.runs[4]).toEqual({
+    // Species default feature flag — runs between jail apply (which
+    // now includes the CA handoff at runs[4..5]) and the first setup
+    // command. See VELLUM_DEFAULT_FEATURE_FLAGS in the adapter for the
+    // canonical list.
+    expect(runner.runs[6]).toEqual({
       command: "vellum",
       args: [
         "flags",
@@ -170,7 +184,7 @@ describe("VellumAgent", () => {
       },
     });
     // Setup command — gets a per-step subprocess-setup-N.log
-    expect(runner.runs[5]).toEqual({
+    expect(runner.runs[7]).toEqual({
       command: "vellum",
       args: [
         "exec",
@@ -232,18 +246,20 @@ describe("VellumAgent", () => {
       runId: "eval-run-2",
       processEnv: {},
     });
+    await preStageRecordingCa(agent.id);
     await agent.hatch();
 
-    // runs[0..3] are hatch + jail rm/build/run — same as the canonical
-    // happy-path test. Confirm the count to anchor the indices: 4
-    // pre-flag steps + 1 species default flag (`external-plugins`) +
-    // 1 setup command = 6.
-    expect(runner.runs.length).toBe(6);
+    // runs[0..3] are hatch + jail rm/build/run; runs[4..5] are the CA
+    // handoff (docker cp + docker exec update-ca-certificates) — same
+    // as the canonical happy-path test. Confirm the count to anchor
+    // the indices: 6 pre-flag steps + 1 species default flag
+    // (`external-plugins`) + 1 setup command = 8.
+    expect(runner.runs.length).toBe(8);
     expect(runner.runs[0].args[0]).toBe("hatch");
 
     // Species default: `external-plugins` is always flipped ON for
     // vellum hatches, regardless of manifest contents.
-    expect(runner.runs[4]).toEqual({
+    expect(runner.runs[6]).toEqual({
       command: "vellum",
       args: [
         "flags",
@@ -261,7 +277,7 @@ describe("VellumAgent", () => {
 
     // Setup command lands AFTER the species default flag — this is the
     // chicken-and-egg property the ordering protects.
-    expect(runner.runs[5]).toEqual({
+    expect(runner.runs[7]).toEqual({
       command: "vellum",
       args: [
         "exec",
@@ -298,12 +314,13 @@ describe("VellumAgent", () => {
       runId: "eval-run-3",
       processEnv: {},
     });
+    await preStageRecordingCa(agent.id);
     await agent.hatch();
 
-    // hatch + jail rm/build/run + 1 species default flag = 5. No
-    // setup commands.
-    expect(runner.runs.length).toBe(5);
-    expect(runner.runs[4]).toEqual({
+    // hatch + jail rm/build/run + CA install (cp + update-ca-certs) + 1
+    // species default flag = 7. No setup commands.
+    expect(runner.runs.length).toBe(7);
+    expect(runner.runs[6]).toEqual({
       command: "vellum",
       args: [
         "flags",
@@ -338,6 +355,7 @@ describe("VellumAgent", () => {
       },
     });
 
+    await preStageRecordingCa(agent.id);
     await agent.hatch();
 
     const hatchCall = runner.runs.find((r) => r.args[0] === "hatch");
@@ -358,6 +376,7 @@ describe("VellumAgent", () => {
       processEnv: { PATH: "/usr/bin" },
     });
 
+    await preStageRecordingCa(agent.id);
     await agent.hatch();
 
     const hatchCall = runner.runs.find((r) => r.args[0] === "hatch");
@@ -373,6 +392,7 @@ describe("VellumAgent", () => {
       runId: "eval-run-seed",
     });
 
+    await preStageRecordingCa(agent.id);
     await agent.hatch();
     await agent.runSetupCommand({
       type: "seed-conversation",
@@ -421,6 +441,7 @@ describe("VellumAgent", () => {
       runId: "eval-run-2",
     });
 
+    await preStageRecordingCa(agent.id);
     await agent.hatch();
     agent.events();
     await agent.send({ content: "hello" });
@@ -552,8 +573,11 @@ describe("VellumAgent", () => {
         opts?: RunOptions,
       ): Promise<CommandResult> {
         this.runs.push({ command, args, opts });
-        if (args[0] === "exec") {
-          // Setup commands are dispatched as `vellum exec <id> -- …`.
+        // Setup commands are dispatched as `vellum exec <id> -- …`.
+        // Guard on `command === "vellum"` so `docker exec
+        // update-ca-certificates` (CA handoff) is not accidentally
+        // intercepted and returned as a failure.
+        if (command === "vellum" && args[0] === "exec") {
           return {
             exitCode: 1,
             stdout: "",
@@ -582,6 +606,7 @@ describe("VellumAgent", () => {
       runId: "eval-vellum-bare-x-20260524160000123-abcd",
     });
 
+    await preStageRecordingCa(agent.id);
     await expect(agent.hatch()).rejects.toThrow(/setup command/i);
     const sequence = runner.runs.map((r) => [r.command, ...r.args]);
 
@@ -606,7 +631,9 @@ describe("VellumAgent", () => {
         opts?: RunOptions,
       ): Promise<CommandResult> {
         this.runs.push({ command, args, opts });
-        if (args[0] === "exec") {
+        // Guard on `command === "vellum"` so `docker exec
+        // update-ca-certificates` is not intercepted here.
+        if (command === "vellum" && args[0] === "exec") {
           return { exitCode: 1, stdout: "", stderr: "setup command crashed" };
         }
         return { exitCode: 0, stdout: "ok", stderr: "" };
@@ -626,6 +653,7 @@ describe("VellumAgent", () => {
       runId,
     });
 
+    await preStageRecordingCa(agent.id);
     await expect(agent.hatch()).rejects.toThrow(/setup command/i);
 
     // The reaper calls `docker rm -f <name>` for each of the three
@@ -663,7 +691,9 @@ describe("VellumAgent", () => {
         opts?: RunOptions,
       ): Promise<CommandResult> {
         this.runs.push({ command, args, opts });
-        if (args[0] === "exec") {
+        // Guard on `command === "vellum"` so `docker exec
+        // update-ca-certificates` is not intercepted here.
+        if (command === "vellum" && args[0] === "exec") {
           return { exitCode: 1, stdout: "", stderr: "setup command crashed" };
         }
         if (args[0] === "retire") {
@@ -690,6 +720,7 @@ describe("VellumAgent", () => {
       runId,
     });
 
+    await preStageRecordingCa(agent.id);
     const warnings: string[] = [];
     const originalWarn = console.warn;
     console.warn = (msg: unknown) => {
@@ -724,6 +755,7 @@ describe("VellumAgent", () => {
       testId: "lme-v2",
       runId: "eval-write-1",
     });
+    await preStageRecordingCa(agent.id);
     await agent.hatch();
 
     const baseline = runner.runs.length;
@@ -761,6 +793,7 @@ describe("VellumAgent", () => {
       testId: "lme-v2",
       runId: "eval-write-abs",
     });
+    await preStageRecordingCa(agent.id);
     await agent.hatch();
 
     await expect(
@@ -776,6 +809,7 @@ describe("VellumAgent", () => {
       testId: "lme-v2",
       runId: "eval-write-traverse",
     });
+    await preStageRecordingCa(agent.id);
     await agent.hatch();
 
     await expect(
@@ -794,6 +828,7 @@ describe("VellumAgent", () => {
       testId: "lme-v2",
       runId: "eval-write-empty",
     });
+    await preStageRecordingCa(agent.id);
     await agent.hatch();
 
     await expect(
@@ -823,6 +858,7 @@ describe("VellumAgent", () => {
       testId: "lme-v2",
       runId: "eval-newconvo",
     });
+    await preStageRecordingCa(agent.id);
     await agent.hatch();
     const beforeKey = agent.conversationKey;
 
@@ -870,6 +906,7 @@ describe("VellumAgent", () => {
       testId: "lme-v2",
       runId: "eval-newconvo-bad",
     });
+    await preStageRecordingCa(agent.id);
     await agent.hatch();
 
     await expect(agent.newConversation!()).rejects.toThrow(
@@ -902,6 +939,7 @@ describe("VellumAgent", () => {
       testId: "lme-v2",
       runId: "eval-events-rotation",
     });
+    await preStageRecordingCa(agent.id);
     await agent.hatch();
 
     const ingestKey = agent.conversationKey;

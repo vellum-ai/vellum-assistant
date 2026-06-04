@@ -7,11 +7,9 @@ import type {
   CallSiteOverrideDraft,
   DaemonConfig,
   DaemonConfigPatch,
-  DaemonConfigReconciliation,
   InferenceTokenBudgetState,
   ProfileEntry,
   ProfileWithName,
-  ServiceMode,
 } from "@/domains/settings/ai/ai-types";
 import { TOKEN_SLIDER_MIN_TOKENS } from "@/domains/settings/ai/ai-types";
 
@@ -45,28 +43,6 @@ export function assertProvisionSuccess(result: unknown): void {
   ) {
     throw new Error("Failed to provision API key: server returned success=false");
   }
-}
-
-export function reconcileFromDaemonConfig(config: DaemonConfig): DaemonConfigReconciliation {
-  const services = config.services ?? {};
-  const llm = config.llm ?? {};
-  const result: DaemonConfigReconciliation = {};
-
-  const provider = llm.default?.provider;
-  if (provider) result.inferenceProvider = provider;
-
-  const model = llm.default?.model;
-  if (model) result.selectedModel = model;
-
-  const wsMode = services["web-search"]?.mode;
-  if (wsMode === "managed" || wsMode === "your-own") result.webSearchMode = wsMode as ServiceMode;
-  const wsProvider = services["web-search"]?.provider;
-  if (wsProvider) result.webSearchProvider = wsProvider;
-
-  const igMode = services["image-generation"]?.mode;
-  if (igMode === "managed" || igMode === "your-own") result.imageGenMode = igMode as ServiceMode;
-
-  return result;
 }
 
 export function clampTokenBudget(

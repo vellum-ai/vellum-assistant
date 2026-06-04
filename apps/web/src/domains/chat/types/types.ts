@@ -142,9 +142,10 @@ const INHERENTLY_INTERACTIVE_SURFACE_TYPES = [
  * Whether a surface requires user interaction to "complete".
  *
  * A surface is interactive when it either carries explicit action buttons
- * or is an inherently interactive type (choice, oauth_connect, form, confirmation, file_upload).
- * Display-only surfaces — copy blocks, tables, cards, lists, and dynamic pages without
- * actions — are non-interactive and should never block the composer.
+ * or is an inherently interactive type (choice, oauth_connect, form,
+ * confirmation, file_upload, task_preferences). Display-only surfaces — copy
+ * blocks, tables, cards, lists, work results, and dynamic pages without actions
+ * — are non-interactive and should never block the composer.
  */
 export function isSurfaceInteractive(surface: Surface): boolean {
   if (surface.completed) return false;

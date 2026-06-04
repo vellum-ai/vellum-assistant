@@ -114,7 +114,8 @@ export const uiShowTool = {
     "- confirmation: { message, detail?, confirmLabel?, confirmedLabel?, cancelLabel?, destructive? }\n" +
     "- dynamic_page: { html, width?, height?, preview?: { title, subtitle?, description?, icon?, metrics?: [{ label, value }] } }\n" +
     "- file_upload: { prompt, acceptedTypes?, maxFiles? }\n" +
-    "- task_preferences: {} (no data needed — categories are rendered client-side)\n\n" +
+    "- task_preferences: {} (no data needed — categories are rendered client-side)\n" +
+    '- work_result: { eyebrow?, status?: "completed"|"partial"|"failed"|"in_progress", summary?, metrics?: [{ label, value, detail?, tone?: "neutral"|"positive"|"warning"|"negative" }], sections?: [{ id?, title, description?, type?: "items"|"timeline"|"diff"|"artifacts"|"warnings", items?: [{ id?, title, description?, status?, tone?, metadata?: [{ label, value }], href? }], diffs?: [{ label?, before?, after? }] }] }. Shows a structured receipt after real work: what changed, what was skipped, proof points, and next actions. Keep display-only unless explicit follow-up buttons are needed.\n\n' +
     "Proactively show a task_progress card before multi-step or long-running work (web searches, file operations, research). Show it before your first tool call, then update steps as work progresses.",
   category: "ui-surface",
   defaultRiskLevel: RiskLevel.Low,
@@ -137,6 +138,7 @@ export const uiShowTool = {
           "dynamic_page",
           "file_upload",
           "task_preferences",
+          "work_result",
         ],
         description: "The type of surface to display",
       },

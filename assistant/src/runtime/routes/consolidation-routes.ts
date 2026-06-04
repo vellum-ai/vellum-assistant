@@ -26,6 +26,7 @@ import {
   hasActiveJobOfType,
 } from "../../memory/jobs-store.js";
 import { GRAPH_MAINTENANCE_CHECKPOINTS } from "../../memory/jobs-worker.js";
+import { getUsageCostForConversationWindow } from "../../memory/llm-usage-store.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../memory/v2/constants.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
@@ -170,6 +171,9 @@ export const ROUTES: RouteDefinition[] = [
             skipReason: z.string().nullable(),
             error: z.string().nullable(),
             conversationId: z.string().nullable(),
+            conversationExists: z.boolean(),
+            conversationArchivedAt: z.number().nullable(),
+            estimatedCostUsd: z.number(),
             createdAt: z.number(),
           }),
         )
@@ -195,24 +199,33 @@ export const ROUTES: RouteDefinition[] = [
         rows.map((r) => r.id),
         "assistant",
       );
+      const now = Date.now();
       return {
         runs: rows.map((c) => {
           const stat = assistantStats.get(c.id);
           const hasAssistantOutput = (stat?.count ?? 0) > 0;
           const finishedAt = hasAssistantOutput ? stat!.lastAt : null;
+          const estimatedCostUsd =
+            c.totalEstimatedCost > 0
+              ? c.totalEstimatedCost
+              : getUsageCostForConversationWindow({
+                  conversationId: c.id,
+                  from: c.createdAt,
+                  to: finishedAt ?? now,
+                });
           return {
             id: c.id,
             scheduledFor: c.createdAt,
             startedAt: c.createdAt,
             finishedAt,
-            durationMs:
-              finishedAt != null ? finishedAt - c.createdAt : null,
-            status: (hasAssistantOutput ? "ok" : "running") as
-              | "ok"
-              | "running",
+            durationMs: finishedAt != null ? finishedAt - c.createdAt : null,
+            status: (hasAssistantOutput ? "ok" : "running") as "ok" | "running",
             skipReason: null,
             error: null,
             conversationId: c.id,
+            conversationExists: true,
+            conversationArchivedAt: c.archivedAt,
+            estimatedCostUsd,
             createdAt: c.createdAt,
           };
         }),

@@ -36,6 +36,7 @@ mock.module("../../../util/logger.js", () => ({
 import { createConversation } from "../../../memory/conversation-crud.js";
 import { getDb } from "../../../memory/db-connection.js";
 import { initializeDb } from "../../../memory/db-init.js";
+import { recordUsageEvent } from "../../../memory/llm-usage-store.js";
 import { rawRun } from "../../../memory/raw-query.js";
 import { ROUTES } from "../consolidation-routes.js";
 import type { RouteDefinition } from "../types.js";
@@ -44,6 +45,7 @@ initializeDb();
 
 function resetTables(): void {
   const db = getDb();
+  db.run(`DELETE FROM llm_usage_events`);
   db.run(`DELETE FROM messages`);
   db.run(`DELETE FROM conversations`);
 }
@@ -69,6 +71,37 @@ function insertMessage(
   );
 }
 
+function recordUsageCostAt(
+  conversationId: string,
+  requestId: string,
+  createdAt: number,
+  estimatedCostUsd: number,
+): void {
+  const event = recordUsageEvent(
+    {
+      conversationId,
+      runId: null,
+      requestId,
+      actor: "main_agent",
+      callSite: "mainAgent",
+      inferenceProfile: "balanced",
+      provider: "anthropic",
+      model: "claude-sonnet-4-20250514",
+      inputTokens: 100,
+      outputTokens: 50,
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: 0,
+      rawUsage: null,
+    },
+    { estimatedCostUsd, pricingStatus: "priced" },
+  );
+  rawRun(
+    "UPDATE llm_usage_events SET created_at = ? WHERE id = ?",
+    createdAt,
+    event.id,
+  );
+}
+
 interface RunRecord {
   id: string;
   scheduledFor: number;
@@ -79,6 +112,7 @@ interface RunRecord {
   skipReason: string | null;
   error: string | null;
   conversationId: string | null;
+  estimatedCostUsd: number;
   createdAt: number;
 }
 
@@ -136,6 +170,47 @@ describe("listConsolidationRuns handler", () => {
     expect(run.finishedAt).toBe(2500);
     expect(run.durationMs).toBe(1500);
     expect(run.createdAt).toBe(1000);
+  });
+
+  test("exposes estimatedCostUsd from the conversation total when available", async () => {
+    const conv = createConversation({
+      title: "c1",
+      source: "memory_v2_consolidation",
+    });
+    rawRun(
+      "UPDATE conversations SET created_at = ?, total_estimated_cost = ? WHERE id = ?",
+      1000,
+      0.42,
+      conv.id,
+    );
+    insertMessage(conv.id, "assistant", 2000);
+    recordUsageCostAt(conv.id, "consolidation-fallback-cost", 1500, 0.99);
+
+    const handler = findHandler("listConsolidationRuns");
+    const result = (await handler({})) as ListRunsResponse;
+
+    expect(result.runs[0]!.estimatedCostUsd).toBeCloseTo(0.42);
+  });
+
+  test("falls back to conversation-window usage cost when the total is empty", async () => {
+    const conv = createConversation({
+      title: "c1",
+      source: "memory_v2_consolidation",
+    });
+    rawRun(
+      "UPDATE conversations SET created_at = ? WHERE id = ?",
+      1000,
+      conv.id,
+    );
+    insertMessage(conv.id, "assistant", 2000);
+    recordUsageCostAt(conv.id, "consolidation-before", 999, 0.4);
+    recordUsageCostAt(conv.id, "consolidation-inside", 1500, 0.07);
+    recordUsageCostAt(conv.id, "consolidation-after", 2001, 0.5);
+
+    const handler = findHandler("listConsolidationRuns");
+    const result = (await handler({})) as ListRunsResponse;
+
+    expect(result.runs[0]!.estimatedCostUsd).toBeCloseTo(0.07);
   });
 
   test("synthesizes status='running' when conversation has no assistant message", async () => {

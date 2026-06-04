@@ -216,7 +216,7 @@ export function CommunityPage() {
   const { handleStar } = useGitHubNudgeState();
 
   return (
-    <div className="mx-auto max-w-[940px] space-y-6">
+    <div className="space-y-6">
       <HeroBanner />
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">

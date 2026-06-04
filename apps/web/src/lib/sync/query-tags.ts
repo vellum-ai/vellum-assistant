@@ -93,6 +93,15 @@ export function assistantScheduleRunsQueryKey(
     : (["schedule-runs", assistantId] as const);
 }
 
+export function assistantScheduleUsageSummaryQueryKey(
+  assistantId: string | null | undefined,
+  tz?: string | null,
+) {
+  return tz
+    ? (["schedule-usage-summary", assistantId, tz] as const)
+    : (["schedule-usage-summary", assistantId] as const);
+}
+
 export const CLIENT_FLAG_QUERY_KEY = ["client-feature-flag-values"] as const;
 
 export const ASSISTANT_FLAG_VALUES_QUERY_KEY =
@@ -150,5 +159,8 @@ export function invalidateAssistantSchedulesQueries(
   });
   void queryClient.invalidateQueries({
     queryKey: assistantScheduleRunsQueryKey(assistantId),
+  });
+  void queryClient.invalidateQueries({
+    queryKey: assistantScheduleUsageSummaryQueryKey(assistantId),
   });
 }

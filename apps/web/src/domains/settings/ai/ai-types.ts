@@ -99,14 +99,6 @@ export type DaemonConfigPatch = {
   };
 };
 
-export interface DaemonConfigReconciliation {
-  inferenceProvider?: string;
-  selectedModel?: string;
-  webSearchMode?: ServiceMode;
-  webSearchProvider?: string;
-  imageGenMode?: ServiceMode;
-}
-
 export interface InferenceTokenBudgetState {
   maxOutputTokens: number;
   maxOutputTouched: boolean;

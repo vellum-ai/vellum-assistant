@@ -3614,6 +3614,51 @@ paths:
           description: ''
       x-vellum-api-clients:
       - platform
+  /v1/organizations/billing/subscription/change-credit-tier/:
+    post:
+      operationId: organizations_billing_subscription_change_credit_tier_create
+      description: Add, swap, or remove the included-credit bundle on the org's active
+        Pro subscription without re-checkout. A null ``credit_tier`` removes the bundle
+        (back to the $0 default); a set value adds (when none today) or swaps the
+        existing bundle. All transitions use proration_behavior=none, so the change
+        — and the matching monthly credit grant — take effect at the next cycle boundary
+        (no immediate partial charge). Gated behind the ``pro-plan-credits`` flag
+        (HTTP 403 when off). Rejected with HTTP 409 while a cancellation is pending.
+        Requires an active Pro subscription with a provisioned Stripe subscription.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreditTierChangeRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CreditTierChangeRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CreditTierChangeRequestRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditTierChangeResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
   /v1/organizations/billing/subscription/change-machine-tier/:
     post:
       operationId: organizations_billing_subscription_change_machine_tier_create
@@ -5284,6 +5329,62 @@ components:
           maxLength: 255
       required:
       - username
+    CreditTier:
+      type: object
+      properties:
+        tier:
+          type: string
+        label:
+          type: string
+        credits_usd:
+          type: integer
+          minimum: 0
+        price_cents:
+          type: integer
+          minimum: 0
+        lookup_key:
+          type: string
+      required:
+      - credits_usd
+      - label
+      - lookup_key
+      - price_cents
+      - tier
+    CreditTierChangeRequestRequest:
+      type: object
+      properties:
+        credit_tier:
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/CreditTierEnum'
+          - $ref: '#/components/schemas/NullEnum'
+      required:
+      - credit_tier
+    CreditTierChangeResponse:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/TierChangeStatusEnum'
+        credit_tier:
+          type: string
+          nullable: true
+      required:
+      - credit_tier
+      - status
+    CreditTierEnum:
+      enum:
+      - credits_10
+      - credits_25
+      - credits_50
+      - credits_100
+      - credits_200
+      type: string
+      description: |-
+        * `credits_10` - credits_10
+        * `credits_25` - credits_25
+        * `credits_50` - credits_50
+        * `credits_100` - credits_100
+        * `credits_200` - credits_200
     DetailResponse:
       type: object
       properties:
@@ -6677,6 +6778,10 @@ components:
           type: array
           items:
             type: string
+        credit_tiers:
+          type: array
+          items:
+            $ref: '#/components/schemas/CreditTier'
       required:
       - base_lookup_key
       - base_price_cents
@@ -6955,6 +7060,9 @@ components:
           type: string
           format: date-time
           nullable: true
+        selected_credit_tier:
+          type: string
+          nullable: true
         entitlements:
           $ref: '#/components/schemas/SubscriptionEntitlements'
       required:
@@ -6996,6 +7104,11 @@ components:
           $ref: '#/components/schemas/PlanIdEnum'
         confirm:
           type: boolean
+        credit_tier:
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/CreditTierEnum'
+          - $ref: '#/components/schemas/NullEnum'
       required:
       - confirm
       - machine_tier

@@ -11,6 +11,7 @@ import { getOrCreateConversation } from "../../daemon/conversation-store.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../../daemon/trust-context.js";
 import { bootstrapConversation } from "../../memory/conversation-bootstrap.js";
 import { getConversation } from "../../memory/conversation-crud.js";
+import { getUsageCostForConversationWindow } from "../../memory/llm-usage-store.js";
 import { normalizeScheduleSyntax } from "../../schedule/recurrence-types.js";
 import {
   runScript,
@@ -27,10 +28,13 @@ import {
   getSchedule,
   getScheduleRuns,
   listSchedules,
+  setScheduleRunConversationId,
   updateSchedule,
 } from "../../schedule/schedule-store.js";
+import { getScheduleUsageSummaries } from "../../schedule/schedule-usage-store.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import { parseEpochMillisRange } from "./epoch-millis-range.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -57,6 +61,9 @@ const scheduleSchema = z.object({
   maxRetries: z.number(),
   retryBackoffMs: z.number(),
   timeoutMs: z.number().nullable(),
+  createdFromConversationId: z.string().nullable(),
+  createdFromConversationExists: z.boolean(),
+  createdFromConversationArchivedAt: z.number().nullable(),
   description: z.string().nullable(),
   mode: z.enum(["notify", "execute", "script", "wake"]),
   status: z.enum(["active", "firing", "fired", "cancelled"]),
@@ -76,12 +83,47 @@ const scheduleRunSchema = z.object({
   output: z.string().nullable(),
   error: z.string().nullable(),
   conversationId: z.string().nullable(),
+  conversationExists: z.boolean(),
+  conversationArchivedAt: z.number().nullable(),
+  estimatedCostUsd: z.number(),
   createdAt: z.number(),
+});
+
+const scheduleUsageSummarySchema = z.object({
+  scheduleId: z.string(),
+  runCount: z.number(),
+  totalEstimatedCostUsd: z.number(),
+  eventCount: z.number(),
 });
 
 // ---------------------------------------------------------------------------
 // Handlers (transport-agnostic)
 // ---------------------------------------------------------------------------
+
+interface CreatedFromConversationState {
+  exists: boolean;
+  archivedAt: number | null;
+}
+
+function getCreatedFromConversationState(
+  conversationId: string | null,
+  cache: Map<string, CreatedFromConversationState>,
+): CreatedFromConversationState {
+  if (!conversationId) {
+    return { exists: false, archivedAt: null };
+  }
+
+  const cached = cache.get(conversationId);
+  if (cached) return cached;
+
+  const conversation = getConversation(conversationId);
+  const state = {
+    exists: conversation !== null,
+    archivedAt: conversation?.archivedAt ?? null,
+  };
+  cache.set(conversationId, state);
+  return state;
+}
 
 function handleListSchedules(queryParams: Record<string, string>) {
   const includeAll = queryParams.include_all === "true";
@@ -89,35 +131,48 @@ function handleListSchedules(queryParams: Record<string, string>) {
   const filtered = includeAll
     ? jobs
     : jobs.filter((j) => j.createdBy !== "defer");
+  const sourceConversationCache = new Map<
+    string,
+    CreatedFromConversationState
+  >();
   return {
-    schedules: filtered.map((j) => ({
-      id: j.id,
-      name: j.name,
-      enabled: j.enabled,
-      syntax: j.syntax,
-      expression: j.expression,
-      cronExpression: j.cronExpression,
-      timezone: j.timezone,
-      message: j.message,
-      script: j.script,
-      nextRunAt: j.nextRunAt,
-      lastRunAt: j.lastRunAt,
-      lastStatus: j.lastStatus,
-      retryCount: j.retryCount,
-      maxRetries: j.maxRetries,
-      retryBackoffMs: j.retryBackoffMs,
-      timeoutMs: j.timeoutMs,
-      description:
-        j.syntax === "cron"
-          ? describeCronExpression(j.cronExpression)
-          : j.expression,
-      mode: j.mode,
-      status: j.status,
-      routingIntent: j.routingIntent,
-      reuseConversation: j.reuseConversation,
-      wakeConversationId: j.wakeConversationId,
-      isOneShot: j.cronExpression == null,
-    })),
+    schedules: filtered.map((j) => {
+      const sourceConversation = getCreatedFromConversationState(
+        j.createdFromConversationId,
+        sourceConversationCache,
+      );
+      return {
+        id: j.id,
+        name: j.name,
+        enabled: j.enabled,
+        syntax: j.syntax,
+        expression: j.expression,
+        cronExpression: j.cronExpression,
+        timezone: j.timezone,
+        message: j.message,
+        script: j.script,
+        nextRunAt: j.nextRunAt,
+        lastRunAt: j.lastRunAt,
+        lastStatus: j.lastStatus,
+        retryCount: j.retryCount,
+        maxRetries: j.maxRetries,
+        retryBackoffMs: j.retryBackoffMs,
+        timeoutMs: j.timeoutMs,
+        createdFromConversationId: j.createdFromConversationId,
+        createdFromConversationExists: sourceConversation.exists,
+        createdFromConversationArchivedAt: sourceConversation.archivedAt,
+        description:
+          j.syntax === "cron"
+            ? describeCronExpression(j.cronExpression)
+            : j.expression,
+        mode: j.mode,
+        status: j.status,
+        routingIntent: j.routingIntent,
+        reuseConversation: j.reuseConversation,
+        wakeConversationId: j.wakeConversationId,
+        isOneShot: j.cronExpression == null,
+      };
+    }),
   };
 }
 
@@ -291,20 +346,40 @@ function handleListScheduleRuns(
     ? Math.min(Math.max(Math.floor(rawLimit), 1), 100)
     : 10;
   const runs = getScheduleRuns(id, limit);
+  const now = Date.now();
   return {
-    runs: runs.map((r) => ({
-      id: r.id,
-      jobId: r.jobId,
-      status: r.status,
-      startedAt: r.startedAt,
-      finishedAt: r.finishedAt,
-      durationMs: r.durationMs,
-      output: r.output,
-      error: r.error,
-      conversationId: r.conversationId,
-      createdAt: r.createdAt,
-    })),
+    runs: runs.map((r) => {
+      const conversation = r.conversationId
+        ? getConversation(r.conversationId)
+        : null;
+      return {
+        id: r.id,
+        jobId: r.jobId,
+        status: r.status,
+        startedAt: r.startedAt,
+        finishedAt: r.finishedAt,
+        durationMs: r.durationMs,
+        output: r.output,
+        error: r.error,
+        conversationId: r.conversationId,
+        conversationExists: conversation != null,
+        conversationArchivedAt: conversation?.archivedAt ?? null,
+        estimatedCostUsd: r.conversationId
+          ? getUsageCostForConversationWindow({
+              conversationId: r.conversationId,
+              from: r.startedAt,
+              to: r.finishedAt ?? now,
+            })
+          : 0,
+        createdAt: r.createdAt,
+      };
+    }),
   };
+}
+
+function handleScheduleUsageSummary(queryParams: Record<string, string>) {
+  const range = parseEpochMillisRange(queryParams);
+  return { summaries: getScheduleUsageSummaries(range) };
 }
 
 // ---------------------------------------------------------------------------
@@ -336,6 +411,40 @@ export const ROUTES: RouteDefinition[] = [
     }),
     handler: ({ queryParams }: RouteHandlerArgs) =>
       handleListSchedules(queryParams ?? {}),
+  },
+  {
+    operationId: "getScheduleUsageSummary",
+    endpoint: "schedules/usage-summary",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Get schedule usage summaries",
+    description:
+      "Return per-schedule run counts and usage totals for a time range.",
+    tags: ["schedules"],
+    queryParams: [
+      {
+        name: "from",
+        type: "integer",
+        required: true,
+        description: "Start epoch millis (required)",
+      },
+      {
+        name: "to",
+        type: "integer",
+        required: true,
+        description: "End epoch millis (required)",
+      },
+    ],
+    responseBody: z.object({
+      summaries: z
+        .array(scheduleUsageSummarySchema)
+        .describe("Schedule usage summary rows"),
+    }),
+    handler: ({ queryParams }: RouteHandlerArgs) =>
+      handleScheduleUsageSummary(queryParams ?? {}),
   },
   {
     operationId: "createSchedule",
@@ -551,6 +660,7 @@ async function handleRunScheduleNow(id: string) {
   const taskMatch = schedule.message.match(/^run_task:(\S+)$/);
   if (taskMatch) {
     const taskId = taskMatch[1];
+    const runId = createScheduleRun(schedule.id, null);
     try {
       log.info(
         { jobId: schedule.id, name: schedule.name, taskId },
@@ -577,7 +687,7 @@ async function handleRunScheduleNow(id: string) {
         },
       );
 
-      const runId = createScheduleRun(schedule.id, result.conversationId);
+      setScheduleRunConversationId(runId, result.conversationId);
       if (result.status === "failed") {
         completeScheduleRun(runId, {
           status: "error",
@@ -598,7 +708,7 @@ async function handleRunScheduleNow(id: string) {
         origin: "schedule",
         systemHint: `Schedule (manual): ${schedule.name}`,
       });
-      const runId = createScheduleRun(schedule.id, fallbackConversation.id);
+      setScheduleRunConversationId(runId, fallbackConversation.id);
       completeScheduleRun(runId, { status: "error", error: message });
     }
     return handleListSchedules({});

@@ -23,7 +23,8 @@ export type UsageGroupBy =
   | "model"
   | "conversation"
   | "task"
-  | "profile";
+  | "profile"
+  | "schedule";
 
 export type UsageSeriesGroupBy = Exclude<UsageGroupBy, "conversation">;
 
