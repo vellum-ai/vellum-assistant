@@ -61,6 +61,7 @@ import { commitAppTurnChanges } from "../memory/app-git-service.js";
 import { getApp, listAppFiles, resolveAppDir } from "../memory/app-store.js";
 import { enqueueAutoAnalysisOnCompaction } from "../memory/auto-analysis-enqueue.js";
 import {
+  addMessage,
   deleteMessageById,
   getConversation,
   getConversationOriginChannel,
@@ -72,6 +73,7 @@ import {
   setLastNotifiedInferenceProfile,
   updateConversationContextWindow,
   updateConversationSlackContextWatermark,
+  updateMessageMetadata,
 } from "../memory/conversation-crud.js";
 import { getResolvedConversationDirPath } from "../memory/conversation-directories.js";
 import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
@@ -102,7 +104,6 @@ import {
   type GraphMemoryPayload,
   runDefaultMemoryRetrieval,
 } from "../plugins/defaults/memory-retrieval/register.js";
-import { defaultPersistenceTerminal } from "../plugins/defaults/persistence/terminal.js";
 import { DEFAULT_TIMEOUTS, runHook, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
@@ -112,9 +113,6 @@ import type {
   MemoryResult,
   OverflowReduceArgs,
   OverflowReduceResult,
-  PersistAddResult,
-  PersistArgs,
-  PersistResult,
   TurnContext as PluginTurnContext,
 } from "../plugins/types.js";
 import { PluginExecutionError, PluginTimeoutError } from "../plugins/types.js";
@@ -1225,24 +1223,12 @@ export async function runAgentLoopImpl(
 
       // Persist the injected block text in message metadata so it survives
       // conversation reloads (eviction, restart, fork). loadFromDb re-injects
-      // from metadata. Routed through the `persistence` pipeline so plugins
-      // can observe or override metadata updates alongside add/delete.
+      // from metadata.
       if (graphResult.injectedBlockText) {
         try {
-          await runPipeline<PersistArgs, PersistResult>(
-            "persistence",
-            getMiddlewaresFor("persistence"),
-            defaultPersistenceTerminal,
-            {
-              op: "update",
-              messageId: userMessageId,
-              updates: {
-                memoryInjectedBlock: graphResult.injectedBlockText,
-              },
-            },
-            buildPluginTurnContext(ctx, reqId),
-            DEFAULT_TIMEOUTS.persistence,
-          );
+          updateMessageMetadata(userMessageId, {
+            memoryInjectedBlock: graphResult.injectedBlockText,
+          });
         } catch (err) {
           rlog.warn(
             { err },
@@ -1677,18 +1663,7 @@ export async function runAgentLoopImpl(
           metadataUpdates.memoryV2StaticBlock =
             injection.blocks.memoryV2StaticBlock;
         }
-        await runPipeline<PersistArgs, PersistResult>(
-          "persistence",
-          getMiddlewaresFor("persistence"),
-          defaultPersistenceTerminal,
-          {
-            op: "update",
-            messageId: userMessageId,
-            updates: metadataUpdates,
-          },
-          buildPluginTurnContext(ctx, reqId),
-          DEFAULT_TIMEOUTS.persistence,
-        );
+        updateMessageMetadata(userMessageId, metadataUpdates);
       } catch (err) {
         rlog.warn({ err }, "Failed to persist injection metadata (non-fatal)");
       }
@@ -2682,19 +2657,13 @@ export async function runAgentLoopImpl(
         assistantMessageInterface:
           capturedTurnInterfaceContext.assistantMessageInterface,
       };
-      await runPipeline<PersistArgs, PersistResult>(
-        "persistence",
-        getMiddlewaresFor("persistence"),
-        defaultPersistenceTerminal,
+      await addMessage(
+        ctx.conversationId,
+        "user",
+        JSON.stringify(toolResultBlocks),
         {
-          op: "add",
-          conversationId: ctx.conversationId,
-          role: "user",
-          content: JSON.stringify(toolResultBlocks),
           metadata: toolResultMetadata,
         },
-        buildPluginTurnContext(ctx, reqId),
-        DEFAULT_TIMEOUTS.persistence,
       );
       state.pendingToolResults.clear();
     }
@@ -2720,24 +2689,13 @@ export async function runAgentLoopImpl(
       };
       let yieldNoticePersistedId: string | null = null;
       try {
-        const yieldPersistResult = (await runPipeline<
-          PersistArgs,
-          PersistResult
-        >(
-          "persistence",
-          getMiddlewaresFor("persistence"),
-          defaultPersistenceTerminal,
-          {
-            op: "add",
-            conversationId: ctx.conversationId,
-            role: "assistant",
-            content: JSON.stringify(yieldNoticeMessage.content),
-            metadata: yieldNoticeMetadata,
-          },
-          buildPluginTurnContext(ctx, reqId),
-          DEFAULT_TIMEOUTS.persistence,
-        )) as PersistAddResult;
-        yieldNoticePersistedId = yieldPersistResult.message.id;
+        const yieldRow = await addMessage(
+          ctx.conversationId,
+          "assistant",
+          JSON.stringify(yieldNoticeMessage.content),
+          { metadata: yieldNoticeMetadata },
+        );
+        yieldNoticePersistedId = yieldRow.id;
       } catch (err) {
         // Non-fatal — a DB hiccup must not escalate a budget-yield exit into
         // a turn-level throw. The live SSE event was already emitted, so the
@@ -2824,10 +2782,6 @@ export async function runAgentLoopImpl(
         state.assistantRowAwaitingFinalization &&
         state.lastAssistantMessageId
       ) {
-        // Direct `deleteMessageById` (not via the `persistence` pipeline):
-        // see the same rationale on the matching cleanup in
-        // `handleLlmCallStarted` — an unfinalized reservation has no
-        // observable history for plugins.
         try {
           deleteMessageById(state.lastAssistantMessageId);
         } catch (err) {
@@ -2849,20 +2803,12 @@ export async function runAgentLoopImpl(
       const errorAssistantMessage = createAssistantMessage(
         state.providerErrorUserMessage,
       );
-      const errorPersistResult = (await runPipeline<PersistArgs, PersistResult>(
-        "persistence",
-        getMiddlewaresFor("persistence"),
-        defaultPersistenceTerminal,
-        {
-          op: "add",
-          conversationId: ctx.conversationId,
-          role: "assistant",
-          content: JSON.stringify(errorAssistantMessage.content),
-          metadata: errChannelMeta,
-        },
-        buildPluginTurnContext(ctx, reqId),
-        DEFAULT_TIMEOUTS.persistence,
-      )) as PersistAddResult;
+      const errorRow = await addMessage(
+        ctx.conversationId,
+        "assistant",
+        JSON.stringify(errorAssistantMessage.content),
+        { metadata: errChannelMeta },
+      );
       persistedErrorAssistantMessage = true;
       // Repoint `lastAssistantMessageId` at the synthetic error row so the
       // post-loop sync, attachment resolution, and `message_complete`/
@@ -2871,7 +2817,7 @@ export async function runAgentLoopImpl(
       // above. Mark finalization complete so the next LLM call in this run
       // (or a downstream handler) doesn't try to clean up an id that
       // already corresponds to a finalized row.
-      state.lastAssistantMessageId = errorPersistResult.message.id;
+      state.lastAssistantMessageId = errorRow.id;
       state.assistantRowAwaitingFinalization = false;
       newMessages.push(errorAssistantMessage);
       // Pipe the just-assigned message id into any orphaned LLM request log
@@ -2885,10 +2831,7 @@ export async function runAgentLoopImpl(
       // other conversations cannot collide. Non-fatal — a DB hiccup must
       // not escalate a provider rejection into a turn-level throw.
       try {
-        backfillMessageIdOnLogs(
-          ctx.conversationId,
-          errorPersistResult.message.id,
-        );
+        backfillMessageIdOnLogs(ctx.conversationId, errorRow.id);
       } catch (err) {
         rlog.warn(
           { err },

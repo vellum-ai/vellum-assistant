@@ -33,7 +33,6 @@ import type {
 } from "../daemon/conversation-runtime-assembly.js";
 import type { PkbContextConversation } from "../daemon/pkb-context-tracker.js";
 import type { TrustContext } from "../daemon/trust-context.js";
-import type { MessageRole } from "../memory/conversation-crud.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
 import type { PluginHookFn } from "../plugin-api/types.js";
 import type { Message } from "../providers/types.js";
@@ -114,7 +113,6 @@ export type PipelineName =
   | "memoryRetrieval"
   | "compaction"
   | "overflowReduce"
-  | "persistence"
   | "circuitBreaker";
 
 // ─── Per-pipeline args / results (placeholder shapes) ────────────────────────
@@ -317,134 +315,6 @@ export interface OverflowReduceResult {
 }
 
 /**
- * Pipeline arguments for `persistence` — a discriminated union over the
- * message-CRUD operations plugins may observe, redirect, or short-circuit:
- *
- * - `add`           — append a new message (`addMessage`). Mirrors
- *                     `addMessage(conversationId, role, content, options?)`.
- *                     When `syncToDisk` is set, the default plugin also runs
- *                     {@link syncMessageToDisk} against the just-persisted row
- *                     so the JSONL disk view stays consistent. The
- *                     `createdAtMs` field carries the conversation's creation
- *                     timestamp — needed to resolve the disk-view directory.
- * - `reserve`       — pre-allocate an empty assistant anchor row
- *                     (`reserveMessage`) so the agent loop can stamp streaming
- *                     events with stable identity before any content is
- *                     produced. Returns the same row shape as `add`.
- * - `updateContent` — overwrite the content of an existing message
- *                     (`updateMessageContent`). Used to finalize a previously
- *                     reserved row, and by consolidation paths.
- * - `update`        — shallow-merge metadata into an existing message
- *                     (`updateMessageMetadata`). Returns `void`.
- * - `delete`        — remove a single message (`deleteMessageById`). Returns
- *                     the {@link DeletedMemoryIds}-shaped segment/summary IDs
- *                     the caller must clean up out-of-band.
- *
- * The discriminated `op` field lets plugin middleware narrow the union and
- * tailor behavior per-operation (e.g. "only observe deletes", "redirect
- * adds to a mock store").
- */
-export type PersistAddArgs = {
-  readonly op: "add";
-  readonly conversationId: string;
-  readonly role: MessageRole;
-  readonly content: string;
-  readonly metadata?: Record<string, unknown>;
-  readonly addOptions?: { readonly skipIndexing?: boolean };
-  /**
-   * When `true`, the default plugin additionally invokes
-   * {@link syncMessageToDisk} with the returned message's id. Requires
-   * {@link createdAtMs} to resolve the conversation's disk-view directory.
-   */
-  readonly syncToDisk?: boolean;
-  /** Conversation creation timestamp — only read when `syncToDisk` is true. */
-  readonly createdAtMs?: number;
-};
-
-export type PersistReserveArgs = {
-  readonly op: "reserve";
-  readonly conversationId: string;
-  readonly role: MessageRole;
-  readonly metadata?: Record<string, unknown>;
-};
-
-export type PersistUpdateContentArgs = {
-  readonly op: "updateContent";
-  readonly messageId: string;
-  readonly content: string;
-};
-
-export type PersistUpdateArgs = {
-  readonly op: "update";
-  readonly messageId: string;
-  readonly updates: Record<string, unknown>;
-};
-
-export type PersistDeleteArgs = {
-  readonly op: "delete";
-  readonly messageId: string;
-};
-
-export type PersistArgs =
-  | PersistAddArgs
-  | PersistReserveArgs
-  | PersistUpdateContentArgs
-  | PersistUpdateArgs
-  | PersistDeleteArgs;
-
-/**
- * Result row returned by an `add` op — matches the shape produced by
- * {@link addMessage}. Kept structural (not imported from `memory/`) so the
- * plugin types module stays decoupled from the storage layer.
- */
-export type PersistAddResult = {
-  readonly op: "add";
-  readonly message: {
-    readonly id: string;
-    readonly conversationId: string;
-    readonly role: string;
-    readonly content: string;
-    readonly createdAt: number;
-    readonly metadata?: string;
-  };
-};
-
-/**
- * Result row returned by a `reserve` op — same row shape as `add` but with
- * empty `content` (`"[]"`) and tagged distinctly so middleware can branch
- * on intent.
- */
-export type PersistReserveResult = {
-  readonly op: "reserve";
-  readonly message: {
-    readonly id: string;
-    readonly conversationId: string;
-    readonly role: string;
-    readonly content: string;
-    readonly createdAt: number;
-    readonly metadata?: string;
-  };
-};
-
-export type PersistUpdateContentResult = { readonly op: "updateContent" };
-
-export type PersistUpdateResult = { readonly op: "update" };
-
-/** IDs of segments/summaries the caller must remove from Qdrant. */
-export type PersistDeleteResult = {
-  readonly op: "delete";
-  readonly segmentIds: string[];
-  readonly deletedSummaryIds: string[];
-};
-
-export type PersistResult =
-  | PersistAddResult
-  | PersistReserveResult
-  | PersistUpdateContentResult
-  | PersistUpdateResult
-  | PersistDeleteResult;
-
-/**
  * Arguments for the `circuitBreaker` pipeline.
  *
  * A single call pattern handles both querying and updating the breaker:
@@ -515,7 +385,6 @@ export interface PipelineMiddlewareMap {
   memoryRetrieval: Middleware<MemoryArgs, MemoryResult>;
   compaction: Middleware<CompactionArgs, CompactionResult>;
   overflowReduce: Middleware<OverflowReduceArgs, OverflowReduceResult>;
-  persistence: Middleware<PersistArgs, PersistResult>;
   circuitBreaker: Middleware<CircuitBreakerArgs, CircuitBreakerResult>;
 }
 

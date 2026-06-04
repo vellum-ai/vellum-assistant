@@ -438,7 +438,6 @@ Every pipeline slot and its purpose. Type details live in
 | `memoryRetrieval` | PKB, NOW.md, and memory-graph retrieval for a turn. Output is a merged `MemoryResult`.                 |
 | `compaction`      | The conversation-compaction step. Wraps `ContextWindowManager.maybeCompact`.                           |
 | `overflowReduce`  | The reducer tier loop invoked when a turn blows the context budget.                                    |
-| `persistence`     | Every message CRUD op (`add` / `update` / `delete`). Discriminated by `args.op`.                       |
 | `circuitBreaker`  | The compaction circuit breaker. Tracks consecutive-failure state, decides whether to open the circuit. |
 
 ## Timeouts
@@ -455,7 +454,6 @@ current values.
 | `memoryRetrieval` | 5000 ms  | Memory reads may hit Qdrant and disk; 5 s leaves slack for cold caches without blocking the turn indefinitely. |
 | `compaction`      | 30000 ms | Summarization involves a provider call; mirrors the pipeline-level budget for LLM-backed operations.           |
 | `overflowReduce`  | 30000 ms | Iterative compaction; matches the `compaction` budget since each tier step may invoke it.                      |
-| `persistence`     | 10000 ms | SQLite writes, Qdrant deletes, and disk syncs. 10 s is generous for the slowest op (batched segment inserts).  |
 | `circuitBreaker`  | 500 ms   | Numeric state update — must be near-instant.                                                                   |
 
 `null` timeouts skip the timer entirely. Finite timeouts arm a
@@ -793,7 +791,7 @@ Every pipeline invocation emits one structured line tagged
 
 | Field                                      | Meaning                                                                 |
 | ------------------------------------------ | ----------------------------------------------------------------------- |
-| `pipeline`                                 | Pipeline name (`compaction`, `persistence`, …).                         |
+| `pipeline`                                 | Pipeline name (`compaction`, `overflowReduce`, …).                      |
 | `chain`                                    | Ordered list of middleware function names, outermost first.             |
 | `durationMs`                               | Total time spent in the composed chain.                                 |
 | `outcome`                                  | `"success"`, `"error"`, or `"timeout"`.                                 |

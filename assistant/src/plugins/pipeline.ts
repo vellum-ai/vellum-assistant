@@ -53,7 +53,6 @@ export const DEFAULT_TIMEOUTS: Record<PipelineName, number | null> = {
   memoryRetrieval: null,
   compaction: null,
   overflowReduce: null,
-  persistence: null,
   circuitBreaker: null,
 };
 
@@ -104,7 +103,7 @@ export function composeMiddleware<A, R>(
  *
  * When `args` carries no `AbortSignal` property, the original object is
  * returned unchanged — pipelines whose terminals don't consume a signal
- * (e.g. `persistence`, `circuitBreaker`) see identical behavior to before.
+ * (e.g. `circuitBreaker`) see identical behavior to before.
  * The return value's `cleanup()` tears down any `addEventListener("abort",
  * ...)` handlers attached to the caller's signal so a pipeline that
  * completes successfully doesn't leak listeners on the caller's controller.
