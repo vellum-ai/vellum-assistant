@@ -176,7 +176,7 @@ export async function handlePair(
 
   // Loopback-only boundary (Velay/edge markers, peer IP, Host header,
   // X-Forwarded-For) — shared with the other local-machine endpoints.
-  const guardError = enforceLoopbackOnly(req, clientIp);
+  const guardError = enforceLoopbackOnly(req, clientIp, "pair");
   if (guardError) return guardError;
 
   const rateResult = checkRateLimit(clientIp);

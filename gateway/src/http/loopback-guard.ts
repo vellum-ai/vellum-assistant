@@ -53,16 +53,21 @@ export function isLoopbackHostHeader(host: string | null): boolean {
   return isLoopbackAddress(hostname);
 }
 
-function auditDeny(req: Request, peerIp: string, reason: string): void {
+function auditDeny(
+  req: Request,
+  peerIp: string,
+  auditTag: string,
+  reason: string,
+): void {
   log.warn(
     {
-      audit: "loopback-denied",
+      audit: `${auditTag}-denied`,
       peerIp,
       host: req.headers.get("host"),
       origin: req.headers.get("origin"),
       reason,
     },
-    `loopback_denied: ${reason}`,
+    `${auditTag}_denied: ${reason}`,
   );
 }
 
@@ -77,35 +82,59 @@ function auditDeny(req: Request, peerIp: string, reason: string): void {
 export function enforceLoopbackOnly(
   req: Request,
   clientIp: string,
+  auditTag = "loopback",
 ): Response | null {
   // The Velay bridge injects this header on every forwarded request; a Velay
   // client cannot strip it.
   if (req.headers.get(VELAY_FORWARDED_HEADER)) {
-    auditDeny(req, clientIp, "velay_bridged");
+    auditDeny(req, clientIp, auditTag, "velay_bridged");
     return errorResponse("FORBIDDEN", "endpoint is local-only", 403);
   }
 
   // The self-hosted nginx edge (e.g. the SPA over an ngrok tunnel) sets this
   // marker unconditionally; it cannot be spoofed or stripped by the client.
   if (requestArrivedViaEdgeProxy(req)) {
-    auditDeny(req, clientIp, "edge_proxy_forwarded");
+    auditDeny(req, clientIp, auditTag, "edge_proxy_forwarded");
     return errorResponse("FORBIDDEN", "endpoint is local-only", 403);
   }
 
   if (!clientIp || !isLoopbackAddress(clientIp)) {
-    auditDeny(req, clientIp, "non_loopback_peer");
+    auditDeny(req, clientIp, auditTag, "non_loopback_peer");
     return errorResponse("FORBIDDEN", "endpoint is local-only", 403);
   }
 
   if (!isLoopbackHostHeader(req.headers.get("host"))) {
-    auditDeny(req, clientIp, "non_loopback_host_header");
+    auditDeny(req, clientIp, auditTag, "non_loopback_host_header");
     return errorResponse("FORBIDDEN", "endpoint is local-only", 403);
   }
 
   if (req.headers.get("x-forwarded-for")) {
-    auditDeny(req, clientIp, "x_forwarded_for_present");
+    auditDeny(req, clientIp, auditTag, "x_forwarded_for_present");
     return errorResponse("FORBIDDEN", "endpoint is local-only", 403);
   }
 
+  return null;
+}
+
+/**
+ * Reject any request carrying an `Origin` header. Host-CLI loopback endpoints
+ * (device management, cli pairing) are only ever called by a terminal process,
+ * which never sends an Origin; a present Origin means a browser/WebView is
+ * driving the request. Because the gateway reflects CORS for matched
+ * `*.vellum.local` WebView origins, such JS could otherwise reach these
+ * loopback-only endpoints from inside the WebView sandbox (read device hashes,
+ * revoke devices, mint tokens). This closes that vector — mirroring the
+ * `/v1/pair` cli-interface guard. Returns a 403 `Response` if an Origin is
+ * present, or `null` if absent.
+ */
+export function rejectBrowserOrigin(
+  req: Request,
+  clientIp: string,
+  auditTag = "loopback",
+): Response | null {
+  if (req.headers.get("origin")) {
+    auditDeny(req, clientIp, auditTag, "browser_origin");
+    return errorResponse("FORBIDDEN", "endpoint is local-only", 403);
+  }
   return null;
 }

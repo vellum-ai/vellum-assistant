@@ -22,7 +22,11 @@ import {
   actorRefreshTokenRecords,
   actorTokenRecords,
 } from "../../db/schema.js";
-import { enforceLoopbackOnly, errorResponse } from "../loopback-guard.js";
+import {
+  enforceLoopbackOnly,
+  errorResponse,
+  rejectBrowserOrigin,
+} from "../loopback-guard.js";
 import { resolveLocalGuardianPrincipalId } from "./pair.js";
 
 export async function handleListDevices(
@@ -36,8 +40,10 @@ export async function handleListDevices(
     });
   }
 
-  const guardError = enforceLoopbackOnly(req, clientIp);
+  const guardError = enforceLoopbackOnly(req, clientIp, "devices");
   if (guardError) return guardError;
+  const originError = rejectBrowserOrigin(req, clientIp, "devices");
+  if (originError) return originError;
 
   const guardianPrincipalId = await resolveLocalGuardianPrincipalId();
   const db = getGatewayDb();
@@ -100,8 +106,10 @@ export async function handleRevokeDevice(
     });
   }
 
-  const guardError = enforceLoopbackOnly(req, clientIp);
+  const guardError = enforceLoopbackOnly(req, clientIp, "devices");
   if (guardError) return guardError;
+  const originError = rejectBrowserOrigin(req, clientIp, "devices");
+  if (originError) return originError;
 
   let body: { hashedDeviceId?: unknown };
   try {

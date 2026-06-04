@@ -192,6 +192,19 @@ describe("GET /v1/devices", () => {
     const res = await handleListDevices(listRequest(), "8.8.8.8");
     expect(res.status).toBe(403);
   });
+
+  test("rejects a request carrying an Origin header (WebView vector, 403)", async () => {
+    // A real host CLI never sends an Origin; a present Origin means a
+    // browser/WebView (e.g. *.vellum.local) is calling and could read back
+    // device hashes via the gateway's WebView CORS allowance. Must be refused.
+    seedActor({ device: "device-A" });
+    const req = new Request("http://localhost:7830/v1/devices", {
+      method: "GET",
+      headers: { host: "localhost:7830", origin: "https://app.vellum.local" },
+    });
+    const res = await handleListDevices(req, LOOPBACK_IP);
+    expect(res.status).toBe(403);
+  });
 });
 
 describe("POST /v1/devices/revoke", () => {
@@ -230,5 +243,23 @@ describe("POST /v1/devices/revoke", () => {
       "8.8.8.8",
     );
     expect(res.status).toBe(403);
+  });
+
+  test("rejects a request carrying an Origin header (WebView vector, 403)", async () => {
+    seedActor({ device: "device-A" });
+    seedRefresh({ device: "device-A" });
+    const req = new Request("http://localhost:7830/v1/devices/revoke", {
+      method: "POST",
+      headers: {
+        host: "localhost:7830",
+        "content-type": "application/json",
+        origin: "https://app.vellum.local",
+      },
+      body: JSON.stringify({ hashedDeviceId: hashToken("device-A") }),
+    });
+    const res = await handleRevokeDevice(req, LOOPBACK_IP);
+    expect(res.status).toBe(403);
+    // Refused before touching state — device-A stays active.
+    expect(activeActorCount("device-A")).toBe(1);
   });
 });
