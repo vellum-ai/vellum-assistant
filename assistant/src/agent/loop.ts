@@ -489,8 +489,15 @@ export interface ResolvedSystemPrompt {
  * for now and is expected to move into the loop in a future change.
  */
 export interface MidLoopCompaction {
-  /** Re-apply runtime injections and return the history to continue from. */
-  reinject: () => Promise<Message[]>;
+  /**
+   * Re-apply runtime injections onto the post-compaction `history` the loop
+   * passes in and return the history to continue from. The loop supplies the
+   * committed base (the compacted messages when the pipeline compacted, the
+   * stripped pre-compaction history otherwise) so the hook re-injects onto the
+   * loop's own working history rather than reading it back from orchestrator
+   * state.
+   */
+  reinject: (history: Message[]) => Promise<Message[]>;
 }
 
 export interface AgentLoopRunOptions {
@@ -797,7 +804,13 @@ export class AgentLoop {
     if (compactResult.exhausted ?? false) {
       return null;
     }
-    return compaction.reinject();
+    // Re-inject onto the same base the `compaction_completed` dispatch commits:
+    // the compacted messages when the pipeline compacted, the stripped
+    // pre-compaction history otherwise.
+    const reinjectBase = compactResult.compacted
+      ? compactResult.messages
+      : rawHistory;
+    return compaction.reinject(reinjectBase);
   }
 
   async run(
