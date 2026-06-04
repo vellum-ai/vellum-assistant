@@ -677,6 +677,118 @@ describe("MediaStreamSttSession", () => {
       session.dispose();
     });
 
+    test("frames arriving before the resolver resolves are buffered, never sent to the batch turn detector, then flushed in order", async () => {
+      telephonyStreamingFlag = true;
+      const fake = makeFakeStreamingTranscriber();
+      // Keep the resolver pending until we explicitly resolve it, so media
+      // frames land in the "streaming-pending" window.
+      let resolveResolver: (t: StreamingTranscriber) => void = () => {};
+      (resolveStreamingTranscriber as jest.Mock).mockReturnValue(
+        new Promise<StreamingTranscriber>((resolve) => {
+          resolveResolver = resolve;
+        }),
+      );
+
+      const onTranscriptFinal = jest.fn();
+      const onSpeechStart = jest.fn();
+      const session = new MediaStreamSttSession(
+        { turnDetector: { silenceThresholdMs: 300 } },
+        { onTranscriptFinal, onSpeechStart },
+      );
+
+      session.handleMessage(makeStartMessage());
+      // Resolver is still pending — start() has NOT been called yet.
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      expect(fake.start).not.toHaveBeenCalled();
+
+      // Frames arrive during the resolver-pending window. They must be
+      // buffered (not sent) and must NOT reach the batch turn detector.
+      session.handleMessage(makeMediaMessage());
+      session.handleMessage(makeMediaMessage());
+      // Local-VAD barge-in still fires immediately during the pending window.
+      expect(onSpeechStart).toHaveBeenCalled();
+      expect(fake.sent.length).toBe(0);
+
+      // Advancing past the batch silence threshold must NOT emit a batch
+      // transcript — the frames never entered the batch turn detector.
+      jest.advanceTimersByTime(500);
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      expect(onTranscriptFinal).not.toHaveBeenCalled();
+
+      // Resolver now yields a live transcriber; start() runs, buffer flushes.
+      resolveResolver(fake);
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      expect(fake.start).toHaveBeenCalledTimes(1);
+      fake.resolveStart();
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+
+      // Both buffered frames flushed to the streaming transcriber in order.
+      expect(fake.sent.length).toBe(2);
+
+      // Steady state: subsequent frames go straight through, none to batch.
+      session.handleMessage(makeMediaMessage());
+      expect(fake.sent.length).toBe(3);
+      expect(onTranscriptFinal).not.toHaveBeenCalled();
+
+      session.dispose();
+    });
+
+    test("resolver resolving null hands buffered frames to the batch path with no loss or double-processing", async () => {
+      telephonyStreamingFlag = true;
+      let resolveResolver: (t: StreamingTranscriber | null) => void = () => {};
+      (resolveStreamingTranscriber as jest.Mock).mockReturnValue(
+        new Promise<StreamingTranscriber | null>((resolve) => {
+          resolveResolver = resolve;
+        }),
+      );
+
+      const mockTranscriber = makeMockTranscriber("buffered then batched");
+      (resolveBatchTranscriber as jest.Mock).mockResolvedValue(mockTranscriber);
+
+      const onTranscriptFinal = jest.fn();
+      const session = new MediaStreamSttSession(
+        { turnDetector: { silenceThresholdMs: 300 } },
+        { onTranscriptFinal },
+      );
+
+      session.handleMessage(makeStartMessage());
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+
+      // Speech frames arrive during the pending window.
+      const speechPayload = Buffer.alloc(160, 0x00).toString("base64");
+      for (let i = 0; i < 5; i++) {
+        session.handleMessage(makeMediaMessage(speechPayload));
+      }
+
+      // Resolver definitively returns null → fall back to batch, replaying
+      // the buffered frames into the batch pipeline.
+      resolveResolver(null);
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+
+      // Trailing silence ends the (replayed) turn → single batch transcript.
+      const silencePayload = Buffer.alloc(160, 0xff).toString("base64");
+      for (let i = 0; i < 5; i++) {
+        session.handleMessage(makeMediaMessage(silencePayload));
+        jest.advanceTimersByTime(20);
+      }
+      jest.advanceTimersByTime(400);
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+
+      // Buffered frames were transcribed exactly once via the batch path.
+      expect(onTranscriptFinal).toHaveBeenCalledTimes(1);
+      expect(onTranscriptFinal).toHaveBeenCalledWith(
+        "buffered then batched",
+        expect.any(Number),
+      );
+      // The batch transcriber received the buffered speech audio (non-empty).
+      const transcribeMock = mockTranscriber.transcribe as jest.Mock;
+      expect(transcribeMock).toHaveBeenCalledTimes(1);
+      const req = transcribeMock.mock.calls[0][0] as SttTranscribeRequest;
+      expect(req.audio.length).toBeGreaterThan(0);
+
+      session.dispose();
+    });
+
     test("drops oldest over-cap startup frames and counts them", async () => {
       telephonyStreamingFlag = true;
       const fake = makeFakeStreamingTranscriber();

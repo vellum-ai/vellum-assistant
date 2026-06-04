@@ -156,8 +156,24 @@ export class MediaStreamSttSession {
   // ── Streaming-mode state ───────────────────────────────────────────
 
   /**
-   * Active streaming transcriber, set once at `handleStart` when streaming
-   * mode is selected. `null` means the batch fallback path is in use.
+   * Mode decided synchronously at {@link handleStart}, before any resolver is
+   * awaited:
+   * - `"batch"` — streaming flag is off; use the batch turn detector.
+   * - `"streaming-pending"` — streaming flag is on and the transcriber
+   *   resolver is still in flight. ALL inbound media frames are buffered into
+   *   {@link streamingStartupBuffer} during this window; none reach the batch
+   *   turn detector, so an utterance is never split across the two paths.
+   * - `"streaming"` — a live transcriber resolved and started.
+   *
+   * Once the resolver settles, `"streaming-pending"` transitions to either
+   * `"streaming"` (live transcriber → flush buffer into it) or `"batch"`
+   * (resolver returned null/threw → feed buffered frames into the batch path).
+   */
+  private mode: "batch" | "streaming-pending" | "streaming" = "batch";
+
+  /**
+   * Active streaming transcriber, set once the resolver yields a live
+   * transcriber. `null` while pending or when the batch fallback is in use.
    */
   private streamingTranscriber: StreamingTranscriber | null = null;
 
@@ -165,10 +181,13 @@ export class MediaStreamSttSession {
   private streamingReady = false;
 
   /**
-   * Inbound PCM frames buffered while the streaming transcriber starts up.
-   * Flushed (and cleared) once `start()` resolves.
+   * Inbound raw base64 mu-law payloads buffered during the
+   * `"streaming-pending"` window. Held as raw payloads (not decoded PCM) so
+   * they can be flushed into EITHER path once the mode resolves: decoded and
+   * sent to the streaming transcriber, or fed through the batch turn detector.
+   * Flushed (and cleared) once the resolver settles.
    */
-  private streamingStartupBuffer: Buffer[] = [];
+  private streamingStartupBuffer: string[] = [];
 
   /**
    * Count of frames dropped from the bounded startup buffer because it
@@ -277,13 +296,18 @@ export class MediaStreamSttSession {
     );
 
     // Select streaming vs batch ONCE at start; do not mix paths thereafter.
+    // The decision is recorded SYNCHRONOUSLY here so that media frames arriving
+    // before the (async) streaming resolver settles are buffered into the
+    // startup buffer rather than leaking into the batch turn detector.
     if (this.streamingEnabled()) {
+      this.mode = "streaming-pending";
       void this.startStreamingMode();
       return;
     }
 
     // Batch fallback path: eagerly resolve capability so it's cached by the
     // time the first turn completes.
+    this.mode = "batch";
     this.capabilityPromise = resolveTelephonySttCapability();
   }
 
@@ -318,8 +342,11 @@ export class MediaStreamSttSession {
       });
     } catch (err) {
       if (this.disposed) return;
+      // Resolver threw — definitively fall back to batch and replay the
+      // frames buffered during the pending window so none are lost.
       const normalized = normalizeSttError(err);
       this.callbacks.onError?.(normalized.category, normalized.message);
+      this.fallBackToBatch();
       return;
     }
     if (this.disposed) {
@@ -328,12 +355,13 @@ export class MediaStreamSttSession {
     }
 
     if (!transcriber) {
-      // No streaming transcriber — fall back to the batch path.
+      // No streaming transcriber — fall back to the batch path and replay the
+      // frames buffered during the pending window.
       log.info(
         { streamSid: this.streamSid },
         "No streaming transcriber available; falling back to batch STT",
       );
-      this.capabilityPromise = resolveTelephonySttCapability();
+      this.fallBackToBatch();
       return;
     }
 
@@ -343,10 +371,12 @@ export class MediaStreamSttSession {
       await transcriber.start((event) => this.handleStreamingEvent(event));
     } catch (err) {
       if (this.disposed) return;
+      // `start()` threw — drop the transcriber and fall back to batch,
+      // replaying the buffered frames into the batch path.
       this.streamingTranscriber = null;
-      this.streamingStartupBuffer = [];
       const normalized = normalizeSttError(err);
       this.callbacks.onError?.(normalized.category, normalized.message);
+      this.fallBackToBatch();
       return;
     }
     if (this.disposed) {
@@ -354,12 +384,34 @@ export class MediaStreamSttSession {
       return;
     }
 
-    // Flush any frames buffered during startup, then enter steady state.
+    // Live transcriber is ready. Commit to streaming mode and flush the frames
+    // buffered during the pending window (decode → resample → send) in order.
+    this.mode = "streaming";
     this.streamingReady = true;
     const buffered = this.streamingStartupBuffer;
     this.streamingStartupBuffer = [];
-    for (const frame of buffered) {
-      transcriber.sendAudio(frame, STREAMING_PCM_MIME);
+    for (const payload of buffered) {
+      const pcm = this.decodeForStreaming(payload);
+      if (pcm) transcriber.sendAudio(pcm, STREAMING_PCM_MIME);
+    }
+  }
+
+  /**
+   * Resolver did not yield a usable streaming transcriber (flag-on but null,
+   * or `start()`/resolver threw). Commit to the batch path, eagerly resolve
+   * telephony capability, and replay any frames buffered during the pending
+   * window through the batch pipeline so the first utterance is not lost.
+   */
+  private fallBackToBatch(): void {
+    this.mode = "batch";
+    this.streamingTranscriber = null;
+    this.streamingReady = false;
+    this.capabilityPromise = resolveTelephonySttCapability();
+
+    const buffered = this.streamingStartupBuffer;
+    this.streamingStartupBuffer = [];
+    for (const payload of buffered) {
+      this.feedBatch(payload);
     }
   }
 
@@ -393,32 +445,36 @@ export class MediaStreamSttSession {
     // Only process inbound (caller) audio
     if (event.media.track !== "inbound") return;
 
-    // Streaming mode: route decoded PCM into the transcriber and drive
-    // barge-in (`onSpeechStart`) from the fast local energy VAD rather than
-    // waiting for the transcriber's first partial.
-    if (this.streamingTranscriber) {
-      this.handleStreamingMedia(event.media.payload);
-      return;
+    const payload = event.media.payload;
+
+    switch (this.mode) {
+      case "streaming-pending":
+        // Streaming resolver still in flight. Drive barge-in immediately from
+        // the local VAD, but buffer the raw payload — it must NOT reach the
+        // batch turn detector, or the first utterance would be split across
+        // both paths. The buffer is replayed into whichever path wins.
+        if (detectSpeechActivity(payload)) {
+          this.callbacks.onSpeechStart?.();
+        }
+        this.bufferStartupFrame(payload);
+        return;
+
+      case "streaming":
+        // Live streaming: decode/resample and send, driving barge-in from the
+        // fast local VAD rather than waiting for the transcriber's partial.
+        this.handleStreamingMedia(payload);
+        return;
+
+      case "batch":
+        this.feedBatch(payload);
+        return;
     }
-
-    // Batch path: compute speech activity from the audio payload using a
-    // lightweight energy heuristic. mu-law encoded audio has a companded
-    // dynamic range — silence sits near 0xFF/0x7F while speech has higher
-    // energy.
-    //
-    // The detector call runs BEFORE the push so that the onTurnStart
-    // callback can clear stale inter-turn silence from the buffer
-    // without also wiping the first speech chunk of the new turn.
-    const hasSpeech = detectSpeechActivity(event.media.payload);
-    this.turnDetector.onMediaChunk(hasSpeech);
-
-    this.currentTurnChunks.push(event.media.payload);
   }
 
   /**
    * Route a single inbound media frame through the streaming pipeline:
    * decode mu-law → PCM16, resample to the streaming rate, fire local-VAD
-   * barge-in, and either send to the transcriber or buffer during startup.
+   * barge-in, and send to the (ready) transcriber.
    */
   private handleStreamingMedia(base64Payload: string): void {
     // Drive barge-in from the fast local VAD (energy heuristic).
@@ -426,33 +482,56 @@ export class MediaStreamSttSession {
       this.callbacks.onSpeechStart?.();
     }
 
-    let mulaw: Buffer;
-    try {
-      mulaw = Buffer.from(base64Payload, "base64");
-    } catch {
-      return;
-    }
-    if (mulaw.length === 0) return;
-
-    const pcm8k = mulawToPcm16(mulaw);
-    const pcm = resamplePcm16(
-      pcm8k,
-      TELEPHONY_SAMPLE_RATE,
-      STREAMING_SAMPLE_RATE,
-    );
+    const pcm = this.decodeForStreaming(base64Payload);
+    if (!pcm) return;
 
     if (this.streamingReady) {
       this.streamingTranscriber?.sendAudio(pcm, STREAMING_PCM_MIME);
-      return;
     }
+  }
 
-    // Transcriber still starting up — buffer with a bounded cap, dropping
-    // oldest frames (and counting them) rather than growing unbounded.
-    this.streamingStartupBuffer.push(pcm);
+  /**
+   * Feed a single inbound media frame through the batch pipeline: compute
+   * speech activity from the audio payload using a lightweight energy
+   * heuristic, drive the turn detector, and accumulate the chunk.
+   *
+   * The detector call runs BEFORE the push so that the onTurnStart callback
+   * can clear stale inter-turn silence from the buffer without also wiping the
+   * first speech chunk of the new turn.
+   */
+  private feedBatch(base64Payload: string): void {
+    const hasSpeech = detectSpeechActivity(base64Payload);
+    this.turnDetector.onMediaChunk(hasSpeech);
+    this.currentTurnChunks.push(base64Payload);
+  }
+
+  /**
+   * Append a raw payload to the bounded streaming startup buffer, dropping
+   * oldest frames (and counting them) rather than growing unbounded.
+   */
+  private bufferStartupFrame(base64Payload: string): void {
+    this.streamingStartupBuffer.push(base64Payload);
     while (this.streamingStartupBuffer.length > MAX_STREAMING_STARTUP_FRAMES) {
       this.streamingStartupBuffer.shift();
       this.streamingStartupFramesDropped++;
     }
+  }
+
+  /**
+   * Decode a base64 mu-law payload into resampled PCM16 ready for the
+   * streaming transcriber, or `null` if the payload is empty/undecodable.
+   */
+  private decodeForStreaming(base64Payload: string): Buffer | null {
+    let mulaw: Buffer;
+    try {
+      mulaw = Buffer.from(base64Payload, "base64");
+    } catch {
+      return null;
+    }
+    if (mulaw.length === 0) return null;
+
+    const pcm8k = mulawToPcm16(mulaw);
+    return resamplePcm16(pcm8k, TELEPHONY_SAMPLE_RATE, STREAMING_SAMPLE_RATE);
   }
 
   private handleStop(): void {
