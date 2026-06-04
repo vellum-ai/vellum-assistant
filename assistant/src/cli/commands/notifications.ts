@@ -23,6 +23,39 @@ interface ListHomeFeedPayload {
   updatedAt: string;
 }
 
+const NOTIFICATION_SOURCE_CHANNEL_VALUES = [
+  "assistant_tool",
+  "vellum",
+  "phone",
+  "telegram",
+  "slack",
+  "scheduler",
+  "watcher",
+] as const;
+
+const URGENCY_VALUES = ["low", "medium", "high", "critical"] as const;
+
+const NOTIFICATION_STATUS_VALUES = [
+  "new",
+  "seen",
+  "acted_on",
+  "dismissed",
+] as const;
+
+const NOTIFICATION_CATEGORY_VALUES = [
+  "security",
+  "scheduling",
+  "background",
+  "email",
+  "system",
+] as const;
+
+const DEFAULT_SOURCE_CHANNEL = "assistant_tool";
+const SOURCE_CHANNEL_HELP = NOTIFICATION_SOURCE_CHANNEL_VALUES.join(", ");
+const URGENCY_HELP = URGENCY_VALUES.join(", ");
+const STATUS_HELP = NOTIFICATION_STATUS_VALUES.join(", ");
+const CATEGORY_HELP = NOTIFICATION_CATEGORY_VALUES.join(", ");
+
 function parseBoundedInt(
   raw: string | undefined,
   label: string,
@@ -69,6 +102,30 @@ function renderFeedItemsHuman(payload: ListHomeFeedPayload): void {
   if (payload.hasMore) {
     log.info("\n(more results available; bump --offset to paginate)");
   }
+}
+
+function validateEnumValue(
+  value: string | undefined,
+  label: string,
+  allowed: readonly string[],
+): { error?: string } {
+  if (value === undefined || allowed.includes(value)) return {};
+  return {
+    error: `Invalid ${label} "${value}". Must be one of: ${allowed.join(", ")}`,
+  };
+}
+
+function validateEnumFlag(
+  values: string[] | undefined,
+  label: string,
+  allowed: readonly string[],
+): { error?: string } {
+  if (!values) return {};
+  for (const v of values) {
+    const result = validateEnumValue(v, label, allowed);
+    if (result.error) return result;
+  }
+  return {};
 }
 
 // ---------------------------------------------------------------------------
@@ -122,7 +179,7 @@ Examples:
         )
         .option(
           "--source-channel <channel>",
-          "Source channel producing this notification (default: assistant_tool)",
+          `Source channel producing this notification. One of: ${SOURCE_CHANNEL_HELP} (default: ${DEFAULT_SOURCE_CHANNEL})`,
         )
         .option(
           "--source-event-name <name>",
@@ -134,7 +191,7 @@ Examples:
         )
         .option(
           "--urgency <urgency>",
-          "Urgency hint: low, medium, high, critical (default: low; use --urgent for critical)",
+          `Urgency hint. One of: ${URGENCY_HELP} (default: low; use --urgent for critical)`,
         )
         .option(
           "--requires-action",
@@ -233,8 +290,23 @@ Examples:
             try {
               // Apply defaults for optional source fields (minimal-surface
               // ergonomics; explicit values from the CLI still win).
-              const sourceChannel = opts.sourceChannel ?? "assistant_tool";
+              const sourceChannel =
+                opts.sourceChannel ?? DEFAULT_SOURCE_CHANNEL;
               const sourceEventName = opts.sourceEventName ?? "assistant.share";
+
+              const sourceChannelError = validateEnumValue(
+                sourceChannel,
+                "source-channel",
+                NOTIFICATION_SOURCE_CHANNEL_VALUES,
+              );
+              if (sourceChannelError.error) {
+                writeOutput(cmd, {
+                  ok: false,
+                  error: sourceChannelError.error,
+                });
+                process.exitCode = 1;
+                return;
+              }
 
               // Validate --message (keep basic validation for immediate CLI feedback)
               const message = opts.message.trim();
@@ -256,15 +328,15 @@ Examples:
 
               // Validate --urgency
               const urgency = opts.urgency ?? urgentDefaults.urgency;
-              if (
-                urgency !== "low" &&
-                urgency !== "medium" &&
-                urgency !== "high" &&
-                urgency !== "critical"
-              ) {
+              const urgencyError = validateEnumValue(
+                urgency,
+                "urgency",
+                URGENCY_VALUES,
+              );
+              if (urgencyError.error) {
                 writeOutput(cmd, {
                   ok: false,
-                  error: `Invalid urgency "${opts.urgency}". Must be one of: low, medium, high, critical`,
+                  error: urgencyError.error,
                 });
                 process.exitCode = 1;
                 return;
@@ -425,22 +497,6 @@ Examples:
         prev: string[] | undefined,
       ): string[] => [...(prev ?? []), value];
 
-      function validateEnumFlag(
-        values: string[] | undefined,
-        label: string,
-        allowed: readonly string[],
-      ): { error?: string } {
-        if (!values) return {};
-        for (const v of values) {
-          if (!allowed.includes(v)) {
-            return {
-              error: `Invalid ${label} "${v}". Must be one of: ${allowed.join(", ")}`,
-            };
-          }
-        }
-        return {};
-      }
-
       notifications
         .command("list")
         .description(
@@ -453,7 +509,7 @@ Examples:
         )
         .option(
           "--status <status>",
-          "Filter by status (new|seen|acted_on|dismissed); repeatable. Overrides --all default behavior.",
+          `Filter by status. One of: ${STATUS_HELP}; repeatable. Overrides --all default behavior.`,
           collectFlag,
         )
         .option(
@@ -466,12 +522,12 @@ Examples:
         )
         .option(
           "--urgency <urgency>",
-          "Filter by urgency (low|medium|high|critical); repeatable",
+          `Filter by urgency. One of: ${URGENCY_HELP}; repeatable`,
           collectFlag,
         )
         .option(
           "--category <category>",
-          "Filter by category (security|scheduling|background|email|system); repeatable",
+          `Filter by category. One of: ${CATEGORY_HELP}; repeatable`,
           collectFlag,
         )
         .option(
@@ -525,25 +581,17 @@ Examples:
           ) => {
             try {
               const enumChecks: Array<{ error?: string }> = [
-                validateEnumFlag(opts.status, "status", [
-                  "new",
-                  "seen",
-                  "acted_on",
-                  "dismissed",
-                ]),
-                validateEnumFlag(opts.urgency, "urgency", [
-                  "low",
-                  "medium",
-                  "high",
-                  "critical",
-                ]),
-                validateEnumFlag(opts.category, "category", [
-                  "security",
-                  "scheduling",
-                  "background",
-                  "email",
-                  "system",
-                ]),
+                validateEnumFlag(
+                  opts.status,
+                  "status",
+                  NOTIFICATION_STATUS_VALUES,
+                ),
+                validateEnumFlag(opts.urgency, "urgency", URGENCY_VALUES),
+                validateEnumFlag(
+                  opts.category,
+                  "category",
+                  NOTIFICATION_CATEGORY_VALUES,
+                ),
               ];
               const enumError = enumChecks.find((c) => c.error);
               if (enumError) {
@@ -641,11 +689,11 @@ Examples:
         .option("--title <title>", "New short headline (≤ 8 words).")
         .option(
           "--urgency <urgency>",
-          "Set urgency (low|medium|high|critical). Feed-only — does not re-push channel messages.",
+          `Set urgency. One of: ${URGENCY_HELP}. Feed-only — does not re-push channel messages.`,
         )
         .option(
           "--status <status>",
-          "Set lifecycle status (new|seen|acted_on|dismissed). Feed-only.",
+          `Set lifecycle status. One of: ${STATUS_HELP}. Feed-only.`,
         )
         .addHelpText(
           "after",
@@ -701,24 +749,28 @@ Examples:
                 return;
               }
 
-              if (
-                opts.urgency != null &&
-                !["low", "medium", "high", "critical"].includes(opts.urgency)
-              ) {
+              const urgencyError = validateEnumValue(
+                opts.urgency,
+                "urgency",
+                URGENCY_VALUES,
+              );
+              if (urgencyError.error) {
                 writeOutput(cmd, {
                   ok: false,
-                  error: `Invalid urgency "${opts.urgency}". Must be one of: low, medium, high, critical`,
+                  error: urgencyError.error,
                 });
                 process.exitCode = 1;
                 return;
               }
-              if (
-                opts.status != null &&
-                !["new", "seen", "acted_on", "dismissed"].includes(opts.status)
-              ) {
+              const statusError = validateEnumValue(
+                opts.status,
+                "status",
+                NOTIFICATION_STATUS_VALUES,
+              );
+              if (statusError.error) {
                 writeOutput(cmd, {
                   ok: false,
-                  error: `Invalid status "${opts.status}". Must be one of: new, seen, acted_on, dismissed`,
+                  error: statusError.error,
                 });
                 process.exitCode = 1;
                 return;
