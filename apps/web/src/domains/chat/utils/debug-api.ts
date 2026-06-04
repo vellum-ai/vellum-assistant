@@ -113,9 +113,6 @@ export interface ChatDebugThinkingDoneSignal {
   /** Last terminal reason recorded by the reducer. `null` if the turn is
    *  still active or has never terminated since mount. */
   lastTerminalReason: TerminalReason;
-  /** Human-readable summary of the current lifecycle state — what we'd say
-   *  to a developer asking "why isn't this turn done?" or "why is it done?". */
-  explanation: string;
 }
 
 /**
@@ -158,7 +155,7 @@ export interface PendingInteractionsSnapshot {
  * can tell at a glance which one is keeping it lit — most usefully when the
  * ring "hangs" after a turn ends, which means one gate is still latched on.
  *
- * Distinct from the transcript "thinking…" dots described by the rest of
+ * Distinct from the transcript "thinking…" dots described by
  * {@link ChatDebugThinkingIndicator}: the dots gate on the stricter
  * {@link shouldShowThinkingIndicator} predicate (which tolerates a stale
  * `activeConversationIsProcessing` snapshot via `hasPendingAssistantResponse`),
@@ -179,8 +176,6 @@ export interface ChatDebugStreamingRing {
   /** Names of the gates currently keeping the ring visible. Empty when
    *  `visible` is false. */
   litBy: string[];
-  /** Human-readable summary of why the ring is or isn't showing. */
-  explanation: string;
 }
 
 /** Result of {@link ChatDebugApi.thinkingIndicator}. */
@@ -198,9 +193,6 @@ export interface ChatDebugThinkingIndicator {
   failingConditions: string[];
   /** Lifecycle / terminal-state signal — answers "is the assistant done?". */
   done: ChatDebugThinkingDoneSignal;
-  /** Avatar streaming-ring state — answers "why is the ring showing or
-   *  stuck — or not showing?". */
-  streamingRing: ChatDebugStreamingRing;
 }
 
 /**
@@ -304,20 +296,28 @@ export interface ChatDebugApi {
    * Live evaluation of the thinking-indicator predicate
    * ({@link shouldShowThinkingIndicator}) plus turn-state lifecycle info.
    *
-   * Use this to answer three questions when triaging "indicator stuck"
+   * Use this to answer two questions when triaging "indicator stuck"
    * reports (ATL-654 et al.):
    *   1. Is the assistant done? See `.done` (terminal/phase/lastTerminalReason).
    *   2. Why are the `...` showing — or not showing? See `.visible` and
    *      `.failingConditions` for the AND-clauses that blocked visibility.
-   *   3. Why is the avatar streaming ring showing — or stuck after the turn
-   *      ended? See `.streamingRing` (`.visible`, `.isStreaming`,
-   *      `.isProcessing`, `.litBy`, `.explanation`).
    *
    * Synchronous, side-effect-free; reads the same turn-store + UI-context
    * snapshot the React render path reads, so the result matches what the
    * UI is computing on this frame.
    */
   thinkingIndicator(): ChatDebugThinkingIndicator;
+  /**
+   * Live evaluation of the avatar streaming-ring gates — answers "why is
+   * the spinning ring around the avatar showing (or stuck), or not
+   * showing?". See {@link ChatDebugStreamingRing}: `.litBy` names the gate
+   * keeping it lit, so a terminal turn with `litBy: ["isProcessing"]` is the
+   * signature of a stale `conversation.isProcessing` snapshot.
+   *
+   * Synchronous, side-effect-free; reads the same turn-store + UI-context
+   * snapshot the React render path reads.
+   */
+  streamingRing(): ChatDebugStreamingRing;
   /**
    * [experimental] Imperatively trigger a reconcile of the active conversation
    * against `/v1/history`. Returns the same shape as the watchdog /
@@ -555,59 +555,11 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       });
     }
 
-    // Avatar streaming-ring gates. The ring renders in `ChatAvatar` for
-    // custom-image avatars iff `isStreaming || isProcessing`; mirror both so a
-    // stuck (or missing) ring points straight at the latched gate. `isStreaming`
-    // is the app's `isAssistantStreaming` (`showThinking ||
-    // hasStreamingAssistantMessage`); `isProcessing` is the coarse
-    // `activeConversationIsProcessing` OR-signal.
-    const ringIsStreaming =
-      visible || uiContext.hasStreamingAssistantMessage;
-    const ringIsProcessing =
-      uiContext.activeConversationIsProcessing === true;
-    const ringVisible = ringIsStreaming || ringIsProcessing;
-    const ringLitBy: string[] = [];
-    if (ringIsStreaming) {
-      ringLitBy.push("isStreaming");
-    }
-    if (ringIsProcessing) {
-      ringLitBy.push("isProcessing");
-    }
-
-    let ringExplanation: string;
-    if (!ringVisible) {
-      ringExplanation =
-        "hidden: not streaming AND conversation not processing";
-    } else if (ringIsStreaming && ringIsProcessing) {
-      ringExplanation =
-        "visible: assistant is streaming and the conversation is processing";
-    } else if (ringIsStreaming) {
-      ringExplanation = "visible: assistant is streaming";
-    } else {
-      ringExplanation =
-        "visible: conversation is processing (uiContext.activeConversationIsProcessing === true) — if the turn has ended, the cached conversation.isProcessing snapshot is stale";
-    }
-
     const phase = turnState.phase;
     const terminal =
       (phase === "idle" || phase === "errored") &&
       turnState.activeTurnId === null;
     const lastTerminalReason = turnState.lastTerminalReason;
-
-    let explanation: string;
-    if (terminal) {
-      explanation = lastTerminalReason
-        ? `terminal: phase=${phase}, lastTerminalReason=${lastTerminalReason}`
-        : `terminal: phase=${phase}, no prior turn this session`;
-    } else if (phase === "queued") {
-      explanation = `active: phase=queued, pending=${turnState.pendingQueuedCount}`;
-    } else if (turnState.activeToolCallCount > 0) {
-      explanation = `active: phase=${phase}, activeToolCallCount=${turnState.activeToolCallCount}`;
-    } else if (conditions.hasStreamingAssistantMessage) {
-      explanation = `active: phase=${phase}, streaming an assistant message`;
-    } else {
-      explanation = `active: phase=${phase}`;
-    }
 
     return {
       visible,
@@ -619,15 +571,36 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
         terminal,
         phase,
         lastTerminalReason,
-        explanation,
       },
-      streamingRing: {
-        visible: ringVisible,
-        isStreaming: ringIsStreaming,
-        isProcessing: ringIsProcessing,
-        litBy: ringLitBy,
-        explanation: ringExplanation,
-      },
+    };
+  }
+
+  function streamingRing(): ChatDebugStreamingRing {
+    const turnState = refs.getTurnState();
+    const uiContext = refs.getUIContext();
+
+    // The ring renders in `ChatAvatar` for custom-image avatars iff
+    // `isStreaming || isProcessing`; mirror both gates so a stuck (or missing)
+    // ring points straight at the latched gate. `isStreaming` is the app's
+    // `isAssistantStreaming` (`showThinking || hasStreamingAssistantMessage`);
+    // `isProcessing` is the coarse `activeConversationIsProcessing` OR-signal.
+    const isStreaming =
+      shouldShowThinkingIndicator(turnState, uiContext) ||
+      uiContext.hasStreamingAssistantMessage;
+    const isProcessing = uiContext.activeConversationIsProcessing === true;
+    const litBy: string[] = [];
+    if (isStreaming) {
+      litBy.push("isStreaming");
+    }
+    if (isProcessing) {
+      litBy.push("isProcessing");
+    }
+
+    return {
+      visible: isStreaming || isProcessing,
+      isStreaming,
+      isProcessing,
+      litBy,
     };
   }
 
@@ -756,7 +729,7 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       "  .thinkingIndicator()       live evaluation of the `...` predicate + done signal",
       "                              .visible / .failingConditions tell you why dots are or aren't showing",
       "                              .done.terminal / .done.lastTerminalReason tell you if the turn is finished",
-      "                              .streamingRing.visible / .streamingRing.litBy / .streamingRing.explanation tell you why the avatar ring is showing or stuck",
+      "  .streamingRing()           why the avatar ring is showing or stuck — .visible / .litBy",
       "  .forceReconcile()          [experimental] imperatively run /v1/history reconcile",
       "  .serverMessages()          [experimental] fetch /v1/history and return server message list",
       "                              (diff against getClientMessages() manually in the console)",
@@ -774,6 +747,7 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     getTranscriptItems,
     getPhase,
     thinkingIndicator,
+    streamingRing,
     forceReconcile,
     serverMessages,
     listPendingInteractions,

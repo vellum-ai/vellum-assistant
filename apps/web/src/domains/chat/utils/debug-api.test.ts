@@ -357,7 +357,6 @@ describe("createChatDebugApi.thinkingIndicator", () => {
     expect(snapshot.done.terminal).toBe(false);
     expect(snapshot.done.phase).toBe("thinking");
     expect(snapshot.done.lastTerminalReason).toBeNull();
-    expect(snapshot.done.explanation).toBe("active: phase=thinking");
   });
 
   test("initial state → hidden with notSendingAndNotRestoredProcessing flag and terminal=true", () => {
@@ -373,9 +372,6 @@ describe("createChatDebugApi.thinkingIndicator", () => {
     expect(snapshot.done.terminal).toBe(true);
     expect(snapshot.done.phase).toBe("idle");
     expect(snapshot.done.lastTerminalReason).toBeNull();
-    expect(snapshot.done.explanation).toBe(
-      "terminal: phase=idle, no prior turn this session",
-    );
   });
 
   test("terminal phase=idle after MESSAGE_COMPLETE → done.lastTerminalReason=\"complete\"", () => {
@@ -393,9 +389,6 @@ describe("createChatDebugApi.thinkingIndicator", () => {
     expect(snapshot.visible).toBe(false);
     expect(snapshot.done.terminal).toBe(true);
     expect(snapshot.done.lastTerminalReason).toBe("complete");
-    expect(snapshot.done.explanation).toBe(
-      "terminal: phase=idle, lastTerminalReason=complete",
-    );
   });
 
   test("streaming with assistant message in flight → hidden with streamingAssistantMessageActive", () => {
@@ -416,9 +409,6 @@ describe("createChatDebugApi.thinkingIndicator", () => {
       "streamingAssistantMessageActive",
     ]);
     expect(snapshot.done.terminal).toBe(false);
-    expect(snapshot.done.explanation).toBe(
-      "active: phase=streaming, streaming an assistant message",
-    );
   });
 
   test("active tool call suppresses indicator (activeToolCallCount>0)", () => {
@@ -437,9 +427,6 @@ describe("createChatDebugApi.thinkingIndicator", () => {
     expect(snapshot.visible).toBe(false);
     expect(snapshot.failingConditions).toEqual(["activeToolCallCount>0"]);
     expect(snapshot.conditions.activeToolCallCount).toBe(1);
-    expect(snapshot.done.explanation).toBe(
-      "active: phase=thinking, activeToolCallCount=1",
-    );
   });
 
   test("each pending-prompt gate is reported individually", () => {
@@ -497,7 +484,7 @@ describe("createChatDebugApi.thinkingIndicator", () => {
     expect(snapshot.done.terminal).toBe(true);
   });
 
-  test("queued phase reports queue depth in explanation", () => {
+  test("queued phase is visible and reported as non-terminal", () => {
     const refs = makeRefs({
       turn: {
         ...INITIAL_TURN_STATE,
@@ -510,7 +497,8 @@ describe("createChatDebugApi.thinkingIndicator", () => {
     const snapshot = api.thinkingIndicator();
 
     expect(snapshot.visible).toBe(true);
-    expect(snapshot.done.explanation).toBe("active: phase=queued, pending=2");
+    expect(snapshot.done.phase).toBe("queued");
+    expect(snapshot.done.terminal).toBe(false);
   });
 
   test("returns the same UIContext reference shape getUIContext provided", () => {
@@ -525,7 +513,13 @@ describe("createChatDebugApi.thinkingIndicator", () => {
     expect(snapshot.uiContext.hasUncompletedVisibleSurface).toBe(true);
     expect(snapshot.uiContext.hasPendingSecret).toBe(false);
   });
+});
 
+// ---------------------------------------------------------------------------
+//  createChatDebugApi — streamingRing
+// ---------------------------------------------------------------------------
+
+describe("createChatDebugApi.streamingRing", () => {
   test("streamingRing is lit by isStreaming while the assistant is thinking", () => {
     const refs = makeRefs({
       turn: {
@@ -536,12 +530,12 @@ describe("createChatDebugApi.thinkingIndicator", () => {
     });
     const api = createChatDebugApi(refs);
 
-    const snapshot = api.thinkingIndicator();
+    const ring = api.streamingRing();
 
-    expect(snapshot.streamingRing.visible).toBe(true);
-    expect(snapshot.streamingRing.isStreaming).toBe(true);
-    expect(snapshot.streamingRing.isProcessing).toBe(false);
-    expect(snapshot.streamingRing.litBy).toEqual(["isStreaming"]);
+    expect(ring.visible).toBe(true);
+    expect(ring.isStreaming).toBe(true);
+    expect(ring.isProcessing).toBe(false);
+    expect(ring.litBy).toEqual(["isStreaming"]);
   });
 
   test("streamingRing is hidden once the turn is idle and nothing is processing", () => {
@@ -554,10 +548,10 @@ describe("createChatDebugApi.thinkingIndicator", () => {
     });
     const api = createChatDebugApi(refs);
 
-    const snapshot = api.thinkingIndicator();
+    const ring = api.streamingRing();
 
-    expect(snapshot.streamingRing.visible).toBe(false);
-    expect(snapshot.streamingRing.litBy).toEqual([]);
+    expect(ring.visible).toBe(false);
+    expect(ring.litBy).toEqual([]);
   });
 
   test("streamingRing stays lit by isProcessing when the cached snapshot is stale after the turn ends", () => {
@@ -576,12 +570,13 @@ describe("createChatDebugApi.thinkingIndicator", () => {
     const api = createChatDebugApi(refs);
 
     const snapshot = api.thinkingIndicator();
+    const ring = api.streamingRing();
 
     expect(snapshot.done.terminal).toBe(true);
-    expect(snapshot.streamingRing.visible).toBe(true);
-    expect(snapshot.streamingRing.isStreaming).toBe(false);
-    expect(snapshot.streamingRing.isProcessing).toBe(true);
-    expect(snapshot.streamingRing.litBy).toEqual(["isProcessing"]);
+    expect(ring.visible).toBe(true);
+    expect(ring.isStreaming).toBe(false);
+    expect(ring.isProcessing).toBe(true);
+    expect(ring.litBy).toEqual(["isProcessing"]);
   });
 });
 
@@ -681,6 +676,7 @@ describe("createChatDebugApi.help", () => {
     expect(text).toContain(".getTranscriptItems(");
     expect(text).toContain(".getPhase()");
     expect(text).toContain(".thinkingIndicator()");
+    expect(text).toContain(".streamingRing()");
     expect(text).toContain(".forceReconcile()");
     expect(text).toContain(".serverMessages()");
     expect(text).toContain("[experimental]");
