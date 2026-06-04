@@ -21,7 +21,6 @@
  */
 
 import { loadConfig } from "../config/loader.js";
-import { credentialKey } from "../security/credential-key.js";
 import {
   getProviderKeyAsync,
   getSecureKeyAsync,
@@ -82,25 +81,32 @@ export type TelephonyTtsCapability =
 // Credential availability (reusable)
 // ---------------------------------------------------------------------------
 
+/** Whether a resolved credential string counts as present. */
+function isPresent(value: string | undefined): boolean {
+  return value != null && value.trim().length > 0;
+}
+
 /**
  * Returns true when the given provider's credential is available under the
- * SAME lookup semantics the TTS adapters use to read their key.
+ * SAME lookup semantics the provider's adapter uses to read its key.
  *
- * The real adapters (e.g. the Deepgram adapter) resolve their key via
- * {@link getProviderKeyAsync}, which consults — in order — the namespaced
- * `credential/{provider}/api_key` store key, the legacy bare `{provider}`
- * store key, and the provider's env-var fallback. Probing only the catalog's
- * namespaced `credentialStoreKey` here would report a legacy- or
- * env-configured key as missing, wrongly triggering the fallback (or silence)
- * even though synthesis would actually succeed.
+ * Adapters do NOT all read credentials the same way, and the probe MUST mirror
+ * each one or it will disagree with reality (mark a provider playable, then
+ * synthesis throws a no-key error → silent media-stream call). The lookup each
+ * adapter performs is declared per requirement on the catalog as
+ * {@link TtsCredentialLookup}:
  *
- * Behavior is preserved for providers that declare a non-standard catalog
- * `credentialStoreKey` (one that is not `credential/{providerId}/api_key`):
- * those keys are still probed directly via {@link getSecureKeyAsync}, since
- * {@link getProviderKeyAsync} would not know to look for them.
+ * - `"provider-key"` (e.g. Deepgram): probed via {@link getProviderKeyAsync},
+ *   which honors the namespaced `credential/{provider}/api_key` key, the legacy
+ *   bare `{provider}` key, and the env-var fallback.
+ * - `"namespaced-only"` (e.g. ElevenLabs, Fish Audio, xAI): probed via
+ *   {@link getSecureKeyAsync} against the requirement's exact
+ *   `credentialStoreKey` — the legacy bare key and env fallback are NOT
+ *   honored, because the adapter doesn't honor them either.
  *
- * A provider with no declared secret requirements is treated as
- * always-available (e.g. keyless local providers).
+ * A provider is available when EVERY declared secret requirement resolves a
+ * non-blank value under its own lookup. A provider with no declared secret
+ * requirements is treated as always-available (e.g. keyless local providers).
  *
  * Exported for reuse by the call preflight path so the daemon can warn about
  * an unplayable telephony TTS config before a call connects.
@@ -111,21 +117,14 @@ export async function isTtsProviderCredentialAvailable(
   const entry = getCatalogProvider(providerId);
   if (entry.secretRequirements.length === 0) return true;
 
-  // Primary probe: match the adapter's `getProviderKeyAsync` semantics so
-  // legacy bare keys and env-var fallbacks are recognized.
-  const providerKey = await getProviderKeyAsync(providerId);
-  if (providerKey && providerKey.trim().length > 0) return true;
-
-  // Preserve behavior for any requirement that uses a non-standard catalog
-  // key (i.e. not the provider-namespaced api_key that getProviderKeyAsync
-  // already covered above).
-  const standardKey = credentialKey(providerId, "api_key");
   for (const requirement of entry.secretRequirements) {
-    if (requirement.credentialStoreKey === standardKey) continue;
-    const value = await getSecureKeyAsync(requirement.credentialStoreKey);
-    if (value && value.trim().length > 0) return true;
+    const value =
+      requirement.credentialLookup === "provider-key"
+        ? await getProviderKeyAsync(providerId)
+        : await getSecureKeyAsync(requirement.credentialStoreKey);
+    if (!isPresent(value)) return false;
   }
-  return false;
+  return true;
 }
 
 // ---------------------------------------------------------------------------
