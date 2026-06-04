@@ -26,29 +26,31 @@ import type { ConversationGraphMemory } from "../../../../memory/graph/conversat
 import type { Message } from "../../../../providers/types.js";
 
 /**
- * External state the hook needs but the injection options cannot carry: the
- * conversation-scoped graph handle and the turn's actor trust. Passed
- * separately from the {@link RuntimeInjectionOptions} bag, mirroring
- * `runDefaultMemoryRetrieval`'s deps convention.
+ * Everything the hook needs in a single context: the resolved
+ * {@link RuntimeInjectionOptions} (spread top-level so each field stays
+ * individually addressable), the history to re-inject onto, and the
+ * conversation-scoped state the options bag cannot carry (graph handle and
+ * actor trust).
  */
-export interface PostCompactReinjectDeps {
+export interface PostCompactContext extends RuntimeInjectionOptions {
+  /** Compacted message history to re-inject onto. */
+  history: Message[];
   /** Per-conversation memory graph handle. */
-  readonly graphMemory: ConversationGraphMemory;
+  graphMemory: ConversationGraphMemory;
   /** True when the actor for this turn is trusted (guardian-class). */
-  readonly isTrustedActor: boolean;
+  isTrustedActor: boolean;
 }
 
 export default async function postCompactReinject(
-  history: Message[],
-  options: RuntimeInjectionOptions,
-  deps: PostCompactReinjectDeps,
+  ctx: PostCompactContext,
 ): Promise<RuntimeInjectionResult> {
+  const { history, graphMemory, isTrustedActor, ...options } = ctx;
   const result = await applyRuntimeInjections(history, options);
   // Re-track the nodes the memory graph last injected so they survive against
   // the re-injected history. Untrusted actors and minimal-mode turns never
   // received a memory-graph injection, so there is nothing to re-track.
-  if (deps.isTrustedActor && options.mode !== "minimal") {
-    deps.graphMemory.retrackCachedNodes();
+  if (isTrustedActor && options.mode !== "minimal") {
+    graphMemory.retrackCachedNodes();
   }
   return result;
 }

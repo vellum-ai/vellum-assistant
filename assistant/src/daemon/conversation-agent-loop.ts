@@ -2060,30 +2060,26 @@ export async function runAgentLoopImpl(
         // stripInjectionsForCompaction() unconditionally removed the existing
         // NOW.md block, so re-inject the current content regardless of whether
         // compaction actually ran.
-        const injection = await postCompactReinject(
-          ctx.messages,
-          {
-            ...injectionOpts,
-            pkbContext: currentPkbContent,
-            memoryV2Static: currentMemoryV2Static,
-            nowScratchpad: currentNowContent,
-            workspaceTopLevelContext: state.shouldInjectWorkspace
-              ? ctx.workspaceTopLevelContext
-              : null,
-            // Suppress the chronological-transcript snapshot once the reducer
-            // has collapsed `ctx.messages`; the captured snapshot reflects the
-            // full persisted transcript and would overwrite compaction.
-            slackChronologicalMessages: state.reducerCompacted
-              ? null
-              : injectionOpts.slackChronologicalMessages,
-            mode: currentInjectionMode,
-            turnContext: buildPluginTurnContext(ctx, reqId),
-          },
-          {
-            graphMemory: ctx.graphMemory,
-            isTrustedActor,
-          },
-        );
+        const injection = await postCompactReinject({
+          ...injectionOpts,
+          pkbContext: currentPkbContent,
+          memoryV2Static: currentMemoryV2Static,
+          nowScratchpad: currentNowContent,
+          workspaceTopLevelContext: state.shouldInjectWorkspace
+            ? ctx.workspaceTopLevelContext
+            : null,
+          // Suppress the chronological-transcript snapshot once the reducer
+          // has collapsed `ctx.messages`; the captured snapshot reflects the
+          // full persisted transcript and would overwrite compaction.
+          slackChronologicalMessages: state.reducerCompacted
+            ? null
+            : injectionOpts.slackChronologicalMessages,
+          mode: currentInjectionMode,
+          turnContext: buildPluginTurnContext(ctx, reqId),
+          history: ctx.messages,
+          graphMemory: ctx.graphMemory,
+          isTrustedActor,
+        });
         runMessages = injection.messages;
         const midLoopCompactStrip =
           stripHistoricalWebSearchResults(runMessages);
