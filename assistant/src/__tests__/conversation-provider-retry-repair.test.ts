@@ -84,11 +84,15 @@ mock.module("../config/loader.js", () => ({
 
 // Token estimator: return a small value (well within budget) so preflight
 // does not trigger in existing tests. Stub both the calibrated and raw
-// entry points — the latter backs the default `tokenEstimate` plugin
-// pipeline now used by the orchestrator's preflight / mid-loop checkpoints.
+// entry points — the calibrated estimate backs the orchestrator's preflight /
+// mid-loop overflow checkpoints, and the raw estimate backs the pre-send
+// calibration capture.
 mock.module("../context/token-estimator.js", () => ({
   estimatePromptTokens: () => 1000,
   estimatePromptTokensRaw: () => 1000,
+  // The preflight overflow gate calls this calibrated wrapper directly; stub
+  // it alongside the others so it returns the same small value.
+  estimatePromptTokensWithTools: () => 1000,
   estimateToolsTokens: () => 0,
 }));
 

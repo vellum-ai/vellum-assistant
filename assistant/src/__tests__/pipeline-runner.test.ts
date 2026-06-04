@@ -235,18 +235,18 @@ describe("runPipeline — timeout", () => {
       value: args.value,
     });
     const result = await runPipeline(
-      "tokenEstimate",
+      "compaction",
       [],
       terminal,
       { value: 42 },
       makeCtx(),
-      DEFAULT_TIMEOUTS.tokenEstimate,
+      DEFAULT_TIMEOUTS.compaction,
     );
     expect(result).toEqual({ value: 42 });
   });
 
   test("null timeout skips the race entirely", async () => {
-    // tokenEstimate has DEFAULT_TIMEOUTS.tokenEstimate === null — runner must
+    // compaction has DEFAULT_TIMEOUTS.compaction === null — runner must
     // not arm a timer. We verify by completing after an artificial 30ms wait
     // and confirming success without interference.
     const sleeper: Middleware<Args, Result> = async (args, next) =>
@@ -255,12 +255,12 @@ describe("runPipeline — timeout", () => {
       });
     const terminal = async (_args: Args): Promise<Result> => ({ value: 1 });
     const result = await runPipeline(
-      "tokenEstimate",
+      "compaction",
       [sleeper],
       terminal,
       { value: 0 },
       makeCtx(),
-      DEFAULT_TIMEOUTS.tokenEstimate,
+      DEFAULT_TIMEOUTS.compaction,
     );
     expect(result).toEqual({ value: 1 });
   });
@@ -356,7 +356,7 @@ describe("runPipeline — timeout aborts linked signal", () => {
   });
 
   test("args without an AbortSignal property is passed through unchanged", async () => {
-    // Sanity — pipelines that don't carry a signal (persistence, tokenEstimate)
+    // Sanity — pipelines that don't carry a signal (persistence, circuitBreaker)
     // see identical args identity as before the abort-linking change.
     const args: Args = { value: 42 };
     let seen: Args | undefined;
@@ -481,17 +481,17 @@ describe("runPipeline — structured log record", () => {
       value: args.value,
     });
     await runPipeline(
-      "tokenEstimate",
+      "compaction",
       [],
       terminal,
       { value: 5 },
       makeCtx(),
-      DEFAULT_TIMEOUTS.tokenEstimate,
+      DEFAULT_TIMEOUTS.compaction,
     );
 
     expect(fakeLogger.calls.length).toBe(1);
     const [record] = fakeLogger.calls[0]!;
-    expect(record.pipeline).toBe("tokenEstimate");
+    expect(record.pipeline).toBe("compaction");
     expect(record.outcome).toBe("success");
     expect(record.timeoutMs).toBeUndefined();
   });
@@ -531,12 +531,12 @@ describe("runPipeline — structured log record", () => {
       value: args.value,
     });
     await runPipeline(
-      "tokenEstimate",
+      "compaction",
       [a, b, c],
       terminal,
       { value: 0 },
       makeCtx(),
-      DEFAULT_TIMEOUTS.tokenEstimate,
+      DEFAULT_TIMEOUTS.compaction,
     );
     const [record] = fakeLogger.calls[0]!;
     expect(record.chain).toEqual(["outerA", "middleB", "innerC"]);
@@ -547,7 +547,6 @@ describe("DEFAULT_TIMEOUTS", () => {
   test("matches the design-doc table exactly", () => {
     expect(DEFAULT_TIMEOUTS).toEqual({
       memoryRetrieval: null,
-      tokenEstimate: null,
       compaction: null,
       overflowReduce: null,
       persistence: null,

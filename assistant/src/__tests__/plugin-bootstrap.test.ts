@@ -342,8 +342,8 @@ describe("plugin bootstrap", () => {
     // THEN the defaults are still registered, ahead of the user plugin, so the
     // middleware onion order is unchanged
     const names = getRegisteredPlugins().map((p) => p.manifest.name);
-    expect(names).toContain("default-token-estimate");
-    expect(names.indexOf("default-token-estimate")).toBeLessThan(
+    expect(names).toContain("default-compaction");
+    expect(names.indexOf("default-compaction")).toBeLessThan(
       names.indexOf("user-after-defaults"),
     );
   });
@@ -495,14 +495,14 @@ describe("plugin bootstrap", () => {
     // depended on.
     setOverridesForTesting({ "plugin-middleware-disabled": false });
 
-    const gatedMiddleware: PipelineMiddlewareMap["tokenEstimate"] = async (
+    const gatedMiddleware: PipelineMiddlewareMap["compaction"] = async (
       args,
       next,
     ) => next(args);
     const plugin = buildPlugin(
       "gated-middleware",
       {
-        middleware: { tokenEstimate: gatedMiddleware },
+        middleware: { compaction: gatedMiddleware },
         injectors: [
           {
             name: "gated-middleware-injector",
@@ -521,9 +521,9 @@ describe("plugin bootstrap", () => {
 
     // Neither the middleware slot nor the injector list should expose the
     // flag-gated plugin's contributions. The default plugins also contribute
-    // tokenEstimate middleware / injectors, so we key on identity rather than
+    // compaction middleware / injectors, so we key on identity rather than
     // asserting empty lists.
-    expect(getMiddlewaresFor("tokenEstimate")).not.toContain(gatedMiddleware);
+    expect(getMiddlewaresFor("compaction")).not.toContain(gatedMiddleware);
     expect(
       getInjectors().some((i) => i.name === "gated-middleware-injector"),
     ).toBe(false);

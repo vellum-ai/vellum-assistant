@@ -114,10 +114,10 @@ mock.module("../config/loader.js", () => ({
 // Token estimator — controllable per-test via mockEstimateTokens.
 // Can be a number (constant), a no-arg function, or a function that
 // receives the messages array for dynamic behavior based on content.
-// Both the calibrated entry point (`estimatePromptTokens`, used in the
-// convergence path) and the raw entry point (`estimatePromptTokensRaw`,
-// used by the default `tokenEstimate` plugin pipeline for preflight/mid-
-// loop) are stubbed so either call site can drive the test.
+// Both the calibrated entry point (`estimatePromptTokens`, which backs the
+// preflight overflow gate and the convergence path) and the raw entry point
+// (`estimatePromptTokensRaw`, used by the pre-send calibration capture) are
+// stubbed so either call site can drive the test.
 let mockEstimateTokens: number | ((msgs?: Message[]) => number) = 1000;
 mock.module("../context/token-estimator.js", () => ({
   estimatePromptTokens: (msgs: Message[]) =>
@@ -128,8 +128,16 @@ mock.module("../context/token-estimator.js", () => ({
     typeof mockEstimateTokens === "function"
       ? mockEstimateTokens(msgs)
       : mockEstimateTokens,
-  // Default plugin multiplies-in tool tokens via this helper; 0 keeps the
-  // stubbed raw value unchanged.
+  // The preflight overflow gate calls this calibrated wrapper directly, so it
+  // must honor `mockEstimateTokens` too — otherwise the real implementation
+  // (which sums tool tokens onto the real calibrated estimate) ignores the
+  // per-test value and the overflow scenarios below never trigger.
+  estimatePromptTokensWithTools: (history: Message[]) =>
+    typeof mockEstimateTokens === "function"
+      ? mockEstimateTokens(history)
+      : mockEstimateTokens,
+  // `estimatePromptTokensWithTools` folds tool tokens in via this helper; 0
+  // keeps the stubbed value unchanged.
   estimateToolsTokens: () => 0,
   // Conversation agent loop now calls this helper to canonicalize the
   // provider key shared with the calibration system. The tests here

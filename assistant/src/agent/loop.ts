@@ -4,6 +4,7 @@ import type { LLMCallSite } from "../config/schemas/llm.js";
 import { stripInjectionsForCompaction } from "../context/strip-injections.js";
 import {
   estimatePromptTokensRaw,
+  estimatePromptTokensWithTools,
   estimateToolsTokens,
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
@@ -12,15 +13,12 @@ import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.
 import { HOOKS } from "../plugin-api/constants.js";
 import type { PostToolUseContext, StopContext } from "../plugin-api/types.js";
 import { defaultCompactionTerminal } from "../plugins/defaults/compaction/terminal.js";
-import { defaultTokenEstimateTerminal } from "../plugins/defaults/token-estimate/terminal.js";
 import { DEFAULT_TIMEOUTS, runHook, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
   CompactionArgs,
   CompactionCircuitEvent,
   CompactionResult,
-  EstimateArgs,
-  EstimateResult,
   TurnContext,
 } from "../plugins/types.js";
 import { PluginTimeoutError } from "../plugins/types.js";
@@ -646,10 +644,9 @@ export class AgentLoop {
    * Resolve the tool definitions sent to the provider for the given turn.
    *
    * Mirrors the logic of {@link getToolTokenBudget} but returns the tool
-   * array itself — callers that need to thread the tool set into a plugin
-   * pipeline (e.g. `tokenEstimate`, where the pipeline's args include
-   * `tools`) use this rather than re-implementing the dynamic-vs-static
-   * resolver fork.
+   * array itself — callers that need to thread the tool set into the token
+   * estimate (`estimatePromptTokensWithTools`, whose args include `tools`)
+   * use this rather than re-implementing the dynamic-vs-static resolver fork.
    */
   getResolvedTools(history?: Message[]): ToolDefinition[] {
     return history && this.resolveTools
@@ -670,28 +667,15 @@ export class AgentLoop {
   }
 
   /**
-   * Estimate total prompt tokens for `history` via the `tokenEstimate`
-   * pipeline. Args are shallow-frozen so a mutating middleware cannot strip
-   * context from the loop's live `history`.
+   * Calibrated prompt-token estimate for `history`, including the
+   * resolved-tool budget for the turn.
    */
-  private estimateTokens(
-    history: Message[],
-    turnContext: TurnContext,
-  ): Promise<EstimateResult> {
-    return runPipeline<EstimateArgs, EstimateResult>(
-      "tokenEstimate",
-      getMiddlewaresFor("tokenEstimate"),
-      defaultTokenEstimateTerminal,
-      {
-        history: Object.freeze([...history]) as Message[],
-        systemPrompt: this.systemPrompt,
-        tools: Object.freeze([
-          ...this.getResolvedTools(history),
-        ]) as ToolDefinition[],
-        providerName: getCalibrationProviderKey(this.provider),
-      },
-      turnContext,
-      DEFAULT_TIMEOUTS.tokenEstimate,
+  private estimateTokens(history: Message[]): number {
+    return estimatePromptTokensWithTools(
+      history,
+      this.systemPrompt,
+      this.getResolvedTools(history),
+      getCalibrationProviderKey(this.provider),
     );
   }
 
@@ -1571,7 +1555,7 @@ export class AgentLoop {
           );
           const midLoopThreshold =
             preflightBudget * MID_LOOP_YIELD_THRESHOLD_RATIO;
-          const estimated = await this.estimateTokens(history, turnCtx);
+          const estimated = this.estimateTokens(history);
           if (estimated > midLoopThreshold) {
             if (compaction) {
               rlog.info(
