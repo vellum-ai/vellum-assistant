@@ -21,6 +21,7 @@ import { appendFeedItem } from "../home/feed-writer.js";
 import { getConversation } from "../memory/conversation-crud.js";
 import { isBackgroundConversationType } from "../memory/conversation-types.js";
 import { getLogger } from "../util/logger.js";
+import { isConversationSeedSane } from "./conversation-seed-composer.js";
 import type { NotificationSignal } from "./signal.js";
 import type { NotificationDecision, RenderedChannelCopy } from "./types.js";
 
@@ -81,8 +82,11 @@ export async function writeHomeFeedItemForSignal(
   // message is richer and may contain structured markdown (lists, headers,
   // bold) that the detail panel renders. The popup-oriented `body` is
   // intentionally short (≤ 2 sentences) and loses formatting.
+  const seedCandidate = renderedCopy?.conversationSeedMessage;
   const resolvedSummary =
-    renderedCopy?.conversationSeedMessage?.trim() ||
+    (isConversationSeedSane(seedCandidate)
+      ? seedCandidate.trim()
+      : undefined) ||
     renderedCopy?.body?.trim() ||
     payloadBody?.trim() ||
     "";
