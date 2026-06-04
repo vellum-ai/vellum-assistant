@@ -9,6 +9,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
+import { useNavigate, useParams } from "react-router";
 
 import { Button } from "@vellum/design-library/components/button";
 import { Input } from "@vellum/design-library/components/input";
@@ -37,6 +38,7 @@ import {
   assistantScheduleRunsQueryKey,
   assistantSchedulesQueryKey,
 } from "@/lib/sync/query-tags";
+import { routes } from "@/utils/routes";
 
 import { CreateScheduleModal } from "@/domains/settings/components/create-schedule-modal";
 
@@ -103,6 +105,24 @@ const MODE_TONE: Record<string, TagTone> = {
   script: "neutral",
 };
 
+const SYSTEM_TASK_URL_IDS = {
+  heartbeat: "system-heartbeat",
+  consolidation: "system-consolidation",
+} as const satisfies Record<SystemTaskKind, string>;
+
+function systemTaskKindFromUrlId(
+  scheduleId: string | undefined,
+): SystemTaskKind | null {
+  switch (scheduleId) {
+    case SYSTEM_TASK_URL_IDS.heartbeat:
+      return "heartbeat";
+    case SYSTEM_TASK_URL_IDS.consolidation:
+      return "consolidation";
+    default:
+      return null;
+  }
+}
+
 function StatusDot({ status }: { status: string | null }) {
   const color =
     status === "ok" || status === "completed"
@@ -142,6 +162,21 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
           Create schedule
         </Button>
       </div>
+    </div>
+  );
+}
+
+function UnknownScheduleState({ onBack }: { onBack: () => void }) {
+  return (
+    <div className="mx-auto max-w-[940px] space-y-3">
+      <Notice tone="error">
+        Schedule not found. It may have been deleted or the link may be out of
+        date.
+      </Notice>
+      <Button variant="outlined" onClick={onBack}>
+        <ArrowLeft className="h-4 w-4" />
+        Back to schedules
+      </Button>
     </div>
   );
 }
@@ -964,6 +999,8 @@ function SystemTasksSection({
 // ---------------------------------------------------------------------------
 
 export function SchedulesPage() {
+  const navigate = useNavigate();
+  const { scheduleId } = useParams<{ scheduleId?: string }>();
   const {
     data: assistantList,
     isLoading: isAssistantLoading,
@@ -1008,21 +1045,28 @@ export function SchedulesPage() {
     staleTime: 10_000,
   });
 
-  const [selectedScheduleId, setSelectedScheduleId] = useState<string | null>(
-    null,
-  );
-  const [selectedSystemTask, setSelectedSystemTask] =
-    useState<SystemTaskKind | null>(null);
+  const selectedSystemTask = systemTaskKindFromUrlId(scheduleId);
   const [createOpen, setCreateOpen] = useState(false);
   const [isHeartbeatRunning, setIsHeartbeatRunning] = useState(false);
   const [isConsolidationRunning, setIsConsolidationRunning] = useState(false);
   const selectedSchedule = useMemo(
     () =>
-      selectedScheduleId
-        ? (schedules?.find((schedule) => schedule.id === selectedScheduleId) ??
+      scheduleId && !selectedSystemTask
+        ? (schedules?.find((schedule) => schedule.id === scheduleId) ??
           null)
         : null,
-    [schedules, selectedScheduleId],
+    [schedules, scheduleId, selectedSystemTask],
+  );
+
+  const navigateToSchedules = useCallback(() => {
+    navigate(routes.settings.schedules);
+  }, [navigate]);
+
+  const navigateToSchedule = useCallback(
+    (id: string) => {
+      navigate(routes.settings.schedule(id));
+    },
+    [navigate],
   );
 
   const handleCreated = useCallback(() => {
@@ -1094,10 +1138,14 @@ export function SchedulesPage() {
   }, [assistantId, refetchConsolidation]);
 
   const isLoading = isAssistantLoading || isSchedulesLoading;
+  const isSelectedSystemTaskLoading =
+    (selectedSystemTask === "heartbeat" && isHeartbeatLoading) ||
+    (selectedSystemTask === "consolidation" && isConsolidationLoading);
 
   if (selectedSystemTask === "heartbeat" && assistantId && heartbeatConfig) {
     return (
       <SystemTaskDetailView
+        key="heartbeat"
         kind="heartbeat"
         assistantId={assistantId}
         name="Heartbeat"
@@ -1106,7 +1154,7 @@ export function SchedulesPage() {
         nextRunAt={heartbeatConfig.nextRunAt}
         lastRunAt={heartbeatConfig.lastRunAt}
         isRunning={isHeartbeatRunning}
-        onBack={() => setSelectedSystemTask(null)}
+        onBack={navigateToSchedules}
         onRunNow={handleRunHeartbeatNow}
       />
     );
@@ -1119,6 +1167,7 @@ export function SchedulesPage() {
   ) {
     return (
       <SystemTaskDetailView
+        key="consolidation"
         kind="consolidation"
         assistantId={assistantId}
         name="Consolidation"
@@ -1127,7 +1176,7 @@ export function SchedulesPage() {
         nextRunAt={consolidationConfig.nextRunAt}
         lastRunAt={consolidationConfig.lastRunAt}
         isRunning={isConsolidationRunning}
-        onBack={() => setSelectedSystemTask(null)}
+        onBack={navigateToSchedules}
         onRunNow={handleRunConsolidationNow}
       />
     );
@@ -1136,11 +1185,12 @@ export function SchedulesPage() {
   if (selectedSchedule && assistantId) {
     return (
       <ScheduleDetailView
+        key={selectedSchedule.id}
         schedule={selectedSchedule}
         assistantId={assistantId}
-        onBack={() => setSelectedScheduleId(null)}
+        onBack={navigateToSchedules}
         onDeleted={() => {
-          setSelectedScheduleId(null);
+          navigateToSchedules();
           void refetch();
         }}
         onUpdated={() => void refetch()}
@@ -1148,7 +1198,7 @@ export function SchedulesPage() {
     );
   }
 
-  if (isLoading) {
+  if (isLoading || isSelectedSystemTaskLoading) {
     return (
       <div className="mx-auto max-w-[940px]">
         <div className="flex min-h-[400px] items-center justify-center">
@@ -1179,6 +1229,10 @@ export function SchedulesPage() {
         </Notice>
       </div>
     );
+  }
+
+  if (scheduleId != null) {
+    return <UnknownScheduleState onBack={navigateToSchedules} />;
   }
 
   if (
@@ -1224,7 +1278,7 @@ export function SchedulesPage() {
               <ScheduleRow
                 key={schedule.id}
                 schedule={schedule}
-                onClick={() => setSelectedScheduleId(schedule.id)}
+                onClick={() => navigateToSchedule(schedule.id)}
                 onToggle={(enabled) => void handleToggle(schedule.id, enabled)}
               />
             ))}
@@ -1240,8 +1294,12 @@ export function SchedulesPage() {
         onRetry={refetchSystemTasks}
         onRunHeartbeatNow={handleRunHeartbeatNow}
         onRunConsolidationNow={handleRunConsolidationNow}
-        onSelectHeartbeat={() => setSelectedSystemTask("heartbeat")}
-        onSelectConsolidation={() => setSelectedSystemTask("consolidation")}
+        onSelectHeartbeat={() =>
+          navigateToSchedule(SYSTEM_TASK_URL_IDS.heartbeat)
+        }
+        onSelectConsolidation={() =>
+          navigateToSchedule(SYSTEM_TASK_URL_IDS.consolidation)
+        }
         isHeartbeatRunning={isHeartbeatRunning}
         isConsolidationRunning={isConsolidationRunning}
       />
@@ -1256,7 +1314,7 @@ export function SchedulesPage() {
               <ScheduleRow
                 key={schedule.id}
                 schedule={schedule}
-                onClick={() => setSelectedScheduleId(schedule.id)}
+                onClick={() => navigateToSchedule(schedule.id)}
                 onToggle={(enabled) => void handleToggle(schedule.id, enabled)}
               />
             ))}
