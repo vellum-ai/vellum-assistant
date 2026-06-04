@@ -110,6 +110,23 @@ describe("isSurfaceInteractive", () => {
     ).toBe(false);
   });
 
+  test("work_result without actions is not interactive", () => {
+    expect(
+      isSurfaceInteractive(makeSurface({ surfaceType: "work_result" })),
+    ).toBe(false);
+  });
+
+  test("work_result with actions is interactive", () => {
+    expect(
+      isSurfaceInteractive(
+        makeSurface({
+          surfaceType: "work_result",
+          actions: [{ id: "review", label: "Review" }],
+        }),
+      ),
+    ).toBe(true);
+  });
+
   test("dynamic_page without actions is not interactive", () => {
     expect(
       isSurfaceInteractive(makeSurface({ surfaceType: "dynamic_page" })),
