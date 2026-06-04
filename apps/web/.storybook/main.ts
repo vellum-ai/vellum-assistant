@@ -39,6 +39,7 @@ export default defineMain({
       ],
       preserveSymlinks: true,
     };
+    config.base = process.env.STORYBOOK_BASE_PATH ?? config.base;
     return config;
   },
 });
