@@ -114,14 +114,7 @@ let credentialReadiness: Awaited<
   >
 > = { status: "ready" };
 
-// Whether the outbound preflight gate considers the call a media-stream call.
-// Default true so the existing not-ready test exercises the preflight; the gate
-// only skips the preflight for conversation-relay-native routing (PR 11 makes
-// it always-on).
-let usesMediaStreamTransport = true;
-
 mock.module("../calls/telephony-credential-preflight.js", () => ({
-  willUseMediaStreamTransport: () => usesMediaStreamTransport,
   resolveTelephonyCredentialReadiness: async () => credentialReadiness,
   describeCredentialGaps: (
     missing: Array<{ kind: string; providerId: string | null; reason: string }>,
@@ -134,6 +127,22 @@ mock.module("../calls/telephony-credential-preflight.js", () => ({
           } (${g.reason})`,
       )
       .join(", "),
+}));
+
+// Whether the outbound preflight gate considers the call a media-stream call.
+// The gate (`outboundWillUseMediaStream`, in twilio-routes.js) mirrors the FULL
+// transport decision: media-stream only when STT routing is media-stream-custom
+// AND routeSetup's outcome is normal_call/deny. It returns false for CR-native
+// STT AND for interactive outbound flows (e.g. verification) that CR-fall-back,
+// in which case the preflight is skipped. Default true so the existing
+// not-ready test exercises the preflight; the skip tests toggle it false.
+let usesMediaStreamTransport = true;
+
+mock.module("../calls/twilio-routes.js", () => ({
+  outboundWillUseMediaStream: () => usesMediaStreamTransport,
+  // call-domain.ts only consumes `outboundWillUseMediaStream` from this module;
+  // the remaining exports are unused on the startCall/cancelCall paths exercised
+  // by these tests.
 }));
 
 import {
@@ -437,11 +446,16 @@ describe("startCall — pointer message regression", () => {
     expect(text!).toContain("openai-whisper");
   });
 
-  test("conversation-relay-native routing skips the outbound credential preflight and dials", async () => {
-    // PR 10 lands before the routing flip: CR-native STT providers (deepgram /
-    // google) use Twilio ConversationRelay for STT + native TTS, so they need
-    // no local credentials. The gate must skip the preflight even when the
-    // preflight would report not-ready, so default setups still dial.
+  test("non-media-stream transport (CR-native or interactive CR-fallback) skips the outbound credential preflight and dials", async () => {
+    // `outboundWillUseMediaStream` returns false both for CR-native STT
+    // (deepgram / google — Twilio CR does STT + native TTS) AND for interactive
+    // outbound flows that buildVoiceWebhookTwiml CR-falls-back (e.g.
+    // calls.verification.enabled → callee_verification). In both cases the call
+    // is served by ConversationRelay and needs no local credentials, so the
+    // gate must skip the preflight even when it would report not-ready —
+    // otherwise the call is wrongly blocked. (The full STT-routing +
+    // routeSetup-outcome decision is unit-tested directly against the real
+    // helper in twilio-routes.test.ts.)
     const convId = "conv-domain-cred-preflight-skipped";
     ensureConversation(convId);
     usesMediaStreamTransport = false;

@@ -56,7 +56,6 @@ import {
   type TelephonySttCapability,
 } from "../providers/speech-to-text/resolve.js";
 import { getLogger } from "../util/logger.js";
-import { resolveTelephonySttRouting } from "./telephony-stt-routing.js";
 import {
   DEFAULT_PLAYABLE_TTS_PROVIDER,
   resolveTelephonyTtsCapability,
@@ -172,34 +171,14 @@ async function resolveTtsGap(): Promise<TelephonyCredentialGap | null> {
 // ---------------------------------------------------------------------------
 // Transport gate
 // ---------------------------------------------------------------------------
-
-/**
- * Decide whether a call will actually use the daemon media-stream transport
- * (`<Connect><Stream>`) — the ONLY path that needs local STT + TTS credentials.
- *
- * This mirrors the branch {@link buildVoiceWebhookTwiml} takes: a call uses the
- * media-stream transport iff `resolveTelephonySttRouting()` resolves to the
- * `media-stream-custom` strategy. For `conversation-relay-native` STT providers
- * (deepgram / google) Twilio ConversationRelay runs STT + native TTS itself, so
- * no caller credentials are required and the outbound preflight must be skipped.
- * An unresolved/unknown routing result is treated as NOT-media-stream (skip the
- * preflight; the CR path handles itself), and — together with the safe-access
- * hardening in the resolvers — guarantees a partial/malformed config can never
- * crash call setup.
- *
- * CROSS-PR NOTE (PR 11): PR 11 flips routing so ALL calls use the media-stream
- * transport regardless of STT strategy. When that lands, this gate must become
- * always-on — return `true` unconditionally here (this single helper is the
- * intended seam, so the outbound call site in call-domain.ts needs no change).
- * Until then, gate on resolveTelephonySttRouting() === "media-stream-custom".
- */
-export function willUseMediaStreamTransport(): boolean {
-  const routing = resolveTelephonySttRouting();
-  return (
-    routing.status === "resolved" &&
-    routing.strategy.strategy === "media-stream-custom"
-  );
-}
+//
+// The outbound transport gate lives in `twilio-routes.ts` as
+// `outboundWillUseMediaStream(session)`, NOT here, because it must mirror the
+// FULL transport decision `buildVoiceWebhookTwiml` makes — both the STT routing
+// strategy AND the `routeSetup` outcome (interactive flows that CR-fall-back
+// must skip the preflight). Sharing the predicate with the TwiML builder keeps
+// the gate and the real transport branch from drifting. See that helper's
+// doc comment (and its PR 11 simplification note) for details.
 
 // ---------------------------------------------------------------------------
 // Public API
