@@ -1141,6 +1141,9 @@ export function SchedulesPage() {
   const isSelectedSystemTaskLoading =
     (selectedSystemTask === "heartbeat" && isHeartbeatLoading) ||
     (selectedSystemTask === "consolidation" && isConsolidationLoading);
+  const isSelectedSystemTaskError =
+    (selectedSystemTask === "heartbeat" && isHeartbeatError) ||
+    (selectedSystemTask === "consolidation" && isConsolidationError);
 
   if (selectedSystemTask === "heartbeat" && assistantId && heartbeatConfig) {
     return (
@@ -1227,6 +1230,35 @@ export function SchedulesPage() {
             Retry
           </button>
         </Notice>
+      </div>
+    );
+  }
+
+  if (isSelectedSystemTaskError) {
+    return (
+      <div className="mx-auto max-w-[940px] space-y-3">
+        <Notice tone="error">
+          Failed to load{" "}
+          {selectedSystemTask === "heartbeat" ? "heartbeat" : "consolidation"}{" "}
+          schedule.{" "}
+          <button
+            type="button"
+            onClick={() => {
+              if (selectedSystemTask === "heartbeat") {
+                void refetchHeartbeat();
+              } else {
+                void refetchConsolidation();
+              }
+            }}
+            className="cursor-pointer underline hover:no-underline"
+          >
+            Retry
+          </button>
+        </Notice>
+        <Button variant="outlined" onClick={navigateToSchedules}>
+          <ArrowLeft className="h-4 w-4" />
+          Back to schedules
+        </Button>
       </div>
     );
   }
