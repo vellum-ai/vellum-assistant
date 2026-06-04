@@ -1,55 +1,55 @@
 import {
-  AlertTriangle,
-  ArrowUp,
-  Check,
-  CheckCircle2,
-  ChevronDown,
-  ChevronRight,
-  ChevronUp,
-  Copy,
-  HardDrive,
-  Loader2,
-  Play,
-  Shield,
-  Square,
-  Wrench,
-  XCircle,
+    AlertTriangle,
+    ArrowUp,
+    Check,
+    CheckCircle2,
+    ChevronDown,
+    ChevronRight,
+    ChevronUp,
+    Copy,
+    HardDrive,
+    Loader2,
+    Play,
+    Shield,
+    Square,
+    Wrench,
+    XCircle,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
-import { MarkdownMessage } from "@vellum/design-library";
-import { Button } from "@vellum/design-library/components/button";
-import { Tag } from "@vellum/design-library/components/tag";
+import { MarkdownMessage } from "@vellumai/design-library";
+import { Button } from "@vellumai/design-library/components/button";
+import { Tag } from "@vellumai/design-library/components/tag";
 
+import { getAssistant } from "@/assistant/api";
+import { ShareFeedbackModal } from "@/components/share-feedback-modal";
+import { DoctorAvatar } from "@/domains/settings/components/panels/doctor-avatar";
 import {
-  assistantsDoctorHistoryListOptions,
-  assistantsDoctorHistoryRetrieveOptions,
+    type ChatEntry,
+    type PersistedMessage,
+    type PersistedMessageKind,
+    type PersistedSessionStatus,
+    hasPendingApproval,
+    hasPendingBackup,
+    mapPersistedMessagesToEntries,
+    mapPersistedStatusToPanelStatus,
+    selectLatestHistorySession,
+} from "@/domains/settings/components/panels/doctor-history";
+import {
+    assistantsDoctorHistoryListOptions,
+    assistantsDoctorHistoryRetrieveOptions,
 } from "@/generated/api/@tanstack/react-query.gen";
 import { assistantsMaintenanceModeExitCreate } from "@/generated/api/sdk.gen";
-import { getAssistant } from "@/assistant/api";
+import { usePlatformGate } from "@/hooks/use-platform-gate";
 import {
-  buildVellumHeaders,
-  buildVellumMutatingHeaders,
+    buildVellumHeaders,
+    buildVellumMutatingHeaders,
 } from "@/lib/auth/request-headers";
-import { toast } from "@vellum/design-library";
 import { captureError } from "@/lib/sentry/capture-error";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 import { isPointerCoarse } from "@/utils/pointer";
-import { ShareFeedbackModal } from "@/components/share-feedback-modal";
-import { usePlatformGate } from "@/hooks/use-platform-gate";
-import { DoctorAvatar } from "@/domains/settings/components/panels/doctor-avatar";
-import {
-  type ChatEntry,
-  type PersistedMessage,
-  type PersistedMessageKind,
-  type PersistedSessionStatus,
-  hasPendingApproval,
-  hasPendingBackup,
-  mapPersistedMessagesToEntries,
-  mapPersistedStatusToPanelStatus,
-  selectLatestHistorySession,
-} from "@/domains/settings/components/panels/doctor-history";
+import { toast } from "@vellumai/design-library";
 
 // ---------------------------------------------------------------------------
 // Types

@@ -3014,6 +3014,256 @@ describe("parseAssistantEvent", () => {
       conversationId: "conv-4",
     });
   });
+
+  // ---------------------------------------------------------------------
+  // trace_event (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses trace_event with all fields", () => {
+    const event = parseEvent({
+      type: "trace_event",
+      eventId: "evt-1",
+      conversationId: "conv-1",
+      requestId: "req-1",
+      timestampMs: 1780604080844,
+      sequence: 11612,
+      kind: "tool_started",
+      status: "info",
+      summary: "Tool bash started",
+      attributes: { toolName: "bash" },
+    });
+    expect(event).toEqual({
+      type: "trace_event",
+      eventId: "evt-1",
+      conversationId: "conv-1",
+      requestId: "req-1",
+      timestampMs: 1780604080844,
+      sequence: 11612,
+      kind: "tool_started",
+      status: "info",
+      summary: "Tool bash started",
+      attributes: { toolName: "bash" },
+    });
+  });
+
+  test("parses trace_event with only required fields", () => {
+    const event = parseEvent({
+      type: "trace_event",
+      eventId: "evt-2",
+      conversationId: "conv-2",
+      timestampMs: 1,
+      sequence: 0,
+      kind: "request_received",
+      summary: "Request received",
+    });
+    expect(event).toEqual({
+      type: "trace_event",
+      eventId: "evt-2",
+      conversationId: "conv-2",
+      timestampMs: 1,
+      sequence: 0,
+      kind: "request_received",
+      summary: "Request received",
+    });
+  });
+
+  test("returns unknown trace_event when sequence is missing", () => {
+    const data = {
+      type: "trace_event",
+      eventId: "evt-3",
+      conversationId: "conv-3",
+      timestampMs: 1,
+      kind: "tool_finished",
+      summary: "Tool finished",
+    };
+    expect(parseEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "trace_event",
+      data,
+      conversationId: "conv-3",
+    });
+  });
+
+  test("returns unknown trace_event when kind is not a known value", () => {
+    const data = {
+      type: "trace_event",
+      eventId: "evt-4",
+      conversationId: "conv-4",
+      timestampMs: 1,
+      sequence: 1,
+      kind: "not_a_real_kind",
+      summary: "Bogus kind",
+    };
+    expect(parseEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "trace_event",
+      data,
+      conversationId: "conv-4",
+    });
+  });
+
+  test("strips unknown fields from trace_event", () => {
+    const event = parseEvent({
+      type: "trace_event",
+      eventId: "evt-5",
+      conversationId: "conv-5",
+      timestampMs: 2,
+      sequence: 3,
+      kind: "llm_call_finished",
+      summary: "LLM call finished",
+      legacyField: "x",
+    });
+    expect(event).toEqual({
+      type: "trace_event",
+      eventId: "evt-5",
+      conversationId: "conv-5",
+      timestampMs: 2,
+      sequence: 3,
+      kind: "llm_call_finished",
+      summary: "LLM call finished",
+    });
+  });
+});
+
+describe("tool_use_preview_start (schema-validated)", () => {
+  test("parses tool_use_preview_start with all fields", () => {
+    const event = parseEvent({
+      type: "tool_use_preview_start",
+      toolUseId: "toolu_01",
+      toolName: "bash",
+      conversationId: "conv-1",
+      messageId: "asst-msg-1",
+    });
+    expect(event).toEqual({
+      type: "tool_use_preview_start",
+      toolUseId: "toolu_01",
+      toolName: "bash",
+      conversationId: "conv-1",
+      messageId: "asst-msg-1",
+    });
+  });
+
+  test("parses tool_use_preview_start with only required fields", () => {
+    const event = parseEvent({
+      type: "tool_use_preview_start",
+      toolUseId: "toolu_02",
+      toolName: "bash",
+    });
+    expect(event).toEqual({
+      type: "tool_use_preview_start",
+      toolUseId: "toolu_02",
+      toolName: "bash",
+    });
+  });
+
+  test("returns unknown tool_use_preview_start when toolName is missing", () => {
+    const data = {
+      type: "tool_use_preview_start",
+      toolUseId: "toolu_03",
+      conversationId: "conv-3",
+    };
+    expect(parseEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "tool_use_preview_start",
+      data,
+      conversationId: "conv-3",
+    });
+  });
+
+  test("strips unknown fields from tool_use_preview_start", () => {
+    const event = parseEvent({
+      type: "tool_use_preview_start",
+      toolUseId: "toolu_04",
+      toolName: "bash",
+      legacyField: "x",
+    });
+    expect(event).toEqual({
+      type: "tool_use_preview_start",
+      toolUseId: "toolu_04",
+      toolName: "bash",
+    });
+  });
+});
+
+describe("tool_output_chunk (schema-validated)", () => {
+  test("parses tool_output_chunk with all fields", () => {
+    const event = parseEvent({
+      type: "tool_output_chunk",
+      chunk: "stdout line\n",
+      conversationId: "conv-1",
+      toolUseId: "toolu_01",
+      subType: "tool_start",
+      subToolName: "grep",
+      subToolInput: "pattern",
+      subToolIsError: false,
+      subToolId: "sub-1",
+      messageId: "asst-msg-1",
+    });
+    expect(event).toEqual({
+      type: "tool_output_chunk",
+      chunk: "stdout line\n",
+      conversationId: "conv-1",
+      toolUseId: "toolu_01",
+      subType: "tool_start",
+      subToolName: "grep",
+      subToolInput: "pattern",
+      subToolIsError: false,
+      subToolId: "sub-1",
+      messageId: "asst-msg-1",
+    });
+  });
+
+  test("parses tool_output_chunk with only required fields", () => {
+    const event = parseEvent({
+      type: "tool_output_chunk",
+      chunk: "partial output",
+    });
+    expect(event).toEqual({
+      type: "tool_output_chunk",
+      chunk: "partial output",
+    });
+  });
+
+  test("returns unknown tool_output_chunk when chunk is missing", () => {
+    const data = {
+      type: "tool_output_chunk",
+      conversationId: "conv-3",
+      toolUseId: "toolu_03",
+    };
+    expect(parseEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "tool_output_chunk",
+      data,
+      conversationId: "conv-3",
+    });
+  });
+
+  test("returns unknown tool_output_chunk when subType is not a known value", () => {
+    const data = {
+      type: "tool_output_chunk",
+      chunk: "x",
+      conversationId: "conv-4",
+      subType: "not_a_real_subtype",
+    };
+    expect(parseEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "tool_output_chunk",
+      data,
+      conversationId: "conv-4",
+    });
+  });
+
+  test("strips unknown fields from tool_output_chunk", () => {
+    const event = parseEvent({
+      type: "tool_output_chunk",
+      chunk: "y",
+      legacyField: "x",
+    });
+    expect(event).toEqual({
+      type: "tool_output_chunk",
+      chunk: "y",
+    });
+  });
 });
 
 describe("envelope format parsing", () => {
@@ -3203,14 +3453,14 @@ describe("envelope format parsing", () => {
 });
 
 // ---------------------------------------------------------------------------
-// RuntimeMessage wire shape
+// ConversationMessage wire shape
 // ---------------------------------------------------------------------------
 
-describe("RuntimeMessage wire shape", () => {
-  test("RuntimeMessage carries wire-shape content fields", () => {
+describe("ConversationMessage wire shape", () => {
+  test("ConversationMessage carries wire-shape content fields", () => {
     // Type-level test: the canonical wire contract encodes textSegments as
     // plain strings and contentOrder as positional "<type>:<index>" strings.
-    const msg: import("@/domains/chat/api/messages").RuntimeMessage = {
+    const msg: import("@vellumai/assistant-api").ConversationMessage = {
       id: "msg-1",
       role: "assistant",
       timestamp: "2024-01-01T00:00:00.000Z",
@@ -3230,8 +3480,8 @@ describe("RuntimeMessage wire shape", () => {
     expect(msg.contentOrder).toHaveLength(2);
   });
 
-  test("RuntimeMessage works with only the required fields", () => {
-    const msg: import("@/domains/chat/api/messages").RuntimeMessage = {
+  test("ConversationMessage works with only the required fields", () => {
+    const msg: import("@vellumai/assistant-api").ConversationMessage = {
       id: "msg-2",
       role: "user",
       timestamp: "2024-01-01T00:00:00.000Z",

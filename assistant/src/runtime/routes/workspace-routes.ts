@@ -663,6 +663,10 @@ export const ROUTES: RouteDefinition[] = [
         description: "Allow hidden files (true/false)",
       },
     ],
+    responseBody: {
+      contentType: "application/octet-stream",
+      schema: { type: "string", format: "binary" },
+    },
     responseStatus: ({ headers }) => (headers?.["range"] ? "206" : "200"),
     additionalResponses: {
       "416": { description: "Range Not Satisfiable" },

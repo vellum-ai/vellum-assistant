@@ -1,45 +1,50 @@
-import * as Sentry from "@sentry/react";
 import { captureError } from "@/lib/sentry/capture-error";
+import * as Sentry from "@sentry/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
-import { Button } from "@vellum/design-library/components/button";
-import { ProgressBar } from "@vellum/design-library/components/progress-bar";
 import { getAssistant, hatchAssistant } from "@/assistant/api";
-import {
-  isPlatformHostedDisabled,
-  PLATFORM_HOSTED_DISABLED_MESSAGE,
-  resolveAssistantLifecycleState,
-  shouldRecoverFromHatchFailure,
-} from "@/assistant/lifecycle";
 import { fetchCharacterTraits, saveCharacterTraits } from "@/assistant/avatar-api";
+import {
+    isPlatformHostedDisabled,
+    PLATFORM_HOSTED_DISABLED_MESSAGE,
+    resolveAssistantLifecycleState,
+    shouldRecoverFromHatchFailure,
+} from "@/assistant/lifecycle";
+import { lifecycleService } from "@/assistant/lifecycle-service";
+import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
+import { getOnboardingEntrypoint } from "@/domains/onboarding/gate";
+import {
+    readAiDataConsent,
+    readOnboardingCompleted,
+    readSelectedVersion,
+    readTosAccepted,
+    useOnboardingCompleted,
+    writeSelectedVersion,
+} from "@/domains/onboarding/prefs";
+import { applyPendingProviderKey } from "@/domains/onboarding/provider-key";
+import {
+    clearPrivacyConsent,
+    hasRecentPrivacyConsent,
+    markPrivacyConsent,
+} from "@/domains/onboarding/signals";
+import { getLocalGatewayUrl, isLocalMode, loadLockfile, primeLocalGatewayConnection, saveLockfileAssistant, setSelectedAssistantId } from "@/lib/local-mode";
+import { hatchLocalAssistant } from "@/runtime/local-mode-host";
+import { isNativePlatform } from "@/runtime/native-auth";
+import { useAuthStore } from "@/stores/auth-store";
+import {
+    isAuthenticated,
+    isSessionSettled,
+    type SessionStatus,
+} from "@/stores/session-status";
+import type { CharacterTraits } from "@/types/avatar";
+import { extractErrorMessage } from "@/utils/api-errors";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { randomCharacterTraits } from "@/utils/avatar-random";
 import { composeSvg } from "@/utils/avatar-svg-compositor";
-import type { CharacterTraits } from "@/types/avatar";
-import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
-import { extractErrorMessage } from "@/utils/api-errors";
-import { isLocalMode, loadLockfile, setSelectedAssistantId, saveLockfileAssistant, primeLocalGatewayConnection, getLocalGatewayUrl } from "@/lib/local-mode";
-import { hatchLocalAssistant } from "@/runtime/local-mode-host";
-import { getOnboardingEntrypoint } from "@/domains/onboarding/gate";
-import { applyPendingProviderKey } from "@/domains/onboarding/provider-key";
-import { lifecycleService } from "@/assistant/lifecycle-service";
-import {
-  readAiDataConsent,
-  readOnboardingCompleted,
-  readSelectedVersion,
-  readTosAccepted,
-  useOnboardingCompleted,
-  writeSelectedVersion,
-} from "@/domains/onboarding/prefs";
-import {
-  clearPrivacyConsent,
-  hasRecentPrivacyConsent,
-  markPrivacyConsent,
-} from "@/domains/onboarding/signals";
-import { isNativePlatform } from "@/runtime/native-auth";
-import { useAuthStore } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
+import { Button } from "@vellumai/design-library/components/button";
+import { ProgressBar } from "@vellumai/design-library/components/progress-bar";
 
 const POLL_INTERVAL_MS = 3000;
 const COMPLETION_NAVIGATE_DELAY_MS = 800;
@@ -85,16 +90,17 @@ export type HatchGateDecision =
   | { kind: "redirect"; to: string };
 
 export function decideHatchGate(input: {
-  isAuthLoading: boolean;
-  isLoggedIn: boolean;
+  sessionStatus: SessionStatus;
   isReplay: boolean;
   onboardingCompleted: boolean;
   tosAccepted: boolean;
   aiDataConsentAccepted: boolean;
   cameFromPrivacyScreen: boolean;
 }): HatchGateDecision {
-  if (input.isAuthLoading) return { kind: "wait" };
-  if (!input.isLoggedIn) return { kind: "redirect", to: routes.account.login };
+  if (!isSessionSettled(input.sessionStatus)) return { kind: "wait" };
+  if (!isAuthenticated(input.sessionStatus)) {
+    return { kind: "redirect", to: routes.account.login };
+  }
   if (input.onboardingCompleted && !input.isReplay) {
     return { kind: "redirect", to: routes.assistant };
   }
@@ -115,8 +121,7 @@ export function HatchingScreen() {
   const hostingParam = searchParams.get("hosting");
   const useLocalHatch = isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud";
   const userId = useAuthStore.use.user()?.id ?? null;
-  const isLoggedIn = useAuthStore.use.isLoggedIn();
-  const isAuthLoading = useAuthStore.use.isLoading();
+  const sessionStatus = useAuthStore.use.sessionStatus();
   const [, setOnboardingCompleted] = useOnboardingCompleted();
   const [hatchTraits] = useState<CharacterTraits>(() =>
     randomCharacterTraits(BUNDLED_COMPONENTS),
@@ -155,8 +160,7 @@ export function HatchingScreen() {
   useEffect(() => {
     const cameFromPrivacyScreen = hasRecentPrivacyConsent(userId);
     const decision = decideHatchGate({
-      isAuthLoading,
-      isLoggedIn,
+      sessionStatus,
       isReplay,
       onboardingCompleted: readOnboardingCompleted(),
       tosAccepted: readTosAccepted(),
@@ -239,7 +243,8 @@ export function HatchingScreen() {
       if (useLocalHatch) {
         try {
           if (!localHatchPromise) {
-            localHatchPromise = hatchLocalAssistant();
+            const remote = hostingParam === "docker" ? "docker" : undefined;
+            localHatchPromise = hatchLocalAssistant(undefined, remote);
           }
           const result = await localHatchPromise;
           localHatchPromise = null;
@@ -424,8 +429,7 @@ export function HatchingScreen() {
   }, [
     attempt,
     hatchTraits,
-    isAuthLoading,
-    isLoggedIn,
+    sessionStatus,
     isReplay,
     navigate,
     setOnboardingCompleted,

@@ -75,8 +75,8 @@ function getIcon(toolName: string, inputSummary: string = ""): ReactNode {
   return ICON_MAP[iconKey] ?? <Wrench className="h-3.5 w-3.5" />;
 }
 
-function StatusIcon({ status, isError }: { status: string; isError?: boolean }) {
-  if (status === "running") {
+function StatusIcon({ isRunning, isError }: { isRunning: boolean; isError: boolean }) {
+  if (isRunning) {
     // Wrap in a fixed-size slot so the layout doesn't shift when the icon
     // transitions from the 16px circle icons to the 6px pulsing dot.
     return (
@@ -85,7 +85,7 @@ function StatusIcon({ status, isError }: { status: string; isError?: boolean }) 
       </span>
     );
   }
-  if (status === "error" || isError) {
+  if (isError) {
     return <XCircle className="h-4 w-4 text-[var(--system-negative-strong)] shrink-0" />;
   }
   return <CheckCircle2 className="h-4 w-4 text-[var(--system-positive-strong)] shrink-0" />;
@@ -262,19 +262,23 @@ export function ToolCallChip({
   embedded = false,
 }: ToolCallChipProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
-  const isRunning = toolCall.status === "running";
-  const isError = toolCall.status === "error" || toolCall.isError;
+  // `status` is not stored; the chip only needs the two booleans it branches
+  // on. An errored call resolves to error; otherwise a call is still running
+  // until it has either a result payload or a (force-)completion timestamp.
+  const isError = Boolean(toolCall.isError);
+  const isRunning =
+    !isError && toolCall.result === undefined && toolCall.completedAt == null;
   const hasPendingConfirmation = !!toolCall.pendingConfirmation;
   const duration = useElapsedTime(toolCall.startedAt, !isRunning, toolCall.completedAt);
   const startTimeLabel = formatStartTime(toolCall.startedAt);
 
-  const inputSummary = extractInputSummary(toolCall.toolName, toolCall.input);
+  const inputSummary = extractInputSummary(toolCall.name, toolCall.input);
   const activity = toolCall.input?.activity ?? toolCall.input?.reason;
   const activityLabel = typeof activity === "string" && activity.trim() ? activity.trim() : null;
   const label = activityLabel
     ?? (isRunning
-      ? friendlyRunningLabel(toolCall.toolName, inputSummary)
-      : friendlyToolLabel(toolCall.toolName, inputSummary));
+      ? friendlyRunningLabel(toolCall.name, inputSummary)
+      : friendlyToolLabel(toolCall.name, inputSummary));
 
   const canExpand =
     (hasPendingConfirmation && isActiveConfirmation) ||
@@ -302,10 +306,10 @@ export function ToolCallChip({
 
   const subItemRow = (
     <div className={`flex min-w-0 items-center gap-2 py-2 ${embedded ? "pl-6 pr-3 text-body-small-default" : ""}`}>
-      <StatusIcon status={toolCall.status} isError={toolCall.isError} />
-      {!embedded && getIcon(toolCall.toolName, inputSummary)}
+      <StatusIcon isRunning={isRunning} isError={isError} />
+      {!embedded && getIcon(toolCall.name, inputSummary)}
       <span className="min-w-0 truncate text-[var(--content-secondary)]">{label}</span>
-      {toolCall.riskLevel && toolCall.status !== "running" && !(hasPendingConfirmation && isActiveConfirmation) && (() => {
+      {toolCall.riskLevel && !isRunning && !(hasPendingConfirmation && isActiveConfirmation) && (() => {
         const { displayLevel, inherentRisk } = getEffectiveRiskDisplay(toolCall.approvalReason, toolCall.riskLevel);
         const badge = getRiskBadgeStyle(displayLevel);
         const isWorkspace = displayLevel === "workspace";
@@ -329,14 +333,14 @@ export function ToolCallChip({
             onClick={(e) => {
               e.stopPropagation();
               onOpenRuleEditor?.({
-                toolName: toolCall.toolName,
+                toolName: toolCall.name,
                 riskLevel: toolCall.riskLevel,
                 riskReason: toolCall.riskReason,
                 input: toolCall.input,
-                allowlistOptions: toolCall.allowlistOptions ?? [],
+                allowlistOptions: toolCall.riskAllowlistOptions ?? [],
                 scopeOptions: toolCall.scopeOptions ?? [],
                 riskScopeOptions: toolCall.riskScopeOptions ?? [],
-                directoryScopeOptions: toolCall.directoryScopeOptions ?? [],
+                directoryScopeOptions: toolCall.riskDirectoryScopeOptions ?? [],
                 matchedTrustRuleId: toolCall.matchedTrustRuleId,
               });
             }}
@@ -385,7 +389,7 @@ export function ToolCallChip({
             </div>
             <div className="text-[var(--content-secondary)]">Tool Name</div>
             <div className="text-[var(--content-secondary)]">
-              {toolCall.toolName.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+              {toolCall.name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
             </div>
             {startTimeLabel && (
               <div className="mt-0.5 text-[var(--content-tertiary)]">{startTimeLabel}</div>
@@ -510,7 +514,7 @@ export function ToolCallChip({
           expanded ? "rounded-b-none" : ""
         }`}
       >
-        <StatusIcon status={toolCall.status} isError={toolCall.isError} />
+        <StatusIcon isRunning={isRunning} isError={isError} />
         <span className={isError ? "text-[var(--system-negative-strong)]" : "text-[var(--content-default)]"}>
           {statusLabel}
         </span>

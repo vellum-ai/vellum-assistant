@@ -2,8 +2,8 @@ import { useCallback, useState, type ReactNode } from "react";
 
 import type { LucideIcon } from "lucide-react";
 
-import { Popover, Tooltip } from "@vellum/design-library";
 import type { Conversation } from "@/types/conversation-types";
+import { Popover, Tooltip } from "@vellumai/design-library";
 
 // ---------------------------------------------------------------------------
 // Indicator state

@@ -65,6 +65,10 @@ function getStatusConfig(status: string | undefined) {
   return STATUS_CONFIG[status ?? ""] ?? DEFAULT_STATUS;
 }
 
+function normalizedTitle(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
 function StatusBadge({ status }: { status: string | undefined }) {
   const { label, colorClass } = getStatusConfig(status);
   return (
@@ -174,13 +178,19 @@ function TaskStepList({ steps }: { steps: TaskStepItem[] }) {
   );
 }
 
-function TaskProgressDisplay({ templateData }: { templateData: Record<string, unknown> }) {
+function TaskProgressDisplay({
+  templateData,
+  titleFallback,
+}: {
+  templateData: Record<string, unknown>;
+  titleFallback?: string;
+}) {
   const steps = Array.isArray(templateData.steps)
     ? (templateData.steps as TaskStepItem[])
     : null;
 
   if (steps && steps.length > 0) {
-    const title = typeof templateData.title === "string" ? templateData.title : "Task";
+    const title = normalizedTitle(templateData.title) || titleFallback || "Task";
     const status = typeof templateData.status === "string" ? templateData.status : undefined;
 
     return (
@@ -208,19 +218,26 @@ export function CardSurface({ surface, onAction }: CardSurfaceProps) {
   // Shared predicate so this render-detection and the activity-summary
   // hoist-detection in transcript-message-body cannot drift.
   const hasSteps = isTaskProgressSurface(surface);
+  const cardTitle = normalizedTitle(data.title) || normalizedTitle(surface.title);
+  const surfaceWithoutContainerTitle = { ...surface, title: undefined };
 
   if (hasSteps) {
     return (
-      <SurfaceContainer surface={surface} onAction={onAction}>
-        <TaskProgressDisplay templateData={data.templateData!} />
+      <SurfaceContainer surface={surfaceWithoutContainerTitle} onAction={onAction}>
+        <TaskProgressDisplay
+          templateData={data.templateData!}
+          titleFallback={cardTitle}
+        />
       </SurfaceContainer>
     );
   }
 
   return (
-    <SurfaceContainer surface={surface} onAction={onAction}>
+    <SurfaceContainer surface={surfaceWithoutContainerTitle} onAction={onAction}>
       <div>
-        <h3 className="text-title-small text-[var(--content-strong)]">{data.title}</h3>
+        {cardTitle && (
+          <h3 className="text-title-small text-[var(--content-strong)]">{cardTitle}</h3>
+        )}
 
         {data.subtitle && (
           <p className="mt-0.5 text-body-small-default text-[var(--content-quiet)]">{data.subtitle}</p>
@@ -269,7 +286,10 @@ export function CardSurface({ surface, onAction }: CardSurfaceProps) {
             )}
 
             {isTaskProgress && (
-              <TaskProgressDisplay templateData={data.templateData!} />
+              <TaskProgressDisplay
+                templateData={data.templateData!}
+                titleFallback={cardTitle}
+              />
             )}
           </>
         )}

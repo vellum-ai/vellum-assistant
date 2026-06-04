@@ -10,7 +10,7 @@ import { join } from "node:path";
 
 import { proxyForwardToResponse } from "@vellumai/assistant-client";
 
-import { bootstrapGuardian } from "../../auth/guardian-bootstrap.js";
+import { bootstrapGuardian, hashToken } from "../../auth/guardian-bootstrap.js";
 import { rotateCredentials } from "../../auth/guardian-refresh.js";
 import { mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
@@ -19,6 +19,7 @@ import { fetchImpl } from "../../fetch.js";
 import { getLogger } from "../../logger.js";
 import { isLoopbackAddress } from "../../util/is-loopback-address.js";
 import { VELAY_FORWARDED_HEADER } from "../../velay/bridge-utils.js";
+import { requestArrivedViaEdgeProxy } from "../edge-forwarded-header.js";
 
 const log = getLogger("channel-verification-session-proxy");
 
@@ -165,6 +166,20 @@ export function createChannelVerificationSessionProxyHandler(
         );
       }
 
+      // Defense-in-depth: reject requests forwarded by the self-hosted nginx
+      // edge (e.g. the SPA reached over an ngrok tunnel). Every hop in that
+      // chain is loopback, so the raw peer IP would otherwise misclassify a
+      // remote caller as local. The edge sets this marker unconditionally and
+      // it cannot be spoofed or stripped by the client. Only the self-hosted
+      // edge sets it, so this is safe across all deploy modes.
+      if (requestArrivedViaEdgeProxy(req)) {
+        log.warn("Guardian init rejected — edge-proxy-forwarded request");
+        return Response.json(
+          { error: "Bootstrap endpoint is not accessible via the web edge" },
+          { status: 403 },
+        );
+      }
+
       const lockDir = getGatewaySecurityDir();
       const lockPath = join(lockDir, "guardian-init.lock");
       const consumedPath = join(lockDir, "guardian-init-consumed.json");
@@ -210,6 +225,22 @@ export function createChannelVerificationSessionProxyHandler(
       // client that can reach the gateway (e.g. via ngrok) must not be
       // able to race the legitimate local user.
       if (!isManaged && expectedSecrets.length === 0) {
+        // A genuine local bootstrap caller connects directly over loopback and
+        // never sets X-Forwarded-For. Its presence means the request was
+        // relayed by a proxy — and when GATEWAY_TRUST_PROXY is enabled the
+        // `clientIp` below is derived from that (client-spoofable) header, so a
+        // remote caller could forge `X-Forwarded-For: 127.0.0.1` and pass the
+        // loopback check. Reject on the header's presence instead of trusting
+        // it. Mirrors the same guard on /v1/pair.
+        if (req.headers.get("x-forwarded-for")) {
+          log.warn(
+            "Guardian init rejected — X-Forwarded-For present in bare-metal mode",
+          );
+          return Response.json(
+            { error: "Bootstrap endpoint is local-only" },
+            { status: 403 },
+          );
+        }
         if (clientIp && !isLoopbackAddress(clientIp)) {
           log.warn(
             { clientIp },
@@ -394,6 +425,7 @@ export function createChannelVerificationSessionProxyHandler(
         const body = (await req.json()) as Record<string, unknown>;
         const refreshToken =
           typeof body.refreshToken === "string" ? body.refreshToken : "";
+        const deviceId = typeof body.deviceId === "string" ? body.deviceId : "";
 
         if (!refreshToken) {
           return Response.json(
@@ -407,20 +439,37 @@ export function createChannelVerificationSessionProxyHandler(
           );
         }
 
-        const result = rotateCredentials({ refreshToken });
+        // The refresh token is bound to the device it was issued to. Require
+        // the caller to prove the device so a leaked refresh token cannot be
+        // redeemed from a different device.
+        if (!deviceId) {
+          return Response.json(
+            {
+              error: {
+                code: "BAD_REQUEST",
+                message: "Missing required field: deviceId",
+              },
+            },
+            { status: 400 },
+          );
+        }
+
+        const result = rotateCredentials({
+          refreshToken,
+          hashedDeviceId: hashToken(deviceId),
+        });
 
         if (!result.ok) {
-          const statusCode =
-            result.error === "refresh_reuse_detected"
-              ? 403
-              : result.error === "revoked"
-                ? 403
-                : 401;
+          // 403 for tokens that are valid-but-forbidden (revoked, reused, or
+          // presented from the wrong device); 401 for invalid/expired tokens.
+          const forbidden: Array<typeof result.error> = [
+            "refresh_reuse_detected",
+            "device_binding_mismatch",
+            "revoked",
+          ];
+          const statusCode = forbidden.includes(result.error) ? 403 : 401;
 
-          log.warn(
-            { error: result.error },
-            "Refresh token rotation failed",
-          );
+          log.warn({ error: result.error }, "Refresh token rotation failed");
           return Response.json({ error: result.error }, { status: statusCode });
         }
 
@@ -500,7 +549,10 @@ export function createChannelVerificationSessionProxyHandler(
           log.info("Guardian consumed secrets file removed");
         }
       } catch (err) {
-        log.error({ err }, "Failed to remove guardian-init lock/consumed files");
+        log.error(
+          { err },
+          "Failed to remove guardian-init lock/consumed files",
+        );
         return Response.json(
           { error: "Failed to remove lock file" },
           { status: 500 },

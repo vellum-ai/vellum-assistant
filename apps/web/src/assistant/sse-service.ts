@@ -36,6 +36,7 @@ import {
   subscribeEvents,
   type EventStream,
 } from "@/lib/streaming/stream-transport";
+import { useSSEConnectedStore } from "@/stores/sse-connected-store";
 
 const RESUME_DEDUP_WINDOW_MS = 1000;
 
@@ -55,6 +56,29 @@ export const sseService: SseService = {
   attach(assistantId) {
     let current: EventStream | null = null;
     let cancelled = false;
+    // Track the live stream handle for cancellation and the resume/bounce
+    // dedup guards below. Holding a handle does NOT mean the socket is open:
+    // `subscribeEvents` returns synchronously while its fetch is still in
+    // flight and keeps the same handle across backoff retries, so liveness is
+    // mirrored separately by `setConnected` off the transport's open/close
+    // signals.
+    const setCurrent = (stream: EventStream | null): void => {
+      current = stream;
+    };
+    // Mirror *established* live-stream presence into the shared store so
+    // consumers can read SSE liveness reactively — the menu-bar status dot
+    // (`useElectronStatusSync`) and push-notification suppression. Driven by
+    // the transport's `onStreamOpen` / `onStreamClose` (which fire when the
+    // SSE response actually opens / ends), never by handle creation: keying
+    // off the handle would report `connected` throughout a failing initial
+    // connect and its backoff window, when nothing is open. Also set `false`
+    // explicitly on intentional teardown and on give-up (`onError`), which
+    // are authoritative "no live stream" points; the bus is not used because
+    // `sse.opened` / `sse.closed` are reconnect *triggers* (carrying a cause)
+    // and graceful teardowns deliberately don't publish `sse.closed`.
+    const setConnected = (connected: boolean): void => {
+      useSSEConnectedStore.getState().setConnected(connected);
+    };
     // Independent dedup windows per handler. A shared timestamp was
     // wrong: `app.resume`'s no-op (current already non-null) would
     // update the shared mark and then suppress a `power.resume` that
@@ -78,7 +102,8 @@ export const sseService: SseService = {
           publish("sse.event", envelope);
         },
         (err) => {
-          current = null;
+          setCurrent(null);
+          setConnected(false);
           publish("sse.closed", { reason: err.message });
           Sentry.addBreadcrumb({
             category: "event_bus.sse",
@@ -90,19 +115,22 @@ export const sseService: SseService = {
           onReconnect: (cause) => {
             publish("sse.opened", { assistantId, cause });
           },
+          onStreamOpen: () => setConnected(true),
+          onStreamClose: () => setConnected(false),
         },
       );
       if (cancelled) {
         stream.cancel();
         return;
       }
-      current = stream;
+      setCurrent(stream);
       publish("sse.opened", { assistantId, cause: causeAtOpen });
     };
 
     const teardown = () => {
       current?.cancel();
-      current = null;
+      setCurrent(null);
+      setConnected(false);
     };
 
     // App lifecycle (renderer-visibility resume): tear down on
@@ -220,7 +248,8 @@ export const sseService: SseService = {
       unsubPowerUnlock();
       unsubReachabilityRetry();
       current?.cancel();
-      current = null;
+      setCurrent(null);
+      setConnected(false);
     };
   },
 };

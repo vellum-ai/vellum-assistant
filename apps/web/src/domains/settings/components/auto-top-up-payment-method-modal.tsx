@@ -1,19 +1,19 @@
 import {
-  Elements,
-  PaymentElement,
-  useElements,
-  useStripe,
+    Elements,
+    PaymentElement,
+    useElements,
+    useStripe,
 } from "@stripe/react-stripe-js";
 import { loadStripe, type Appearance, type Stripe } from "@stripe/stripe-js";
 import { useMutation } from "@tanstack/react-query";
 import { AlertCircle, Loader2 } from "lucide-react";
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Modal } from "@vellum/design-library/components/modal";
-import { Notice } from "@vellum/design-library/components/notice";
-import { toast } from "@vellum/design-library/components/toast";
 import { organizationsBillingAutoTopUpSetupIntentCreateMutation } from "@/generated/api/@tanstack/react-query.gen";
+import { Button } from "@vellumai/design-library/components/button";
+import { Modal } from "@vellumai/design-library/components/modal";
+import { Notice } from "@vellumai/design-library/components/notice";
+import { toast } from "@vellumai/design-library/components/toast";
 
 // Stripe publishable key — injected at build time by the deployment pipeline.
 // This is Stripe's *publishable* key (pk_live_* / pk_test_*), designed to be

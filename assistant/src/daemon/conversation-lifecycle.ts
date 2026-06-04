@@ -89,7 +89,7 @@ export interface LoadFromDbContext {
 
 export interface AbortContext {
   readonly conversationId: string;
-  processing: boolean;
+  isProcessing(): boolean;
   abortController: AbortController | null;
   prompter: PermissionPrompter;
   secretPrompter: SecretPrompter;
@@ -364,7 +364,7 @@ export function abortConversation(
   ctx: AbortContext,
   reason?: AbortReason,
 ): void {
-  if (ctx.processing) {
+  if (ctx.isProcessing()) {
     const effectiveReason =
       reason ??
       createAbortReason(

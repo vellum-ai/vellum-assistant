@@ -1,7 +1,7 @@
 import { Loader2 } from "lucide-react";
 import { Outlet } from "react-router";
 
-import { Typography } from "@vellum/design-library";
+import { Typography } from "@vellumai/design-library";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useAssistantSelectionStore } from "@/assistant/selection-store";

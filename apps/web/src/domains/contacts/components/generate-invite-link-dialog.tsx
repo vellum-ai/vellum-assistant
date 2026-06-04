@@ -2,10 +2,10 @@ import { useMutation } from "@tanstack/react-query";
 import { Check, Copy, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Input } from "@vellum/design-library/components/input";
-import { Modal } from "@vellum/design-library/components/modal";
-import { Typography } from "@vellum/design-library/components/typography";
+import { Button } from "@vellumai/design-library/components/button";
+import { Input } from "@vellumai/design-library/components/input";
+import { Modal } from "@vellumai/design-library/components/modal";
+import { Typography } from "@vellumai/design-library/components/typography";
 
 import { buildA2AInviteLink } from "@/domains/contacts/a2a-invite";
 import { integrationsA2aInvitePostMutation } from "@/generated/daemon/@tanstack/react-query.gen";

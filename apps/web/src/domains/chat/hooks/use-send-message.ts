@@ -12,9 +12,7 @@
 
 import { captureError } from "@/lib/sentry/capture-error";
 import {
-  type Dispatch,
   type MutableRefObject,
-  type SetStateAction,
   useCallback,
   useRef,
 } from "react";
@@ -44,7 +42,7 @@ import {
   removeConversation,
   resolveDraftKey,
 } from "@/utils/conversation-cache-mutations";
-import { findConversation } from "@/utils/conversation-cache";
+import { findConversation, patchConversation } from "@/utils/conversation-cache";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import {
   consumePendingPreChatContext,
@@ -64,11 +62,13 @@ import {
   parsePendingSecretState,
   resolvePostError,
 } from "@/domains/chat/hooks/send-message-utils";
+import { useComposerStore } from "@/domains/chat/composer-store";
 import { useMessageQueue } from "@/domains/chat/hooks/use-message-queue";
 import { conversationsByIdCancelPost } from "@/generated/daemon/sdk.gen";
 import type { Conversation } from "@/types/conversation-types";
 import { getPendingInteractions } from "@/domains/chat/api/interactions";
-import { type RuntimeMessage, fetchConversationMessages, postChatMessage, pollForResponse } from "@/domains/chat/api/messages";
+import { fetchConversationMessages, postChatMessage, pollForResponse } from "@/domains/chat/api/messages";
+import type { ConversationMessage } from "@vellumai/assistant-api";
 import { supportsServerMintedConversation } from "@/lib/backwards-compat/server-minted-conversation";
 
 // ---------------------------------------------------------------------------
@@ -114,9 +114,6 @@ interface UseSendMessageParams {
   pendingOnboardingContextRef: MutableRefObject<PreChatOnboardingContext | null>;
   onboardingDraftConversationIdRef: MutableRefObject<string | null>;
 
-  // State setters (non-store)
-  setInput: Dispatch<SetStateAction<string>>;
-
   // Callbacks
   startReconciliationLoop: (epoch: number) => void;
   cancelReconciliation: () => void;
@@ -135,7 +132,6 @@ export function useSendMessage({
   messages,
   pendingOnboardingContextRef,
   onboardingDraftConversationIdRef,
-  setInput,
   startReconciliationLoop,
   cancelReconciliation,
   refreshConversations,
@@ -177,7 +173,6 @@ export function useSendMessage({
     assistantId,
     activeConversationId,
     messages,
-    setInput,
   });
 
   // -------------------------------------------------------------------------
@@ -384,7 +379,7 @@ export function useSendMessage({
             setError({ message: "Assistant did not respond in time." });
             return;
           }
-          let serverMessages: RuntimeMessage[] = [];
+          let serverMessages: ConversationMessage[] = [];
           try {
             serverMessages = await fetchConversationMessages(
               postResult.assistantId,
@@ -640,7 +635,7 @@ export function useSendMessage({
               restoreContent: content,
             });
           } else {
-            setInput(content);
+            useComposerStore.getState().setInput(content);
             setError(result.error);
           }
           return;
@@ -724,6 +719,9 @@ export function useSendMessage({
   const handleStopGenerating = useCallback(async () => {
     if (!assistantId || !activeConversationId) return;
     useStreamStore.getState().bumpEpoch();
+    patchConversation(queryClient, assistantId, activeConversationId, {
+      isProcessing: false,
+    });
     endTurn({ conversationId: activeConversationId, reason: "cancelled" });
     setMessages(clearPendingConfirmationsFromMessages);
     useInteractionStore.getState().resetAll();
@@ -737,7 +735,7 @@ export function useSendMessage({
     } catch {
       // Best-effort — the daemon may have already finished
     }
-  }, [assistantId, activeConversationId]);
+  }, [assistantId, activeConversationId, queryClient]);
 
   return {
     sendMessage,

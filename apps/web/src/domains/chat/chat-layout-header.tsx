@@ -1,13 +1,13 @@
-import { useCallback, type ReactNode } from "react";
+import { Button } from "@vellumai/design-library";
 import {
-  ChevronLeft,
-  ChevronRight,
-  House,
-  Menu as MenuIcon,
-  PanelLeft,
-  Search,
+    ChevronLeft,
+    ChevronRight,
+    House,
+    Menu as MenuIcon,
+    PanelLeft,
+    Search,
 } from "lucide-react";
-import { Button } from "@vellum/design-library";
+import { useCallback, type ReactNode } from "react";
 
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 
@@ -60,7 +60,7 @@ export function ChatLayoutHeader({
       }}
     >
       <div
-        className="flex items-center gap-2 transition-[min-width] duration-150 ease-in-out"
+        className="flex items-center gap-2 transition-[min-width] duration-150 ease-in-out max-md:min-w-0 max-md:flex-1"
         style={!isMobile ? { minWidth: collapsed ? 48 : (sidebarWidth ?? 230) } : undefined}
       >
         {isMobile ? (
@@ -137,7 +137,7 @@ export function ChatLayoutHeader({
         {topBarCenter}
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 max-md:flex-1 max-md:justify-end">
         {isMobile ? (
           <Button
             variant="ghost"

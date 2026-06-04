@@ -9,45 +9,50 @@
  */
 
 import { captureError } from "@/lib/sentry/capture-error";
-import { type Dispatch, type FormEvent, type MutableRefObject, type ReactNode, type RefObject, type SetStateAction, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type Dispatch, type FormEvent, lazy, type MutableRefObject, type ReactNode, type RefObject, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
 
-import { ChatBody } from "@/domains/chat/components/chat-body";
-import { SlackChannelFooter } from "@/domains/chat/components/slack-channel-footer";
-import { ConversationStarterGrid } from "@/domains/chat/components/conversation-starter-grid";
-import { ComposerNotices } from "@/domains/chat/components/composer-notices";
-import { ChatRuleEditorModal } from "@/domains/chat/components/chat-rule-editor-modal";
-import { SendErrorModal } from "@/domains/chat/components/send-error-modal";
-import { ConfirmationPromptCard } from "@/domains/chat/components/confirmation-prompt-card";
-import { ContactPromptCard } from "@/domains/chat/components/contact-prompt-card";
-import { QuestionPromptCard } from "@/domains/chat/components/question-prompt-card";
-import { SecretPromptCard } from "@/domains/chat/components/secret-prompt-card";
-import { useChatSessionStore } from "@/domains/chat/chat-session-store";
-import { usePullRefresh } from "@/domains/chat/hooks/use-pull-refresh";
-import { useConversationStarters } from "@/domains/chat/hooks/use-conversation-starters";
-import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
-import type { TranscriptHandle, TranscriptProps } from "@/domains/chat/transcript/transcript";
-import { useTranscriptScroll } from "@/domains/chat/transcript/use-transcript-scroll";
-import { hasAnyInteractiveSurface, hasPendingAssistantResponse, toolCallToRuleContext } from "@/domains/chat/utils/chat";
-import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone";
-import type { ChatAttachment } from "@/domains/chat/components/chat-attachments/use-chat-attachments";
-import type { ChatEmptyStateProps } from "@/domains/chat/components/chat-empty-state";
-import { CreditsExhaustedBanner } from "@/domains/chat/components/credits-exhausted-banner";
+import { AppViewerContainer } from "@/components/app-viewer-container";
+import { ChatAvatar } from "@/components/avatar/chat-avatar";
 import { DiscordNudgeBanner } from "@/components/nudges/discord-nudge-banner";
 import { GitHubNudgeBanner } from "@/components/nudges/github-nudge-banner";
 import { IOSAppBanner } from "@/components/nudges/ios-app-banner";
 import { MacOSAppBanner } from "@/components/nudges/macos-app-banner";
-import { Loader2 } from "lucide-react";
-import { Button, Notice, ResizablePanel } from "@vellum/design-library";
-import { getLocalBool, setLocalBool, removeLocalSetting } from "@/utils/local-settings";
-import { ProviderBillingBanner } from "@/domains/chat/components/provider-billing-banner";
-import { QueuedMessagesDrawer } from "@/domains/chat/components/queued-messages-drawer";
-import { AppViewerContainer } from "@/components/app-viewer-container";
-import { DocumentViewerContainer } from "@/domains/chat/components/document-viewer-container";
-import { ChatAvatar } from "@/components/avatar/chat-avatar";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone";
+import { useComposerStore, selectUploadingCount, selectUploadedIds } from "@/domains/chat/composer-store";
+import { ChatBody } from "@/domains/chat/components/chat-body";
+import type { ChatEmptyStateProps } from "@/domains/chat/components/chat-empty-state";
+import { ChatRuleEditorModal } from "@/domains/chat/components/chat-rule-editor-modal";
+import { ComposerNotices } from "@/domains/chat/components/composer-notices";
 import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";
+import { ConfirmationPromptCard } from "@/domains/chat/components/confirmation-prompt-card";
+import { ContactPromptCard } from "@/domains/chat/components/contact-prompt-card";
 import { ContextWindowIndicator } from "@/domains/chat/components/context-window-indicator";
+import { ConversationStarterGrid } from "@/domains/chat/components/conversation-starter-grid";
+import { CreditsExhaustedBanner } from "@/domains/chat/components/credits-exhausted-banner";
+import { DocumentViewerContainer } from "@/domains/chat/components/document-viewer-container";
+import { OnboardingChoiceCard } from "@/domains/chat/components/onboarding-choice-card";
+import { ProviderBillingBanner } from "@/domains/chat/components/provider-billing-banner";
+import { QuestionPromptCard } from "@/domains/chat/components/question-prompt-card";
+import { QueuedMessagesDrawer } from "@/domains/chat/components/queued-messages-drawer";
+import { SecretPromptCard } from "@/domains/chat/components/secret-prompt-card";
+import { SendErrorModal } from "@/domains/chat/components/send-error-modal";
+import { SlackChannelFooter } from "@/domains/chat/components/slack-channel-footer";
+import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
+import { useConversationStarters } from "@/domains/chat/hooks/use-conversation-starters";
+import { useEditMessage } from "@/domains/chat/hooks/use-edit-message";
+import { useOnboardingChoice } from "@/domains/chat/hooks/use-onboarding-choice";
+import { usePullRefresh } from "@/domains/chat/hooks/use-pull-refresh";
+import type { TranscriptHandle, TranscriptProps } from "@/domains/chat/transcript/transcript";
+import { useTranscriptScroll } from "@/domains/chat/transcript/use-transcript-scroll";
+import { hasAnyInteractiveSurface, hasPendingAssistantResponse, toolCallToRuleContext } from "@/domains/chat/utils/chat";
+import { conversationsByIdUndoPost, subagentsByIdAbortPost } from "@/generated/daemon/sdk.gen";
+import { useIsNativePlatform } from "@/runtime/native-auth";
+import { getLocalBool, removeLocalSetting, setLocalBool } from "@/utils/local-settings";
+import { Button, Notice, ResizablePanel } from "@vellumai/design-library";
+import { Loader2 } from "lucide-react";
 const SubagentDetailPanel = lazy(() =>
   import("@/domains/chat/components/subagent-detail-panel").then((m) => ({
     default: m.SubagentDetailPanel,
@@ -58,67 +63,62 @@ const ToolDetailPanel = lazy(() =>
     default: m.ToolDetailPanel,
   })),
 );
-import { OnboardingChoiceCard } from "@/domains/chat/components/onboarding-choice-card";
-import { useOnboardingChoice } from "@/domains/chat/hooks/use-onboarding-choice";
-import { useEditMessage } from "@/domains/chat/hooks/use-edit-message";
-import { conversationsByIdUndoPost, subagentsByIdAbortPost } from "@/generated/daemon/sdk.gen";
-import { useIsNativePlatform } from "@/runtime/native-auth";
 
 import { Link, useNavigate } from "react-router";
 
+import { useEmptyStateGreeting } from "@/domains/chat/hooks/use-empty-state-greeting";
 import { buildEditAppGreeting, buildEditAppStarters } from "@/domains/chat/utils/edit-app-empty-state";
 import { pickRandomPlaceholder } from "@/domains/chat/utils/empty-state-constants";
-import { useEmptyStateGreeting } from "@/domains/chat/hooks/use-empty-state-greeting";
 import { getChatBillingBannerDecision, shouldShowGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
 
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
-import { useDeployStore } from "@/stores/deploy-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/utils/reconcile";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { useDeployStore } from "@/stores/deploy-store";
 
 import { buildTranscriptItems } from "@/domains/chat/transcript/build-items";
-import { sanitizeDisplayMessages } from "@/domains/chat/utils/sanitize-display-messages";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import type { HistoryPaginationResult } from "@/domains/chat/transcript/use-history-pagination";
 import {
-  canStopGeneration,
-  getThinkingStatusText,
-  isSendDisabled,
-  shouldShowThinkingIndicator,
-  type UIContext,
+    canStopGeneration,
+    getThinkingStatusText,
+    isSendDisabled,
+    shouldShowThinkingIndicator,
+    type UIContext,
 } from "@/domains/chat/turn-selectors";
+import { sanitizeDisplayMessages } from "@/domains/chat/utils/sanitize-display-messages";
 import { getSlackConversationDisplay } from "@/domains/chat/utils/slack-conversation-display";
 
-import { useViewerStore } from "@/stores/viewer-store";
-import { useActiveProfileModel } from "@/domains/chat/hooks/use-active-profile-model";
-import { isPointerCoarse } from "@/utils/pointer";
-import { routes } from "@/utils/routes";
-import { haptic } from "@/utils/haptics";
-import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
-import { type TurnState, useTurnStore } from "@/domains/chat/turn-store";
 import { DiskPressureBanner, type DiskPressureBannerMode } from "@/components/disk-pressure-banner";
 import { submitQuestionResponse } from "@/domains/chat/api/interactions";
+import { useActiveProfileModel } from "@/domains/chat/hooks/use-active-profile-model";
 import { useStreamStore } from "@/domains/chat/stream-store";
+import { type TurnState, useTurnStore } from "@/domains/chat/turn-store";
+import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
+import { useViewerStore } from "@/stores/viewer-store";
+import { haptic } from "@/utils/haptics";
+import { isPointerCoarse } from "@/utils/pointer";
+import { routes } from "@/utils/routes";
 
-import { useIsMobile } from "@/hooks/use-is-mobile";
-import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { lifecycleService } from "@/assistant/lifecycle-service";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
+import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import type { UseDiskPressureMonitorResult } from "@/assistant/use-disk-pressure-monitor";
+import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
+import { useAppNudges } from "@/domains/chat/hooks/use-app-nudges";
+import { useGhostTextSuggestion } from "@/domains/chat/hooks/use-ghost-text-suggestion";
+import { useInteractionActions } from "@/domains/chat/hooks/use-interaction-actions";
+import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
+import { useVoiceInput } from "@/domains/chat/hooks/use-voice-input";
+import { useConversationListQuery } from "@/hooks/conversation-queries";
+import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
+import { useEditApp } from "@/hooks/use-edit-app";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useConversationStore } from "@/stores/conversation-store";
-import { useConversationListQuery } from "@/hooks/conversation-queries";
-import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
-import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
-import type { UseDiskPressureMonitorResult } from "@/assistant/use-disk-pressure-monitor";
-import { useAppNudges } from "@/domains/chat/hooks/use-app-nudges";
-import { useInteractionActions } from "@/domains/chat/hooks/use-interaction-actions";
-import { useGhostTextSuggestion } from "@/domains/chat/hooks/use-ghost-text-suggestion";
-import { useVoiceInput } from "@/domains/chat/hooks/use-voice-input";
-import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
-import { useEditApp } from "@/hooks/use-edit-app";
-import { lifecycleService } from "@/assistant/lifecycle-service";
 
 // ---------------------------------------------------------------------------
 // Props — only values that cannot be owned locally
@@ -141,23 +141,6 @@ export interface ChatRouteContentProps {
   // History pagination (from useConversationLoader in ActiveChatView)
   historyPagination: HistoryPaginationResult;
 
-  // Draft input (shared — keydown handler + deep link consumer in ActiveChatView)
-  input: string;
-  setInput: Dispatch<SetStateAction<string>>;
-  saveDraft: (key: string, text: string) => void;
-  clearDraft: (key: string) => void;
-  restoredDraftConversationId: string | null;
-  setRestoredDraftConversationId: Dispatch<SetStateAction<string | null>>;
-
-  // Attachments (shared — reset called by switchConversation in orchestration)
-  chatAttachments: ChatAttachment[];
-  attachmentsUploadingCount: number;
-  attachmentUploadedIds: string[];
-  attachmentLastError: string | null;
-  addChatAttachmentFiles: (files: File[] | FileList) => void;
-  removeChatAttachment: (id: string) => void;
-  resetChatAttachments: () => void;
-  dismissChatAttachmentError: () => void;
 
   // Disk pressure (single instance lives in ActiveChatView; passed down to
   // avoid duplicate polling intervals and bus subscriptions)
@@ -195,20 +178,6 @@ export function ChatRouteContent({
   handleForkConversation,
   handleInspectMessage,
   historyPagination,
-  input,
-  setInput,
-  saveDraft,
-  clearDraft,
-  restoredDraftConversationId,
-  setRestoredDraftConversationId,
-  chatAttachments,
-  attachmentsUploadingCount,
-  attachmentUploadedIds,
-  attachmentLastError,
-  addChatAttachmentFiles,
-  removeChatAttachment,
-  resetChatAttachments,
-  dismissChatAttachmentError,
   diskPressure,
   setShowAddCreditsModal,
   setRefreshEpoch,
@@ -221,6 +190,21 @@ export function ChatRouteContent({
   didOnboarding,
   onboardingConversationId,
 }: ChatRouteContentProps) {
+  // --- Composer store (replaces 14 prop-drilled values) ---
+  const input = useComposerStore.use.input();
+  const setInput = useComposerStore.use.setInput();
+  const saveDraft = useComposerStore.use.saveDraft();
+  const clearDraft = useComposerStore.use.clearDraft();
+  const restoredDraftConversationId = useComposerStore.use.restoredDraftConversationId();
+  const clearRestoredDraftNotice = useComposerStore.use.clearRestoredDraftNotice();
+  const chatAttachments = useComposerStore.use.attachments();
+  const attachmentLastError = useComposerStore.use.attachmentLastError();
+  const addFilesRaw = useComposerStore.use.addFiles();
+  const removeChatAttachment = useComposerStore.use.removeAttachment();
+  const resetChatAttachments = useComposerStore.use.resetAttachments();
+  const dismissChatAttachmentError = useComposerStore.use.dismissAttachmentError();
+  const attachmentsUploadingCount = useMemo(() => selectUploadingCount(chatAttachments), [chatAttachments]);
+  const attachmentUploadedIds = useMemo(() => selectUploadedIds(chatAttachments), [chatAttachments]);
   const navigate = useNavigate();
   const isMobile = useIsMobile();
 
@@ -228,6 +212,10 @@ export function ChatRouteContent({
   // Store reads — identity, lifecycle, feature flags
   // -------------------------------------------------------------------------
   const assistantId = useAssistantSelectionStore.use.activeAssistantId();
+  const addChatAttachmentFiles = useCallback(
+    (files: FileList | File[]) => addFilesRaw(files, assistantId),
+    [addFilesRaw, assistantId],
+  );
   const assistantState = useAssistantLifecycleStore.use.assistantState();
   const assistantName = useAssistantIdentityStore.use.name();
   const chatPullToRefreshEnabled = useClientFeatureFlagStore.use.chatPullToRefreshEnabled();
@@ -828,19 +816,19 @@ export function ChatRouteContent({
   useEffect(() => {
     if (!showRestoredDraftNotice) return;
     const id = window.setTimeout(() => {
-      setRestoredDraftConversationId(null);
+      clearRestoredDraftNotice();
     }, 5000);
     return () => window.clearTimeout(id);
-  }, [showRestoredDraftNotice, setRestoredDraftConversationId]);
+  }, [showRestoredDraftNotice, clearRestoredDraftNotice]);
 
   useEffect(() => {
     if (
       restoredDraftConversationId !== null &&
       restoredDraftConversationId !== activeConversationId
     ) {
-      setRestoredDraftConversationId(null);
+      clearRestoredDraftNotice();
     }
-  }, [activeConversationId, restoredDraftConversationId, setRestoredDraftConversationId]);
+  }, [activeConversationId, restoredDraftConversationId, clearRestoredDraftNotice]);
 
   // -------------------------------------------------------------------------
   // Composer submit
@@ -1057,7 +1045,7 @@ export function ChatRouteContent({
         <div className="mb-2">
           <Notice
             tone="info"
-            onDismiss={() => setRestoredDraftConversationId(null)}
+            onDismiss={() => clearRestoredDraftNotice()}
           >
             Draft restored from your previous session.
           </Notice>
@@ -1272,6 +1260,7 @@ export function ChatRouteContent({
     onVoiceError: setVoiceError,
     onVoiceBeforeStart: handleVoiceBeforeStart,
     onStopGenerating: handleStopGenerating,
+    canStopGenerating,
     assistantId,
     conversationId: activeConversation?.conversationId,
     modelSupportsVision: activeModelSupportsVision,

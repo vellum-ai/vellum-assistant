@@ -3,43 +3,43 @@ import { captureError } from "@/lib/sentry/capture-error";
 import { useViewerStore } from "@/stores/viewer-store";
 
 import {
-  type MutableRefObject,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
+    type MutableRefObject,
+    useCallback,
+    useEffect,
+    useLayoutEffect,
+    useMemo,
+    useRef,
 } from "react";
 
-import { toast } from "@vellum/design-library";
 import {
-  createDraftConversationId,
-  resolveBootstrappedConversationId,
+    createDraftConversationId,
+    resolveBootstrappedConversationId,
 } from "@/domains/chat/utils/conversation-selection";
 import {
-  loadLastViewedConversationId,
-  saveLastViewedConversationId,
+    loadLastViewedConversationId,
+    saveLastViewedConversationId,
 } from "@/utils/last-viewed-conversation-storage";
+import { toast } from "@vellumai/design-library";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
-import { useConversationStore } from "@/stores/conversation-store";
-import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { requestComposerFocus } from "@/domains/chat/composer-focus";
+import { useSubagentStore } from "@/domains/chat/subagent-store";
+import { useConversationStore } from "@/stores/conversation-store";
 import { haptic } from "@/utils/haptics";
 import { routes } from "@/utils/routes";
 import { useNavigate } from "react-router";
 
+import { useConversationHistory } from "@/domains/chat/hooks/use-conversation-history";
 import type { AssistantStateKind } from "@/domains/chat/types";
 import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
-import { useConversationHistory } from "@/domains/chat/hooks/use-conversation-history";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { ApiError } from "@/utils/api-errors";
-import type { Conversation } from "@/types/conversation-types";
-import { isBackgroundConversation } from "@/utils/conversation-predicates";
 import { useConversationListQuery } from "@/hooks/conversation-queries";
-import { invalidateConversationQueries } from "@/utils/conversation-cache";
 import { conversationGroupsQueryKey } from "@/lib/sync/query-tags";
+import type { Conversation } from "@/types/conversation-types";
+import { ApiError } from "@/utils/api-errors";
+import { invalidateConversationQueries } from "@/utils/conversation-cache";
+import { isBackgroundConversation } from "@/utils/conversation-predicates";
 
 // ---------------------------------------------------------------------------
 // Module constants
@@ -69,8 +69,6 @@ interface UseConversationLoaderParams {
 
   // Infrastructure refs (not per-conversation state)
   onboardingDraftConversationIdRef: MutableRefObject<string | null>;
-  // Attachment reset (lives outside the session store)
-  resetChatAttachments: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -106,7 +104,6 @@ export function useConversationLoader({
   refreshEpoch,
   reachabilityReadyEpoch,
   onboardingDraftConversationIdRef,
-  resetChatAttachments,
 }: UseConversationLoaderParams) {
   const navigate = useNavigate();
 
@@ -410,7 +407,6 @@ export function useConversationLoader({
     assistantId,
     assistantStateKind,
     activeConversationId,
-    resetChatAttachments,
   });
 
   // -------------------------------------------------------------------------

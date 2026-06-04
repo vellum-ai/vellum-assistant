@@ -265,7 +265,12 @@ mock.module("../agent/loop.js", () => ({
         content: [{ type: "text", text: "ok" }],
       };
       onEvent({ type: "message_complete", message: assistantMessage });
-      return { history: [...messages, assistantMessage], exitReason: null };
+      return {
+        history: [...messages, assistantMessage],
+        exitReason: null,
+        appendedNewMessages: true,
+        newMessages: [assistantMessage],
+      };
     }
   },
 }));

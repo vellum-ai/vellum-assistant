@@ -1,48 +1,48 @@
 import {
-  Brain,
-  Calendar,
-  ChevronDown,
-  ChevronRight,
-  Clock,
-  Hash,
-  Layers,
-  LayoutGrid,
-  Pin,
-  Rocket,
-  Search,
-  SquarePen,
-  X,
+    Brain,
+    Calendar,
+    ChevronDown,
+    ChevronRight,
+    Clock,
+    Hash,
+    Layers,
+    LayoutGrid,
+    Pin,
+    Rocket,
+    Search,
+    SquarePen,
+    X,
 } from "lucide-react";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 
-import {
-  ConversationActionsMenu,
-  renderConversationMenuItems,
-  type ConversationMenuItemsProps,
-} from "@/domains/chat/components/conversation-actions-menu";
+import { CollapsibleNavSection } from "@/components/collapsible-nav-section";
 import { CollapsedGroupIcon, getGroupIndicatorState } from "@/domains/chat/components/collapsed-group-icon";
-import { ThreadPinToggle } from "@/domains/chat/components/thread-pin-toggle";
+import {
+    ConversationActionsMenu,
+    renderConversationMenuItems,
+    type ConversationMenuItemsProps,
+} from "@/domains/chat/components/conversation-actions-menu";
 import { GroupActionsMenu, renderGroupMenuItems } from "@/domains/chat/components/group-actions-menu";
 import { BackgroundSubGroups, ScheduledSubGroups } from "@/domains/chat/components/sub-group-accordion";
+import { ThreadPinToggle } from "@/domains/chat/components/thread-pin-toggle";
+import { SIDEBAR_CONVERSATION_LIMIT, useSidebarState, type UseSidebarStateParams } from "@/domains/chat/use-sidebar-state";
 import {
-  formatBackgroundSubGroupLabel,
-  groupBackgroundConversationsBySource,
+    formatBackgroundSubGroupLabel,
+    groupBackgroundConversationsBySource,
 } from "@/domains/chat/utils/background-sub-groups";
-import { useSidebarState, SIDEBAR_CONVERSATION_LIMIT, type UseSidebarStateParams } from "@/domains/chat/use-sidebar-state";
-import {
-  Button,
-  ContextMenu,
-  PanelItem,
-  SideMenu,
-} from "@vellum/design-library";
-import { CollapsibleNavSection } from "@/components/collapsible-nav-section";
-import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
-import { buildMoveToGroupTargets, isConversationPinned } from "@/domains/chat/utils/group-conversations";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
+import { buildMoveToGroupTargets, isConversationPinned } from "@/domains/chat/utils/group-conversations";
+import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import type { Conversation } from "@/types/conversation-types";
 import { canMarkRead, canMarkUnread } from "@/utils/conversation-predicates";
+import {
+    Button,
+    ContextMenu,
+    PanelItem,
+    SideMenu,
+} from "@vellumai/design-library";
 
 /** @deprecated Use {@link SIDEBAR_CONVERSATION_LIMIT} from `use-sidebar-state.ts` */
 export const ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT = SIDEBAR_CONVERSATION_LIMIT;

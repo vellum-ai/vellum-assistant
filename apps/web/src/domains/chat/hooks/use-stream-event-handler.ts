@@ -317,6 +317,12 @@ export function useStreamEventHandler(
         case "tool_result":
           handleToolResult(event, ctx);
           break;
+        // The web transcript renders tool activity from `tool_use_start`
+        // and `tool_result`. It does not surface the optimistic pre-input
+        // affordance or incremental output chunks, so these are ignored.
+        case "tool_use_preview_start":
+        case "tool_output_chunk":
+          break;
         case "usage_update":
           handleUsageUpdate(event, ctx);
           break;
@@ -388,6 +394,11 @@ export function useStreamEventHandler(
         case "document_comment_reopened":
         case "document_comment_deleted":
         case "interaction_resolved":
+          break;
+        // Diagnostic timeline events. The logs domain fetches these from
+        // the daemon's trace-events endpoint on demand; the chat stream
+        // handler ignores them.
+        case "trace_event":
           break;
         case "unknown":
           break;

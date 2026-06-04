@@ -7,11 +7,19 @@ import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useVisibleViewport } from "@/hooks/use-visible-viewport";
 import { useAssistantLifecycle } from "@/assistant/use-lifecycle";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
-import { useAuthStore } from "@/stores/auth-store";
+import {
+  useAuthStore,
+  useIsSessionInitializing,
+  useHasPlatformSession,
+} from "@/stores/auth-store";
+import { getOnboardingEntrypoint } from "@/domains/onboarding/gate";
+import { setMenuPlatformSession } from "@/runtime/menu";
+import { useVellumCommands } from "@/runtime/vellum-commands";
 import { useEnvironmentStore } from "@/stores/environment-store";
 import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
 import { useDocumentEditorSync } from "@/hooks/use-document-editor-sync";
 import { useNotificationIntentSync } from "@/hooks/use-notification-intent-sync";
+import { useOnboardingWindowSize } from "@/hooks/use-onboarding-window-size";
 import { useConversationSync } from "@/hooks/use-conversation-sync";
 import { resolveOnboardingRedirect } from "@/domains/onboarding/gate";
 import { useFeatureFlagBusSync } from "@/hooks/use-feature-flag-bus-sync";
@@ -20,6 +28,8 @@ import { useAssistantFeatureFlagSync } from "@/hooks/use-assistant-feature-flag-
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useDynamicFavicon } from "@/hooks/use-dynamic-favicon";
+import { useElectronIconSync } from "@/hooks/use-electron-icon-sync";
+import { useElectronStatusSync } from "@/hooks/use-electron-status-sync";
 import { TimezoneSync } from "@/components/timezone-sync";
 
 /**
@@ -57,14 +67,13 @@ export function RootLayout() {
   const visibleViewport = useVisibleViewport();
 
   const navigate = useNavigate();
-  const isLoggedIn = useAuthStore.use.isLoggedIn();
-  const authLoading = useAuthStore.use.isLoading();
-  const hasPlatformSession = useAuthStore.use.hasPlatformSession();
+  const sessionStatus = useAuthStore.use.sessionStatus();
+  const isSessionInitializing = useIsSessionInitializing();
+  const hasPlatformSession = useHasPlatformSession();
   const isNonProduction = useEnvironmentStore.use.isNonProduction();
-  useClientFeatureFlagSync(hasPlatformSession && !authLoading);
+  useClientFeatureFlagSync(hasPlatformSession && !isSessionInitializing);
   useAssistantLifecycle({
-    isLoggedIn,
-    isLoading: authLoading,
+    sessionStatus,
     isRetired: false,
     isNonProduction,
     hasPlatformSession,
@@ -90,6 +99,17 @@ export function RootLayout() {
   const avatar = useAssistantAvatar(assistantId);
   useDynamicFavicon(avatar.customImageUrl, avatar.components, avatar.traits);
 
+  // Feed the same avatar to the Electron Dock + menu-bar icons, and publish
+  // the live connection status to the menu-bar dot. Both no-op off Electron.
+  useElectronIconSync(avatar.customImageUrl, avatar.components, avatar.traits);
+  useElectronStatusSync();
+
+  // Size the Electron main window to the onboarding layout (440×630
+  // default) while on an onboarding step, and back to the main-app size
+  // elsewhere. No-op off Electron. Mounted at the app root so it tracks
+  // navigation across the whole onboarding flow.
+  useOnboardingWindowSize();
+
   useEventBusInit({ assistantId, isAssistantActive });
   // Inbound deep-link navigation + window activation. Mounted here
   // (not in `ChatPage`) so a `vellum://thread/...` arriving while
@@ -98,6 +118,16 @@ export function RootLayout() {
   // `useDeepLinkConsumer` because it owns `setInput`; the two
   // hand off via `pending-deep-link-store`.
   useGlobalDeepLinkConsumer();
+
+  useVellumCommands({
+    logout: () => {
+      void setMenuPlatformSession(false).then(() =>
+        useAuthStore.getState().logout(),
+      ).then(() => {
+        navigate(getOnboardingEntrypoint());
+      });
+    },
+  });
 
   const keyboardOpen =
     isMobile &&

@@ -94,7 +94,15 @@ mock.module("../version.js", () => ({
 let mockCollectUsageData = true;
 
 mock.module("../config/loader.js", () => ({
-  getConfig: () => ({ collectUsageData: mockCollectUsageData }),
+  getConfig: () => ({
+    ui: {},
+    model: "test",
+    provider: "test",
+    memory: { enabled: false },
+    rateLimit: { maxRequestsPerMinute: 0 },
+    secretDetection: { enabled: false },
+    collectUsageData: mockCollectUsageData,
+  }),
 }));
 
 const mockQueryUnreportedLifecycleEvents = mock(
@@ -130,12 +138,23 @@ mock.module("../memory/onboarding-events-store.js", () => ({
   queryUnreportedOnboardingEvents: mockQueryUnreportedOnboardingEvents,
 }));
 
+// The auth-fallback store is intentionally NOT mocked — it has its own
+// DB-backed tests, and Bun's `mock.module` is process-global, so mocking it
+// here would leak into those tests when files share an invocation. We seed the
+// real DB instead so every auth-fallback test stays order-independent.
+
 // ---------------------------------------------------------------------------
 // Production import (after mocks)
 // ---------------------------------------------------------------------------
 
+import { recordAuthFallbackCounts } from "../memory/auth-fallback-events-store.js";
+import { getDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
+import { authFallbackEvents } from "../memory/schema.js";
 import type { UsageEvent } from "../usage/types.js";
 import { UsageTelemetryReporter } from "./usage-telemetry-reporter.js";
+
+initializeDb();
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -201,6 +220,7 @@ beforeEach(() => {
   mockQueryUnreportedLifecycleEvents.mockReturnValue([]);
   mockQueryUnreportedOnboardingEvents.mockReset();
   mockQueryUnreportedOnboardingEvents.mockReturnValue([]);
+  getDb().delete(authFallbackEvents).run();
   mockPlatformClient = null;
   mockGetPlatformBaseUrl.mockReset();
   mockGetDeviceId.mockReset();
@@ -909,9 +929,9 @@ describe("UsageTelemetryReporter", () => {
     // No HTTP call should have been made
     expect(mockFetch).not.toHaveBeenCalled();
 
-    // All 4 timestamp watermarks should have been advanced (IDs left untouched
+    // All 5 timestamp watermarks should have been advanced (IDs left untouched
     // so the compound-cursor branch stays active)
-    expect(mockSetMemoryCheckpoint).toHaveBeenCalledTimes(4);
+    expect(mockSetMemoryCheckpoint).toHaveBeenCalledTimes(5);
 
     const calls = mockSetMemoryCheckpoint.mock.calls;
     const keys = calls.map((c) => c[0]);
@@ -919,6 +939,7 @@ describe("UsageTelemetryReporter", () => {
     expect(keys).toContain("telemetry:turns:last_reported_at");
     expect(keys).toContain("telemetry:lifecycle:last_reported_at");
     expect(keys).toContain("telemetry:onboarding:last_reported_at");
+    expect(keys).toContain("telemetry:auth_fallback:last_reported_at");
   });
 
   test("events sent normally after re-enabling collectUsageData", async () => {
@@ -1074,5 +1095,93 @@ describe("UsageTelemetryReporter", () => {
     expect(versions.sort()).toEqual(["0.8.3", "0.8.5"]);
     // Envelope still reflects the running binary, not either event.
     expect(body.assistant_version).toBe("1.2.3-test");
+  });
+
+  // -------------------------------------------------------------------------
+  // Auth-fallback events
+  // -------------------------------------------------------------------------
+
+  test("auth_fallback events are included in the events array with type discriminator", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    recordAuthFallbackCounts(1700000740000, 1700000800000, [
+      {
+        guard: "edge",
+        path: "/v1/messages",
+        failureKind: "missing_authorization",
+        count: 42,
+      },
+    ]);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.events.length).toBe(1);
+    expect(body.events[0]).toMatchObject({
+      type: "auth_fallback",
+      guard: "edge",
+      path: "/v1/messages",
+      failure_kind: "missing_authorization",
+      count: 42,
+      window_start: 1700000740000,
+      window_end: 1700000800000,
+      assistant_version: "1.2.3-test",
+    });
+    // recorded_at is the row's createdAt (stamped at record time).
+    expect(typeof body.events[0].recorded_at).toBe("number");
+    expect(typeof body.events[0].daemon_event_id).toBe("string");
+  });
+
+  test("auth_fallback watermark advances to the last reported row on success", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    recordAuthFallbackCounts(1700000000000, 1700000001000, [
+      {
+        guard: "edge-scoped",
+        path: "/v1/a",
+        failureKind: "insufficient_scope",
+        count: 1,
+      },
+      {
+        guard: "edge-guardian",
+        path: "/v1/b",
+        failureKind: "guardian_mismatch",
+        count: 3,
+      },
+    ]);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":2}', { status: 200 })),
+    );
+
+    // The last row by the reporter's (createdAt, id) cursor order is the one
+    // whose watermark should be persisted after a successful upload.
+    const rows = getDb()
+      .select()
+      .from(authFallbackEvents)
+      .orderBy(authFallbackEvents.createdAt, authFallbackEvents.id)
+      .all();
+    const lastRow = rows[rows.length - 1];
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    const watermarkCalls = mockSetMemoryCheckpoint.mock.calls.filter(
+      (c) => c[0] === "telemetry:auth_fallback:last_reported_at",
+    );
+    expect(watermarkCalls.length).toBeGreaterThanOrEqual(1);
+    expect(watermarkCalls[watermarkCalls.length - 1][1]).toBe(
+      String(lastRow.createdAt),
+    );
+
+    const idCalls = mockSetMemoryCheckpoint.mock.calls.filter(
+      (c) => c[0] === "telemetry:auth_fallback:last_reported_id",
+    );
+    expect(idCalls.length).toBeGreaterThanOrEqual(1);
+    expect(idCalls[idCalls.length - 1][1]).toBe(lastRow.id);
   });
 });

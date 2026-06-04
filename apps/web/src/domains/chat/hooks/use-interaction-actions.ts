@@ -23,8 +23,12 @@ import { useConversationStore } from "@/stores/conversation-store";
 import { useTurnStore } from "@/domains/chat/turn-store";
 import { endTurn } from "@/domains/chat/turn-coordinator";
 
-import { clearConfirmationByRequestId } from "@/domains/chat/hooks/send-message-utils";
+import {
+  clearConfirmationByRequestId,
+  completeSubmittedSurface,
+} from "@/domains/chat/hooks/send-message-utils";
 import { deriveCommandText } from "@/domains/chat/utils/chat";
+import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import type { ConfirmationDecision } from "@/types/event-types";
 import type { AllowlistOption, DirectoryScopeOption, RiskScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 import type { TrustRuleItem, TrustRuleSuggestion } from "@/types/trust-rules";
@@ -349,7 +353,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
         if (msgIdx !== -1) {
           const msg = currentMessages[msgIdx];
           const tcIdx = msg?.toolCalls?.findLastIndex(
-            (tc) => (tc.status === "completed" || tc.status === "error") && !tc.riskLevel,
+            (tc) => !isToolCallRunning(tc) && !tc.riskLevel,
           ) ?? -1;
           if (tcIdx !== -1) return msg!.toolCalls![tcIdx]!.id;
         }
@@ -371,9 +375,9 @@ export function useInteractionActions(): UseInteractionActionsReturn {
                 pendingConfirmation: null,
                 riskLevel: snapshot.riskLevel,
                 riskReason: snapshot.riskReason,
-                allowlistOptions: snapshot.allowlistOptions,
+                riskAllowlistOptions: snapshot.allowlistOptions,
                 scopeOptions: snapshot.scopeOptions,
-                directoryScopeOptions: snapshot.directoryScopeOptions,
+                riskDirectoryScopeOptions: snapshot.directoryScopeOptions,
                 confirmationDecision: confirmationDecisionValue,
               };
               const updated = [...prev];
@@ -389,7 +393,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
         const msg = prev[msgIdx];
         if (!msg?.toolCalls) return prev;
         const tcIdx = msg.toolCalls.findLastIndex(
-          (tc) => (tc.status === "completed" || tc.status === "error") && !tc.riskLevel,
+          (tc) => !isToolCallRunning(tc) && !tc.riskLevel,
         );
         if (tcIdx === -1) return prev;
         const existingTc = msg.toolCalls[tcIdx];
@@ -400,9 +404,9 @@ export function useInteractionActions(): UseInteractionActionsReturn {
           pendingConfirmation: null,
           riskLevel: snapshot.riskLevel,
           riskReason: snapshot.riskReason,
-          allowlistOptions: snapshot.allowlistOptions,
+          riskAllowlistOptions: snapshot.allowlistOptions,
           scopeOptions: snapshot.scopeOptions,
-          directoryScopeOptions: snapshot.directoryScopeOptions,
+          riskDirectoryScopeOptions: snapshot.directoryScopeOptions,
           confirmationDecision: confirmationDecisionValue,
         };
         const updated = [...prev];
@@ -887,35 +891,9 @@ export function useInteractionActions(): UseInteractionActionsReturn {
 
       useTurnStore.getState().requestSend();
 
-      const ONE_SHOT_SURFACE_TYPES = ["form", "confirmation", "file_upload", "card", "list", "table", "browser_view", "task_preferences"];
-      setMessages((prev: DisplayMessage[]) => {
-        for (let i = prev.length - 1; i >= 0; i--) {
-          const surface = prev[i]!.surfaces?.find((s) => s.surfaceId === surfaceId);
-          if (!surface) continue;
-          if (!ONE_SHOT_SURFACE_TYPES.includes(surface.surfaceType)) return prev;
-          const matchedAction = surface.actions?.find((a) => a.id === actionId);
-          const isCancellation =
-            actionId === "cancel" || actionId === "dismiss" ||
-            matchedAction?.style === "secondary";
-          const updated = [...prev];
-          updated[i] = {
-            ...prev[i]!,
-            surfaces: prev[i]!.surfaces?.map((s) =>
-              s.surfaceId === surfaceId
-                ? {
-                    ...s,
-                    completed: true,
-                    completionSummary: isCancellation
-                      ? "Cancelled"
-                      : matchedAction?.label ?? undefined,
-                  }
-                : s,
-            ),
-          };
-          return updated;
-        }
-        return prev;
-      });
+      setMessages((prev: DisplayMessage[]) =>
+        completeSubmittedSurface(prev, surfaceId, actionId),
+      );
     },
     [],
   );

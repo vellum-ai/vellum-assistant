@@ -1,12 +1,12 @@
 /* ---------------------------------------------------------------------------
- * Design system tokens — @vellum/design-library
+ * Design system tokens — @vellumai/design-library
  *
  * Single source of truth for color, typography, and component tokens.
  * Consuming apps import this file to provide the CSS variable context that
  * design-library components depend on.
  *
  * Usage (in a consuming app's global CSS):
- *   @import "@vellum/design-library/tokens.css";
+ *   @import "@vellumai/design-library/tokens.css";
  *
  * Theme selection is controlled by a `data-theme` attribute on any ancestor
  * element (typically <html> or a wrapper <div>):

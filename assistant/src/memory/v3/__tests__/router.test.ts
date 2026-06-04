@@ -3,10 +3,13 @@
  *
  * Coverage matrix:
  *   - Returned IDs map to the right leaves by 1-based index, in model order.
- *   - Omitted `ids` → ALL leaves (recall-safe).
+ *   - Omitted `ids` → no leaves (the router must name leaves explicitly,
+ *     never open the whole tree).
  *   - Explicit `ids: []` → no leaves (deliberate abstention).
  *   - Out-of-range / duplicate IDs ignored, no throw.
- *   - No provider / missing tool_use / schema mismatch / throw → ALL leaves.
+ *   - No provider / missing tool_use / schema mismatch / throw → no leaves
+ *     (degrade to the deterministic lanes), the last three after a re-prompt
+ *     retry; a malformed response that recovers on retry returns its IDs.
  *   - The rendered leaf block is byte-identical across two calls with
  *     different queries (the cache invariant).
  *   - The system prompt mentions "register" (locks the routing commitment).
@@ -76,6 +79,45 @@ function toolUseResponse(input: Record<string, unknown>): ProviderResponse {
   };
 }
 
+/** A 200 response that carries no tool_use — the malformed-but-successful case
+ * the re-prompt retry exists to recover from. */
+function noToolResponse(): ProviderResponse {
+  return {
+    model: "stub-model",
+    stopReason: "end_turn",
+    usage: { inputTokens: 0, outputTokens: 0 },
+    content: [{ type: "text", text: "no tool call" }],
+  };
+}
+
+/** Provider returning a different response per call (the i-th call returns
+ * responses[i], or the last entry once exhausted), recording each call so a
+ * test can assert how many attempts were made. */
+function makeSequenceProvider(responses: ProviderResponse[]): Provider {
+  let i = 0;
+  return {
+    name: "sequence",
+    sendMessage: async (messages, options) => {
+      providerCalls.push({ messages, options });
+      const response = responses[Math.min(i, responses.length - 1)];
+      i += 1;
+      return response;
+    },
+  };
+}
+
+/** Provider that records each call and then throws — for the throw-after-retries
+ * path (the provider's own RetryProvider has already exhausted its backoff). */
+function makeThrowingProvider(): Provider {
+  return {
+    name: "throwing",
+    sendMessage: async (messages, options) => {
+      providerCalls.push({ messages, options });
+      throw new Error("boom");
+    },
+  };
+}
+
 function makeLeaf(path: LeafPath, description: string): LeafNode {
   return {
     path,
@@ -100,8 +142,6 @@ function makeTree(): LeafTree {
     byPage: new Map(),
   };
 }
-
-const SORTED_PATHS = ["people/alice", "people/bob", "projects/atlas"];
 
 function makeTurn(currentMessage: string): TurnContext {
   return {
@@ -128,10 +168,10 @@ describe("routeL1 — id mapping", () => {
     expect(result).toEqual(["projects/atlas", "people/alice"]);
   });
 
-  test("omitted ids opens ALL leaves (recall-safe)", async () => {
+  test("omitted ids opens no leaves (must name leaves explicitly)", async () => {
     providerStub = makeProvider(toolUseResponse({}));
     const result = await routeL1(makeTurn("anything"), makeTree());
-    expect(result).toEqual(SORTED_PATHS);
+    expect(result).toEqual([]);
   });
 
   test("explicit empty ids opens no leaves (abstention)", async () => {
@@ -157,39 +197,43 @@ describe("routeL1 — id mapping", () => {
   });
 });
 
-describe("routeL1 — recall-safe fallbacks", () => {
-  test("no provider → ALL leaves", async () => {
+describe("routeL1 — degradation on failure", () => {
+  test("no provider → no leaves, without calling the provider", async () => {
     providerStub = null;
     const result = await routeL1(makeTurn("x"), makeTree());
-    expect(result).toEqual(SORTED_PATHS);
+    expect(result).toEqual([]);
+    expect(providerCalls).toHaveLength(0);
   });
 
-  test("missing tool_use → ALL leaves", async () => {
-    providerStub = makeProvider({
-      model: "stub-model",
-      stopReason: "end_turn",
-      usage: { inputTokens: 0, outputTokens: 0 },
-      content: [{ type: "text", text: "no tool call" }],
-    });
+  test("missing tool_use → no leaves after retrying", async () => {
+    providerStub = makeProvider(noToolResponse());
     const result = await routeL1(makeTurn("x"), makeTree());
-    expect(result).toEqual(SORTED_PATHS);
+    expect(result).toEqual([]);
+    expect(providerCalls).toHaveLength(3);
   });
 
-  test("schema mismatch → ALL leaves", async () => {
+  test("schema mismatch → no leaves after retrying", async () => {
     providerStub = makeProvider(toolUseResponse({ ids: "not-an-array" }));
     const result = await routeL1(makeTurn("x"), makeTree());
-    expect(result).toEqual(SORTED_PATHS);
+    expect(result).toEqual([]);
+    expect(providerCalls).toHaveLength(3);
   });
 
-  test("provider throw → ALL leaves", async () => {
-    providerStub = {
-      name: "throwing",
-      sendMessage: async () => {
-        throw new Error("boom");
-      },
-    };
+  test("provider throw → no leaves after retrying", async () => {
+    providerStub = makeThrowingProvider();
     const result = await routeL1(makeTurn("x"), makeTree());
-    expect(result).toEqual(SORTED_PATHS);
+    expect(result).toEqual([]);
+    expect(providerCalls).toHaveLength(3);
+  });
+
+  test("a malformed response that recovers on retry returns its IDs", async () => {
+    providerStub = makeSequenceProvider([
+      noToolResponse(),
+      toolUseResponse({ ids: [2] }),
+    ]);
+    const result = await routeL1(makeTurn("bob?"), makeTree());
+    expect(result).toEqual(["people/bob"]);
+    expect(providerCalls).toHaveLength(2);
   });
 });
 

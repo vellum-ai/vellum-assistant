@@ -1,7 +1,7 @@
 import { Loader2, RotateCcw } from "lucide-react";
-import { useRouteError, isRouteErrorResponse } from "react-router";
+import { isRouteErrorResponse, useRouteError } from "react-router";
 
-import { Button } from "@vellum/design-library/components/button";
+import { Button } from "@vellumai/design-library/components/button";
 
 import { isChunkLoadError } from "@/lib/chunk-errors";
 

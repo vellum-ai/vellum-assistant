@@ -1,19 +1,19 @@
 import { X } from "lucide-react";
 import {
-  type FormEvent,
-  type KeyboardEvent,
-  type MouseEvent,
-  useCallback,
-  useRef,
-  useState,
+    type FormEvent,
+    type KeyboardEvent,
+    type MouseEvent,
+    useCallback,
+    useRef,
+    useState,
 } from "react";
 import { createPortal } from "react-dom";
 
-import { Dropdown } from "@vellum/design-library/components/dropdown";
-import { Input } from "@vellum/design-library/components/input";
-import { Notice } from "@vellum/design-library/components/notice";
 import { updateTrustRule } from "@/lib/trust-rules-api";
 import type { TrustRuleItem, TrustRuleRisk } from "@/types/trust-rules";
+import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Input } from "@vellumai/design-library/components/input";
+import { Notice } from "@vellumai/design-library/components/notice";
 
 const TOOL_OPTIONS = [
   "bash",
@@ -103,7 +103,7 @@ export function TrustRuleFormModal({
       onKeyDown={handleKeyDown}
       onClick={handleBackdropClick}
     >
-      <div className="mx-4 flex max-h-[calc(100vh-2rem)] w-full max-w-md flex-col rounded-xl border border-[var(--border-base)] bg-[var(--surface-raised)] shadow-xl">
+      <div className="mx-4 flex max-h-[calc(100vh-2rem)] w-full max-w-md flex-col rounded-xl border border-[var(--border-base)] bg-[var(--surface-lift)] shadow-xl">
         <div className="flex items-center justify-between gap-3 border-b border-[var(--border-base)] px-6 py-4">
           <h2
             id="trust-rule-form-title"

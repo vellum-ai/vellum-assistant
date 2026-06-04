@@ -2,8 +2,8 @@ import { ArrowLeft } from "lucide-react";
 import { type ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 
-import { Button, Typography } from "@vellum/design-library";
 import { routes } from "@/utils/routes";
+import { Button, Typography } from "@vellumai/design-library";
 
 interface SidebarShellProps {
   sidebar: ReactNode;

@@ -18,6 +18,7 @@ import {
   addCoreColumns,
   createApprovalPromptTsTrackerTable,
   createAssistantInboxTables,
+  createAuthFallbackEventsTable,
   createCallSessionsTables,
   createCanonicalGuardianTables,
   createChannelGuardianTables,
@@ -188,6 +189,7 @@ import {
   migrateScheduleReuseConversation,
   migrateScheduleScriptColumn,
   migrateScheduleScriptTimeout,
+  migrateScheduleSourceConversation,
   migrateScheduleWakeConversationId,
   migrateSchemaIndexesAndColumns,
   migrateScrubCorruptedImageAttachments,
@@ -473,7 +475,9 @@ export function initializeDb(): void {
     migrateLlmUsageEventsAddAssistantVersion,
     migrateAddMemoryV3Selections,
     migrateScheduleScriptTimeout,
+    migrateScheduleSourceConversation,
     migrateMessagesRoleCreatedAtIndex,
+    createAuthFallbackEventsTable,
   ];
 
   // Run each migration step, catching and logging individual failures so one

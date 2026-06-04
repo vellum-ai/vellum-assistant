@@ -1,6 +1,6 @@
 import { Crown } from "lucide-react";
 
-import { Button } from "@vellum/design-library/components/button";
+import { Button } from "@vellumai/design-library/components/button";
 
 export function WelcomeState({
   onContinue,

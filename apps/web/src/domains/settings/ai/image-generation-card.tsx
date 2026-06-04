@@ -3,28 +3,26 @@ import { useCallback, useMemo, useState } from "react";
 
 import { useQueryClient } from "@tanstack/react-query";
 
-import { Dropdown } from "@vellum/design-library/components/dropdown";
-import { Input } from "@vellum/design-library/components/input";
-import { toast } from "@vellum/design-library/components/toast";
 import { captureError } from "@/lib/sentry/capture-error";
 import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
 import {
-  removeLocalSetting,
-  setLocalSetting,
-  getLocalSetting,
+    getLocalSetting,
+    setLocalSetting,
 } from "@/utils/local-settings";
+import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Input } from "@vellumai/design-library/components/input";
+import { toast } from "@vellumai/design-library/components/toast";
 
 import type { ServiceMode } from "@/domains/settings/ai/ai-types";
 import {
-  AVAILABLE_IMAGE_GEN_MODELS,
-  IMAGE_GEN_MODEL_DISPLAY_NAMES,
-  LS_IMAGE_GEN_CREDENTIAL,
-  LS_IMAGE_GEN_MODE,
-  LS_IMAGE_GEN_MODEL,
+    AVAILABLE_IMAGE_GEN_MODELS,
+    IMAGE_GEN_MODEL_DISPLAY_NAMES,
+    LS_IMAGE_GEN_MODE,
+    LS_IMAGE_GEN_MODEL,
 } from "@/domains/settings/ai/ai-types";
-import { reconcileFromDaemonConfig } from "@/domains/settings/ai/ai-utils";
-import { ServiceCard, SaveButton, ResetButton } from "@/domains/settings/ai/ai-shared-ui";
-import { useAssistantId, useDaemonConfigQuery, useDaemonConfigMutation, useProvisionProviderKey } from "@/domains/settings/ai/use-daemon-config";
+
+import { ResetButton, SaveButton, ServiceCard } from "@/domains/settings/ai/ai-shared-ui";
+import { useAssistantId, useDaemonConfigMutation, useDaemonConfigQuery, useProvisionProviderKey } from "@/domains/settings/ai/use-daemon-config";
 import { useDraftOverride } from "@/domains/settings/ai/use-draft-override";
 import { modelImagegenPut } from "@/generated/daemon/sdk.gen";
 
@@ -38,8 +36,8 @@ export function ImageGenerationCard() {
   // Updates automatically when the cache refreshes.
   const serverImageGenMode = useMemo<ServiceMode>(() => {
     if (!daemonConfig) return getLocalSetting(LS_IMAGE_GEN_MODE, "your-own") as ServiceMode;
-    const reconciled = reconcileFromDaemonConfig(daemonConfig);
-    return reconciled.imageGenMode ?? (getLocalSetting(LS_IMAGE_GEN_MODE, "your-own") as ServiceMode);
+    const mode = daemonConfig.services?.["image-generation"]?.mode;
+    return (mode === "managed" || mode === "your-own" ? mode : getLocalSetting(LS_IMAGE_GEN_MODE, "your-own")) as ServiceMode;
   }, [daemonConfig]);
 
   const [imageGenMode, setDraftImageGenMode] = useDraftOverride(serverImageGenMode);
@@ -90,7 +88,6 @@ export function ImageGenerationCard() {
       setLocalSetting(LS_IMAGE_GEN_MODE, imageGenMode);
       setLocalSetting(LS_IMAGE_GEN_MODEL, imageGenModel);
       if (hasUserKey) {
-        setLocalSetting(LS_IMAGE_GEN_CREDENTIAL, trimmed);
         setImageGenApiKey("");
       }
       toast.success("Image generation settings saved.");
@@ -109,7 +106,6 @@ export function ImageGenerationCard() {
   ]);
 
   const handleReset = useCallback(() => {
-    removeLocalSetting(LS_IMAGE_GEN_CREDENTIAL);
     setImageGenApiKey("");
     setImageGenModel("gemini-3.1-flash-image-preview");
     setLocalSetting(LS_IMAGE_GEN_MODEL, "gemini-3.1-flash-image-preview");

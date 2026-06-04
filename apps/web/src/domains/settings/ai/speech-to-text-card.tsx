@@ -1,21 +1,20 @@
-import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { Dropdown } from "@vellum/design-library/components/dropdown";
-import { Input } from "@vellum/design-library/components/input";
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
+import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Input } from "@vellumai/design-library/components/input";
 
 import {
-  STT_PROVIDERS,
-  LS_STT_PROVIDER,
-  LS_STT_API_KEY_PREFIX,
-} from "@/domains/settings/ai/ai-types";
-import {
-  ByoServiceCard,
-  CredentialsGuide,
-  SaveButton,
-  ResetButton,
+    ByoServiceCard,
+    CredentialsGuide,
+    ResetButton,
+    SaveButton,
 } from "@/domains/settings/ai/ai-shared-ui";
+import {
+    LS_STT_API_KEY_PREFIX,
+    LS_STT_PROVIDER,
+    STT_PROVIDERS,
+} from "@/domains/settings/ai/ai-types";
 
 export function SpeechToTextCard() {
   const defaultProviderId = STT_PROVIDERS[0]?.id ?? "deepgram";
@@ -25,7 +24,6 @@ export function SpeechToTextCard() {
   const [initialProvider, setInitialProvider] = useState<string>(draftProvider);
   const [apiKeyText, setApiKeyText] = useState("");
   const [providerHasKey, setProviderHasKey] = useState(false);
-  const [saving, setSaving] = useState(false);
 
   const selectedProvider = useMemo(() => {
     return (
@@ -49,19 +47,14 @@ export function SpeechToTextCard() {
   }, [draftProvider, initialProvider, apiKeyText]);
 
   const handleSave = useCallback(() => {
-    setSaving(true);
-    try {
-      setLocalSetting(LS_STT_PROVIDER, draftProvider);
-      const trimmedKey = apiKeyText.trim();
-      if (trimmedKey.length > 0) {
-        setLocalSetting(LS_STT_API_KEY_PREFIX + draftProvider, trimmedKey);
-        setProviderHasKey(true);
-      }
-      setInitialProvider(draftProvider);
-      setApiKeyText("");
-    } finally {
-      setSaving(false);
+    setLocalSetting(LS_STT_PROVIDER, draftProvider);
+    const trimmedKey = apiKeyText.trim();
+    if (trimmedKey.length > 0) {
+      setLocalSetting(LS_STT_API_KEY_PREFIX + draftProvider, trimmedKey);
+      setProviderHasKey(true);
     }
+    setInitialProvider(draftProvider);
+    setApiKeyText("");
   }, [draftProvider, apiKeyText]);
 
   const handleReset = useCallback(() => {
@@ -81,7 +74,7 @@ export function SpeechToTextCard() {
     >
       <div className="space-y-4">
         <div className="space-y-1">
-          <label className="block text-body-small-default text-[var(--content-quiet)]">
+          <label className="block text-body-small-default text-[var(--content-tertiary)]">
             Provider
           </label>
           <Dropdown
@@ -96,7 +89,7 @@ export function SpeechToTextCard() {
         </div>
 
         <div className="space-y-1">
-          <label className="block text-body-small-default text-[var(--content-quiet)]">
+          <label className="block text-body-small-default text-[var(--content-tertiary)]">
             API Key
           </label>
           <Input
@@ -111,8 +104,7 @@ export function SpeechToTextCard() {
         <CredentialsGuide guide={selectedProvider.credentialsGuide} />
 
         <div className="flex items-center justify-end gap-2">
-          <SaveButton onClick={handleSave} disabled={!hasChanges || saving} />
-          {saving && <Loader2 className="h-4 w-4 animate-spin text-stone-400" />}
+          <SaveButton onClick={handleSave} disabled={!hasChanges} />
           {providerHasKey && <ResetButton onClick={handleReset} />}
         </div>
       </div>

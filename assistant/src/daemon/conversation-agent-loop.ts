@@ -46,6 +46,7 @@ import {
 } from "../context/post-turn-tool-result-truncation.js";
 import {
   estimatePromptTokens,
+  estimatePromptTokensWithTools,
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
 import type { ContextWindowManager } from "../context/window-manager.js";
@@ -60,6 +61,7 @@ import { commitAppTurnChanges } from "../memory/app-git-service.js";
 import { getApp, listAppFiles, resolveAppDir } from "../memory/app-store.js";
 import { enqueueAutoAnalysisOnCompaction } from "../memory/auto-analysis-enqueue.js";
 import {
+  addMessage,
   deleteMessageById,
   getConversation,
   getConversationOriginChannel,
@@ -71,20 +73,17 @@ import {
   setLastNotifiedInferenceProfile,
   updateConversationContextWindow,
   updateConversationSlackContextWatermark,
+  updateMessageMetadata,
 } from "../memory/conversation-crud.js";
 import { getResolvedConversationDirPath } from "../memory/conversation-directories.js";
 import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
-import {
-  isReplaceableTitle,
-  queueRegenerateConversationTitle,
-} from "../memory/conversation-title-service.js";
+import { isReplaceableTitle } from "../memory/conversation-title-service.js";
 import { isBackgroundConversationType } from "../memory/conversation-types.js";
 import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import {
   backfillMessageIdOnLogs,
   recordSyntheticAgentErrorMessageLog,
 } from "../memory/llm-request-log-store.js";
-import { recordMemoryRecallLog } from "../memory/memory-recall-log-store.js";
 import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrospective-enqueue.js";
 import { PKB_WORKSPACE_SCOPE } from "../memory/pkb/types.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
@@ -97,36 +96,21 @@ import { HOOKS } from "../plugin-api/constants.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
 import { defaultCompactionTerminal } from "../plugins/defaults/compaction/terminal.js";
 import { deepRepairHistory } from "../plugins/defaults/history-repair/terminal.js";
-import {
-  asDefaultGraphPayload,
-  type DefaultMemoryRetrievalDeps,
-  type GraphMemoryPayload,
-  runDefaultMemoryRetrieval,
-} from "../plugins/defaults/memory-retrieval/register.js";
-import { defaultPersistenceTerminal } from "../plugins/defaults/persistence/terminal.js";
-import { defaultTokenEstimateTerminal } from "../plugins/defaults/token-estimate/terminal.js";
+import postCompactReinject from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
+import userPromptSubmitMemoryRetrieval, {
+  type MemoryRetrievalHookContext,
+} from "../plugins/defaults/memory-retrieval/hooks/user-prompt-submit-temp.js";
 import { DEFAULT_TIMEOUTS, runHook, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
   CompactionArgs,
   CompactionResult,
-  EstimateArgs,
-  EstimateResult,
-  MemoryArgs,
-  MemoryResult,
   OverflowReduceArgs,
   OverflowReduceResult,
-  PersistAddResult,
-  PersistArgs,
-  PersistResult,
   TurnContext as PluginTurnContext,
 } from "../plugins/types.js";
 import { PluginExecutionError, PluginTimeoutError } from "../plugins/types.js";
-import type {
-  ContentBlock,
-  Message,
-  ToolDefinition,
-} from "../providers/types.js";
+import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import { resolveActorTrust } from "../runtime/actor-trust-resolver.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
@@ -145,7 +129,6 @@ import {
   type AssistantAttachmentDraft,
   cleanAssistantContent,
 } from "./assistant-attachments.js";
-import { cleanupBootstrapAfterTurnThreshold } from "./bootstrap-turn-cleanup.js";
 import { resolveOverflowAction } from "./context-overflow-policy.js";
 import {
   createInitialReducerState,
@@ -208,7 +191,6 @@ import type {
   SurfaceType,
   UsageStats,
 } from "./message-protocol.js";
-import type { MemoryRecalled } from "./message-types/memory.js";
 import type { ConfirmationStateChanged } from "./message-types/messages.js";
 import { parseActualTokensFromError } from "./parse-actual-tokens-from-error.js";
 import {
@@ -305,6 +287,19 @@ function buildPluginTurnContext(
   };
 }
 
+/**
+ * Trust class of the actor whose turn is in progress, for the compactor's
+ * image manifest filter. Prefers the turn-start snapshot
+ * ({@link AgentLoopConversationContext.currentTurnTrustContext}) over the live
+ * trust context so compaction running in a later tool iteration can't pick up
+ * a concurrent request's actor.
+ */
+function resolveTurnActorTrustClass(
+  ctx: AgentLoopConversationContext,
+): TrustContext["trustClass"] | undefined {
+  return (ctx.currentTurnTrustContext ?? ctx.trustContext)?.trustClass;
+}
+
 // ── Context Interface ────────────────────────────────────────────────
 
 /**
@@ -332,7 +327,8 @@ export interface AssistantSurface {
 export interface AgentLoopConversationContext {
   readonly conversationId: string;
   messages: Message[];
-  processing: boolean;
+  isProcessing(): boolean;
+  setProcessing(value: boolean): void;
   abortController: AbortController | null;
   currentRequestId?: string;
   /**
@@ -549,6 +545,13 @@ export async function runAgentLoopImpl(
   });
   let yieldedForHandoff = false;
   let yieldedForBudget = false;
+  // Whether the most recent agent-loop run produced at least one new assistant
+  // message — the loop's own forward-progress signal, used by the ordering
+  // retry gate and the overflow convergence fold.
+  let lastRunAppendedNewMessages = false;
+  // The messages the most recent agent-loop run appended on top of its base —
+  // the loop's own new-output boundary, persisted as this turn's new messages.
+  let lastRunNewMessages: Message[] = [];
   let pendingCheckpointYield: "budget" | "handoff" | null = null;
   // Captured when the auto_compress_latest_turn rerun yields at the mid-loop
   // budget checkpoint. SSE emission happens immediately at the detection site;
@@ -1043,7 +1046,7 @@ export async function runAgentLoopImpl(
     const compactionOptions = {
       precomputedEstimate: compactCheck.estimatedTokens,
       overrideProfile: resolveCurrentOverrideProfile() ?? null,
-      actorTrustClass: ctx.trustContext?.trustClass,
+      actorTrustClass: resolveTurnActorTrustClass(ctx),
     };
     let compacted: Awaited<
       ReturnType<typeof ctx.contextWindowManager.maybeCompact>
@@ -1144,58 +1147,42 @@ export async function runAgentLoopImpl(
 
     let runMessages = ctx.messages;
 
-    // Memory retrieval pipeline — fetches PKB, NOW.md, and memory-graph
-    // outputs through a single `memoryRetrieval` pipeline. Plugins may
-    // replace the terminal behavior by registering a middleware that
-    // short-circuits with its own `MemoryResult`; the default terminal
-    // below runs `runDefaultMemoryRetrieval` which reproduces the prior
-    // in-lined behavior (PKB/NOW reads + gated graph call).
+    // Memory retrieval — fetches PKB, NOW.md, and memory-graph outputs and
+    // persists the retrieval's own side effects (injected-block metadata,
+    // recall log, `memory_recalled` event). Runs at the early "prompt
+    // submitted, before context assembly" moment because its outputs feed the
+    // injection and overflow-reduction transforms below. It is shaped as the
+    // `user-prompt-submit-temp` hook handler but invoked directly for now: it
+    // must run early, while the canonical late `user-prompt-submit` hook
+    // (history repair, title) runs after those transforms, so the two cannot
+    // share a fire site until compaction is cleared from the gap between them.
     const isTrustedActor = resolveTrustClass(ctx.trustContext) === "guardian";
-    // Canonical builder — pulls trust from per-turn snapshot, then
-    // conversation-level, then the synthetic fallback. Memory retrieval
-    // does not need the context-window handle the builder attaches, but
-    // keeping every call site on one helper is load-bearing for log
-    // coherence across pipeline slots.
-    const memoryPluginTurnCtx = buildPluginTurnContext(ctx, reqId);
-    const memoryArgs: MemoryArgs = {
-      conversationId: ctx.conversationId,
-      trustContext: ctx.trustContext,
-      turnIndex: ctx.turnCount,
-      // Pass the abort signal via `args` (not `deps`) so the pipeline
-      // runner's `linkAbortSignal` can swap it for a signal linked to the
-      // pipeline's internal controller — on a plugin-set timeout or
-      // external cancel, the linked signal aborts and `prepareMemory`
-      // stops mutating graph state / emitting events after the pipeline
-      // has already errored.
-      signal: abortController.signal,
-    };
-    const memoryDeps: DefaultMemoryRetrievalDeps = {
+    const memoryCtx: MemoryRetrievalHookContext = {
       messages: ctx.messages,
       graphMemory: ctx.graphMemory,
       config: getConfig(),
       onEvent,
       isTrustedActor,
+      conversationId: ctx.conversationId,
+      userMessageId,
+      logger: rlog,
+      // An external cancel aborts `prepareMemory` instead of letting it run
+      // to completion after the turn has already been torn down.
+      signal: abortController.signal,
+      pkbContent: null,
+      nowContent: null,
+      graphResult: null,
     };
-    const memoryResult: MemoryResult = await runPipeline(
-      "memoryRetrieval",
-      getMiddlewaresFor("memoryRetrieval"),
-      (args) => runDefaultMemoryRetrieval(args, memoryDeps),
-      memoryArgs,
-      memoryPluginTurnCtx,
-      DEFAULT_TIMEOUTS.memoryRetrieval,
-    );
+    await userPromptSubmitMemoryRetrieval(memoryCtx);
 
-    // Consume the memory-graph block when the default retriever emitted
-    // one. Custom plugins that substitute their own blocks without the
-    // default discriminator are expected to handle their own side effects
-    // (event emission, metric persistence) inside their middleware; this
-    // block short-circuits to the original no-op behavior in that case.
-    const defaultGraphPayload: GraphMemoryPayload | null =
-      asDefaultGraphPayload(memoryResult.memoryGraphBlocks);
+    // Consume the memory-graph retrieval. The retriever owns its own side
+    // effects (injected-block metadata, recall log, `memory_recalled` event);
+    // here the loop only takes the turn-scoped context it reuses downstream —
+    // the injected message list and the PKB query vectors.
+    const graphResult = memoryCtx.graphResult;
     let pkbQueryVector: number[] | undefined;
     let pkbSparseVector: QdrantSparseVector | undefined;
-    if (defaultGraphPayload) {
-      const graphResult = defaultGraphPayload.result;
+    if (graphResult) {
       runMessages = graphResult.runMessages;
       // Select dense+sparse as a matched pair so RRF fusion combines two
       // signals aligned to the same query text:
@@ -1212,94 +1199,6 @@ export async function runAgentLoopImpl(
       } else {
         pkbQueryVector = graphResult.queryVector;
         pkbSparseVector = graphResult.sparseVector;
-      }
-
-      // Persist the injected block text in message metadata so it survives
-      // conversation reloads (eviction, restart, fork). loadFromDb re-injects
-      // from metadata. Routed through the `persistence` pipeline so plugins
-      // can observe or override metadata updates alongside add/delete.
-      if (graphResult.injectedBlockText) {
-        try {
-          await runPipeline<PersistArgs, PersistResult>(
-            "persistence",
-            getMiddlewaresFor("persistence"),
-            defaultPersistenceTerminal,
-            {
-              op: "update",
-              messageId: userMessageId,
-              updates: {
-                memoryInjectedBlock: graphResult.injectedBlockText,
-              },
-            },
-            buildPluginTurnContext(ctx, reqId),
-            DEFAULT_TIMEOUTS.persistence,
-          );
-        } catch (err) {
-          rlog.warn(
-            { err },
-            "Failed to persist memory injection to metadata (non-fatal)",
-          );
-        }
-      }
-
-      const m = graphResult.metrics;
-
-      try {
-        recordMemoryRecallLog({
-          conversationId: ctx.conversationId,
-          enabled: true,
-          degraded: false,
-          provider: m?.embeddingProvider ?? undefined,
-          model: m?.embeddingModel ?? undefined,
-          semanticHits: m?.semanticHits ?? 0,
-          mergedCount: m?.mergedCount ?? 0,
-          selectedCount: m?.selectedCount ?? 0,
-          tier1Count: m?.tier1Count ?? 0,
-          tier2Count: m?.tier2Count ?? 0,
-          hybridSearchLatencyMs: m?.hybridSearchLatencyMs ?? 0,
-          sparseVectorUsed: m?.sparseVectorUsed ?? false,
-          injectedTokens: graphResult.injectedTokens,
-          latencyMs: graphResult.latencyMs,
-          topCandidatesJson: (m?.topCandidates ?? []).map((c) => ({
-            key: c.nodeId,
-            type: c.type,
-            kind: "graph",
-            finalScore: c.score,
-            semantic: c.semanticSimilarity,
-            recency: c.recencyBoost,
-          })),
-          injectedText: graphResult.injectedBlockText ?? undefined,
-          reason: `graph:${graphResult.mode}`,
-          queryContext: m?.queryContext ?? undefined,
-        });
-      } catch (err) {
-        log.warn({ err }, "Failed to persist memory recall log (non-fatal)");
-      }
-
-      if (m) {
-        const memoryRecalledEvent: MemoryRecalled = {
-          type: "memory_recalled",
-          provider: m.embeddingProvider ?? "unknown",
-          model: m.embeddingModel ?? "unknown",
-          semanticHits: m.semanticHits,
-          mergedCount: m.mergedCount,
-          selectedCount: m.selectedCount,
-          tier1Count: m.tier1Count,
-          tier2Count: m.tier2Count,
-          hybridSearchLatencyMs: m.hybridSearchLatencyMs,
-          sparseVectorUsed: m.sparseVectorUsed,
-          injectedTokens: graphResult.injectedTokens,
-          latencyMs: graphResult.latencyMs,
-          topCandidates: m.topCandidates.map((c) => ({
-            key: c.nodeId,
-            type: c.type,
-            kind: "graph",
-            finalScore: c.score,
-            semantic: c.semanticSimilarity,
-            recency: c.recencyBoost,
-          })),
-        };
-        onEvent(memoryRecalledEvent);
       }
     }
 
@@ -1464,20 +1363,19 @@ export async function runAgentLoopImpl(
     // Inject NOW.md and PKB content only on the first turn (or after
     // compaction re-strips them).  Old injections persist in history and
     // are never stripped on normal turns — this preserves the cached prefix.
-    // PKB/NOW content is sourced from the `memoryRetrieval` pipeline above
-    // so plugins can override either source without touching the agent loop.
+    // PKB/NOW content is sourced from the `user-prompt-submit-temp` hook above.
     // NOW.md injection can be disabled via `memory.retrieval.scratchpadInjection.enabled`.
     const scratchpadInjectionEnabled =
       getConfig().memory.retrieval.scratchpadInjection.enabled;
     const currentNowContent =
       personalMemoryAllowed && scratchpadInjectionEnabled
-        ? memoryResult.nowContent
+        ? memoryCtx.nowContent
         : null;
     const shouldInjectNowAndPkb = isFirstMessage || compactedThisTurn;
     const nowScratchpad = shouldInjectNowAndPkb ? currentNowContent : null;
 
     const currentPkbContent = personalMemoryAllowed
-      ? memoryResult.pkbContent
+      ? memoryCtx.pkbContent
       : null;
     const pkbContext = shouldInjectNowAndPkb ? currentPkbContent : null;
     const pkbActive = currentPkbContent !== null;
@@ -1668,18 +1566,7 @@ export async function runAgentLoopImpl(
           metadataUpdates.memoryV2StaticBlock =
             injection.blocks.memoryV2StaticBlock;
         }
-        await runPipeline<PersistArgs, PersistResult>(
-          "persistence",
-          getMiddlewaresFor("persistence"),
-          defaultPersistenceTerminal,
-          {
-            op: "update",
-            messageId: userMessageId,
-            updates: metadataUpdates,
-          },
-          buildPluginTurnContext(ctx, reqId),
-          DEFAULT_TIMEOUTS.persistence,
-        );
+        updateMessageMetadata(userMessageId, metadataUpdates);
       } catch (err) {
         rlog.warn({ err }, "Failed to persist injection metadata (non-fatal)");
       }
@@ -1695,51 +1582,18 @@ export async function runAgentLoopImpl(
     let reducerState: ReducerState | undefined;
 
     const toolTokenBudget = ctx.agentLoop.getToolTokenBudget(runMessages);
-    // Canonical calibration key — passed to the `tokenEstimate` pipeline for
-    // every preflight/mid-loop estimate, the overflow reducer config, and the
-    // convergence-path `estimatePromptTokens` call. Matches the key recorded
-    // by `handleUsage` for wrapper providers (OpenRouter routing to
-    // Anthropic → key is `"anthropic"`).
+    // Canonical calibration key — used by the preflight estimate, the
+    // overflow reducer config, and the convergence-path `estimatePromptTokens`
+    // call. Matches the key recorded by `handleUsage` for wrapper providers
+    // (OpenRouter routing to Anthropic → key is `"anthropic"`).
     const estimationProviderName = getCalibrationProviderKey(ctx.provider);
 
-    // Shared `TurnContext` for every `tokenEstimate` pipeline invocation in
-    // this turn. The pipeline is the extension point for plugins that want
-    // to substitute an alternate estimator (e.g. provider-native tokenization)
-    // without touching orchestrator code.
-    //
-    // Routed through the canonical builder — `turnIndex` is `ctx.turnCount`,
-    // trust cascades through per-turn/conversation-level/fallback, and the
-    // context-window handle rides along so any middleware that wants to
-    // reuse the manager (e.g. to compute compaction-aware estimates) can.
-    const pipelineTurnCtx = buildPluginTurnContext(ctx, reqId);
-
-    const runTokenEstimatePipeline = (
-      history: Message[],
-    ): Promise<EstimateResult> =>
-      runPipeline<EstimateArgs, EstimateResult>(
-        "tokenEstimate",
-        getMiddlewaresFor("tokenEstimate"),
-        defaultTokenEstimateTerminal,
-        {
-          // Shallow-frozen copies so a misbehaving middleware that mutates
-          // `args.history` or `args.tools` in place (e.g. trims the array
-          // before calling next) can't silently strip prompt context from
-          // the orchestrator's live `runMessages` / resolved-tools arrays.
-          // TypeScript `readonly` on `EstimateArgs` does not prevent
-          // `push`/`splice` at runtime; the frozen wrapper throws in strict
-          // mode and isolates any mutation attempts from the call-site state.
-          history: Object.freeze([...history]) as Message[],
-          systemPrompt: ctx.systemPrompt,
-          tools: Object.freeze([
-            ...ctx.agentLoop.getResolvedTools(history),
-          ]) as ToolDefinition[],
-          providerName: estimationProviderName,
-        },
-        pipelineTurnCtx,
-        DEFAULT_TIMEOUTS.tokenEstimate,
-      );
-
-    const preflightTokens = await runTokenEstimatePipeline(runMessages);
+    const preflightTokens = estimatePromptTokensWithTools(
+      runMessages,
+      ctx.systemPrompt,
+      ctx.agentLoop.getResolvedTools(runMessages),
+      estimationProviderName,
+    );
 
     if (overflowRecovery.enabled && preflightTokens > preflightBudget) {
       rlog.warn(
@@ -1802,7 +1656,7 @@ export async function runAgentLoopImpl(
                 options: {
                   ...(opts ?? {}),
                   overrideProfile: resolveCurrentOverrideProfile() ?? null,
-                  actorTrustClass: ctx.trustContext?.trustClass,
+                  actorTrustClass: resolveTurnActorTrustClass(ctx),
                 },
               },
               buildPluginTurnContext(ctx, reqId),
@@ -1955,8 +1809,6 @@ export async function runAgentLoopImpl(
       }
     }
 
-    let preRepairMessages = runMessages;
-
     // Replace historical web_search_tool_result blocks with text summaries.
     // The opaque `encrypted_content` tokens Anthropic attaches to each result
     // expire / are route-scoped; replaying a stale token is rejected with
@@ -1979,11 +1831,9 @@ export async function runAgentLoopImpl(
     // context with a fresh array; `runHook` forwards whichever the chain
     // settles on. Order is plugin registration order.
     //
-    // Fires BEFORE `preRunHistoryLength` is captured so the boundary
-    // between pre-existing and hook-emitted messages — consumed by the
-    // ordering-error retry gate, the post-run reconcile loop, and the
-    // new-message extraction for persistence — reflects exactly what
-    // `agentLoop.run` receives.
+    // Fires BEFORE the agent loop runs so the hook-emitted messages are part
+    // of the loop's input; the loop then reports its own appended output via
+    // `AgentLoopRunResult.newMessages`, which is what persistence consumes.
     const userPromptCtx: UserPromptSubmitContext = {
       conversationId: ctx.conversationId,
       prompt: options?.titleText ?? content,
@@ -1996,8 +1846,6 @@ export async function runAgentLoopImpl(
       userPromptCtx,
     );
     runMessages = finalUserPromptCtx.latestMessages;
-
-    let preRunHistoryLength = runMessages.length;
 
     const shouldGenerateTitle = isReplaceableTitle(
       getConversation(ctx.conversationId)?.title ?? null,
@@ -2032,36 +1880,24 @@ export async function runAgentLoopImpl(
     rlog.info({ callSite: turnCallSite }, "Starting agent loop run");
 
     // Thread the orchestrator's canonical per-turn context into the agent
-    // loop so its internal pipeline invocations (llmCall, toolExecute) see
-    // the real conversation identity / trust /
-    // contextWindowManager instead of the synthesized `"agent-loop"`
-    // placeholder. The loop clones this value and overwrites `turnIndex`
-    // with its own tool-use iteration counter.
+    // loop so its internal pipeline invocations (e.g. compaction) see the
+    // real conversation identity / trust / contextWindowManager instead of
+    // the synthesized `"agent-loop"` placeholder. The loop clones this value
+    // and overwrites `turnIndex` with its own tool-use iteration counter.
     const loopTurnCtx = buildPluginTurnContext(ctx, reqId);
 
-    // Hooks for the loop-owned mid-loop compaction. The agent loop owns the
+    // Hook for the loop-owned mid-loop compaction. The agent loop owns the
     // trigger (its budget gate), the `compaction` pipeline call, the result
     // interpretation (circuit-breaker bookkeeping + the exhaustion decision),
-    // and the inline continue; these callbacks bridge the durable / injection
-    // state the loop is intentionally blind to. Durable persistence and
-    // re-injection stay orchestrator-supplied for now.
+    // and the inline continue; this callback bridges the injection state the
+    // loop is intentionally blind to. Durable persistence is signalled via
+    // events; re-injection stays orchestrator-supplied for now.
     const midLoopCompaction: MidLoopCompaction = {
-      prepare: () => {
-        // The loop strips runtime injections and commits the stripped basis to
-        // durable state via the `compaction_completed` event; this hook only
-        // resolves the pipeline options.
-        return {
-          options: {
-            overrideProfile: resolveCurrentOverrideProfile() ?? null,
-            actorTrustClass: ctx.trustContext?.trustClass,
-          },
-        };
-      },
-      reinject: async () => {
+      postCompactionHook: async ({ history, turnContext }) => {
         // stripInjectionsForCompaction() unconditionally removed the existing
         // NOW.md block, so re-inject the current content regardless of whether
         // compaction actually ran.
-        const injection = await applyRuntimeInjections(ctx.messages, {
+        const injection = await postCompactReinject({
           ...injectionOpts,
           pkbContext: currentPkbContent,
           memoryV2Static: currentMemoryV2Static,
@@ -2076,24 +1912,12 @@ export async function runAgentLoopImpl(
             ? null
             : injectionOpts.slackChronologicalMessages,
           mode: currentInjectionMode,
-          turnContext: buildPluginTurnContext(ctx, reqId),
+          turnContext,
+          history,
+          isTrustedActor,
+          logger: rlog,
         });
-        runMessages = injection.messages;
-        if (isTrustedActor && currentInjectionMode !== "minimal") {
-          ctx.graphMemory.retrackCachedNodes();
-        }
-        const midLoopCompactStrip =
-          stripHistoricalWebSearchResults(runMessages);
-        if (midLoopCompactStrip.stats.blocksStripped > 0) {
-          rlog.info(
-            { phase: "mid-loop-compact", ...midLoopCompactStrip.stats },
-            "Converted historical web_search_tool_result blocks to text summaries",
-          );
-          runMessages = midLoopCompactStrip.messages;
-        }
-        preRepairMessages = runMessages;
-        preRunHistoryLength = runMessages.length;
-        return runMessages;
+        return injection.messages;
       },
     };
 
@@ -2109,10 +1933,8 @@ export async function runAgentLoopImpl(
       msgs: Message[],
       compaction?: MidLoopCompaction,
     ): Promise<Message[]> => {
-      const { history, exitReason } = await ctx.agentLoop.run(
-        msgs,
-        eventHandler,
-        {
+      const { history, exitReason, appendedNewMessages, newMessages } =
+        await ctx.agentLoop.run(msgs, eventHandler, {
           signal: abortController.signal,
           requestId: reqId,
           onCheckpoint,
@@ -2126,8 +1948,9 @@ export async function runAgentLoopImpl(
           // `<memory>` block, so anchor the provider's long-TTL cache breakpoint
           // on the most recent stable message instead.
           mutableLatestUserMessage: memoryV3Live,
-        },
-      );
+        });
+      lastRunAppendedNewMessages = appendedNewMessages;
+      lastRunNewMessages = newMessages;
       if (exitReason === "handoff") {
         yieldedForHandoff = true;
         pendingCheckpointYield = "handoff";
@@ -2165,10 +1988,7 @@ export async function runAgentLoopImpl(
     }
 
     // One-shot ordering error retry
-    if (
-      state.orderingErrorDetected &&
-      updatedHistory.length === preRunHistoryLength
-    ) {
+    if (state.orderingErrorDetected && !lastRunAppendedNewMessages) {
       rlog.warn(
         { phase: "retry" },
         "Provider ordering error detected, attempting one-shot deep-repair retry",
@@ -2182,12 +2002,10 @@ export async function runAgentLoopImpl(
       // `user-prompt-submit` hook (the default history-repair plugin runs
       // `repairHistory` there); widening that surface to deep-repair is
       // intentionally deferred until there's a concrete plugin-level use case.
-      const retryRepair = deepRepairHistory(runMessages);
+      const retryRepair = deepRepairHistory(updatedHistory);
       runMessages = retryRepair.messages;
       const retryStrip = stripHistoricalWebSearchResults(runMessages);
       runMessages = retryStrip.messages;
-      preRepairMessages = runMessages;
-      preRunHistoryLength = runMessages.length;
       state.orderingErrorDetected = false;
       state.deferredOrderingError = null;
 
@@ -2298,12 +2116,10 @@ export async function runAgentLoopImpl(
       let convergenceStripped =
         findLastInjectedNowContent(ctx.messages) === null;
 
-      if (updatedHistory.length > preRunHistoryLength) {
+      if (lastRunAppendedNewMessages) {
         ctx.messages = stripInjectionsForCompaction(updatedHistory);
         markHistoryStrippedBestEffort(ctx.conversationId);
         convergenceStripped = true;
-        preRepairMessages = updatedHistory;
-        preRunHistoryLength = updatedHistory.length;
       }
       if (!reducerState) {
         reducerState = createInitialReducerState();
@@ -2443,7 +2259,7 @@ export async function runAgentLoopImpl(
             ctx.contextWindowManager.maybeCompact(msgs, signal!, {
               ...(opts ?? {}),
               overrideProfile: resolveCurrentOverrideProfile() ?? null,
-              actorTrustClass: ctx.trustContext?.trustClass,
+              actorTrustClass: resolveTurnActorTrustClass(ctx),
             }),
           abortController.signal,
         );
@@ -2505,8 +2321,6 @@ export async function runAgentLoopImpl(
           );
           runMessages = convergenceStrip.messages;
         }
-        preRepairMessages = runMessages;
-        preRunHistoryLength = runMessages.length;
         state.contextTooLargeDetected = false;
         yieldedForBudget = false;
 
@@ -2529,12 +2343,10 @@ export async function runAgentLoopImpl(
           // Fold rerun progress into ctx.messages so the next reducer
           // tier operates on up-to-date history instead of stale
           // pre-rerun messages.
-          if (updatedHistory.length > preRunHistoryLength) {
+          if (lastRunAppendedNewMessages) {
             ctx.messages = stripInjectionsForCompaction(updatedHistory);
             markHistoryStrippedBestEffort(ctx.conversationId);
             convergenceStripped = true;
-            preRepairMessages = updatedHistory;
-            preRunHistoryLength = updatedHistory.length;
           }
         }
       }
@@ -2649,8 +2461,6 @@ export async function runAgentLoopImpl(
             );
             runMessages = fallbackStrip.messages;
           }
-          preRepairMessages = runMessages;
-          preRunHistoryLength = runMessages.length;
           state.contextTooLargeDetected = false;
 
           updatedHistory = await runAgentLoop(runMessages);
@@ -2704,25 +2514,6 @@ export async function runAgentLoopImpl(
       onEvent(buildConversationErrorMessage(ctx.conversationId, classified));
     }
 
-    // Reconcile synthesized cancellation tool_results
-    for (let i = preRunHistoryLength; i < updatedHistory.length; i++) {
-      const msg = updatedHistory[i];
-      if (msg.role === "user") {
-        for (const block of msg.content) {
-          if (
-            block.type === "tool_result" &&
-            !state.pendingToolResults.has(block.tool_use_id) &&
-            !state.persistedToolUseIds.has(block.tool_use_id)
-          ) {
-            state.pendingToolResults.set(block.tool_use_id, {
-              content: block.content,
-              isError: block.is_error ?? false,
-            });
-          }
-        }
-      }
-    }
-
     // Flush remaining tool results
     if (state.pendingToolResults.size > 0) {
       const toolResultBlocks = Array.from(
@@ -2751,19 +2542,13 @@ export async function runAgentLoopImpl(
         assistantMessageInterface:
           capturedTurnInterfaceContext.assistantMessageInterface,
       };
-      await runPipeline<PersistArgs, PersistResult>(
-        "persistence",
-        getMiddlewaresFor("persistence"),
-        defaultPersistenceTerminal,
+      await addMessage(
+        ctx.conversationId,
+        "user",
+        JSON.stringify(toolResultBlocks),
         {
-          op: "add",
-          conversationId: ctx.conversationId,
-          role: "user",
-          content: JSON.stringify(toolResultBlocks),
           metadata: toolResultMetadata,
         },
-        buildPluginTurnContext(ctx, reqId),
-        DEFAULT_TIMEOUTS.persistence,
       );
       state.pendingToolResults.clear();
     }
@@ -2789,24 +2574,13 @@ export async function runAgentLoopImpl(
       };
       let yieldNoticePersistedId: string | null = null;
       try {
-        const yieldPersistResult = (await runPipeline<
-          PersistArgs,
-          PersistResult
-        >(
-          "persistence",
-          getMiddlewaresFor("persistence"),
-          defaultPersistenceTerminal,
-          {
-            op: "add",
-            conversationId: ctx.conversationId,
-            role: "assistant",
-            content: JSON.stringify(yieldNoticeMessage.content),
-            metadata: yieldNoticeMetadata,
-          },
-          buildPluginTurnContext(ctx, reqId),
-          DEFAULT_TIMEOUTS.persistence,
-        )) as PersistAddResult;
-        yieldNoticePersistedId = yieldPersistResult.message.id;
+        const yieldRow = await addMessage(
+          ctx.conversationId,
+          "assistant",
+          JSON.stringify(yieldNoticeMessage.content),
+          { metadata: yieldNoticeMetadata },
+        );
+        yieldNoticePersistedId = yieldRow.id;
       } catch (err) {
         // Non-fatal — a DB hiccup must not escalate a budget-yield exit into
         // a turn-level throw. The live SSE event was already emitted, so the
@@ -2862,7 +2636,7 @@ export async function runAgentLoopImpl(
     }
 
     // Reconstruct history
-    const newMessages = updatedHistory.slice(preRunHistoryLength).map((msg) => {
+    const newMessages = lastRunNewMessages.map((msg) => {
       if (msg.role !== "assistant") return msg;
       const { cleanedContent } = cleanAssistantContent(msg.content);
       const cleanedBlocks = cleanedContent as ContentBlock[];
@@ -2893,10 +2667,6 @@ export async function runAgentLoopImpl(
         state.assistantRowAwaitingFinalization &&
         state.lastAssistantMessageId
       ) {
-        // Direct `deleteMessageById` (not via the `persistence` pipeline):
-        // see the same rationale on the matching cleanup in
-        // `handleLlmCallStarted` — an unfinalized reservation has no
-        // observable history for plugins.
         try {
           deleteMessageById(state.lastAssistantMessageId);
         } catch (err) {
@@ -2918,20 +2688,12 @@ export async function runAgentLoopImpl(
       const errorAssistantMessage = createAssistantMessage(
         state.providerErrorUserMessage,
       );
-      const errorPersistResult = (await runPipeline<PersistArgs, PersistResult>(
-        "persistence",
-        getMiddlewaresFor("persistence"),
-        defaultPersistenceTerminal,
-        {
-          op: "add",
-          conversationId: ctx.conversationId,
-          role: "assistant",
-          content: JSON.stringify(errorAssistantMessage.content),
-          metadata: errChannelMeta,
-        },
-        buildPluginTurnContext(ctx, reqId),
-        DEFAULT_TIMEOUTS.persistence,
-      )) as PersistAddResult;
+      const errorRow = await addMessage(
+        ctx.conversationId,
+        "assistant",
+        JSON.stringify(errorAssistantMessage.content),
+        { metadata: errChannelMeta },
+      );
       persistedErrorAssistantMessage = true;
       // Repoint `lastAssistantMessageId` at the synthetic error row so the
       // post-loop sync, attachment resolution, and `message_complete`/
@@ -2940,7 +2702,7 @@ export async function runAgentLoopImpl(
       // above. Mark finalization complete so the next LLM call in this run
       // (or a downstream handler) doesn't try to clean up an id that
       // already corresponds to a finalized row.
-      state.lastAssistantMessageId = errorPersistResult.message.id;
+      state.lastAssistantMessageId = errorRow.id;
       state.assistantRowAwaitingFinalization = false;
       newMessages.push(errorAssistantMessage);
       // Pipe the just-assigned message id into any orphaned LLM request log
@@ -2954,10 +2716,7 @@ export async function runAgentLoopImpl(
       // other conversations cannot collide. Non-fatal — a DB hiccup must
       // not escalate a provider rejection into a turn-level throw.
       try {
-        backfillMessageIdOnLogs(
-          ctx.conversationId,
-          errorPersistResult.message.id,
-        );
+        backfillMessageIdOnLogs(ctx.conversationId, errorRow.id);
       } catch (err) {
         rlog.warn(
           { err },
@@ -2970,7 +2729,16 @@ export async function runAgentLoopImpl(
       // would create a duplicate plain-text bubble below the alert card.
     }
 
-    let restoredHistory = [...preRepairMessages, ...newMessages];
+    // Base persisted into `ctx.messages` is the loop's own returned history
+    // (minus the tail it appended this run), with the cleaned `newMessages`
+    // re-appended on top. Sourcing the base from the loop keeps it in lockstep
+    // with any in-loop compaction without the orchestrator maintaining a
+    // parallel snapshot across re-entry sites.
+    const loopBase = updatedHistory.slice(
+      0,
+      updatedHistory.length - lastRunNewMessages.length,
+    );
+    let restoredHistory = [...loopBase, ...newMessages];
 
     // Post-turn tool result truncation: save large results to disk and
     // replace in-context content with a prefix/suffix stub + file pointer.
@@ -3162,19 +2930,6 @@ export async function runAgentLoopImpl(
         publishLoopMessagesChanged();
       }
     }
-
-    // Second title pass: after 3 completed turns, re-generate the title
-    // using the last 3 messages for better context. Only fires when the
-    // current title was auto-generated (isAutoTitle = 1) and the user
-    // has not opted out via `conversations.skipAutoRetitling`.
-    if (ctx.turnCount === 2 && !getConfig().conversations.skipAutoRetitling) {
-      // turnCount is 0-indexed, incremented in finally; 2 = about to become 3rd turn
-      queueRegenerateConversationTitle({
-        conversationId: ctx.conversationId,
-        provider: ctx.provider,
-        signal: abortController.signal,
-      });
-    }
   } catch (err) {
     const errorCtx = {
       phase: "agent_loop" as const,
@@ -3234,8 +2989,6 @@ export async function runAgentLoopImpl(
     }
   } finally {
     if (turnStarted) {
-      cleanupBootstrapAfterTurnThreshold(ctx.conversationId);
-
       ctx.turnCount++;
       const config = getConfig();
       const maxWait = config.workspaceGit?.turnCommitMaxWaitMs ?? 4000;
@@ -3273,7 +3026,7 @@ export async function runAgentLoopImpl(
     ctx.profiler.emitSummary(ctx.traceEmitter, reqId);
 
     ctx.abortController = null;
-    ctx.processing = false;
+    ctx.setProcessing(false);
     ctx.onConfirmationOutcome = undefined;
     ctx.surfaceActionRequestIds.delete(ctx.currentRequestId ?? "");
     ctx.approvedViaPromptThisTurn = false;

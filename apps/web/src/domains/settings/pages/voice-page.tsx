@@ -1,31 +1,31 @@
 import { ArrowUpRight, Info } from "lucide-react";
 import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type KeyboardEvent as ReactKeyboardEvent,
+    useCallback,
+    useEffect,
+    useRef,
+    useState,
+    type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { Link } from "react-router";
 
-import { Dropdown } from "@vellum/design-library/components/dropdown";
-import { Toggle } from "@vellum/design-library/components/toggle";
+import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import { DetailCard } from "@/components/detail-card";
 import {
-  getLocalSetting,
-  setLocalSetting,
+    getLocalSetting,
+    setLocalSetting,
 } from "@/utils/local-settings";
 import {
-  LS_PTT_ACTIVATION_KEY,
-  activatorDisplayName,
-  activatorsEqual,
-  modifierLabel,
-  parseActivator,
-  serializeActivator,
-  sortModifiers,
-  type PTTActivator,
-  type PTTModifier,
+    LS_PTT_ACTIVATION_KEY,
+    activatorDisplayName,
+    activatorsEqual,
+    modifierLabel,
+    parseActivator,
+    serializeActivator,
+    sortModifiers,
+    type PTTActivator,
+    type PTTModifier,
 } from "@/utils/ptt-activator";
 import { routes } from "@/utils/routes";
 

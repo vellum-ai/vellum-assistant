@@ -5,12 +5,10 @@ import {
   messagesByIdLlmcontextGet,
 } from "@/generated/daemon/sdk.gen";
 import { assertHasResponse, extractErrorMessage } from "@/utils/api-errors";
-import {
-  fetchConversationMessages,
-  type RuntimeMessage,
-} from "@/domains/chat/api/messages";
+import { fetchConversationMessages } from "@/domains/chat/api/messages";
 
 import type {
+  ConversationMessage,
   LlmContextResponse,
   LLMRequestLogEntry,
   MemoryRecallLog,
@@ -121,7 +119,7 @@ export function useConversationMessageList(
       "messages",
       "for-inspector",
     ] as const,
-    queryFn: async (): Promise<RuntimeMessage[]> => {
+    queryFn: async (): Promise<ConversationMessage[]> => {
       if (!assistantId || !conversationId) return [];
       return await fetchConversationMessages(assistantId, conversationId);
     },

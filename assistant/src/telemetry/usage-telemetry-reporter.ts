@@ -15,6 +15,7 @@ import {
   getPlatformUserId,
 } from "../config/env.js";
 import { getConfig } from "../config/loader.js";
+import { queryUnreportedAuthFallbackEvents } from "../memory/auth-fallback-events-store.js";
 import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
@@ -47,6 +48,10 @@ const CHECKPOINT_KEY_ONBOARDING_WATERMARK =
   "telemetry:onboarding:last_reported_at";
 const CHECKPOINT_KEY_ONBOARDING_WATERMARK_ID =
   "telemetry:onboarding:last_reported_id";
+const CHECKPOINT_KEY_AUTH_FALLBACK_WATERMARK =
+  "telemetry:auth_fallback:last_reported_at";
+const CHECKPOINT_KEY_AUTH_FALLBACK_WATERMARK_ID =
+  "telemetry:auth_fallback:last_reported_id";
 const REPORT_INTERVAL_MS = 5 * 60 * 1000;
 const INITIAL_FLUSH_DELAY_MS = 30_000; // Delay first flush to let CES handshake complete
 const BATCH_SIZE = 500;
@@ -139,6 +144,7 @@ export class UsageTelemetryReporter {
         setMemoryCheckpoint(CHECKPOINT_KEY_TURN_WATERMARK, now);
         setMemoryCheckpoint(CHECKPOINT_KEY_LIFECYCLE_WATERMARK, now);
         setMemoryCheckpoint(CHECKPOINT_KEY_ONBOARDING_WATERMARK, now);
+        setMemoryCheckpoint(CHECKPOINT_KEY_AUTH_FALLBACK_WATERMARK, now);
         return;
       }
 
@@ -171,6 +177,14 @@ export class UsageTelemetryReporter {
         getMemoryCheckpoint(CHECKPOINT_KEY_ONBOARDING_WATERMARK_ID) ??
         undefined;
 
+      // Read auth-fallback watermark (compound cursor: createdAt + id)
+      const authFallbackWatermark = Number(
+        getMemoryCheckpoint(CHECKPOINT_KEY_AUTH_FALLBACK_WATERMARK) ?? "0",
+      );
+      const authFallbackWatermarkId =
+        getMemoryCheckpoint(CHECKPOINT_KEY_AUTH_FALLBACK_WATERMARK_ID) ??
+        undefined;
+
       // Query unreported events
       const events = queryUnreportedUsageEvents(
         watermark,
@@ -192,12 +206,18 @@ export class UsageTelemetryReporter {
         onboardingWatermarkId,
         BATCH_SIZE,
       );
+      const authFallbackEvents = queryUnreportedAuthFallbackEvents(
+        authFallbackWatermark,
+        authFallbackWatermarkId,
+        BATCH_SIZE,
+      );
 
       if (
         events.length === 0 &&
         turnEvents.length === 0 &&
         lifecycleEvents.length === 0 &&
-        onboardingEvents.length === 0
+        onboardingEvents.length === 0 &&
+        authFallbackEvents.length === 0
       )
         return;
 
@@ -211,6 +231,7 @@ export class UsageTelemetryReporter {
           turnCount: turnEvents.length,
           lifecycleCount: lifecycleEvents.length,
           onboardingCount: onboardingEvents.length,
+          authFallbackCount: authFallbackEvents.length,
         },
         "Telemetry flush: resolved auth context",
       );
@@ -337,6 +358,25 @@ export class UsageTelemetryReporter {
             assistant_version: APP_VERSION,
           }),
         ),
+        ...authFallbackEvents.map(
+          (e): TelemetryEvent => ({
+            type: "auth_fallback",
+            daemon_event_id: e.id,
+            recorded_at: e.createdAt,
+            guard: e.guard,
+            path: e.path,
+            failure_kind: e.failureKind,
+            count: e.count,
+            window_start: e.windowStart,
+            window_end: e.windowEnd,
+            // Aggregated counts forwarded by the gateway carry no record-time
+            // binary version; stamp the running binary's `APP_VERSION` so the
+            // wire value is concrete rather than an explicit null that would
+            // override the envelope under the platform's per-event-wins
+            // contract.
+            assistant_version: APP_VERSION,
+          }),
+        ),
       ];
 
       const organizationId = getPlatformOrganizationId() || undefined;
@@ -422,12 +462,27 @@ export class UsageTelemetryReporter {
         );
       }
 
+      // Advance auth-fallback watermark (compound cursor)
+      if (authFallbackEvents.length > 0) {
+        const lastAuthFallback =
+          authFallbackEvents[authFallbackEvents.length - 1];
+        setMemoryCheckpoint(
+          CHECKPOINT_KEY_AUTH_FALLBACK_WATERMARK,
+          String(lastAuthFallback.createdAt),
+        );
+        setMemoryCheckpoint(
+          CHECKPOINT_KEY_AUTH_FALLBACK_WATERMARK_ID,
+          lastAuthFallback.id,
+        );
+      }
+
       // If we got a full batch of any type, there may be more — recurse
       if (
         events.length === BATCH_SIZE ||
         turnEvents.length === BATCH_SIZE ||
         lifecycleEvents.length === BATCH_SIZE ||
-        onboardingEvents.length === BATCH_SIZE
+        onboardingEvents.length === BATCH_SIZE ||
+        authFallbackEvents.length === BATCH_SIZE
       ) {
         await this._doFlush(batchCount + 1);
       }

@@ -35,9 +35,8 @@ function makeToolCall(
 ): ChatMessageToolCall {
   return {
     id: "tc-1",
-    toolName: "bash",
+    name: "bash",
     input: { command: "date", activity: "Checking the current time" },
-    status: "completed",
     riskLevel: "low",
     startedAt,
     completedAt: startedAt + 2_000,

@@ -17,7 +17,7 @@ import {
   GATEWAY_PORT,
   type Species,
 } from "../lib/constants";
-import { loadGuardianToken } from "../lib/guardian-token";
+import { loadGuardianToken, refreshGuardianToken } from "../lib/guardian-token";
 import { getLocalLanIPv4 } from "../lib/local";
 import {
   CLI_INTERFACE_ID,
@@ -83,7 +83,8 @@ function readAssistantName(entry: AssistantEntry | null): string | undefined {
     : undefined;
 }
 
-function parseArgs(): ParsedArgs {
+// Exported for unit testing the arg/auth resolution without launching the TUI.
+export function parseArgs(): ParsedArgs {
   const args = process.argv.slice(3);
 
   const positionalName = parseAssistantTargetArg(args, [
@@ -93,6 +94,8 @@ function parseArgs(): ParsedArgs {
     "-a",
     "--interface",
     "-i",
+    "--token",
+    "-t",
   ]);
   const flagArgs: string[] = [];
   for (let i = 0; i < args.length; i++) {
@@ -106,7 +109,9 @@ function parseArgs(): ParsedArgs {
         arg === "--assistant-id" ||
         arg === "-a" ||
         arg === "--interface" ||
-        arg === "-i") &&
+        arg === "-i" ||
+        arg === "--token" ||
+        arg === "-t") &&
       args[i + 1]
     ) {
       flagArgs.push(arg, args[++i]);
@@ -154,11 +159,31 @@ function parseArgs(): ParsedArgs {
   const cloud = entry?.cloud;
   const species: Species = (entry?.species as Species) ?? "vellum";
 
-  // Platform-hosted assistants use a session token; local assistants use a guardian JWT.
-  const platformToken =
-    cloud === "vellum" ? (readPlatformToken() ?? undefined) : undefined;
-  const bearerToken =
-    cloud === "vellum"
+  // Ephemeral auth: a handed-over token (e.g. from `vellum pair`) used for this
+  // session only. Resolve it BEFORE the credential lookup below so an ephemeral
+  // session never reads (or writes) the local token store.
+  let bearerTokenOverride: string | undefined;
+  for (let i = 0; i < flagArgs.length; i++) {
+    if (
+      (flagArgs[i] === "--token" || flagArgs[i] === "-t") &&
+      flagArgs[i + 1]
+    ) {
+      bearerTokenOverride = flagArgs[i + 1];
+    }
+  }
+
+  // Platform-hosted assistants (cloud "vellum") use a session token; every
+  // other topology — local, docker, and "paired" (a remote assistant paired
+  // from another machine) — uses a bearer guardian JWT. Both are skipped
+  // entirely when --token supplies the credential, so no saved creds are read.
+  const platformToken = bearerTokenOverride
+    ? undefined
+    : cloud === "vellum"
+      ? (readPlatformToken() ?? undefined)
+      : undefined;
+  const bearerToken = bearerTokenOverride
+    ? bearerTokenOverride
+    : cloud === "vellum"
       ? undefined
       : (loadGuardianToken(entry?.assistantId ?? "")?.accessToken ?? undefined);
 
@@ -248,6 +273,9 @@ ${ANSI.bold}ARGUMENTS:${ANSI.reset}
 
 ${ANSI.bold}OPTIONS:${ANSI.reset}
     -u, --url <url>            Runtime URL
+    -t, --token <jwt>          Bearer token to use for this session (e.g. from
+                              'vellum pair'). Overrides the stored token and is
+                              not persisted.
     -a, --assistant-id <id>    Assistant ID
     -i, --interface <id>       Interface identifier: cli (default) or web
     -h, --help                 Show this help message
@@ -261,6 +289,10 @@ ${ANSI.bold}EXAMPLES:${ANSI.reset}
     vellum client vellum-assistant-foo
     vellum client --url http://34.56.78.90:${GATEWAY_PORT}
     vellum client vellum-assistant-foo --url http://localhost:${GATEWAY_PORT}
+
+    # Ephemeral: connect to another machine's assistant with a paired token
+    # (no lockfile entry, nothing persisted):
+    vellum client --url http://10.0.0.196:${GATEWAY_PORT} --token <jwt>
 `);
 }
 
@@ -434,11 +466,16 @@ async function handleLocalEndpoints(
     if (req.method !== "POST") return new Response(null, { status: 405 });
 
     let species = "vellum";
+    let remote: string | undefined;
     const contentType = req.headers.get("content-type") ?? "";
     if (contentType.includes("json")) {
       try {
-        const body = (await req.json()) as { species?: string };
+        const body = (await req.json()) as {
+          species?: string;
+          remote?: string;
+        };
         if (body.species) species = body.species;
+        if (body.remote) remote = body.remote;
       } catch {
         return Response.json(
           { ok: false, error: "Invalid JSON body" },
@@ -457,7 +494,11 @@ async function handleLocalEndpoints(
       );
     }
 
-    const result = await runHatch(invocation, species);
+    const result = await runHatch(
+      invocation,
+      species,
+      remote ? { remote } : undefined,
+    );
     if (result.ok) {
       return Response.json({ ok: true, assistantId: result.assistantId });
     }
@@ -780,6 +821,42 @@ async function runViteDevServer(webSourceDir: string): Promise<void> {
   });
 }
 
+/**
+ * Return a possibly-refreshed bearer token for the TUI's startup auth.
+ *
+ * Only a STORED guardian token is refreshable: platform session auth
+ * (`cloud === "vellum"`) and ephemeral `--token` overrides (whose token won't
+ * match the store) are left untouched, as is a token that's still fresh. When
+ * the stored token has passed its `refreshAfter` (or expiry) and a refresh
+ * token is available, refresh once via the concurrency-safe refreshGuardianToken
+ * and use the rotated access token. Falls back to the existing token if refresh
+ * isn't possible/fails — the session still starts (same as before).
+ */
+export async function resolveFreshBearerToken(
+  runtimeUrl: string,
+  assistantId: string,
+  bearerToken: string | undefined,
+  cloud: string | undefined,
+): Promise<string | undefined> {
+  if (cloud === "vellum" || !bearerToken || !assistantId) return bearerToken;
+
+  const stored = loadGuardianToken(assistantId);
+  // Refresh only the stored token (an ephemeral --token won't match), and only
+  // when a refresh credential is present.
+  if (!stored || stored.accessToken !== bearerToken || !stored.refreshToken) {
+    return bearerToken;
+  }
+
+  // new Date() handles both ISO strings and epoch-ms numbers; Date.parse of an
+  // epoch-ms string would be NaN.
+  const renewAtRaw = stored.refreshAfter || stored.accessTokenExpiresAt;
+  const renewAt = new Date(renewAtRaw).getTime();
+  if (!Number.isFinite(renewAt) || renewAt > Date.now()) return bearerToken;
+
+  const refreshed = await refreshGuardianToken(runtimeUrl, assistantId);
+  return refreshed?.accessToken ?? bearerToken;
+}
+
 export async function client(): Promise<void> {
   const {
     runtimeUrl,
@@ -827,8 +904,19 @@ export async function client(): Promise<void> {
       ...getClientRegistrationHeaders(interfaceId),
     };
   } else {
+    // Proactively refresh a stale STORED guardian token before opening the TUI,
+    // so launching after the access token expired renews transparently rather
+    // than erroring. (Mid-session expiry — the token dying while the TUI is
+    // already open — is a separate follow-up, since the TUI threads a static
+    // auth object through React.)
+    const token = await resolveFreshBearerToken(
+      runtimeUrl,
+      assistantId,
+      bearerToken,
+      cloud,
+    );
     auth = {
-      ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...getClientRegistrationHeaders(interfaceId),
     };
   }

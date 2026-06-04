@@ -3,7 +3,12 @@ import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { sanitizeDisplayMessages } from "@/domains/chat/utils/sanitize-display-messages";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
-import { textBody } from "@/domains/chat/utils/message-test-helpers";
+import {
+  textBody,
+  toolCallStatusWireFields,
+} from "@/domains/chat/utils/message-test-helpers";
+import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
+
 function makeMessage(
   overrides: Partial<DisplayMessage> & { id?: string },
 ): DisplayMessage {
@@ -16,12 +21,17 @@ function makeMessage(
 }
 
 function makeToolCall(
-  overrides: Partial<ChatMessageToolCall> & { id: string; toolName: string },
+  overrides: Partial<ChatMessageToolCall> & {
+    id: string;
+    name: string;
+    status?: "running" | "completed" | "error";
+  },
 ): ChatMessageToolCall {
+  const { status = "completed", ...rest } = overrides;
   return {
     input: {},
-    status: "completed",
-    ...overrides,
+    ...toolCallStatusWireFields(status),
+    ...rest,
   };
 }
 
@@ -111,13 +121,13 @@ describe("sanitizeDisplayMessages · invalid row filter", () => {
     expect(result).toEqual([]);
   });
 
-  test("drops phantom tool-only user messages where every toolName === 'unknown'", () => {
+  test("drops phantom tool-only user messages where every name === 'unknown'", () => {
     const phantom = makeMessage({
       id: "phantom",
       role: "user",
       ...textBody(""),
       toolCalls: [
-        makeToolCall({ id: "tc-1", toolName: "unknown", result: "orphan" }),
+        makeToolCall({ id: "tc-1", name: "unknown", result: "orphan" }),
       ],
     });
     const result = sanitizeDisplayMessages([phantom]);
@@ -130,8 +140,8 @@ describe("sanitizeDisplayMessages · invalid row filter", () => {
       role: "user",
       ...textBody(""),
       toolCalls: [
-        makeToolCall({ id: "tc-1", toolName: "unknown", result: "orphan" }),
-        makeToolCall({ id: "tc-2", toolName: "bash", result: "file.txt" }),
+        makeToolCall({ id: "tc-1", name: "unknown", result: "orphan" }),
+        makeToolCall({ id: "tc-2", name: "bash", result: "file.txt" }),
       ],
     });
     const result = sanitizeDisplayMessages([mixed]);
@@ -174,7 +184,7 @@ describe("sanitizeDisplayMessages · drop trailing assistant duplicate", () => {
       role: "assistant",
       textSegments: ["Final answer"],
       toolCalls: [
-        makeToolCall({ id: "tc-1", toolName: "bash", result: "ok" }),
+        makeToolCall({ id: "tc-1", name: "bash", result: "ok" }),
       ],
       timestamp: 1000,
     });
@@ -183,7 +193,7 @@ describe("sanitizeDisplayMessages · drop trailing assistant duplicate", () => {
       role: "assistant",
       textSegments: ["Final answer"],
       toolCalls: [
-        makeToolCall({ id: "tc-1", toolName: "bash", result: "ok" }),
+        makeToolCall({ id: "tc-1", name: "bash", result: "ok" }),
       ],
       timestamp: 1000,
     });
@@ -241,17 +251,17 @@ describe("sanitizeDisplayMessages · drop trailing assistant duplicate", () => {
     expect(result.map((m) => m.id)).toEqual(["first", "second"]);
   });
 
-  test("keeps both rows when tool call toolName differs", () => {
+  test("keeps both rows when tool call name differs", () => {
     const first = makeMessage({
       id: "first",
       role: "assistant",
-      toolCalls: [makeToolCall({ id: "tc", toolName: "bash", result: "x" })],
+      toolCalls: [makeToolCall({ id: "tc", name: "bash", result: "x" })],
       timestamp: 1,
     });
     const second = makeMessage({
       id: "second",
       role: "assistant",
-      toolCalls: [makeToolCall({ id: "tc", toolName: "read", result: "x" })],
+      toolCalls: [makeToolCall({ id: "tc", name: "read", result: "x" })],
       timestamp: 2,
     });
     const result = sanitizeDisplayMessages([first, second]);
@@ -262,13 +272,13 @@ describe("sanitizeDisplayMessages · drop trailing assistant duplicate", () => {
     const first = makeMessage({
       id: "first",
       role: "assistant",
-      toolCalls: [makeToolCall({ id: "tc", toolName: "bash", result: "a" })],
+      toolCalls: [makeToolCall({ id: "tc", name: "bash", result: "a" })],
       timestamp: 1,
     });
     const second = makeMessage({
       id: "second",
       role: "assistant",
-      toolCalls: [makeToolCall({ id: "tc", toolName: "bash", result: "b" })],
+      toolCalls: [makeToolCall({ id: "tc", name: "bash", result: "b" })],
       timestamp: 2,
     });
     const result = sanitizeDisplayMessages([first, second]);
@@ -279,15 +289,15 @@ describe("sanitizeDisplayMessages · drop trailing assistant duplicate", () => {
     const first = makeMessage({
       id: "first",
       role: "assistant",
-      toolCalls: [makeToolCall({ id: "tc", toolName: "bash", result: "x" })],
+      toolCalls: [makeToolCall({ id: "tc", name: "bash", result: "x" })],
       timestamp: 1,
     });
     const second = makeMessage({
       id: "second",
       role: "assistant",
       toolCalls: [
-        makeToolCall({ id: "tc-a", toolName: "bash", result: "x" }),
-        makeToolCall({ id: "tc-b", toolName: "bash", result: "y" }),
+        makeToolCall({ id: "tc-a", name: "bash", result: "x" }),
+        makeToolCall({ id: "tc-b", name: "bash", result: "y" }),
       ],
       timestamp: 2,
     });
@@ -341,13 +351,13 @@ describe("sanitizeDisplayMessages · drop trailing assistant duplicate", () => {
     const first = makeMessage({
       id: "first",
       role: "assistant",
-      toolCalls: [makeToolCall({ id: "tc", toolName: "bash", result: "x" })],
+      toolCalls: [makeToolCall({ id: "tc", name: "bash", result: "x" })],
       timestamp: 1,
     });
     const second = makeMessage({
       id: "second",
       role: "assistant",
-      toolCalls: [makeToolCall({ id: "tc", toolName: "bash", result: "x" })],
+      toolCalls: [makeToolCall({ id: "tc", name: "bash", result: "x" })],
       timestamp: 2,
     });
     const result = sanitizeDisplayMessages([first, second]);
@@ -384,7 +394,7 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
       role: "assistant",
       timestamp: 100,
       toolCalls: [
-        makeToolCall({ id: "tc-1", toolName: "bash", status: "running" }),
+        makeToolCall({ id: "tc-1", name: "bash", status: "running" }),
       ],
     });
     const later = makeMessage({
@@ -396,9 +406,8 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
     const [patchedOld, untouchedNew] = sanitizeDisplayMessages([older, later]);
     expect(patchedOld!.toolCalls![0]).toEqual({
       id: "tc-1",
-      toolName: "bash",
+      name: "bash",
       input: {},
-      status: "error",
       isError: true,
       result: SYNTHETIC,
     });
@@ -418,12 +427,12 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
       role: "assistant",
       timestamp: 200,
       toolCalls: [
-        makeToolCall({ id: "tc-1", toolName: "bash", status: "running" }),
+        makeToolCall({ id: "tc-1", name: "bash", status: "running" }),
       ],
     });
     const result = sanitizeDisplayMessages([userMsg, last]);
     expect(result[1]).toBe(last);
-    expect(result[1]!.toolCalls![0]!.status).toBe("running");
+    expect(isToolCallRunning(result[1]!.toolCalls![0]!)).toBe(true);
   });
 
   test("does NOT patch when only a subsequent USER message exists (no assistant proof)", () => {
@@ -432,7 +441,7 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
       role: "assistant",
       timestamp: 100,
       toolCalls: [
-        makeToolCall({ id: "tc-1", toolName: "bash", status: "running" }),
+        makeToolCall({ id: "tc-1", name: "bash", status: "running" }),
       ],
     });
     const trailingUser = makeMessage({
@@ -443,7 +452,7 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
     });
     const result = sanitizeDisplayMessages([onlyAssistant, trailingUser]);
     expect(result[0]).toBe(onlyAssistant);
-    expect(result[0]!.toolCalls![0]!.status).toBe("running");
+    expect(isToolCallRunning(result[0]!.toolCalls![0]!)).toBe(true);
   });
 
   test("patches across an intervening user message", () => {
@@ -452,7 +461,7 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
       role: "assistant",
       timestamp: 100,
       toolCalls: [
-        makeToolCall({ id: "tc-1", toolName: "bash", status: "running" }),
+        makeToolCall({ id: "tc-1", name: "bash", status: "running" }),
       ],
     });
     const u = makeMessage({
@@ -468,7 +477,7 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
       timestamp: 300,
     });
     const result = sanitizeDisplayMessages([a1, u, a2]);
-    expect(result[0]!.toolCalls![0]!.status).toBe("error");
+    expect(Boolean((result[0]!.toolCalls![0]!).isError)).toBe(true);
     expect(result[0]!.toolCalls![0]!.result).toBe(SYNTHETIC);
   });
 
@@ -480,7 +489,7 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
       toolCalls: [
         makeToolCall({
           id: "tc-1",
-          toolName: "bash",
+          name: "bash",
           status: "completed",
           result: "ok",
         }),
@@ -507,7 +516,7 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
       toolCalls: [
         makeToolCall({
           id: "tc-1",
-          toolName: "bash",
+          name: "bash",
           status: "error",
           isError: true,
           result: "boom",
@@ -533,14 +542,14 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
       toolCalls: [
         makeToolCall({
           id: "tc-1",
-          toolName: "bash",
+          name: "bash",
           status: "completed",
           result: "first ok",
         }),
-        makeToolCall({ id: "tc-2", toolName: "web_search", status: "running" }),
+        makeToolCall({ id: "tc-2", name: "web_search", status: "running" }),
         makeToolCall({
           id: "tc-3",
-          toolName: "read_file",
+          name: "read_file",
           status: "completed",
           result: "third ok",
         }),
@@ -554,7 +563,7 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
     });
     const result = sanitizeDisplayMessages([older, later]);
     expect(result[0]!.toolCalls![0]!.result).toBe("first ok");
-    expect(result[0]!.toolCalls![1]!.status).toBe("error");
+    expect(Boolean((result[0]!.toolCalls![1]!).isError)).toBe(true);
     expect(result[0]!.toolCalls![1]!.isError).toBe(true);
     expect(result[0]!.toolCalls![1]!.result).toBe(SYNTHETIC);
     expect(result[0]!.toolCalls![2]!.result).toBe("third ok");
@@ -566,7 +575,7 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
       role: "assistant",
       timestamp: 100,
       toolCalls: [
-        makeToolCall({ id: "tc-1", toolName: "bash", status: "running" }),
+        makeToolCall({ id: "tc-1", name: "bash", status: "running" }),
       ],
     });
     const a2 = makeMessage({
@@ -574,7 +583,7 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
       role: "assistant",
       timestamp: 200,
       toolCalls: [
-        makeToolCall({ id: "tc-2", toolName: "bash", status: "running" }),
+        makeToolCall({ id: "tc-2", name: "bash", status: "running" }),
       ],
     });
     const a3 = makeMessage({
@@ -584,13 +593,13 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
       timestamp: 300,
     });
     const result = sanitizeDisplayMessages([a1, a2, a3]);
-    expect(result[0]!.toolCalls![0]!.status).toBe("error");
-    expect(result[1]!.toolCalls![0]!.status).toBe("error");
+    expect(Boolean((result[0]!.toolCalls![0]!).isError)).toBe(true);
+    expect(Boolean((result[1]!.toolCalls![0]!).isError)).toBe(true);
     expect(result[2]).toBe(a3);
   });
 
   test("does not mutate the input messages or tool-call objects", () => {
-    const tc = makeToolCall({ id: "tc", toolName: "bash", status: "running" });
+    const tc = makeToolCall({ id: "tc", name: "bash", status: "running" });
     const older = makeMessage({
       id: "a-old",
       role: "assistant",
@@ -604,7 +613,7 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
       timestamp: 200,
     });
     sanitizeDisplayMessages([older, later]);
-    expect(tc.status).toBe("running");
+    expect(isToolCallRunning(tc)).toBe(true);
     expect(tc.result).toBeUndefined();
     expect(older.toolCalls![0]).toBe(tc);
   });
@@ -621,7 +630,7 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
       toolCalls: [
         makeToolCall({
           id: "tc-1",
-          toolName: "bash",
+          name: "bash",
           status: "completed",
           result: "ok",
         }),
@@ -684,7 +693,7 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
       toolCalls: [
         makeToolCall({
           id: "tc",
-          toolName: "web_search",
+          name: "web_search",
           status: "running",
           startedAt: started,
         }),
@@ -692,7 +701,7 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
     });
     mockNow(now);
     const [patched] = sanitizeDisplayMessages([m]);
-    expect(patched!.toolCalls![0]!.status).toBe("error");
+    expect(Boolean((patched!.toolCalls![0]!).isError)).toBe(true);
     expect(patched!.toolCalls![0]!.isError).toBe(true);
     expect(patched!.toolCalls![0]!.result).toContain(STALE_PREFIX);
   });
@@ -708,7 +717,7 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
       toolCalls: [
         makeToolCall({
           id: "tc",
-          toolName: "web_search",
+          name: "web_search",
           status: "running",
           startedAt: started,
         }),
@@ -717,7 +726,7 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
     mockNow(now);
     const result = sanitizeDisplayMessages([m]);
     expect(result[0]).toBe(m);
-    expect(result[0]!.toolCalls![0]!.status).toBe("running");
+    expect(isToolCallRunning(result[0]!.toolCalls![0]!)).toBe(true);
   });
 
   test("marks stale after the default execution timeout elapses", () => {
@@ -732,7 +741,7 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
       toolCalls: [
         makeToolCall({
           id: "tc",
-          toolName: "web_search",
+          name: "web_search",
           status: "running",
           startedAt: started,
         }),
@@ -740,7 +749,7 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
     });
     mockNow(now);
     const [patched] = sanitizeDisplayMessages([m]);
-    expect(patched!.toolCalls![0]!.status).toBe("error");
+    expect(Boolean((patched!.toolCalls![0]!).isError)).toBe(true);
     expect(patched!.toolCalls![0]!.result).toContain(STALE_PREFIX);
   });
 
@@ -757,7 +766,7 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
       toolCalls: [
         makeToolCall({
           id: "tc",
-          toolName: "bash",
+          name: "bash",
           status: "running",
           startedAt: started,
           pendingConfirmation: {
@@ -771,7 +780,7 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
     mockNow(now);
     const result = sanitizeDisplayMessages([m]);
     expect(result[0]).toBe(m);
-    expect(result[0]!.toolCalls![0]!.status).toBe("running");
+    expect(isToolCallRunning(result[0]!.toolCalls![0]!)).toBe(true);
   });
 
   test("does NOT mark stale when startedAt is missing (no clock to measure)", () => {
@@ -782,7 +791,7 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
       toolCalls: [
         makeToolCall({
           id: "tc",
-          toolName: "bash",
+          name: "bash",
           status: "running",
           // No startedAt — typically a pre-stamping history hydration.
         }),
@@ -791,7 +800,7 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
     mockNow(1_000_000_000);
     const result = sanitizeDisplayMessages([m]);
     expect(result[0]).toBe(m);
-    expect(result[0]!.toolCalls![0]!.status).toBe("running");
+    expect(isToolCallRunning(result[0]!.toolCalls![0]!)).toBe(true);
   });
 
   test("marks stale tools on the LAST assistant too (no subsequent-assistant requirement)", () => {
@@ -812,7 +821,7 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
       toolCalls: [
         makeToolCall({
           id: "tc",
-          toolName: "web_search",
+          name: "web_search",
           status: "running",
           startedAt: started,
         }),
@@ -820,7 +829,7 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
     });
     mockNow(now);
     const result = sanitizeDisplayMessages([u, lastAssistant]);
-    expect(result[1]!.toolCalls![0]!.status).toBe("error");
+    expect(Boolean((result[1]!.toolCalls![0]!).isError)).toBe(true);
     expect(result[1]!.toolCalls![0]!.result).toContain(STALE_PREFIX);
   });
 
@@ -834,20 +843,20 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
       toolCalls: [
         makeToolCall({
           id: "tc-1",
-          toolName: "bash",
+          name: "bash",
           status: "completed",
           startedAt: started,
           result: "first ok",
         }),
         makeToolCall({
           id: "tc-2",
-          toolName: "web_search",
+          name: "web_search",
           status: "running",
           startedAt: started,
         }),
         makeToolCall({
           id: "tc-3",
-          toolName: "read_file",
+          name: "read_file",
           status: "completed",
           startedAt: started,
           result: "third ok",
@@ -857,7 +866,7 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
     mockNow(now);
     const [patched] = sanitizeDisplayMessages([m]);
     expect(patched!.toolCalls![0]!.result).toBe("first ok");
-    expect(patched!.toolCalls![1]!.status).toBe("error");
+    expect(Boolean((patched!.toolCalls![1]!).isError)).toBe(true);
     expect(patched!.toolCalls![1]!.isError).toBe(true);
     expect(patched!.toolCalls![1]!.result).toContain(STALE_PREFIX);
     expect(patched!.toolCalls![2]!.result).toBe("third ok");
@@ -868,7 +877,7 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
     const now = started + PAST_DEFAULT_TIMEOUT_MS;
     const tc = makeToolCall({
       id: "tc",
-      toolName: "web_search",
+      name: "web_search",
       status: "running",
       startedAt: started,
     });
@@ -880,7 +889,7 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
     });
     mockNow(now);
     sanitizeDisplayMessages([m]);
-    expect(tc.status).toBe("running");
+    expect(isToolCallRunning(tc)).toBe(true);
     expect(tc.result).toBeUndefined();
     expect(m.toolCalls![0]).toBe(tc);
   });
@@ -896,7 +905,7 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
       toolCalls: [
         makeToolCall({
           id: "tc-1",
-          toolName: "bash",
+          name: "bash",
           status: "completed",
           startedAt: 100,
           result: "ok",
@@ -928,7 +937,7 @@ describe("sanitizeDisplayMessages · integration", () => {
       role: "user",
       ...textBody(""),
       toolCalls: [
-        makeToolCall({ id: "p", toolName: "unknown", result: "orphan" }),
+        makeToolCall({ id: "p", name: "unknown", result: "orphan" }),
       ],
       timestamp: 50,
     });
@@ -945,7 +954,7 @@ describe("sanitizeDisplayMessages · integration", () => {
       role: "assistant",
       textSegments: ["let me check"],
       toolCalls: [
-        makeToolCall({ id: "tc-x", toolName: "bash", status: "running" }),
+        makeToolCall({ id: "tc-x", name: "bash", status: "running" }),
       ],
       timestamp: 150,
     });
@@ -988,7 +997,7 @@ describe("sanitizeDisplayMessages · integration", () => {
       "msg-1",
     ]);
     const patchedTool = result[1]!.toolCalls![0]!;
-    expect(patchedTool.status).toBe("error");
+    expect(Boolean((patchedTool).isError)).toBe(true);
     expect(patchedTool.isError).toBe(true);
     expect(patchedTool.result).toContain("client-side data loss");
   });

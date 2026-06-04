@@ -97,7 +97,6 @@ export function createToolExecutor(
   input: Record<string, unknown>,
   onOutput?: (chunk: string) => void,
   toolUseId?: string,
-  turnContext?: import("../plugins/types.js").TurnContext,
 ) => Promise<ToolExecutionResult> {
   // Register the conversation's sendToClient for browser screencast surface messages
   registerConversationSender(ctx.conversationId, (msg) =>
@@ -109,7 +108,6 @@ export function createToolExecutor(
     input: Record<string, unknown>,
     onOutput?: (chunk: string) => void,
     toolUseId?: string,
-    turnContext?: import("../plugins/types.js").TurnContext,
   ) => {
     const { name: executionName, input: executionInput } =
       resolveToolInvocationAlias(name, input, ctx.allowedToolNames);
@@ -257,12 +255,7 @@ export function createToolExecutor(
         };
       }
 
-      const result = await executor.execute(
-        toolName,
-        toolInput,
-        toolContext,
-        turnContext,
-      );
+      const result = await executor.execute(toolName, toolInput, toolContext);
       if (toolContext.approvedViaPrompt) {
         ctx.approvedViaPromptThisTurn = true;
       }
@@ -276,7 +269,6 @@ export function createToolExecutor(
       executionName,
       executionInput,
       toolContext,
-      turnContext,
     );
     if (toolContext.approvedViaPrompt) {
       ctx.approvedViaPromptThisTurn = true;

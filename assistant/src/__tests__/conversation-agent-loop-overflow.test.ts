@@ -19,21 +19,10 @@ import type {
   AgentEvent,
   AgentLoopRunOptions,
   AgentLoopRunResult,
-  MidLoopCompaction,
 } from "../agent/loop.js";
 import type { LLMConfig } from "../config/schemas/llm.js";
-import type { ContextWindowResult } from "../context/window-manager.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
-import { defaultCompactionTerminal } from "../plugins/defaults/compaction/terminal.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
-import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
-import { getMiddlewaresFor } from "../plugins/registry.js";
-import type {
-  CompactionArgs,
-  CompactionResult,
-  TurnContext,
-} from "../plugins/types.js";
-import { PluginTimeoutError } from "../plugins/types.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 
 const conversationCrudRealSnapshot = {
@@ -114,10 +103,10 @@ mock.module("../config/loader.js", () => ({
 // Token estimator — controllable per-test via mockEstimateTokens.
 // Can be a number (constant), a no-arg function, or a function that
 // receives the messages array for dynamic behavior based on content.
-// Both the calibrated entry point (`estimatePromptTokens`, used in the
-// convergence path) and the raw entry point (`estimatePromptTokensRaw`,
-// used by the default `tokenEstimate` plugin pipeline for preflight/mid-
-// loop) are stubbed so either call site can drive the test.
+// Both the calibrated entry point (`estimatePromptTokens`, which backs the
+// preflight overflow gate and the convergence path) and the raw entry point
+// (`estimatePromptTokensRaw`, used by the pre-send calibration capture) are
+// stubbed so either call site can drive the test.
 let mockEstimateTokens: number | ((msgs?: Message[]) => number) = 1000;
 mock.module("../context/token-estimator.js", () => ({
   estimatePromptTokens: (msgs: Message[]) =>
@@ -128,8 +117,16 @@ mock.module("../context/token-estimator.js", () => ({
     typeof mockEstimateTokens === "function"
       ? mockEstimateTokens(msgs)
       : mockEstimateTokens,
-  // Default plugin multiplies-in tool tokens via this helper; 0 keeps the
-  // stubbed raw value unchanged.
+  // The preflight overflow gate calls this calibrated wrapper directly, so it
+  // must honor `mockEstimateTokens` too — otherwise the real implementation
+  // (which sums tool tokens onto the real calibrated estimate) ignores the
+  // per-test value and the overflow scenarios below never trigger.
+  estimatePromptTokensWithTools: (history: Message[]) =>
+    typeof mockEstimateTokens === "function"
+      ? mockEstimateTokens(history)
+      : mockEstimateTokens,
+  // `estimatePromptTokensWithTools` folds tool tokens in via this helper; 0
+  // keeps the stubbed value unchanged.
   estimateToolsTokens: () => 0,
   // Conversation agent loop now calls this helper to canonicalize the
   // provider key shared with the calibration system. The tests here
@@ -441,7 +438,7 @@ import {
   type AgentLoopConversationContext,
   runAgentLoopImpl,
 } from "../daemon/conversation-agent-loop.js";
-import { stripInjectionsForCompaction } from "../daemon/conversation-runtime-assembly.js";
+import { simulateInlineCompaction } from "./helpers/simulate-inline-compaction.js";
 
 // ── Test helpers ─────────────────────────────────────────────────────
 
@@ -450,78 +447,6 @@ type AgentLoopRun = (
   onEvent: (event: AgentEvent) => void,
   options?: AgentLoopRunOptions,
 ) => Promise<Message[]>;
-
-/**
- * Faithful re-implementation of `AgentLoop.compact()` for the mock loop: run
- * the compaction pipeline against the supplied turn context (which carries the
- * test's `contextWindowManager`), invoke the orchestrator-supplied hooks, and
- * return the continuation history — or `null` on timeout/exhaustion so the
- * caller yields "budget".
- */
-async function simulateInlineCompaction(
-  compaction: MidLoopCompaction,
-  history: Message[],
-  turnContext: TurnContext | undefined,
-  signal: AbortSignal | undefined,
-  onEvent: (event: AgentEvent) => void | Promise<void>,
-  compactionCircuit: CompactionCircuit,
-): Promise<Message[] | null> {
-  await onEvent({ type: "context_compacting" });
-  // The agent loop strips runtime injections (identity-stubbed in this suite),
-  // records the history-stripped marker via `history_stripped`, then prepare
-  // returns only the orchestrator options. The loop owns the forced-compaction
-  // decision for its mid-loop budget gate and layers `force` onto the options
-  // bag before invoking the pipeline.
-  const rawHistory = stripInjectionsForCompaction(history);
-  await onEvent({ type: "history_stripped" });
-  const { options } = compaction.prepare();
-  let result: CompactionResult;
-  try {
-    result = await runPipeline<CompactionArgs, CompactionResult>(
-      "compaction",
-      getMiddlewaresFor("compaction"),
-      (args) => defaultCompactionTerminal(args, turnContext as TurnContext),
-      { messages: rawHistory, signal, options: { force: true, ...options } },
-      turnContext as TurnContext,
-      DEFAULT_TIMEOUTS.compaction,
-    );
-  } catch (error) {
-    if (error instanceof PluginTimeoutError) {
-      await compactionCircuit.recordOutcome(
-        {
-          currentRequestId: turnContext?.requestId,
-          currentTurnTrustContext: turnContext?.trust,
-          turnCount: turnContext?.turnIndex ?? 0,
-        },
-        true,
-        onEvent,
-      );
-      return null;
-    }
-    throw error;
-  }
-  const compactResult = result as ContextWindowResult;
-  if (compactResult.summaryFailed !== undefined) {
-    await compactionCircuit.recordOutcome(
-      {
-        currentRequestId: turnContext?.requestId,
-        currentTurnTrustContext: turnContext?.trust,
-        turnCount: turnContext?.turnIndex ?? 0,
-      },
-      compactResult.summaryFailed,
-      onEvent,
-    );
-  }
-  await onEvent({
-    type: "compaction_completed",
-    result: compactResult,
-    basis: rawHistory,
-  });
-  if (compactResult.exhausted ?? false) {
-    return null;
-  }
-  return compaction.reinject();
-}
 
 /**
  * Adapt a `Message[]`-returning mock loop body into `run()`'s real result
@@ -584,6 +509,9 @@ const asAgentLoopRun = (
                     options.signal,
                     onEvent,
                     compactionCircuit,
+                    options.resolveOverrideProfile?.() ??
+                      options.overrideProfile ??
+                      null,
                   )
                 : null;
               if (compacted) {
@@ -600,7 +528,17 @@ const asAgentLoopRun = (
       };
     }
     const history = await fn(messages, onEvent, wrapped);
-    return { history, exitReason };
+    // Mirror the loop's forward-progress signal: it sets `appendedNewMessages`
+    // when it pushes a new assistant message, which for these mock bodies (that
+    // never return a compaction-shrunk history) means the returned history grew
+    // past the input.
+    const appendedNewMessages = history.length > messages.length;
+    return {
+      history,
+      exitReason,
+      appendedNewMessages,
+      newMessages: history.slice(messages.length),
+    };
   };
 };
 
@@ -627,6 +565,12 @@ function makeCtx(
       { role: "user", content: [{ type: "text", text: "Hello" }] },
     ] as Message[],
     processing: true,
+    isProcessing(this: { processing: boolean }) {
+      return this.processing;
+    },
+    setProcessing(this: { processing: boolean }, value: boolean) {
+      this.processing = value;
+    },
     abortController: new AbortController(),
     currentRequestId: "test-req",
 
@@ -856,10 +800,9 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
 
   // ── Test 1 ────────────────────────────────────────────────────────
   // BUG: When the agent loop makes progress (adds messages to history)
-  // before hitting context_too_large, the convergence loop at line 864
-  // checks `updatedHistory.length === preRunHistoryLength` which is
-  // false when progress was made. This means the reducer is never
-  // invoked — the error is surfaced immediately at line 1163-1175
+  // before hitting context_too_large, the convergence loop's progress
+  // check must recognize that the loop appended messages. If it fails to,
+  // the reducer is never invoked — the error is surfaced immediately
   // without any compaction attempt.
   //
   // Expected behavior (PR 2 fix): After progress + context_too_large,

@@ -2,21 +2,21 @@ import { Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button } from "@vellum/design-library/components/button";
-import { Modal } from "@vellum/design-library/components/modal";
-import { Tag } from "@vellum/design-library/components/tag";
-import { Typography } from "@vellum/design-library/components/typography";
+import { Button } from "@vellumai/design-library/components/button";
+import { Modal } from "@vellumai/design-library/components/modal";
+import { Tag } from "@vellumai/design-library/components/tag";
+import { Typography } from "@vellumai/design-library/components/typography";
 
-import { inferenceProviderconnectionsByNameDelete } from "@/generated/daemon/sdk.gen";
 import {
-  inferenceProviderconnectionsGetOptions,
-  inferenceProviderconnectionsGetQueryKey,
+    inferenceProviderconnectionsGetOptions,
+    inferenceProviderconnectionsGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
+import { inferenceProviderconnectionsByNameDelete } from "@/generated/daemon/sdk.gen";
 
 import {
-  filterFlaggedConnections,
-  PROVIDER_DISPLAY_NAMES,
-  type ProviderConnection,
+    filterFlaggedConnections,
+    PROVIDER_DISPLAY_NAMES,
+    type ProviderConnection,
 } from "@/domains/settings/ai/provider-connections-client";
 import { ProviderEditorContent } from "@/domains/settings/ai/provider-editor-modal";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";

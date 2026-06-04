@@ -24,6 +24,7 @@ mock.module("../runtime/background-job-runner.js", () => ({
     prompt: string;
     groupId?: string;
     trustContext: { sourceChannel: string; trustClass: string };
+    onConversationCreated?: (conversationId: string) => void;
   }) => {
     const { createConversation } =
       await import("../memory/conversation-crud.js");
@@ -33,6 +34,7 @@ mock.module("../runtime/background-job-runner.js", () => ({
       source: "schedule",
       ...(opts.groupId ? { groupId: opts.groupId } : {}),
     });
+    opts.onConversationCreated?.(conv.id);
     onRunBackgroundJobCall?.({
       conversationId: conv.id,
       prompt: opts.prompt,
@@ -60,12 +62,17 @@ mock.module("../notifications/emit-signal.js", () => ({
 
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
+import { recordUsageEvent } from "../memory/llm-usage-store.js";
 import {
   createSchedule,
   getSchedule,
   getScheduleRuns,
 } from "../schedule/schedule-store.js";
-import { startScheduler } from "../schedule/scheduler.js";
+import { getScheduleUsageSummaries } from "../schedule/schedule-usage-store.js";
+import {
+  runScheduleDueWorkOnce,
+  startScheduler,
+} from "../schedule/scheduler.js";
 import { scheduleTask } from "../tasks/task-scheduler.js";
 import { createTask } from "../tasks/task-store.js";
 
@@ -160,6 +167,7 @@ describe("scheduler run_task detection", () => {
     db.run("DELETE FROM cron_jobs");
     db.run("DELETE FROM task_runs");
     db.run("DELETE FROM tasks");
+    db.run("DELETE FROM llm_usage_events");
     db.run("DELETE FROM messages");
     db.run("DELETE FROM conversations");
     onRunBackgroundJobCall = null;
@@ -297,5 +305,158 @@ describe("scheduler run_task detection", () => {
     expect(failureSignal?.dedupeKey).toMatch(
       /^activity-failed:task:nonexistent-task-id:\d{4}-\d{2}-\d{2}$/,
     );
+  });
+
+  test("opens a task-backed schedule run before task processing and backfills the real conversation id", async () => {
+    const task = createTask({
+      title: "Usage Attribution Task",
+      template: "Spend scheduled tokens",
+    });
+    const schedule = scheduleTask({
+      taskId: task.id,
+      name: "Usage Attribution Schedule",
+      cronExpression: "* * * * *",
+    });
+    forceScheduleDue(schedule.id);
+
+    const from = Date.now() - 1000;
+    let processingConversationId: string | null = null;
+    let usageEventCreatedAt: number | null = null;
+    let runsDuringProcessing: ReturnType<typeof getScheduleRuns> = [];
+
+    const result = await runScheduleDueWorkOnce(
+      async (conversationId) => {
+        processingConversationId = conversationId;
+        runsDuringProcessing = getScheduleRuns(schedule.id);
+        const event = recordUsageEvent(
+          {
+            conversationId,
+            runId: null,
+            requestId: "req-scheduled-task-usage",
+            actor: "main_agent",
+            callSite: "mainAgent",
+            inferenceProfile: "balanced",
+            provider: "anthropic",
+            model: "claude-sonnet-4-20250514",
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheCreationInputTokens: 0,
+            cacheReadInputTokens: 0,
+            rawUsage: null,
+          },
+          { estimatedCostUsd: 0.25, pricingStatus: "priced" },
+        );
+        usageEventCreatedAt = event.createdAt;
+      },
+      () => {},
+    );
+    const to = Date.now() + 1000;
+
+    expect(result.completed).toBe(1);
+    expect(result.failed).toBe(0);
+    expect(processingConversationId).not.toBeNull();
+    expect(usageEventCreatedAt).not.toBeNull();
+    expect(runsDuringProcessing).toHaveLength(1);
+    expect(runsDuringProcessing[0].status).toBe("running");
+    expect(runsDuringProcessing[0].conversationId).toBeNull();
+    expect(runsDuringProcessing[0].startedAt).toBeLessThanOrEqual(
+      usageEventCreatedAt!,
+    );
+
+    const runs = getScheduleRuns(schedule.id);
+    expect(runs).toHaveLength(1);
+    expect(runs[0].id).toBe(runsDuringProcessing[0].id);
+    expect(runs[0].status).toBe("ok");
+    expect(runs[0].conversationId).toBe(processingConversationId);
+    expect(runs[0].startedAt).toBeLessThanOrEqual(usageEventCreatedAt!);
+    expect(runs[0].finishedAt).not.toBeNull();
+    expect(runs[0].finishedAt!).toBeGreaterThanOrEqual(usageEventCreatedAt!);
+
+    const summary = getScheduleUsageSummaries({ from, to }).find(
+      (row) => row.scheduleId === schedule.id,
+    );
+    expect(summary).toEqual({
+      scheduleId: schedule.id,
+      runCount: 1,
+      totalEstimatedCostUsd: 0.25,
+      eventCount: 1,
+    });
+  });
+
+  test("opens a normal execute schedule run before fresh background processing and records the conversation id", async () => {
+    const schedule = createSchedule({
+      name: "Usage Attribution Message Schedule",
+      cronExpression: "* * * * *",
+      message: "Spend scheduled message tokens",
+      syntax: "cron",
+    });
+    forceScheduleDue(schedule.id);
+
+    const from = Date.now() - 1000;
+    let processingConversationId: string | null = null;
+    let usageEventCreatedAt: number | null = null;
+    let runsDuringProcessing: ReturnType<typeof getScheduleRuns> = [];
+
+    onRunBackgroundJobCall = (info) => {
+      processingConversationId = info.conversationId;
+      runsDuringProcessing = getScheduleRuns(schedule.id);
+      const event = recordUsageEvent(
+        {
+          conversationId: info.conversationId,
+          runId: null,
+          requestId: "req-scheduled-message-usage",
+          actor: "main_agent",
+          callSite: "mainAgent",
+          inferenceProfile: "balanced",
+          provider: "anthropic",
+          model: "claude-sonnet-4-20250514",
+          inputTokens: 80,
+          outputTokens: 20,
+          cacheCreationInputTokens: 0,
+          cacheReadInputTokens: 0,
+          rawUsage: null,
+        },
+        { estimatedCostUsd: 0.1, pricingStatus: "priced" },
+      );
+      usageEventCreatedAt = event.createdAt;
+    };
+
+    const result = await runScheduleDueWorkOnce(
+      async () => {},
+      () => {},
+    );
+    const to = Date.now() + 1000;
+
+    expect(result.completed).toBe(1);
+    expect(result.failed).toBe(0);
+    expect(processingConversationId).not.toBeNull();
+    expect(usageEventCreatedAt).not.toBeNull();
+    expect(runsDuringProcessing).toHaveLength(1);
+    expect(runsDuringProcessing[0].status).toBe("running");
+    expect(runsDuringProcessing[0].conversationId).toBe(
+      processingConversationId,
+    );
+    expect(runsDuringProcessing[0].startedAt).toBeLessThanOrEqual(
+      usageEventCreatedAt!,
+    );
+
+    const runs = getScheduleRuns(schedule.id);
+    expect(runs).toHaveLength(1);
+    expect(runs[0].id).toBe(runsDuringProcessing[0].id);
+    expect(runs[0].status).toBe("ok");
+    expect(runs[0].conversationId).toBe(processingConversationId);
+    expect(runs[0].startedAt).toBeLessThanOrEqual(usageEventCreatedAt!);
+    expect(runs[0].finishedAt).not.toBeNull();
+    expect(runs[0].finishedAt!).toBeGreaterThanOrEqual(usageEventCreatedAt!);
+
+    const summary = getScheduleUsageSummaries({ from, to }).find(
+      (row) => row.scheduleId === schedule.id,
+    );
+    expect(summary).toEqual({
+      scheduleId: schedule.id,
+      runCount: 1,
+      totalEstimatedCostUsd: 0.1,
+      eventCount: 1,
+    });
   });
 });

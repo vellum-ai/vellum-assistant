@@ -1,10 +1,9 @@
 
 import { Mic } from "lucide-react";
 
-import { Button } from "@vellum/design-library";
-import { Modal } from "@vellum/design-library";
-import { getLocalBool, setLocalBool } from "@/utils/local-settings";
 import { isBatchSttSupported } from "@/domains/chat/components/voice-input-button";
+import { getLocalBool, setLocalBool } from "@/utils/local-settings";
+import { Button, Modal } from "@vellumai/design-library";
 
 const MIC_PRIMER_STORAGE_KEY = "vellum:voice:permissionPrimerSeen";
 

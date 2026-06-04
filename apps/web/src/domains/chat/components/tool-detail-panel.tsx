@@ -25,15 +25,15 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
-import { Button, Typography } from "@vellum/design-library";
+import { Button, Typography } from "@vellumai/design-library";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { RiskBadge } from "@/domains/chat/components/risk-badge";
-import {
-  type IconName,
-  deriveStepLabelFromName,
-} from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import { titleCaseToolName } from "@/domains/chat/components/tool-call-chip/utils";
+import {
+    deriveStepLabelFromName,
+    type IconName,
+} from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
 /**

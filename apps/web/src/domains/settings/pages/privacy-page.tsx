@@ -1,19 +1,19 @@
 import { useState } from "react";
 
-import { Dropdown } from "@vellum/design-library/components/dropdown";
-import { Toggle } from "@vellum/design-library/components/toggle";
 import { DetailCard } from "@/components/detail-card";
-import { BiometricSettingsCard } from "@/domains/settings/components/biometric-settings-card";
 import { AccessConsentSetting } from "@/domains/settings/components/access-consent-setting";
+import { BiometricSettingsCard } from "@/domains/settings/components/biometric-settings-card";
 import { RiskToleranceSettings } from "@/domains/settings/components/risk-tolerance-settings";
 import { TrustRules } from "@/domains/settings/components/trust-rules/trust-rules";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import {
-  getDeviceBool,
-  getDeviceSetting,
-  setDeviceBool,
-  setDeviceSetting,
+    getDeviceBool,
+    getDeviceSetting,
+    setDeviceBool,
+    setDeviceSetting,
 } from "@/utils/device-settings";
+import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Toggle } from "@vellumai/design-library/components/toggle";
 
 const RETENTION_OPTIONS: { value: string; label: string }[] = [
   { value: "dontRetain", label: "Don't retain" },
@@ -91,7 +91,7 @@ export function PrivacyPage() {
   };
 
   return (
-    <div className="mx-auto max-w-[940px] space-y-4">
+    <div className="space-y-4">
       <BiometricSettingsCard />
       <TrustRules />
       <RiskToleranceSettings />

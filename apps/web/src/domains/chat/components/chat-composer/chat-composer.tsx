@@ -1,57 +1,57 @@
 import { ArrowUp, Square } from "lucide-react";
 import {
-  type Dispatch,
-  type FormEvent,
-  type ReactNode,
-  type RefObject,
-  type SetStateAction,
-  useCallback,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
+    type Dispatch,
+    type FormEvent,
+    type ReactNode,
+    type RefObject,
+    type SetStateAction,
+    useCallback,
+    useLayoutEffect,
+    useMemo,
+    useRef,
+    useState,
 } from "react";
 import { flushSync } from "react-dom";
 
 import {
-  AttachFileButton,
-  ChatAttachmentsStrip,
+    AttachFileButton,
+    ChatAttachmentsStrip,
 } from "@/domains/chat/components/chat-attachments/chat-attachments";
-import type { ChatAttachment } from "@/domains/chat/components/chat-attachments/use-chat-attachments";
-import { Button, Popover } from "@vellum/design-library";
-import {
-  VoiceInputButton,
-  type VoiceInputButtonHandle,
-} from "@/domains/chat/components/voice-input-button";
+import type { ChatAttachment } from "@/domains/chat/composer-store";
+import { StreamingWaveform } from "@/domains/chat/components/chat-composer/streaming-waveform";
 import { LiveVoiceButton } from "@/domains/chat/components/live-voice-button";
-import { useLiveVoiceStore } from "@/domains/chat/voice/live-voice/live-voice-store";
+import {
+    VoiceInputButton,
+    type VoiceInputButtonHandle,
+} from "@/domains/chat/components/voice-input-button";
 import { type TurnPhase, useTurnStore } from "@/domains/chat/turn-store";
-import { useIsMobile } from "@/hooks/use-is-mobile";
-import { useIsNativePlatform } from "@/runtime/native-auth";
-import { isPointerCoarse } from "@/utils/pointer";
+import { useLiveVoiceStore } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { useAudioAmplitude } from "@/domains/chat/voice/use-audio-amplitude";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
+import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
-import { StreamingWaveform } from "@/domains/chat/components/chat-composer/streaming-waveform";
+import { isPointerCoarse } from "@/utils/pointer";
+import { Button, Popover } from "@vellumai/design-library";
 
-import { EMOJI_MIN_FILTER_LENGTH, EMOJI_TRIGGER_RE, useEmojiSearch, type EmojiEntry } from "@/domains/chat/components/chat-composer/emoji-catalog";
-import { EmojiPickerPopup } from "@/domains/chat/components/chat-composer/emoji-picker-popup";
-import { SlashCommandPopup } from "@/domains/chat/components/chat-composer/slash-command-popup";
 import {
-  applyMarkdownFormatting,
-  matchFormattingShortcut,
+    computeGhostSuffix,
+    shouldSubmitOnEnter,
+} from "@/domains/chat/components/chat-composer/chat-composer-utils";
+import { EMOJI_MIN_FILTER_LENGTH, EMOJI_TRIGGER_RE, type EmojiEntry, useEmojiSearch } from "@/domains/chat/components/chat-composer/emoji-catalog";
+import { EmojiPickerPopup } from "@/domains/chat/components/chat-composer/emoji-picker-popup";
+import {
+    applyMarkdownFormatting,
+    matchFormattingShortcut,
 } from "@/domains/chat/components/chat-composer/markdown-formatting";
 import {
-  SLASH_PREFIX_RE,
-  filteredCommands,
-  type SlashCommand,
-  selectedInputText,
+    SLASH_PREFIX_RE,
+    type SlashCommand,
+    filteredCommands,
+    selectedInputText,
 } from "@/domains/chat/components/chat-composer/slash-command-catalog";
+import { SlashCommandPopup } from "@/domains/chat/components/chat-composer/slash-command-popup";
 import { useTextPopup } from "@/domains/chat/components/chat-composer/use-text-popup";
-import {
-  computeGhostSuffix,
-  shouldSubmitOnEnter,
-} from "@/domains/chat/components/chat-composer/chat-composer-utils";
 
 /**
  * Controlled composer used at the bottom of the chat (main variant) and inside
@@ -97,6 +97,14 @@ export interface ChatComposerProps {
   onVoiceBeforeStart?: () => boolean | Promise<boolean>;
 
   onStopGenerating: () => void;
+  /**
+   * Whether the active assistant turn can be cancelled. Computed by the
+   * parent from {@link canStopGeneration} which accounts for server-side
+   * processing state (survives page refresh), external-channel streaming,
+   * and the local turn phase. The composer must not derive this locally
+   * because the turn store resets to idle on refresh.
+   */
+  canStopGenerating: boolean;
 
   // assistant id used by AttachFileButton's disabled guard
   assistantId: string | null;
@@ -169,6 +177,7 @@ export function ChatComposer({
   onVoiceError,
   onVoiceBeforeStart,
   onStopGenerating,
+  canStopGenerating,
   assistantId,
   conversationId,
   thresholdPickerSlot,
@@ -297,9 +306,9 @@ export function ChatComposer({
   );
 
   const phase: TurnPhase = useTurnStore.use.phase();
-  const isGenerating =
+  const isLocallyGenerating =
     phase === "queued" || phase === "thinking" || phase === "streaming";
-  const hideTextareaForVoice = isNative && isVoiceActive && !isGenerating;
+  const hideTextareaForVoice = isNative && isVoiceActive && !isLocallyGenerating;
 
   const ghostSuffix = useMemo(
     () =>
@@ -511,7 +520,7 @@ export function ChatComposer({
                 style={{ maxHeight: `${textareaMaxHeightPx}px` }}
               />
             </div>
-            {isVoiceActive && !isGenerating && (
+            {isVoiceActive && !isLocallyGenerating && (
               // macOS parity: full-width scrolling waveform between textarea and
               // action bar. Mirrors VStreamingWaveform(.scrolling) in ComposerView.
               // Stays mounted through the `processing` phase with `paused` set so
@@ -570,7 +579,7 @@ export function ChatComposer({
                 {contextWindowIndicatorSlot}
               </div>
               <div className="flex items-center gap-1">
-                {isGenerating ? (
+                {canStopGenerating ? (
                   <>
                     {/* Desktop: always show stop. Mobile: show stop only when user has no input. */}
                     {(!isMobile || (!input.trim() && !canSendAttachments)) && (

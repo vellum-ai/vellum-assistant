@@ -16,9 +16,8 @@ function makeToolCall(
   const startedAt = 1_717_000_000_000;
   return {
     id: `tc-${Math.random().toString(36).slice(2, 8)}`,
-    toolName: "bash",
+    name: "bash",
     input: { command: "date", activity: "Checking the current time" },
-    status: "completed",
     riskLevel: "low",
     startedAt,
     completedAt: startedAt + 2_000,
@@ -91,7 +90,6 @@ export const SingleToolRunning: Story = {
   args: baseProps({
     toolCalls: [
       makeToolCall({
-        status: "running",
         completedAt: undefined,
         input: { command: "date", activity: "Checking the current time" },
       }),
@@ -146,7 +144,7 @@ export const InterleavedRun: Story = {
       {
         kind: "toolCall",
         toolCall: makeToolCall({
-          toolName: "str_replace_editor",
+          name: "str_replace_editor",
           input: {
             command: "view",
             path: "/workspace/NOW.md",
@@ -216,7 +214,7 @@ export const ErrorTool: Story = {
   args: baseProps({
     toolCalls: [
       makeToolCall({
-        status: "error",
+        isError: true,
         result: "bash: nonexistent-command: command not found",
         input: {
           command: "nonexistent-command --help",
@@ -231,7 +229,7 @@ export const SkillTool: Story = {
   args: baseProps({
     toolCalls: [
       makeToolCall({
-        toolName: "skill_execute",
+        name: "skill_execute",
         input: { skill: "review-cycle", activity: "Using a skill" },
         riskLevel: undefined,
       }),
@@ -248,7 +246,7 @@ export const WebSearch: Story = {
   args: baseProps({
     toolCalls: [
       makeToolCall({
-        toolName: "web_search",
+        name: "web_search",
         riskLevel: undefined,
         input: { query: "current time in Toronto" },
         activityMetadata: {

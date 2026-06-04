@@ -24,7 +24,7 @@ async function waitForIdle(conversationId: string): Promise<boolean> {
   const start = Date.now();
   while (Date.now() - start < IDLE_TIMEOUT_MS) {
     const conv = findConversation(conversationId);
-    if (!conv || !conv.processing) return true;
+    if (!conv || !conv.isProcessing()) return true;
     await new Promise((resolve) => setTimeout(resolve, IDLE_POLL_MS));
   }
   return false;
@@ -36,7 +36,7 @@ export async function injectAuxAssistantMessage(params: {
   broadcastMessage: BroadcastFn;
 }): Promise<void> {
   const conv = findConversation(params.conversationId);
-  if (conv?.processing) {
+  if (conv?.isProcessing()) {
     const reachedIdle = await waitForIdle(params.conversationId);
     if (!reachedIdle) {
       log.warn(
@@ -54,7 +54,7 @@ export async function injectAuxAssistantMessage(params: {
   );
 
   const current = findConversation(params.conversationId);
-  if (current && !current.processing) {
+  if (current && !current.isProcessing()) {
     current.getMessages().push(createAssistantMessage(params.text));
 
     params.broadcastMessage({

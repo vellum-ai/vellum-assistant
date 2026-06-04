@@ -40,7 +40,7 @@ export function InlineToolLink({ toolCall }: InlineToolLinkProps) {
     activeDetail.toolCallId === toolCall.id;
 
   const isError =
-    toolCall.status === "error" ||
+    Boolean(toolCall.isError) ||
     toolCall.confirmationDecision === "denied" ||
     toolCall.confirmationDecision === "timed_out";
 

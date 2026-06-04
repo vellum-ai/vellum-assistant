@@ -2,9 +2,9 @@
 import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { Dropdown } from "@vellum/design-library";
 import { releasesList } from "@/generated/api/sdk.gen";
 import type { ReleaseListItem } from "@/generated/api/types.gen";
+import { Dropdown } from "@vellumai/design-library";
 
 export interface VersionSelectionScreenProps {
   onHatch: (version?: string) => void;

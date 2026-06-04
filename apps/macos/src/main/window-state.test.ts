@@ -9,18 +9,25 @@ type SavedState = {
 };
 
 let savedWindows: Record<string, SavedState> = {};
+let savedOnboardingActive: boolean | undefined = undefined;
 let workArea = { x: 0, y: 0, width: 1920, height: 1080 };
+const storeSetMock = mock((_key: string, _value: unknown) => {});
 
-// Mock `electron-store` so `restoreBounds` reads from `savedWindows`
-// without touching disk. The store wrapper in `window-state.ts` uses the
-// default export, so the mock returns a class.
+// Mock `electron-store` so the wrappers read from the per-key test state
+// without touching disk. Key-aware so `readOnboardingActive` can be
+// exercised independently of the saved-windows map. The store wrapper in
+// `window-state.ts` uses the default export, so the mock returns a class.
 mock.module("electron-store", () => ({
   default: class {
-    get(_key: string, _fallback: { windows: Record<string, SavedState> }) {
-      return savedWindows;
+    get(key: string, fallback?: unknown) {
+      // Mirror electron-store: return the stored value, or the fallback
+      // when the key is absent.
+      if (key === "onboardingActive") return savedOnboardingActive ?? fallback;
+      if (key === "windows") return savedWindows;
+      return fallback;
     }
-    set() {
-      // no-op
+    set(key: string, value: unknown) {
+      storeSetMock(key, value);
     }
   },
 }));
@@ -34,13 +41,34 @@ mock.module("electron", () => ({
   },
 }));
 
-const { restoreBounds } = await import("./window-state");
+const { restoreBounds, track, readOnboardingActive, writeOnboardingActive } =
+  await import("./window-state");
 
 const DEFAULTS = { width: 800, height: 600 };
 
+// Minimal `BrowserWindow` stub for `track`: captures registered event
+// handlers so a test can fire `close` (the synchronous persist path) and
+// assert whether the store was written.
+function makeTrackableWindow() {
+  const handlers = new Map<string, () => void>();
+  return {
+    on(event: string, cb: () => void) {
+      handlers.set(event, cb);
+    },
+    emit(event: string) {
+      handlers.get(event)?.();
+    },
+    isDestroyed: () => false,
+    getNormalBounds: () => ({ x: 1, y: 2, width: 440, height: 630 }),
+    isFullScreen: () => false,
+  };
+}
+
 beforeEach(() => {
   savedWindows = {};
+  savedOnboardingActive = undefined;
   workArea = { x: 0, y: 0, width: 1920, height: 1080 };
+  storeSetMock.mockClear();
 });
 
 afterEach(() => {
@@ -152,5 +180,77 @@ describe("restoreBounds", () => {
     };
     expect(restoreBounds("main", DEFAULTS).x).toBe(10);
     expect(restoreBounds("thread.abc", DEFAULTS).x).toBe(500);
+  });
+});
+
+describe("track persistence gating", () => {
+  test("persists on close by default", () => {
+    const win = makeTrackableWindow();
+    track("main", win as never);
+    win.emit("close");
+    expect(storeSetMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("skips persistence while shouldPersist returns false", () => {
+    const win = makeTrackableWindow();
+    track("main", win as never, () => false);
+    win.emit("close");
+    expect(storeSetMock).not.toHaveBeenCalled();
+  });
+
+  test("re-evaluates shouldPersist at save time, not bind time", () => {
+    // Models the onboarding gate: don't persist the small onboarding
+    // default, but capture the main bounds once the mode flips.
+    let onboarding = true;
+    const win = makeTrackableWindow();
+    track("main", win as never, () => !onboarding);
+
+    win.emit("close");
+    expect(storeSetMock).not.toHaveBeenCalled();
+
+    onboarding = false;
+    win.emit("close");
+    expect(storeSetMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("readOnboardingActive default", () => {
+  test("absent flag defaults to false — open large, not onboarding", () => {
+    // Erring large is recoverable (onboarding self-shrinks via the hook);
+    // erring small would strand the out-of-RootLayout /account/* screens.
+    savedOnboardingActive = undefined;
+    savedWindows = {};
+    expect(readOnboardingActive()).toBe(false);
+  });
+
+  test("absent flag stays false regardless of saved window state", () => {
+    savedOnboardingActive = undefined;
+    savedWindows.main = {
+      x: 0,
+      y: 0,
+      width: 1000,
+      height: 700,
+      isFullScreen: false,
+    };
+    expect(readOnboardingActive()).toBe(false);
+  });
+
+  test("an explicit persisted flag wins over the default", () => {
+    savedOnboardingActive = true;
+    expect(readOnboardingActive()).toBe(true);
+
+    savedOnboardingActive = false;
+    expect(readOnboardingActive()).toBe(false);
+  });
+
+  test("writeOnboardingActive skips persisting when the effective value is unchanged", () => {
+    // Absent flag → effective value is already `false`, so re-asserting
+    // `false` must not write; flipping to `true` does.
+    savedOnboardingActive = undefined;
+    writeOnboardingActive(false);
+    expect(storeSetMock).not.toHaveBeenCalled();
+
+    writeOnboardingActive(true);
+    expect(storeSetMock).toHaveBeenCalledWith("onboardingActive", true);
   });
 });

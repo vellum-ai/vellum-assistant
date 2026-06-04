@@ -1,8 +1,8 @@
-import { Notice } from "@vellum/design-library/components/notice";
 import { DetailCard } from "@/components/detail-card";
-import { UpdateWindowPolicy } from "@/domains/settings/components/update-window-policy";
 import { useAssistantWithHealthz } from "@/domains/settings/components/assistant-status-panel";
+import { UpdateWindowPolicy } from "@/domains/settings/components/update-window-policy";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
+import { Notice } from "@vellumai/design-library/components/notice";
 
 export function AdvancedPage() {
   const { assistant } = useAssistantWithHealthz();
@@ -10,7 +10,7 @@ export function AdvancedPage() {
   const platformAssistant = assistant?.is_local ? null : assistant;
 
   return (
-    <div className="mx-auto max-w-[940px] space-y-4">
+    <div className="space-y-4">
       {infraGate === "full" && platformAssistant && (
         <DetailCard
           title="Update Window"

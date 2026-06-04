@@ -1,17 +1,17 @@
 import { AlertCircle, CheckCircle2, ChevronDown, ChevronRight } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
-import { Button, Card } from "@vellum/design-library";
+import { Button, Card } from "@vellumai/design-library";
 
 import { useCompactionTrail } from "@/domains/chat/inspector/compaction-trail-api";
 import type { CompactionTrailEvent } from "@/domains/chat/inspector/compaction-trail-fetch";
 import {
-  displayProvider,
-  displayText,
-  formatCost,
-  formatCount,
-  formattedCreatedAt,
-  MISSING_VALUE,
+    displayProvider,
+    displayText,
+    formatCost,
+    formatCount,
+    formattedCreatedAt,
+    MISSING_VALUE,
 } from "@/domains/chat/inspector/inspector-formatters";
 import type { LLMRequestLogEntry } from "@vellumai/assistant-api";
 

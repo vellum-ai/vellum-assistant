@@ -113,6 +113,7 @@ import { getWorkspacePromptPath } from "../../util/platform.js";
 import { silentlyWithLog } from "../../util/silently.js";
 import { assistantEventHub, broadcastMessage } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
+import { getPersistedSeq } from "../assistant-stream-state.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { routeGuardianReply } from "../guardian-reply-router.js";
 import { healGuardianBindingDrift } from "../guardian-vellum-migration.js";
@@ -632,6 +633,7 @@ export function handleListMessages({
         hasMore: false,
         oldestTimestamp: null,
         oldestMessageId: null,
+        seq: null,
       };
     }
     return { messages: [] };
@@ -829,7 +831,11 @@ export function handleListMessages({
     const attachmentBlocks = attachmentRefs.map(
       (_ref, refIdx) => aligned.refIndexToAttachment.get(refIdx) ?? null,
     );
-    const rendered = renderHistoryContent(m.content, attachmentBlocks);
+    const rendered = renderHistoryContent(
+      m.content,
+      attachmentBlocks,
+      m.id ?? undefined,
+    );
 
     // Strip <no_response/> markers from assistant messages so web/API clients
     // never see the raw sentinel. Only assistant messages produce it; user
@@ -913,6 +919,13 @@ export function handleListMessages({
     };
   });
 
+  // Snapshot↔stream alignment token: the `seq` of the last event whose
+  // content is durably persisted for this conversation in the current
+  // daemon process. Returned on every resolved-conversation response so a
+  // client can apply only stream events with a higher `seq`. Null when
+  // nothing has been persisted in-process (cold/aged-out/post-restart).
+  const persistedSeq = getPersistedSeq(resolvedConversationId);
+
   if (isPaginated) {
     // Prefer the page's oldest visible row (the documented cursor semantic).
     // When a scan-cap-truncated page comes back empty there's no visible row
@@ -934,6 +947,7 @@ export function handleListMessages({
         hasMore,
         oldestTimestamp: oldestTimestamp ?? null,
         oldestMessageId: oldestMessageId ?? null,
+        seq: persistedSeq,
       };
     }
 
@@ -942,10 +956,11 @@ export function handleListMessages({
       hasMore,
       ...(oldestTimestamp != null ? { oldestTimestamp } : {}),
       ...(oldestMessageId != null ? { oldestMessageId } : {}),
+      seq: persistedSeq,
     };
   }
 
-  return { messages };
+  return { messages, seq: persistedSeq };
 }
 
 /**
@@ -1499,7 +1514,7 @@ export async function handleSendMessage(
   } else if (isWakeUp) {
     const cannedGreeting = getCannedFirstGreeting(body.onboarding ?? undefined);
 
-    conversation.processing = true;
+    conversation.setProcessing(true);
     let cleanupDeferred = false;
     try {
       const rawContent = content ?? "";
@@ -1575,7 +1590,7 @@ export async function handleSendMessage(
           persistedAssistant.id,
         );
         publishConversationMessagesChanged(conversationId, originClientId);
-        conversation.processing = false;
+        conversation.setProcessing(false);
         silentlyWithLog(
           conversation.drainQueue(),
           "canned-greeting queue drain",
@@ -1591,8 +1606,8 @@ export async function handleSendMessage(
       cleanupDeferred = true;
       return response;
     } finally {
-      if (!cleanupDeferred && conversation.processing) {
-        conversation.processing = false;
+      if (!cleanupDeferred && conversation.isProcessing()) {
+        conversation.setProcessing(false);
         silentlyWithLog(conversation.drainQueue(), "error-path queue drain");
       }
     }
@@ -1805,7 +1820,7 @@ export async function handleSendMessage(
   const slashResult = await resolveSlash(rawContent, slashContext);
 
   if (slashResult.kind === "unknown") {
-    conversation.processing = true;
+    conversation.setProcessing(true);
     let cleanupDeferred = false;
     try {
       const slashMeta = {
@@ -1886,7 +1901,7 @@ export async function handleSendMessage(
           persistedAssistant.id,
         );
         publishConversationMessagesChanged(conversationId, originClientId);
-        conversation.processing = false;
+        conversation.setProcessing(false);
         silentlyWithLog(conversation.drainQueue(), "slash-command queue drain");
       }, 0);
 
@@ -1895,15 +1910,15 @@ export async function handleSendMessage(
     } finally {
       // No-op for the slash-command early-return path (handled inside
       // setTimeout above), but still needed for error paths.
-      if (!cleanupDeferred && conversation.processing) {
-        conversation.processing = false;
+      if (!cleanupDeferred && conversation.isProcessing()) {
+        conversation.setProcessing(false);
         silentlyWithLog(conversation.drainQueue(), "error-path queue drain");
       }
     }
   }
 
   if (slashResult.kind === "compact") {
-    conversation.processing = true;
+    conversation.setProcessing(true);
     const slashMeta = {
       userMessageChannel: sourceChannel,
       assistantMessageChannel: sourceChannel,
@@ -1923,12 +1938,12 @@ export async function handleSendMessage(
       // The fire-and-forget compaction below owns clearing `processing`, but a
       // throw from this initial persist never reaches it — reset here so the
       // conversation isn't stranded in queued mode.
-      conversation.processing = false;
+      conversation.setProcessing(false);
       silentlyWithLog(conversation.drainQueue(), "compact-command queue drain");
       throw err;
     }
     if (persisted.deduplicated) {
-      conversation.processing = false;
+      conversation.setProcessing(false);
       silentlyWithLog(conversation.drainQueue(), "compact-dedup queue drain");
       return {
         accepted: true,
@@ -1994,7 +2009,7 @@ export async function handleSendMessage(
           retryable: true,
         });
       } finally {
-        conversation.processing = false;
+        conversation.setProcessing(false);
         silentlyWithLog(
           conversation.drainQueue(),
           "compact-command queue drain",
@@ -2010,7 +2025,7 @@ export async function handleSendMessage(
   }
 
   if (slashResult.kind === "clean") {
-    conversation.processing = true;
+    conversation.setProcessing(true);
     const conversationId = mapping.conversationId;
     // Outer try/finally guarantees the processing flag is cleared (and the
     // queue drained) on every failure path — including a throw from the
@@ -2096,7 +2111,7 @@ export async function handleSendMessage(
         conversationId,
       };
     } finally {
-      conversation.processing = false;
+      conversation.setProcessing(false);
       silentlyWithLog(conversation.drainQueue(), "clean-command queue drain");
     }
   }
@@ -2570,6 +2585,13 @@ export const ROUTES: RouteDefinition[] = [
         .nullable()
         .optional()
         .describe("ID of the oldest message in this page"),
+      seq: z
+        .number()
+        .nullable()
+        .optional()
+        .describe(
+          "Global SSE `seq` of the last event whose content is durably persisted for this conversation in the current daemon process. A client can align this snapshot with the `/events` stream by applying only events with `seq` greater than this value. Null when no events have been persisted in this process (cold conversation, after a daemon restart, or when the conversation has aged out of the in-memory map) — clients should cold-start in that case. Absent on older daemons that predate this field.",
+        ),
     }),
     handler: (args) => handleListMessages(args),
   },

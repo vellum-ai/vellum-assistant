@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import { getConfig } from "../../config/loader.js";
 import { resolveImageGenCredentials } from "../../media/image-credentials.js";
 import {
@@ -6,8 +8,42 @@ import {
   providerForModel,
 } from "../../media/image-service.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
-import { BadRequestError, InternalError, UnprocessableEntityError } from "./errors.js";
+import {
+  BadRequestError,
+  InternalError,
+  UnprocessableEntityError,
+} from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+
+// ---------------------------------------------------------------------------
+// Schemas
+// ---------------------------------------------------------------------------
+
+const SourceImageSchema = z.object({
+  mimeType: z.string(),
+  dataBase64: z.string(),
+});
+
+const ImageGenerationRequestSchema = z.object({
+  prompt: z.string(),
+  mode: z.enum(["generate", "edit"]).optional(),
+  sourceImages: z.array(SourceImageSchema).optional(),
+  model: z.string().optional(),
+  variants: z.number().optional(),
+});
+
+const GeneratedImageSchema = z.object({
+  mimeType: z.string(),
+  dataBase64: z.string(),
+  title: z.string().optional(),
+});
+
+const ImageGenerationResponseSchema = z.object({
+  images: z.array(GeneratedImageSchema),
+  text: z.string().optional(),
+  resolvedModel: z.string(),
+});
+type ImageGenerationResponse = z.infer<typeof ImageGenerationResponseSchema>;
 
 // ---------------------------------------------------------------------------
 // Handler
@@ -15,7 +51,7 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 async function handleImageGenerationGenerate(
   args: RouteHandlerArgs,
-): Promise<unknown> {
+): Promise<ImageGenerationResponse> {
   const { prompt, mode, sourceImages, model, variants } = args.body ?? {};
 
   // Validate prompt
@@ -99,6 +135,8 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Calls the configured image-generation provider (Gemini or OpenAI) to produce one or more images.",
     tags: ["image-generation"],
+    requestBody: ImageGenerationRequestSchema,
+    responseBody: ImageGenerationResponseSchema,
     handler: handleImageGenerationGenerate,
   },
 ];

@@ -6,6 +6,7 @@
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
+import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import type {
   ToolActivityMetadata,
   WebSearchResultItem,
@@ -147,9 +148,9 @@ export function formatMs(ms: number): string {
   return `${Math.round(ms / 1000)}s`;
 }
 
-/** True when `tc.toolName` is a web tool (`web_search` / `web_fetch`). */
+/** True when `tc.name` is a web tool (`web_search` / `web_fetch`). */
 function isWebTool(tc: ChatMessageToolCall): boolean {
-  return WEB_TOOL_NAMES.has(tc.toolName);
+  return WEB_TOOL_NAMES.has(tc.name);
 }
 
 /**
@@ -246,7 +247,7 @@ function resolveMetadata(
 }
 
 function isTerminalStatus(tc: ChatMessageToolCall): boolean {
-  return tc.status === "completed" || tc.status === "error";
+  return !isToolCallRunning(tc);
 }
 
 /**
@@ -271,7 +272,7 @@ function isFailedEmptyWebSearch(
   tc: ChatMessageToolCall,
 ): boolean {
   if (ws.results.length > 0) return false;
-  return Boolean(ws.errorMessage) || tc.status === "error";
+  return Boolean(ws.errorMessage) || Boolean(tc.isError);
 }
 
 /**
@@ -289,9 +290,10 @@ function deriveToolStepStatus(
   ) {
     return "denied";
   }
-  if (tc.status === "error") return "error";
-  if (tc.status === "completed") return "completed";
-  return "running";
+  if (tc.isError) {
+    return "error";
+  }
+  return isToolCallRunning(tc) ? "running" : "completed";
 }
 
 /**
@@ -322,7 +324,7 @@ export function toolDetailPayloadFromToolCall(
   const { title, activity } = deriveStepLabel(tc);
   return {
     toolCallId: tc.id,
-    toolName: tc.toolName,
+    toolName: tc.name,
     title,
     activity,
     input: tc.input ?? {},
@@ -374,10 +376,10 @@ function deriveCurrentStepTitle(
       ) {
         return "Web search failed";
       }
-      if (tc.toolName === "web_search") {
+      if (tc.name === "web_search") {
         return webSearchStepTitle(terminal);
       }
-      if (tc.toolName === "web_fetch") {
+      if (tc.name === "web_fetch") {
         return "Thinking";
       }
     } else {
@@ -426,7 +428,7 @@ function deriveCurrentStepInfo(
       return `Reading ${wf.domain}`;
     }
 
-    if (tc.toolName === "web_search") {
+    if (tc.name === "web_search") {
       if (!terminal) {
         const query =
           typeof tc.input?.query === "string" ? tc.input.query.trim() : "";
@@ -441,7 +443,7 @@ function deriveCurrentStepInfo(
       }
     }
 
-    if (tc.toolName === "web_fetch") {
+    if (tc.name === "web_fetch") {
       const url = typeof tc.input?.url === "string" ? tc.input.url : "";
       const host = url ? extractDomain(url) : "";
       if (host) return terminal ? host : `Reading ${host}`;
@@ -461,7 +463,7 @@ function deriveCarouselItems(
 ): WebSearchResultItem[] {
   for (let i = toolCalls.length - 1; i >= 0; i--) {
     const tc = toolCalls[i]!;
-    if (tc.toolName !== "web_search") continue;
+    if (tc.name !== "web_search") continue;
     const metadata = resolveMetadata(tc, liveWebActivity);
     const results = metadata?.webSearch?.results;
     if (results && results.length > 0) return results;
@@ -507,8 +509,8 @@ function deriveCardState(
       ) {
         return "denied";
       }
-      if (tc.status === "running") return "loading";
-      if (tc.status === "error") return "error";
+      if (isToolCallRunning(tc)) return "loading";
+      if (tc.isError) return "error";
       return "complete";
     }),
   );
@@ -559,7 +561,7 @@ function buildStepForToolCall(
   if (!terminal) {
     return buildPlaceholderStep();
   }
-  if (tc.toolName === "web_search" && typeof tc.result === "string") {
+  if (tc.name === "web_search" && typeof tc.result === "string") {
     return buildWebSearchStepFromResultText(tc.result) ?? buildEmptyWebSearchStep();
   }
   return buildEmptyWebSearchStep();
@@ -655,30 +657,25 @@ export function computeToolCallCardDataFromItems(
 }
 
 /**
- * Pure projection of (toolCalls, liveWebActivity, leadingThinkingText) →
- * card data. Split out from the hook so tests can drive it without React
- * context plumbing.
+ * Pure projection of (toolCalls, liveWebActivity) → card data. Split out
+ * from the hook so tests can drive it without React context plumbing.
  *
  * Always returns a `ToolCallCardData` (never null) so non-web groups still
  * render the unified card. Callers that need legacy "no web tools → bail
  * to legacy card" behaviour (the PR-6 cutover keeps the legacy card alive
  * for mixed/pending-confirmation groups) should layer that decision on top.
  *
- * Delegates to {@link computeToolCallCardDataFromItems} after flattening the
- * leading-thinking text + tool calls into ordered items — producing output
- * identical to the historical inline loop.
+ * Delegates to {@link computeToolCallCardDataFromItems} after wrapping the
+ * tool calls into ordered items — producing output identical to the
+ * historical inline loop.
  */
 export function computeToolCallCardData(
   toolCalls: ChatMessageToolCall[],
   liveWebActivity: Record<string, ToolActivityMetadata>,
-  leadingThinkingText: string | null,
 ): ToolCallCardData {
-  const items: ToolCallCardItem[] = [];
-  if (leadingThinkingText) {
-    items.push({ kind: "thinking", text: leadingThinkingText });
-  }
-  for (const tc of toolCalls) {
-    items.push({ kind: "toolCall", toolCall: tc });
-  }
+  const items: ToolCallCardItem[] = toolCalls.map((tc) => ({
+    kind: "toolCall",
+    toolCall: tc,
+  }));
   return computeToolCallCardDataFromItems(items, liveWebActivity);
 }

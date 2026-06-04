@@ -12,7 +12,7 @@ public protocol SettingsClientProtocol {
     func saveVercelConfig(apiToken: String) async -> VercelApiConfigResponseMessage?
     func deleteVercelConfig() async -> VercelApiConfigResponseMessage?
     func fetchModelInfo() async -> ModelInfoMessage?
-    func setImageGenModel(modelId: String) async -> ModelInfoMessage?
+    func setImageGenModel(modelId: String) async -> Bool
     func fetchEmbeddingConfig() async -> EmbeddingConfigMessage?
     func setEmbeddingConfig(provider: String, model: String?) async -> EmbeddingConfigMessage?
     func fetchTelegramConfig() async -> TelegramConfigResponseMessage?
@@ -129,20 +129,23 @@ public struct SettingsClient: SettingsClientProtocol {
         }
     }
 
-    public func setImageGenModel(modelId: String) async -> ModelInfoMessage? {
+    /// Persist the active image-generation model. The daemon acknowledges the
+    /// write with `{ "ok": true }` (the image-gen model is not part of
+    /// `ModelInfo`, which describes the LLM model), so this reports success as a
+    /// Bool rather than decoding a model payload.
+    public func setImageGenModel(modelId: String) async -> Bool {
         do {
             let response = try await GatewayHTTPClient.put(
                 path: "model/image-gen", json: ["modelId": modelId], timeout: 10
             )
             guard response.isSuccess else {
                 log.error("setImageGenModel failed (HTTP \(response.statusCode))")
-                return nil
+                return false
             }
-            let patched = injectType("model_info", into: response.data)
-            return try JSONDecoder().decode(ModelInfoMessage.self, from: patched)
+            return true
         } catch {
             log.error("setImageGenModel error: \(error.localizedDescription, privacy: .public)")
-            return nil
+            return false
         }
     }
 

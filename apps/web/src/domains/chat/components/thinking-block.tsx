@@ -13,11 +13,11 @@
  * paid lazily on demand rather than for every collapsed block.
  */
 
-import { useState } from "react";
 import { Brain, ChevronDown, ChevronUp } from "lucide-react";
+import { useState } from "react";
 
-import { Collapsible } from "@vellum/design-library";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
+import { Collapsible } from "@vellumai/design-library";
 
 export interface ThinkingBlockProps {
   /** The accumulated reasoning text (markdown). */

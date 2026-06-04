@@ -280,6 +280,7 @@ export function renderHistoryContent(
   attachmentBlocks?: ReadonlyArray<
     ConversationMessageAttachment | null | undefined
   >,
+  messageId?: string,
 ): RenderedHistoryContent {
   if (!Array.isArray(content)) {
     let text: string;
@@ -476,6 +477,7 @@ export function renderHistoryContent(
         : {};
       const id = typeof block.id === "string" ? block.id : "";
       const entry: HistoryToolCall = { name, input };
+      if (id) entry.id = id;
       // Extract persisted timing/confirmation metadata
       if (typeof block._startedAt === "number")
         entry.startedAt = block._startedAt;
@@ -531,6 +533,7 @@ export function renderHistoryContent(
         : {};
       const id = typeof block.id === "string" ? block.id : "";
       const entry: HistoryToolCall = { name, input };
+      if (id) entry.id = id;
       toolCalls.push(entry);
       if (id) pendingToolUses.set(id, entry);
       contentOrder.push(`tool:${toolCalls.length - 1}`);
@@ -632,6 +635,19 @@ export function renderHistoryContent(
   }
 
   finalizeSegment();
+
+  // Default any tool call the provider left without an `id` to the same
+  // positional id the web client historically synthesized, so every wire tool
+  // call is self-identifying and snapshot/stream ids line up. `idx` indexes the
+  // final `toolCalls` array (the client keys off the same positions); the
+  // shared `entry` references mean `contentBlocks` reflect this for free.
+  if (messageId !== undefined) {
+    toolCalls.forEach((toolCall, idx) => {
+      if (toolCall.id === undefined) {
+        toolCall.id = `tool-history-${messageId}-${idx}`;
+      }
+    });
+  }
 
   const text = joinWithSpacing(textParts);
   let rendered: string;

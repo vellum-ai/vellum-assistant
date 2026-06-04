@@ -1,12 +1,12 @@
 import { useEffect, useMemo } from "react";
 
-import { Dropdown } from "@vellum/design-library/components/dropdown";
-import { Typography } from "@vellum/design-library/components/typography";
+import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Typography } from "@vellumai/design-library/components/typography";
 
 import {
-  getModelsForProvider,
-  MODELS_BY_PROVIDER,
-  PROVIDER_DISPLAY_NAMES as INFERENCE_PROVIDER_DISPLAY_NAMES,
+    getModelsForProvider,
+    PROVIDER_DISPLAY_NAMES as INFERENCE_PROVIDER_DISPLAY_NAMES,
+    MODELS_BY_PROVIDER,
 } from "@/assistant/llm-model-catalog";
 
 import { OPENAI_COMPATIBLE_PROVIDER } from "@/domains/settings/ai/ai-types";
@@ -47,6 +47,13 @@ interface ProfileEditorProviderSectionProps {
   availableConnectionsForProvider: ProviderConnection[];
   /** True when the saved binding no longer points at any known connection. */
   connectionNotFound: boolean;
+  /**
+   * Hide the Provider dropdown (and its empty-state hint). The create-mode
+   * profile editor renders its own provider picker — with a "+ Create new
+   * provider" sentinel and inline create form — and reuses this component
+   * only for the Connection + Model fields below.
+   */
+  hideProviderField?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -73,6 +80,7 @@ export function ProfileEditorProviderSection({
   isReadOnly,
   availableConnectionsForProvider,
   connectionNotFound,
+  hideProviderField = false,
 }: ProfileEditorProviderSectionProps) {
   const providerMissing = provider.length === 0;
   const providerWithoutModel = provider.length > 0 && model.length === 0;
@@ -200,42 +208,44 @@ export function ProfileEditorProviderSection({
     <>
       {/* Provider — required. Filtered to providers with at least one
           connection so users can't bind a profile to a non-dispatchable
-          route. */}
-      <div className="space-y-1">
-        <div className="flex items-center justify-between gap-2">
-          <label
-            id="profile-editor-provider-label"
-            className="block text-body-small-default text-[var(--content-tertiary)]"
-          >
-            Provider
-          </label>
-          {providerMissing ? (
-            <span className="rounded-full bg-[var(--surface-warning-subtle)] px-2 py-0.5 text-body-small-default text-[var(--content-warning)]">
-              Pick a provider
-            </span>
+          route. Hidden when the parent renders its own provider picker. */}
+      {!hideProviderField && (
+        <div className="space-y-1">
+          <div className="flex items-center justify-between gap-2">
+            <label
+              id="profile-editor-provider-label"
+              className="block text-body-small-default text-[var(--content-tertiary)]"
+            >
+              Provider
+            </label>
+            {providerMissing ? (
+              <span className="rounded-full bg-[var(--surface-warning-subtle)] px-2 py-0.5 text-body-small-default text-[var(--content-warning)]">
+                Pick a provider
+              </span>
+            ) : null}
+          </div>
+          <Dropdown
+            value={provider}
+            onChange={onProviderChange}
+            disabled={isReadOnly}
+            placeholder="Select a provider…"
+            aria-labelledby="profile-editor-provider-label"
+            options={providerOptionsSource.map((p) => ({
+              value: p,
+              label: INFERENCE_PROVIDER_DISPLAY_NAMES[p] ?? p,
+            }))}
+          />
+          {providerOptionsSource.length === 0 && !isReadOnly ? (
+            <Typography
+              variant="body-small-default"
+              as="p"
+              className="text-[var(--content-tertiary)]"
+            >
+              No provider connections. Open Providers to add one.
+            </Typography>
           ) : null}
         </div>
-        <Dropdown
-          value={provider}
-          onChange={onProviderChange}
-          disabled={isReadOnly}
-          placeholder="Select a provider…"
-          aria-labelledby="profile-editor-provider-label"
-          options={providerOptionsSource.map((p) => ({
-            value: p,
-            label: INFERENCE_PROVIDER_DISPLAY_NAMES[p] ?? p,
-          }))}
-        />
-        {providerOptionsSource.length === 0 && !isReadOnly ? (
-          <Typography
-            variant="body-small-default"
-            as="p"
-            className="text-[var(--content-tertiary)]"
-          >
-            No provider connections. Open Providers to add one.
-          </Typography>
-        ) : null}
-      </div>
+      )}
 
       {/* Connection — visible when matching connections exist or a saved
           binding exists (even if stale). */}

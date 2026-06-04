@@ -12,6 +12,7 @@
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import type { Surface } from "@/domains/chat/types/types";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
+import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import { toDisplayAttachments } from "@/utils/display-attachments";
 import type { AllowlistOption, DirectoryScopeOption, RiskScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
@@ -22,15 +23,17 @@ import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-/** Mark all "running" tool calls as "completed" with a timestamp. */
+/**
+ * Force-complete every running tool call by stamping `completedAt`. With no
+ * `result`/`isError`, the timestamp alone reads as completed (not running);
+ * reconcile later backfills the real result if it arrives.
+ */
 function finalizeRunningToolCalls(
   toolCalls: ChatMessageToolCall[] | undefined,
 ): ChatMessageToolCall[] | undefined {
   if (!toolCalls) return undefined;
   return toolCalls.map((tc) =>
-    tc.status === "running"
-      ? { ...tc, status: "completed" as const, completedAt: Date.now() }
-      : tc,
+    isToolCallRunning(tc) ? { ...tc, completedAt: Date.now() } : tc,
   );
 }
 
@@ -320,7 +323,7 @@ export function finalizeOnIdle(prev: DisplayMessage[]): DisplayMessage[] {
   let changed = false;
   const updated = prev.map((m) => {
     if (m.role !== "assistant") return m;
-    if (!m.toolCalls?.some((tc) => tc.status === "running")) return m;
+    if (!m.toolCalls?.some((tc) => isToolCallRunning(tc))) return m;
     changed = true;
     return { ...m, toolCalls: finalizeRunningToolCalls(m.toolCalls) };
   });
@@ -760,10 +763,10 @@ export function applyToolResult(
     approvalMode?: string;
     approvalReason?: string;
     riskThreshold?: string;
-    allowlistOptions?: AllowlistOption[];
+    riskAllowlistOptions?: AllowlistOption[];
     scopeOptions?: ScopeOption[];
     riskScopeOptions?: RiskScopeOption[];
-    directoryScopeOptions?: DirectoryScopeOption[];
+    riskDirectoryScopeOptions?: DirectoryScopeOption[];
     /**
      * Structured activity metadata from the tool_result event. Persisted on
      * the tool call so the new `WebSearchProgressCard` can keep rendering
@@ -800,7 +803,7 @@ export function applyToolResult(
     if (msgIdx === -1) return prev;
     const msg = prev[msgIdx];
     if (!msg?.toolCalls) return prev;
-    tcIdx = msg.toolCalls.findLastIndex((tc) => tc.status === "running");
+    tcIdx = msg.toolCalls.findLastIndex((tc) => isToolCallRunning(tc));
   }
 
   if (tcIdx === -1) return prev;
@@ -812,7 +815,6 @@ export function applyToolResult(
   const updatedToolCalls = [...msg.toolCalls!];
   updatedToolCalls[tcIdx] = {
     ...existingTc,
-    status: opts.isError ? "error" : "completed",
     result: opts.result,
     isError: opts.isError,
     riskLevel: opts.riskLevel,
@@ -821,10 +823,10 @@ export function applyToolResult(
     approvalMode: opts.approvalMode,
     approvalReason: opts.approvalReason,
     riskThreshold: opts.riskThreshold,
-    allowlistOptions: opts.allowlistOptions,
+    riskAllowlistOptions: opts.riskAllowlistOptions,
     scopeOptions: opts.scopeOptions,
     riskScopeOptions: opts.riskScopeOptions,
-    directoryScopeOptions: opts.directoryScopeOptions,
+    riskDirectoryScopeOptions: opts.riskDirectoryScopeOptions,
     // Preserve any pre-existing metadata when the new event omits it
     // (no overwrite with undefined on re-applied tool results).
     ...(opts.activityMetadata !== undefined

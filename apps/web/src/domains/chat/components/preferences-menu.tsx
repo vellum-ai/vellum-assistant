@@ -1,36 +1,42 @@
 import { useQuery } from "@tanstack/react-query";
 import {
-  ChartColumn,
-  ChevronDown,
-  ChevronUp,
-  LogOut,
-  MessageSquareText,
-  Settings as SettingsIcon,
-  Shield,
-  SlidersHorizontal,
+    ChartColumn,
+    ChevronDown,
+    ChevronUp,
+    Gift,
+    LogOut,
+    MessageSquareText,
+    Settings as SettingsIcon,
+    Shield,
+    SlidersHorizontal,
 } from "lucide-react";
 import { lazy, useState } from "react";
 import { useNavigate } from "react-router";
 
 import {
-  BottomSheet,
-  PanelItem,
-  Popover,
-  SideMenu,
-} from "@vellum/design-library";
+    BottomSheet,
+    PanelItem,
+    Popover,
+    SideMenu,
+} from "@vellumai/design-library";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
-import { useIsMobile } from "@/hooks/use-is-mobile";
-import { useIsOrgReady } from "@/hooks/use-is-org-ready";
-import { hardNavigate } from "@/lib/auth/hard-navigate";
-import { useAuthStore } from "@/stores/auth-store";
-import {
-  useActiveAssistantIsPlatformHosted,
-  usePlatformGate,
-} from "@/hooks/use-platform-gate";
-import { adminUrl, routes } from "@/utils/routes";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { organizationsBillingSummaryRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
+import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
+import {
+    useActiveAssistantIsPlatformHosted,
+    usePlatformGate,
+} from "@/hooks/use-platform-gate";
+import { hardNavigate } from "@/lib/auth/hard-navigate";
+import { isLocalMode } from "@/lib/local-mode";
+import {
+    useAuthStore,
+    useHasPlatformSession,
+    useIsAuthenticated,
+} from "@/stores/auth-store";
+import { adminUrl, routes } from "@/utils/routes";
 
 import { CreditsCard } from "./credits-card";
 
@@ -59,13 +65,13 @@ export function PreferencesMenu({
   assistantVersion,
   activeConversationId,
 }: PreferencesMenuProps) {
-  const isLoggedIn = useAuthStore.use.isLoggedIn();
+  const isAuthenticated = useIsAuthenticated();
   const isMobile = useIsMobile();
   const [isOpen, setIsOpen] = useState(false);
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
   const [isEarnCreditsOpen, setIsEarnCreditsOpen] = useState(false);
 
-  if (!isLoggedIn) {
+  if (!isAuthenticated) {
     return null;
   }
 
@@ -156,6 +162,8 @@ function PreferencesMenuContent({
   const billingPlatformGate = usePlatformGate({ platformHostedOnly: true });
   const isPlatformHosted = useActiveAssistantIsPlatformHosted();
   const isOrgReady = useIsOrgReady();
+  const hasPlatformSession = useHasPlatformSession();
+  const showLogout = !isLocalMode() || hasPlatformSession;
   const showBillingRows =
     billingPlatformGate === "full" && isPlatformHosted && isOrgReady;
   const { data: billingSummary } = useQuery({
@@ -166,20 +174,27 @@ function PreferencesMenuContent({
 
   return (
     <>
-      <ThemeToggle className="px-2 pt-0" />
+      <ThemeToggle className="px-2 py-0" />
+
+      <div className="my-2 border-t border-[var(--border-subtle)]" />
+
+      {showBillingRows && effectiveBalance !== null ? (
+        <div className="my-2">
+          <CreditsCard
+            balance={formatWholeCredits(effectiveBalance)}
+            onAddCredits={() => {
+              onClose();
+              navigate(routes.settings.billing);
+            }}
+          />
+        </div>
+      ) : null}
 
       {showBillingRows ? (
-        <CreditsCard
-          balance={
-            effectiveBalance !== null
-              ? formatWholeCredits(effectiveBalance)
-              : null
-          }
-          onAddCredits={() => {
-            onClose();
-            navigate(routes.settings.billing);
-          }}
-          onEarnCredits={() => {
+        <PanelItem
+          icon={Gift}
+          label="Earn Free Credits"
+          onSelect={() => {
             onClose();
             onEarnCredits();
           }}
@@ -226,15 +241,17 @@ function PreferencesMenuContent({
         />
       ) : null}
 
-      <PanelItem
-        icon={LogOut}
-        label="Log Out"
-        onSelect={async () => {
-          await logout();
-          onClose();
-          hardNavigate(routes.account.login);
-        }}
-      />
+      {showLogout ? (
+        <PanelItem
+          icon={LogOut}
+          label="Log Out"
+          onSelect={async () => {
+            await logout();
+            onClose();
+            hardNavigate(routes.account.login);
+          }}
+        />
+      ) : null}
     </>
   );
 }

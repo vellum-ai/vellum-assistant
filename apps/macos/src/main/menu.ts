@@ -1,4 +1,5 @@
 import { Menu, type MenuItemConstructorOptions, app, shell } from "electron";
+import { z } from "zod";
 
 import { openAboutWindow } from "./about";
 import {
@@ -6,17 +7,17 @@ import {
   resolveAccelerator,
   type VellumCommand,
 } from "./commands";
+import { handle } from "./ipc";
 
-/**
- * Builds and installs the macOS application menu. Without this, Electron
- * ships a default menu that includes developer-flavored items (Reload,
- * Toggle Developer Tools at the top level) and lacks the standard macOS
- * shape end users expect.
- *
- * The `View > Toggle Developer Tools` item is gated to dev only so the
- * packaged build doesn't expose devtools to end users.
- */
-export const installApplicationMenu = (): void => {
+interface MenuState {
+  hasPlatformSession: boolean;
+}
+
+const state: MenuState = {
+  hasPlatformSession: false,
+};
+
+const buildTemplate = (): MenuItemConstructorOptions[] => {
   const isDev = !app.isPackaged;
 
   const fileItem = (
@@ -28,16 +29,10 @@ export const installApplicationMenu = (): void => {
     click: () => dispatchToFocused(command),
   });
 
-  const template: MenuItemConstructorOptions[] = [
+  return [
     {
-      // macOS convention: the first submenu is always the app menu.
       label: app.name,
       submenu: [
-        // Branded About window — replaces `role: "about"` so we render
-        // version + commit SHA + copyright in our own UI instead of
-        // Electron's default panel. Native panel metadata is still
-        // populated by `installAbout()` so AppleScript / accessibility
-        // queries see the right values.
         {
           label: `About ${app.name}`,
           click: () => {
@@ -46,6 +41,12 @@ export const installApplicationMenu = (): void => {
         },
         { type: "separator" },
         { role: "services" },
+        { type: "separator" },
+        {
+          label: "Log Out",
+          enabled: state.hasPlatformSession,
+          click: () => dispatchToFocused({ kind: "logout" }),
+        },
         { type: "separator" },
         { role: "hide" },
         { role: "hideOthers" },
@@ -95,6 +96,38 @@ export const installApplicationMenu = (): void => {
       ],
     },
   ];
+};
 
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+const applyMenu = (): void => {
+  Menu.setApplicationMenu(Menu.buildFromTemplate(buildTemplate()));
+};
+
+/**
+ * Builds and installs the macOS application menu. Without this, Electron
+ * ships a default menu that includes developer-flavored items (Reload,
+ * Toggle Developer Tools at the top level) and lacks the standard macOS
+ * shape end users expect.
+ *
+ * The `View > Toggle Developer Tools` item is gated to dev only so the
+ * packaged build doesn't expose devtools to end users.
+ *
+ * Registers an IPC handler so the renderer can publish platform session
+ * state, which gates the "Log Out" item in the app menu.
+ */
+let installed = false;
+export const installApplicationMenu = (): void => {
+  if (installed) return;
+  installed = true;
+
+  handle(
+    "vellum:menu:setPlatformSession",
+    z.tuple([z.boolean()]),
+    ([has]) => {
+      if (state.hasPlatformSession === has) return;
+      state.hasPlatformSession = has;
+      applyMenu();
+    },
+  );
+
+  applyMenu();
 };

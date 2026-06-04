@@ -95,9 +95,8 @@ describe("sortByTimestamp · tool-call tiebreaker", () => {
         toolCalls: [
           {
             id: "tc-c",
-            toolName: "x",
+            name: "x",
             input: {},
-            status: "completed",
             startedAt: 1300,
             completedAt: 1400,
           },
@@ -109,9 +108,8 @@ describe("sortByTimestamp · tool-call tiebreaker", () => {
         toolCalls: [
           {
             id: "tc-b",
-            toolName: "x",
+            name: "x",
             input: {},
-            status: "completed",
             startedAt: 1200,
             completedAt: 1250,
           },
@@ -123,9 +121,8 @@ describe("sortByTimestamp · tool-call tiebreaker", () => {
         toolCalls: [
           {
             id: "tc-a",
-            toolName: "x",
+            name: "x",
             input: {},
-            status: "completed",
             startedAt: 1100,
             completedAt: 1150,
           },
@@ -145,9 +142,8 @@ describe("sortByTimestamp · tool-call tiebreaker", () => {
         toolCalls: [
           {
             id: "t2",
-            toolName: "x",
+            name: "x",
             input: {},
-            status: "running",
             startedAt: 800,
           },
         ],
@@ -158,9 +154,8 @@ describe("sortByTimestamp · tool-call tiebreaker", () => {
         toolCalls: [
           {
             id: "t1",
-            toolName: "x",
+            name: "x",
             input: {},
-            status: "running",
             startedAt: 600,
           },
         ],
@@ -179,16 +174,16 @@ describe("sortByTimestamp · tool-call tiebreaker", () => {
         id: "B",
         timestamp: sharedTs,
         toolCalls: [
-          { id: "b1", toolName: "x", input: {}, status: "completed", completedAt: 700 },
-          { id: "b2", toolName: "x", input: {}, status: "completed", completedAt: 300 },
+          { id: "b1", name: "x", input: {}, completedAt: 700 },
+          { id: "b2", name: "x", input: {}, completedAt: 300 },
         ],
       }),
       make({
         id: "A",
         timestamp: sharedTs,
         toolCalls: [
-          { id: "a1", toolName: "x", input: {}, status: "completed", completedAt: 200 },
-          { id: "a2", toolName: "x", input: {}, status: "completed", completedAt: 600 },
+          { id: "a1", name: "x", input: {}, completedAt: 200 },
+          { id: "a2", name: "x", input: {}, completedAt: 600 },
         ],
       }),
     ];
@@ -220,7 +215,7 @@ describe("sortByTimestamp · tool-call tiebreaker", () => {
         id: "with-tool",
         timestamp: sharedTs,
         toolCalls: [
-          { id: "t", toolName: "x", input: {}, status: "completed", completedAt: 5000 },
+          { id: "t", name: "x", input: {}, completedAt: 5000 },
         ],
       }),
       make({ id: "plain", timestamp: sharedTs }),

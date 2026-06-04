@@ -20,6 +20,7 @@ import {
   handleDeepLink,
   installDeepLinks,
 } from "./deep-links";
+import { installAvatarIpc } from "./avatar";
 import { installDock } from "./dock";
 import { installLocalMode } from "./local-mode";
 import {
@@ -30,6 +31,7 @@ import {
 import { installApplicationMenu } from "./menu";
 import { installPowerEvents } from "./power-events";
 import { readSetting, writeSetting } from "./settings";
+import { installStatusIpc } from "./status";
 import { installTray } from "./tray";
 
 // Dev-only: override the workspace `name` (`@vellumai/macos`) so the
@@ -244,8 +246,16 @@ app
     installLocalMode();
     installAbout();
     installApplicationMenu();
+    // Register the avatar channel before the Dock and Tray install so their
+    // initial render reflects any avatar the renderer publishes during
+    // bootstrap rather than briefly showing the bundled fallback mark.
+    installAvatarIpc();
     installDock();
     installPowerEvents();
+    // Register the status channel before the tray installs so the tray's
+    // initial render reflects any status the renderer publishes during
+    // bootstrap rather than briefly showing the default idle dot.
+    installStatusIpc();
     installTray({
       toggleMainWindow: toggleMainWindowVisibility,
       ensureMainWindow: ensureMainWindowVisible,

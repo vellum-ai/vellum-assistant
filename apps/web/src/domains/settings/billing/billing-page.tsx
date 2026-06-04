@@ -1,17 +1,10 @@
 import { Loader2 } from "lucide-react";
 import { Suspense, useCallback, useEffect, useState } from "react";
 
-import { Navigate, useSearchParams, useNavigate } from "react-router";
+import { Navigate, useNavigate, useSearchParams } from "react-router";
 
 import { useQueryClient } from "@tanstack/react-query";
 
-import { Notice } from "@vellum/design-library/components/notice";
-import { toast } from "@vellum/design-library/components/toast";
-import {
-  useActiveAssistantIsPlatformHosted,
-  useActiveAssistantLifecycleIsLoading,
-  usePlatformGate,
-} from "@/hooks/use-platform-gate";
 import { BillingOnboardingModal } from "@/domains/settings/billing/pro-onboarding/billing-onboarding-modal";
 import { AdjustPlanModal } from "@/domains/settings/components/adjust-plan-modal";
 import { BillingPanel } from "@/domains/settings/components/billing-panel";
@@ -20,10 +13,17 @@ import { BillingUsagePanel } from "@/domains/settings/components/billing-usage/b
 import { GracePeriodBanner } from "@/domains/settings/components/grace-period-banner";
 import { PaymentMethodsCard } from "@/domains/settings/components/payment-methods-card";
 import { PlanCard } from "@/domains/settings/components/plan-card";
-import { TierUpgradeResizeModal } from "@/domains/settings/components/tier-upgrade-resize-modal";
 import { ReferralPanel } from "@/domains/settings/components/referral-panel";
+import { TierUpgradeResizeModal } from "@/domains/settings/components/tier-upgrade-resize-modal";
 import { organizationsBillingSummaryRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
+import {
+    useActiveAssistantIsPlatformHosted,
+    useActiveAssistantLifecycleIsLoading,
+    usePlatformGate,
+} from "@/hooks/use-platform-gate";
 import { routes } from "@/utils/routes";
+import { Notice } from "@vellumai/design-library/components/notice";
+import { toast } from "@vellumai/design-library/components/toast";
 
 /**
  * Handles the `billing_status` query parameter that Stripe redirects back with
@@ -127,7 +127,7 @@ export function BillingPage() {
   // chrome with a login notice — better UX than redirecting to general.
   if (platformGate === "disabled") {
     return (
-      <div className="mx-auto max-w-5xl space-y-4">
+      <div className="space-y-4">
         <Notice tone="info">
           Log in to the Vellum platform to manage billing and usage.
         </Notice>
@@ -145,7 +145,7 @@ export function BillingPage() {
   // below.
   if (isLifecycleLoading) {
     return (
-      <div className="mx-auto max-w-5xl space-y-4">
+      <div className="space-y-4">
         <div className="flex items-center gap-2 py-6 text-body-medium-lighter text-[var(--content-secondary)]">
           <Loader2 className="h-4 w-4 animate-spin" />
           Loading billing…
@@ -165,7 +165,7 @@ export function BillingPage() {
   // response — see `useActiveAssistantLifecycleIsLoading()` docstring).
   if (!isPlatformHosted) {
     return (
-      <div className="mx-auto max-w-5xl space-y-4">
+      <div className="space-y-4">
         <Notice tone="warning">
           Billing isn&apos;t available for the current assistant state.
         </Notice>
@@ -174,7 +174,7 @@ export function BillingPage() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-4">
+    <div className="space-y-4">
       <Suspense fallback={null}>
         <BillingStatusHandler />
         <BillingPortalReturnHandler />

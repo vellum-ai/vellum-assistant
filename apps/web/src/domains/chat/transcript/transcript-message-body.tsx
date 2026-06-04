@@ -19,7 +19,6 @@ import { ThinkingBlock } from "@/domains/chat/components/thinking-block";
 import { ThoughtProcessLink } from "@/domains/chat/components/thought-process-link/thought-process-link";
 import { InlineToolLink } from "@/domains/chat/components/inline-activity-link/inline-tool-link";
 import { ActivityRunCard } from "@/domains/chat/components/activity-run-card/activity-run-card";
-import { getLegacyLeadingThinkingText } from "@/domains/chat/components/tool-progress-card/get-leading-thinking-text";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import {
   WEB_TOOL_NAMES,
@@ -47,6 +46,7 @@ import {
 import type { ConfirmationDecision } from "@/types/event-types";
 import type { AllowlistOption, DirectoryScopeOption, RiskScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 
 export interface OpenRuleEditorContext {
   toolName: string;
@@ -250,7 +250,9 @@ function shouldAutoExpandToolCallGroup({
   if (isStreaming) {
     return true;
   }
-  return toolCalls.some((toolCall) => toolCall.status === "running");
+  return toolCalls.some(
+    (toolCall) => isToolCallRunning(toolCall),
+  );
 }
 
 function fallbackRoleLabel(
@@ -457,6 +459,7 @@ export function TranscriptMessageBody({
                     onOpenApp={onOpenApp}
                     onOpenDocument={onOpenDocument}
                     assistantId={assistantId}
+                    assistantDisplayName={assistantDisplayName}
                     toolCalls={message.toolCalls}
                   />
                 </div>
@@ -635,12 +638,12 @@ export function TranscriptMessageBody({
     return !isNaN(numericIdx) ? textSegments[numericIdx] : undefined;
   };
 
+  // ---- Merged activity runs ----
   if (hasInterleavedToolCalls && message.contentOrder) {
     // This branch is assistant-only: `hasInterleavedToolCalls` is true only
     // when `contentOrder` carries `toolCall`/`tool` entries, and tool calls
     // only ever come from the assistant — user messages have no tool calls.
     //
-    // ---- Merged activity runs ----
     // Contiguous thinking + tool-call entries merge into one combined
     // `ActivityRunCard` (or a compact inline link for lone thinking / lone
     // simple tools). Task-progress and other surfaces render inline in
@@ -685,7 +688,7 @@ export function TranscriptMessageBody({
         cardItems.length === 1 &&
         cardItems[0]?.kind === "toolCall" &&
         renderableToolCalls.length === 1 &&
-        !WEB_TOOL_NAMES.has(renderableToolCalls[0]!.toolName) &&
+        !WEB_TOOL_NAMES.has(renderableToolCalls[0]!.name) &&
         !renderableToolCalls[0]!.pendingConfirmation
           ? renderableToolCalls[0]!
           : null;
@@ -919,7 +922,6 @@ export function TranscriptMessageBody({
                   pendingConfirmationToolCallId={pendingConfirmationToolCallId}
                   unknownNudgeToolCallIds={unknownNudgeToolCallIds}
                   onDismissUnknownNudge={onDismissUnknownNudge}
-                  leadingThinkingText={getLegacyLeadingThinkingText(message)}
                 />
               </div>
             )}
@@ -974,6 +976,7 @@ export function TranscriptMessageBody({
                 onOpenApp={onOpenApp}
                 onOpenDocument={onOpenDocument}
                 assistantId={assistantId}
+                assistantDisplayName={assistantDisplayName}
                 toolCalls={message.toolCalls}
               />
             </div>

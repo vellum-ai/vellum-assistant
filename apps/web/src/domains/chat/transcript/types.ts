@@ -106,6 +106,12 @@ export interface PaginatedHistoryResult {
   oldestMessageId: string | null;
   /** Subagent notifications extracted from history messages for state reconstruction. */
   subagentNotifications?: RuntimeSubagentNotification[];
+  /** Global SSE `seq` this snapshot is durably persisted through for the
+   *  conversation, or `null` when the daemon reports no honest position
+   *  (cold conversation, post-restart, aged-out map, or an older daemon
+   *  that omits the field). Used to align the snapshot with the `/events`
+   *  stream. */
+  seq?: number | null;
 }
 
 /** Snapshot of the transcript pagination state held by the scroll

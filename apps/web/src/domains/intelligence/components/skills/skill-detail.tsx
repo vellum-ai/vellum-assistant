@@ -1,32 +1,32 @@
 import { useQuery } from "@tanstack/react-query";
 import {
-  ArrowDownToLine,
-  ArrowLeft,
-  FileText,
-  Folder,
-  Loader2,
-  Trash2,
+    ArrowDownToLine,
+    ArrowLeft,
+    FileText,
+    Folder,
+    Loader2,
+    Trash2,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 
-import { Button, Card } from "@vellum/design-library";
+import {
+    FileMarkdown,
+    isMarkdown,
+} from "@/components/file-markdown";
 import { SkillIcon } from "@/domains/intelligence/components/skills/skill-icon";
 import { SkillOriginBadge } from "@/domains/intelligence/components/skills/skill-origin-badge";
 import {
-  FileMarkdown,
-  isMarkdown,
-} from "@/components/file-markdown";
+    isAvailableSkill,
+    isRemovableSkill,
+    type SkillFileEntry,
+    type SkillInfo,
+} from "@/domains/intelligence/skills/types";
 import {
-  skillsByIdFilesGetOptions,
-  skillsByIdFilesContentGetOptions,
+    skillsByIdFilesContentGetOptions,
+    skillsByIdFilesGetOptions,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { SkillsByIdFilesContentGetResponse } from "@/generated/daemon/types.gen";
-import {
-  isAvailableSkill,
-  isRemovableSkill,
-  type SkillFileEntry,
-  type SkillInfo,
-} from "@/domains/intelligence/skills/types";
+import { Button, Card } from "@vellumai/design-library";
 
 interface SkillDetailProps {
   assistantId: string;

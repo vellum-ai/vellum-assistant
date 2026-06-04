@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { RuntimeMessage } from "@/domains/chat/api/messages";
+import type { ConversationMessage } from "@vellumai/assistant-api";
 import {
   mapRuntimeToDisplayMessage,
   prepareServerMessage,
@@ -12,7 +12,7 @@ import {
   messageText,
   wireTextBody,
 } from "@/domains/chat/utils/message-test-helpers";
-function makeMessage(overrides: Partial<RuntimeMessage>): RuntimeMessage {
+function makeMessage(overrides: Partial<ConversationMessage>): ConversationMessage {
   return makeServerMessage({ id: "msg-1", role: "assistant", ...overrides });
 }
 

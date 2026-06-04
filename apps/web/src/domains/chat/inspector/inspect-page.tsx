@@ -1,41 +1,39 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { AlertCircle, ArrowLeft, Download, MessageSquare } from "lucide-react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { useMemo, useState, type ReactNode } from "react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
-import { Button } from "@vellum/design-library";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
-import type { RuntimeMessage } from "@/domains/chat/api/messages";
-import { runtimeMessagePlainText } from "@/domains/chat/utils/map-runtime-message";
 import { canUseLlmInspector } from "@/domains/chat/inspector/access";
 import {
-  useConversationMessageList,
-  useLlmContext,
+    useConversationMessageList,
+    useLlmContext,
 } from "@/domains/chat/inspector/inspector-api";
 import {
-  buildInspectorExportFilename,
-  buildInspectorExportZipBlob,
-  downloadBlob,
+    buildInspectorExportFilename,
+    buildInspectorExportZipBlob,
+    downloadBlob,
 } from "@/domains/chat/inspector/inspector-export";
 import {
-  llmLogPayloadQueryOptions,
-  type LlmLogPayload,
+    llmLogPayloadQueryOptions,
+    type LlmLogPayload,
 } from "@/domains/chat/inspector/inspector-payload-api";
-import type { LLMRequestLogEntry } from "@vellumai/assistant-api";
-import type { LlmContextResponse } from "@vellumai/assistant-api";
-import { useAuthStore } from "@/stores/auth-store";
+import { runtimeMessagePlainText } from "@/domains/chat/utils/map-runtime-message";
+import { useAuthStore, useIsSessionInitializing } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
+import type { ConversationMessage, LlmContextResponse, LLMRequestLogEntry } from "@vellumai/assistant-api";
+import { Button } from "@vellumai/design-library";
 
 import { CallRail } from "./components/call-rail";
 import { MobileCallSelector } from "./components/mobile-call-selector";
 import { TabBar, type InspectorTab } from "./components/tab-bar";
 import { CompactionTab } from "./components/tabs/compaction-tab";
 import { MemoryTab } from "./components/tabs/memory-tab";
-import { SkillsTab } from "./components/tabs/skills-tab";
 import { OverviewTab } from "./components/tabs/overview-tab";
 import { PromptTab } from "./components/tabs/prompt-tab";
 import { RawTab } from "./components/tabs/raw-tab";
 import { ResponseTab } from "./components/tabs/response-tab";
+import { SkillsTab } from "./components/tabs/skills-tab";
 
 /**
  * `/assistant/conversations/:conversationId/inspect` page. The conversation
@@ -58,7 +56,7 @@ import { ResponseTab } from "./components/tabs/response-tab";
  */
 export function InspectPage(): ReactNode {
   const user = useAuthStore.use.user();
-  const authLoading = useAuthStore.use.isLoading();
+  const authLoading = useIsSessionInitializing();
   // React Router's :conversationId segment is the source of truth; the
   // route definition guarantees it's present, but useParams still types
   // it as optional so we narrow defensively.
@@ -431,7 +429,7 @@ interface ScopeOption {
   label: string;
 }
 
-function buildMessageScopeOptions(messages: RuntimeMessage[]): ScopeOption[] {
+function buildMessageScopeOptions(messages: ConversationMessage[]): ScopeOption[] {
   const seen = new Set<string>();
   const options: ScopeOption[] = [];
   let index = 1;

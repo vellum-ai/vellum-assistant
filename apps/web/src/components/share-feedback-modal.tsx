@@ -1,51 +1,51 @@
 import { Capacitor } from "@capacitor/core";
 import { useMutation } from "@tanstack/react-query";
 import {
-  Bug,
-  Info,
-  Lightbulb,
-  Loader2,
-  type LucideIcon,
-  Mail,
-  MessageCircle,
-  Paperclip,
-  Send,
-  X,
+    Bug,
+    Info,
+    Lightbulb,
+    Loader2,
+    type LucideIcon,
+    Mail,
+    MessageCircle,
+    Paperclip,
+    Send,
+    X,
 } from "lucide-react";
 import {
-  type ChangeEvent,
-  type DragEvent,
-  type KeyboardEvent,
-  type MouseEvent,
-  useCallback,
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
+    type ChangeEvent,
+    type DragEvent,
+    type KeyboardEvent,
+    type MouseEvent,
+    useCallback,
+    useEffect,
+    useId,
+    useMemo,
+    useRef,
+    useState,
 } from "react";
 import { createPortal } from "react-dom";
 
-import { Button } from "@vellum/design-library/components/button";
-import {
-  Dropdown,
-  type DropdownOption,
-} from "@vellum/design-library/components/dropdown";
-import { Input, Textarea } from "@vellum/design-library/components/input";
-import { Notice } from "@vellum/design-library/components/notice";
-import { Toggle } from "@vellum/design-library/components/toggle";
-import { Tooltip } from "@vellum/design-library/components/tooltip";
+import type { ChatDebugEventsApi } from "@/domains/chat/api/debug-api";
+import type { ChatDebugApi } from "@/domains/chat/utils/debug-api";
 import { feedbackCreateMutation } from "@/generated/api/@tanstack/react-query.gen";
 import type { ClassificationEnum } from "@/generated/api/types.gen";
 import { logsExportPost } from "@/generated/daemon/sdk.gen";
 import type { LogsExportPostData } from "@/generated/daemon/types.gen";
-import type { ChatDebugEventsApi } from "@/domains/chat/api/debug-api";
-import type { ChatDebugApi } from "@/domains/chat/utils/debug-api";
 import { buildDiagnosticsSnapshot } from "@/lib/diagnostics";
 import { buildDebugFlagSnapshot } from "@/lib/feature-flags/debug-flag-snapshot";
 import { isElectron } from "@/runtime/is-electron";
 import { useAuthStore } from "@/stores/auth-store";
 import { VELLUM_COMMUNITY_URL } from "@/utils/external-urls";
+import { Button } from "@vellumai/design-library/components/button";
+import {
+    Dropdown,
+    type DropdownOption,
+} from "@vellumai/design-library/components/dropdown";
+import { Input, Textarea } from "@vellumai/design-library/components/input";
+import { Notice } from "@vellumai/design-library/components/notice";
+import { Toggle } from "@vellumai/design-library/components/toggle";
+import { Tooltip } from "@vellumai/design-library/components/tooltip";
 
 type Reason = "bug_report" | "feature_request" | "other";
 
@@ -320,6 +320,7 @@ async function buildClientLogsFile(
         clientMessages: debugApi.getClientMessages?.() ?? null,
         transcriptItems: debugApi.getTranscriptItems?.() ?? null,
         thinkingIndicator: debugApi.thinkingIndicator?.() ?? null,
+        streamingRing: debugApi.streamingRing?.() ?? null,
       };
       const triageBytes = new TextEncoder().encode(
         JSON.stringify(triagePayload, null, 2),

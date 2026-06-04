@@ -1,23 +1,23 @@
-import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import { Card } from "@vellum/design-library";
+import { Card } from "@vellumai/design-library";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { canUseLlmInspector } from "@/domains/chat/inspector/access";
-import {
-  useCurrentNowText,
-  useDefaultRouterPromptTemplate,
-  useLlmProfiles,
-  useSimulateMemoryRouter,
-} from "@/domains/chat/inspector/memory-router-simulator-api";
 import type {
-  MemoryRouterSimulateRequest,
-  MemoryRouterSimulateResponse,
-  RecentTurnPair,
+    MemoryRouterSimulateRequest,
+    MemoryRouterSimulateResponse,
+    RecentTurnPair,
 } from "@/domains/chat/inspector/memory-router-simulator-api";
+import {
+    useCurrentNowText,
+    useDefaultRouterPromptTemplate,
+    useLlmProfiles,
+    useSimulateMemoryRouter,
+} from "@/domains/chat/inspector/memory-router-simulator-api";
+import { useAuthStore, useIsSessionInitializing } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
-import { useAuthStore } from "@/stores/auth-store";
 
 /**
  * Developer-only page for dry-running the v4 memory router with custom
@@ -37,7 +37,7 @@ import { useAuthStore } from "@/stores/auth-store";
  */
 export function MemoryRouterPlaygroundPage(): ReactNode {
   const user = useAuthStore.use.user();
-  const authLoading = useAuthStore.use.isLoading();
+  const authLoading = useIsSessionInitializing();
   const flagEnabled = useClientFeatureFlagStore.use.memoryRouterPlayground();
 
   if (authLoading) {

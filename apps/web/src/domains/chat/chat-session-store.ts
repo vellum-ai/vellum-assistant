@@ -26,6 +26,7 @@ import { recordDiagnostic } from "@/lib/diagnostics";
 import { useTurnStore } from "@/domains/chat/turn-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useConversationStore } from "@/stores/conversation-store";
+import { useComposerStore } from "@/domains/chat/composer-store";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import type { ChatError } from "@/domains/chat/types";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
@@ -118,14 +119,10 @@ export interface ChatSessionActions {
   /**
    * Atomically reset all per-conversation state when switching to a new
    * conversation.
-   *
-   * Caller must pass `resetChatAttachments` because attachment state
-   * lives outside this store (in `useChatAttachments`).
    */
   switchToConversation: (params: {
     assistantId: string;
     activeConversationId: string;
-    resetChatAttachments: () => void;
   }) => void;
 
   /**
@@ -228,7 +225,7 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
     })),
 
   // --- Conversation lifecycle ---
-  switchToConversation: ({ assistantId, activeConversationId, resetChatAttachments }) => {
+  switchToConversation: ({ assistantId, activeConversationId }) => {
     const state = get();
 
     // Draft-key resolution (draft→server ID) is not a real switch.
@@ -262,10 +259,22 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
       outgoingConversationId: outgoingConversationId ?? null,
     });
 
+    // Save outgoing draft, restore incoming draft.
+    useComposerStore.getState().handleConversationSwitch({
+      previousKey: outgoingConversationId ?? null,
+      nextKey: activeConversationId,
+    });
+
     // Reset all per-conversation state atomically.
     useTurnStore.getState().resetTurn();
     useInteractionStore.getState().resetAll();
-    resetChatAttachments();
+    if (isAssistantSwitch) {
+      // Assistant changed — old message bubbles leave the DOM, revoke blob URLs.
+      useComposerStore.getState().fullReset();
+    } else {
+      // Same assistant, different conversation — keep blob URLs for sent messages.
+      useComposerStore.getState().resetAttachments();
+    }
 
     const usageByConversation = needsHydration
       ? loadContextWindowUsageMap(assistantId)

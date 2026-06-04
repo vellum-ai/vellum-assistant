@@ -190,15 +190,15 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
     const survivor = makeAssistant({
       id: "a-1",
       toolCalls: [
-        { id: "toolu_S0", toolName: "bash", input: {}, status: "completed" },
+        { id: "toolu_S0", name: "bash", input: {}, completedAt: 1 },
       ],
       contentOrder: [{ type: "tool", id: "0" }],
     });
     const donor = makeAssistant({
       id: "a-2",
       toolCalls: [
-        { id: "toolu_D0", toolName: "edit", input: {}, status: "completed" },
-        { id: "toolu_D1", toolName: "test", input: {}, status: "completed" },
+        { id: "toolu_D0", name: "edit", input: {}, completedAt: 1 },
+        { id: "toolu_D1", name: "test", input: {}, completedAt: 1 },
       ],
       contentOrder: [
         { type: "tool", id: "0" },
@@ -265,7 +265,7 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
     const survivor = makeAssistant({
       id: "a-1",
       toolCalls: [
-        { id: "toolu_real_X", toolName: "bash", input: {}, status: "completed" },
+        { id: "toolu_real_X", name: "bash", input: {}, completedAt: 1 },
       ],
       surfaces: [
         {
@@ -283,7 +283,7 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
     const donor = makeAssistant({
       id: "a-2",
       toolCalls: [
-        { id: "toolu_real_Y", toolName: "edit", input: {}, status: "completed" },
+        { id: "toolu_real_Y", name: "edit", input: {}, completedAt: 1 },
       ],
       surfaces: [
         {
@@ -312,7 +312,7 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
       id: "a-1",
       textSegments: ["thinking..."],
       toolCalls: [
-        { id: "toolu_S", toolName: "bash", input: {}, status: "completed" },
+        { id: "toolu_S", name: "bash", input: {}, completedAt: 1 },
       ],
       contentOrder: [
         { type: "text", id: "0" },
@@ -326,7 +326,7 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
         "now editing",
       ],
       toolCalls: [
-        { id: "toolu_D", toolName: "edit", input: {}, status: "completed" },
+        { id: "toolu_D", name: "edit", input: {}, completedAt: 1 },
       ],
       contentOrder: [
         { type: "text", id: "0" },
@@ -394,7 +394,7 @@ describe("mergeAdjacentAssistantMessages · cross-page bug repro", () => {
       textSegments: ["[A] "],
       contentOrder: [{ type: "text", id: "0" }],
       toolCalls: [
-        { id: "tool-A-1", toolName: "bash", input: {}, status: "completed" },
+        { id: "tool-A-1", name: "bash", input: {}, completedAt: 1 },
       ],
     });
     const pageMiddle = makeAssistant({
@@ -404,7 +404,7 @@ describe("mergeAdjacentAssistantMessages · cross-page bug repro", () => {
       textSegments: ["[B] "],
       contentOrder: [{ type: "text", id: "0" }],
       toolCalls: [
-        { id: "tool-B-1", toolName: "edit", input: {}, status: "completed" },
+        { id: "tool-B-1", name: "edit", input: {}, completedAt: 1 },
       ],
     });
     const pageLatest = makeAssistant({
@@ -414,7 +414,7 @@ describe("mergeAdjacentAssistantMessages · cross-page bug repro", () => {
       textSegments: ["[C]"],
       contentOrder: [{ type: "text", id: "0" }],
       toolCalls: [
-        { id: "tool-C-1", toolName: "test", input: {}, status: "completed" },
+        { id: "tool-C-1", name: "test", input: {}, completedAt: 1 },
       ],
     });
 

@@ -6,6 +6,7 @@
 import {
   consolidationConfigGet,
   consolidationRunnowPost,
+  consolidationRunsGet,
   heartbeatConfigGet,
   heartbeatRunnowPost,
   heartbeatRunsGet,
@@ -14,7 +15,7 @@ import {
   schedulesByIdRunPost,
   schedulesByIdRunsGet,
   schedulesByIdTogglePost,
-  schedulesGet,
+  schedulesUsagesummaryGet,
   schedulesPost,
 } from "@/generated/daemon/sdk.gen";
 import type {
@@ -28,8 +29,13 @@ import {
   assertHasResponse,
   extractErrorMessage,
 } from "@/utils/api-errors";
+import { fetchSchedules as fetchSharedSchedules } from "@/utils/schedules";
 
-import type { Schedule, ScheduleRun } from "@/domains/settings/types/schedules";
+import type {
+  Schedule,
+  ScheduleRun,
+  ScheduleUsageSummary,
+} from "@/domains/settings/types/schedules";
 
 export { ApiError };
 
@@ -83,18 +89,7 @@ export async function updateSchedule(
 }
 
 export async function fetchSchedules(assistantId: string): Promise<Schedule[]> {
-  const { data, error, response } = await schedulesGet({
-    path: { assistant_id: assistantId },
-    throwOnError: false,
-  });
-  assertHasResponse(response, error, "Failed to load schedules.");
-  if (!response.ok) {
-    throw new ApiError(
-      response.status,
-      extractErrorMessage(error, response, "Failed to load schedules."),
-    );
-  }
-  return data?.schedules ?? [];
+  return fetchSharedSchedules(assistantId);
 }
 
 export async function fetchScheduleRuns(
@@ -115,6 +110,30 @@ export async function fetchScheduleRuns(
     );
   }
   return data?.runs ?? [];
+}
+
+export interface ScheduleUsageSummaryRange {
+  from: number;
+  to: number;
+}
+
+export async function fetchScheduleUsageSummary(
+  assistantId: string,
+  range: ScheduleUsageSummaryRange,
+): Promise<ScheduleUsageSummary[]> {
+  const { data, error, response } = await schedulesUsagesummaryGet({
+    path: { assistant_id: assistantId },
+    query: { from: range.from, to: range.to },
+    throwOnError: false,
+  });
+  assertHasResponse(response, error, "Failed to load schedule usage.");
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      extractErrorMessage(error, response, "Failed to load schedule usage."),
+    );
+  }
+  return data?.summaries ?? [];
 }
 
 export async function toggleSchedule(
@@ -196,6 +215,42 @@ export async function fetchHeartbeatRuns(
     output: run.skipReason ? `Skipped: ${run.skipReason}` : null,
     error: run.error,
     conversationId: run.conversationId,
+    conversationExists: run.conversationExists,
+    conversationArchivedAt: run.conversationArchivedAt,
+    estimatedCostUsd: run.estimatedCostUsd,
+    createdAt: run.createdAt,
+  }));
+}
+
+export async function fetchConsolidationRuns(
+  assistantId: string,
+  limit = 10,
+): Promise<ScheduleRun[]> {
+  const { data, error, response } = await consolidationRunsGet({
+    path: { assistant_id: assistantId },
+    query: { limit },
+    throwOnError: false,
+  });
+  assertHasResponse(response, error, "Failed to load consolidation runs.");
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      extractErrorMessage(error, response, "Failed to load consolidation runs."),
+    );
+  }
+  return (data?.runs ?? []).map((run) => ({
+    id: run.id,
+    jobId: "consolidation",
+    status: run.status,
+    startedAt: run.startedAt ?? run.scheduledFor,
+    finishedAt: run.finishedAt,
+    durationMs: run.durationMs,
+    output: null,
+    error: run.error,
+    conversationId: run.conversationId,
+    conversationExists: run.conversationExists,
+    conversationArchivedAt: run.conversationArchivedAt,
+    estimatedCostUsd: run.estimatedCostUsd,
     createdAt: run.createdAt,
   }));
 }

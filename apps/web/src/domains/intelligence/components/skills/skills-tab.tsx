@@ -1,45 +1,44 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  CheckCircle,
-  CloudOff,
-  Globe,
-  LayoutGrid,
-  Loader2,
-  Package,
-  Puzzle,
-  Sparkles,
-  Terminal,
-  TriangleAlert,
-  User,
-  X,
-  Zap,
+    CheckCircle,
+    CloudOff,
+    Globe,
+    LayoutGrid,
+    Loader2,
+    Package,
+    Puzzle,
+    Sparkles,
+    Terminal,
+    TriangleAlert,
+    User,
+    X,
+    Zap,
 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
-import { Button, Card, ConfirmDialog } from "@vellum/design-library";
-import { useDebouncedValue } from "@/hooks/use-debounced-value";
-import { getLocalBool, setLocalBool } from "@/utils/local-settings";
-import {
-  MobileSidebarDrawer,
-} from "@/components/mobile-sidebar-drawer";
 import { CategorySidebar } from "@/domains/intelligence/components/skills/category-sidebar";
-import { FilterBar } from "@/domains/intelligence/components/skills/skill-filters";
 import { SkillDetail } from "@/domains/intelligence/components/skills/skill-detail";
+import { SkillDetailMobile } from "@/domains/intelligence/components/skills/skill-detail-mobile";
+import { FilterBar } from "@/domains/intelligence/components/skills/skill-filters";
 import { SkillRow } from "@/domains/intelligence/components/skills/skill-row";
-import {
-  skillsGetOptions,
-  skillsGetQueryKey,
-  skillsByIdDeleteMutation,
-} from "@/generated/daemon/@tanstack/react-query.gen";
-import { type Options } from "@/generated/daemon/sdk.gen";
-import type { SkillsGetData } from "@/generated/daemon/types.gen";
 import { installSkill } from "@/domains/intelligence/skills/install";
 import {
-  type SkillFilter,
-  type SkillInfo,
+    type SkillFilter,
+    type SkillInfo,
 } from "@/domains/intelligence/skills/types";
 import { useSkillCategories } from "@/domains/intelligence/skills/use-skill-categories";
 import { resolveFilterParams, sortSkills } from "@/domains/intelligence/skills/utils";
+import {
+    skillsByIdDeleteMutation,
+    skillsGetOptions,
+    skillsGetQueryKey,
+} from "@/generated/daemon/@tanstack/react-query.gen";
+import { type Options } from "@/generated/daemon/sdk.gen";
+import type { SkillsGetData } from "@/generated/daemon/types.gen";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { useIsMobile } from "@/hooks/use-is-mobile";
+import { getLocalBool, setLocalBool } from "@/utils/local-settings";
+import { Button, Card, ConfirmDialog } from "@vellumai/design-library";
 
 interface SkillsTabProps {
   assistantId: string;
@@ -56,6 +55,7 @@ const TIP_STORAGE_KEY = "vellum:skills:tipDismissed";
 
 export function SkillsTab({ assistantId, initialSkillId }: SkillsTabProps) {
   const queryClient = useQueryClient();
+  const isMobile = useIsMobile();
 
   const [searchValue, setSearchValue] = useState("");
   const debouncedSearch = useDebouncedValue(searchValue.trim(), SEARCH_DEBOUNCE_MS);
@@ -65,7 +65,6 @@ export function SkillsTab({ assistantId, initialSkillId }: SkillsTabProps) {
   const [installingSkillId, setInstallingSkillId] = useState<string | null>(null);
   const [removingSkillId, setRemovingSkillId] = useState<string | null>(null);
   const [skillPendingRemoval, setSkillPendingRemoval] = useState<SkillInfo | null>(null);
-  const [drawerOpen, setDrawerOpen] = useState(false);
   const [tipDismissed, setTipDismissed] = useState(() =>
     getLocalBool(TIP_STORAGE_KEY, false),
   );
@@ -199,17 +198,23 @@ export function SkillsTab({ assistantId, initialSkillId }: SkillsTabProps) {
   );
 
   if (selectedSkill) {
+    const detailProps = {
+      assistantId,
+      skill: selectedSkill,
+      onBack: () => setSelectedSkillId(null),
+      onInstall: () => handleInstall(selectedSkill),
+      onRemove: () => handleRemove(selectedSkill),
+      isInstalling:
+        installingSkillId === (selectedSkill.slug ?? selectedSkill.id),
+      isRemoving: removingSkillId === selectedSkill.id,
+    };
     return (
       <>
-        <SkillDetail
-          assistantId={assistantId}
-          skill={selectedSkill}
-          onBack={() => setSelectedSkillId(null)}
-          onInstall={() => handleInstall(selectedSkill)}
-          onRemove={() => handleRemove(selectedSkill)}
-          isInstalling={installingSkillId === (selectedSkill.slug ?? selectedSkill.id)}
-          isRemoving={removingSkillId === selectedSkill.id}
-        />
+        {isMobile ? (
+          <SkillDetailMobile {...detailProps} />
+        ) : (
+          <SkillDetail {...detailProps} />
+        )}
         {removalDialog}
       </>
     );
@@ -227,7 +232,12 @@ export function SkillsTab({ assistantId, initialSkillId }: SkillsTabProps) {
         filter={filter}
         onFilterChange={setFilter}
         isSearching={isSearching}
-        onOpenDrawer={() => setDrawerOpen(true)}
+        categories={categories}
+        category={category}
+        onCategoryChange={setCategory}
+        counts={counts}
+        totalCount={totalCount}
+        showCounts={!isSearching}
       />
 
       <div className="flex min-h-0 flex-1 gap-6">
@@ -241,24 +251,6 @@ export function SkillsTab({ assistantId, initialSkillId }: SkillsTabProps) {
             categories={categories}
           />
         </aside>
-
-        <MobileSidebarDrawer
-          open={drawerOpen}
-          onClose={() => setDrawerOpen(false)}
-          title="Categories"
-        >
-          <CategorySidebar
-            selected={category}
-            onSelect={(c) => {
-              setCategory(c);
-              setDrawerOpen(false);
-            }}
-            counts={counts}
-            totalCount={totalCount}
-            showCounts={!isSearching}
-            categories={categories}
-          />
-        </MobileSidebarDrawer>
 
         <div className="min-w-0 flex-1 overflow-y-auto">
           {skillsQuery.isLoading ? (
@@ -317,11 +309,10 @@ function useDerivedCounts(
 function TipBanner({ onDismiss }: { onDismiss: () => void }) {
   return (
     <div
-      className="flex items-center gap-2 rounded-lg border px-4 py-2.5 text-body-medium-lighter"
+      className="flex items-center gap-2 rounded-lg px-4 py-2.5 text-body-small-default"
       style={{
-        borderColor: "color-mix(in oklab, var(--primary-base) 25%, transparent)",
-        backgroundColor: "color-mix(in oklab, var(--primary-base) 8%, transparent)",
-        color: "var(--content-default)",
+        backgroundColor: "var(--surface-base)",
+        color: "var(--content-secondary)",
       }}
     >
       <Sparkles
@@ -329,8 +320,7 @@ function TipBanner({ onDismiss }: { onDismiss: () => void }) {
         style={{ color: "var(--primary-base)" }}
       />
       <p className="flex-1">
-        <span className="text-body-medium-default">Tip:</span> You can create a new custom
-        skill by describing what you want in chat.
+        You can create a new custom skill by describing what you want in chat.
       </p>
       <Button
         type="button"
@@ -340,6 +330,7 @@ function TipBanner({ onDismiss }: { onDismiss: () => void }) {
         onClick={onDismiss}
         aria-label="Dismiss tip"
         tintColor="var(--content-tertiary)"
+        expandOnMobile={false}
       />
     </div>
   );

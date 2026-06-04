@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
 
+import { useComposerStore } from "@/domains/chat/composer-store";
 import {
   __resetPendingDeepLinkForTesting,
   usePendingDeepLinkStore,
@@ -14,35 +15,32 @@ mock.module("@sentry/react", () => ({
 
 const { useDeepLinkConsumer } = await import("./use-deep-link-consumer");
 
-const renderConsumer = (
-  composerInput: string,
-  setComposerInput: (next: string) => void,
-) =>
-  renderHook(
-    ({ input, set }: { input: string; set: (next: string) => void }) =>
-      useDeepLinkConsumer({ composerInput: input, setComposerInput: set }),
-    { initialProps: { input: composerInput, set: setComposerInput } },
-  );
+const renderConsumer = (composerInput: string) => {
+  // Seed the composer store with the given input before rendering.
+  useComposerStore.getState().setInput(composerInput);
+  return renderHook(() => useDeepLinkConsumer());
+};
 
 beforeEach(() => {
   __resetPendingDeepLinkForTesting();
+  useComposerStore.getState().fullReset();
   sentryBreadcrumbMock.mockClear();
 });
 
 afterEach(() => {
   cleanup();
   __resetPendingDeepLinkForTesting();
+  useComposerStore.getState().fullReset();
 });
 
 describe("pending message consumption", () => {
   test("pre-fills the composer when a pending message exists and input is empty", () => {
-    const setComposerInput = mock((_next: string) => undefined);
     // Stash a message before render — the consumer sees it on mount.
     usePendingDeepLinkStore.getState().setPendingComposerMessage("hello");
 
-    renderConsumer("", setComposerInput);
+    renderConsumer("");
 
-    expect(setComposerInput).toHaveBeenCalledWith("hello");
+    expect(useComposerStore.getState().input).toBe("hello");
     // Consumed → store is cleared.
     expect(usePendingDeepLinkStore.getState().pendingComposerMessage).toBe(
       null,
@@ -50,14 +48,13 @@ describe("pending message consumption", () => {
   });
 
   test("preserves in-progress typing — drops with a Sentry breadcrumb", () => {
-    const setComposerInput = mock((_next: string) => undefined);
     usePendingDeepLinkStore
       .getState()
       .setPendingComposerMessage("from link");
 
-    renderConsumer("user already typing", setComposerInput);
+    renderConsumer("user already typing");
 
-    expect(setComposerInput).not.toHaveBeenCalled();
+    expect(useComposerStore.getState().input).toBe("user already typing");
     expect(sentryBreadcrumbMock).toHaveBeenCalled();
     // Message is consumed (cleared) either way — we don't want it to
     // sit and resurface on the next render.
@@ -67,27 +64,23 @@ describe("pending message consumption", () => {
   });
 
   test("whitespace-only composer input counts as empty", () => {
-    const setComposerInput = mock((_next: string) => undefined);
     usePendingDeepLinkStore.getState().setPendingComposerMessage("hello");
 
-    renderConsumer("   \n  ", setComposerInput);
+    renderConsumer("   \n  ");
 
-    expect(setComposerInput).toHaveBeenCalledWith("hello");
+    expect(useComposerStore.getState().input).toBe("hello");
   });
 
   test("no-op when no message is pending", () => {
-    const setComposerInput = mock((_next: string) => undefined);
+    renderConsumer("");
 
-    renderConsumer("", setComposerInput);
-
-    expect(setComposerInput).not.toHaveBeenCalled();
+    expect(useComposerStore.getState().input).toBe("");
     expect(sentryBreadcrumbMock).not.toHaveBeenCalled();
   });
 
   test("a pending message arriving after mount fires the effect on the next render", () => {
-    const setComposerInput = mock((_next: string) => undefined);
-    renderConsumer("", setComposerInput);
-    expect(setComposerInput).not.toHaveBeenCalled();
+    renderConsumer("");
+    expect(useComposerStore.getState().input).toBe("");
 
     // Simulate the global consumer parking a message after the
     // chat page is already mounted. The Zustand atomic selector
@@ -98,6 +91,6 @@ describe("pending message consumption", () => {
         .setPendingComposerMessage("late arrival");
     });
 
-    expect(setComposerInput).toHaveBeenCalledWith("late arrival");
+    expect(useComposerStore.getState().input).toBe("late arrival");
   });
 });

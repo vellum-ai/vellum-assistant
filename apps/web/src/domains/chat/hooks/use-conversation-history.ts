@@ -24,6 +24,7 @@ import {
 } from "@/domains/chat/utils/reconcile";
 import { filterDismissedSurfaces } from "@/domains/chat/utils/dismissed-surfaces-storage";
 import { recordDiagnostic } from "@/lib/diagnostics";
+import { recordSnapshotSeq } from "@/lib/streaming/snapshot-seq";
 import { summarizeDisplayMessages } from "@/domains/chat/utils/diagnostics";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
@@ -51,8 +52,6 @@ interface UseConversationHistoryParams {
   assistantId: string | null;
   assistantStateKind: AssistantStateKind;
   activeConversationId: string | null;
-  /** Reset callback for attachment state (lives outside the session store). */
-  resetChatAttachments: () => void;
 }
 
 export interface ConversationHistoryResult {
@@ -67,7 +66,6 @@ export function useConversationHistory({
   assistantId,
   assistantStateKind,
   activeConversationId,
-  resetChatAttachments,
 }: UseConversationHistoryParams): ConversationHistoryResult {
   // -------------------------------------------------------------------------
   // TanStack Query for history fetching + caching + pagination
@@ -97,9 +95,8 @@ export function useConversationHistory({
     useChatSessionStore.getState().switchToConversation({
       assistantId,
       activeConversationId,
-      resetChatAttachments,
     });
-  }, [assistantStateKind, assistantId, activeConversationId, resetChatAttachments]);
+  }, [assistantStateKind, assistantId, activeConversationId]);
 
   // -------------------------------------------------------------------------
   // Apply TanStack Query data to messages state
@@ -112,6 +109,14 @@ export function useConversationHistory({
     if (!assistantId || !activeConversationId) return;
 
     useChatSessionStore.getState().setLastAppliedDataTimestamp(pagination.dataUpdatedAt);
+
+    // Record the accepted snapshot's seq as the conversation baseline. This
+    // is the point where TanStack Query's committed latest page is applied to
+    // client state, so an out-of-order or aborted fetch (which never becomes
+    // committed query data) can't regress the baseline. Older-page loads keep
+    // the same `latestPage`, so re-running here records the same seq.
+    recordSnapshotSeq(activeConversationId, pagination.latestPage?.seq);
+
     const isFreshSwitch = store.switchResetPending;
     if (isFreshSwitch) {
       useChatSessionStore.getState().consumeSwitchReset();

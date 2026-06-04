@@ -378,15 +378,10 @@ describe("AgentLoop exit-reason instrumentation", () => {
       toolExecutor: toolExecutor,
     });
 
-    let prepared = false;
     let reinjected = false;
     const events: AgentEvent[] = [];
     const compaction: MidLoopCompaction = {
-      prepare: () => {
-        prepared = true;
-        return { options: undefined };
-      },
-      reinject: async () => {
+      postCompactionHook: async () => {
         reinjected = true;
         return [userMessage];
       },
@@ -414,7 +409,6 @@ describe("AgentLoop exit-reason instrumentation", () => {
     // THEN the loop runs the compaction ceremony in place and continues to a
     // clean exit instead of yielding for budget. The durable commit is
     // signalled via a `compaction_completed` event rather than an injected hook.
-    expect(prepared).toBe(true);
     expect(events.some((event) => event.type === "compaction_completed")).toBe(
       true,
     );
@@ -434,9 +428,8 @@ describe("AgentLoop exit-reason instrumentation", () => {
     });
 
     const compaction: MidLoopCompaction = {
-      prepare: () => ({ options: undefined }),
-      reinject: async () => {
-        throw new Error("reinject must not run after a timeout");
+      postCompactionHook: async () => {
+        throw new Error("postCompactionHook must not run after a timeout");
       },
     };
     const recordOutcomeSpy = spyOn(loop.compactionCircuit, "recordOutcome");
@@ -471,9 +464,8 @@ describe("AgentLoop exit-reason instrumentation", () => {
     });
 
     const compaction: MidLoopCompaction = {
-      prepare: () => ({ options: undefined }),
-      reinject: async () => {
-        throw new Error("reinject must not run when exhausted");
+      postCompactionHook: async () => {
+        throw new Error("postCompactionHook must not run when exhausted");
       },
     };
 

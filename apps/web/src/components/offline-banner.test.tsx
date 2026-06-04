@@ -1,4 +1,4 @@
-import { describe, expect, mock, test, beforeEach } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
 let isNativePlatformMock = false;
@@ -13,7 +13,7 @@ mock.module("@/hooks/use-network-status", () => ({
   useNetworkStatus: () => connectedMock,
 }));
 
-mock.module("@vellum/design-library/components/notice", () => ({
+mock.module("@vellumai/design-library/components/notice", () => ({
   Notice: (props: { title: string }) => (
     <div data-testid="notice">{props.title}</div>
   ),

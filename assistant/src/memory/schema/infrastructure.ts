@@ -22,6 +22,7 @@ export const cronJobs = sqliteTable("cron_jobs", {
   maxRetries: integer("max_retries").notNull().default(3),
   retryBackoffMs: integer("retry_backoff_ms").notNull().default(60000),
   timeoutMs: integer("timeout_ms"), // script-mode execution timeout override (ms); null = use default
+  createdFromConversationId: text("created_from_conversation_id"),
   createdBy: text("created_by").notNull(), // 'agent' | 'user'
   mode: text("mode").notNull().default("execute"), // 'notify' | 'execute'
   routingIntent: text("routing_intent").notNull().default("all_channels"), // 'single_channel' | 'multi_channel' | 'all_channels'
@@ -276,6 +277,21 @@ export const onboardingEvents = sqliteTable("onboarding_events", {
   googleScopesJson: text("google_scopes_json"),
   priorAssistantsJson: text("prior_assistants_json"),
   abVariant: text("ab_variant"),
+});
+
+// Aggregated legacy-loopback auth-fallback counts forwarded by the gateway.
+// One row per (guard, path, failure_kind) per flush window; `count` is how many
+// requests fell back to the loopback exemption in that window. Flushed to the
+// platform telemetry endpoint by the usage telemetry reporter.
+export const authFallbackEvents = sqliteTable("auth_fallback_events", {
+  id: text("id").primaryKey(),
+  createdAt: integer("created_at").notNull(),
+  guard: text("guard").notNull(), // 'edge' | 'edge-scoped' | 'edge-guardian'
+  path: text("path").notNull(),
+  failureKind: text("failure_kind").notNull(),
+  count: integer("count").notNull(),
+  windowStart: integer("window_start").notNull(),
+  windowEnd: integer("window_end").notNull(),
 });
 
 export const traceEvents = sqliteTable(

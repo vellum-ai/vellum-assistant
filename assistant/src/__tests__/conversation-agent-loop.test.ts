@@ -6,20 +6,9 @@ import type {
   AgentEvent,
   AgentLoopRunOptions,
   AgentLoopRunResult,
-  MidLoopCompaction,
 } from "../agent/loop.js";
-import type { ContextWindowResult } from "../context/window-manager.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
-import { defaultCompactionTerminal } from "../plugins/defaults/compaction/terminal.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
-import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
-import { getMiddlewaresFor } from "../plugins/registry.js";
-import type {
-  CompactionArgs,
-  CompactionResult,
-  TurnContext,
-} from "../plugins/types.js";
-import { PluginTimeoutError } from "../plugins/types.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 
 const conversationCrudRealSnapshot = {
@@ -86,17 +75,20 @@ mock.module("../config/loader.js", () => ({
 
 // Token estimator returns a small value by default (well within budget)
 // so preflight does not trigger unless the test overrides it. Both the
-// calibrated entry point (`estimatePromptTokens`, used in the convergence
-// path) and the raw entry point (`estimatePromptTokensRaw`, used by the
-// default `tokenEstimate` plugin pipeline for preflight/mid-loop) are
+// calibrated entry point (`estimatePromptTokens`, which backs the preflight
+// overflow gate and the convergence path) and the raw entry point
+// (`estimatePromptTokensRaw`, used by the pre-send calibration capture) are
 // stubbed so either call site can drive the test.
 let mockEstimateTokens = 1000;
 mock.module("../context/token-estimator.js", () => ({
   estimatePromptTokens: () => mockEstimateTokens,
   estimatePromptTokensRaw: () => mockEstimateTokens,
-  // Pass-through: the default plugin computes `toolTokenBudget` via this
-  // helper before delegating to the raw estimator. Return 0 so the mocked
-  // raw estimate is not perturbed.
+  // The preflight overflow gate calls this calibrated wrapper directly, so it
+  // must honor `mockEstimateTokens` too rather than fall through to the real
+  // implementation.
+  estimatePromptTokensWithTools: () => mockEstimateTokens,
+  // Pass-through: `estimatePromptTokensWithTools` computes `toolTokenBudget`
+  // via this helper. Return 0 so the mocked estimate is not perturbed.
   estimateToolsTokens: () => 0,
 }));
 
@@ -554,7 +546,7 @@ import {
   applyCompactionResult,
   runAgentLoopImpl,
 } from "../daemon/conversation-agent-loop.js";
-import { stripInjectionsForCompaction } from "../daemon/conversation-runtime-assembly.js";
+import { simulateInlineCompaction } from "./helpers/simulate-inline-compaction.js";
 
 // ── Test helpers ─────────────────────────────────────────────────────
 
@@ -563,78 +555,6 @@ type AgentLoopRun = (
   onEvent: (event: AgentEvent) => void | Promise<void>,
   options?: AgentLoopRunOptions,
 ) => Promise<Message[]>;
-
-/**
- * Faithful re-implementation of `AgentLoop.compact()` for the mock loop: run
- * the compaction pipeline against the supplied turn context (which carries the
- * test's `contextWindowManager`), invoke the orchestrator-supplied hooks, and
- * return the continuation history — or `null` on timeout/exhaustion so the
- * caller yields "budget".
- */
-async function simulateInlineCompaction(
-  compaction: MidLoopCompaction,
-  history: Message[],
-  turnContext: TurnContext | undefined,
-  signal: AbortSignal | undefined,
-  onEvent: (event: AgentEvent) => void | Promise<void>,
-  compactionCircuit: CompactionCircuit,
-): Promise<Message[] | null> {
-  await onEvent({ type: "context_compacting" });
-  // The agent loop strips runtime injections (identity-stubbed in this suite),
-  // records the history-stripped marker via `history_stripped`, then prepare
-  // returns only the orchestrator options. The loop owns the forced-compaction
-  // decision for its mid-loop budget gate and layers `force` onto the options
-  // bag before invoking the pipeline.
-  const rawHistory = stripInjectionsForCompaction(history);
-  await onEvent({ type: "history_stripped" });
-  const { options } = compaction.prepare();
-  let result: CompactionResult;
-  try {
-    result = await runPipeline<CompactionArgs, CompactionResult>(
-      "compaction",
-      getMiddlewaresFor("compaction"),
-      (args) => defaultCompactionTerminal(args, turnContext as TurnContext),
-      { messages: rawHistory, signal, options: { force: true, ...options } },
-      turnContext as TurnContext,
-      DEFAULT_TIMEOUTS.compaction,
-    );
-  } catch (error) {
-    if (error instanceof PluginTimeoutError) {
-      await compactionCircuit.recordOutcome(
-        {
-          currentRequestId: turnContext?.requestId,
-          currentTurnTrustContext: turnContext?.trust,
-          turnCount: turnContext?.turnIndex ?? 0,
-        },
-        true,
-        onEvent,
-      );
-      return null;
-    }
-    throw error;
-  }
-  const compactResult = result as ContextWindowResult;
-  if (compactResult.summaryFailed !== undefined) {
-    await compactionCircuit.recordOutcome(
-      {
-        currentRequestId: turnContext?.requestId,
-        currentTurnTrustContext: turnContext?.trust,
-        turnCount: turnContext?.turnIndex ?? 0,
-      },
-      compactResult.summaryFailed,
-      onEvent,
-    );
-  }
-  await onEvent({
-    type: "compaction_completed",
-    result: compactResult,
-    basis: rawHistory,
-  });
-  if (compactResult.exhausted ?? false) {
-    return null;
-  }
-  return compaction.reinject();
-}
 
 /**
  * Adapt a `Message[]`-returning mock loop body into `run()`'s real result
@@ -693,6 +613,9 @@ const asAgentLoopRun = (
                     options.signal,
                     onEvent,
                     compactionCircuit,
+                    options.resolveOverrideProfile?.() ??
+                      options.overrideProfile ??
+                      null,
                   )
                 : null;
               if (compacted) {
@@ -709,7 +632,17 @@ const asAgentLoopRun = (
       };
     }
     const history = await fn(messages, onEvent, wrapped);
-    return { history, exitReason };
+    // Mirror the loop's forward-progress signal: it sets `appendedNewMessages`
+    // when it pushes a new assistant message, which for these mock bodies (that
+    // never return a compaction-shrunk history) means the returned history grew
+    // past the input.
+    const appendedNewMessages = history.length > messages.length;
+    return {
+      history,
+      exitReason,
+      appendedNewMessages,
+      newMessages: history.slice(messages.length),
+    };
   };
 };
 
@@ -729,13 +662,17 @@ function makeCtx(
     ]);
 
   const compactionCircuit = new CompactionCircuit("test-conv");
+  let processing = true;
 
   return {
     conversationId: "test-conv",
     messages: [
       { role: "user", content: [{ type: "text", text: "Hello" }] },
     ] as Message[],
-    processing: true,
+    isProcessing: () => processing,
+    setProcessing: (value: boolean) => {
+      processing = value;
+    },
     abortController: new AbortController(),
     currentRequestId: "test-req",
 
@@ -1248,7 +1185,7 @@ describe("session-agent-loop", () => {
       });
 
       expect(applyRuntimeInjectionsMock).not.toHaveBeenCalled();
-      expect(ctx.processing).toBe(false);
+      expect(ctx.isProcessing()).toBe(false);
       expect(ctx.abortController).toBeNull();
       expect(ctx.currentRequestId).toBeUndefined();
       expect(drainQueue).toHaveBeenCalledWith("loop_complete");
@@ -2917,7 +2854,7 @@ describe("session-agent-loop", () => {
 
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
 
-      expect(ctx.processing).toBe(false);
+      expect(ctx.isProcessing()).toBe(false);
       expect(ctx.abortController).toBeNull();
       expect(ctx.currentRequestId).toBeUndefined();
       expect(ctx.commandIntent).toBeUndefined();
@@ -2933,7 +2870,7 @@ describe("session-agent-loop", () => {
 
       await runAgentLoopImpl(ctx, "hi", "msg-1", (msg) => events.push(msg));
 
-      expect(ctx.processing).toBe(false);
+      expect(ctx.isProcessing()).toBe(false);
       expect(ctx.abortController).toBeNull();
       expect(events.find((event) => event.type === "error")).toMatchObject({
         type: "error",
@@ -3108,7 +3045,7 @@ describe("session-agent-loop", () => {
         isUserMessage: true,
       });
 
-      expect(ctx.processing).toBe(false);
+      expect(ctx.isProcessing()).toBe(false);
       expect(ctx.abortController).toBeNull();
       expect(ctx.currentRequestId).toBeUndefined();
     });
@@ -4844,7 +4781,7 @@ describe("session-agent-loop", () => {
         await onEvent({ type: "llm_call_started" });
         if (callCount === 1) {
           // Trigger convergence path: error + appended assistant message so
-          // updatedHistory.length > preRunHistoryLength at the strip site.
+          // the loop reports appendedNewMessages at the strip site.
           onEvent({
             type: "error",
             error: new Error("context_length_exceeded"),

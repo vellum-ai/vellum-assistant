@@ -23,6 +23,7 @@ import { cleanup, fireEvent, render } from "@testing-library/react";
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { ToolCallCardItem } from "@/domains/chat/hooks/tool-call-card-utils";
+import { toolCallStatusWireFields } from "@/domains/chat/utils/message-test-helpers";
 
 // The viewer store (pulled in transitively for `openToolDetail`) imports the
 // generated daemon SDK, which isn't built in CI/worktree checkouts. Stub the
@@ -50,13 +51,15 @@ afterEach(() => {
 function makeToolCall(
   overrides: Partial<ChatMessageToolCall> & {
     id: string;
-    toolName: string;
+    name: string;
+    status?: "running" | "completed" | "error";
   },
 ): ChatMessageToolCall {
+  const { status = "completed", ...rest } = overrides;
   return {
     input: {},
-    status: "completed",
-    ...overrides,
+    ...toolCallStatusWireFields(status),
+    ...rest,
   };
 }
 
@@ -82,7 +85,7 @@ describe("ActivityRunCard — non-web tool group", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "bash",
+        name: "bash",
         status: "running",
         input: { command: "git status" },
       }),
@@ -106,7 +109,7 @@ describe("ActivityRunCard — non-web tool group", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "bash",
+        name: "bash",
         status: "running",
         input: { command: "git status" },
       }),
@@ -119,7 +122,7 @@ describe("ActivityRunCard — non-web tool group", () => {
 
   test("uses the loading indicator while any tool is running", () => {
     const toolCalls = [
-      makeToolCall({ id: "tc-1", toolName: "bash", status: "running" }),
+      makeToolCall({ id: "tc-1", name: "bash", status: "running" }),
     ];
     const { getByTestId } = renderCard(toolCalls);
     const indicator = getByTestId("tool-progress-card-status-indicator");
@@ -128,7 +131,7 @@ describe("ActivityRunCard — non-web tool group", () => {
 
   test("uses the complete indicator once every tool call is terminal", () => {
     const toolCalls = [
-      makeToolCall({ id: "tc-1", toolName: "bash", status: "completed" }),
+      makeToolCall({ id: "tc-1", name: "bash", status: "completed" }),
     ];
     const { getByTestId } = renderCard(toolCalls);
     const indicator = getByTestId("tool-progress-card-status-indicator");
@@ -142,7 +145,7 @@ describe("ActivityRunCard — tool step pill", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "bash",
+        name: "bash",
         status: "running",
         input: { command: "git status", activity: "Checking git status" },
         riskLevel: "high",
@@ -166,7 +169,7 @@ describe("ActivityRunCard — tool step pill", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "bash",
+        name: "bash",
         status: "completed",
         input: { command: "git status", activity: "Checking git status" },
         result: "On branch main",
@@ -203,7 +206,7 @@ describe("ActivityRunCard — web tool group regression", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "web_search",
+        name: "web_search",
         status: "running",
         input: { query: "tigers" },
       }),
@@ -220,7 +223,7 @@ describe("ActivityRunCard — web tool group regression", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "web_search",
+        name: "web_search",
         status: "running",
         input: { query: "tigers" },
       }),
@@ -254,13 +257,13 @@ describe("ActivityRunCard — mixed group", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "web_search",
+        name: "web_search",
         status: "running",
         input: { query: "tigers" },
       }),
       makeToolCall({
         id: "tc-2",
-        toolName: "bash",
+        name: "bash",
         status: "running",
         input: { command: "ls" },
       }),
@@ -277,7 +280,7 @@ describe("ActivityRunCard — confirmation short-circuit", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "bash",
+        name: "bash",
         status: "running",
         input: { command: "rm -rf /" },
         pendingConfirmation: {
@@ -306,7 +309,7 @@ describe("ActivityRunCard — subagent_spawn filtering", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "subagent_spawn",
+        name: "subagent_spawn",
         status: "running",
         input: { label: "Investigate logs" },
       }),
@@ -328,13 +331,13 @@ describe("ActivityRunCard — subagent_spawn filtering", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "subagent_spawn",
+        name: "subagent_spawn",
         status: "running",
         input: { label: "First" },
       }),
       makeToolCall({
         id: "tc-2",
-        toolName: "subagent_spawn",
+        name: "subagent_spawn",
         status: "running",
         input: { label: "Second" },
       }),
@@ -351,13 +354,13 @@ describe("ActivityRunCard — subagent_spawn filtering", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "subagent_spawn",
+        name: "subagent_spawn",
         status: "running",
         input: { label: "Investigate logs" },
       }),
       makeToolCall({
         id: "tc-2",
-        toolName: "bash",
+        name: "bash",
         status: "running",
         input: { command: "ls" },
       }),
@@ -378,7 +381,7 @@ describe("ActivityRunCard — unknown-command nudge", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "bash",
+        name: "bash",
         status: "completed",
         input: { command: "frobnicate" },
       }),
@@ -400,14 +403,14 @@ describe("ActivityRunCard — unknown-command nudge", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "bash",
+        name: "bash",
         status: "completed",
         input: { command: "frobnicate" },
         riskLevel: "high",
         riskReason: "unrecognized command",
-        allowlistOptions: [],
+        riskAllowlistOptions: [],
         scopeOptions: [],
-        directoryScopeOptions: [],
+        riskDirectoryScopeOptions: [],
       }),
     ];
     let captured: { toolName?: string; riskLevel?: string } = {};
@@ -428,7 +431,7 @@ describe("ActivityRunCard — unknown-command nudge", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "bash",
+        name: "bash",
         status: "completed",
         input: { command: "frobnicate" },
       }),
@@ -450,7 +453,7 @@ describe("ActivityRunCard — unknown-command nudge", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "bash",
+        name: "bash",
         status: "completed",
         input: { command: "ls" },
       }),
@@ -469,7 +472,7 @@ describe("ActivityRunCard — expansion derived from state", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "bash",
+        name: "bash",
         status: "running",
         input: { command: "ls" },
       }),
@@ -482,7 +485,7 @@ describe("ActivityRunCard — expansion derived from state", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "bash",
+        name: "bash",
         status: "completed",
         input: { command: "ls" },
         startedAt: 0,
@@ -498,7 +501,7 @@ describe("ActivityRunCard — expansion derived from state", () => {
     const running = [
       makeToolCall({
         id: "tc-1",
-        toolName: "bash",
+        name: "bash",
         status: "running",
         input: { command: "ls" },
       }),
@@ -516,7 +519,7 @@ describe("ActivityRunCard — expansion derived from state", () => {
     const completed = [
       makeToolCall({
         id: "tc-1",
-        toolName: "bash",
+        name: "bash",
         status: "completed",
         input: { command: "ls" },
         startedAt: 0,
@@ -539,7 +542,7 @@ describe("ActivityRunCard — expansion derived from state", () => {
     const running = [
       makeToolCall({
         id: "tc-1",
-        toolName: "bash",
+        name: "bash",
         status: "running",
         input: { command: "ls" },
       }),
@@ -560,7 +563,7 @@ describe("ActivityRunCard — expansion derived from state", () => {
     const completed = [
       makeToolCall({
         id: "tc-1",
-        toolName: "bash",
+        name: "bash",
         status: "completed",
         input: { command: "ls" },
         startedAt: 0,
@@ -586,7 +589,7 @@ describe("ActivityRunCard — expansion derived from state", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "bash",
+        name: "bash",
         status: "completed",
         input: { command: "ls" },
         startedAt: 0,
@@ -609,7 +612,7 @@ describe("ActivityRunCard — expansion derived from state", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "bash",
+        name: "bash",
         status: "completed",
         input: { command: "ls" },
         startedAt: 0,
@@ -632,7 +635,7 @@ describe("ActivityRunCard — expansion derived from state", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "bash",
+        name: "bash",
         status: "running",
         input: { command: "ls" },
       }),
@@ -646,7 +649,7 @@ describe("ActivityRunCard — expansion derived from state", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "bash",
+        name: "bash",
         status: "running",
         input: { command: "ls" },
       }),
@@ -664,7 +667,7 @@ describe("ActivityRunCard — expansion derived from state", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "bash",
+        name: "bash",
         status: "running",
         input: { command: "ls" },
       }),
@@ -681,7 +684,7 @@ describe("ActivityRunCard — expansion derived from state", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "bash",
+        name: "bash",
         status: "running",
         input: { command: "ls" },
       }),
@@ -719,7 +722,7 @@ describe("ActivityRunCard — web group error chrome", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "web_search",
+        name: "web_search",
         status: "error",
         input: { query: "tigers" },
       }),
@@ -741,7 +744,7 @@ describe("ActivityRunCard — mixed group web_search_error rendering", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "web_search",
+        name: "web_search",
         status: "error",
         input: { query: "tigers" },
         activityMetadata: {
@@ -757,7 +760,7 @@ describe("ActivityRunCard — mixed group web_search_error rendering", () => {
       }),
       makeToolCall({
         id: "tc-2",
-        toolName: "bash",
+        name: "bash",
         status: "completed",
         input: { command: "ls" },
         startedAt: 0,
@@ -774,24 +777,28 @@ describe("ActivityRunCard — mixed group web_search_error rendering", () => {
   });
 });
 
-describe("ActivityRunCard — leadingThinkingText", () => {
-  test("prepends a thinking step to the expanded body when supplied", () => {
+describe("ActivityRunCard — ordered thinking items", () => {
+  test("renders a leading thinking step in the expanded body when supplied via items", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "bash",
+        name: "bash",
         status: "running",
         input: { command: "ls" },
       }),
     ];
-    const { getByText, getByText: getByText2 } = renderCard(toolCalls, {
-      leadingThinkingText: "Let me check the directory first.",
+    const items: ToolCallCardItem[] = [
+      { kind: "thinking", text: "Let me check the directory first." },
+      { kind: "toolCall", toolCall: toolCalls[0]! },
+    ];
+    const { getByText } = renderCard(toolCalls, {
+      items,
       expandedCardIds: new Map([["tc-1", true]]),
     });
     // The thinking text appears as a separate step row in the expanded body.
     expect(getByText("Let me check the directory first.")).toBeTruthy();
-    // The step count reflects the prepended thinking step.
-    expect(getByText2("2 steps")).toBeTruthy();
+    // The step count reflects the interleaved thinking step.
+    expect(getByText("2 steps")).toBeTruthy();
   });
 });
 
@@ -800,7 +807,7 @@ describe("ActivityRunCard — header reflects the latest step", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "read_file",
+        name: "read_file",
         status: "completed",
         input: { path: "/tmp/state.txt" },
         startedAt: 0,
@@ -824,7 +831,7 @@ describe("ActivityRunCard — header reflects the latest step", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "bash",
+        name: "bash",
         status: "completed",
         input: { command: "echo hi" },
         startedAt: 0,
@@ -853,13 +860,17 @@ describe("ActivityRunCard — thinking pill", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "bash",
+        name: "bash",
         status: "running",
         input: { command: "ls" },
       }),
     ];
+    const items: ToolCallCardItem[] = [
+      { kind: "thinking", text: LONG_THINKING },
+      { kind: "toolCall", toolCall: toolCalls[0]! },
+    ];
     const { getByLabelText } = renderCard(toolCalls, {
-      leadingThinkingText: LONG_THINKING,
+      items,
       expandedCardIds: new Map([["tc-1", true]]),
     });
     // The thinking step renders as a clickable pill (a <button>), not a
@@ -879,13 +890,17 @@ describe("ActivityRunCard — thinking pill", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "bash",
+        name: "bash",
         status: "running",
         input: { command: "ls" },
       }),
     ];
+    const items: ToolCallCardItem[] = [
+      { kind: "thinking", text: LONG_THINKING },
+      { kind: "toolCall", toolCall: toolCalls[0]! },
+    ];
     const { getByLabelText } = renderCard(toolCalls, {
-      leadingThinkingText: LONG_THINKING,
+      items,
       expandedCardIds: new Map([["tc-1", true]]),
     });
     fireEvent.click(getByLabelText("View thinking"));

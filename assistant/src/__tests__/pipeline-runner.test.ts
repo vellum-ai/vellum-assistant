@@ -170,12 +170,12 @@ describe("runPipeline — error propagation", () => {
 
     await expect(
       runPipeline(
-        "persistence",
+        "circuitBreaker",
         [thrower],
         terminal,
         { value: 1 },
         makeCtx(),
-        DEFAULT_TIMEOUTS.persistence,
+        DEFAULT_TIMEOUTS.circuitBreaker,
       ),
     ).rejects.toBeInstanceOf(Boom);
   });
@@ -187,12 +187,12 @@ describe("runPipeline — error propagation", () => {
 
     await expect(
       runPipeline(
-        "persistence",
+        "circuitBreaker",
         [],
         terminal,
         { value: 1 },
         makeCtx(),
-        DEFAULT_TIMEOUTS.persistence,
+        DEFAULT_TIMEOUTS.circuitBreaker,
       ),
     ).rejects.toBeInstanceOf(TypeError);
   });
@@ -210,7 +210,7 @@ describe("runPipeline — timeout", () => {
     let caught: unknown;
     try {
       await runPipeline(
-        "memoryRetrieval",
+        "compaction",
         [sleeper],
         terminal,
         { value: 1 },
@@ -223,10 +223,10 @@ describe("runPipeline — timeout", () => {
 
     expect(caught).toBeInstanceOf(PluginTimeoutError);
     const tErr = caught as PluginTimeoutError;
-    expect(tErr.pipeline).toBe("memoryRetrieval");
+    expect(tErr.pipeline).toBe("compaction");
     expect(tErr.pluginName).toBe("slow-plugin");
     expect(tErr.elapsedMs).toBeGreaterThanOrEqual(0);
-    expect(tErr.message).toContain("memoryRetrieval");
+    expect(tErr.message).toContain("compaction");
     expect(tErr.message).toContain("slow-plugin");
   });
 
@@ -235,32 +235,32 @@ describe("runPipeline — timeout", () => {
       value: args.value,
     });
     const result = await runPipeline(
-      "tokenEstimate",
+      "compaction",
       [],
       terminal,
       { value: 42 },
       makeCtx(),
-      DEFAULT_TIMEOUTS.tokenEstimate,
+      DEFAULT_TIMEOUTS.compaction,
     );
     expect(result).toEqual({ value: 42 });
   });
 
   test("null timeout skips the race entirely", async () => {
-    // llmCall has DEFAULT_TIMEOUTS.llmCall === null — runner must not arm a
-    // timer. We verify by completing after an artificial 30ms wait and
-    // confirming success without interference.
+    // compaction has DEFAULT_TIMEOUTS.compaction === null — runner must
+    // not arm a timer. We verify by completing after an artificial 30ms wait
+    // and confirming success without interference.
     const sleeper: Middleware<Args, Result> = async (args, next) =>
       new Promise<Result>((resolve) => {
         setTimeout(() => resolve(next(args)), 30);
       });
     const terminal = async (_args: Args): Promise<Result> => ({ value: 1 });
     const result = await runPipeline(
-      "llmCall",
+      "compaction",
       [sleeper],
       terminal,
       { value: 0 },
       makeCtx(),
-      DEFAULT_TIMEOUTS.llmCall,
+      DEFAULT_TIMEOUTS.compaction,
     );
     expect(result).toEqual({ value: 1 });
   });
@@ -356,7 +356,7 @@ describe("runPipeline — timeout aborts linked signal", () => {
   });
 
   test("args without an AbortSignal property is passed through unchanged", async () => {
-    // Sanity — pipelines that don't carry a signal (persistence, tokenEstimate)
+    // Sanity — pipelines that don't carry a signal (circuitBreaker)
     // see identical args identity as before the abort-linking change.
     const args: Args = { value: 42 };
     let seen: Args | undefined;
@@ -365,12 +365,12 @@ describe("runPipeline — timeout aborts linked signal", () => {
       return { value: innerArgs.value };
     };
     await runPipeline(
-      "persistence",
+      "circuitBreaker",
       [],
       terminal,
       args,
       makeCtx(),
-      DEFAULT_TIMEOUTS.persistence,
+      DEFAULT_TIMEOUTS.circuitBreaker,
     );
     expect(seen).toBe(args);
   });
@@ -428,19 +428,19 @@ describe("runPipeline — structured log record", () => {
 
     await expect(
       runPipeline(
-        "persistence",
+        "circuitBreaker",
         [thrower],
         terminal,
         { value: 1 },
         makeCtx({ pluginName: "noisy-plugin" }),
-        DEFAULT_TIMEOUTS.persistence,
+        DEFAULT_TIMEOUTS.circuitBreaker,
       ),
     ).rejects.toBeInstanceOf(Boom);
 
     expect(fakeLogger.calls.length).toBe(1);
     const [record] = fakeLogger.calls[0]!;
     expect(record.outcome).toBe("error");
-    expect(record.pipeline).toBe("persistence");
+    expect(record.pipeline).toBe("circuitBreaker");
     expect(record.errorName).toBe("BoomError");
     expect(record.errorMessage).toBe("kaboom");
     expect(typeof record.errorStack).toBe("string");
@@ -456,7 +456,7 @@ describe("runPipeline — structured log record", () => {
 
     await expect(
       runPipeline(
-        "persistence",
+        "circuitBreaker",
         [sleeper],
         terminal,
         { value: 1 },
@@ -468,9 +468,9 @@ describe("runPipeline — structured log record", () => {
     expect(fakeLogger.calls.length).toBe(1);
     const [record] = fakeLogger.calls[0]!;
     expect(record.outcome).toBe("timeout");
-    expect(record.pipeline).toBe("persistence");
+    expect(record.pipeline).toBe("circuitBreaker");
     expect(record.errorName).toBe("PluginTimeoutError");
-    expect(String(record.errorMessage)).toContain("persistence");
+    expect(String(record.errorMessage)).toContain("circuitBreaker");
     expect(String(record.errorMessage)).toContain("slow-plugin");
     expect(record.timeoutMs).toBe(15);
     expect(record.pluginName).toBe("slow-plugin");
@@ -481,17 +481,17 @@ describe("runPipeline — structured log record", () => {
       value: args.value,
     });
     await runPipeline(
-      "llmCall",
+      "compaction",
       [],
       terminal,
       { value: 5 },
       makeCtx(),
-      DEFAULT_TIMEOUTS.llmCall,
+      DEFAULT_TIMEOUTS.compaction,
     );
 
     expect(fakeLogger.calls.length).toBe(1);
     const [record] = fakeLogger.calls[0]!;
-    expect(record.pipeline).toBe("llmCall");
+    expect(record.pipeline).toBe("compaction");
     expect(record.outcome).toBe("success");
     expect(record.timeoutMs).toBeUndefined();
   });
@@ -506,7 +506,7 @@ describe("runPipeline — structured log record", () => {
       logger: fakeLogger,
     } as TurnContext;
     await runPipeline(
-      "persistence",
+      "circuitBreaker",
       [],
       terminal,
       { value: 0 },
@@ -531,12 +531,12 @@ describe("runPipeline — structured log record", () => {
       value: args.value,
     });
     await runPipeline(
-      "tokenEstimate",
+      "compaction",
       [a, b, c],
       terminal,
       { value: 0 },
       makeCtx(),
-      DEFAULT_TIMEOUTS.tokenEstimate,
+      DEFAULT_TIMEOUTS.compaction,
     );
     const [record] = fakeLogger.calls[0]!;
     expect(record.chain).toEqual(["outerA", "middleB", "innerC"]);
@@ -546,14 +546,8 @@ describe("runPipeline — structured log record", () => {
 describe("DEFAULT_TIMEOUTS", () => {
   test("matches the design-doc table exactly", () => {
     expect(DEFAULT_TIMEOUTS).toEqual({
-      turn: null,
-      llmCall: null,
-      toolExecute: null,
-      memoryRetrieval: null,
-      tokenEstimate: null,
       compaction: null,
       overflowReduce: null,
-      persistence: null,
       circuitBreaker: null,
     });
   });

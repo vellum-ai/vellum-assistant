@@ -152,9 +152,8 @@ describe("TranscriptMessageBody", () => {
       toolCalls: [
         {
           id: "tc-1",
-          toolName: "bash",
+          name: "bash",
           input: {},
-          status: "completed",
           startedAt: 1_500,
           completedAt: 2_000,
         },
@@ -174,9 +173,8 @@ describe("TranscriptMessageBody", () => {
       toolCalls: [
         {
           id: "tc-1",
-          toolName: "bash",
+          name: "bash",
           input: {},
-          status: "running",
           startedAt: 1_500,
         },
       ],
@@ -351,9 +349,8 @@ describe("TranscriptMessageBody", () => {
           toolCalls: [
             {
               id: "tc-1",
-              toolName: "bash",
+              name: "bash",
               input: {},
-              status: "running",
             },
           ],
         }}
@@ -384,9 +381,9 @@ describe("TranscriptMessageBody", () => {
           toolCalls: [
             {
               id: "tc-1",
-              toolName: "bash",
+              name: "bash",
               input: {},
-              status: "completed",
+              completedAt: 1,
             },
           ],
         }}
@@ -416,9 +413,9 @@ describe("TranscriptMessageBody", () => {
           toolCalls: [
             {
               id: "tc-1",
-              toolName: "bash",
+              name: "bash",
               input: {},
-              status: "completed",
+              completedAt: 1,
             },
           ],
         }}
@@ -453,15 +450,15 @@ describe("TranscriptMessageBody", () => {
           toolCalls: [
             {
               id: "tc-1",
-              toolName: "bash",
+              name: "bash",
               input: {},
-              status: "completed",
+              completedAt: 1,
             },
             {
               id: "tc-2",
-              toolName: "bash",
+              name: "bash",
               input: {},
-              status: "completed",
+              completedAt: 1,
             },
           ],
         }}
@@ -496,9 +493,9 @@ describe("TranscriptMessageBody", () => {
           toolCalls: [
             {
               id: "tc-1",
-              toolName: "bash",
+              name: "bash",
               input: {},
-              status: "completed",
+              completedAt: 1,
             },
           ],
         }}
@@ -531,9 +528,9 @@ describe("TranscriptMessageBody", () => {
           toolCalls: [
             {
               id: "tc-1",
-              toolName: "bash",
+              name: "bash",
               input: {},
-              status: "completed",
+              completedAt: 1,
             },
           ],
         }}
@@ -567,15 +564,14 @@ describe("TranscriptMessageBody", () => {
           toolCalls: [
             {
               id: "tc-1",
-              toolName: "bash",
+              name: "bash",
               input: {},
-              status: "completed",
+              completedAt: 1,
             },
             {
               id: "tc-2",
-              toolName: "bash",
+              name: "bash",
               input: {},
-              status: "running",
             },
           ],
         }}
@@ -776,6 +772,104 @@ describe("TranscriptMessageBody", () => {
     expect(bubble!.contains(markdown)).toBe(true);
   });
 
+  test("preserves contentOrder for an interleaved [text, tool, text] user message (tool between text, outside bubbles)", () => {
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "u-order-2",
+          role: "user",
+          contentOrder: [
+            { type: "text", id: "0" },
+            { type: "toolCall", id: "tc-1" },
+            { type: "text", id: "1" },
+          ],
+          textSegments: [
+            "before tool",
+            "after tool",
+          ],
+          toolCalls: [
+            {
+              id: "tc-1",
+              name: "bash",
+              input: {},
+              completedAt: 1,
+            },
+          ],
+        }}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    const markdowns = container.querySelectorAll("[data-testid='markdown']");
+    // A lone non-web tool renders as the compact inline chip in the redesign,
+    // not a boxed card.
+    const toolChip = container.querySelector(
+      "[data-testid='inline-tool-link']",
+    );
+    expect(markdowns.length).toBe(2);
+    expect(markdowns[0]!.textContent).toBe("before tool");
+    expect(markdowns[1]!.textContent).toBe("after tool");
+    expect(toolChip).not.toBeNull();
+
+    // DOM order matches contentOrder: text → tool → text.
+    expect(
+      markdowns[0]!.compareDocumentPosition(toolChip!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      toolChip!.compareDocumentPosition(markdowns[1]!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    // The tool chip is never wrapped inside a surface-lift text bubble — in the
+    // interleaved branch the text runs render inline and the chip sits between
+    // them rather than inside any bubble.
+    const bubbles = container.querySelectorAll(
+      "[class*='bg-[var(--surface-lift)]']",
+    );
+    for (const bubble of bubbles) {
+      expect(bubble.contains(toolChip)).toBe(false);
+    }
+  });
+
+  test("omits the user bubble when an interleaved user message has no text or attachments", () => {
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "u4",
+          role: "user",
+          ...textBody(""),
+          contentOrder: [{ type: "toolCall", id: "tc-1" }],
+          toolCalls: [
+            {
+              id: "tc-1",
+              name: "bash",
+              input: {},
+              completedAt: 1,
+            },
+          ],
+        }}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    // No visible text and no attachments: the empty surface-lift bubble must
+    // not render.
+    expect(
+      container.querySelector("[class*='bg-[var(--surface-lift)]']"),
+    ).toBeNull();
+    // The lone tool still renders as the inline chip.
+    expect(
+      container.querySelector("[data-testid='inline-tool-link']"),
+    ).not.toBeNull();
+  });
+
   test("auto-expands legacy tool-only messages while a tool runs, until content appears", () => {
     const { getByTestId, rerender } = render(
       <TranscriptMessageBody
@@ -786,9 +880,8 @@ describe("TranscriptMessageBody", () => {
           toolCalls: [
             {
               id: "tc-1",
-              toolName: "bash",
+              name: "bash",
               input: {},
-              status: "running",
             },
           ],
         }}
@@ -811,9 +904,9 @@ describe("TranscriptMessageBody", () => {
           toolCalls: [
             {
               id: "tc-1",
-              toolName: "bash",
+              name: "bash",
               input: {},
-              status: "completed",
+              completedAt: 1,
             },
           ],
         }}
@@ -904,7 +997,7 @@ describe("TranscriptMessageBody", () => {
             { type: "text", id: "0" },
           ],
           toolCalls: [
-            { id: "tc-1", toolName: "bash", input: {}, status: "completed" },
+            { id: "tc-1", name: "bash", input: {}, completedAt: 1 },
           ],
           timestamp: 1_000,
         }}
@@ -962,8 +1055,8 @@ describe("TranscriptMessageBody", () => {
         { type: "thinking", id: "2" },
       ],
       toolCalls: [
-        { id: "tc-a", toolName: "bash", input: {}, status: "completed" },
-        { id: "tc-b", toolName: "bash", input: {}, status: "completed" },
+        { id: "tc-a", name: "bash", input: {}, completedAt: 1 },
+        { id: "tc-b", name: "bash", input: {}, completedAt: 1 },
       ],
       timestamp: 1_000,
     };
@@ -1025,7 +1118,7 @@ describe("TranscriptMessageBody", () => {
         { type: "toolCall", id: "0" },
       ],
       toolCalls: [
-        { id: "tc-a", toolName: "bash", input: {}, status: "completed" },
+        { id: "tc-a", name: "bash", input: {}, completedAt: 1 },
       ],
       timestamp: 1_000,
     };
@@ -1068,7 +1161,7 @@ describe("TranscriptMessageBody", () => {
         { type: "text", id: "0" },
       ],
       toolCalls: [
-        { id: "tc-1", toolName: "bash", input: {}, status: "completed" },
+        { id: "tc-1", name: "bash", input: {}, completedAt: 1 },
       ],
       surfaces: [taskProgressSurface("tps-1")],
       timestamp: 1_000,
@@ -1112,7 +1205,7 @@ describe("TranscriptMessageBody", () => {
         { type: "text", id: "0" },
       ],
       toolCalls: [
-        { id: "tc-lone", toolName: "bash", input: {}, status: "completed" },
+        { id: "tc-lone", name: "bash", input: {}, completedAt: 1 },
       ],
       timestamp: 1_000,
     };
@@ -1147,7 +1240,7 @@ describe("TranscriptMessageBody", () => {
         { type: "text", id: "0" },
       ],
       toolCalls: [
-        { id: "tc-mix", toolName: "bash", input: {}, status: "completed" },
+        { id: "tc-mix", name: "bash", input: {}, completedAt: 1 },
       ],
       timestamp: 1_000,
     };

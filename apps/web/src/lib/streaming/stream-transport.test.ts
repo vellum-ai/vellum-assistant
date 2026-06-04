@@ -715,6 +715,133 @@ describe("subscribeEvents idle watchdog", () => {
   });
 });
 
+describe("subscribeEvents onStreamOpen / onStreamClose", () => {
+  let originalFetch: typeof fetch;
+  let originalDocument: unknown;
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+    originalDocument = (globalThis as { document?: unknown }).document;
+    (globalThis as { document?: unknown }).document = { cookie: "csrftoken=test" };
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    if (originalDocument === undefined) {
+      delete (globalThis as { document?: unknown }).document;
+    } else {
+      (globalThis as { document?: unknown }).document = originalDocument;
+    }
+  });
+
+  test("fires onStreamOpen on the first frame, then onStreamClose when the stream ends", async () => {
+    const encoder = new TextEncoder();
+    globalThis.fetch = mock(async () => {
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            // A single data frame proves the stream is live, then close.
+            controller.enqueue(encoder.encode('event: token\ndata: "hi"\n\n'));
+            controller.close();
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "text/event-stream" } },
+      );
+    }) as unknown as typeof fetch;
+
+    const onStreamOpen = mock(() => {});
+    const onStreamClose = mock(() => {});
+
+    const stream = subscribeEvents(
+      "asst-1",
+      () => {},
+      () => {},
+      {
+        idleTimeoutMs: 5_000,
+        reconnectBaseDelayMs: 10_000,
+        onStreamOpen,
+        onStreamClose,
+      },
+    );
+
+    // The handle is returned synchronously while the fetch is still in
+    // flight — neither signal may have fired yet.
+    expect(onStreamOpen).not.toHaveBeenCalled();
+
+    try {
+      await new Promise((r) => setTimeout(r, 50));
+      expect(onStreamOpen).toHaveBeenCalledTimes(1);
+      expect(onStreamClose).toHaveBeenCalledTimes(1);
+    } finally {
+      stream.cancel();
+    }
+  });
+
+  test("does not fire onStreamClose for a connect that opens but never receives a frame", async () => {
+    // A 200 response whose body closes immediately with no frames: no
+    // proof of liveness, so it must never read as connected — and the
+    // paired close must not fire either.
+    globalThis.fetch = mock(async () => {
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.close();
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "text/event-stream" } },
+      );
+    }) as unknown as typeof fetch;
+
+    const onStreamOpen = mock(() => {});
+    const onStreamClose = mock(() => {});
+
+    const stream = subscribeEvents(
+      "asst-1",
+      () => {},
+      () => {},
+      {
+        idleTimeoutMs: 5_000,
+        reconnectBaseDelayMs: 10_000,
+        onStreamOpen,
+        onStreamClose,
+      },
+    );
+
+    try {
+      await new Promise((r) => setTimeout(r, 50));
+      expect(onStreamOpen).not.toHaveBeenCalled();
+      expect(onStreamClose).not.toHaveBeenCalled();
+    } finally {
+      stream.cancel();
+    }
+  });
+
+  test("does not fire onStreamOpen when the initial connect never establishes", async () => {
+    // Reject every fetch so the connection never opens; the handle still
+    // exists, but a caller mirroring liveness must never see "connected".
+    globalThis.fetch = mock(async () => {
+      throw new Error("connection refused");
+    }) as unknown as typeof fetch;
+
+    const onStreamOpen = mock(() => {});
+    const onError = mock(() => {});
+
+    const stream = subscribeEvents("asst-1", () => {}, onError, {
+      idleTimeoutMs: 5_000,
+      // Keep backoff long so only the first attempt runs within the window.
+      reconnectBaseDelayMs: 10_000,
+      onStreamOpen,
+    });
+
+    try {
+      await new Promise((r) => setTimeout(r, 50));
+      expect(onStreamOpen).not.toHaveBeenCalled();
+    } finally {
+      stream.cancel();
+    }
+  });
+});
+
 describe("subscribeEvents reconnect cursor (resumable stream)", () => {
   let originalFetch: typeof fetch;
   let originalDocument: unknown;

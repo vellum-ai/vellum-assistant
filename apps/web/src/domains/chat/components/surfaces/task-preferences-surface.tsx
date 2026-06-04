@@ -1,7 +1,7 @@
 import { Check, MessageSquare } from "lucide-react";
 import { useRef, useState, type CSSProperties } from "react";
 
-import { Button } from "@vellum/design-library";
+import { Button } from "@vellumai/design-library";
 
 import { TASK_ICONS } from "@/components/prechat-task-icons";
 import type { Surface } from "@/domains/chat/types/types";

@@ -1,30 +1,29 @@
-import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Dropdown } from "@vellum/design-library/components/dropdown";
-import { Input } from "@vellum/design-library/components/input";
-import { toast } from "@vellum/design-library/components/toast";
 import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
 import { ttsProvidersGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { synthesizeTTS } from "@/lib/tts-synthesize";
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
+import { Button } from "@vellumai/design-library/components/button";
+import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Input } from "@vellumai/design-library/components/input";
+import { toast } from "@vellumai/design-library/components/toast";
 
 import {
-  TTS_PROVIDERS,
-  LS_TTS_PROVIDER,
-  LS_TTS_API_KEY_PREFIX,
-  LS_TTS_VOICE_ID_PREFIX,
-} from "@/domains/settings/ai/ai-types";
-import {
-  ByoServiceCard,
-  CredentialsGuide,
-  SaveButton,
-  ResetButton,
+    ByoServiceCard,
+    CredentialsGuide,
+    ResetButton,
+    SaveButton,
 } from "@/domains/settings/ai/ai-shared-ui";
+import {
+    LS_TTS_API_KEY_PREFIX,
+    LS_TTS_PROVIDER,
+    LS_TTS_VOICE_ID_PREFIX,
+    TTS_PROVIDERS,
+} from "@/domains/settings/ai/ai-types";
 
 export function TextToSpeechCard() {
   const { data: assistantList } = useQuery(assistantsListOptions());
@@ -50,7 +49,6 @@ export function TextToSpeechCard() {
   const [voiceIdText, setVoiceIdText] = useState("");
   const [initialVoiceId, setInitialVoiceId] = useState("");
   const [providerHasKey, setProviderHasKey] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
 
   const selectedProvider = useMemo(() => {
@@ -81,22 +79,17 @@ export function TextToSpeechCard() {
   }, [draftProvider, initialProvider, apiKeyText, voiceIdText, initialVoiceId]);
 
   const handleSave = useCallback(() => {
-    setSaving(true);
-    try {
-      setLocalSetting(LS_TTS_PROVIDER, draftProvider);
-      const trimmedKey = apiKeyText.trim();
-      if (trimmedKey.length > 0) {
-        setLocalSetting(LS_TTS_API_KEY_PREFIX + draftProvider, trimmedKey);
-        setProviderHasKey(true);
-      }
-      const trimmedVoiceId = voiceIdText.trim();
-      setLocalSetting(LS_TTS_VOICE_ID_PREFIX + draftProvider, trimmedVoiceId);
-      setInitialProvider(draftProvider);
-      setInitialVoiceId(trimmedVoiceId);
-      setApiKeyText("");
-    } finally {
-      setSaving(false);
+    setLocalSetting(LS_TTS_PROVIDER, draftProvider);
+    const trimmedKey = apiKeyText.trim();
+    if (trimmedKey.length > 0) {
+      setLocalSetting(LS_TTS_API_KEY_PREFIX + draftProvider, trimmedKey);
+      setProviderHasKey(true);
     }
+    const trimmedVoiceId = voiceIdText.trim();
+    setLocalSetting(LS_TTS_VOICE_ID_PREFIX + draftProvider, trimmedVoiceId);
+    setInitialProvider(draftProvider);
+    setInitialVoiceId(trimmedVoiceId);
+    setApiKeyText("");
   }, [draftProvider, apiKeyText, voiceIdText]);
 
   const handleReset = useCallback(() => {
@@ -163,7 +156,7 @@ export function TextToSpeechCard() {
     >
       <div className="space-y-4">
         <div className="space-y-1">
-          <label className="block text-body-small-default text-[var(--content-quiet)]">
+          <label className="block text-body-small-default text-[var(--content-tertiary)]">
             Provider
           </label>
           <Dropdown
@@ -178,7 +171,7 @@ export function TextToSpeechCard() {
         </div>
 
         <div className="space-y-1">
-          <label className="block text-body-small-default text-[var(--content-quiet)]">
+          <label className="block text-body-small-default text-[var(--content-tertiary)]">
             API Key
           </label>
           <Input
@@ -192,7 +185,7 @@ export function TextToSpeechCard() {
 
         {selectedProvider.supportsVoiceSelection && (
           <div className="space-y-1">
-            <label className="block text-body-small-default text-[var(--content-quiet)]">
+            <label className="block text-body-small-default text-[var(--content-tertiary)]">
               Voice ID
             </label>
             <Input
@@ -216,10 +209,7 @@ export function TextToSpeechCard() {
             {testing ? "Testing…" : "Test"}
           </Button>
           <div className="ml-auto flex items-center gap-2">
-            <SaveButton onClick={handleSave} disabled={!hasChanges || saving} />
-            {saving && (
-              <Loader2 className="h-4 w-4 animate-spin text-stone-400" />
-            )}
+            <SaveButton onClick={handleSave} disabled={!hasChanges} />
             {providerHasKey && <ResetButton onClick={handleReset} />}
           </div>
         </div>

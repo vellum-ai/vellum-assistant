@@ -16,9 +16,9 @@ function toolCall(
   overrides: Partial<ChatMessageToolCall> & Pick<ChatMessageToolCall, "id">,
 ): ChatMessageToolCall {
   return {
-    toolName: "bash",
+    name: "bash",
     input: {},
-    status: "completed",
+    completedAt: 1,
     ...overrides,
   };
 }
@@ -121,7 +121,7 @@ describe("resolveThinkingContent", () => {
 
 describe("isSubagentSpawnCall", () => {
   test("matches bare subagent_spawn", () => {
-    expect(isSubagentSpawnCall(toolCall({ id: "x", toolName: "subagent_spawn" }))).toBe(
+    expect(isSubagentSpawnCall(toolCall({ id: "x", name: "subagent_spawn" }))).toBe(
       true,
     );
   });
@@ -131,7 +131,7 @@ describe("isSubagentSpawnCall", () => {
       isSubagentSpawnCall(
         toolCall({
           id: "x",
-          toolName: "skill_execute",
+          name: "skill_execute",
           input: { tool: "subagent_spawn" },
         }),
       ),
@@ -139,10 +139,10 @@ describe("isSubagentSpawnCall", () => {
   });
 
   test("does not match other tools or other skill_execute inputs", () => {
-    expect(isSubagentSpawnCall(toolCall({ id: "x", toolName: "bash" }))).toBe(false);
+    expect(isSubagentSpawnCall(toolCall({ id: "x", name: "bash" }))).toBe(false);
     expect(
       isSubagentSpawnCall(
-        toolCall({ id: "x", toolName: "skill_execute", input: { tool: "other" } }),
+        toolCall({ id: "x", name: "skill_execute", input: { tool: "other" } }),
       ),
     ).toBe(false);
   });
@@ -150,9 +150,9 @@ describe("isSubagentSpawnCall", () => {
 
 describe("isSuppressedUiTool", () => {
   test("suppresses ui_* tools without pending confirmation", () => {
-    expect(isSuppressedUiTool(toolCall({ id: "x", toolName: "ui_show" }))).toBe(true);
-    expect(isSuppressedUiTool(toolCall({ id: "x", toolName: "ui_update" }))).toBe(true);
-    expect(isSuppressedUiTool(toolCall({ id: "x", toolName: "ui_dismiss" }))).toBe(true);
+    expect(isSuppressedUiTool(toolCall({ id: "x", name: "ui_show" }))).toBe(true);
+    expect(isSuppressedUiTool(toolCall({ id: "x", name: "ui_update" }))).toBe(true);
+    expect(isSuppressedUiTool(toolCall({ id: "x", name: "ui_dismiss" }))).toBe(true);
   });
 
   test("does not suppress ui_* with a pending confirmation, or non-ui tools", () => {
@@ -160,12 +160,12 @@ describe("isSuppressedUiTool", () => {
       isSuppressedUiTool(
         toolCall({
           id: "x",
-          toolName: "ui_show",
+          name: "ui_show",
           pendingConfirmation: { requestId: "req-1" },
         }),
       ),
     ).toBe(false);
-    expect(isSuppressedUiTool(toolCall({ id: "x", toolName: "bash" }))).toBe(false);
+    expect(isSuppressedUiTool(toolCall({ id: "x", name: "bash" }))).toBe(false);
   });
 });
 

@@ -2,49 +2,49 @@ import { Heart, Monitor, Moon, Sun } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
-import { Notice } from "@vellum/design-library/components/notice";
-import { SegmentControl } from "@vellum/design-library/components/segment-control";
 import { useDiskPressureMonitor } from "@/assistant/use-disk-pressure-monitor";
+import { DetailCard } from "@/components/detail-card";
+import { DiskPressureBanner, type DiskPressureBannerMode } from "@/components/disk-pressure-banner";
+import { ProfileCard } from "@/components/profile-card";
 import { AssistantPicker } from "@/domains/settings/components/assistant-picker";
 import { AssistantSleepPolicy } from "@/domains/settings/components/assistant-sleep-policy";
+import {
+    AssistantStatusPanel,
+    useAssistantWithHealthz,
+} from "@/domains/settings/components/assistant-status-panel";
 import { AssistantUpgrades } from "@/domains/settings/components/assistant-upgrades";
-import { ResizeCard } from "@/domains/settings/components/resize-card";
 import { DeleteAccountSection } from "@/domains/settings/components/delete-account-section";
 import { IOSAppCard } from "@/domains/settings/components/ios-app-card";
 import { MediaEmbedsCard } from "@/domains/settings/components/media-embeds-card";
 import { PreviewReleaseChannel } from "@/domains/settings/components/preview-release-channel";
+import { ResizeCard } from "@/domains/settings/components/resize-card";
 import { RetireAssistant } from "@/domains/settings/components/retire-assistant";
-import { DiskPressureBanner, type DiskPressureBannerMode } from "@/components/disk-pressure-banner";
-import { DetailCard } from "@/components/detail-card";
 import { TimezonePicker } from "@/domains/settings/components/timezone-picker";
-import { ProfileCard } from "@/components/profile-card";
-import {
-  AssistantStatusPanel,
-  useAssistantWithHealthz,
-} from "@/domains/settings/components/assistant-status-panel";
+import { Notice } from "@vellumai/design-library/components/notice";
+import { SegmentControl } from "@vellumai/design-library/components/segment-control";
 
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import {
+    applyThemePreference,
+    readStoredThemePreference,
+    type ThemePreference,
+    writeStoredThemePreference,
+} from "@/domains/settings/utils/theme-preferences";
 import { client } from "@/generated/api/client.gen";
-import { captureError } from "@/lib/sentry/capture-error";
-import { useAuthStore } from "@/stores/auth-store";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import {
-  isLocalMode,
-  isLocalAssistant,
-  getSelectedAssistant,
+    getSelectedAssistant,
+    isLocalAssistant,
+    isLocalMode,
 } from "@/lib/local-mode";
+import { captureError } from "@/lib/sentry/capture-error";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { useIsAuthenticated } from "@/stores/auth-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import {
-  applyThemePreference,
-  readStoredThemePreference,
-  type ThemePreference,
-  writeStoredThemePreference,
-} from "@/domains/settings/utils/theme-preferences";
-import {
-  getDeviceSetting,
-  setDeviceSetting,
-  watchDeviceSetting,
+    getDeviceSetting,
+    setDeviceSetting,
+    watchDeviceSetting,
 } from "@/utils/device-settings";
 import { routes } from "@/utils/routes";
 
@@ -220,7 +220,7 @@ export function GeneralPage() {
   const accountDeletion = useAssistantFeatureFlagStore.use.accountDeletion();
   const multiPlatformAssistant = useAssistantFeatureFlagStore.use.multiPlatformAssistant();
   const settingsSleepPolicy = useAssistantFeatureFlagStore.use.settingsSleepPolicy();
-  const isLoggedIn = useAuthStore.use.isLoggedIn();
+  const isAuthenticated = useIsAuthenticated();
   const navigate = useNavigate();
   const platformGate = usePlatformGate();
   const infraGate = usePlatformGate({ platformHostedOnly: true });
@@ -247,7 +247,7 @@ export function GeneralPage() {
   }, [assistant]);
 
   return (
-    <div className="mx-auto max-w-[940px] space-y-4">
+    <div className="space-y-4">
       {diskPressure.status && diskPressure.mode !== "inactive" && (
         <DiskPressureBanner
           status={diskPressure.status}
@@ -272,7 +272,7 @@ export function GeneralPage() {
         />
       </DetailCard>
 
-      {isLoggedIn && platformGate === "full" && <ProfileCard assistant={platformAssistant} />}
+      {isAuthenticated && platformGate === "full" && <ProfileCard assistant={platformAssistant} />}
 
       {infraGate === "full" && assistant && (
         <ResizeCard

@@ -1,17 +1,22 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import {
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
+    cleanup,
+    fireEvent,
+    render,
+    screen,
+    waitFor,
 } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { useEffect, useState, type ReactNode } from "react";
 
 import {
-  DEFAULT_PRECHAT_INITIAL_MESSAGE,
-  STORAGE_KEY,
+    DEFAULT_PRECHAT_INITIAL_MESSAGE,
+    STORAGE_KEY,
 } from "@/domains/onboarding/prechat";
+import {
+    ACTIVATION_FLOW_COHORT,
+    ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE,
+} from "@/domains/onboarding/prechat-context";
+import type { PlatformSessionStatus } from "@/stores/session-status";
 import { routes } from "@/utils/routes";
 
 let searchParams = new URLSearchParams();
@@ -61,14 +66,14 @@ type TestOnboardingRecipe = {
 
 let onboardingCompleted = false;
 let prechatOnboardingCondensedFlow = true;
+let activationFlowExperiment = false;
 let selfIntroGreeting = true;
 let isIOSWeb = false;
 let isMacOSWeb = false;
 let iosAppDownloaded = true;
 let macOsAppDownloaded = true;
 let isLocalModeValue = false;
-let hasPlatformSessionValue = false;
-let platformSessionResolvedValue = true;
+let platformSessionValue: PlatformSessionStatus = "absent";
 let fetchOnboardingRecipeImpl: () => Promise<TestOnboardingRecipe | null> =
   async () => null;
 const fetchOnboardingRecipeMock = mock(() => fetchOnboardingRecipeImpl());
@@ -117,7 +122,7 @@ mock.module("@/domains/onboarding/components/onboarding-layout", () => ({
   ),
 }));
 
-mock.module("@vellum/design-library/components/button", () => ({
+mock.module("@vellumai/design-library/components/button", () => ({
   Button: ({
     children,
     onClick,
@@ -131,7 +136,7 @@ mock.module("@vellum/design-library/components/button", () => ({
   ),
 }));
 
-mock.module("@vellum/design-library/components/progress-bar", () => ({
+mock.module("@vellumai/design-library/components/progress-bar", () => ({
   ProgressBar: ({ value }: { value: number }) => (
     <div data-testid="progress" data-value={value} />
   ),
@@ -195,6 +200,7 @@ mock.module("@/stores/client-feature-flag-store", () => ({
   useClientFeatureFlagStore: {
     use: {
       prechatOnboardingCondensedFlow: () => prechatOnboardingCondensedFlow,
+      experimentActivationFlow20260603: () => activationFlowExperiment,
       selfIntroGreeting: () => selfIntroGreeting,
     },
   },
@@ -208,12 +214,12 @@ mock.module("@/stores/auth-store", () => ({
         firstName: "Alice",
         lastName: "",
       }),
-      isLoggedIn: () => true,
-      isLoading: () => false,
-      hasPlatformSession: () => hasPlatformSessionValue,
-      platformSessionResolved: () => platformSessionResolvedValue,
+      sessionStatus: () => "authenticated",
+      platformSession: () => platformSessionValue,
     },
   },
+  useIsAuthenticated: () => true,
+  useIsSessionInitializing: () => false,
 }));
 
 type EmulatedQueryOptions = {
@@ -343,14 +349,14 @@ beforeEach(() => {
   checkAssistantImpl = async () => {};
   onboardingCompleted = false;
   prechatOnboardingCondensedFlow = true;
+  activationFlowExperiment = false;
   selfIntroGreeting = true;
   isIOSWeb = false;
   isMacOSWeb = false;
   iosAppDownloaded = true;
   macOsAppDownloaded = true;
   isLocalModeValue = false;
-  hasPlatformSessionValue = false;
-  platformSessionResolvedValue = true;
+  platformSessionValue = "absent";
   fetchOnboardingRecipeImpl = async () => null;
   sessionStorage.clear();
   localStorage.clear();
@@ -467,6 +473,27 @@ describe("onboarding lifecycle sync", () => {
       userName: "Alice",
       googleConnected: false,
       initialMessage: DEFAULT_PRECHAT_INITIAL_MESSAGE,
+    });
+  });
+
+  test("activation flow flag selects the activation bootstrap after pre-chat", async () => {
+    activationFlowExperiment = true;
+
+    render(<PreChatFlow />);
+
+    fireEvent.click(await screen.findByTestId("name-continue"));
+    fireEvent.click(await screen.findByText("Skip for now"));
+
+    await waitFor(() => expect(checkAssistantMock).toHaveBeenCalled());
+    expect(JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? "null")).toEqual({
+      tools: [],
+      tasks: [],
+      tone: "grounded",
+      userName: "Alice",
+      googleConnected: false,
+      cohort: ACTIVATION_FLOW_COHORT,
+      initialMessage: "Hi, I'm Alice. Nice to meet you.",
+      bootstrapTemplate: ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE,
     });
   });
 
@@ -599,7 +626,7 @@ describe("onboarding lifecycle sync", () => {
   test("local mode without a platform session gates the prior-assistants step", async () => {
     prechatOnboardingCondensedFlow = false;
     isLocalModeValue = true;
-    hasPlatformSessionValue = false;
+    platformSessionValue = "absent";
 
     render(<PreChatFlow />);
 
@@ -620,7 +647,7 @@ describe("onboarding lifecycle sync", () => {
   test("local mode with a platform session shows the prior-assistants step", async () => {
     prechatOnboardingCondensedFlow = false;
     isLocalModeValue = true;
-    hasPlatformSessionValue = true;
+    platformSessionValue = "present";
 
     render(<PreChatFlow />);
 

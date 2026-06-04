@@ -96,6 +96,9 @@ mock.module("../config/loader.js", () => ({
 mock.module("../context/token-estimator.js", () => ({
   estimatePromptTokens: () => 1000,
   estimatePromptTokensRaw: () => 1000,
+  // The preflight overflow gate calls this calibrated wrapper directly; stub
+  // it alongside the others so it returns the same small value.
+  estimatePromptTokensWithTools: () => 1000,
   estimateToolsTokens: () => 0,
 }));
 
@@ -392,6 +395,12 @@ function makeCtx(
       { role: "user", content: [{ type: "text", text: "Hello" }] },
     ] as Message[],
     processing: true,
+    isProcessing(this: { processing: boolean }) {
+      return this.processing;
+    },
+    setProcessing(this: { processing: boolean }, value: boolean) {
+      this.processing = value;
+    },
     abortController: new AbortController(),
     currentRequestId: "test-req",
 

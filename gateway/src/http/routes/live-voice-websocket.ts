@@ -4,9 +4,11 @@ import {
   validateEdgeToken,
   mintServiceToken,
 } from "../../auth/token-exchange.js";
+import { isActorTokenRevoked } from "../../auth/actor-token-revocation.js";
 import { parseSub } from "../../auth/subject.js";
 import type { GatewayConfig } from "../../config.js";
 import { getLogger } from "../../logger.js";
+import { requestHasVelayBridgeAuth } from "../../velay/bridge-auth.js";
 
 const log = getLogger("live-voice-ws");
 
@@ -17,15 +19,12 @@ const MAX_PENDING_MESSAGES = 100;
 // Velay-attested managed auth headers
 // ---------------------------------------------------------------------------
 //
-// In managed/cloud deployments the only ingress is the velay tunnel. On a
-// validated `/v1/live-voice` upgrade, velay authenticates the browser's
-// wsToken against the platform, STRIPS any client-supplied copies of these
-// headers, and INJECTS trusted ones before forwarding the upgrade through the
-// tunnel to the gateway. A browser on a managed assistant cannot mint the
-// local actor edge JWT the self-hosted path requires, so the gateway trusts
-// this velay attestation INSTEAD — but only in managed mode, where velay is
-// the sole ingress. In self-hosted mode there is no velay to strip/inject
-// these headers, so they are never trusted (a client could spoof them).
+// In managed/cloud deployments, velay validates the browser's live-voice
+// wsToken, strips any client-supplied copies of these headers, and injects the
+// authenticated caller context into the tunnel frame. The gateway only trusts
+// that context when the loopback WebSocket open also carries the process-local
+// bridge proof injected by this gateway's VelayWebSocketBridge; IS_PLATFORM
+// alone is not a per-request proof that the caller traversed velay.
 const VELAY_USER_ID_HEADER = "x-velay-user-id";
 const VELAY_ORG_ID_HEADER = "x-velay-org-id";
 const VELAY_ACTOR_HEADER = "x-velay-actor";
@@ -114,18 +113,22 @@ function checkLiveVoiceAuth(
     return null;
   }
 
-  // Managed/cloud path: velay (the sole ingress) validates the browser wsToken
-  // and injects trusted X-Velay-* headers. We trust them ONLY in managed mode —
-  // a self-hosted gateway has no velay to strip client-supplied copies, so it
-  // must never honor these headers and instead requires the actor edge JWT.
+  // Managed/cloud path: velay validates the browser wsToken and injects
+  // X-Velay-* context into the tunnel frame. Trust it only when this request
+  // also has the process-local proof injected by the gateway's own loopback
+  // bridge. A direct request to a reachable gateway can spoof X-Velay-* names,
+  // but cannot know the bridge proof value.
   if (isPlatformManaged()) {
     const velayContext = extractVelayAttestedContext(req);
     if (velayContext) {
-      log.info(
-        { userId: velayContext.userId, orgId: velayContext.orgId },
-        "Live voice WS: authenticated via velay-attested managed context",
-      );
-      return null;
+      if (requestHasVelayBridgeAuth(req)) {
+        log.info(
+          { userId: velayContext.userId, orgId: velayContext.orgId },
+          "Live voice WS: authenticated via velay-attested managed context",
+        );
+        return null;
+      }
+      log.warn("Live voice WS: ignoring velay context without bridge proof");
     }
     // No (or incomplete) velay attestation — fall through to the actor-JWT
     // path below so a managed deployment still accepts a valid actor edge JWT.
@@ -147,6 +150,11 @@ function checkLiveVoiceAuth(
   const result = validateEdgeToken(rawToken);
   if (!result.ok) {
     log.warn({ reason: result.reason }, "Live voice WS: authentication failed");
+    return new Response("Unauthorized", { status: 401 });
+  }
+
+  if (isActorTokenRevoked(rawToken, result.claims)) {
+    log.warn("Live voice WS: rejected — actor token revoked");
     return new Response("Unauthorized", { status: 401 });
   }
 

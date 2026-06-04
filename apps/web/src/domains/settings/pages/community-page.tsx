@@ -1,27 +1,27 @@
 import {
-  ArrowUpRight,
-  Bug,
-  ExternalLink,
-  GitPullRequest,
-  Globe,
-  Heart,
-  Play,
-  Sparkles,
-  Star,
-  Users,
+    ArrowUpRight,
+    Bug,
+    ExternalLink,
+    GitPullRequest,
+    Globe,
+    Heart,
+    Play,
+    Sparkles,
+    Star,
+    Users,
 } from "lucide-react";
 import type { ComponentType, ReactNode } from "react";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Card } from "@vellum/design-library/components/card";
-import { Tag } from "@vellum/design-library/components/tag";
 import { DiscordLogo } from "@/components/icons/discord-logo";
 import { GitHubLogo } from "@/components/icons/github-logo";
-import { YouTubeLogo } from "@/components/icons/youtube-logo";
 import { XLogo } from "@/components/icons/x-logo";
-import { GITHUB_REPO_URL, useGitHubNudgeState } from "@/hooks/use-github-nudge";
+import { YouTubeLogo } from "@/components/icons/youtube-logo";
 import { joinDiscord } from "@/hooks/use-discord-nudge";
+import { GITHUB_REPO_URL, useGitHubNudgeState } from "@/hooks/use-github-nudge";
 import { VELLUM_COMMUNITY_URL } from "@/utils/external-urls";
+import { Button } from "@vellumai/design-library/components/button";
+import { Card } from "@vellumai/design-library/components/card";
+import { Tag } from "@vellumai/design-library/components/tag";
 
 function HeroBanner() {
   return (
@@ -216,7 +216,7 @@ export function CommunityPage() {
   const { handleStar } = useGitHubNudgeState();
 
   return (
-    <div className="mx-auto max-w-[940px] space-y-6">
+    <div className="space-y-6">
       <HeroBanner />
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">

@@ -2,22 +2,22 @@ import { useQuery } from "@tanstack/react-query";
 import { Search } from "lucide-react";
 import { useMemo, useState } from "react";
 
-import { Tag, type TagTone } from "@vellum/design-library/components/tag";
-import { Toggle } from "@vellum/design-library/components/toggle";
 import { DetailCard } from "@/components/detail-card";
 import { assistantsActiveRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
-import {
-  ALL_FLAGS,
-  flagKeyToStoreKey,
-  scopeIncludes,
-  type FlagScope,
-  type SingleScope,
-} from "@/lib/feature-flags/feature-flag-catalog";
-import { useFlagQueryFreshness } from "@/lib/backwards-compat/flag-query-freshness";
 import { fetchAssistantFlagValues } from "@/hooks/use-assistant-feature-flag-sync";
+import { useFlagQueryFreshness } from "@/lib/backwards-compat/flag-query-freshness";
+import {
+    ALL_FLAGS,
+    flagKeyToStoreKey,
+    scopeIncludes,
+    type FlagScope,
+    type SingleScope,
+} from "@/lib/feature-flags/feature-flag-catalog";
 import { assistantFlagValuesQueryKey } from "@/lib/sync/query-tags";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { Tag, type TagTone } from "@vellumai/design-library/components/tag";
+import { Toggle } from "@vellumai/design-library/components/toggle";
 
 const SCOPE_TONE: Record<SingleScope, TagTone> = {
   client: "warning",

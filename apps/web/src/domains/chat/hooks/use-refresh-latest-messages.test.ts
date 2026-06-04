@@ -103,6 +103,10 @@ import {
 import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useConversationStore } from "@/stores/conversation-store";
+import {
+  __resetSnapshotSeqForTesting,
+  getSnapshotSeq,
+} from "@/lib/streaming/snapshot-seq";
 
 import { messageText, textBody } from "@/domains/chat/utils/message-test-helpers";
 // ---------------------------------------------------------------------------
@@ -170,6 +174,7 @@ beforeEach(() => {
     oldestMessageId: null,
   });
   fetchSurfaceImpl = async () => null;
+  __resetSnapshotSeqForTesting();
 });
 
 afterEach(() => {
@@ -249,6 +254,7 @@ describe("useRefreshLatestMessages", () => {
       hasMore: true,
       oldestTimestamp: 1000,
       oldestMessageId: "u1",
+      seq: 17,
     });
 
     const { result } = renderHook(() =>
@@ -271,6 +277,8 @@ describe("useRefreshLatestMessages", () => {
     expect(host.setMessagesCalls).toHaveLength(1);
     expect(host.setMessagesCalls[0]).not.toEqual([]);
     expect(host.messages.map((m) => m.id)).toEqual(["u1", "a1", "u2", "a2"]);
+    // The accepted snapshot's seq is recorded as the conversation baseline.
+    expect(getSnapshotSeq("conv-1")).toBe(17);
   });
 
   test("preserves an in-flight streaming assistant bubble that latest history does not include", async () => {
@@ -407,6 +415,7 @@ describe("useRefreshLatestMessages", () => {
         hasMore: false,
         oldestTimestamp: 1000,
         oldestMessageId: "u1",
+        seq: 50,
       };
     };
 
@@ -426,6 +435,9 @@ describe("useRefreshLatestMessages", () => {
     expect(host.setMessagesCalls).toHaveLength(0);
     // conv-2's transcript stays clean: no conv-1 messages bled in.
     expect(host.messages).toEqual([conv2Msg]);
+    // The dropped result must NOT record a baseline for conv-1: recording is
+    // gated behind the same stale-response check that dropped the messages.
+    expect(getSnapshotSeq("conv-1")).toBeNull();
   });
 
   test("returns error outcome without touching state when the fetch rejects", async () => {
@@ -613,19 +625,21 @@ describe("useRefreshLatestMessages", () => {
         outcomeB = o;
       });
 
-      // B resolves first with the fresh page.
+      // B resolves first with the fresh page (higher seq).
       resolveB({
         messages: [existing, fresherMsg],
         hasMore: false,
         oldestTimestamp: 1000,
         oldestMessageId: "u1",
+        seq: 20,
       });
-      // Then A resolves with the (now-stale) page.
+      // Then A resolves with the (now-stale) page (lower seq).
       resolveA({
         messages: [existing, stalerMsg],
         hasMore: false,
         oldestTimestamp: 1000,
         oldestMessageId: "u1",
+        seq: 10,
       });
 
       await Promise.all([promiseA, promiseB]);
@@ -636,6 +650,9 @@ describe("useRefreshLatestMessages", () => {
     expect(host.setMessagesCalls).toHaveLength(1);
     expect(outcomeB).toEqual({ kind: "new-messages", count: 1 });
     expect(outcomeA).toEqual({ kind: "no-change" });
+    // The baseline reflects B's seq, not A's: recording happens after the
+    // stale-response guard, so the slower out-of-order A can't regress it.
+    expect(getSnapshotSeq("conv-1")).toBe(20);
   });
 });
 

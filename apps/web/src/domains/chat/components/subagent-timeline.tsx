@@ -1,14 +1,14 @@
 
 import {
-  CircleCheck,
-  MessageSquare,
-  TriangleAlert,
-  Wrench,
+    CircleCheck,
+    MessageSquare,
+    TriangleAlert,
+    Wrench,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 
-import { Typography } from "@vellum/design-library";
 import type { SubagentTimelineEvent } from "@/domains/chat/subagent-store";
+import { Typography } from "@vellumai/design-library";
 
 // ---------------------------------------------------------------------------
 // Constants

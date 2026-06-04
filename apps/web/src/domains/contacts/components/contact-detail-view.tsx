@@ -1,12 +1,12 @@
 import { useState } from "react";
 
-import { Button } from "@vellum/design-library/components/button";
-import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
-import { Input } from "@vellum/design-library/components/input";
+import { Button } from "@vellumai/design-library/components/button";
+import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
+import { Input } from "@vellumai/design-library/components/input";
 
+import { DetailCard } from "@/components/detail-card";
 import { ContactChannelsSection } from "@/domains/contacts/components/contact-channels-section";
 import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge";
-import { DetailCard } from "@/components/detail-card";
 import type { ChannelInfo, ContactPayload } from "@/domains/contacts/types";
 
 interface ContactDetailViewProps {

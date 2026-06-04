@@ -31,7 +31,7 @@ final class MockSettingsClient: SettingsClientProtocol {
     var saveVercelConfigResponse: VercelApiConfigResponseMessage?
     var deleteVercelConfigResponse: VercelApiConfigResponseMessage?
     var modelInfoResponse: ModelInfoMessage?
-    var setImageGenModelResponse: ModelInfoMessage?
+    var setImageGenModelResponse: Bool = true
     var embeddingConfigResponse: EmbeddingConfigMessage?
     var setEmbeddingConfigResponse: EmbeddingConfigMessage?
     var telegramConfigResponse: TelegramConfigResponseMessage?
@@ -127,7 +127,7 @@ final class MockSettingsClient: SettingsClientProtocol {
         return modelInfoResponse
     }
 
-    func setImageGenModel(modelId: String) async -> ModelInfoMessage? {
+    func setImageGenModel(modelId: String) async -> Bool {
         setImageGenModelCalls.append(modelId)
         return setImageGenModelResponse
     }

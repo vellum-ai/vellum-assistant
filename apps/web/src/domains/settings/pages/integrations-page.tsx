@@ -1,34 +1,34 @@
 import { useQuery } from "@tanstack/react-query";
 import {
-  ChevronDown,
-  Loader2,
-  Search,
-  Sparkles,
+    ChevronDown,
+    Loader2,
+    Search,
+    Sparkles,
 } from "lucide-react";
 import { Suspense, useEffect, useMemo, useState } from "react";
 
-import { useSearchParams, useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 
-import { Input } from "@vellum/design-library/components/input";
-import { Notice } from "@vellum/design-library/components/notice";
-import { Popover } from "@vellum/design-library/components/popover";
-import { toast } from "@vellum/design-library/components/toast";
+import { type Assistant, getAssistant } from "@/assistant/api";
+import {
+    fetchOAuthProviders,
+    type OAuthProviderSummary,
+} from "@/domains/settings/api/oauth-providers";
 import { IntegrationDetailModal } from "@/domains/settings/components/integration-detail-modal";
 import { IntegrationRow } from "@/domains/settings/components/integration-row";
 import { assistantsOauthConnectionsListOptions } from "@/generated/api/@tanstack/react-query.gen";
 import type { OAuthConnection } from "@/generated/api/types.gen";
-import { type Assistant, getAssistant } from "@/assistant/api";
-import {
-  fetchOAuthProviders,
-  type OAuthProviderSummary,
-} from "@/domains/settings/api/oauth-providers";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { captureError } from "@/lib/sentry/capture-error";
 import { routes } from "@/utils/routes";
+import { Input } from "@vellumai/design-library/components/input";
+import { Notice } from "@vellumai/design-library/components/notice";
+import { Popover } from "@vellumai/design-library/components/popover";
+import { toast } from "@vellumai/design-library/components/toast";
 
 import {
-  getLocalSetting,
-  setLocalSetting,
+    getLocalSetting,
+    setLocalSetting,
 } from "@/utils/local-settings";
 
 const BANNER_STORAGE_KEY = "vellum:integrations:bannerDismissed";
@@ -374,7 +374,7 @@ function IntegrationsPanelInner() {
 
 export function IntegrationsPage() {
   return (
-    <div className="mx-auto max-w-[940px] space-y-6">
+    <div className="space-y-6">
       <Suspense>
         <IntegrationsPanelInner />
       </Suspense>

@@ -210,14 +210,20 @@ async function handleGetConceptPage({
 
 const MemoryV2ListConceptPagesParams = z.object({}).strict();
 
-export type MemoryV2ListConceptPagesResult = {
-  pages: Array<{
-    slug: string;
-    bodyBytes: number;
-    edgeCount: number;
-    updatedAtMs: number;
-  }>;
-};
+export const MemoryV2ListConceptPagesResultSchema = z.object({
+  pages: z.array(
+    z.object({
+      slug: z.string(),
+      bodyBytes: z.number(),
+      edgeCount: z.number(),
+      updatedAtMs: z.number(),
+    }),
+  ),
+});
+
+export type MemoryV2ListConceptPagesResult = z.infer<
+  typeof MemoryV2ListConceptPagesResultSchema
+>;
 
 async function handleListConceptPages({
   body = {},
@@ -732,6 +738,7 @@ export const ROUTES: RouteDefinition[] = [
       "Returns slugs, body sizes, edge counts, and last-modified timestamps for every concept page on disk. Read-only; used by the desktop About → Memories surface to render a browse-able list.",
     tags: ["memory"],
     requestBody: MemoryV2ListConceptPagesParams,
+    responseBody: MemoryV2ListConceptPagesResultSchema,
   },
   {
     operationId: "memory_v2_reembed_skills",

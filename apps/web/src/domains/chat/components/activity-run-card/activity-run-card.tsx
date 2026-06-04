@@ -35,6 +35,7 @@ import type { AllowlistOption, DirectoryScopeOption, RiskScopeOption, ScopeOptio
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import { toolCallToRuleContext } from "@/domains/chat/utils/chat";
 import { truncate } from "@/domains/chat/utils/truncate";
+import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 
 /**
  * Hard character cap on the thinking-step pill label. The pill already
@@ -90,16 +91,6 @@ export interface ActivityRunCardProps {
   unknownNudgeToolCallIds?: Set<string>;
   onDismissUnknownNudge?: (toolCallId: string) => void;
   /**
-   * Optional leading "thinking" text segment that immediately preceded this
-   * tool-call group in the message's `contentOrder`. When supplied the
-   * unified card prepends a `thinking` step to the expanded body so the
-   * carousel shows the model's reasoning before the first tool fires.
-   *
-   * Ignored when `items` is supplied (the ordered-items path already carries
-   * its thinking inline).
-   */
-  leadingThinkingText?: string | null;
-  /**
    * Ordered (thinking | toolCall) items driving the expanded body. When
    * supplied, the card interleaves thinking steps between tool steps in the
    * given order instead of prepending a single leading-thinking step. The
@@ -114,23 +105,14 @@ export interface ActivityRunCardProps {
 }
 
 /**
- * Default ordered items for the legacy `(toolCalls, leadingThinkingText)`
- * callers: a leading thinking step (when present) followed by one item per
- * tool call. Mirrors the delegate in `computeToolCallCardData` so the
+ * Default ordered items for the legacy `(toolCalls)` callers: one `toolCall`
+ * item per tool call. Mirrors the delegate in `computeToolCallCardData` so the
  * single-hook path produces identical output to the legacy projection.
  */
 function buildDefaultItems(
   toolCalls: ChatMessageToolCall[],
-  leadingThinkingText: string | null,
 ): ToolCallCardItem[] {
-  const items: ToolCallCardItem[] = [];
-  if (leadingThinkingText) {
-    items.push({ kind: "thinking", text: leadingThinkingText });
-  }
-  for (const tc of toolCalls) {
-    items.push({ kind: "toolCall", toolCall: tc });
-  }
-  return items;
+  return toolCalls.map((tc) => ({ kind: "toolCall", toolCall: tc }));
 }
 
 /**
@@ -153,7 +135,6 @@ export function ActivityRunCard(props: ActivityRunCardProps) {
   const {
     toolCalls,
     pendingConfirmationToolCallId,
-    leadingThinkingText,
     autoExpand = false,
   } = props;
 
@@ -161,20 +142,18 @@ export function ActivityRunCard(props: ActivityRunCardProps) {
     pendingConfirmationToolCallId != null &&
     toolCalls.some((tc) => tc.id === pendingConfirmationToolCallId);
 
-  // Single subscription to the unified hook so the dispatcher and every
   // downstream branch share the same projection. When the caller supplies
   // ordered `items` (the activity-summary merged-card path) those drive the
-  // body directly; otherwise we synthesize the legacy
-  // `leadingThinkingText` + tool-calls ordering. Computed once via a single
-  // hook call so there are no conditional hooks.
+  // body directly; otherwise we synthesize one item per tool call. Computed
+  // once via a single hook call so there are no conditional hooks.
   //
   // `subagent_spawn` calls are filtered out inside the projection — they're
   // rendered inline by `SubagentInlineProgressCard` at the transcript level.
   // If a group reduces to zero renderable steps the dispatcher falls through
   // to a no-op below.
   const effectiveItems = useMemo(
-    () => props.items ?? buildDefaultItems(toolCalls, leadingThinkingText ?? null),
-    [props.items, toolCalls, leadingThinkingText],
+    () => props.items ?? buildDefaultItems(toolCalls),
+    [props.items, toolCalls],
   );
   const cardData = useToolCallCardDataFromItems(effectiveItems);
   const cardId = toolCalls[0]?.id ?? null;
@@ -230,7 +209,7 @@ export function ActivityRunCard(props: ActivityRunCardProps) {
  */
 function isPurelyWebGroup(toolCalls: ChatMessageToolCall[]): boolean {
   if (toolCalls.length === 0) return false;
-  return toolCalls.every((tc) => WEB_TOOL_NAMES.has(tc.toolName));
+  return toolCalls.every((tc) => WEB_TOOL_NAMES.has(tc.name));
 }
 
 /**
@@ -280,7 +259,7 @@ function deriveWebShellState(
   toolCalls: ChatMessageToolCall[],
   unifiedState: ToolCallCardData["state"],
 ): ToolProgressCardState {
-  if (toolCalls.some((tc) => tc.status === "running")) return "loading";
+  if (toolCalls.some((tc) => isToolCallRunning(tc))) return "loading";
   if (unifiedState === "error" || unifiedState === "denied") return unifiedState;
   return "complete";
 }
@@ -288,10 +267,10 @@ function deriveWebShellState(
 /**
  * Render the unified shell for a non-web tool-call group. Wraps
  * `ToolProgressCardShell` with a `PhaseGroupedStepList` body that groups
- * contiguous same-phase steps (`Thinking`, `Working (bash)`, `Using a
- * skill`, etc.) under a single phase header. Mixed groups carry
- * `web_search` / `web_search_error` / `thinking` (from web tools or the
- * `leadingThinkingText` slot) alongside the `tool` variant emitted by
+ * contiguous same-phase steps (`Working (bash)`, `Using a skill`, etc.)
+ * under a single phase header. Mixed groups carry `web_search` /
+ * `web_search_error` / `thinking` (the latter from web tools, e.g.
+ * `web_fetch` "Reading …") alongside the `tool` variant emitted by
  * `useToolCallCardData` for non-web tools.
  */
 function UnifiedActivityRunCard({
@@ -523,14 +502,14 @@ function UnknownCommandNudge({
         type="button"
         onClick={() =>
           onOpenRuleEditor({
-            toolName: toolCall.toolName,
+            toolName: toolCall.name,
             riskLevel: toolCall.riskLevel,
             riskReason: toolCall.riskReason,
             input: toolCall.input ?? {},
-            allowlistOptions: toolCall.allowlistOptions ?? [],
+            allowlistOptions: toolCall.riskAllowlistOptions ?? [],
             scopeOptions: toolCall.scopeOptions ?? [],
             riskScopeOptions: toolCall.riskScopeOptions ?? [],
-            directoryScopeOptions: toolCall.directoryScopeOptions ?? [],
+            directoryScopeOptions: toolCall.riskDirectoryScopeOptions ?? [],
           })
         }
         // typography: off-scale — inline link within body-small nudge

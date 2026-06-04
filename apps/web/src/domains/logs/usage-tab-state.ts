@@ -1,8 +1,5 @@
-import {
-  timezoneDayStartEpoch,
-  toTimezoneDateString,
-} from "@/components/charts/format-date-label";
 import { LLM_USAGE_DIMENSION_LABELS } from "@/utils/llm-dimension";
+import { resolveUsageRangeWindow } from "@/utils/usage-window";
 import { UsageRequestError } from "./usage-api";
 import type {
   UsageGranularity,
@@ -12,10 +9,27 @@ import type {
   UsageTimeRange,
 } from "./usage-types";
 
+export const DEFAULT_USAGE_RANGE: UsageTimeRange = "7d";
 export const DEFAULT_USAGE_GROUP_BY: UsageGroupBy = "task";
 export const FALLBACK_USAGE_GROUP_BY: UsageGroupBy = "model";
 const UNSUPPORTED_GROUP_BY_STATUSES = new Set([400, 404, 422]);
 const MAX_RETRY_COUNT = 3;
+const USAGE_TIME_RANGES = new Set<UsageTimeRange>([
+  "today",
+  "7d",
+  "30d",
+  "90d",
+  "all",
+]);
+const USAGE_GROUP_BYS = new Set<UsageGroupBy>([
+  "actor",
+  "provider",
+  "model",
+  "conversation",
+  "task",
+  "profile",
+  "schedule",
+]);
 
 export const USAGE_GROUP_LABELS: Record<UsageGroupBy, string> = {
   task: LLM_USAGE_DIMENSION_LABELS.task,
@@ -24,6 +38,7 @@ export const USAGE_GROUP_LABELS: Record<UsageGroupBy, string> = {
   provider: "Provider",
   actor: "Actor",
   conversation: "Conversation",
+  schedule: "Schedule",
 };
 
 export const USAGE_GROUP_BY_OPTIONS: Array<{
@@ -34,8 +49,81 @@ export const USAGE_GROUP_BY_OPTIONS: Array<{
   { value: "profile", label: USAGE_GROUP_LABELS.profile },
   { value: "model", label: USAGE_GROUP_LABELS.model },
   { value: "provider", label: USAGE_GROUP_LABELS.provider },
+  { value: "schedule", label: USAGE_GROUP_LABELS.schedule },
   { value: "conversation", label: USAGE_GROUP_LABELS.conversation },
 ];
+
+export interface UsageUrlState {
+  range: UsageTimeRange;
+  groupBy: UsageGroupBy;
+  scheduleId: string | undefined;
+}
+
+export interface UsageSearchParamsUpdate {
+  range?: UsageTimeRange;
+  groupBy?: UsageGroupBy;
+  scheduleId?: string | null;
+}
+
+export function readUsageUrlState(
+  searchParams: URLSearchParams,
+): UsageUrlState {
+  const range = searchParams.get("range");
+  const rawGroupBy = searchParams.get("groupBy");
+  const groupBy = isUsageGroupBy(rawGroupBy)
+    ? rawGroupBy
+    : DEFAULT_USAGE_GROUP_BY;
+  return {
+    range: isUsageTimeRange(range) ? range : DEFAULT_USAGE_RANGE,
+    groupBy,
+    scheduleId:
+      groupBy === "schedule" ? readUsageScheduleId(searchParams) : undefined,
+  };
+}
+
+export function readUsageScheduleId(
+  searchParams: URLSearchParams,
+): string | undefined {
+  const scheduleId = searchParams.get("scheduleId");
+  if (!scheduleId || scheduleId.trim().length === 0) {
+    return undefined;
+  }
+  return scheduleId;
+}
+
+export function buildUsageSearchParams(
+  searchParams: URLSearchParams,
+  update: UsageSearchParamsUpdate,
+): URLSearchParams {
+  const next = new URLSearchParams(searchParams);
+
+  if (update.range !== undefined) {
+    next.set("range", update.range);
+  }
+  if (update.groupBy !== undefined) {
+    next.set("groupBy", update.groupBy);
+  }
+  if (update.scheduleId !== undefined) {
+    if (update.scheduleId === null || update.scheduleId.trim().length === 0) {
+      next.delete("scheduleId");
+    } else {
+      next.set("scheduleId", update.scheduleId);
+    }
+  }
+  if (next.get("groupBy") !== "schedule") {
+    next.delete("scheduleId");
+  }
+
+  return next;
+}
+
+function isUsageTimeRange(value: string | null): value is UsageTimeRange {
+  return value != null && USAGE_TIME_RANGES.has(value as UsageTimeRange);
+}
+
+function isUsageGroupBy(value: string | null): value is UsageGroupBy {
+  return value != null && USAGE_GROUP_BYS.has(value as UsageGroupBy);
+}
 
 export function shouldFetchUsageSeries(
   groupBy: UsageGroupBy,
@@ -115,14 +203,6 @@ function isHourlyDate(date: string) {
   return /^\d{4}-\d{2}-\d{2} ([01]\d|2[0-3]):00$/.test(date);
 }
 
-const RANGE_START_DAY_OFFSETS: Record<Exclude<UsageTimeRange, "all">, number> =
-  {
-    today: 0,
-    "7d": 6,
-    "30d": 29,
-    "90d": 89,
-  };
-
 /**
  * Resolve the `{ from, to }` epoch-ms window for a usage range, with calendar
  * day boundaries computed in the effective `tz` so they stay aligned with the
@@ -137,20 +217,7 @@ export function resolveRangeWindow(
   from: number;
   to: number;
 } {
-  const to = typeof now === "number" ? now : now.getTime();
-  if (range === "all") {
-    return { from: 0, to };
-  }
-  const dayOffset = RANGE_START_DAY_OFFSETS[range];
-  // Today's calendar date in `tz`, then step back whole days on a UTC-noon
-  // anchor to avoid DST slips before resolving zone-local midnight.
-  const todayInTz = toTimezoneDateString(new Date(to), tz);
-  const [y, m, d] = todayInTz.split("-").map(Number);
-  const anchor = new Date(Date.UTC(y, m - 1, d, 12));
-  anchor.setUTCDate(anchor.getUTCDate() - dayOffset);
-  const fromDate = toTimezoneDateString(anchor, "UTC");
-  const from = timezoneDayStartEpoch(fromDate, tz);
-  return { from, to };
+  return resolveUsageRangeWindow(range, tz, now);
 }
 
 export function resolveUsageGranularity(

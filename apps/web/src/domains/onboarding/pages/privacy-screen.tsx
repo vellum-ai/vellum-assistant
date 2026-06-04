@@ -1,33 +1,33 @@
 import { captureError } from "@/lib/sentry/capture-error";
 import { EyeOff } from "lucide-react";
-import { useEffect, useId, useCallback, type ReactNode } from "react";
+import { useCallback, useEffect, useId, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Card } from "@vellum/design-library/components/card";
-import { Checkbox } from "@vellum/design-library/components/checkbox";
-import { Toggle } from "@vellum/design-library/components/toggle";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { StepIndicatorDots } from "@/domains/onboarding/components/step-indicator-dots";
 import {
-  emitOnboardingFunnelStepCompleted,
-  getOnboardingFunnelSessionId,
-  onboardingFunnelVariantFromCondensedFlag,
-  ONBOARDING_FUNNEL_STEPS,
-  resolveOnboardingFunnelVariant,
+    emitOnboardingFunnelStepCompleted,
+    getOnboardingFunnelSessionId,
+    ONBOARDING_FUNNEL_STEPS,
+    onboardingFunnelVariantFromCondensedFlag,
+    resolveOnboardingFunnelVariant,
 } from "@/domains/onboarding/funnel-events";
 import {
-  readOnboardingCompleted,
-  useAiDataConsent,
-  useShareAnalytics,
-  useShareDiagnostics,
-  useTosAccepted,
+    readOnboardingCompleted,
+    useAiDataConsent,
+    useShareAnalytics,
+    useShareDiagnostics,
+    useTosAccepted,
 } from "@/domains/onboarding/prefs";
 import { markPrivacyConsent } from "@/domains/onboarding/signals";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useAuthStore } from "@/stores/auth-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { legalUrl, routes } from "@/utils/routes";
+import { Button } from "@vellumai/design-library/components/button";
+import { Card } from "@vellumai/design-library/components/card";
+import { Checkbox } from "@vellumai/design-library/components/checkbox";
+import { Toggle } from "@vellumai/design-library/components/toggle";
 
 function SettingRow({
   label,

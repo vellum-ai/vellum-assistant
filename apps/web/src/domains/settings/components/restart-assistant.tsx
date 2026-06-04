@@ -1,10 +1,10 @@
 import { Loader2, RotateCcw } from "lucide-react";
 import { useState } from "react";
 
-import { Button } from "@vellum/design-library/components/button";
-import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
-import { toast } from "@vellum/design-library/components/toast";
 import { restartAssistant } from "@/assistant/api";
+import { Button } from "@vellumai/design-library/components/button";
+import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
+import { toast } from "@vellumai/design-library/components/toast";
 
 export function RestartAssistant({ assistantId }: { assistantId: string }) {
   const [restarting, setRestarting] = useState(false);

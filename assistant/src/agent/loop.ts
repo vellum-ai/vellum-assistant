@@ -4,28 +4,22 @@ import type { LLMCallSite } from "../config/schemas/llm.js";
 import { stripInjectionsForCompaction } from "../context/strip-injections.js";
 import {
   estimatePromptTokensRaw,
+  estimatePromptTokensWithTools,
   estimateToolsTokens,
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
-import type {
-  ContextWindowCompactOptions,
-  ContextWindowResult,
-} from "../context/window-manager.js";
+import type { ContextWindowResult } from "../context/window-manager.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type { PostToolUseContext, StopContext } from "../plugin-api/types.js";
 import { defaultCompactionTerminal } from "../plugins/defaults/compaction/terminal.js";
-import { defaultTokenEstimateTerminal } from "../plugins/defaults/token-estimate/terminal.js";
+import type { PostCompactionHookInput } from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
 import { DEFAULT_TIMEOUTS, runHook, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
   CompactionArgs,
   CompactionCircuitEvent,
   CompactionResult,
-  EstimateArgs,
-  EstimateResult,
-  LLMCallArgs,
-  LLMCallResult,
   TurnContext,
 } from "../plugins/types.js";
 import { PluginTimeoutError } from "../plugins/types.js";
@@ -34,6 +28,8 @@ import type {
   ContentBlock,
   Message,
   Provider,
+  ProviderResponse,
+  SendMessageOptions,
   ToolDefinition,
   ToolResultContent,
 } from "../providers/types.js";
@@ -89,17 +85,28 @@ export type ExitReason = "handoff" | "budget";
 
 export type CheckpointDecision = "continue" | ExitReason;
 
-/**
- * Result of {@link AgentLoop.run}.
- *
- * `exitReason` carries the reason the loop paused at a checkpoint so the
- * orchestrator reads the loop's own signal instead of inferring it from
- * callback side-effects. It is `null` whenever the loop reached a terminal
- * stop (completion, error, abort, or a tool-requested yield-to-user).
- */
+/** Result of {@link AgentLoop.run}. */
 export interface AgentLoopRunResult {
+  /** Full conversation history after the run, including everything appended this run. */
   history: Message[];
+  /**
+   * Reason the loop paused at a checkpoint, or `null` on a terminal stop
+   * (completion, error, abort, or a tool-requested yield-to-user).
+   */
   exitReason: ExitReason | null;
+  /**
+   * Whether the loop produced at least one new assistant message this run —
+   * the forward-progress signal for the ordering-error retry gate and the
+   * overflow convergence fold (immune to in-loop compaction shrinking history
+   * below a pre-run length).
+   */
+  appendedNewMessages: boolean;
+  /**
+   * Slice of `history` appended this run, measured from the loop's input or
+   * from the compacted base when it compacts in place. The loop owns this
+   * boundary, so it cannot desync the way an externally-held index can.
+   */
+  newMessages: Message[];
 }
 
 /**
@@ -201,6 +208,14 @@ export type AgentEvent =
       approvalReason?: string;
       riskThreshold?: string;
       activityMetadata?: ToolActivityMetadata;
+      /**
+       * Set when the loop synthesizes this result for a tool_use that never
+       * executed (a "Cancelled by user" block on abort). The daemon still
+       * captures it into `pendingToolResults` and forwards it to the client,
+       * but skips the side effects that assume the tool ran — marking the
+       * workspace dirty and emitting a post-tool "thinking" activity state.
+       */
+      cancelled?: boolean;
     }
   | { type: "tool_use_preview_start"; toolUseId: string; toolName: string }
   | {
@@ -235,7 +250,7 @@ export type AgentEvent =
   | { type: "error"; error: Error }
   | {
       /**
-       * Emitted when the `llmCall` pipeline throws — i.e. the provider
+       * Emitted when the provider call throws — i.e. the provider
        * rejected the request before returning a usable response. Carries
        * the loop-level raw request we attempted to send (messages, tools,
        * system prompt, provider-agnostic config) plus the thrown error.
@@ -373,12 +388,11 @@ export function isMaxTokensStopReason(
  * {@link AgentLoop.run}); this helper is the fallback used only by unit
  * tests that construct `AgentLoop` directly without an orchestrator.
  *
- * When the orchestrator-supplied context is present, {@link resolveLoopTurnContext}
- * is used instead of this helper so the pipeline sees the real
- * `conversationId`, trust, and `contextWindowManager`. In the fallback path
- * the returned context is still useful for pipeline logging: `requestId`
- * surfaces in every structured record, and `turnIndex` reflects the
- * current tool-use iteration.
+ * When the orchestrator-supplied context is present it is used directly so the
+ * pipeline sees the real `conversationId`, trust, and `contextWindowManager`.
+ * In the fallback path the returned context is still useful for pipeline
+ * logging: `requestId` surfaces in every structured record, and `turnIndex`
+ * reflects the current tool-use iteration.
  */
 function buildLoopTurnContext(
   requestId: string | undefined,
@@ -396,29 +410,6 @@ function buildLoopTurnContext(
       trustClass: "unknown",
     },
   };
-}
-
-/**
- * Produce a `TurnContext` for a pipeline call inside {@link AgentLoop.run}.
- *
- * When the orchestrator supplied a `turnContext`, clone it and overwrite
- * `requestId` + `turnIndex` with the loop-scoped values so plugin log
- * records correctly attribute the call to the current tool-use iteration
- * while preserving the real `conversationId`, trust context, and
- * `contextWindowManager` the orchestrator assembled for the turn. Without
- * an orchestrator context (unit tests that instantiate `AgentLoop` with no
- * `turnContext`), fall back to {@link buildLoopTurnContext}'s synthesized
- * placeholder.
- */
-function resolveLoopTurnContext(
-  base: TurnContext | undefined,
-  requestId: string | undefined,
-  turnIndex: number,
-): TurnContext {
-  if (base) {
-    return { ...base, requestId: requestId ?? base.requestId, turnIndex };
-  }
-  return buildLoopTurnContext(requestId, turnIndex);
 }
 
 /**
@@ -464,29 +455,25 @@ export interface ResolvedSystemPrompt {
 }
 
 /**
- * Orchestrator-supplied hooks the loop invokes when the mid-loop budget gate
+ * Orchestrator-supplied hook the loop invokes when the mid-loop budget gate
  * trips and inline compaction runs. The loop owns the trigger, the
  * `compaction` pipeline call, the result interpretation (circuit-breaker
- * bookkeeping + the exhaustion decision), and the inline continue; these hooks
- * bridge the injection state the loop is intentionally blind to. Durable
+ * bookkeeping + the exhaustion decision), and the inline continue; this hook
+ * bridges the injection state the loop is intentionally blind to. Durable
  * persistence is signalled out-of-band via the `history_stripped` (marker)
  * and `compaction_completed` (basis commit + successful summary) {@link
- * AgentEvent}s; re-injection ({@link reinject}) remains orchestrator-supplied
- * for now and is expected to move into the loop in a future change.
+ * AgentEvent}s; the {@link MidLoopCompaction.postCompactionHook} is
+ * orchestrator-supplied, and its inputs migrate loop-ward as the loop
+ * subsumes the re-injection ceremony.
  */
 export interface MidLoopCompaction {
   /**
-   * Resolve the orchestrator-owned options for the compaction pipeline run.
-   * The loop-stripped history is committed to durable state separately via
-   * the `compaction_completed` event, and the loop merges its own
-   * loop-native options (e.g. `force`) on top of these before invoking the
-   * pipeline.
+   * Re-apply runtime injections onto the post-compaction history and return
+   * the history to continue from. The loop supplies its own working state via
+   * {@link PostCompactionHookInput} so the hook re-injects from that rather
+   * than reading it back from orchestrator state.
    */
-  prepare: () => {
-    options: ContextWindowCompactOptions | undefined;
-  };
-  /** Re-apply runtime injections and return the history to continue from. */
-  reinject: () => Promise<Message[]>;
+  postCompactionHook: (input: PostCompactionHookInput) => Promise<Message[]>;
 }
 
 export interface AgentLoopRunOptions {
@@ -546,21 +533,12 @@ export interface AgentLoopRunOptions {
 
 /**
  * Callback shape the loop uses to execute a tool invocation.
- *
- * The trailing `turnContext` is optional so in-process tests that wire the
- * callback without an orchestrator keep working. Production sites (the
- * `Conversation`'s `createToolExecutor`) forward the supplied context into
- * `ToolExecutor.execute` so the `toolExecute` pipeline sees the orchestrator's
- * real conversation identity/trust/contextWindowManager instead of the
- * synthesized placeholder `ToolExecutor` would otherwise build from the
- * `ToolContext` alone.
  */
 export type LoopToolExecutor = (
   name: string,
   input: Record<string, unknown>,
   onOutput?: (chunk: string) => void,
   toolUseId?: string,
-  turnContext?: TurnContext,
 ) => Promise<{
   content: string;
   isError: boolean;
@@ -652,10 +630,9 @@ export class AgentLoop {
    * Resolve the tool definitions sent to the provider for the given turn.
    *
    * Mirrors the logic of {@link getToolTokenBudget} but returns the tool
-   * array itself — callers that need to thread the tool set into a plugin
-   * pipeline (e.g. `tokenEstimate`, where the pipeline's args include
-   * `tools`) use this rather than re-implementing the dynamic-vs-static
-   * resolver fork.
+   * array itself — callers that need to thread the tool set into the token
+   * estimate (`estimatePromptTokensWithTools`, whose args include `tools`)
+   * use this rather than re-implementing the dynamic-vs-static resolver fork.
    */
   getResolvedTools(history?: Message[]): ToolDefinition[] {
     return history && this.resolveTools
@@ -676,28 +653,15 @@ export class AgentLoop {
   }
 
   /**
-   * Estimate total prompt tokens for `history` via the `tokenEstimate`
-   * pipeline. Args are shallow-frozen so a mutating middleware cannot strip
-   * context from the loop's live `history`.
+   * Calibrated prompt-token estimate for `history`, including the
+   * resolved-tool budget for the turn.
    */
-  private estimateTokens(
-    history: Message[],
-    turnContext: TurnContext,
-  ): Promise<EstimateResult> {
-    return runPipeline<EstimateArgs, EstimateResult>(
-      "tokenEstimate",
-      getMiddlewaresFor("tokenEstimate"),
-      defaultTokenEstimateTerminal,
-      {
-        history: Object.freeze([...history]) as Message[],
-        systemPrompt: this.systemPrompt,
-        tools: Object.freeze([
-          ...this.getResolvedTools(history),
-        ]) as ToolDefinition[],
-        providerName: getCalibrationProviderKey(this.provider),
-      },
-      turnContext,
-      DEFAULT_TIMEOUTS.tokenEstimate,
+  private estimateTokens(history: Message[]): number {
+    return estimatePromptTokensWithTools(
+      history,
+      this.systemPrompt,
+      this.getResolvedTools(history),
+      getCalibrationProviderKey(this.provider),
     );
   }
 
@@ -748,6 +712,7 @@ export class AgentLoop {
     compaction: MidLoopCompaction,
     signal: AbortSignal | undefined,
     onEvent: (event: AgentEvent) => void | Promise<void>,
+    overrideProfile: string | null,
   ): Promise<Message[] | null> {
     await onEvent({ type: "context_compacting" });
     // Strip runtime injections so the compactor summarizes the raw persistent
@@ -756,7 +721,6 @@ export class AgentLoop {
     // Record the history-stripped marker right after stripping, before the
     // pipeline runs.
     await onEvent({ type: "history_stripped" });
-    const { options } = compaction.prepare();
     let result: CompactionResult;
     try {
       result = await runPipeline<CompactionArgs, CompactionResult>(
@@ -764,10 +728,20 @@ export class AgentLoop {
         getMiddlewaresFor("compaction"),
         (args) => defaultCompactionTerminal(args, turnContext),
         // The mid-loop budget gate is reached only when this turn decides to
-        // compact in place, so force the pipeline past its auto-threshold
-        // check. `force` is the loop's own decision, layered on top of the
-        // orchestrator-resolved options.
-        { messages: rawHistory, signal, options: { force: true, ...options } },
+        // compact in place, so `force` the pipeline past its auto-threshold
+        // check. `actorTrustClass` comes from the turn context (the actor whose
+        // turn triggered compaction) so the compactor's image manifest excludes
+        // guardian-only attachments for untrusted actors. `overrideProfile` is
+        // the turn's resolved inference-profile override for the summary call.
+        {
+          messages: rawHistory,
+          signal,
+          options: {
+            force: true,
+            actorTrustClass: turnContext.trust.trustClass,
+            overrideProfile,
+          },
+        },
         turnContext,
         DEFAULT_TIMEOUTS.compaction,
       );
@@ -806,7 +780,13 @@ export class AgentLoop {
     if (compactResult.exhausted ?? false) {
       return null;
     }
-    return compaction.reinject();
+    // Re-inject onto the same base the `compaction_completed` dispatch commits:
+    // the compacted messages when the pipeline compacted, the stripped
+    // pre-compaction history otherwise.
+    return compaction.postCompactionHook({
+      history: compactResult.compacted ? compactResult.messages : rawHistory,
+      turnContext,
+    });
   }
 
   async run(
@@ -827,12 +807,24 @@ export class AgentLoop {
       mutableLatestUserMessage,
     } = options ?? {};
     let history = [...messages];
+    // Index into `history` where this run's appended output begins. It starts
+    // after the input and resets to the compacted base whenever the loop
+    // compacts in place, so `history.slice(newMessagesStart)` is always exactly
+    // what the loop produced since the last (re-injected) base.
+    let newMessagesStart = history.length;
     let producedVisibleTextThisRun = false;
     let toolUseTurns = 0;
     let stopContinueRetries = 0;
     let lastLlmCallTime = 0;
     let exitReason: ExitReason | null = null;
+    let appendedNewMessages = false;
     const rlog = requestId ? log.child({ requestId }) : log;
+
+    // Resolve the inference-profile override that applies right now. The
+    // optional resolver lets a turn observe a confirmed mid-turn profile switch
+    // before the next model call; absent a resolver the turn-start value holds.
+    const resolveEffectiveOverrideProfile = (): string | undefined =>
+      resolveOverrideProfile ? resolveOverrideProfile() : overrideProfile;
 
     // Per-run substitution map for sensitive output placeholders.
     // Bindings are accumulated from tool results; placeholders are
@@ -965,12 +957,8 @@ export class AgentLoop {
         // `activeProfile` and any call-site named profile. Threading it on
         // every send (rather than once at construction) keeps subagents that
         // share an `AgentLoop` instance but ought to inherit a different
-        // profile correct — and matches how `callSite` is plumbed. The
-        // optional resolver lets a turn observe an explicitly confirmed
-        // profile-session switch before the next model call.
-        const effectiveOverrideProfile = resolveOverrideProfile
-          ? resolveOverrideProfile()
-          : overrideProfile;
+        // profile correct — and matches how `callSite` is plumbed.
+        const effectiveOverrideProfile = resolveEffectiveOverrideProfile();
         if (effectiveOverrideProfile) {
           providerConfig.overrideProfile = effectiveOverrideProfile;
         }
@@ -1016,95 +1004,76 @@ export class AgentLoop {
           stripOldMediaBlocks(history),
         );
 
-        // Wrap the provider call in the `llmCall` pipeline so middleware
-        // contributed by plugins may observe, rewrite, short-circuit, or
-        // post-process every LLM request. The terminal below is the real
-        // `provider.sendMessage(...)` call; middleware reach it by calling
-        // `next(args)`. The default `defaultLlmCallPlugin` contributes a
-        // passthrough middleware that forwards to `next(args)` — it
-        // registers at module load and sits at the outermost onion layer,
-        // so it must yield to keep user-registered `llmCall` middleware
-        // reachable. Timeout is `null` (`DEFAULT_TIMEOUTS.llmCall`) — the
-        // provider layer already enforces its own HTTP-level budgets.
-        //
-        // The `onEvent` wrapping is kept inside `args.options` so substitution
-        // and streaming behavior exactly match the pre-pipeline call site.
-        const llmCallArgs: LLMCallArgs = {
-          provider: this.provider,
-          messages: providerHistory,
-          options: {
-            tools: currentTools.length > 0 ? currentTools : undefined,
-            systemPrompt: turnSystemPrompt,
-            config: providerConfig,
-            onEvent: (event) => {
-              if (event.type === "text_delta") {
-                // Apply sensitive-output placeholder substitution (chunk-safe)
-                if (substitutionMap.size > 0) {
-                  const combined = streamingPending + event.text;
-                  const { emit, pending } = applyStreamingSubstitution(
-                    combined,
-                    substitutionMap,
-                  );
-                  streamingPending = pending;
-                  if (emit.length > 0) {
-                    onEvent({ type: "text_delta", text: emit });
-                  }
-                } else {
-                  onEvent({ type: "text_delta", text: event.text });
+        // The `onEvent` wrapping below applies sensitive-output placeholder
+        // substitution to streamed text while forwarding every other event
+        // type through unchanged.
+        const providerOptions: SendMessageOptions = {
+          tools: currentTools.length > 0 ? currentTools : undefined,
+          systemPrompt: turnSystemPrompt,
+          config: providerConfig,
+          onEvent: (event) => {
+            if (event.type === "text_delta") {
+              // Apply sensitive-output placeholder substitution (chunk-safe)
+              if (substitutionMap.size > 0) {
+                const combined = streamingPending + event.text;
+                const { emit, pending } = applyStreamingSubstitution(
+                  combined,
+                  substitutionMap,
+                );
+                streamingPending = pending;
+                if (emit.length > 0) {
+                  onEvent({ type: "text_delta", text: emit });
                 }
-              } else if (event.type === "thinking_delta") {
-                onEvent({ type: "thinking_delta", thinking: event.thinking });
-              } else if (event.type === "tool_use_preview_start") {
-                onEvent({
-                  type: "tool_use_preview_start",
-                  toolUseId: event.toolUseId,
-                  toolName: event.toolName,
-                });
-              } else if (event.type === "input_json_delta") {
-                onEvent({
-                  type: "input_json_delta",
-                  toolName: event.toolName,
-                  toolUseId: event.toolUseId,
-                  accumulatedJson: event.accumulatedJson,
-                });
-              } else if (event.type === "server_tool_start") {
-                onEvent({
-                  type: "server_tool_start",
-                  name: event.name,
-                  toolUseId: event.toolUseId,
-                  input: event.input,
-                });
-              } else if (event.type === "server_tool_complete") {
-                onEvent({
-                  type: "server_tool_complete",
-                  toolUseId: event.toolUseId,
-                  isError: event.isError,
-                  ...(event.content ? { content: event.content } : {}),
-                  ...(event.resolvedInput
-                    ? { resolvedInput: event.resolvedInput }
-                    : {}),
-                  ...(event.errorCode ? { errorCode: event.errorCode } : {}),
-                  ...(event.errorMessage
-                    ? { errorMessage: event.errorMessage }
-                    : {}),
-                });
+              } else {
+                onEvent({ type: "text_delta", text: event.text });
               }
-            },
-            signal,
+            } else if (event.type === "thinking_delta") {
+              onEvent({ type: "thinking_delta", thinking: event.thinking });
+            } else if (event.type === "tool_use_preview_start") {
+              onEvent({
+                type: "tool_use_preview_start",
+                toolUseId: event.toolUseId,
+                toolName: event.toolName,
+              });
+            } else if (event.type === "input_json_delta") {
+              onEvent({
+                type: "input_json_delta",
+                toolName: event.toolName,
+                toolUseId: event.toolUseId,
+                accumulatedJson: event.accumulatedJson,
+              });
+            } else if (event.type === "server_tool_start") {
+              onEvent({
+                type: "server_tool_start",
+                name: event.name,
+                toolUseId: event.toolUseId,
+                input: event.input,
+              });
+            } else if (event.type === "server_tool_complete") {
+              onEvent({
+                type: "server_tool_complete",
+                toolUseId: event.toolUseId,
+                isError: event.isError,
+                ...(event.content ? { content: event.content } : {}),
+                ...(event.resolvedInput
+                  ? { resolvedInput: event.resolvedInput }
+                  : {}),
+                ...(event.errorCode ? { errorCode: event.errorCode } : {}),
+                ...(event.errorMessage
+                  ? { errorMessage: event.errorMessage }
+                  : {}),
+              });
+            }
           },
+          signal,
         };
 
-        // Per-turn pipeline context. When the orchestrator threaded a full
-        // `turnContext` into `run()`, use it (overwriting `turnIndex` with
-        // the loop-scoped tool-use iteration) so middleware sees the real
-        // conversation identity, trust, and `contextWindowManager`. The
-        // synthesized fallback is only reached by standalone unit-test
-        // instantiations that never plumb a context through.
-        const turnCtx = resolveLoopTurnContext(
-          turnContext,
-          requestId,
-          toolUseTurns,
-        );
+        // Per-turn pipeline context. Real call sites thread a full
+        // `turnContext` into `run()` and it is used directly; standalone
+        // unit-test instantiations that never plumb a context through fall
+        // back to a synthesized placeholder scoped to the tool-use iteration.
+        const turnCtx =
+          turnContext ?? buildLoopTurnContext(requestId, toolUseTurns);
 
         // Announce the LLM-call boundary so downstream handlers (the
         // daemon's persistence pipeline) can reserve an empty assistant row
@@ -1127,15 +1096,11 @@ export class AgentLoop {
         // `llm_request_logs` row, then re-throw so the existing outer catch
         // continues to handle abort sync, Sentry capture, the `error` event,
         // and the loop break unchanged.
-        let response: LLMCallResult;
+        let response: ProviderResponse;
         try {
-          response = await runPipeline<LLMCallArgs, LLMCallResult>(
-            "llmCall",
-            getMiddlewaresFor("llmCall"),
-            (args) => args.provider.sendMessage(args.messages, args.options),
-            llmCallArgs,
-            turnCtx,
-            DEFAULT_TIMEOUTS.llmCall,
+          response = await this.provider.sendMessage(
+            providerHistory,
+            providerOptions,
           );
         } catch (llmCallError) {
           // Skip recording on abort — the user cancelled the request and
@@ -1153,10 +1118,10 @@ export class AgentLoop {
             // misrepresent both.
             const rawRequest = {
               provider: this.provider.name,
-              messages: llmCallArgs.messages,
-              tools: llmCallArgs.options?.tools,
-              systemPrompt: llmCallArgs.options?.systemPrompt,
-              config: llmCallArgs.options?.config,
+              messages: providerHistory,
+              tools: providerOptions.tools,
+              systemPrompt: providerOptions.systemPrompt,
+              config: providerOptions.config,
             };
             onEvent({
               type: "provider_error",
@@ -1245,6 +1210,7 @@ export class AgentLoop {
             "LLM response reached output token limit",
           );
           history.push(safeAssistantMessage);
+          appendedNewMessages = true;
           await onEvent({
             type: "max_tokens_reached",
             stopReason: response.stopReason,
@@ -1315,6 +1281,7 @@ export class AgentLoop {
         }
 
         history.push(assistantMessage);
+        appendedNewMessages = true;
 
         await onEvent({ type: "message_complete", message: assistantMessage });
 
@@ -1344,6 +1311,15 @@ export class AgentLoop {
             }),
           );
           history.push({ role: "user", content: cancelledBlocks });
+          for (const toolUse of toolUseBlocks) {
+            await onEvent({
+              type: "tool_result",
+              toolUseId: toolUse.id,
+              content: "Cancelled by user",
+              isError: true,
+              cancelled: true,
+            });
+          }
           await emitExit("aborted_post_response");
           break;
         }
@@ -1373,14 +1349,6 @@ export class AgentLoop {
                 });
               },
               toolUse.id,
-              // Forward the loop's resolved `TurnContext` through the
-              // executor callback so `ToolExecutor.execute` can thread the
-              // real orchestrator context into the `toolExecute` pipeline.
-              // Standalone tests that don't wire a `turnContext` into
-              // `AgentLoop.run()` pass `undefined` here and the executor
-              // falls back to the synthesized placeholder — preserving the
-              // existing unit-test behavior.
-              turnCtx,
             );
 
             return { toolUse, result };
@@ -1579,7 +1547,7 @@ export class AgentLoop {
           );
           const midLoopThreshold =
             preflightBudget * MID_LOOP_YIELD_THRESHOLD_RATIO;
-          const estimated = await this.estimateTokens(history, turnCtx);
+          const estimated = this.estimateTokens(history);
           if (estimated > midLoopThreshold) {
             if (compaction) {
               rlog.info(
@@ -1592,9 +1560,13 @@ export class AgentLoop {
                 compaction,
                 signal,
                 onEvent,
+                resolveEffectiveOverrideProfile() ?? null,
               );
               if (compacted) {
                 history = compacted;
+                // The compacted, re-injected array is the new base; output
+                // produced after this point is what the orchestrator persists.
+                newMessagesStart = history.length;
                 continue;
               }
             }
@@ -1621,6 +1593,15 @@ export class AgentLoop {
               }),
             );
             history.push({ role: "user", content: cancelledBlocks });
+            for (const toolUse of toolUseBlocks) {
+              await onEvent({
+                type: "tool_result",
+                toolUseId: toolUse.id,
+                content: "Cancelled by user",
+                isError: true,
+                cancelled: true,
+              });
+            }
           }
           await emitExit("aborted_via_error");
           break;
@@ -1651,7 +1632,12 @@ export class AgentLoop {
       "Agent loop exited",
     );
 
-    return { history, exitReason };
+    return {
+      history,
+      exitReason,
+      appendedNewMessages,
+      newMessages: history.slice(newMessagesStart),
+    };
   }
 }
 

@@ -2,13 +2,13 @@ import { Cloud, Laptop, Package } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { useNavigate } from "react-router";
 
-import { Button } from "@vellum/design-library/components/button";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { setPendingProviderKey } from "@/domains/onboarding/provider-key";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
-import { useAuthStore } from "@/stores/auth-store";
+import { useHasPlatformSession } from "@/stores/auth-store";
 import { docsUrl, routes } from "@/utils/routes";
+import { Button } from "@vellumai/design-library/components/button";
 
 type HostingMode = "vellum-cloud" | "local" | "docker";
 
@@ -24,7 +24,7 @@ interface HostingOption {
 const ICON_CLASS = "h-5 w-5 shrink-0 text-[var(--content-secondary)]";
 
 function useHostingOptions(): HostingOption[] {
-  const hasPlatformSession = useAuthStore.use.hasPlatformSession();
+  const hasPlatformSession = useHasPlatformSession();
 
   return [
     {
@@ -56,7 +56,7 @@ function useHostingOptions(): HostingOption[] {
 
 export function HostingScreen() {
   const navigate = useNavigate();
-  const hasPlatformSession = useAuthStore.use.hasPlatformSession();
+  const hasPlatformSession = useHasPlatformSession();
   const options = useHostingOptions();
   const [selected, setSelected] = useState<HostingMode>(
     hasPlatformSession ? "vellum-cloud" : "local",

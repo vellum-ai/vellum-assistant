@@ -3,31 +3,31 @@ import { HardDrive, Loader2, RefreshCw, Server, Sparkles } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Dropdown } from "@vellum/design-library/components/dropdown";
-import { Modal } from "@vellum/design-library/components/modal";
-import { Notice } from "@vellum/design-library/components/notice";
-import { Tag } from "@vellum/design-library/components/tag";
-import { toast } from "@vellum/design-library/components/toast";
-import { CapacityBar } from "@/domains/settings/components/capacity-bar";
+import type { Assistant } from "@/assistant/api";
 import { DetailCard } from "@/components/detail-card";
-import { extractResizeError } from "@/domains/settings/components/resize-errors";
 import { formatResourceMb } from "@/domains/settings/components/assistant-status-panel";
+import { CapacityBar } from "@/domains/settings/components/capacity-bar";
+import { extractResizeError } from "@/domains/settings/components/resize-errors";
 import {
-  assistantsResizeMutation,
-  organizationsBillingSubscriptionOnboardingRetrieveOptions,
-  organizationsBillingSubscriptionRetrieveOptions,
+    assistantsResizeMutation,
+    organizationsBillingSubscriptionOnboardingRetrieveOptions,
+    organizationsBillingSubscriptionRetrieveOptions,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { MachineSizeEnum } from "@/generated/api/types.gen";
 import type { HealthzGetResponse } from "@/generated/daemon/types.gen";
-import type { Assistant } from "@/assistant/api";
 import {
-  allowedMachineSizesForTier,
-  buildMachineSizeOptions,
-  machineSizeRank,
-  SIZE_LABEL,
+    allowedMachineSizesForTier,
+    buildMachineSizeOptions,
+    machineSizeRank,
+    SIZE_LABEL,
 } from "@/lib/billing/machine-sizes";
 import { routes } from "@/utils/routes";
+import { Button } from "@vellumai/design-library/components/button";
+import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Modal } from "@vellumai/design-library/components/modal";
+import { Notice } from "@vellumai/design-library/components/notice";
+import { Tag } from "@vellumai/design-library/components/tag";
+import { toast } from "@vellumai/design-library/components/toast";
 
 export interface ResizeCardProps {
   assistant: Assistant;

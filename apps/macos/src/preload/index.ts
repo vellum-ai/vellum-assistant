@@ -11,7 +11,8 @@ import type { Lockfile, LockfileWriteResult } from "@vellumai/local-mode";
 export type VellumCommand =
   | { kind: "newConversation" }
   | { kind: "currentConversation" }
-  | { kind: "markCurrentUnread" };
+  | { kind: "markCurrentUnread" }
+  | { kind: "logout" };
 
 // Surface exposed to the renderer as `window.vellum`. `platform`, `settings`,
 // and `commands` are wired through IPC; `auth` and `helper` are typed stubs
@@ -66,6 +67,19 @@ export interface PowerEvent {
   kind: PowerEventKind;
 }
 
+/**
+ * Mirror of `AssistantStatus` in `apps/macos/src/main/status.ts`. Inlined for
+ * the same reason as the other bridge types: preload + main + renderer each
+ * have their own TS project. Drift surfaces as the main-side Zod schema
+ * rejecting an unknown status (the message drops silently), not a crash.
+ */
+export type AssistantStatus =
+  | "idle"
+  | "thinking"
+  | "error"
+  | "disconnected"
+  | "authFailed";
+
 export interface VellumBridge {
   platform: "electron";
   app: {
@@ -104,6 +118,30 @@ export interface VellumBridge {
      */
     on(callback: (command: VellumCommand) => void): () => void;
   };
+  status: {
+    /**
+     * Publish the assistant's connection status so the main process can
+     * drive the menu-bar (Tray) status dot and pulse. The renderer holds
+     * the live gateway/auth connection, so it's the source of truth; main
+     * owns only the presentation. Fire-and-forget — no acknowledgement.
+     */
+    setConnection(status: AssistantStatus): void;
+  };
+  icon: {
+    /**
+     * Publish the assistant's avatar as raw PNG bytes so the main process
+     * can drive both icon surfaces — the Dock icon (`app.dock.setIcon`) and
+     * the menu-bar (Tray) base image under the status dot — from one source.
+     * Pass `null` when the assistant has no custom avatar so main restores
+     * the bundled Vellum mark, mirroring the native app's avatar fallback.
+     *
+     * The renderer owns avatar identity and rasterization because Electron's
+     * `nativeImage` only decodes PNG/JPEG, not the trait-composited SVG; main
+     * owns per-surface masking (circular tray, rounded-rect dock).
+     * Fire-and-forget — no acknowledgement.
+     */
+    setAvatar(png: Uint8Array | null): void;
+  };
   dock: {
     /**
      * Publish the unread count so the main process can update the macOS
@@ -128,7 +166,7 @@ export interface VellumBridge {
      * (rather than rejecting) so the renderer renders the same error UI it
      * shows for the web/dev middleware path.
      */
-    hatch(species: string): Promise<{
+    hatch(species: string, remote?: string): Promise<{
       ok: boolean;
       assistantId?: string;
       error?: string;
@@ -182,6 +220,9 @@ export interface VellumBridge {
       | { ok: false; status: number; error: string }
     >;
   };
+  menu: {
+    setPlatformSession(has: boolean): Promise<void>;
+  };
   mainWindow: {
     /**
      * Bring the main window to the foreground: recreate if destroyed,
@@ -193,6 +234,14 @@ export interface VellumBridge {
      * `ensureVisible`.
      */
     ensureVisible(): Promise<void>;
+    /**
+     * Switch the main window between the onboarding layout (440×630
+     * default) and the main-app layout. Both stay resizable. The renderer
+     * calls this as the user navigates into / out of the onboarding
+     * routes; main persists the mode so the next launch opens at the
+     * right size.
+     */
+    setOnboarding(active: boolean): Promise<void>;
   };
   power: {
     /**
@@ -266,6 +315,16 @@ const bridge: VellumBridge = {
       };
     },
   },
+  status: {
+    setConnection: (status: AssistantStatus): void => {
+      ipcRenderer.send("vellum:status:connection", status);
+    },
+  },
+  icon: {
+    setAvatar: (png: Uint8Array | null): void => {
+      ipcRenderer.send("vellum:icon:setAvatar", png);
+    },
+  },
   dock: {
     setBadge: (count: number): Promise<void> =>
       ipcRenderer.invoke("vellum:dock:setBadge", count) as Promise<void>,
@@ -273,8 +332,8 @@ const bridge: VellumBridge = {
       ipcRenderer.invoke("vellum:dock:setSignedIn", signedIn) as Promise<void>,
   },
   localMode: {
-    hatch: (species: string) =>
-      ipcRenderer.invoke("vellum:localMode:hatch", species) as Promise<{
+    hatch: (species: string, remote?: string) =>
+      ipcRenderer.invoke("vellum:localMode:hatch", species, remote) as Promise<{
         ok: boolean;
         assistantId?: string;
         error?: string;
@@ -316,9 +375,18 @@ const bridge: VellumBridge = {
         | { ok: false; status: number; error: string }
       >,
   },
+  menu: {
+    setPlatformSession: (has: boolean): Promise<void> =>
+      ipcRenderer.invoke("vellum:menu:setPlatformSession", has) as Promise<void>,
+  },
   mainWindow: {
     ensureVisible: (): Promise<void> =>
       ipcRenderer.invoke("vellum:mainWindow:ensureVisible") as Promise<void>,
+    setOnboarding: (active: boolean): Promise<void> =>
+      ipcRenderer.invoke(
+        "vellum:mainWindow:setOnboarding",
+        active,
+      ) as Promise<void>,
   },
   power: {
     onEvent: (callback) => {

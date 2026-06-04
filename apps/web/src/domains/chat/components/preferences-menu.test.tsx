@@ -20,7 +20,7 @@ mock.module("@/hooks/use-is-mobile", () => ({
 }));
 
 const authRef = {
-  isLoggedIn: true,
+  isAuthenticated: true,
   user: { id: "u1", email: "user@example.com", isStaff: false, username: null, firstName: "", lastName: "" },
   logout: async () => {},
 };
@@ -28,12 +28,14 @@ const authRef = {
 mock.module("@/stores/auth-store", () => {
   const store = () => null;
   store.use = {
-    isLoggedIn: () => authRef.isLoggedIn,
     user: () => authRef.user,
     logout: () => authRef.logout,
   };
   store.getState = () => authRef;
-  return { useAuthStore: store };
+  return {
+    useAuthStore: store,
+    useIsAuthenticated: () => authRef.isAuthenticated,
+  };
 });
 
 const flagsRef = {};
@@ -91,14 +93,14 @@ import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
 
 beforeEach(() => {
   isMobileRef.value = false;
-  authRef.isLoggedIn = true;
+  authRef.isAuthenticated = true;
   authRef.user = { id: "u1", email: "user@example.com", isStaff: false, username: null, firstName: "", lastName: "" };
   billingRef.data = undefined;
 });
 
 describe("PreferencesMenu", () => {
   test("renders nothing when not logged in", () => {
-    authRef.isLoggedIn = false;
+    authRef.isAuthenticated = false;
     const html = renderToStaticMarkup(createElement(PreferencesMenu));
     expect(html).toBe("");
   });

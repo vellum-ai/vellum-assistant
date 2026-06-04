@@ -99,14 +99,6 @@ export type DaemonConfigPatch = {
   };
 };
 
-export interface DaemonConfigReconciliation {
-  inferenceProvider?: string;
-  selectedModel?: string;
-  webSearchMode?: ServiceMode;
-  webSearchProvider?: string;
-  imageGenMode?: ServiceMode;
-}
-
 export interface InferenceTokenBudgetState {
   maxOutputTokens: number;
   maxOutputTouched: boolean;
@@ -304,4 +296,4 @@ export const LS_TTS_VOICE_ID_PREFIX = "vellum:voice:ttsVoiceId:";
 export const LS_STT_PROVIDER = "vellum:voice:sttProvider";
 export const LS_STT_API_KEY_PREFIX = "vellum:voice:sttApiKey:";
 
-export const LS_IMAGE_GEN_CREDENTIAL = "vellum:ai:geminiKey";
+

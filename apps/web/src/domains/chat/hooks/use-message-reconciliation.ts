@@ -10,11 +10,13 @@ import {
   summarizeRuntimeMessages,
 } from "@/domains/chat/utils/diagnostics";
 import { type DisplayMessage, reconcileMessages } from "@/domains/chat/utils/reconcile";
+import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 import { runtimeMessagePlainText } from "@/domains/chat/utils/map-runtime-message";
 import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
-import { fetchConversationMessages, type RuntimeMessage } from "@/domains/chat/api/messages";
+import { fetchConversationMessages } from "@/domains/chat/api/messages";
+import type { ConversationMessage } from "@vellumai/assistant-api";
 import { useConversationStore } from "@/stores/conversation-store";
 import { endTurn } from "@/domains/chat/turn-coordinator";
 
@@ -43,7 +45,7 @@ export interface ReconcileActiveConversationResult {
 }
 
 interface UseMessageReconciliationReturn {
-  reconcileFromServer: (serverMessages: RuntimeMessage[]) => boolean;
+  reconcileFromServer: (serverMessages: ConversationMessage[]) => boolean;
   startReconciliationLoop: (epoch: number) => void;
   cancelReconciliation: () => void;
   /** Fetches the latest messages, reconciles them, and reconciles turn
@@ -54,7 +56,7 @@ interface UseMessageReconciliationReturn {
 
 function serverHasAssistantProgress(
   localMessages: DisplayMessage[],
-  serverMessages: RuntimeMessage[],
+  serverMessages: ConversationMessage[],
   isProcessing: boolean,
 ): boolean {
   const liveRowId = liveAssistantRowId(localMessages, isProcessing);
@@ -140,7 +142,7 @@ export function useMessageReconciliation({
 
   const reconcileFromServerDetailed = useCallback(
     (
-      serverMessages: RuntimeMessage[],
+      serverMessages: ConversationMessage[],
     ): {
       changed: boolean;
       assistantProgress: boolean;
@@ -192,14 +194,14 @@ export function useMessageReconciliation({
   );
 
   const reconcileFromServer = useCallback(
-    (serverMessages: RuntimeMessage[]): boolean =>
+    (serverMessages: ConversationMessage[]): boolean =>
       reconcileFromServerDetailed(serverMessages).changed,
     [reconcileFromServerDetailed],
   );
 
   const reconcileFetchedMessages = useCallback(
     (
-      serverMessages: RuntimeMessage[],
+      serverMessages: ConversationMessage[],
       snapshotTurnId: string | null,
       snapshotConversationId: string,
     ): ReconcileActiveConversationResult => {
@@ -281,21 +283,20 @@ export function useMessageReconciliation({
       if (wasStuck || !isSending(useTurnStore.getState())) {
         setMessages((prev) => {
           const hasStaleToolCalls = prev.some((m) =>
-            m.toolCalls?.some((tc) => tc.status === "running"),
+            m.toolCalls?.some((tc) => isToolCallRunning(tc)),
           );
           if (!hasStaleToolCalls) return prev;
           return prev.map((m) => {
             const needsClearToolCalls = m.toolCalls?.some(
-              (tc) => tc.status === "running",
+              (tc) => isToolCallRunning(tc),
             );
             if (!needsClearToolCalls) return m;
             return {
               ...m,
               toolCalls: m.toolCalls!.map((tc) =>
-                tc.status === "running"
+                isToolCallRunning(tc)
                   ? {
                       ...tc,
-                      status: "completed" as const,
                       completedAt: Date.now(),
                     }
                   : tc,

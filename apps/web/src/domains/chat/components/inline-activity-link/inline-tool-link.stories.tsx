@@ -16,9 +16,8 @@ function makeToolCall(
   const startedAt = 1_717_000_000_000;
   return {
     id: `tc-${Math.random().toString(36).slice(2, 8)}`,
-    toolName: "bash",
+    name: "bash",
     input: { command: "date", activity: "Checking the current time" },
-    status: "completed",
     riskLevel: "low",
     startedAt,
     completedAt: startedAt + 2_000,
@@ -51,7 +50,7 @@ export const Skill: Story = {
   args: {
     toolCall: makeToolCall({
       id: "tc-skill",
-      toolName: "skill_execute",
+      name: "skill_execute",
       input: { skill: "deep-research", activity: "Running deep research" },
       riskLevel: undefined,
     }),
@@ -86,7 +85,7 @@ export const Error: Story = {
   args: {
     toolCall: makeToolCall({
       id: "tc-error",
-      status: "error",
+      isError: true,
       input: { command: "exit 1", activity: "Running a failing command" },
       riskLevel: "low",
     }),

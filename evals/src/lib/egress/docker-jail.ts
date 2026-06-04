@@ -1,5 +1,5 @@
 import { dirname, resolve } from "node:path";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 import { assertSuccess, type CommandRunner } from "../runtime/command-runner";
@@ -20,6 +20,19 @@ export interface DockerEgressJailConfig {
   recordingImage?: string;
   /** Optional override for the recording sidecar Dockerfile directory. */
   recordingDockerfileDir?: string;
+  /**
+   * Host path to bind-mount at `/fixtures` inside the recording sidecar.
+   *
+   * When provided, the addon's `mock_github_handler.py` serves
+   * `assistant plugins install` traffic from this directory instead of
+   * letting it reach api.github.com / raw.githubusercontent.com. The
+   * layout mirrors `experimental/plugins/<name>/...` in the
+   * vellum-assistant repo — one subdirectory per plugin name.
+   *
+   * Omit to leave plugin install requests unmocked — they then hit
+   * the iptables DROP-default and fail closed at TCP connect time.
+   */
+  pluginFixturesDir?: string;
 }
 
 export interface DockerEgressJail {
@@ -44,34 +57,31 @@ export const DEFAULT_MODEL_ALLOW_HOSTS = [
  * Non-model hosts the assistant container needs reachable for eval
  * setup to succeed.
  *
- * - **api.github.com / raw.githubusercontent.com / codeload.github.com**:
- *   `assistant plugins install <name>` (used by every memory-layer
- *   profile's setup, e.g. `vellum-simple-memory`) fetches a plugin
- *   directory listing from `api.github.com/repos/.../contents/...`
- *   then downloads each file via the `download_url` field, which
- *   points to `raw.githubusercontent.com`. `codeload.github.com` is
- *   the tarball host used by future zip-download paths. Without these
- *   the setup step fails with "Plugin install failed: Unable to
- *   connect. Is the computer able to access the url?", the run
- *   crashes mid-setup, and the half-hatched container leaks (see
- *   the retire-failure fallback in vellum.ts).
+ * **{prod,staging,dev,test}-platform.vellum.ai**: the assistant's
+ * skills/feature-flag/catalog calls (`VELLUM_PLATFORM_URL` env var,
+ * resolved per environment seed in
+ * `cli/src/lib/environments/seeds.ts`). Including the non-prod
+ * variants up-front means an eval against a non-prod environment
+ * doesn't silently fall back to a blocked egress; the egress layer
+ * doesn't care which is "active" — only that the host the assistant
+ * actually calls matches an allowlisted name.
  *
- * - **{prod,staging,dev,test}-platform.vellum.ai**: the assistant's
- *   skills/feature-flag/catalog calls (`VELLUM_PLATFORM_URL` env var,
- *   resolved per environment seed in
- *   `cli/src/lib/environments/seeds.ts`). Including the non-prod
- *   variants up-front means an eval against a non-prod environment
- *   doesn't silently fall back to a blocked egress; the egress layer
- *   doesn't care which is "active" — only that the host the assistant
- *   actually calls matches an allowlisted name.
+ * **GitHub hosts are deliberately not allowlisted.**
+ * `assistant plugins install <name>` traffic to `api.github.com` and
+ * `raw.githubusercontent.com` is intercepted by the recording
+ * addon's mock-github handler when `pluginFixturesDir` is set on
+ * `applyDockerEgressJail`. The NAT REDIRECT rule installed by
+ * `apply-recording-jail.sh` bounces 443 traffic into mitmproxy
+ * before the filter table sees the original GitHub destination, so
+ * mitmproxy synthesizes responses from disk without ever needing
+ * upstream GitHub egress. When `pluginFixturesDir` is omitted, plugin
+ * install fails closed against the DROP-default — which is the
+ * intended behavior for evals that don't depend on plugins.
  *
  * Kept separate from `DEFAULT_MODEL_ALLOW_HOSTS` so the addon's
  * provider-recognition logic stays bounded.
  */
 export const DEFAULT_INFRA_ALLOW_HOSTS = [
-  "api.github.com",
-  "raw.githubusercontent.com",
-  "codeload.github.com",
   "platform.vellum.ai",
   "staging-platform.vellum.ai",
   "dev-platform.vellum.ai",
@@ -121,6 +131,73 @@ async function readRecordingUsage(
     .map((line) => JSON.parse(line) as Record<string, unknown>);
 }
 
+const RECORDING_CA_FILENAME = "mitmproxy-ca-cert.pem";
+const ASSISTANT_CA_TARGET =
+  "/usr/local/share/ca-certificates/vellum-evals-mitmproxy.crt";
+const CA_POLL_TIMEOUT_MS = 10_000;
+const CA_POLL_INTERVAL_MS = 100;
+
+/**
+ * Wait for the recording sidecar's entrypoint to copy the mitmproxy
+ * CA onto the host-mounted recording dir. The CA file is pre-generated
+ * at image build time (see `recording/Dockerfile`) and `entrypoint.sh`
+ * copies it to `/recording/mitmproxy-ca-cert.pem` within the first few
+ * hundred ms of boot. We poll because `docker run -d` returns
+ * immediately and the entrypoint might still be executing the iptables
+ * setup when control returns.
+ */
+async function waitForRecordingCa(recordingDir: string): Promise<string> {
+  const caPath = resolve(recordingDir, RECORDING_CA_FILENAME);
+  const start = Date.now();
+  while (Date.now() - start < CA_POLL_TIMEOUT_MS) {
+    try {
+      await stat(caPath);
+      return caPath;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+      await new Promise((r) => setTimeout(r, CA_POLL_INTERVAL_MS));
+    }
+  }
+  throw new Error(
+    `recording sidecar did not write CA to ${caPath} within ` +
+      `${CA_POLL_TIMEOUT_MS}ms — assistant container will not trust ` +
+      `mitmproxy and any TLS-intercepted host will fail closed`,
+  );
+}
+
+/**
+ * Install the recording sidecar's CA into the assistant container's
+ * system trust store. Required for any host listed in mitmproxy's
+ * `--allow-hosts` regex — without it, TLS handshake fails before the
+ * addon's request hook sees the URL, and recording / mocking are both
+ * silently dead code.
+ *
+ * Uses `docker cp` + `docker exec ... update-ca-certificates`, which
+ * assumes a Debian-family base image. The current assistant container
+ * is Debian; if that ever changes, this step needs to grow a per-base
+ * dispatch (alpine ships `update-ca-certificates` too but from a
+ * different package; minimal images ship neither).
+ */
+async function installRecordingCa(
+  runner: CommandRunner,
+  recordingDir: string,
+  assistantContainer: string,
+): Promise<void> {
+  const caPath = await waitForRecordingCa(recordingDir);
+  const cp = await runner.run("docker", [
+    "cp",
+    caPath,
+    `${assistantContainer}:${ASSISTANT_CA_TARGET}`,
+  ]);
+  assertSuccess(cp, `copy recording CA into ${assistantContainer}`);
+  const update = await runner.run("docker", [
+    "exec",
+    assistantContainer,
+    "update-ca-certificates",
+  ]);
+  assertSuccess(update, `update CA trust store in ${assistantContainer}`);
+}
+
 /** Deterministic Docker names make cleanup idempotent and debuggable. */
 export function dockerEgressJailContainerName(containerName: string): string {
   return `${containerName}-egress-jail`;
@@ -164,6 +241,15 @@ export async function applyDockerEgressJail(
   ]);
   assertSuccess(build, `build recording egress jail image ${recordingImage}`);
 
+  const fixturesArgs = config.pluginFixturesDir
+    ? [
+        "-v",
+        `${resolve(config.pluginFixturesDir)}:/fixtures:ro`,
+        "-e",
+        "PLUGIN_FIXTURES_DIR=/fixtures",
+      ]
+    : [];
+
   const result = await runner.run("docker", [
     "run",
     "-d",
@@ -181,12 +267,20 @@ export async function applyDockerEgressJail(
     `ALLOW_HOSTS=${allowHosts.join(",")}`,
     "-v",
     `${resolve(recordingDir)}:/recording`,
+    ...fixturesArgs,
     recordingImage,
   ]);
   assertSuccess(
     result,
     `apply recording docker egress jail to ${config.containerName}`,
   );
+
+  // Hand the mitmproxy CA off to the assistant container BEFORE any
+  // setup command runs. The CA needs to be in the trust store before
+  // the first TLS-intercepted call (anthropic for recording, github
+  // for plugin mocking), otherwise mitmproxy's interception fails
+  // closed and the addon hooks never fire.
+  await installRecordingCa(runner, recordingDir, config.containerName);
 
   return {
     readUsageRecords: () => readRecordingUsage(recordingDir),

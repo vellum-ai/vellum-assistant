@@ -1,25 +1,25 @@
 
 import {
-  ArrowRight,
-  Check,
-  ChevronLeft,
-  ChevronRight,
-  Pencil,
-  X,
+    ArrowRight,
+    Check,
+    ChevronLeft,
+    ChevronRight,
+    Pencil,
+    X,
 } from "lucide-react";
 import {
-  type KeyboardEvent as ReactKeyboardEvent,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
+    type KeyboardEvent as ReactKeyboardEvent,
+    useCallback,
+    useEffect,
+    useRef,
+    useState,
 } from "react";
 
-import { Button, Card, Typography } from "@vellum/design-library";
-import { useOptionHotkeys } from "@/hooks/use-option-hotkeys";
-import { isPointerCoarse } from "@/utils/pointer";
-import type { QuestionEntry } from "@/types/interaction-ui-types";
 import type { QuestionResponseEntry } from "@/domains/chat/api/event-types";
+import { useOptionHotkeys } from "@/hooks/use-option-hotkeys";
+import type { QuestionEntry } from "@/types/interaction-ui-types";
+import { isPointerCoarse } from "@/utils/pointer";
+import { Button, Card, Typography } from "@vellumai/design-library";
 
 export interface QuestionPromptCardProps {
   /** The daemon-supplied request id; needed by the owner for batched POST. */

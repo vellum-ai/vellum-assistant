@@ -43,7 +43,8 @@ mock.module("../auth/token-exchange.js", () => ({
 }));
 
 const { AuthRateLimiter } = await import("../auth-rate-limiter.js");
-const { createAuthMiddleware } = await import("../http/middleware/auth.js");
+const { createAuthMiddleware, loopbackFallbackCountTracker } =
+  await import("../http/middleware/auth.js");
 
 const PLATFORM_USER_ID = "user-abc-123";
 const GUARDIAN_PRINCIPAL = "actor-guardian-xyz";
@@ -70,6 +71,7 @@ beforeEach(() => {
   mockReadCredential = mock(async () => undefined);
   mockFindVellumGuardian = mock(async () => null);
   mockValidateEdgeToken = mock(() => ({ ok: false, reason: "noop" }));
+  loopbackFallbackCountTracker.reset();
 });
 
 afterEach(() => {
@@ -188,6 +190,19 @@ describe("requireEdgeGuardianAuth — actor principal mode", () => {
     );
     expect(res).toBeNull();
     expect(mockFindVellumGuardian).not.toHaveBeenCalled();
+  });
+
+  test("a guardian loopback fallback is counted under the edge-guardian guard", async () => {
+    const { requireEdgeGuardianAuth } = makeMiddleware();
+    await requireEdgeGuardianAuth(makeReq(), makeLoopbackServer());
+    expect(loopbackFallbackCountTracker.snapshot()).toEqual([
+      {
+        guard: "edge-guardian",
+        path: "/v1/contact-channels/abc/verify",
+        failureKind: "missing_authorization",
+        count: 1,
+      },
+    ]);
   });
 
   test("returns 503 when findVellumGuardian throws (transient assistant DB outage)", async () => {

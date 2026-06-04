@@ -18,6 +18,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import {
+  isToolCallCompleted,
+  isToolCallRunning,
+} from "@/domains/chat/utils/tool-call-status";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useStreamStore } from "@/domains/chat/stream-store";
 import { INITIAL_TURN_STATE, type TurnState, useTurnStore } from "@/domains/chat/turn-store";
@@ -27,7 +31,7 @@ import { useConversationStore } from "@/stores/conversation-store";
 // Mocks — module mocks MUST come before importing the subject under test.
 // ---------------------------------------------------------------------------
 
-let mockFetchResult: RuntimeMessage[] = [];
+let mockFetchResult: ConversationMessage[] = [];
 let mockFetchError: Error | null = null;
 let mockFetchSideEffect: (() => void) | null = null;
 let fetchCallCount = 0;
@@ -72,9 +76,8 @@ mock.module("@/domains/chat/api/messages", () => ({
   ) =>
     toolCalls.map((tc, idx) => ({
       id: `tool-history-${messageId}-${idx}`,
-      toolName: tc.name,
+      name: tc.name,
       input: tc.input,
-      status: tc.isError ? "error" : tc.result === undefined ? "running" : "completed",
       ...(tc.result !== undefined ? { result: tc.result } : {}),
       ...(tc.isError !== undefined ? { isError: tc.isError } : {}),
     })),
@@ -101,7 +104,7 @@ mock.module("@/domains/chat/api/messages", () => ({
 // ---------------------------------------------------------------------------
 
 import type { useMessageReconciliation } from "@/domains/chat/hooks/use-message-reconciliation";
-import type { RuntimeMessage } from "@/domains/chat/api/messages";
+import type { ConversationMessage } from "@vellumai/assistant-api";
 
 import {
   makeServerMessage,
@@ -255,7 +258,7 @@ describe("reconcileFromServer", () => {
   test("returns true when messages change", () => {
     messages = [makeMessage({ id: "m1", role: "user", ...textBody("Hello") })];
     const { reconcileFromServer } = createHarness();
-    const serverMessages: RuntimeMessage[] = [
+    const serverMessages: ConversationMessage[] = [
       makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
       makeServerMessage({ id: "m2", role: "assistant", ...wireTextBody("World") }),
     ];
@@ -266,7 +269,7 @@ describe("reconcileFromServer", () => {
     const msg = makeMessage({ id: "m1", role: "user", ...textBody("Hello") });
     messages = [msg];
     const { reconcileFromServer } = createHarness();
-    const serverMessages: RuntimeMessage[] = [
+    const serverMessages: ConversationMessage[] = [
       makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
     ];
     // reconcileMessages rebuilds messages from server data, so the array
@@ -279,7 +282,7 @@ describe("reconcileFromServer", () => {
   test("updates messages state with reconciled result", () => {
     messages = [makeMessage({ id: "m1", role: "user", ...textBody("Hello") })];
     const { reconcileFromServer } = createHarness();
-    const serverMessages: RuntimeMessage[] = [
+    const serverMessages: ConversationMessage[] = [
       makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
       makeServerMessage({ id: "m2", role: "assistant", ...wireTextBody("Response") }),
     ];
@@ -291,7 +294,7 @@ describe("reconcileFromServer", () => {
   test("surfaces on server messages are preserved in reconciled messages", () => {
     messages = [makeMessage({ id: "m1", role: "user", ...textBody("Hello") })];
     const { reconcileFromServer } = createHarness();
-    const serverMessages: RuntimeMessage[] = [
+    const serverMessages: ConversationMessage[] = [
       makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
       makeServerMessage({
         id: "m2",
@@ -1055,7 +1058,7 @@ describe("reconcileActiveConversation — stale tool call cleanup", () => {
         role: "assistant",
         ...textBody(""),
         toolCalls: [
-          { id: "tc-1", toolName: "web_search", input: {}, status: "running" as const },
+          { id: "tc-1", name: "web_search", input: {} },
         ],
       }),
     ];
@@ -1078,7 +1081,7 @@ describe("reconcileActiveConversation — stale tool call cleanup", () => {
     await reconcileActiveConversation();
 
     // The running tool call should be force-completed once the turn is idle.
-    expect(messages[1]!.toolCalls![0]!.status).toBe("completed");
+    expect(isToolCallCompleted(messages[1]!.toolCalls![0]!)).toBe(true);
     expect(messages[1]!.toolCalls![0]!.completedAt).toBeDefined();
   });
 
@@ -1090,8 +1093,8 @@ describe("reconcileActiveConversation — stale tool call cleanup", () => {
         role: "assistant",
         ...textBody("partial"),
         toolCalls: [
-          { id: "tc-1", toolName: "web_search", input: {}, status: "running" as const },
-          { id: "tc-2", toolName: "bash", input: {}, status: "completed" as const },
+          { id: "tc-1", name: "web_search", input: {} },
+          { id: "tc-2", name: "bash", input: {}, completedAt: 1 },
         ],
       }),
     ];
@@ -1114,10 +1117,10 @@ describe("reconcileActiveConversation — stale tool call cleanup", () => {
     await reconcileActiveConversation();
 
     // The running tool call should be force-completed
-    expect(messages[1]!.toolCalls![0]!.status).toBe("completed");
+    expect(isToolCallCompleted(messages[1]!.toolCalls![0]!)).toBe(true);
     expect(messages[1]!.toolCalls![0]!.completedAt).toBeDefined();
     // The already-completed tool call should be unchanged
-    expect(messages[1]!.toolCalls![1]!.status).toBe("completed");
+    expect(isToolCallCompleted(messages[1]!.toolCalls![1]!)).toBe(true);
   });
 
   test("does NOT force-complete tool calls when turn is still sending", async () => {
@@ -1128,7 +1131,7 @@ describe("reconcileActiveConversation — stale tool call cleanup", () => {
         role: "assistant",
         ...textBody(""),
         toolCalls: [
-          { id: "tc-1", toolName: "web_search", input: {}, status: "running" as const },
+          { id: "tc-1", name: "web_search", input: {} },
         ],
       }),
     ];
@@ -1151,6 +1154,6 @@ describe("reconcileActiveConversation — stale tool call cleanup", () => {
     await reconcileActiveConversation();
 
     // Tool call should remain running since the turn is still active
-    expect(messages[1]!.toolCalls![0]!.status).toBe("running");
+    expect(isToolCallRunning(messages[1]!.toolCalls![0]!)).toBe(true);
   });
 });

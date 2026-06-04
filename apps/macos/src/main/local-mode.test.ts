@@ -262,6 +262,18 @@ describe("vellum:localMode:hatch handler", () => {
     expect(result.error).toContain("ENOENT");
   });
 
+  test("parses the assistant id from a Docker hatch banner", async () => {
+    const pending = hatch("vellum");
+    await tick();
+    lastChild.stdout.emit(
+      "data",
+      Buffer.from("🥚 Hatching Docker assistant: asst-docker\n"),
+    );
+    lastChild.emit("close", 0);
+
+    expect(await pending).toEqual({ ok: true, assistantId: "asst-docker" });
+  });
+
   test("a zero exit whose stdout has no parseable id fails instead of returning a blank id", async () => {
     const pending = hatch("vellum");
     await tick();

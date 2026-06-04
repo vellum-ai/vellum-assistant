@@ -3,43 +3,35 @@ import { useCallback, useMemo, useRef, useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 
-import { Button } from "@vellum/design-library/components/button";
-import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
-import { Dropdown } from "@vellum/design-library/components/dropdown";
-import { Input } from "@vellum/design-library/components/input";
-import { Toggle } from "@vellum/design-library/components/toggle";
-import { Modal } from "@vellum/design-library/components/modal";
-import { toast } from "@vellum/design-library/components/toast";
-import type { ConfigLlmCallsitesGetResponse } from "@/generated/daemon/types.gen";
+import {
+    getDefaultModelForProvider,
+} from "@/assistant/llm-model-catalog";
 import { configLlmCallsitesGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
+import type { ConfigLlmCallsitesGetResponse } from "@/generated/daemon/types.gen";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
-import {
-  getDefaultModelForProvider,
-  getModelsForProvider,
-} from "@/assistant/llm-model-catalog";
+import { Button } from "@vellumai/design-library/components/button";
+import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
+import { Input } from "@vellumai/design-library/components/input";
+import { Modal } from "@vellumai/design-library/components/modal";
+import { toast } from "@vellumai/design-library/components/toast";
 
 import {
-  type CallSiteOverrideDraft,
-  INFERENCE_PROVIDER_DISPLAY_NAMES,
-  INFERENCE_PROVIDERS,
+    type CallSiteOverrideDraft,
+    INFERENCE_PROVIDERS,
 } from "@/domains/settings/ai/ai-types";
+import { CUSTOM_SENTINEL, draftsEqual, isDraftActive } from "@/domains/settings/ai/call-site-helpers";
+import { CallSiteOverrideRow } from "@/domains/settings/ai/call-site-overrides-row";
 import {
-  profilePickerLabel,
-  visibleProfilesForPicker,
-  gateAutoProfile,
-  selectSeedProfileForOverride,
+    gateAutoProfile,
+    profilePickerLabel,
+    selectSeedProfileForOverride,
+    visibleProfilesForPicker,
 } from "@/domains/settings/ai/profile-pickers";
 import {
-  useDaemonConfigQuery,
-  useDaemonConfigMutation,
+    useDaemonConfigMutation,
+    useDaemonConfigQuery,
 } from "@/domains/settings/ai/use-daemon-config";
-
-// ---------------------------------------------------------------------------
-// Sentinel value for the "Custom" profile picker option
-// ---------------------------------------------------------------------------
-
-const CUSTOM_SENTINEL = "__custom__";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -53,30 +45,6 @@ export interface CallSiteOverridesModalProps {
   isOpen: boolean;
   onClose: () => void;
   assistantId: string;
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-export function isDraftActive(d: CallSiteOverrideDraft | null | undefined): boolean {
-  if (!d) return false;
-  return !!(d.profile || d.provider || d.model);
-}
-
-export function draftsEqual(
-  a: CallSiteOverrideDraft | null | undefined,
-  b: CallSiteOverrideDraft | null | undefined,
-): boolean {
-  const aActive = isDraftActive(a);
-  const bActive = isDraftActive(b);
-  if (aActive !== bActive) return false;
-  if (!aActive) return true;
-  return (
-    (a?.profile ?? null) === (b?.profile ?? null) &&
-    (a?.provider ?? null) === (b?.provider ?? null) &&
-    (a?.model ?? null) === (b?.model ?? null)
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -192,8 +160,6 @@ function CallSiteOverridesModalInner({
   // Derived state
   // ---------------------------------------------------------------------------
 
-  const availableProviders = INFERENCE_PROVIDERS;
-
   const gatedCallSiteIdSet = useMemo(
     () => new Set(catalogCallSiteIds),
     [catalogCallSiteIds],
@@ -281,75 +247,41 @@ function CallSiteOverridesModalInner({
   }, [catalog, filteredCallSites]);
 
   // ---------------------------------------------------------------------------
-  // Row helpers
+  // Row callbacks
   // ---------------------------------------------------------------------------
 
-  function getDraft(id: string): CallSiteOverrideDraft | null {
-    return drafts[id] ?? null;
-  }
+  const handleDraftChange = useCallback(
+    (id: string, draft: CallSiteOverrideDraft | null) => {
+      setDraftEdits((prev) => ({ ...prev, [id]: draft }));
+    },
+    [],
+  );
 
-  function isOverrideOn(id: string): boolean {
-    return isDraftActive(getDraft(id));
-  }
-
-  function getProfilePickerValue(id: string): string {
-    const d = getDraft(id);
-    if (!d || !isDraftActive(d)) return "";
-    if (d.provider || d.model) return CUSTOM_SENTINEL;
-    return d.profile ?? "";
-  }
-
-  function handleToggle(id: string, on: boolean, defaultProfile?: string) {
-    if (!on) {
-      setDraftEdits((prev) => ({ ...prev, [id]: null }));
-      return;
-    }
-    const seedProfile = selectSeedProfileForOverride(
-      orderedProfiles,
-      defaultProfile,
-      queryComplexityRoutingEnabled,
-    );
-    if (seedProfile) {
-      setDraftEdits((prev) => ({ ...prev, [id]: { profile: seedProfile } }));
-    } else {
-      const defaultProvider = availableProviders[0];
-      const defaultModel = getDefaultModelForProvider(defaultProvider) ?? "";
-      setDraftEdits((prev) => ({
-        ...prev,
-        [id]: { provider: defaultProvider, model: defaultModel },
-      }));
-    }
-  }
-
-  function handleProfilePickerChange(id: string, val: string) {
-    if (val === CUSTOM_SENTINEL) {
-      const defaultProvider = availableProviders[0];
-      const defaultModel = getDefaultModelForProvider(defaultProvider) ?? "";
-      setDraftEdits((prev) => ({
-        ...prev,
-        [id]: { profile: null, provider: defaultProvider, model: defaultModel },
-      }));
-    } else if (val === "") {
-      setDraftEdits((prev) => ({ ...prev, [id]: null }));
-    } else {
-      setDraftEdits((prev) => ({
-        ...prev,
-        [id]: { profile: val, provider: null, model: null },
-      }));
-    }
-  }
-
-  function handleProviderChange(id: string, provider: string) {
-    const defaultModel = getDefaultModelForProvider(provider) ?? "";
-    setDraftEdits((prev) => ({
-      ...prev,
-      [id]: { ...(prev[id] ?? drafts[id]), profile: null, provider, model: defaultModel },
-    }));
-  }
-
-  function handleModelChange(id: string, model: string) {
-    setDraftEdits((prev) => ({ ...prev, [id]: { ...(prev[id] ?? drafts[id]), model } }));
-  }
+  const handleToggle = useCallback(
+    (id: string, on: boolean) => {
+      if (!on) {
+        setDraftEdits((prev) => ({ ...prev, [id]: null }));
+        return;
+      }
+      const cs = gatedCallSites.find((c) => c.id === id);
+      const seedProfile = selectSeedProfileForOverride(
+        orderedProfiles,
+        cs?.defaultProfile,
+        queryComplexityRoutingEnabled,
+      );
+      if (seedProfile) {
+        setDraftEdits((prev) => ({ ...prev, [id]: { profile: seedProfile } }));
+      } else {
+        const defaultProvider = INFERENCE_PROVIDERS[0];
+        const defaultModel = getDefaultModelForProvider(defaultProvider) ?? "";
+        setDraftEdits((prev) => ({
+          ...prev,
+          [id]: { provider: defaultProvider, model: defaultModel },
+        }));
+      }
+    },
+    [gatedCallSites, orderedProfiles, queryComplexityRoutingEnabled],
+  );
 
   // ---------------------------------------------------------------------------
   // Save / Reset
@@ -471,25 +403,12 @@ function CallSiteOverridesModalInner({
                   </p>
                   <div className="space-y-1">
                     {sites.map((cs) => {
-                      const overrideOn = isOverrideOn(cs.id);
-                      const profileVal = getProfilePickerValue(cs.id);
-                      const isCustom = profileVal === CUSTOM_SENTINEL;
-                      const draft = getDraft(cs.id);
-                      const currentProvider =
-                        draft?.provider ?? availableProviders[0];
-                      const availableModels = getModelsForProvider(
-                        currentProvider ?? "anthropic",
-                      );
-                      const modelOptions = availableModels.map((m) => ({
-                        value: m.id,
-                        label: m.displayName,
-                      }));
-                      const hasModelError = !!draft?.provider && !draft?.model;
-                      const profileOptions = buildProfileOptionsForRow(
-                        profileVal === "" || profileVal === CUSTOM_SENTINEL
-                          ? null
-                          : profileVal,
-                      );
+                      const profileVal = (() => {
+                        const d = drafts[cs.id] ?? null;
+                        if (!d || !isDraftActive(d)) return "";
+                        if (d.provider || d.model) return CUSTOM_SENTINEL;
+                        return d.profile ?? "";
+                      })();
                       const defaultProfileLabel = cs.defaultProfile
                         ? (orderedProfiles.find(
                             (op) => op.name === cs.defaultProfile,
@@ -497,90 +416,21 @@ function CallSiteOverridesModalInner({
                         : null;
 
                       return (
-                        <div
+                        <CallSiteOverrideRow
                           key={cs.id}
-                          className="rounded-lg border border-[var(--border-base)] bg-[var(--surface-base)] p-3"
-                        >
-                          <div className="flex items-start gap-3">
-                            <div className="min-w-0 flex-1">
-                              {/* typography: off-scale — call-site name uses medium weight for visual hierarchy within card */}
-                              <p className="text-body-medium-default font-medium text-[var(--content-default)]">
-                                {cs.displayName}
-                              </p>
-                              {cs.description && (
-                                <p className="mt-0.5 text-body-small-default text-[var(--content-tertiary)]">
-                                  {cs.description}
-                                  {defaultProfileLabel && (
-                                    <span className="ml-1.5 text-body-small-default text-[var(--content-tertiary)] opacity-60">
-                                      &middot; Default: {defaultProfileLabel}
-                                    </span>
-                                  )}
-                                </p>
-                              )}
-                            </div>
-                            <div className="flex shrink-0 items-center gap-2">
-                              {overrideOn && (
-                                <Dropdown
-                                  value={profileVal}
-                                  onChange={(val) =>
-                                    handleProfilePickerChange(cs.id, val)
-                                  }
-                                  options={profileOptions}
-                                  className="w-36"
-                                />
-                              )}
-                              <Toggle
-                                checked={overrideOn}
-                                onChange={(on) =>
-                                  handleToggle(cs.id, on, cs.defaultProfile)
-                                }
-                                aria-label={`Override ${cs.displayName}`}
-                              />
-                            </div>
-                          </div>
-
-                          {/* Custom provider + model pickers */}
-                          {overrideOn && isCustom && (
-                            <div className="mt-3 space-y-2 border-t border-[var(--border-base)] pt-3">
-                              <div className="flex gap-2">
-                                <div className="flex-1">
-                                  <label className="mb-1 block text-body-small-default text-[var(--content-tertiary)]">
-                                    Provider
-                                  </label>
-                                  <Dropdown
-                                    value={currentProvider ?? ""}
-                                    onChange={(val) =>
-                                      handleProviderChange(cs.id, val)
-                                    }
-                                    options={availableProviders.map((p) => ({
-                                      value: p,
-                                      label:
-                                        INFERENCE_PROVIDER_DISPLAY_NAMES[p] ??
-                                        p,
-                                    }))}
-                                  />
-                                </div>
-                                <div className="flex-1">
-                                  <label className="mb-1 block text-body-small-default text-[var(--content-tertiary)]">
-                                    Model
-                                  </label>
-                                  <Dropdown
-                                    value={draft?.model ?? ""}
-                                    onChange={(val) =>
-                                      handleModelChange(cs.id, val)
-                                    }
-                                    options={modelOptions}
-                                  />
-                                </div>
-                              </div>
-                              {hasModelError && (
-                                <p className="text-body-small-default text-[var(--system-negative-strong)]">
-                                  Pick a model
-                                </p>
-                              )}
-                            </div>
+                          id={cs.id}
+                          displayName={cs.displayName}
+                          description={cs.description}
+                          defaultProfileLabel={defaultProfileLabel}
+                          draft={drafts[cs.id] ?? null}
+                          profileOptions={buildProfileOptionsForRow(
+                            profileVal === "" || profileVal === CUSTOM_SENTINEL
+                              ? null
+                              : profileVal,
                           )}
-                        </div>
+                          onDraftChange={handleDraftChange}
+                          onToggle={handleToggle}
+                        />
                       );
                     })}
                   </div>
