@@ -2060,27 +2060,31 @@ export async function runAgentLoopImpl(
         // stripInjectionsForCompaction() unconditionally removed the existing
         // NOW.md block, so re-inject the current content regardless of whether
         // compaction actually ran.
-        const injection = await postCompactReinject(ctx.messages, {
-          ...injectionOpts,
-          pkbContext: currentPkbContent,
-          memoryV2Static: currentMemoryV2Static,
-          nowScratchpad: currentNowContent,
-          workspaceTopLevelContext: state.shouldInjectWorkspace
-            ? ctx.workspaceTopLevelContext
-            : null,
-          // Suppress the chronological-transcript snapshot once the reducer
-          // has collapsed `ctx.messages`; the captured snapshot reflects the
-          // full persisted transcript and would overwrite compaction.
-          slackChronologicalMessages: state.reducerCompacted
-            ? null
-            : injectionOpts.slackChronologicalMessages,
-          mode: currentInjectionMode,
-          turnContext: buildPluginTurnContext(ctx, reqId),
-        });
+        const injection = await postCompactReinject(
+          ctx.messages,
+          {
+            ...injectionOpts,
+            pkbContext: currentPkbContent,
+            memoryV2Static: currentMemoryV2Static,
+            nowScratchpad: currentNowContent,
+            workspaceTopLevelContext: state.shouldInjectWorkspace
+              ? ctx.workspaceTopLevelContext
+              : null,
+            // Suppress the chronological-transcript snapshot once the reducer
+            // has collapsed `ctx.messages`; the captured snapshot reflects the
+            // full persisted transcript and would overwrite compaction.
+            slackChronologicalMessages: state.reducerCompacted
+              ? null
+              : injectionOpts.slackChronologicalMessages,
+            mode: currentInjectionMode,
+            turnContext: buildPluginTurnContext(ctx, reqId),
+          },
+          {
+            graphMemory: ctx.graphMemory,
+            isTrustedActor,
+          },
+        );
         runMessages = injection.messages;
-        if (isTrustedActor && currentInjectionMode !== "minimal") {
-          ctx.graphMemory.retrackCachedNodes();
-        }
         const midLoopCompactStrip =
           stripHistoricalWebSearchResults(runMessages);
         if (midLoopCompactStrip.stats.blocksStripped > 0) {
