@@ -47,17 +47,17 @@ function OAuthDesktopCompleteRedirect() {
 // - React Router lazy (data mode): https://reactrouter.com/start/data/custom#3-lazy-loading
 // - React Router error boundaries: https://reactrouter.com/how-to/error-boundary
 // - React Router middleware: https://reactrouter.com/how-to/middleware
-export const router = createBrowserRouter(
-  [
+// Exported separately from `router` so the route tree can be asserted in
+// tests: `createBrowserRouter` consumes `Component`, so structural checks
+// (e.g. "the OAuth popup pages are NOT under AccountLayout") must run against
+// these raw definitions.
+export const routeTree = [
     // Account routes — standalone auth pages, no app chrome.
     // Lazy-loaded: only needed for unauthenticated flows.
     {
       path: "/account",
       ErrorBoundary: RouteErrorBoundary,
       HydrateFallback: RootHydrateFallback,
-      // Sizes the main window compact (440×630) for the auth screens, which
-      // render outside RootLayout. Renders the child routes via <Outlet/>.
-      Component: AccountLayout,
       children: [
         // Pathless wrapper so lazy-chunk failures render the chunk-fail
         // variant of `RouteErrorBoundary` (inline copy + Reload button)
@@ -65,17 +65,30 @@ export const router = createBrowserRouter(
         {
           ErrorBoundary: RouteErrorBoundary,
           children: [
-            { index: true, lazy: { Component: () => import("@/domains/account/pages/account-page").then((m) => m.AccountPage) } },
-            { path: "login", lazy: { Component: () => import("@/domains/account/pages/login-page").then((m) => m.LoginPage) } },
-            { path: "signup", lazy: { Component: () => import("@/domains/account/pages/signup-page").then((m) => m.SignupPage) } },
-            { path: "provider/callback", lazy: { Component: () => import("@/domains/account/pages/provider-callback-page").then((m) => m.ProviderCallbackPage) } },
-            { path: "provider/signup", lazy: { Component: () => import("@/domains/account/pages/provider-signup-page").then((m) => m.ProviderSignupPage) } },
+            // Auth screens that render in the MAIN window. AccountLayout sizes
+            // it compact (440×630) for these, matching onboarding.
+            {
+              Component: AccountLayout,
+              children: [
+                { index: true, lazy: { Component: () => import("@/domains/account/pages/account-page").then((m) => m.AccountPage) } },
+                { path: "login", lazy: { Component: () => import("@/domains/account/pages/login-page").then((m) => m.LoginPage) } },
+                { path: "signup", lazy: { Component: () => import("@/domains/account/pages/signup-page").then((m) => m.SignupPage) } },
+                { path: "provider/callback", lazy: { Component: () => import("@/domains/account/pages/provider-callback-page").then((m) => m.ProviderCallbackPage) } },
+                { path: "provider/signup", lazy: { Component: () => import("@/domains/account/pages/provider-signup-page").then((m) => m.ProviderSignupPage) } },
+                { path: "password/reset", lazy: { Component: () => import("@/domains/account/pages/password-reset-page").then((m) => m.PasswordResetPage) } },
+                { path: "password/reset/key/:key", lazy: { Component: () => import("@/domains/account/pages/password-reset-page").then((m) => m.PasswordResetPage) } },
+              ],
+            },
+            // OAuth completion / loopback machinery. These render inside the
+            // OAuth popup child window (or are transient redirects), NOT the
+            // main window — so they're deliberately OUTSIDE AccountLayout and
+            // never mount the sizing hook. The resize IPC targets the
+            // module-scoped main window, so sizing from a popup would shrink
+            // the wrong window. See `use-onboarding-window-size`.
             { path: "oauth/popup-complete", lazy: { Component: () => import("@/domains/account/pages/oauth-popup-complete-page").then((m) => m.OAuthPopupCompletePage) } },
             { path: "oauth/complete", lazy: { Component: () => import("@/domains/account/pages/oauth-complete-page").then((m) => m.OAuthCompletePage) } },
             { path: "oauth/desktop-complete", Component: OAuthDesktopCompleteRedirect },
             { path: "platform-callback", lazy: { Component: () => import("@/domains/account/pages/platform-loopback-page").then((m) => m.PlatformLoopbackPage) } },
-            { path: "password/reset", lazy: { Component: () => import("@/domains/account/pages/password-reset-page").then((m) => m.PasswordResetPage) } },
-            { path: "password/reset/key/:key", lazy: { Component: () => import("@/domains/account/pages/password-reset-page").then((m) => m.PasswordResetPage) } },
           ],
         },
       ],
@@ -269,8 +282,8 @@ export const router = createBrowserRouter(
 
     // Top-level catch-all
     { path: "*", ErrorBoundary: RouteErrorBoundary, Component: NotFound },
-  ],
-  {
-    future: { v8_middleware: true },
-  },
-);
+];
+
+export const router = createBrowserRouter(routeTree as never, {
+  future: { v8_middleware: true },
+});

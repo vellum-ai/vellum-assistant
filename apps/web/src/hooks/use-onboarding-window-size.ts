@@ -10,9 +10,14 @@ import { setOnboardingWindow } from "@/runtime/main-window";
  * Both are chrome-less, narrow, pre-app surfaces. Everything else (the main
  * app) uses the large window.
  *
- * `/assistant/about` is deliberately NOT here, and the hook is never mounted
- * on it — it renders in a separate About `BrowserWindow` off the same SPA,
- * and the resize IPC targets the main window, so signalling from there would
+ * The `/account` prefix assumes the hook is only mounted on `/account`
+ * routes that render in the MAIN window (login, signup, etc., via
+ * `AccountLayout`). The OAuth completion pages (`oauth/popup-complete` etc.)
+ * also match this prefix but render inside a popup child window — they're
+ * kept OUT of `AccountLayout` in `routes.tsx` so the hook never mounts
+ * there. Same hazard as `/assistant/about`, which renders in a separate
+ * About `BrowserWindow` and likewise never mounts this hook: the resize IPC
+ * targets the main window, so signalling from any non-main window would
  * resize the wrong window.
  */
 const COMPACT_PATH_PREFIXES = ["/assistant/onboarding/", "/account"];
