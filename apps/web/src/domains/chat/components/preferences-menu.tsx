@@ -24,7 +24,12 @@ import { LazyBoundary } from "@/components/lazy-boundary";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { hardNavigate } from "@/lib/auth/hard-navigate";
-import { useAuthStore, useIsAuthenticated } from "@/stores/auth-store";
+import { isLocalMode } from "@/lib/local-mode";
+import {
+  useAuthStore,
+  useHasPlatformSession,
+  useIsAuthenticated,
+} from "@/stores/auth-store";
 import {
   useActiveAssistantIsPlatformHosted,
   usePlatformGate,
@@ -157,6 +162,8 @@ function PreferencesMenuContent({
   const billingPlatformGate = usePlatformGate({ platformHostedOnly: true });
   const isPlatformHosted = useActiveAssistantIsPlatformHosted();
   const isOrgReady = useIsOrgReady();
+  const hasPlatformSession = useHasPlatformSession();
+  const showLogout = !isLocalMode() || hasPlatformSession;
   const showBillingRows =
     billingPlatformGate === "full" && isPlatformHosted && isOrgReady;
   const { data: billingSummary } = useQuery({
@@ -234,15 +241,17 @@ function PreferencesMenuContent({
         />
       ) : null}
 
-      <PanelItem
-        icon={LogOut}
-        label="Log Out"
-        onSelect={async () => {
-          await logout();
-          onClose();
-          hardNavigate(routes.account.login);
-        }}
-      />
+      {showLogout ? (
+        <PanelItem
+          icon={LogOut}
+          label="Log Out"
+          onSelect={async () => {
+            await logout();
+            onClose();
+            hardNavigate(routes.account.login);
+          }}
+        />
+      ) : null}
     </>
   );
 }

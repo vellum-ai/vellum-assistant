@@ -31,7 +31,8 @@ import type { Lockfile, LockfileWriteResult } from "@vellumai/local-mode/contrac
 export type VellumCommand =
   | { kind: "newConversation" }
   | { kind: "currentConversation" }
-  | { kind: "markCurrentUnread" };
+  | { kind: "markCurrentUnread" }
+  | { kind: "logout" };
 
 declare global {
   interface Window {
@@ -57,6 +58,9 @@ declare global {
       dock: {
         setBadge(count: number): Promise<void>;
         setSignedIn(signedIn: boolean): Promise<void>;
+      };
+      menu: {
+        setPlatformSession(has: boolean): Promise<void>;
       };
       localMode: {
         hatch(species: string, remote?: string): Promise<{
