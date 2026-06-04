@@ -199,6 +199,16 @@ describe("scheduleUsageSummaryQueryOptions", () => {
       ],
     ]);
   });
+
+  test("can be disabled when schedule row stats are not visible", () => {
+    const options = scheduleUsageSummaryQueryOptions(
+      "assistant-1",
+      "UTC",
+      false,
+    );
+
+    expect(options.enabled).toBe(false);
+  });
 });
 
 describe("SystemTaskDetailView", () => {
