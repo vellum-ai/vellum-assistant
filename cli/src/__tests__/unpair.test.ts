@@ -102,12 +102,34 @@ describe("vellum unpair", () => {
     expect(findAssistantByName("px")).not.toBeNull();
     expect(loadGuardianToken("px")).not.toBeNull();
 
-    process.argv = ["bun", "vellum", "unpair", "px"];
+    // Non-interactive test env → use --yes to bypass the confirmation prompt.
+    process.argv = ["bun", "vellum", "unpair", "px", "--yes"];
     const { exited } = await runUnpair();
 
     expect(exited).toBe(false);
     expect(findAssistantByName("px")).toBeNull();
     expect(loadGuardianToken("px")).toBeNull();
+  });
+
+  test("refuses to unpair without --yes in a non-interactive terminal", async () => {
+    saveAssistantEntry({
+      assistantId: "py",
+      name: "Paired Two",
+      runtimeUrl: "http://10.0.0.9:7830",
+      cloud: "paired",
+      paired: true,
+      species: "vellum",
+    });
+    seedToken("py");
+
+    process.argv = ["bun", "vellum", "unpair", "py"]; // no --yes
+    const { exited, errors } = await runUnpair();
+
+    expect(exited).toBe(true);
+    expect(errors).toContain("--yes");
+    // Not removed — confirmation was required.
+    expect(findAssistantByName("py")).not.toBeNull();
+    expect(loadGuardianToken("py")).not.toBeNull();
   });
 
   test("refuses a non-paired (local) assistant and leaves it intact", async () => {

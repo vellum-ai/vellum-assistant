@@ -1,5 +1,5 @@
 /**
- * `vellum unpair <name>`
+ * `vellum unpair <name> [--yes]`
  *
  * Forget a pairing imported from another machine via `vellum connect import`:
  * remove its lockfile entry and stored guardian token from THIS machine. Only
@@ -12,23 +12,38 @@
 
 import {
   formatAssistantLookupError,
+  getAssistantDisplayName,
   lookupAssistantByIdentifier,
   removeAssistantEntry,
 } from "../lib/assistant-config";
+import { parseAssistantTargetArg } from "../lib/assistant-target-args.js";
+import {
+  canPromptForConfirmation,
+  confirmAction,
+} from "../lib/confirm-action.js";
 import { deleteGuardianToken } from "../lib/guardian-token";
 
 function printUsage(): void {
   console.log(`vellum unpair - Forget a paired assistant imported from another machine
 
 USAGE:
-    vellum unpair <name>
+    vellum unpair <name> [--yes]
 
 ARGUMENTS:
     <name>    Name or id of the paired assistant to forget
 
+OPTIONS:
+    --yes     Skip the interactive confirmation prompt (for automation)
+
 Removes the local connection (lockfile entry + stored token). Only paired
 assistants (imported via 'vellum connect import') can be unpaired; use
-'vellum retire' for local or managed assistants.`);
+'vellum retire' for local or managed assistants.
+
+EXAMPLES:
+    vellum unpair paired-desk
+    vellum unpair "Desk Box"
+    vellum unpair paired-desk --yes
+`);
 }
 
 export async function unpair(): Promise<void> {
@@ -39,7 +54,8 @@ export async function unpair(): Promise<void> {
     return;
   }
 
-  const name = args.find((a) => !a.startsWith("-"));
+  const yes = args.includes("--yes");
+  const name = parseAssistantTargetArg(args, []);
   if (!name) {
     console.error("Error: assistant name or id is required.");
     printUsage();
@@ -58,6 +74,35 @@ export async function unpair(): Promise<void> {
       `Error: '${name}' is not a paired assistant. Use \`vellum retire\` to remove a local or managed assistant.`,
     );
     process.exit(1);
+  }
+
+  // Print the resolved identity before acting (cli/AGENTS.md).
+  const displayName = getAssistantDisplayName(entry);
+  console.log("Pairing to unpair:");
+  if (displayName !== entry.assistantId) {
+    console.log(`  Name: ${displayName}`);
+  }
+  console.log(`  ID: ${entry.assistantId}`);
+  if (entry.runtimeUrl) {
+    console.log(`  Host: ${entry.runtimeUrl}`);
+  }
+  console.log("");
+
+  if (!yes) {
+    if (!canPromptForConfirmation()) {
+      console.error(
+        "Error: Refusing to unpair without confirmation in a non-interactive terminal.",
+      );
+      console.error("Re-run with --yes to confirm from automation.");
+      process.exit(1);
+    }
+    const confirmed = await confirmAction(
+      "Press Enter to unpair, or Esc/q to cancel: ",
+    );
+    if (!confirmed) {
+      console.log("Unpair cancelled.");
+      process.exit(1);
+    }
   }
 
   removeAssistantEntry(entry.assistantId);
