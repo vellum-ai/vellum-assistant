@@ -167,7 +167,7 @@ function PreferencesMenuContent({
 
   return (
     <>
-      <ThemeToggle className="rounded-lg border-[1.5px] border-[var(--border-element)] px-2.5 py-1.5" />
+      <ThemeToggle className="rounded-lg border-[1.5px] border-[var(--border-subtle)] px-2.5 py-1.5" />
 
       {showBillingRows && effectiveBalance !== null ? (
         <div className="my-2">
