@@ -85,7 +85,6 @@ import {
   recordSyntheticAgentErrorMessageLog,
 } from "../memory/llm-request-log-store.js";
 import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrospective-enqueue.js";
-import type { QdrantSparseVector } from "../memory/qdrant-client.js";
 import {
   readMemoryV2StaticContent,
   shouldExposePersonalMemory,
@@ -1144,8 +1143,6 @@ export async function runAgentLoopImpl(
       }
     };
 
-    let runMessages = ctx.messages;
-
     // Memory retrieval — fetches PKB, NOW.md, and memory-graph outputs and
     // persists the retrieval's own side effects (injected-block metadata,
     // recall log, `memory_recalled` event). Runs at the early "prompt
@@ -1170,36 +1167,17 @@ export async function runAgentLoopImpl(
       signal: abortController.signal,
       pkbContent: null,
       nowContent: null,
-      graphResult: null,
+      runMessages: ctx.messages,
     };
     await userPromptSubmitMemoryRetrieval(memoryCtx);
 
-    // Consume the memory-graph retrieval. The retriever owns its own side
-    // effects (injected-block metadata, recall log, `memory_recalled` event);
-    // here the loop only takes the turn-scoped context it reuses downstream —
-    // the injected message list and the PKB query vectors.
-    const graphResult = memoryCtx.graphResult;
-    let pkbQueryVector: number[] | undefined;
-    let pkbSparseVector: QdrantSparseVector | undefined;
-    if (graphResult) {
-      runMessages = graphResult.runMessages;
-      // Select dense+sparse as a matched pair so RRF fusion combines two
-      // signals aligned to the same query text:
-      //   1. Context-load with a user query: user-query dense + user-query
-      //      sparse — the cleanest pairing.
-      //   2. Otherwise (context-load without a user query, or per-turn):
-      //      whatever `queryVector` / `sparseVector` the retriever produced,
-      //      which are themselves co-aligned (both summary-derived in
-      //      context-load, both user-last-message-derived in per-turn).
-      // Never pair a user-query dense with a summary-aligned sparse.
-      if (graphResult.userQueryVector) {
-        pkbQueryVector = graphResult.userQueryVector;
-        pkbSparseVector = graphResult.userQuerySparseVector;
-      } else {
-        pkbQueryVector = graphResult.queryVector;
-        pkbSparseVector = graphResult.sparseVector;
-      }
-    }
+    // The retriever owns its side effects (injected-block metadata, recall
+    // log, `memory_recalled` event) and the dense/sparse pair selection; the
+    // loop only reads back the turn-scoped context it reuses downstream — the
+    // injected message list and the PKB query vectors.
+    let runMessages = memoryCtx.runMessages;
+    const pkbQueryVector = memoryCtx.pkbQueryVector;
+    const pkbSparseVector = memoryCtx.pkbSparseVector;
 
     // Build active surface context
     let activeSurface: ActiveSurfaceContext | null = null;
