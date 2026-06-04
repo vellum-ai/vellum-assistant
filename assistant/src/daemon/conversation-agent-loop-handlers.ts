@@ -96,6 +96,7 @@ import type {
 } from "./message-protocol.js";
 import { conversationMetadataSyncTag } from "./message-types/sync.js";
 import type {
+  ToolActivityMetadata,
   WebSearchMetadata,
   WebSearchResultItem,
 } from "./message-types/web-activity.js";
@@ -237,6 +238,13 @@ export interface EventHandlerState {
       riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
     }
   >;
+  /**
+   * Structured tool activity (web_search / web_fetch) keyed by tool_use_id,
+   * captured when a result lands so it can be persisted on the tool's content
+   * block and survive a history reopen. Populated for both external provider
+   * tools (in handleToolResult) and native server tools (server_tool_complete).
+   */
+  readonly toolActivityMetadata: Map<string, ToolActivityMetadata>;
   /** tool_use_ids emitted in the current turn (populated in handleToolUse, cleared after annotation). */
   currentTurnToolUseIds: string[];
   /** Wall-clock time (ms since epoch) when the agent loop turn started, used as the display timestamp for assistant messages. */
@@ -353,6 +361,7 @@ export function createEventHandlerState(): EventHandlerState {
     requestIdToToolUseId: new Map(),
     toolConfirmationOutcomes: new Map(),
     toolRiskOutcomes: new Map(),
+    toolActivityMetadata: new Map(),
     currentTurnToolUseIds: [],
     turnStartedAt: Date.now(),
     serverToolStartedAt: new Map(),
@@ -1053,6 +1062,13 @@ export function handleToolResult(
     });
   }
 
+  // Capture tool activity (web_search / web_fetch) so it can be persisted on
+  // the tool_use block and the activity card survives a history reopen,
+  // matching the live tool_result event's activityMetadata.
+  if (event.activityMetadata) {
+    state.toolActivityMetadata.set(event.toolUseId, event.activityMetadata);
+  }
+
   const toolName = state.toolUseIdToName.get(event.toolUseId);
   if (toolName === "file_write" || toolName === "bash") {
     deps.ctx.markWorkspaceTopLevelDirty();
@@ -1203,6 +1219,24 @@ function annotatePersistedAssistantMessage(
           risk.riskDirectoryScopeOptions.length > 0
         )
           rec._riskDirectoryScopeOptions = risk.riskDirectoryScopeOptions;
+        modified = true;
+      }
+      const activity = state.toolActivityMetadata.get(id);
+      if (activity) {
+        rec._activityMetadata = activity;
+        modified = true;
+      }
+    } else if (block.type === "server_tool_use") {
+      // Native server tools (Anthropic web_search) flow through a separate
+      // path, so stamp their captured activity here too. Timing/risk are not
+      // applicable to these blocks.
+      const rec = block as unknown as Record<string, unknown>;
+      const id = rec.id as string | undefined;
+      if (!id) continue;
+
+      const activity = state.toolActivityMetadata.get(id);
+      if (activity) {
+        rec._activityMetadata = activity;
         modified = true;
       }
     }
@@ -2007,6 +2041,14 @@ export async function dispatchAgentEvent(
         const resultText = results
           .map((r) => `${r.title}\n${r.url}`)
           .join("\n\n");
+
+        // Capture activity so it persists on the server_tool_use block and the
+        // web-search card survives a history reopen, matching the live event.
+        if (metadata) {
+          state.toolActivityMetadata.set(event.toolUseId, {
+            webSearch: metadata,
+          });
+        }
 
         deps.onEvent({
           type: "tool_result",

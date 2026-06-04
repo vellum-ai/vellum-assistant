@@ -6,7 +6,6 @@
  * composer, and interaction-handler modules within the chat domain.
  */
 
-import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
 import type {
   AllowlistOption,
   ConversationMessageToolCall,
@@ -62,16 +61,6 @@ export interface ChatMessageToolCall extends ConversationMessageToolCall {
   workingDir?: string;
   /** Explicit decision made during the confirmation flow. */
   confirmationDecision?: "approved" | "denied" | "timed_out";
-  /**
-   * Structured tool activity metadata (e.g. web_search, web_fetch) persisted
-   * alongside the tool call so the `WebSearchProgressCard` can keep
-   * rendering after the active turn ends and the live `liveWebActivity`
-   * map is cleared. Set by `applyToolResult` when the `tool_result` event
-   * carries `activityMetadata`. Absent on historical reopens that arrive
-   * via reconcile (the server snapshot doesn't carry this field). See
-   * `web-activity-types.ts`.
-   */
-  activityMetadata?: ToolActivityMetadata;
 }
 
 // ---------------------------------------------------------------------------
