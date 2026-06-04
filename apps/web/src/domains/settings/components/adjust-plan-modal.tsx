@@ -10,10 +10,13 @@ import { Notice } from "@vellum/design-library/components/notice";
 import { Tag } from "@vellum/design-library/components/tag";
 import { toast } from "@vellum/design-library/components/toast";
 import { Typography } from "@vellum/design-library/components/typography";
+import { CreditBundlePicker } from "./credit-bundle-picker";
 import { DowngradeReconfirmModal } from "./downgrade-reconfirm-modal";
 import { PlanFeatureList } from "./plan-feature-list";
 import { TierPicker, isTierDisabled } from "./tier-picker";
 import type {
+  CreditTier,
+  CreditTierEnum,
   MachineTier,
   MachineTierEnum,
   ProPlan,
@@ -24,6 +27,7 @@ import type {
 import {
   organizationsBillingPlansRetrieveOptions,
   organizationsBillingPlansRetrieveQueryKey,
+  organizationsBillingSubscriptionChangeCreditTierCreateMutation,
   organizationsBillingSubscriptionChangeMachineTierCreateMutation,
   organizationsBillingSubscriptionChangeStorageTierCreateMutation,
   organizationsBillingSubscriptionOnboardingRetrieveOptions,
@@ -63,6 +67,7 @@ const DRF_FIELD_KEYS = [
   "confirm",
   "machine_tier",
   "storage_tier",
+  "credit_tier",
   "non_field_errors",
 ] as const;
 
@@ -105,6 +110,31 @@ export function resolveTierSelection<T extends string>(
 }
 
 /**
+ * Resolve which credit tier should be selected given the previous selection,
+ * the resolved current bundle, and the live catalog. Mirrors
+ * `resolveTierSelection` but for credit bundles, which have no disabled state
+ * and where both `null` ("No bundle") and a catalog tier are valid selections.
+ *
+ * `prev` carries the sentinel meaning: `undefined` is un-seeded (the effect has
+ * not yet seeded a value), so we seed to `current`. A non-undefined `prev`
+ * (including an explicit `null` for "No bundle") is the user's standing choice
+ * and must be preserved — we keep it, only revalidating a concrete tier against
+ * the catalog so a refetch that removes the selected bundle falls back to
+ * "No bundle" rather than leaving a stale tier the CTA would submit.
+ */
+export function resolveCreditTierSelection(
+  tiers: CreditTier[],
+  prev: CreditTierEnum | null | undefined,
+  current: CreditTierEnum | null,
+): CreditTierEnum | null {
+  const seeded = prev === undefined ? current : prev;
+  if (seeded !== null && tiers.some((t) => t.tier === seeded)) {
+    return seeded;
+  }
+  return null;
+}
+
+/**
  * Cheapest tier price in cents, or 0 when the list is empty. Guards the
  * "From $" summary against `Math.min(...[])` → `Infinity` (which would render
  * "From $Infinity"). Production plans always carry populated tier arrays, so
@@ -135,6 +165,9 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
   const changeStorageTierMutation = useMutation(
     organizationsBillingSubscriptionChangeStorageTierCreateMutation(),
   );
+  const changeCreditTierMutation = useMutation(
+    organizationsBillingSubscriptionChangeCreditTierCreateMutation(),
+  );
   const portalSnapshot = buildPortalReturnSnapshot(subscriptionQuery.data);
   const portalMutation = useBillingPortalSession(portalSnapshot);
   const [view, setView] = useState<"plans" | "downgrade-confirm">("plans");
@@ -143,6 +176,13 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
     useState<MachineTierEnum | null>(null);
   const [selectedStorageTier, setSelectedStorageTier] =
     useState<StorageTierEnum | null>(null);
+  // `undefined` is the un-seeded sentinel (before the seeding effect runs);
+  // `null` is the user's explicit "No bundle" choice. Machine/storage don't need
+  // this distinction because `null` is never a valid selection for them, but for
+  // credits both values are meaningful — see `creditChanged` and the seeding
+  // effect for why conflating them caused spurious bundle removals.
+  const [selectedCreditTier, setSelectedCreditTier] =
+    useState<CreditTierEnum | null | undefined>(undefined);
 
   // On native (Capacitor iOS), Stripe Checkout / the billing portal opens in
   // SFSafariViewController as a popover on top of the app. When the user
@@ -209,6 +249,29 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
     (p): p is ProPlan => p.id === "pro",
   );
 
+  // Credit bundles are server-flag-gated via the catalog: render the picker and
+  // run the credit logic only when the Pro plan ships a non-empty `credit_tiers`
+  // list. When absent, the modal behaves exactly as before.
+  const creditTiers = proPlan?.credit_tiers ?? [];
+  const creditTiersEnabled = creditTiers.length > 0;
+
+  // Unlike machine/storage (read from the onboarding endpoint), the current
+  // credit bundle lives on the subscription response. Coerce to the enum so the
+  // picker seed and price lookup share one source of truth.
+  const currentCreditTier =
+    (subscriptionQuery.data?.selected_credit_tier as CreditTierEnum | null) ??
+    null;
+  const priceForCredit = (tier: CreditTierEnum | null): number =>
+    creditTiers.find((t) => t.tier === tier)?.price_cents ?? 0;
+  const currentCreditPriceCents = priceForCredit(currentCreditTier);
+
+  // The picker and the mutation bodies require `CreditTierEnum | null` — never
+  // the un-seeded `undefined` sentinel. While un-seeded, fall back to the
+  // current bundle (which is `null` for a Base user upgrading), matching what
+  // the seeding effect will resolve to so display and the pre-seed value agree.
+  const displayCreditTier: CreditTierEnum | null =
+    selectedCreditTier === undefined ? currentCreditTier : selectedCreditTier;
+
   // For an active Pro subscriber, disable any storage tier strictly below the
   // current selection — downgrading storage is not allowed. TierPicker honors
   // the `disabled` flag via `isTierDisabled`; machine tiers stay fully enabled
@@ -234,6 +297,9 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
     if (!open) {
       setSelectedMachineTier(null);
       setSelectedStorageTier(null);
+      // Reset to the un-seeded sentinel (not null, which is a valid "No bundle"
+      // choice) so the next open re-seeds from the current bundle.
+      setSelectedCreditTier(undefined);
       return;
     }
     if (!proPlan) return;
@@ -253,6 +319,15 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
           prev ?? currentStorageTier,
         ),
       );
+      // Seed the credit bundle from the subscription's current selection only
+      // while un-seeded (`prev === undefined`); once the user has chosen,
+      // `resolveCreditTierSelection` preserves their choice — including an
+      // explicit `null` ("No bundle") — and only revalidates a concrete tier
+      // against the live catalog. This stops a mid-modal refetch from snapping a
+      // pending removal back to the existing bundle.
+      setSelectedCreditTier((prev) =>
+        resolveCreditTierSelection(creditTiers, prev, currentCreditTier),
+      );
       return;
     }
     setSelectedMachineTier((prev) =>
@@ -261,15 +336,22 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
     setSelectedStorageTier((prev) =>
       resolveTierSelection<StorageTierEnum>(proPlan.storage_tiers, prev),
     );
-    // machineTiersForPicker/storageTiersForPicker are derived from proPlan +
-    // onboarding values already in the dep list; omitting them keeps the effect
-    // from re-running on each render's fresh array identity.
+    // Base upgrade has no current bundle, so it seeds to null ("No bundle",
+    // $0); `resolveCreditTierSelection` then preserves any prior choice and
+    // revalidates a concrete tier against the live catalog.
+    setSelectedCreditTier((prev) =>
+      resolveCreditTierSelection(creditTiers, prev, null),
+    );
+    // machineTiersForPicker/storageTiersForPicker/creditTiers are derived from
+    // proPlan + onboarding values already in the dep list; omitting them keeps
+    // the effect from re-running on each render's fresh array identity.
   }, [
     open,
     proPlan,
     proTierChangeMode,
     currentMachineTier,
     currentStorageTier,
+    currentCreditTier,
   ]);
 
   const basePlan = plansQuery.data?.plans.find((p) => p.id === "base");
@@ -293,6 +375,9 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
           confirm: true,
           machine_tier: selectedMachineTier,
           storage_tier: selectedStorageTier,
+          // null = "No bundle". The backend ignores this when the credit-bundles
+          // flag is off, so always sending it is safe.
+          credit_tier: displayCreditTier,
         },
       },
       {
@@ -345,14 +430,27 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
   };
 
   const tierChangePending =
-    changeMachineTierMutation.isPending || changeStorageTierMutation.isPending;
+    changeMachineTierMutation.isPending ||
+    changeStorageTierMutation.isPending ||
+    changeCreditTierMutation.isPending;
 
   // What changed vs. the current selection. Storage downgrades are impossible
-  // (those tiers are disabled), so a storage diff is always an upgrade.
+  // (those tiers are disabled), so a storage diff is always an upgrade. The
+  // credit bundle is its own dimension; `null` ("No bundle") is a valid value,
+  // so we compare directly rather than gating on non-null.
   const machineChanged =
     selectedMachineTier != null && selectedMachineTier !== currentMachineTier;
   const storageChanged =
     selectedStorageTier != null && selectedStorageTier !== currentStorageTier;
+  // Gate on `!== undefined` (un-seeded) the way machine/storage gate on
+  // `!= null` — until the effect seeds, there is no user-intended change, so a
+  // pre-seed `undefined` vs. existing `currentCreditTier` must not enable the
+  // CTA or submit `credit_tier: null`. Once seeded, `null` ("No bundle") is a
+  // valid value, so we compare directly rather than gating on non-null.
+  const creditChanged =
+    creditTiersEnabled &&
+    selectedCreditTier !== undefined &&
+    selectedCreditTier !== currentCreditTier;
 
   const priceForMachine = (tier: MachineTierEnum | null): number | null =>
     machineTiersForPicker.find((t) => t.tier === tier)?.price_cents ?? null;
@@ -423,10 +521,43 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
     );
   };
 
+  const submitCreditTierChange = () => {
+    if (tierChangePending) return;
+    changeCreditTierMutation.mutate(
+      // null removes the bundle ("No bundle"). Bundle changes apply at the next
+      // cycle — no proration/immediate-charge subtleties — so no reconfirm.
+      // `creditChanged` already gates out the un-seeded state, so this only runs
+      // with a seeded value, but coalesce defensively to never send `undefined`.
+      { body: { credit_tier: displayCreditTier } },
+      {
+        onSuccess: () => {
+          // Refresh billing so the plan card and this modal reflect the new
+          // bundle. A credit change never alters machine/storage resources, so
+          // it must not invoke `onTierUpgraded` (the assistant resize flow) —
+          // that would show an unrelated resize prompt and fire needless
+          // resource queries. `submitTierChanges` still opens the resize flow
+          // when a machine or storage dimension also changed.
+          invalidateBillingQueries();
+          toast.success("Credit bundle updated.", { id: "pro-tier-change" });
+        },
+        onError: (error) => {
+          toast.error(
+            extractMutationError(
+              error,
+              "Failed to change credit bundle. Please try again.",
+            ),
+            { id: "pro-tier-change-error" },
+          );
+        },
+      },
+    );
+  };
+
   // Fire only the dimension(s) that actually changed.
   const submitTierChanges = () => {
     if (machineChanged) submitMachineTierChange();
     if (storageChanged) submitStorageTierChange();
+    if (creditChanged) submitCreditTierChange();
   };
 
   // When the machine tier is being lowered, defer the whole apply behind the
@@ -616,7 +747,8 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                                   {Math.round(
                                     (plan.base_price_cents +
                                       currentMachinePrice +
-                                      currentStoragePrice) /
+                                      currentStoragePrice +
+                                      currentCreditPriceCents) /
                                       100,
                                   )}
                                 </Typography>
@@ -676,6 +808,14 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                                 onMachineTierChange={setSelectedMachineTier}
                                 onStorageTierChange={setSelectedStorageTier}
                               />
+                              {creditTiersEnabled && (
+                                <CreditBundlePicker
+                                  creditTiers={creditTiers}
+                                  selectedCreditTier={displayCreditTier}
+                                  onCreditTierChange={setSelectedCreditTier}
+                                  disabled={upgradeMutation.isPending}
+                                />
+                              )}
                               <Button
                                 variant="primary"
                                 className="w-full"
@@ -716,10 +856,25 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                                   currentMachinePriceCents={currentMachinePrice}
                                   currentStoragePriceCents={currentStoragePrice}
                                 />
-                                {(changeMachineTierMutation.isError || changeStorageTierMutation.isError) && (
+                                {creditTiersEnabled && (
+                                  <CreditBundlePicker
+                                    creditTiers={creditTiers}
+                                    selectedCreditTier={displayCreditTier}
+                                    onCreditTierChange={setSelectedCreditTier}
+                                    currentCreditPriceCents={
+                                      currentCreditPriceCents
+                                    }
+                                    disabled={tierChangePending}
+                                  />
+                                )}
+                                {(changeMachineTierMutation.isError ||
+                                  changeStorageTierMutation.isError ||
+                                  changeCreditTierMutation.isError) && (
                                   <Notice tone="error">
                                     {extractMutationError(
-                                      changeMachineTierMutation.error ?? changeStorageTierMutation.error,
+                                      changeMachineTierMutation.error ??
+                                        changeStorageTierMutation.error ??
+                                        changeCreditTierMutation.error,
                                       "Failed to update plan. Please try again.",
                                     )}
                                   </Notice>
@@ -730,7 +885,9 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                                   onClick={handleApplyTierChange}
                                   disabled={
                                     tierChangePending ||
-                                    (!machineChanged && !storageChanged)
+                                    (!machineChanged &&
+                                      !storageChanged &&
+                                      !creditChanged)
                                   }
                                   data-testid="modal-change-tier-button"
                                 >
