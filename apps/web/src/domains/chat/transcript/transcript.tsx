@@ -55,6 +55,12 @@ export interface TranscriptProps {
    *  own set if not provided. Callers that need cross-render persistence
    *  should pass a stable ref. */
   expandedToolCallIds?: Set<string>;
+  /** Persistent expanded progress-card / thinking-block state. Optional — the
+   *  Transcript owns its own maps if not provided. Callers that need the state
+   *  to survive a transcript remount (e.g. when the tool-detail drawer opens)
+   *  should pass stable refs (the chat session store's maps). */
+  expandedCardIds?: Map<string, boolean>;
+  expandedThinkingKeys?: Map<string, boolean>;
   /** Optional renderer for `kind: "pendingSecret"` items. PR 7 passes the
    *  real `SecretPromptCard` here. */
   renderPendingSecret?: (requestId: string) => ReactNode;
@@ -173,8 +179,13 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
     const effectiveExpandedToolCallIds =
       rest.expandedToolCallIds ?? ownedExpandedToolCallIds;
 
-    const [expandedCardIds] = useState(() => new Map<string, boolean>());
-    const [expandedThinkingKeys] = useState(() => new Map<string, boolean>());
+    const [ownedExpandedCardIds] = useState(() => new Map<string, boolean>());
+    const expandedCardIds = rest.expandedCardIds ?? ownedExpandedCardIds;
+    const [ownedExpandedThinkingKeys] = useState(
+      () => new Map<string, boolean>(),
+    );
+    const expandedThinkingKeys =
+      rest.expandedThinkingKeys ?? ownedExpandedThinkingKeys;
 
     const partition = useMemo(() => partitionLatestTurn(items), [items]);
 

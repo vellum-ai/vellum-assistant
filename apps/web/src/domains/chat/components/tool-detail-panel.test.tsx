@@ -112,4 +112,41 @@ describe("ToolDetailPanel", () => {
     fireEvent.click(copyButtons[0]!);
     expect(writeText).toHaveBeenCalledTimes(1);
   });
+
+  test("thinking variant renders the reasoning markdown without input/output sections", () => {
+    const detail = makeDetail({
+      kind: "thinking",
+      title: "Thinking",
+      thinkingText: "I should first check the directory listing.",
+    });
+    const { getByText, queryByText } = render(
+      <ToolDetailPanel detail={detail} onClose={noop} />,
+    );
+
+    // Title + full reasoning text are present.
+    expect(getByText("Thinking")).toBeDefined();
+    expect(
+      getByText("I should first check the directory listing."),
+    ).toBeDefined();
+    // No tool sections.
+    expect(queryByText("Technical details")).toBeNull();
+    expect(queryByText("Output")).toBeNull();
+    // No risk badge.
+    expect(queryByText("Subagent Spawn")).toBeNull();
+  });
+
+  test("thinking variant close button fires onClose", () => {
+    const onClose = mock(() => {});
+    const detail = makeDetail({
+      kind: "thinking",
+      title: "Thinking",
+      thinkingText: "Reasoning.",
+    });
+    const { getByLabelText } = render(
+      <ToolDetailPanel detail={detail} onClose={onClose} />,
+    );
+
+    fireEvent.click(getByLabelText("Close tool details"));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
 });

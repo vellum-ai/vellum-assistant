@@ -10,7 +10,13 @@
  * LatestTurnRow follows at the end of the DOM (visual bottom).
  */
 
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 import { act, useEffect } from "react";
 import { cleanup, render } from "@testing-library/react";
 

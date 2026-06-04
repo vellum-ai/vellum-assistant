@@ -1,5 +1,7 @@
-import { X } from "lucide-react";
-import { Fragment, useState } from "react";
+import { Brain, X } from "lucide-react";
+import { Fragment, useMemo, useState } from "react";
+
+import { Typography } from "@vellumai/design-library";
 
 import { ToolCallChip } from "@/domains/chat/components/tool-call-chip/tool-call-chip";
 import {
@@ -22,17 +24,37 @@ import {
 import { useViewerStore } from "@/stores/viewer-store";
 import {
   WEB_TOOL_NAMES,
+  toolDetailPayloadFromToolCall,
   type ToolCallCardData,
+  type ToolCallCardItem,
   type ToolCallCardStep,
 } from "@/domains/chat/hooks/tool-call-card-utils";
-import { useToolCallCardData } from "@/domains/chat/hooks/use-tool-call-card-data";
+import { useToolCallCardDataFromItems } from "@/domains/chat/hooks/use-tool-call-card-data";
 import type { ConfirmationDecision } from "@/types/event-types";
 import type { AllowlistOption, DirectoryScopeOption, RiskScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import { toolCallToRuleContext } from "@/domains/chat/utils/chat";
+import { truncate } from "@/domains/chat/utils/truncate";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 
-export interface ToolCallProgressCardProps {
+/**
+ * Hard character cap on the thinking-step pill label. The pill already
+ * truncates by container width, but reasoning text can be long enough to
+ * dominate the body before that fires — this caps it well short so the pill
+ * stays compact and the full text lives behind the side-drawer.
+ */
+const THINKING_PILL_MAX_CHARS = 60;
+
+/**
+ * Hard character cap for the thinking text shown in the collapsed header's
+ * carousel info slot. Like the pill (`THINKING_PILL_MAX_CHARS`), the header
+ * concatenates the reasoning text with an ellipsis so a long thinking segment
+ * doesn't fill the row and collide with the step-count pill. CSS `truncate`
+ * is the responsive safety net; this cap makes it concatenate sooner.
+ */
+const HEADER_INFO_MAX_CHARS = 80;
+
+export interface ActivityRunCardProps {
   toolCalls: ChatMessageToolCall[];
   expandedToolCallIds: Set<string>;
   onExpandChange: (toolCallId: string, expanded: boolean) => void;
@@ -68,10 +90,34 @@ export interface ToolCallProgressCardProps {
   // Unknown nudge props (pass-through)
   unknownNudgeToolCallIds?: Set<string>;
   onDismissUnknownNudge?: (toolCallId: string) => void;
+  /**
+   * Ordered (thinking | toolCall) items driving the expanded body. When
+   * supplied, the card interleaves thinking steps between tool steps in the
+   * given order instead of prepending a single leading-thinking step. The
+   * activity-summary merged-card path passes this so a
+   * `thinking → tool → thinking` run renders all three steps in order.
+   *
+   * `toolCalls` is still used for confirmation / purely-web detection and the
+   * raw-call lookup map, so callers pass the group's tool calls there AND the
+   * ordered list here.
+   */
+  items?: ToolCallCardItem[];
 }
 
 /**
- * Unified tool-call progress card. All tool groups — web search, bash, file
+ * Default ordered items for the legacy `(toolCalls)` callers: one `toolCall`
+ * item per tool call. Mirrors the delegate in `computeToolCallCardData` so the
+ * single-hook path produces identical output to the legacy projection.
+ */
+function buildDefaultItems(
+  toolCalls: ChatMessageToolCall[],
+): ToolCallCardItem[] {
+  return toolCalls.map((tc) => ({ kind: "toolCall", toolCall: tc }));
+}
+
+/**
+ * Activity-run card. Renders a contiguous run of interleaved thinking + tool
+ * steps as a single combined card. All tool groups — web search, bash, file
  * ops, MCP, computer use, skills — render through the shared
  * {@link ToolProgressCardShell} driven by {@link useToolCallCardData}.
  *
@@ -85,7 +131,7 @@ export interface ToolCallProgressCardProps {
  *   `null`; the spawned subagents render as inline
  *   `SubagentInlineProgressCard`s elsewhere in the transcript.
  */
-export function ToolCallProgressCard(props: ToolCallProgressCardProps) {
+export function ActivityRunCard(props: ActivityRunCardProps) {
   const {
     toolCalls,
     pendingConfirmationToolCallId,
@@ -96,14 +142,20 @@ export function ToolCallProgressCard(props: ToolCallProgressCardProps) {
     pendingConfirmationToolCallId != null &&
     toolCalls.some((tc) => tc.id === pendingConfirmationToolCallId);
 
-  // Single subscription to the unified hook so the dispatcher and every
-  // downstream branch share the same projection.
+  // downstream branch share the same projection. When the caller supplies
+  // ordered `items` (the activity-summary merged-card path) those drive the
+  // body directly; otherwise we synthesize one item per tool call. Computed
+  // once via a single hook call so there are no conditional hooks.
   //
-  // `subagent_spawn` calls are filtered out inside `computeToolCallCardData`
-  // — they're rendered inline by `SubagentInlineProgressCard` at the
-  // transcript level. If a group reduces to zero renderable steps the
-  // dispatcher falls through to a no-op below.
-  const cardData = useToolCallCardData(toolCalls);
+  // `subagent_spawn` calls are filtered out inside the projection — they're
+  // rendered inline by `SubagentInlineProgressCard` at the transcript level.
+  // If a group reduces to zero renderable steps the dispatcher falls through
+  // to a no-op below.
+  const effectiveItems = useMemo(
+    () => props.items ?? buildDefaultItems(toolCalls),
+    [props.items, toolCalls],
+  );
+  const cardData = useToolCallCardDataFromItems(effectiveItems);
   const cardId = toolCalls[0]?.id ?? null;
   const expanded = useCardExpanded(
     cardId,
@@ -141,7 +193,7 @@ export function ToolCallProgressCard(props: ToolCallProgressCardProps) {
   }
 
   return (
-    <UnifiedToolCallProgressCard
+    <UnifiedActivityRunCard
       {...props}
       cardData={cardData}
       expanded={expanded.value}
@@ -221,7 +273,7 @@ function deriveWebShellState(
  * `web_fetch` "Reading …") alongside the `tool` variant emitted by
  * `useToolCallCardData` for non-web tools.
  */
-function UnifiedToolCallProgressCard({
+function UnifiedActivityRunCard({
   toolCalls,
   cardData,
   expanded,
@@ -229,16 +281,22 @@ function UnifiedToolCallProgressCard({
   onOpenRuleEditor,
   unknownNudgeToolCallIds,
   onDismissUnknownNudge,
-}: ToolCallProgressCardProps & {
+}: ActivityRunCardProps & {
   cardData: ToolCallCardData;
   expanded: boolean;
   onCardExpandChange: (next: boolean) => void;
 }) {
-  const openToolDetail = useViewerStore.use.openToolDetail();
-  // Drives the pill's active state — the pill whose detail drawer is currently
-  // open renders selected. `null` when the drawer is closed or showing another
-  // view, so no pill reads as active.
-  const openToolDetailId = useViewerStore.use.activeToolDetail()?.toolCallId ?? null;
+  // Pills TOGGLE the shared tool-detail drawer: clicking an open pill closes
+  // its drawer, clicking another switches to it.
+  const toggleToolDetail = useViewerStore.use.toggleToolDetail();
+  // The active drawer payload drives the pill's selected state. For tool pills
+  // we match on `toolCallId`; for thinking pills (which carry an empty
+  // `toolCallId`) we match on the thinking text instead.
+  const activeDetail = useViewerStore.use.activeToolDetail();
+  // Drives the tool pill's active state — the pill whose detail drawer is
+  // currently open renders selected. `null` when the drawer is closed or
+  // showing another view, so no pill reads as active.
+  const openToolDetailId = activeDetail?.toolCallId ?? null;
   const shellState: ToolProgressCardState = cardData.state;
 
   // Nudge rows need the raw call (riskLevel, allowlistOptions, …) which
@@ -246,20 +304,95 @@ function UnifiedToolCallProgressCard({
   // reads the raw call to build the tool-detail drawer payload.
   const toolCallById = new Map(toolCalls.map((tc) => [tc.id, tc]));
 
+  // When the latest step is a thinking segment, the collapsed header pairs a
+  // brain glyph with the thinking text. Memoized so the carousel (which
+  // compares the info node by reference via `Object.is`) doesn't re-animate on
+  // every parent render — only when the (kind, info) tuple actually changes.
+  const headerInfo = useMemo(() => {
+    if (cardData.currentStepKind === "thinking") {
+      return (
+        // Fill the carousel's flex slot (`flex w-full min-w-0`) so the inner
+        // text truncates inside the available width and never overflows into
+        // the step-count pill. Left-aligned + hard-capped to mirror the
+        // thinking step pill's concatenation.
+        <span className="flex w-full min-w-0 items-center gap-1">
+          <Brain
+            aria-hidden="true"
+            className="size-3.5 shrink-0 text-[var(--content-tertiary)]"
+          />
+          <Typography
+            variant="body-small-default"
+            className="min-w-0 flex-1 truncate text-left leading-[16px] text-[var(--content-tertiary)]"
+          >
+            {truncate(cardData.currentStepInfo, HEADER_INFO_MAX_CHARS)}
+          </Typography>
+        </span>
+      );
+    }
+    return cardData.currentStepInfo;
+  }, [cardData.currentStepKind, cardData.currentStepInfo]);
+
   return (
     <ToolProgressCardShell
+      // The unified (non-web) activity card renders bare — its header status
+      // icon + phase headers flow inline on the chat background like the
+      // `ThoughtProcessLink` / `InlineToolLink`, with a ghost hover on the
+      // header row instead of the boxed card chrome. The purely-web path
+      // (`WebSearchView`) and the subagent inline card stay boxed.
+      bare
       state={shellState}
       currentStepTitle={cardData.currentStepTitle}
-      currentStepInfo={cardData.currentStepInfo}
+      currentStepInfo={headerInfo}
       stepCount={cardData.stepCount}
       expanded={expanded}
       onExpandChange={onCardExpandChange}
     >
-      <div className="flex w-full flex-col gap-3 px-3 pb-3">
+      {/* Bare body in TIMELINE mode. Left padding is ZERO so the timeline node
+          icons' left edge lines up EXACTLY with the bare header's status icon
+          (which sits at the card content-left, x≈0, via the header Button's
+          `-ml-1.5 px-1.5` net-zero offset). `pt-2` (8px) plus the connector
+          lead-in bridges the gap up to the header icon; `pr-3 pb-2` keep the
+          right/bottom breathing room. The body wrapper owns no `gap` — each
+          timeline section owns its own spacing via `pb-3`. */}
+      <div className="flex w-full flex-col pb-2 pl-px pr-3 pt-4">
         <PhaseGroupedStepList
           steps={cardData.steps}
+          timeline
           renderStep={(step) => {
-            // Non-`tool` kinds (thinking, web_search, web_search_error,
+            // Thinking steps render as a clickable, brain-branded pill that
+            // opens the full reasoning in the shared tool-detail drawer.
+            if (step.kind === "thinking") {
+              const active =
+                activeDetail?.kind === "thinking" &&
+                activeDetail.thinkingText === step.text;
+              return (
+                <ToolStepPill
+                  iconName="brain"
+                  label={truncate(step.text, THINKING_PILL_MAX_CHARS)}
+                  ariaLabel="View thinking"
+                  active={active}
+                  tone="default"
+                  onClick={() => {
+                    // Pin the card open: opening the drawer flips `mainView`,
+                    // which remounts the transcript and resets local expand
+                    // state. Persisting the user's intent keeps the accordion
+                    // open across that remount (mirrors the tool pill).
+                    onCardExpandChange(true);
+                    toggleToolDetail({
+                      kind: "thinking",
+                      toolCallId: "",
+                      toolName: "",
+                      title: "Thinking",
+                      activity: "",
+                      input: {},
+                      status: "completed",
+                      thinkingText: step.text,
+                    });
+                  }}
+                />
+              );
+            }
+            // Other non-`tool` kinds (web_search, web_search_error,
             // tool_error) keep their dedicated rows via `ExpandedStep`.
             if (step.kind !== "tool") {
               return <ExpandedStep step={step} />;
@@ -288,18 +421,7 @@ function UnifiedToolCallProgressCard({
                     // state. Persisting the user's intent in `expandedCardIds`
                     // keeps the parent accordion open across that remount.
                     onCardExpandChange(true);
-                    openToolDetail({
-                      toolCallId: tc.id,
-                      toolName: tc.name,
-                      title: step.title,
-                      activity: step.activity,
-                      input: tc.input ?? {},
-                      result: tc.result,
-                      status: step.status,
-                      riskLevel: tc.riskLevel,
-                      riskReason: tc.riskReason,
-                      durationLabel: step.durationLabel,
-                    });
+                    toggleToolDetail(toolDetailPayloadFromToolCall(tc));
                   }}
                   onRiskBadgeClick={
                     onOpenRuleEditor
@@ -370,8 +492,8 @@ function UnknownCommandNudge({
   onDismiss,
 }: {
   toolCall: ChatMessageToolCall;
-  onOpenRuleEditor: NonNullable<ToolCallProgressCardProps["onOpenRuleEditor"]>;
-  onDismiss?: ToolCallProgressCardProps["onDismissUnknownNudge"];
+  onOpenRuleEditor: NonNullable<ActivityRunCardProps["onOpenRuleEditor"]>;
+  onDismiss?: ActivityRunCardProps["onDismissUnknownNudge"];
 }) {
   return (
     <div className="flex items-center gap-1 pl-6 text-body-small-default text-[var(--content-tertiary)]">
@@ -450,7 +572,7 @@ function ConfirmationView({
   pendingConfirmationToolCallId,
   unknownNudgeToolCallIds,
   onDismissUnknownNudge,
-}: ToolCallProgressCardProps) {
+}: ActivityRunCardProps) {
   return (
     <div className="my-1 w-full">
       <div className="space-y-0 rounded-lg bg-[var(--surface-overlay)]">

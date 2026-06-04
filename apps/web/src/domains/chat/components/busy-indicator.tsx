@@ -7,7 +7,7 @@
  * `.busy-indicator` CSS class defined in `apps/web/src/index.css`.
  *
  * Size guide (matching macOS usage):
- *   - 8px  — card-header status icon (ToolCallProgressCard CardStatusIcon)
+ *   - 8px  — card-header status icon (ActivityRunCard CardStatusIcon)
  *   - 6px  — per-step row icon (ToolCallChip StatusIcon, ThinkingRow)
  */
 export function BusyIndicator({ size = 8 }: { size?: number }) {
