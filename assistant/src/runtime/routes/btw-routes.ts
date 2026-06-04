@@ -16,8 +16,6 @@ import { existsSync, readFileSync } from "node:fs";
 
 import { z } from "zod";
 
-import { getConfig } from "../../config/loader.js";
-import { readNowScratchpad } from "../../daemon/conversation-runtime-assembly.js";
 import { getOrCreateConversation } from "../../daemon/conversation-store.js";
 import { parseIdentityFields } from "../../daemon/handlers/identity.js";
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
@@ -34,9 +32,6 @@ const log = getLogger("btw-routes");
 
 /** Conversation key used by the client for identity intro generation. */
 const IDENTITY_INTRO_KEY = "identity-intro";
-
-/** Conversation key used by the client for empty-state greeting generation. */
-const GREETING_KEY = "greeting";
 
 // ---------------------------------------------------------------------------
 // SSE helpers
@@ -91,18 +86,6 @@ async function handleBtw({
     }
   }
 
-  // ----- Greeting context enrichment -----
-  let effectiveContent = trimmedContent;
-  if (
-    conversationKey === GREETING_KEY &&
-    getConfig().memory.retrieval.scratchpadInjection.enabled
-  ) {
-    const now = readNowScratchpad();
-    if (now) {
-      effectiveContent = `${trimmedContent}\n\n<context>\n${now}\n</context>`;
-    }
-  }
-
   // Look up an existing conversation or create an ephemeral one.
   const mapping = getConversationByKey(conversationKey);
   const conversationId = mapping?.conversationId ?? conversationKey;
@@ -119,13 +102,11 @@ async function handleBtw({
       (async () => {
         try {
           const isIntroRequest = conversationKey === IDENTITY_INTRO_KEY;
-          const isGreeting = conversationKey === GREETING_KEY;
           const result = await runBtwSidechain({
-            content: effectiveContent,
+            content: trimmedContent,
             conversation,
             tools: getAllToolDefinitions(),
             signal: abortSignal,
-            ...(isGreeting ? { callSite: "emptyStateGreeting" as const } : {}),
             onEvent: (event) => {
               if (event.type === "text_delta") {
                 controller.enqueue(

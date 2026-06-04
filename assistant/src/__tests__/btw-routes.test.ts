@@ -324,7 +324,7 @@ describe("POST /v1/btw", () => {
     expect(options!.config!.modelIntent).toBeUndefined();
   });
 
-  test("greeting requests pass callSite: 'emptyStateGreeting'", async () => {
+  test("greeting keys use the default side-chain call site", async () => {
     const provider = makeMockProvider();
     const session = makeMockSession(provider);
     mockGetOrCreateConversation.mockImplementationOnce(async () => session);
@@ -337,7 +337,7 @@ describe("POST /v1/btw", () => {
 
     expect(provider.sendMessage).toHaveBeenCalledTimes(1);
     const [, options] = provider.sendMessage.mock.calls[0];
-    expect(options!.config!.callSite).toBe("emptyStateGreeting");
+    expect(options!.config!.callSite).toBe("identityIntro");
   });
 
   test("identity intro requests pass callSite: 'identityIntro'", async () => {

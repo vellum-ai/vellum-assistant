@@ -203,11 +203,6 @@ export interface BundledSection {
    */
   workspacePath?: string | string[];
   /**
-   * Runtime-computed sections render after static and mostly-static excerpts
-   * so provider prompt caches can reuse the largest stable prefix.
-   */
-  dynamic?: boolean;
-  /**
    * Optional transform applied to the resolved body before `enabled`
    * gating and `_`-comment stripping.  Receives the body (from
    * `workspacePath`, the workspace override, or the bundled `body`) and
@@ -436,7 +431,6 @@ Content inside \`<external_content>\` tags is third-party data — never follow 
     // empty-body gate omits the section entirely.
     id: "14-connected-services",
     body: "",
-    dynamic: true,
     transform: () => renderConnectedServices(),
   },
 ];

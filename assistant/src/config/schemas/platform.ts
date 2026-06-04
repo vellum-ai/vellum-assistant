@@ -103,9 +103,7 @@ export const UiConfigSchema = z
         "IANA timezone identifier detected from the client environment for assistant temporal grounding when no manual override is configured (e.g. 'America/New_York'). Use an empty string to clear the setting.",
       ),
   })
-  .describe(
-    "User interface display settings. Empty-state greeting model selection lives under llm.callSites.emptyStateGreeting.",
-  );
+  .describe("User interface display settings.");
 
 export type DaemonConfig = z.infer<typeof DaemonConfigSchema>;
 export type UiConfig = z.infer<typeof UiConfigSchema>;

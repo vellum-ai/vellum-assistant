@@ -19,7 +19,6 @@ import {
   publishAvatarChanged,
   publishConfigChanged,
   publishIdentityChanged,
-  publishIdentityIntroChanged,
   publishSoundsConfigUpdated,
 } from "../runtime/sync/resource-sync-events.js";
 import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
@@ -192,14 +191,6 @@ export class DaemonServer {
     }
   }
 
-  private broadcastIdentityIntroChanged(): void {
-    try {
-      publishIdentityIntroChanged();
-    } catch (err) {
-      log.error({ err }, "Failed to broadcast identity intro change");
-    }
-  }
-
   /** Best-effort sync of the IDENTITY.md name to the platform record. */
   private syncIdentityToPlatform(): void {
     try {
@@ -312,7 +303,6 @@ export class DaemonServer {
       () => this.broadcastAvatarUpdated(),
       () => this.broadcastConfigChanged(),
       () => refreshSkillCapabilityMemories(getConfig()),
-      () => this.broadcastIdentityIntroChanged(),
     );
 
     this.syncIdentityToPlatform();

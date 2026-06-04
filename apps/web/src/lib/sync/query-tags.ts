@@ -108,15 +108,6 @@ export function assistantIdentityQueryKey(assistantId: string | null) {
   return [ASSISTANT_IDENTITY_QUERY_KEY, assistantId ?? ""] as const;
 }
 
-export const ASSISTANT_IDENTITY_INTRO_QUERY_KEY = "identity-intro" as const;
-
-export function assistantIdentityIntroQueryKey(
-  assistantId: string | null | undefined,
-) {
-  return [ASSISTANT_IDENTITY_INTRO_QUERY_KEY, assistantId ?? ""] as const;
-}
-
-
 export function invalidateAssistantConfigQueries(
   queryClient: QueryClient,
   assistantId: string | null | undefined,

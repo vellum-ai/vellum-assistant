@@ -41,10 +41,9 @@ export function getWorkspaceSystemPromptDir(): string {
 }
 
 /**
- * Render static sections in id-sort order, then dynamic sections in id-sort
- * order, returning the trimmed body of each enabled section. Discovery walks
- * the bundled registry plus any `.md` files in the workspace override dir,
- * and takes the union of ids.
+ * Render sections in id-sort order, returning the trimmed body of each enabled
+ * section. Discovery walks the bundled registry plus any `.md` files in the
+ * workspace override dir, and takes the union of ids.
  *
  * Resolution per id:
  *   - workspace `.md` file present → use workspace body (override)
@@ -99,20 +98,7 @@ function collectSectionIds(workspaceDir: string): string[] {
       );
     }
   }
-  return [...ids].sort(compareSectionIds);
-}
-
-function compareSectionIds(a: string, b: string): number {
-  const aDynamic = isDynamicSectionId(a);
-  const bDynamic = isDynamicSectionId(b);
-  if (aDynamic !== bDynamic) return aDynamic ? 1 : -1;
-  return a.localeCompare(b);
-}
-
-function isDynamicSectionId(id: string): boolean {
-  return BUNDLED_SYSTEM_SECTIONS.some(
-    (section) => section.id === id && section.dynamic === true,
-  );
+  return [...ids].sort();
 }
 
 interface ResolvedSection {

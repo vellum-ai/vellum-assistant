@@ -172,7 +172,7 @@ describe("buildSystemPrompt", () => {
     expect(identityIdx).toBeLessThan(soulIdx);
   });
 
-  test("renders runtime-computed dynamic sections after workspace-only static sections", () => {
+  test("renders enabled sections in id order", () => {
     const systemPromptsDir = join(TEST_DIR, "prompts", "system");
     mkdirSync(systemPromptsDir, { recursive: true });
     writeFileSync(
@@ -187,10 +187,10 @@ describe("buildSystemPrompt", () => {
     const result = buildSystemPrompt();
 
     const staticIdx = result.indexOf("Mostly static workspace policy.");
-    const dynamicIdx = result.indexOf("# Connected Services");
+    const connectedServicesIdx = result.indexOf("# Connected Services");
     expect(staticIdx).toBeGreaterThan(-1);
-    expect(dynamicIdx).toBeGreaterThan(-1);
-    expect(dynamicIdx).toBeGreaterThan(staticIdx);
+    expect(connectedServicesIdx).toBeGreaterThan(-1);
+    expect(connectedServicesIdx).toBeLessThan(staticIdx);
   });
 
   test("side-chain prompt options still include IDENTITY.md and SOUL.md", () => {

@@ -22,10 +22,7 @@ import {
   type WebSyncRouter,
 } from "@/lib/sync/web-sync-router";
 import type { SyncChangedEvent } from "@/lib/sync/types";
-import {
-  assistantIdentityIntroQueryKey,
-  assistantIdentityQueryKey,
-} from "@/lib/sync/query-tags";
+import { assistantIdentityQueryKey } from "@/lib/sync/query-tags";
 
 export interface UseSyncRouterOptions {
   assistantId: string | null;
@@ -69,17 +66,6 @@ export function useSyncRouter({
     [queryClient],
   );
 
-  const invalidateAssistantIdentityIntro = useCallback(
-    () => {
-      const targetId = assistantIdRef.current;
-      if (!targetId) return;
-      void queryClient.invalidateQueries({
-        queryKey: assistantIdentityIntroQueryKey(targetId),
-      });
-    },
-    [queryClient],
-  );
-
   // Refresh identity when the assistant changes or reachability recovers.
   // The layout-level TanStack Query handles the initial fetch; this covers
   // SSE identity_changed, post-edit flushes, and reachability resumes.
@@ -92,7 +78,6 @@ export function useSyncRouter({
     const syncRouter = createWebSyncRouter({
       invalidateAvatar,
       refreshAssistantIdentity,
-      invalidateAssistantIdentityIntro,
       scheduleConversationListRefetch,
       refreshActiveConversationMessages: reconcileActiveConversation,
     });
@@ -106,7 +91,6 @@ export function useSyncRouter({
   }, [
     invalidateAvatar,
     refreshAssistantIdentity,
-    invalidateAssistantIdentityIntro,
     scheduleConversationListRefetch,
     reconcileActiveConversation,
   ]);

@@ -212,7 +212,8 @@ const CATALOG_RECORD: CatalogRecord = {
   emptyStateGreeting: {
     id: "emptyStateGreeting",
     displayName: "Empty State Greeting",
-    description: "Generates a greeting shown on the empty conversation screen.",
+    description:
+      "Legacy compatibility entry for earlier empty conversation greeting generation.",
     domain: "ui",
   },
   guardianQuestionCopy: {

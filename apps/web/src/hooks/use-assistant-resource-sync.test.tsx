@@ -14,7 +14,6 @@ import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
 import {
   assistantDaemonConfigQueryKey,
   assistantIdentityQueryKey,
-  assistantIdentityIntroQueryKey,
   assistantSchedulesQueryKey,
   assistantSoundsConfigQueryKey,
   avatarQueryKey,
@@ -113,31 +112,7 @@ describe("useAssistantResourceSync", () => {
       const queryKeys = calls.map(
         (arg) => (arg as { queryKey: readonly unknown[] }).queryKey
       );
-      expect(queryKeys).toEqual(
-        expect.arrayContaining([
-          assistantIdentityQueryKey("asst-1"),
-          assistantIdentityIntroQueryKey("asst-1"),
-        ]) as never
-      );
-    });
-  });
-
-  test("invalidates identity intro query on assistant:self:identity-intro sync tag", async () => {
-    const queryClient = freshQueryClient();
-    const spy = mock(() => Promise.resolve());
-    queryClient.invalidateQueries = spy as never;
-    renderHook(() => useAssistantResourceSync("asst-1", true), {
-      wrapper: createWrapper(queryClient),
-    });
-    emit(
-      (syncEvent([
-        SYNC_TAGS.assistantIdentityIntro,
-      ]) as unknown) as AssistantEvent
-    );
-    await waitFor(() => {
-      expect(spy).toHaveBeenCalledWith({
-        queryKey: assistantIdentityIntroQueryKey("asst-1"),
-      });
+      expect(queryKeys).toEqual([assistantIdentityQueryKey("asst-1")]);
     });
   });
 
