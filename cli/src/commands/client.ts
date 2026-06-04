@@ -83,7 +83,8 @@ function readAssistantName(entry: AssistantEntry | null): string | undefined {
     : undefined;
 }
 
-function parseArgs(): ParsedArgs {
+// Exported for unit testing the arg/auth resolution without launching the TUI.
+export function parseArgs(): ParsedArgs {
   const args = process.argv.slice(3);
 
   const positionalName = parseAssistantTargetArg(args, [
@@ -93,6 +94,8 @@ function parseArgs(): ParsedArgs {
     "-a",
     "--interface",
     "-i",
+    "--token",
+    "-t",
   ]);
   const flagArgs: string[] = [];
   for (let i = 0; i < args.length; i++) {
@@ -106,7 +109,9 @@ function parseArgs(): ParsedArgs {
         arg === "--assistant-id" ||
         arg === "-a" ||
         arg === "--interface" ||
-        arg === "-i") &&
+        arg === "-i" ||
+        arg === "--token" ||
+        arg === "-t") &&
       args[i + 1]
     ) {
       flagArgs.push(arg, args[++i]);
@@ -163,11 +168,16 @@ function parseArgs(): ParsedArgs {
       : (loadGuardianToken(entry?.assistantId ?? "")?.accessToken ?? undefined);
 
   let interfaceId: SupportedInterface = CLI_INTERFACE_ID;
+  // Ephemeral auth: a handed-over token (e.g. from `vellum pair`) used for this
+  // session only — overrides the lockfile/guardian token and is never persisted.
+  let bearerTokenOverride: string | undefined;
 
   for (let i = 0; i < flagArgs.length; i++) {
     const flag = flagArgs[i];
     if ((flag === "--url" || flag === "-u") && flagArgs[i + 1]) {
       runtimeUrl = flagArgs[++i];
+    } else if ((flag === "--token" || flag === "-t") && flagArgs[i + 1]) {
+      bearerTokenOverride = flagArgs[++i];
     } else if (
       (flag === "--assistant-id" || flag === "-a") &&
       flagArgs[i + 1]
@@ -186,14 +196,20 @@ function parseArgs(): ParsedArgs {
     }
   }
 
+  // An explicit --token takes precedence and forces the bearer (Authorization)
+  // path — even against a platform entry — so an ephemeral session never reads
+  // or writes the local token store.
+  const finalBearerToken = bearerTokenOverride ?? bearerToken;
+  const finalPlatformToken = bearerTokenOverride ? undefined : platformToken;
+
   return {
     runtimeUrl: maybeSwapToLocalhost(runtimeUrl.replace(/\/+$/, "")),
     assistantId,
     assistantName,
     species,
     cloud,
-    platformToken,
-    bearerToken,
+    platformToken: finalPlatformToken,
+    bearerToken: finalBearerToken,
     interfaceId,
   };
 }
@@ -248,6 +264,9 @@ ${ANSI.bold}ARGUMENTS:${ANSI.reset}
 
 ${ANSI.bold}OPTIONS:${ANSI.reset}
     -u, --url <url>            Runtime URL
+    -t, --token <jwt>          Bearer token to use for this session (e.g. from
+                              'vellum pair'). Overrides the stored token and is
+                              not persisted.
     -a, --assistant-id <id>    Assistant ID
     -i, --interface <id>       Interface identifier: cli (default) or web
     -h, --help                 Show this help message
@@ -261,6 +280,10 @@ ${ANSI.bold}EXAMPLES:${ANSI.reset}
     vellum client vellum-assistant-foo
     vellum client --url http://34.56.78.90:${GATEWAY_PORT}
     vellum client vellum-assistant-foo --url http://localhost:${GATEWAY_PORT}
+
+    # Ephemeral: connect to another machine's assistant with a paired token
+    # (no lockfile entry, nothing persisted):
+    vellum client --url http://10.0.0.196:${GATEWAY_PORT} --token <jwt>
 `);
 }
 
