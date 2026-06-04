@@ -19,7 +19,7 @@ For the full plugin authoring guide, see
 
 - Registers one observer middleware per slot in
   `PipelineMiddlewareMap` — `memoryRetrieval`, `compaction`,
-  `overflowReduce`, `persistence`, and `circuitBreaker`.
+  `overflowReduce`, and `circuitBreaker`.
 - Each middleware calls `next(args)` to pass the request through unchanged,
   measures wall-clock duration, and emits one line to `stderr` whether the
   downstream succeeded or threw.
@@ -94,7 +94,6 @@ tail -f ~/.vellum/daemon.log
 You should see one line per pipeline invocation, similar to:
 
 ```json
-{"plugin":"echo","pipeline":"persistence","durationMs":3,"outcome":"success"}
 {"plugin":"echo","pipeline":"memoryRetrieval","durationMs":64,"outcome":"success"}
 {"plugin":"echo","pipeline":"compaction","durationMs":1590,"outcome":"success"}
 ```

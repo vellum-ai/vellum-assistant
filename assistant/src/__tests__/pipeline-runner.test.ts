@@ -170,12 +170,12 @@ describe("runPipeline — error propagation", () => {
 
     await expect(
       runPipeline(
-        "persistence",
+        "circuitBreaker",
         [thrower],
         terminal,
         { value: 1 },
         makeCtx(),
-        DEFAULT_TIMEOUTS.persistence,
+        DEFAULT_TIMEOUTS.circuitBreaker,
       ),
     ).rejects.toBeInstanceOf(Boom);
   });
@@ -187,12 +187,12 @@ describe("runPipeline — error propagation", () => {
 
     await expect(
       runPipeline(
-        "persistence",
+        "circuitBreaker",
         [],
         terminal,
         { value: 1 },
         makeCtx(),
-        DEFAULT_TIMEOUTS.persistence,
+        DEFAULT_TIMEOUTS.circuitBreaker,
       ),
     ).rejects.toBeInstanceOf(TypeError);
   });
@@ -356,7 +356,7 @@ describe("runPipeline — timeout aborts linked signal", () => {
   });
 
   test("args without an AbortSignal property is passed through unchanged", async () => {
-    // Sanity — pipelines that don't carry a signal (persistence, circuitBreaker)
+    // Sanity — pipelines that don't carry a signal (circuitBreaker)
     // see identical args identity as before the abort-linking change.
     const args: Args = { value: 42 };
     let seen: Args | undefined;
@@ -365,12 +365,12 @@ describe("runPipeline — timeout aborts linked signal", () => {
       return { value: innerArgs.value };
     };
     await runPipeline(
-      "persistence",
+      "circuitBreaker",
       [],
       terminal,
       args,
       makeCtx(),
-      DEFAULT_TIMEOUTS.persistence,
+      DEFAULT_TIMEOUTS.circuitBreaker,
     );
     expect(seen).toBe(args);
   });
@@ -428,19 +428,19 @@ describe("runPipeline — structured log record", () => {
 
     await expect(
       runPipeline(
-        "persistence",
+        "circuitBreaker",
         [thrower],
         terminal,
         { value: 1 },
         makeCtx({ pluginName: "noisy-plugin" }),
-        DEFAULT_TIMEOUTS.persistence,
+        DEFAULT_TIMEOUTS.circuitBreaker,
       ),
     ).rejects.toBeInstanceOf(Boom);
 
     expect(fakeLogger.calls.length).toBe(1);
     const [record] = fakeLogger.calls[0]!;
     expect(record.outcome).toBe("error");
-    expect(record.pipeline).toBe("persistence");
+    expect(record.pipeline).toBe("circuitBreaker");
     expect(record.errorName).toBe("BoomError");
     expect(record.errorMessage).toBe("kaboom");
     expect(typeof record.errorStack).toBe("string");
@@ -456,7 +456,7 @@ describe("runPipeline — structured log record", () => {
 
     await expect(
       runPipeline(
-        "persistence",
+        "circuitBreaker",
         [sleeper],
         terminal,
         { value: 1 },
@@ -468,9 +468,9 @@ describe("runPipeline — structured log record", () => {
     expect(fakeLogger.calls.length).toBe(1);
     const [record] = fakeLogger.calls[0]!;
     expect(record.outcome).toBe("timeout");
-    expect(record.pipeline).toBe("persistence");
+    expect(record.pipeline).toBe("circuitBreaker");
     expect(record.errorName).toBe("PluginTimeoutError");
-    expect(String(record.errorMessage)).toContain("persistence");
+    expect(String(record.errorMessage)).toContain("circuitBreaker");
     expect(String(record.errorMessage)).toContain("slow-plugin");
     expect(record.timeoutMs).toBe(15);
     expect(record.pluginName).toBe("slow-plugin");
@@ -506,7 +506,7 @@ describe("runPipeline — structured log record", () => {
       logger: fakeLogger,
     } as TurnContext;
     await runPipeline(
-      "persistence",
+      "circuitBreaker",
       [],
       terminal,
       { value: 0 },
@@ -549,7 +549,6 @@ describe("DEFAULT_TIMEOUTS", () => {
       memoryRetrieval: null,
       compaction: null,
       overflowReduce: null,
-      persistence: null,
       circuitBreaker: null,
     });
   });

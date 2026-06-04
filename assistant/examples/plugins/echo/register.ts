@@ -50,8 +50,6 @@ import type {
   MemoryResult,
   OverflowReduceArgs,
   OverflowReduceResult,
-  PersistArgs,
-  PersistResult,
   Plugin,
 } from "../../../src/plugins/types.js";
 
@@ -137,7 +135,6 @@ const echoPlugin: Plugin = {
     overflowReduce: makeObserver<OverflowReduceArgs, OverflowReduceResult>(
       "overflowReduce",
     ),
-    persistence: makeObserver<PersistArgs, PersistResult>("persistence"),
     circuitBreaker: makeObserver<CircuitBreakerArgs, CircuitBreakerResult>(
       "circuitBreaker",
     ),

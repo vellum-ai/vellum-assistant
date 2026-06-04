@@ -23,8 +23,6 @@ import {
   type Middleware,
   type OverflowReduceArgs,
   type OverflowReduceResult,
-  type PersistArgs,
-  type PersistResult,
   type Plugin,
   PluginExecutionError,
   type PluginInitContext,
@@ -103,16 +101,6 @@ describe("plugin core types", () => {
       CircuitBreakerResult
     > = async (args, next, _ctx) => next(args);
 
-    // `persistence` has concrete discriminated-union arg/result types
-    // (upgraded from the initial `{ input }/{ output }` placeholder in PR 27)
-    // so it gets its own passthrough rather than sharing the generic one
-    // above.
-    const persistPassthrough: Middleware<PersistArgs, PersistResult> = async (
-      args,
-      next,
-      _ctx,
-    ) => next(args);
-
     const injector: Injector = {
       name: "sample-injector",
       order: 10,
@@ -169,7 +157,6 @@ describe("plugin core types", () => {
         memoryRetrieval: memoryPassthrough,
         compaction: compactionPassthrough,
         overflowReduce: overflowReducePassthrough,
-        persistence: persistPassthrough,
         circuitBreaker: circuitPassthrough,
       },
     } satisfies Plugin;
