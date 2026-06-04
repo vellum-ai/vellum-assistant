@@ -10074,6 +10074,47 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  subdomain:
+                    type: string
+                  domain:
+                    type: string
+                  created_at:
+                    type: string
+                  created:
+                    type: string
+                  email_error:
+                    type: object
+                    properties:
+                      detail:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - detail
+                      - code
+                    additionalProperties: false
+                required:
+                  - id
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                subdomain:
+                  type: string
+                email_username:
+                  type: string
+              additionalProperties: false
   /v1/domain/status:
     get:
       operationId: domain_status_get
@@ -10083,6 +10124,36 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  next:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        subdomain:
+                          type: string
+                        domain:
+                          type: string
+                        created_at:
+                          type: string
+                        created:
+                          type: string
+                      required:
+                        - id
+                      additionalProperties: false
+                required:
+                  - results
+                additionalProperties: false
   /v1/domain/verification-status:
     post:
       operationId: domain_verificationstatus_post
@@ -10092,6 +10163,34 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  domain:
+                    type: string
+                  status:
+                    type: string
+                  message:
+                    type: string
+                required:
+                  - domain
+                  - status
+                  - message
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                domain_id:
+                  type: string
+              required:
+                - domain_id
+              additionalProperties: false
   /v1/email/attachment-get:
     get:
       operationId: email_attachmentget_get
