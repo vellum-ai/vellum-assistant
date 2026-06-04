@@ -4616,6 +4616,14 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        conversationExists:
+                          type: boolean
+                        conversationArchivedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        estimatedCostUsd:
+                          type: number
                         createdAt:
                           type: number
                       required:
@@ -4628,6 +4636,9 @@ paths:
                         - skipReason
                         - error
                         - conversationId
+                        - conversationExists
+                        - conversationArchivedAt
+                        - estimatedCostUsd
                         - createdAt
                       additionalProperties: false
                     description: Consolidation run records
@@ -11633,6 +11644,14 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        conversationExists:
+                          type: boolean
+                        conversationArchivedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        estimatedCostUsd:
+                          type: number
                         createdAt:
                           type: number
                       required:
@@ -11645,6 +11664,9 @@ paths:
                         - skipReason
                         - error
                         - conversationId
+                        - conversationExists
+                        - conversationArchivedAt
+                        - estimatedCostUsd
                         - createdAt
                       additionalProperties: false
                     description: Heartbeat run records
@@ -19222,6 +19244,16 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        createdFromConversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        createdFromConversationExists:
+                          type: boolean
+                        createdFromConversationArchivedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
                         description:
                           anyOf:
                             - type: string
@@ -19271,6 +19303,9 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - createdFromConversationId
+                        - createdFromConversationExists
+                        - createdFromConversationArchivedAt
                         - description
                         - mode
                         - status
@@ -19358,6 +19393,16 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        createdFromConversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        createdFromConversationExists:
+                          type: boolean
+                        createdFromConversationArchivedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
                         description:
                           anyOf:
                             - type: string
@@ -19407,6 +19452,9 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - createdFromConversationId
+                        - createdFromConversationExists
+                        - createdFromConversationArchivedAt
                         - description
                         - mode
                         - status
@@ -19520,6 +19568,16 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        createdFromConversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        createdFromConversationExists:
+                          type: boolean
+                        createdFromConversationArchivedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
                         description:
                           anyOf:
                             - type: string
@@ -19569,6 +19627,9 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - createdFromConversationId
+                        - createdFromConversationExists
+                        - createdFromConversationArchivedAt
                         - description
                         - mode
                         - status
@@ -19655,6 +19716,16 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        createdFromConversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        createdFromConversationExists:
+                          type: boolean
+                        createdFromConversationArchivedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
                         description:
                           anyOf:
                             - type: string
@@ -19704,6 +19775,9 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - createdFromConversationId
+                        - createdFromConversationExists
+                        - createdFromConversationArchivedAt
                         - description
                         - mode
                         - status
@@ -19833,6 +19907,16 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        createdFromConversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        createdFromConversationExists:
+                          type: boolean
+                        createdFromConversationArchivedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
                         description:
                           anyOf:
                             - type: string
@@ -19882,6 +19966,9 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - createdFromConversationId
+                        - createdFromConversationExists
+                        - createdFromConversationArchivedAt
                         - description
                         - mode
                         - status
@@ -19969,6 +20056,16 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        createdFromConversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        createdFromConversationExists:
+                          type: boolean
+                        createdFromConversationArchivedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
                         description:
                           anyOf:
                             - type: string
@@ -20018,6 +20115,9 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - createdFromConversationId
+                        - createdFromConversationExists
+                        - createdFromConversationArchivedAt
                         - description
                         - mode
                         - status
@@ -20084,6 +20184,14 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        conversationExists:
+                          type: boolean
+                        conversationArchivedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        estimatedCostUsd:
+                          type: number
                         createdAt:
                           type: number
                       required:
@@ -20096,6 +20204,9 @@ paths:
                         - output
                         - error
                         - conversationId
+                        - conversationExists
+                        - conversationArchivedAt
+                        - estimatedCostUsd
                         - createdAt
                       additionalProperties: false
                     description: Schedule run objects
@@ -20183,6 +20294,16 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        createdFromConversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        createdFromConversationExists:
+                          type: boolean
+                        createdFromConversationArchivedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
                         description:
                           anyOf:
                             - type: string
@@ -20232,6 +20353,9 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - createdFromConversationId
+                        - createdFromConversationExists
+                        - createdFromConversationArchivedAt
                         - description
                         - mode
                         - status
@@ -20263,6 +20387,57 @@ paths:
               required:
                 - enabled
               additionalProperties: false
+  /v1/schedules/usage-summary:
+    get:
+      operationId: schedules_usagesummary_get
+      summary: Get schedule usage summaries
+      description: Return per-schedule run counts and usage totals for a time range.
+      tags:
+        - schedules
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  summaries:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        scheduleId:
+                          type: string
+                        runCount:
+                          type: number
+                        totalEstimatedCostUsd:
+                          type: number
+                        eventCount:
+                          type: number
+                      required:
+                        - scheduleId
+                        - runCount
+                        - totalEstimatedCostUsd
+                        - eventCount
+                      additionalProperties: false
+                    description: Schedule usage summary rows
+                required:
+                  - summaries
+                additionalProperties: false
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: integer
+          description: Start epoch millis (required)
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: integer
+          description: End epoch millis (required)
   /v1/search:
     get:
       operationId: search_get
@@ -24122,7 +24297,13 @@ paths:
           required: false
           schema:
             type: string
-          description: "Group by: actor, provider, model, conversation, call_site, inference_profile (required)"
+          description: "Group by: actor, provider, model, conversation, call_site, inference_profile, schedule (required)"
+        - name: scheduleId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional schedule id. When set, usage is attributed by cron run windows for that schedule.
   /v1/usage/daily:
     get:
       operationId: usage_daily_get
@@ -24199,6 +24380,12 @@ paths:
           description:
             IANA timezone identifier (e.g. "America/Los_Angeles"). Bucket boundaries and display labels are computed in
             this timezone. Defaults to "UTC" for backwards compatibility.
+        - name: scheduleId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional schedule id. When set, usage is attributed by cron run windows for that schedule.
   /v1/usage/series:
     get:
       operationId: usage_series_get
@@ -24302,7 +24489,7 @@ paths:
           required: false
           schema:
             type: string
-          description: "Group by: actor, provider, model, call_site, inference_profile (required)"
+          description: "Group by: actor, provider, model, call_site, inference_profile, schedule (required)"
         - name: tz
           in: query
           required: false
@@ -24311,6 +24498,12 @@ paths:
           description:
             IANA timezone identifier (e.g. "America/Los_Angeles"). Bucket boundaries and display labels are computed in
             this timezone. Defaults to "UTC".
+        - name: scheduleId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional schedule id. When set, usage is attributed by cron run windows for that schedule.
   /v1/usage/totals:
     get:
       operationId: usage_totals_get
@@ -24365,6 +24558,12 @@ paths:
           schema:
             type: integer
           description: End epoch millis (required)
+        - name: scheduleId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional schedule id. When set, usage is attributed by cron run windows for that schedule.
   /v1/user-routes/inspect:
     post:
       operationId: userroutes_inspect_post

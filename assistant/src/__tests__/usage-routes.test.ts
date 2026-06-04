@@ -9,13 +9,18 @@ mock.module("../util/logger.js", () => ({
 
 import { getSqlite } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
-import { recordUsageEvent } from "../memory/llm-usage-store.js";
+import {
+  getUsageCostForConversationWindow,
+  recordUsageEvent,
+} from "../memory/llm-usage-store.js";
 import { BadRequestError } from "../runtime/routes/errors.js";
 import { ROUTES } from "../runtime/routes/usage-routes.js";
 
 initializeDb();
 
 function clearUsageEvents() {
+  getSqlite().run("DELETE FROM cron_runs");
+  getSqlite().run("DELETE FROM cron_jobs");
   getSqlite().run("DELETE FROM llm_usage_events");
 }
 
@@ -118,12 +123,132 @@ function seedEvents() {
   return { day1, day2 };
 }
 
+function recordCostAt(
+  conversationId: string,
+  requestId: string,
+  createdAt: number,
+  estimatedCostUsd: number,
+) {
+  recordUsageEvent(
+    {
+      conversationId,
+      runId: null,
+      requestId,
+      actor: "main_agent",
+      callSite: "mainAgent",
+      inferenceProfile: "balanced",
+      provider: "anthropic",
+      model: "claude-sonnet-4-20250514",
+      inputTokens: 100,
+      outputTokens: 50,
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: 0,
+      rawUsage: null,
+    },
+    { estimatedCostUsd, pricingStatus: "priced" },
+  );
+  getSqlite().run(
+    "UPDATE llm_usage_events SET created_at = ? WHERE request_id = ?",
+    [createdAt, requestId],
+  );
+}
+
+function insertScheduleJob(id: string, name: string): void {
+  const now = new Date("2026-01-01T00:00:00Z").getTime();
+  getSqlite().run(
+    `INSERT INTO cron_jobs (
+      id,
+      name,
+      cron_expression,
+      message,
+      next_run_at,
+      created_by,
+      created_at,
+      updated_at
+    ) VALUES (?, ?, '* * * * *', 'Example scheduled task', ?, 'user', ?, ?)`,
+    [id, name, now, now, now],
+  );
+}
+
+function insertScheduleRun({
+  id,
+  scheduleId,
+  conversationId,
+  startedAt,
+  finishedAt,
+}: {
+  id: string;
+  scheduleId: string;
+  conversationId: string;
+  startedAt: number;
+  finishedAt: number | null;
+}): void {
+  getSqlite().run(
+    `INSERT INTO cron_runs (
+      id,
+      job_id,
+      status,
+      started_at,
+      finished_at,
+      conversation_id,
+      created_at
+    ) VALUES (?, ?, 'ok', ?, ?, ?, ?)`,
+    [id, scheduleId, startedAt, finishedAt, conversationId, startedAt],
+  );
+}
+
+function seedScheduleRouteEvents() {
+  insertScheduleJob("schedule-a", "Morning summary");
+  insertScheduleJob("schedule-b", "Nightly sync");
+  insertScheduleRun({
+    id: "run-a-1",
+    scheduleId: "schedule-a",
+    conversationId: "conv-reused",
+    startedAt: 1_000,
+    finishedAt: 2_000,
+  });
+  insertScheduleRun({
+    id: "run-b-1",
+    scheduleId: "schedule-b",
+    conversationId: "conv-reused",
+    startedAt: 3_000,
+    finishedAt: 3_500,
+  });
+
+  recordCostAt("conv-reused", "route-before-a", 900, 0.09);
+  recordCostAt("conv-reused", "route-a-start", 1_000, 0.1);
+  recordCostAt("conv-reused", "route-a-inside", 1_500, 0.2);
+  recordCostAt("conv-reused", "route-a-finish", 2_000, 0.3);
+  recordCostAt("conv-reused", "route-after-a", 2_500, 0.4);
+  recordCostAt("conv-reused", "route-b-inside", 3_200, 0.5);
+  recordCostAt("conv-other", "route-other", 1_500, 0.8);
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 describe("usage routes", () => {
   beforeEach(clearUsageEvents);
+
+  describe("getUsageCostForConversationWindow", () => {
+    test("sums only events for the conversation inside the inclusive window", () => {
+      recordCostAt("conv-window", "req-before", 999, 0.5);
+      recordCostAt("conv-window", "req-start", 1000, 0.01);
+      recordCostAt("conv-window", "req-middle", 1500, 0.02);
+      recordCostAt("conv-window", "req-end", 2000, 0.03);
+      recordCostAt("conv-window", "req-after", 2001, 0.75);
+      recordCostAt("conv-other", "req-other", 1500, 0.9);
+
+      const total = getUsageCostForConversationWindow({
+        conversationId: "conv-window",
+        from: 1000,
+        to: 2000,
+      });
+
+      expect(total).toBeCloseTo(0.06);
+    });
+  });
 
   // -- query parsing / validation --
 
@@ -204,6 +329,19 @@ describe("usage routes", () => {
       expect(body.totalCacheCreationTokens).toBe(50);
       expect(body.totalCacheReadTokens).toBe(100);
     });
+
+    test("filters by trimmed scheduleId using schedule run windows", () => {
+      seedScheduleRouteEvents();
+
+      const body = dispatch(
+        "GET",
+        "usage/totals?from=0&to=4000&scheduleId=%20schedule-a%20",
+      ) as Record<string, number>;
+
+      expect(body.eventCount).toBe(3);
+      expect(body.totalInputTokens).toBe(300);
+      expect(body.totalEstimatedCostUsd).toBeCloseTo(0.6);
+    });
   });
 
   // -- daily buckets --
@@ -254,6 +392,21 @@ describe("usage routes", () => {
       expect(body.buckets[1].date).toBe("2025-01-16");
       expect(body.buckets[1].totalInputTokens).toBe(2000);
       expect(body.buckets[1].eventCount).toBe(1);
+    });
+
+    test("filters daily buckets by scheduleId", () => {
+      seedScheduleRouteEvents();
+
+      const body = dispatch(
+        "GET",
+        "usage/daily?from=0&to=4000&scheduleId=schedule-a",
+      ) as {
+        buckets: Array<{ totalEstimatedCostUsd: number; eventCount: number }>;
+      };
+
+      expect(body.buckets).toHaveLength(1);
+      expect(body.buckets[0].eventCount).toBe(3);
+      expect(body.buckets[0].totalEstimatedCostUsd).toBeCloseTo(0.6);
     });
   });
 
@@ -396,6 +549,70 @@ describe("usage routes", () => {
         null,
       ]);
     });
+
+    test("accepts groupBy=schedule and labels groups with schedule names", () => {
+      seedScheduleRouteEvents();
+
+      const body = dispatch(
+        "GET",
+        "usage/breakdown?from=0&to=4000&groupBy=schedule",
+      ) as {
+        breakdown: Array<{
+          group: string;
+          groupId: string | null;
+          groupKey: string | null;
+          totalEstimatedCostUsd: number;
+          eventCount: number;
+        }>;
+      };
+
+      expect(
+        body.breakdown.find((row) => row.groupKey === "schedule-a"),
+      ).toMatchObject({
+        group: "Morning summary",
+        groupId: "schedule-a",
+        totalEstimatedCostUsd: 0.6,
+        eventCount: 3,
+      });
+      expect(
+        body.breakdown.find((row) => row.groupKey === "schedule-b"),
+      ).toMatchObject({
+        group: "Nightly sync",
+        groupId: "schedule-b",
+        totalEstimatedCostUsd: 0.5,
+        eventCount: 1,
+      });
+      expect(body.breakdown.find((row) => row.groupKey === null)).toMatchObject(
+        {
+          group: "Other",
+          groupId: null,
+          totalEstimatedCostUsd: 1.29,
+          eventCount: 3,
+        },
+      );
+    });
+
+    test("filters breakdown by scheduleId", () => {
+      seedScheduleRouteEvents();
+
+      const body = dispatch(
+        "GET",
+        "usage/breakdown?from=0&to=4000&groupBy=provider&scheduleId=schedule-a",
+      ) as {
+        breakdown: Array<{
+          group: string;
+          totalEstimatedCostUsd: number;
+          eventCount: number;
+        }>;
+      };
+
+      expect(body.breakdown).toHaveLength(1);
+      expect(body.breakdown[0]).toMatchObject({
+        group: "anthropic",
+        totalEstimatedCostUsd: 0.6,
+        eventCount: 3,
+      });
+    });
   });
 
   describe("GET /v1/usage/series", () => {
@@ -483,6 +700,73 @@ describe("usage routes", () => {
         groupKey: null,
         totalInputTokens: 2000,
       });
+    });
+
+    test("accepts groupBy=schedule and labels schedule series groups", () => {
+      seedScheduleRouteEvents();
+
+      const body = dispatch(
+        "GET",
+        "usage/series?from=0&to=4000&groupBy=schedule&granularity=daily",
+      ) as {
+        buckets: Array<{
+          groups: Record<
+            string,
+            {
+              group: string;
+              groupKey: string | null;
+              totalEstimatedCostUsd: number;
+            }
+          >;
+        }>;
+      };
+
+      expect(body.buckets).toHaveLength(1);
+      expect(body.buckets[0].groups["value:schedule-a"]).toMatchObject({
+        group: "Morning summary",
+        groupKey: "schedule-a",
+      });
+      expect(
+        body.buckets[0].groups["value:schedule-a"].totalEstimatedCostUsd,
+      ).toBeCloseTo(0.6);
+      expect(body.buckets[0].groups["value:schedule-b"]).toMatchObject({
+        group: "Nightly sync",
+        groupKey: "schedule-b",
+      });
+      expect(
+        body.buckets[0].groups["value:schedule-b"].totalEstimatedCostUsd,
+      ).toBeCloseTo(0.5);
+      expect(body.buckets[0].groups["null:schedule"]).toMatchObject({
+        group: "Other",
+        groupKey: null,
+      });
+      expect(
+        body.buckets[0].groups["null:schedule"].totalEstimatedCostUsd,
+      ).toBeCloseTo(1.29);
+    });
+
+    test("filters grouped series by scheduleId", () => {
+      seedScheduleRouteEvents();
+
+      const body = dispatch(
+        "GET",
+        "usage/series?from=0&to=4000&groupBy=call_site&granularity=daily&scheduleId=schedule-a",
+      ) as {
+        buckets: Array<{
+          totalEstimatedCostUsd: number;
+          groups: Record<string, { totalEstimatedCostUsd: number }>;
+        }>;
+      };
+
+      expect(body.buckets).toHaveLength(1);
+      expect(body.buckets[0].totalEstimatedCostUsd).toBeCloseTo(0.6);
+      expect(body.buckets[0].groups["value:mainAgent"]).toMatchObject({
+        group: "Main Agent",
+        groupKey: "mainAgent",
+      });
+      expect(
+        body.buckets[0].groups["value:mainAgent"].totalEstimatedCostUsd,
+      ).toBeCloseTo(0.6);
     });
   });
 });

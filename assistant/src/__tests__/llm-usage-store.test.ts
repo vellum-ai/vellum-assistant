@@ -6,7 +6,7 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
 }));
 
-import { getDb } from "../memory/db-connection.js";
+import { getDb, getSqlite } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import {
   getUsageDayBuckets,
@@ -453,6 +453,228 @@ describe("getUsageTotals", () => {
     const totals = getUsageTotals({ from: 0, to: 5000 });
     expect(totals.totalCacheCreationTokens).toBe(50);
     expect(totals.totalCacheReadTokens).toBe(100);
+  });
+});
+
+describe("usage aggregation schedule filters", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run(`DELETE FROM llm_usage_events`);
+    db.run(`DELETE FROM cron_runs`);
+    db.run(`DELETE FROM cron_jobs`);
+  });
+
+  function insertScheduleJob(id: string, name: string): void {
+    const now = Date.UTC(2026, 0, 1);
+    getSqlite().run(
+      `INSERT INTO cron_jobs (
+        id,
+        name,
+        cron_expression,
+        message,
+        next_run_at,
+        created_by,
+        created_at,
+        updated_at
+      ) VALUES (?, ?, '* * * * *', 'Example scheduled task', ?, 'user', ?, ?)`,
+      [id, name, now, now, now],
+    );
+  }
+
+  function insertScheduleRun({
+    id,
+    scheduleId,
+    conversationId,
+    startedAt,
+    finishedAt,
+  }: {
+    id: string;
+    scheduleId: string;
+    conversationId: string;
+    startedAt: number;
+    finishedAt: number | null;
+  }): void {
+    getSqlite().run(
+      `INSERT INTO cron_runs (
+        id,
+        job_id,
+        status,
+        started_at,
+        finished_at,
+        conversation_id,
+        created_at
+      ) VALUES (?, ?, 'ok', ?, ?, ?, ?)`,
+      [id, scheduleId, startedAt, finishedAt, conversationId, startedAt],
+    );
+  }
+
+  function seedScheduleUsage(): void {
+    insertScheduleJob("schedule-a", "Morning summary");
+    insertScheduleJob("schedule-b", "Nightly sync");
+    insertScheduleRun({
+      id: "run-a-1",
+      scheduleId: "schedule-a",
+      conversationId: "conv-reused",
+      startedAt: 1_000,
+      finishedAt: 2_000,
+    });
+    insertScheduleRun({
+      id: "run-b-1",
+      scheduleId: "schedule-b",
+      conversationId: "conv-reused",
+      startedAt: 3_000,
+      finishedAt: 3_500,
+    });
+
+    insertEventAt(
+      900,
+      { conversationId: "conv-reused", inputTokens: 90 },
+      { estimatedCostUsd: 0.09, pricingStatus: "priced" },
+    );
+    insertEventAt(
+      1_000,
+      {
+        conversationId: "conv-reused",
+        callSite: "mainAgent",
+        inputTokens: 100,
+      },
+      { estimatedCostUsd: 0.1, pricingStatus: "priced" },
+    );
+    insertEventAt(
+      1_500,
+      {
+        conversationId: "conv-reused",
+        callSite: "mainAgent",
+        inputTokens: 200,
+      },
+      { estimatedCostUsd: 0.2, pricingStatus: "priced" },
+    );
+    insertEventAt(
+      2_000,
+      {
+        conversationId: "conv-reused",
+        callSite: "mainAgent",
+        inputTokens: 300,
+      },
+      { estimatedCostUsd: 0.3, pricingStatus: "priced" },
+    );
+    insertEventAt(
+      2_500,
+      { conversationId: "conv-reused", inputTokens: 400 },
+      { estimatedCostUsd: 0.4, pricingStatus: "priced" },
+    );
+    insertEventAt(
+      3_200,
+      {
+        conversationId: "conv-reused",
+        provider: "openai",
+        inputTokens: 500,
+      },
+      { estimatedCostUsd: 0.5, pricingStatus: "priced" },
+    );
+    insertEventAt(
+      1_500,
+      { conversationId: "conv-other", inputTokens: 800 },
+      { estimatedCostUsd: 0.8, pricingStatus: "priced" },
+    );
+  }
+
+  test("filters totals, buckets, breakdowns, and series by cron run windows", () => {
+    seedScheduleUsage();
+    const range = { from: 0, to: 4_000 };
+    const filter = { scheduleId: "schedule-a" };
+
+    const totals = getUsageTotals(range, filter);
+    expect(totals.eventCount).toBe(3);
+    expect(totals.totalInputTokens).toBe(600);
+    expect(totals.totalEstimatedCostUsd).toBeCloseTo(0.6);
+
+    const dailyBuckets = getUsageDayBuckets(range, "UTC", {}, filter);
+    expect(dailyBuckets).toHaveLength(1);
+    expect(dailyBuckets[0].totalInputTokens).toBe(600);
+    expect(dailyBuckets[0].eventCount).toBe(3);
+
+    const hourlyBuckets = getUsageHourBuckets(range, "UTC", {}, filter);
+    expect(hourlyBuckets).toHaveLength(1);
+    expect(hourlyBuckets[0].totalInputTokens).toBe(600);
+    expect(hourlyBuckets[0].eventCount).toBe(3);
+
+    const breakdown = getUsageGroupBreakdown(range, "provider", filter);
+    expect(breakdown).toHaveLength(1);
+    expect(breakdown[0].group).toBe("anthropic");
+    expect(breakdown[0].totalInputTokens).toBe(600);
+    expect(breakdown[0].eventCount).toBe(3);
+
+    const series = getUsageGroupedSeries(
+      range,
+      "call_site",
+      "daily",
+      "UTC",
+      {},
+      filter,
+    );
+    expect(series).toHaveLength(1);
+    expect(series[0].totalInputTokens).toBe(600);
+    expect(series[0].groups["null:call_site"]).toBeUndefined();
+    expect(series[0].groups["null:schedule"]).toBeUndefined();
+    expect(series[0].groups["value:mainAgent"]).toMatchObject({
+      group: "Main Agent",
+      totalInputTokens: 600,
+      eventCount: 3,
+    });
+  });
+
+  test("groups schedule-attributed usage by schedule id with schedule names", () => {
+    seedScheduleUsage();
+    const range = { from: 0, to: 4_000 };
+
+    const breakdown = getUsageGroupBreakdown(range, "schedule");
+    const scheduleA = breakdown.find((row) => row.groupKey === "schedule-a");
+    const scheduleB = breakdown.find((row) => row.groupKey === "schedule-b");
+    const other = breakdown.find((row) => row.groupKey === null);
+
+    expect(scheduleA).toMatchObject({
+      group: "Morning summary",
+      groupId: "schedule-a",
+      groupKey: "schedule-a",
+      totalInputTokens: 600,
+      eventCount: 3,
+    });
+    expect(scheduleB).toMatchObject({
+      group: "Nightly sync",
+      groupId: "schedule-b",
+      groupKey: "schedule-b",
+      totalInputTokens: 500,
+      eventCount: 1,
+    });
+    expect(other).toMatchObject({
+      group: "Other",
+      groupId: null,
+      groupKey: null,
+      totalInputTokens: 1_290,
+      eventCount: 3,
+    });
+
+    const series = getUsageGroupedSeries(range, "schedule", "daily", "UTC", {});
+    expect(series).toHaveLength(1);
+    expect(series[0].groups["value:schedule-a"]).toMatchObject({
+      group: "Morning summary",
+      groupKey: "schedule-a",
+      totalInputTokens: 600,
+      eventCount: 3,
+    });
+    expect(series[0].groups["value:schedule-b"]).toMatchObject({
+      group: "Nightly sync",
+      groupKey: "schedule-b",
+      totalInputTokens: 500,
+      eventCount: 1,
+    });
+    expect(series[0].groups["null:schedule"]).toMatchObject({
+      group: "Other",
+      groupKey: null,
+      totalInputTokens: 1_290,
+      eventCount: 3,
+    });
   });
 });
 
