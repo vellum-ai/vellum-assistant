@@ -247,7 +247,7 @@ export function GeneralPage() {
   }, [assistant]);
 
   return (
-    <div className="mx-auto max-w-[940px] space-y-4">
+    <div className="space-y-4">
       {diskPressure.status && diskPressure.mode !== "inactive" && (
         <DiskPressureBanner
           status={diskPressure.status}

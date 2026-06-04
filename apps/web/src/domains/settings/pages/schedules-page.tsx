@@ -152,7 +152,7 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
 
 function RunLogView({ run, onBack }: { run: ScheduleRun; onBack: () => void }) {
   return (
-    <div className="mx-auto max-w-[940px] space-y-4">
+    <div className="space-y-4">
       <button
         type="button"
         onClick={onBack}
@@ -452,7 +452,7 @@ export function ScheduleDetailView({
   }
 
   return (
-    <div className="mx-auto max-w-[940px] space-y-4">
+    <div className="space-y-4">
       <button
         type="button"
         onClick={onBack}
@@ -712,7 +712,7 @@ function SystemTaskDetailView({
   }
 
   return (
-    <div className="mx-auto max-w-[940px] space-y-4">
+    <div className="space-y-4">
       <button
         type="button"
         onClick={onBack}
@@ -1150,7 +1150,7 @@ export function SchedulesPage() {
 
   if (isLoading) {
     return (
-      <div className="mx-auto max-w-[940px]">
+      <div className="w-full">
         <div className="flex min-h-[400px] items-center justify-center">
           <Loader2 className="h-6 w-6 animate-spin text-stone-400" />
         </div>
@@ -1160,7 +1160,7 @@ export function SchedulesPage() {
 
   if ((isAssistantError && !assistantId) || (isSchedulesError && !schedules)) {
     return (
-      <div className="mx-auto max-w-[940px]">
+      <div className="w-full">
         <Notice tone="error">
           Failed to load schedules.{" "}
           <button
@@ -1189,7 +1189,7 @@ export function SchedulesPage() {
       !hasSystemError)
   ) {
     return (
-      <div className="mx-auto max-w-[940px]">
+      <div className="w-full">
         <EmptyState onCreate={() => setCreateOpen(true)} />
         {assistantId ? (
           <CreateScheduleModal
@@ -1206,7 +1206,7 @@ export function SchedulesPage() {
   const { recurring, oneTime } = sortSchedules(schedules);
 
   return (
-    <div className="mx-auto max-w-[940px] space-y-4">
+    <div className="space-y-4">
       <div className="flex items-center justify-end">
         <Button variant="primary" onClick={() => setCreateOpen(true)}>
           <Plus className="h-4 w-4" />
