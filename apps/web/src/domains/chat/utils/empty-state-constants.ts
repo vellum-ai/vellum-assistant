@@ -18,14 +18,19 @@ export const EMPTY_STATE_PLACEHOLDERS: readonly string[] = [
 
 export const MAX_CONVERSATION_STARTER_CHIPS = 4;
 
+export function buildEmptyStateGreeting(
+  assistantName: string | null | undefined
+): string {
+  const trimmedName = assistantName?.trim();
+  return trimmedName ? `Hi, I'm ${trimmedName}!` : DEFAULT_EMPTY_STATE_GREETING;
+}
+
 /**
  * Returns one entry from {@link EMPTY_STATE_PLACEHOLDERS}, chosen by the
  * provided rng (defaults to {@link Math.random}). The rng must return a
  * value in `[0, 1)`.
  */
-export function pickRandomPlaceholder(
-  rng: () => number = Math.random,
-): string {
+export function pickRandomPlaceholder(rng: () => number = Math.random): string {
   const index = Math.floor(rng() * EMPTY_STATE_PLACEHOLDERS.length);
   return EMPTY_STATE_PLACEHOLDERS[index]!;
 }

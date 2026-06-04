@@ -67,8 +67,7 @@ import { useIsNativePlatform } from "@/runtime/native-auth";
 import { Link, useNavigate } from "react-router";
 
 import { buildEditAppGreeting, buildEditAppStarters } from "@/domains/chat/utils/edit-app-empty-state";
-import { pickRandomPlaceholder } from "@/domains/chat/utils/empty-state-constants";
-import { useEmptyStateGreeting } from "@/domains/chat/hooks/use-empty-state-greeting";
+import { buildEmptyStateGreeting, pickRandomPlaceholder } from "@/domains/chat/utils/empty-state-constants";
 import { getChatBillingBannerDecision, shouldShowGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
 
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
@@ -940,8 +939,6 @@ export function ChatRouteContent({
 
   const emptyStatePlaceholder = useMemo(() => pickRandomPlaceholder(), []);
 
-  const emptyStateGreeting = useEmptyStateGreeting(assistantId);
-
   // -------------------------------------------------------------------------
   // Disk pressure banner
   // -------------------------------------------------------------------------
@@ -1087,7 +1084,7 @@ export function ChatRouteContent({
           isProcessing={activeConversationIsProcessing}
         />
       ) : null,
-    greeting: editingApp ? buildEditAppGreeting(editingApp) : emptyStateGreeting,
+    greeting: editingApp ? buildEditAppGreeting(editingApp) : buildEmptyStateGreeting(assistantName),
   };
 
   /**
