@@ -32,6 +32,7 @@ export type VellumCommand =
   | { kind: "newConversation" }
   | { kind: "currentConversation" }
   | { kind: "markCurrentUnread" }
+  | { kind: "openSettings" }
   | { kind: "logout" };
 
 /**

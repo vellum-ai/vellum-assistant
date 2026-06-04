@@ -12,6 +12,7 @@ export type VellumCommand =
   | { kind: "newConversation" }
   | { kind: "currentConversation" }
   | { kind: "markCurrentUnread" }
+  | { kind: "openSettings" }
   | { kind: "logout" };
 
 // Surface exposed to the renderer as `window.vellum`. `platform`, `settings`,
