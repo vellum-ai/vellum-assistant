@@ -96,7 +96,10 @@ import type {
   SetupOutcome,
   SetupResolved,
 } from "../calls/relay-setup-router.js";
-import type { ActorTrustContext } from "../runtime/actor-trust-resolver.js";
+import type {
+  ActorTrustContext,
+  ResolveActorTrustInput,
+} from "../runtime/actor-trust-resolver.js";
 
 // ── Test doubles ─────────────────────────────────────────────────────
 
@@ -116,7 +119,10 @@ function makeTransport() {
   return { transport, calls };
 }
 
-function makeDeps(session: SetupFlowSession | null) {
+function makeDeps(
+  session: SetupFlowSession | null,
+  overrides: Partial<CallSetupFlowDeps> = {},
+) {
   const completed: SetupFlowResult[] = [];
   const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
   const spoken: string[] = [];
@@ -159,6 +165,7 @@ function makeDeps(session: SetupFlowSession | null) {
     schedule(fn, delayMs) {
       scheduled.push({ fn, delayMs });
     },
+    ...overrides,
   };
   return {
     deps,
@@ -455,5 +462,107 @@ describe("CallSetupFlow verification sub-flows", () => {
       },
     ]);
     expect(ctx.scheduled).toHaveLength(1);
+  });
+
+  // ── Post-verification trust re-resolution (Finding 1) ──────────────
+
+  test("inbound guardian: trust is re-resolved after success (not stale)", async () => {
+    const transport = makeTransport();
+    // Mocked resolveActorTrust returns an UPGRADED trust context, simulating
+    // the binding that only exists once the code has been consumed.
+    const resolveActorTrustArgs: ResolveActorTrustInput[] = [];
+    const resolveActorTrust = (input: ResolveActorTrustInput) => {
+      resolveActorTrustArgs.push(input);
+      return { trustClass: "guardian" } as unknown as ActorTrustContext;
+    };
+    const ctx = makeDeps(SESSION, { resolveActorTrust });
+    const flow = new CallSetupFlow("call_1", transport.transport, ctx.deps);
+
+    // Pre-verification (stale) trust is `unknown` — the caller is not yet bound.
+    const staleResolved: SetupResolved = {
+      assistantId: "asst_test",
+      isInbound: true,
+      otherPartyNumber: "+15550100",
+      actorTrust: { trustClass: "unknown" } as unknown as ActorTrustContext,
+    };
+
+    const started = flow.start(
+      {
+        action: "verification",
+        assistantId: "asst_test",
+        fromNumber: "+15550100",
+      },
+      staleResolved,
+    );
+    verificationOutcomes.push({
+      outcome: "success",
+      verificationType: "guardian",
+      eventName: "voice_verification_succeeded",
+    });
+    pushDigits(flow, "123456");
+
+    const result = await started;
+    expect(result.kind).toBe("proceed-initial-greeting");
+    // The dep was consulted with the verified party's number.
+    expect(resolveActorTrustArgs).toHaveLength(1);
+    expect(resolveActorTrustArgs[0]).toMatchObject({
+      assistantId: "asst_test",
+      sourceChannel: "phone",
+      conversationExternalId: "+15550100",
+      actorExternalId: "+15550100",
+    });
+    // The result carries the RECOMPUTED trust (guardian), not the stale unknown.
+    if (result.kind === "proceed-initial-greeting") {
+      expect(result.trustContext).toMatchObject({ trustClass: "guardian" });
+    }
+  });
+
+  // ── Race: completion delivered during code-post await (Finding 2) ───
+
+  test("callee: digit completion during code-post await still resolves start()", async () => {
+    const transport = makeTransport();
+
+    // A code-post that never settles until we release it — simulating an
+    // in-flight side effect during which the callee enters the code.
+    let releaseCodePost!: () => void;
+    const codePostGate = new Promise<void>((resolve) => {
+      releaseCodePost = resolve;
+    });
+    const codePosts: Array<{ code: string }> = [];
+
+    const ctx = makeDeps(SESSION, {
+      async postCalleeVerificationCode(_conversationId, _toNumber, code) {
+        codePosts.push({ code });
+        await codePostGate;
+      },
+    });
+    const flow = new CallSetupFlow("call_1", transport.transport, ctx.deps);
+
+    const started = flow.start(
+      {
+        action: "callee_verification",
+        verificationConfig: { maxAttempts: 3, codeLength: 4 },
+      },
+      RESOLVED,
+    );
+
+    // Let the synchronous setup + the (awaited) TTS settle so we're parked on
+    // the code-post await with the resolver already installed.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(flow.getState()).toBe("collecting_code");
+    expect(codePosts).toHaveLength(1);
+
+    // Callee enters the correct code WHILE the code-post await is still pending.
+    pushDigits(flow, codePosts[0]!.code);
+
+    // The completion must not be dropped: start() resolves even though the
+    // code-post promise is still in flight.
+    const result = await started;
+    expect(result.kind).toBe("proceed-initial-greeting");
+
+    // Releasing the stalled side effect afterwards is harmless.
+    releaseCodePost();
+    await Promise.resolve();
   });
 });

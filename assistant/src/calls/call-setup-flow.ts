@@ -23,6 +23,10 @@
 import { randomInt } from "node:crypto";
 
 import type { TrustContext } from "../daemon/trust-context.js";
+import type {
+  ActorTrustContext,
+  ResolveActorTrustInput,
+} from "../runtime/actor-trust-resolver.js";
 import { toTrustContext } from "../runtime/actor-trust-resolver.js";
 import {
   composeVerificationVoice,
@@ -134,6 +138,18 @@ export interface CallSetupFlowDeps {
    * returned text itself and resolves `proceed-handoff-spoken`.
    */
   composeTrustedContactHandoffText?(): string;
+  /**
+   * Re-resolve the caller's actor-trust context after a successful
+   * verification, mirroring the relay path's post-validation
+   * `resolveActorTrust(...)` call (see `relay-server.handleVerificationCodeResult`
+   * and `continueCallAfterTrustedContactActivation`). The trust context resolved
+   * by `routeSetup` is computed BEFORE the verification code is consumed, so a
+   * caller who just verified would otherwise still be classified `unknown` and
+   * lose guardian / trusted-contact permissions. When this dep is absent the
+   * flow falls back to the (stale) `resolved.actorTrust`. Injected so the flow
+   * stays transport- and storage-agnostic; PR 9 wires the real implementation.
+   */
+  resolveActorTrust?(input: ResolveActorTrustInput): ActorTrustContext;
   /**
    * Delay (ms) to wait after speaking a terminal prompt before tearing down
    * the transport, so queued TTS playback isn't flushed by `endSession()`.
@@ -336,7 +352,7 @@ export class CallSetupFlow implements SetupFlowInput {
    * post it to the originating conversation, and collect the callee's entry.
    * Ports `relay-server.startVerification`.
    */
-  private async startCalleeVerification(
+  private startCalleeVerification(
     outcome: Extract<SetupOutcome, { action: "callee_verification" }>,
     resolved: SetupResolved,
   ): Promise<SetupFlowResult> {
@@ -362,6 +378,34 @@ export class CallSetupFlow implements SetupFlowInput {
       { codeLength, maxAttempts },
     );
 
+    // Install the collection resolver BEFORE awaiting any side effects. The
+    // collecting state is already set above, so a digit completion (DTMF or
+    // parsed speech) that arrives *while* the TTS/code-post side effects below
+    // are still in flight would otherwise reach `finishCollection()` with a
+    // null resolver, drop the completion, and hang `start()` forever.
+    // Registering the resolver atomically with the collecting state — and
+    // buffering an early completion in `finishCollection` as a backstop —
+    // closes that race. The side effects run detached so the returned
+    // `pending` promise resolves as soon as the code lands, even if a side
+    // effect (e.g. the code-post write) is still outstanding.
+    const pending = new Promise<SetupFlowResult>((resolve) => {
+      this.resolveCollection = resolve;
+    });
+    // Flush any completion that landed before the resolver was installed.
+    this.flushPendingCollectionResult();
+
+    void this.runCalleeSetupSideEffects(code);
+
+    return pending;
+  }
+
+  /**
+   * Detached TTS + code-post side effects for callee verification. Run after
+   * the collection resolver is installed so a completion that arrives while
+   * these are in flight is captured rather than dropped (and `start()` is not
+   * blocked on them). Mirrors `relay-server.startVerification`.
+   */
+  private async runCalleeSetupSideEffects(code: string): Promise<void> {
     // Speak the code digit-by-digit and prompt for entry.
     const spokenCode = code.split("").join(". ");
     await this.deps.speakSystemPrompt(
@@ -378,21 +422,27 @@ export class CallSetupFlow implements SetupFlowInput {
         code,
       );
     }
-
-    return new Promise<SetupFlowResult>((resolve) => {
-      this.resolveCollection = resolve;
-    });
   }
 
   /** Resolver for the pending digit-collection promise (set on start). */
   private resolveCollection: ((result: SetupFlowResult) => void) | null = null;
 
+  /**
+   * Backstop buffer for a collection result that arrives before the resolver
+   * is installed (e.g. a digit completion delivered while an awaited TTS /
+   * code-post side effect in `startCalleeVerification` is still in flight).
+   * Flushed by {@link flushPendingCollectionResult} once the resolver lands.
+   */
+  private pendingCollectionResult: SetupFlowResult | null = null;
+
   /** Speak a prompt, then return a promise that resolves once digits land. */
   private speakAndWait(prompt: string): Promise<SetupFlowResult> {
     void this.deps.speakSystemPrompt(this.transport, prompt);
-    return new Promise<SetupFlowResult>((resolve) => {
+    const pending = new Promise<SetupFlowResult>((resolve) => {
       this.resolveCollection = resolve;
     });
+    this.flushPendingCollectionResult();
+    return pending;
   }
 
   /** Append digits to the active buffer; consume once a full code arrives. */
@@ -447,13 +497,18 @@ export class CallSetupFlow implements SetupFlowInput {
         this.finishWith({
           kind: "proceed-post-verification-greeting",
           assistantId: c.assistantId,
-          trustContext: this.trustContextFor(c.resolved),
+          trustContext: this.recomputedTrustContextFor(
+            c.resolved,
+            c.fromNumber,
+          ),
         });
         return;
       }
 
       if (result.verificationType === "trusted_contact") {
-        this.finishCollection(this.completeTrustedContactHandoff(c.resolved));
+        this.finishCollection(
+          this.completeTrustedContactHandoff(c.resolved, c.fromNumber),
+        );
         return;
       }
 
@@ -461,7 +516,7 @@ export class CallSetupFlow implements SetupFlowInput {
       this.finishWith({
         kind: "proceed-initial-greeting",
         assistantId: c.assistantId,
-        trustContext: this.trustContextFor(c.resolved),
+        trustContext: this.recomputedTrustContextFor(c.resolved, c.fromNumber),
       });
       return;
     }
@@ -509,7 +564,10 @@ export class CallSetupFlow implements SetupFlowInput {
       this.finishWith({
         kind: "proceed-initial-greeting",
         assistantId: c.resolved.assistantId,
-        trustContext: this.trustContextFor(c.resolved),
+        trustContext: this.recomputedTrustContextFor(
+          c.resolved,
+          c.resolved.otherPartyNumber,
+        ),
       });
       return;
     }
@@ -545,6 +603,7 @@ export class CallSetupFlow implements SetupFlowInput {
    */
   private completeTrustedContactHandoff(
     resolved: SetupResolved,
+    partyNumber: string,
   ): SetupFlowResult {
     const handoffText =
       this.deps.composeTrustedContactHandoffText?.() ??
@@ -567,7 +626,7 @@ export class CallSetupFlow implements SetupFlowInput {
     return this.complete({
       kind: "proceed-handoff-spoken",
       assistantId: resolved.assistantId,
-      trustContext: this.trustContextFor(resolved),
+      trustContext: this.recomputedTrustContextFor(resolved, partyNumber),
     });
   }
 
@@ -592,7 +651,24 @@ export class CallSetupFlow implements SetupFlowInput {
     this.collecting = null;
     const resolve = this.resolveCollection;
     this.resolveCollection = null;
-    resolve?.(result);
+    if (resolve) {
+      resolve(result);
+      return;
+    }
+    // Resolver not yet installed (an early completion landed mid-await) —
+    // buffer the result so it isn't dropped; flushed once the resolver lands.
+    this.pendingCollectionResult = result;
+  }
+
+  /**
+   * Resolve a buffered collection result, if one landed before the resolver
+   * was installed. Called right after the resolver is registered.
+   */
+  private flushPendingCollectionResult(): void {
+    const buffered = this.pendingCollectionResult;
+    if (buffered == null) return;
+    this.pendingCollectionResult = null;
+    this.finishCollection(buffered);
   }
 
   /**
@@ -660,5 +736,33 @@ export class CallSetupFlow implements SetupFlowInput {
 
   private trustContextFor(resolved: SetupResolved): TrustContext {
     return toTrustContext(resolved.actorTrust, resolved.otherPartyNumber);
+  }
+
+  /**
+   * Re-resolve the actor-trust context after a successful verification so the
+   * controller is created with POST-verification trust. Mirrors the relay
+   * path's `resolveActorTrust(...)` re-resolution
+   * (`relay-server.handleVerificationCodeResult` /
+   * `continueCallAfterTrustedContactActivation`). Falls back to the stale
+   * `resolved.actorTrust` when the `resolveActorTrust` dep is not wired.
+   *
+   * @param resolved   The pre-verification routing context.
+   * @param partyNumber The verified party's number (E.164) — the guardian's
+   *   number for guardian/outbound, the called party for callee verification.
+   */
+  private recomputedTrustContextFor(
+    resolved: SetupResolved,
+    partyNumber: string,
+  ): TrustContext {
+    if (!this.deps.resolveActorTrust) {
+      return this.trustContextFor(resolved);
+    }
+    const updatedTrust = this.deps.resolveActorTrust({
+      assistantId: resolved.assistantId,
+      sourceChannel: "phone",
+      conversationExternalId: partyNumber,
+      actorExternalId: partyNumber || undefined,
+    });
+    return toTrustContext(updatedTrust, partyNumber);
   }
 }
