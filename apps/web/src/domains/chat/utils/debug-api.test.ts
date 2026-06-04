@@ -8,7 +8,7 @@ import type { MutableRefObject } from "react";
 import type { TranscriptHandle } from "@/domains/chat/transcript/transcript";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
-import type { RuntimeMessage } from "@/domains/chat/api/messages";
+import type { ConversationMessage } from "@vellumai/assistant-api";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation";
 import type {
   ChatDebugRefs,
@@ -45,7 +45,7 @@ function fakeDisplayMessage(overrides: Partial<DisplayMessage> = {}): DisplayMes
   };
 }
 
-function fakeRuntimeMessage(overrides: Partial<RuntimeMessage> = {}): RuntimeMessage {
+function fakeRuntimeMessage(overrides: Partial<ConversationMessage> = {}): ConversationMessage {
   return makeServerMessage({
     id: "msg-1",
     role: "assistant",
@@ -542,7 +542,7 @@ describe("createChatDebugApi.serverMessages", () => {
     );
   });
 
-  test("returns raw RuntimeMessage[] from injected historyFetcher", async () => {
+  test("returns raw ConversationMessage[] from injected historyFetcher", async () => {
     useConversationStore.setState({ activeConversationId: "conv-1" });
     const serverList = [
       fakeRuntimeMessage({ id: "srv-1" }),

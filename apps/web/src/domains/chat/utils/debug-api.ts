@@ -25,14 +25,12 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 import type { MutableRefObject } from "react";
 
 import * as assistantApi from "@vellumai/assistant-api";
+import type { ConversationMessage } from "@vellumai/assistant-api";
 import {
   type ChatDebugEventsApi,
   eventsDebugApi,
 } from "@/domains/chat/api/debug-api";
-import {
-  fetchConversationMessages as defaultFetchConversationMessages,
-  type RuntimeMessage,
-} from "@/domains/chat/api/messages";
+import { fetchConversationMessages as defaultFetchConversationMessages } from "@/domains/chat/api/messages";
 import { useStreamStore } from "@/domains/chat/stream-store";
 import type {
   PendingConfirmationState,
@@ -292,7 +290,7 @@ export interface ChatDebugApi {
    * the console when you need to declare drift. Throws if there's no
    * active assistant/conversation context. Subject to change.
    */
-  serverMessages(): Promise<RuntimeMessage[]>;
+  serverMessages(): Promise<ConversationMessage[]>;
   /**
    * Return the frontend-tracked pending interactions — the user prompts
    * currently rendered (or recently dismissed) by the chat UI, plus their
@@ -412,7 +410,7 @@ export interface ChatDebugRefs {
   historyFetcher?: (
     assistantId: string,
     conversationId: string,
-  ) => Promise<RuntimeMessage[]>;
+  ) => Promise<ConversationMessage[]>;
 }
 
 /**
@@ -567,7 +565,7 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     return result;
   }
 
-  async function serverMessages(): Promise<RuntimeMessage[]> {
+  async function serverMessages(): Promise<ConversationMessage[]> {
     // Resolve context from stream store first (matches what reconcile
     // would use); fall back to assistantId + activeConversationId so
     // the call still works during a brief conv-switch window where

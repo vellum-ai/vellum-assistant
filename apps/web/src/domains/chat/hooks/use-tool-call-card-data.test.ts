@@ -45,7 +45,7 @@ function makeResult(
 function makeToolCall(
   overrides: Partial<ChatMessageToolCall> & {
     id: string;
-    toolName: string;
+    name: string;
   },
 ): ChatMessageToolCall {
   return {
@@ -60,7 +60,7 @@ describe("computeToolCallCardData — step kinds", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "bash",
+        name: "bash",
         status: "completed",
         startedAt: 1000,
         completedAt: 2500,
@@ -90,7 +90,7 @@ describe("computeToolCallCardData — step kinds", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "bash",
+        name: "bash",
         status: "completed",
         startedAt: 1000,
         completedAt: 2000,
@@ -115,7 +115,7 @@ describe("computeToolCallCardData — step kinds", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "bash",
+        name: "bash",
         status: "completed",
         input: { command: "echo hello" },
       }),
@@ -127,7 +127,7 @@ describe("computeToolCallCardData — step kinds", () => {
 
   test("emits a `web_search` step with the legacy descriptor shape", () => {
     const toolCalls = [
-      makeToolCall({ id: "tc-1", toolName: "web_search", status: "completed" }),
+      makeToolCall({ id: "tc-1", name: "web_search", status: "completed" }),
     ];
     const liveWebActivity: Record<string, ToolActivityMetadata> = {
       "tc-1": {
@@ -152,7 +152,7 @@ describe("computeToolCallCardData — step kinds", () => {
 
   test("emits a `web_search_error` step when metadata has errorMessage and empty results", () => {
     const toolCalls = [
-      makeToolCall({ id: "tc-1", toolName: "web_search", status: "completed" }),
+      makeToolCall({ id: "tc-1", name: "web_search", status: "completed" }),
     ];
     const liveWebActivity: Record<string, ToolActivityMetadata> = {
       "tc-1": {
@@ -177,7 +177,7 @@ describe("computeToolCallCardData — step kinds", () => {
 
   test("emits a `thinking` step for web_fetch metadata", () => {
     const toolCalls = [
-      makeToolCall({ id: "tc-1", toolName: "web_fetch", status: "completed" }),
+      makeToolCall({ id: "tc-1", name: "web_fetch", status: "completed" }),
     ];
     const liveWebActivity: Record<string, ToolActivityMetadata> = {
       "tc-1": {
@@ -209,7 +209,7 @@ describe("computeToolCallCardData — leadingThinkingText", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "bash",
+        name: "bash",
         status: "completed",
         startedAt: 0,
         completedAt: 1000,
@@ -232,7 +232,7 @@ describe("computeToolCallCardData — leadingThinkingText", () => {
 
   test("does not prepend when leadingThinkingText is null", () => {
     const toolCalls = [
-      makeToolCall({ id: "tc-1", toolName: "bash", status: "completed" }),
+      makeToolCall({ id: "tc-1", name: "bash", status: "completed" }),
     ];
     const data = computeToolCallCardData(toolCalls, {}, null);
     expect(data.steps).toHaveLength(1);
@@ -241,7 +241,7 @@ describe("computeToolCallCardData — leadingThinkingText", () => {
 
   test("does not prepend when leadingThinkingText is empty", () => {
     const toolCalls = [
-      makeToolCall({ id: "tc-1", toolName: "bash", status: "completed" }),
+      makeToolCall({ id: "tc-1", name: "bash", status: "completed" }),
     ];
     const data = computeToolCallCardData(toolCalls, {}, "");
     expect(data.steps).toHaveLength(1);
@@ -252,7 +252,7 @@ describe("computeToolCallCardData — leadingThinkingText", () => {
 describe("computeToolCallCardData — state transitions", () => {
   test("state is `loading` while any tool call is still running", () => {
     const toolCalls = [
-      makeToolCall({ id: "tc-1", toolName: "bash", status: "running" }),
+      makeToolCall({ id: "tc-1", name: "bash", status: "running" }),
     ];
     const data = computeToolCallCardData(toolCalls, {}, null);
     expect(data.state).toBe("loading");
@@ -260,8 +260,8 @@ describe("computeToolCallCardData — state transitions", () => {
 
   test("state is `loading` for a mix of running + completed tools", () => {
     const toolCalls = [
-      makeToolCall({ id: "tc-1", toolName: "bash", status: "completed" }),
-      makeToolCall({ id: "tc-2", toolName: "edit_file", status: "running" }),
+      makeToolCall({ id: "tc-1", name: "bash", status: "completed" }),
+      makeToolCall({ id: "tc-2", name: "edit_file", status: "running" }),
     ];
     const data = computeToolCallCardData(toolCalls, {}, null);
     expect(data.state).toBe("loading");
@@ -269,10 +269,10 @@ describe("computeToolCallCardData — state transitions", () => {
 
   test("state is `complete` once every tool reaches a terminal status", () => {
     const toolCalls = [
-      makeToolCall({ id: "tc-1", toolName: "bash", status: "completed" }),
+      makeToolCall({ id: "tc-1", name: "bash", status: "completed" }),
       makeToolCall({
         id: "tc-2",
-        toolName: "str_replace_editor",
+        name: "str_replace_editor",
         status: "completed",
         input: { command: "view", path: "/tmp/x.txt" },
       }),
@@ -286,7 +286,7 @@ describe("computeToolCallCardData — state transitions", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "bash",
+        name: "bash",
         status: "completed",
         confirmationDecision: "denied",
       }),
@@ -300,11 +300,11 @@ describe("computeToolCallCardData — state transitions", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "bash",
+        name: "bash",
         status: "running",
         confirmationDecision: "denied",
       }),
-      makeToolCall({ id: "tc-2", toolName: "edit_file", status: "running" }),
+      makeToolCall({ id: "tc-2", name: "edit_file", status: "running" }),
     ];
     const data = computeToolCallCardData(toolCalls, {}, null);
     expect(data.state).toBe("denied");
@@ -312,7 +312,7 @@ describe("computeToolCallCardData — state transitions", () => {
 
   test("state is `error` when a tool ended in error and no tools are still running", () => {
     const toolCalls = [
-      makeToolCall({ id: "tc-1", toolName: "bash", status: "error" }),
+      makeToolCall({ id: "tc-1", name: "bash", status: "error" }),
     ];
     const data = computeToolCallCardData(toolCalls, {}, null);
     expect(data.state).toBe("error");
@@ -321,8 +321,8 @@ describe("computeToolCallCardData — state transitions", () => {
 
   test("state is `loading` (not `error`) when an error tool sits alongside a still-running tool", () => {
     const toolCalls = [
-      makeToolCall({ id: "tc-1", toolName: "bash", status: "error" }),
-      makeToolCall({ id: "tc-2", toolName: "edit_file", status: "running" }),
+      makeToolCall({ id: "tc-1", name: "bash", status: "error" }),
+      makeToolCall({ id: "tc-2", name: "edit_file", status: "running" }),
     ];
     const data = computeToolCallCardData(toolCalls, {}, null);
     expect(data.state).toBe("loading");
@@ -337,7 +337,7 @@ describe("computeToolCallCardData — subagent_spawn filtering", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "subagent_spawn",
+        name: "subagent_spawn",
         status: "running",
         input: { label: "Investigate logs" },
       }),
@@ -354,13 +354,13 @@ describe("computeToolCallCardData — subagent_spawn filtering", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "subagent_spawn",
+        name: "subagent_spawn",
         status: "running",
         input: { label: "First" },
       }),
       makeToolCall({
         id: "tc-2",
-        toolName: "subagent_spawn",
+        name: "subagent_spawn",
         status: "running",
         input: { label: "Second" },
       }),
@@ -373,13 +373,13 @@ describe("computeToolCallCardData — subagent_spawn filtering", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "subagent_spawn",
+        name: "subagent_spawn",
         status: "running",
         input: { label: "Investigate" },
       }),
       makeToolCall({
         id: "tc-2",
-        toolName: "bash",
+        name: "bash",
         status: "running",
         input: { command: "ls" },
       }),
@@ -399,8 +399,8 @@ describe("computeToolCallCardData — regression vs. legacy web-search hook", ()
   // same step set + state for purely-web inputs.
   test("matches the legacy hook's output for the 'two completed web_search' fixture", () => {
     const toolCalls = [
-      makeToolCall({ id: "tc-1", toolName: "web_search" }),
-      makeToolCall({ id: "tc-2", toolName: "web_search" }),
+      makeToolCall({ id: "tc-1", name: "web_search" }),
+      makeToolCall({ id: "tc-2", name: "web_search" }),
     ];
     const liveWebActivity: Record<string, ToolActivityMetadata> = {
       "tc-1": {
@@ -446,7 +446,7 @@ describe("computeToolCallCardData — regression vs. legacy web-search hook", ()
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "web_search",
+        name: "web_search",
         status: "running",
         input: { query: "tigers" },
       }),
@@ -468,12 +468,12 @@ describe("computeToolCallCardData — mixed web + non-web groups", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "web_search",
+        name: "web_search",
         status: "completed",
       }),
       makeToolCall({
         id: "tc-2",
-        toolName: "bash",
+        name: "bash",
         status: "completed",
         startedAt: 0,
         completedAt: 500,
@@ -511,7 +511,7 @@ describe("computeToolCallCardData — web_search backend-failure copy", () => {
 
   test("renders the canonical backend-failure message verbatim when the daemon provides it", () => {
     const toolCalls = [
-      makeToolCall({ id: "tc-1", toolName: "web_search", status: "completed" }),
+      makeToolCall({ id: "tc-1", name: "web_search", status: "completed" }),
     ];
     const liveWebActivity: Record<string, ToolActivityMetadata> = {
       "tc-1": {
@@ -564,7 +564,7 @@ describe("computeToolCallCardData — web_search backend-failure copy", () => {
 
   test("web_fetch DNS/host errors never render as a web_search backend failure", () => {
     const toolCalls = [
-      makeToolCall({ id: "tc-1", toolName: "web_fetch", status: "error" }),
+      makeToolCall({ id: "tc-1", name: "web_fetch", status: "error" }),
     ];
     const liveWebActivity: Record<string, ToolActivityMetadata> = {
       "tc-1": {
@@ -598,7 +598,7 @@ describe("computeToolCallCardData — web_search backend-failure copy", () => {
     // the production UI path Codex flagged — buildWebSearchErrorStep's friendly
     // default must be reachable, not only via the direct unit test.
     const toolCalls = [
-      makeToolCall({ id: "tc-1", toolName: "web_search", status: "error" }),
+      makeToolCall({ id: "tc-1", name: "web_search", status: "error" }),
     ];
     const liveWebActivity: Record<string, ToolActivityMetadata> = {
       "tc-1": {
@@ -627,7 +627,7 @@ describe("computeToolCallCardData — web_search backend-failure copy", () => {
     // ATL-727 core invariant: an empty-but-successful search must NOT render as
     // a failure. status "completed" + no errorMessage => normal web_search step.
     const toolCalls = [
-      makeToolCall({ id: "tc-1", toolName: "web_search", status: "completed" }),
+      makeToolCall({ id: "tc-1", name: "web_search", status: "completed" }),
     ];
     const liveWebActivity: Record<string, ToolActivityMetadata> = {
       "tc-1": {
@@ -651,7 +651,7 @@ describe("computeToolCallCardData — web_search backend-failure copy", () => {
 
   test("a successful web_search with results produces no error step", () => {
     const toolCalls = [
-      makeToolCall({ id: "tc-1", toolName: "web_search", status: "completed" }),
+      makeToolCall({ id: "tc-1", name: "web_search", status: "completed" }),
     ];
     const liveWebActivity: Record<string, ToolActivityMetadata> = {
       "tc-1": {

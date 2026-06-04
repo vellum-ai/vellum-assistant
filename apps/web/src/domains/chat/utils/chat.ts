@@ -312,14 +312,14 @@ export function toolCallToRuleContext(
   tc: ChatMessageToolCall,
 ): ToolCallRuleContext {
   return {
-    toolName: tc.toolName,
+    toolName: tc.name,
     riskLevel: tc.riskLevel,
     riskReason: tc.riskReason,
     input: tc.input ?? {},
-    allowlistOptions: tc.allowlistOptions ?? [],
+    allowlistOptions: tc.riskAllowlistOptions ?? [],
     scopeOptions: tc.scopeOptions ?? [],
     riskScopeOptions: tc.riskScopeOptions ?? [],
-    directoryScopeOptions: tc.directoryScopeOptions ?? [],
+    directoryScopeOptions: tc.riskDirectoryScopeOptions ?? [],
     matchedTrustRuleId: tc.matchedTrustRuleId,
   };
 }

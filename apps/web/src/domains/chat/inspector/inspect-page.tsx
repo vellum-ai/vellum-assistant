@@ -5,7 +5,7 @@ import { useMemo, useState, type ReactNode } from "react";
 
 import { Button } from "@vellum/design-library";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
-import type { RuntimeMessage } from "@/domains/chat/api/messages";
+import type { ConversationMessage } from "@vellumai/assistant-api";
 import { runtimeMessagePlainText } from "@/domains/chat/utils/map-runtime-message";
 import { canUseLlmInspector } from "@/domains/chat/inspector/access";
 import {
@@ -431,7 +431,7 @@ interface ScopeOption {
   label: string;
 }
 
-function buildMessageScopeOptions(messages: RuntimeMessage[]): ScopeOption[] {
+function buildMessageScopeOptions(messages: ConversationMessage[]): ScopeOption[] {
   const seen = new Set<string>();
   const options: ScopeOption[] = [];
   let index = 1;

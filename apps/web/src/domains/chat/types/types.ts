@@ -2,7 +2,10 @@
  * Shared types for the chat/surface system.
  */
 
-import type { ConversationMessage } from "@vellumai/assistant-api";
+import type {
+  ConversationMessage,
+  ConversationMessageSurface,
+} from "@vellumai/assistant-api";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayAttachment } from "@/types/attachment-types";
 import type { SlackMessageLink } from "@/utils/slack-message-link";
@@ -94,13 +97,17 @@ export interface DisplayMessage {
   isSubagentNotification?: boolean;
 }
 
-export interface Surface {
-  surfaceId: string;
-  surfaceType: string;
-  title?: string;
-  data: Record<string, unknown>;
-  actions?: Array<{ id: string; label: string; style?: string; data?: Record<string, unknown> }>;
+/**
+ * A UI surface (widget) rendered in the transcript. Extends the canonical wire
+ * `ConversationMessageSurface` (carrying `surfaceId`/`surfaceType`/`data`/
+ * `actions`/`completed`/`completionSummary`/`toolCallId`) with the client-only
+ * binding state the wire omits: a narrowed placement and the live attach/orphan
+ * tracking used while a streaming row's id is still settling.
+ */
+export interface Surface extends ConversationMessageSurface {
+  /** Narrowed placement; the wire ships `display` as a free string. */
   display?: "inline" | "panel";
+  /** Resolved id of the message the surface is bound to. */
   messageId?: string;
   /** True when the surface's messageId doesn't match any existing message
    *  at the time of ui_surface_show. The streaming message's id may not
@@ -108,17 +115,6 @@ export interface Surface {
    *  surface to the current streaming message as a fallback. Cleared
    *  once the surface is bound to a resolved message id. */
   orphaned?: boolean;
-  /** Set after the user acts on the surface — matches macOS
-   *  `SurfaceCompletionState`. The surface stays in the message but
-   *  renders as a non-interactive chip instead of the active widget. */
-  completed?: boolean;
-  completionSummary?: string;
-  /** Id of the tool call that produced this surface (e.g. the `ui_show` or
-   *  `app_open` proxy tool). App previews gate on whether this tool call's
-   *  result has arrived (`isSurfaceToolCallComplete`) rather than on
-   *  whole-turn streaming state. When absent, completeness falls back to the
-   *  latest surface-producing tool call in the message. */
-  toolCallId?: string;
 }
 
 /**
@@ -198,7 +194,7 @@ export function isSurfaceToolCallComplete(
   }
   let latestSurfaceToolCall: ChatMessageToolCall | undefined;
   for (const toolCall of toolCalls ?? []) {
-    if (SURFACE_PRODUCING_TOOL_NAMES.has(toolCall.toolName)) {
+    if (SURFACE_PRODUCING_TOOL_NAMES.has(toolCall.name)) {
       latestSurfaceToolCall = toolCall;
     }
   }

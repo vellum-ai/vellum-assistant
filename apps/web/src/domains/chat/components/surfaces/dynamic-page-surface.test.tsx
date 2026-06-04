@@ -107,7 +107,7 @@ describe("DynamicPageSurface", () => {
         onAction={() => undefined}
         onOpenApp={() => undefined}
         toolCalls={[
-          { id: "tc-app", toolName: "app_create", input: {}, status: "running" },
+          { id: "tc-app", name: "app_create", input: {}, status: "running" },
         ]}
       />,
     );
@@ -127,7 +127,7 @@ describe("DynamicPageSurface", () => {
         onAction={() => undefined}
         onOpenApp={() => undefined}
         toolCalls={[
-          { id: "tc-app", toolName: "app_create", input: {}, status: "running" },
+          { id: "tc-app", name: "app_create", input: {}, status: "running" },
         ]}
       />,
     );

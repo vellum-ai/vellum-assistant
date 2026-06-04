@@ -1,5 +1,5 @@
 import type { DisplayAttachment } from "@/types/attachment-types";
-import type { RuntimeAttachment } from "@/domains/chat/api/messages";
+import type { ConversationMessageAttachment } from "@vellumai/assistant-api";
 
 /**
  * Convert daemon-provided structured attachment metadata into DisplayAttachment
@@ -11,7 +11,7 @@ import type { RuntimeAttachment } from "@/domains/chat/api/messages";
  * server sync) so attachment mapping logic stays in one place.
  */
 export function runtimeAttachmentsToDisplay(
-  runtimeAttachments: RuntimeAttachment[],
+  runtimeAttachments: ConversationMessageAttachment[],
 ): DisplayAttachment[] {
   return runtimeAttachments.map((a) => {
     let previewUrl: string | null = null;

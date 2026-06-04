@@ -9,10 +9,10 @@
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
 import type {
   AllowlistOption,
+  ConversationMessageToolCall,
   DirectoryScopeOption,
   QuestionEntry,
   QuestionRequestEvent,
-  RiskScopeOption,
   ScopeOption,
 } from "@vellumai/assistant-api";
 
@@ -31,35 +31,28 @@ export interface PendingToolConfirmation {
   persistentDecisionsAllowed?: boolean;
 }
 
-export interface ChatMessageToolCall {
+/**
+ * A tool call as rendered in the transcript. Extends the canonical wire
+ * `ConversationMessageToolCall` (carrying `name`, `input`, `result`, the
+ * risk/approval fields, and the `risk*Options` rule-editor ladders) with the
+ * client-only live state the wire deliberately omits — a synthesized row `id`,
+ * a derived `status`, the in-flight confirmation prompt, and activity metadata
+ * accumulated from SSE events.
+ */
+export interface ChatMessageToolCall extends ConversationMessageToolCall {
+  /** Client-synthesized stable id for the tool call (wire blocks are keyed positionally). */
   id: string;
-  toolName: string;
-  input: Record<string, unknown>;
+  /** Live execution state derived from SSE events. */
   status: "running" | "completed" | "error";
-  result?: string;
-  isError?: boolean;
-  riskLevel?: string;
-  riskReason?: string;
-  /** ID of the trust rule that matched this invocation (if any). */
-  matchedTrustRuleId?: string;
-  /** How the approval decision was reached: "prompted" | "auto" | "blocked" | "unknown". */
-  approvalMode?: string;
-  /** Why the approval decision was reached (stable enum for client display). */
-  approvalReason?: string;
-  /** Snapshot of the auto-approve threshold at execution time. */
-  riskThreshold?: string;
-  allowlistOptions?: AllowlistOption[];
+  /**
+   * Scope ladder offered by the confirmation flow (`{label, scope}`). Sourced
+   * from the `confirmation_request` event — distinct from the inherited
+   * regex-flavored `riskScopeOptions` (`{pattern, label}`) the rule editor uses.
+   */
   scopeOptions?: ScopeOption[];
-  /** Display-only regex-flavored scope ladder from `tool_result.riskScopeOptions`. */
-  riskScopeOptions?: RiskScopeOption[];
-  directoryScopeOptions?: DirectoryScopeOption[];
   pendingConfirmation?: PendingToolConfirmation | null;
   workingDir?: string;
-  /** ms since epoch, set locally when tool_use_start SSE event arrives */
-  startedAt?: number;
-  /** ms since epoch, set locally when tool_result SSE event arrives */
-  completedAt?: number;
-  /** Explicit decision made during the confirmation flow ("approved" | "denied" | "timed_out"). */
+  /** Explicit decision made during the confirmation flow. */
   confirmationDecision?: "approved" | "denied" | "timed_out";
   /**
    * Structured tool activity metadata (e.g. web_search, web_fetch) persisted

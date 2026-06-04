@@ -130,8 +130,8 @@ export interface TranscriptMessageBodyProps {
  * miss every spawn and leave inline subagent cards unrendered.
  */
 export function isSubagentSpawnCall(toolCall: ChatMessageToolCall): boolean {
-  if (toolCall.toolName === "subagent_spawn") return true;
-  if (toolCall.toolName !== "skill_execute") return false;
+  if (toolCall.name === "subagent_spawn") return true;
+  if (toolCall.name !== "skill_execute") return false;
   const input = toolCall.input;
   if (input == null || typeof input !== "object") return false;
   return (input as Record<string, unknown>).tool === "subagent_spawn";
@@ -465,7 +465,7 @@ export function TranscriptMessageBody({
   // is visible.
   const isSuppressedUiTool = (tc: ChatMessageToolCall) =>
     !tc.pendingConfirmation &&
-    (tc.toolName === "ui_show" || tc.toolName === "ui_update" || tc.toolName === "ui_dismiss");
+    (tc.name === "ui_show" || tc.name === "ui_update" || tc.name === "ui_dismiss");
 
   // Hard line breaks are enabled for every transcript message regardless of
   // role: single `\n`s in assistant output (not just user Shift+Enter input)

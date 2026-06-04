@@ -371,9 +371,9 @@ export function useInteractionActions(): UseInteractionActionsReturn {
                 pendingConfirmation: null,
                 riskLevel: snapshot.riskLevel,
                 riskReason: snapshot.riskReason,
-                allowlistOptions: snapshot.allowlistOptions,
+                riskAllowlistOptions: snapshot.allowlistOptions,
                 scopeOptions: snapshot.scopeOptions,
-                directoryScopeOptions: snapshot.directoryScopeOptions,
+                riskDirectoryScopeOptions: snapshot.directoryScopeOptions,
                 confirmationDecision: confirmationDecisionValue,
               };
               const updated = [...prev];
@@ -400,9 +400,9 @@ export function useInteractionActions(): UseInteractionActionsReturn {
           pendingConfirmation: null,
           riskLevel: snapshot.riskLevel,
           riskReason: snapshot.riskReason,
-          allowlistOptions: snapshot.allowlistOptions,
+          riskAllowlistOptions: snapshot.allowlistOptions,
           scopeOptions: snapshot.scopeOptions,
-          directoryScopeOptions: snapshot.directoryScopeOptions,
+          riskDirectoryScopeOptions: snapshot.directoryScopeOptions,
           confirmationDecision: confirmationDecisionValue,
         };
         const updated = [...prev];

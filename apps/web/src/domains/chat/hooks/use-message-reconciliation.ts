@@ -14,7 +14,8 @@ import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text
 import { runtimeMessagePlainText } from "@/domains/chat/utils/map-runtime-message";
 import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
-import { fetchConversationMessages, type RuntimeMessage } from "@/domains/chat/api/messages";
+import { fetchConversationMessages } from "@/domains/chat/api/messages";
+import type { ConversationMessage } from "@vellumai/assistant-api";
 import { useConversationStore } from "@/stores/conversation-store";
 import { endTurn } from "@/domains/chat/turn-coordinator";
 
@@ -43,7 +44,7 @@ export interface ReconcileActiveConversationResult {
 }
 
 interface UseMessageReconciliationReturn {
-  reconcileFromServer: (serverMessages: RuntimeMessage[]) => boolean;
+  reconcileFromServer: (serverMessages: ConversationMessage[]) => boolean;
   startReconciliationLoop: (epoch: number) => void;
   cancelReconciliation: () => void;
   /** Fetches the latest messages, reconciles them, and reconciles turn
@@ -54,7 +55,7 @@ interface UseMessageReconciliationReturn {
 
 function serverHasAssistantProgress(
   localMessages: DisplayMessage[],
-  serverMessages: RuntimeMessage[],
+  serverMessages: ConversationMessage[],
   isProcessing: boolean,
 ): boolean {
   const liveRowId = liveAssistantRowId(localMessages, isProcessing);
@@ -140,7 +141,7 @@ export function useMessageReconciliation({
 
   const reconcileFromServerDetailed = useCallback(
     (
-      serverMessages: RuntimeMessage[],
+      serverMessages: ConversationMessage[],
     ): {
       changed: boolean;
       assistantProgress: boolean;
@@ -192,14 +193,14 @@ export function useMessageReconciliation({
   );
 
   const reconcileFromServer = useCallback(
-    (serverMessages: RuntimeMessage[]): boolean =>
+    (serverMessages: ConversationMessage[]): boolean =>
       reconcileFromServerDetailed(serverMessages).changed,
     [reconcileFromServerDetailed],
   );
 
   const reconcileFetchedMessages = useCallback(
     (
-      serverMessages: RuntimeMessage[],
+      serverMessages: ConversationMessage[],
       snapshotTurnId: string | null,
       snapshotConversationId: string,
     ): ReconcileActiveConversationResult => {
