@@ -91,8 +91,14 @@ export async function ensureGatewayToken(tokenUrl?: string, guardianToken?: stri
   if (storedSource && storedSource !== source) {
     clearGatewayToken();
   }
-  const existing = getGatewayToken();
-  if (existing) return existing;
+  // When a guardian token is provided the caller has fresh credentials
+  // (e.g. primeLocalGatewayConnection after a hatch). Force-acquire so
+  // we don't return a stale JWT signed by a previous gateway instance
+  // that happened to run on the same port.
+  if (!guardianToken) {
+    const existing = getGatewayToken();
+    if (existing) return existing;
+  }
   return acquireGatewayToken(tokenUrl, guardianToken);
 }
 
