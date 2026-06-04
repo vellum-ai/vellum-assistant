@@ -27,6 +27,7 @@ export interface SurfaceRouterProps {
     data?: Record<string, unknown>,
   ) => void;
   assistantId?: string | null;
+  assistantDisplayName?: string | null;
   onOpenApp?: (appId: string) => void;
   onOpenDocument?: (documentSurfaceId: string) => void;
   /** Tool calls of the message this surface belongs to. Threaded to
@@ -39,6 +40,7 @@ export function SurfaceRouter({
   surface,
   onAction,
   assistantId,
+  assistantDisplayName,
   onOpenApp,
   onOpenDocument,
   toolCalls,
@@ -94,6 +96,7 @@ export function SurfaceRouter({
           surface={surface}
           onAction={onAction}
           assistantId={assistantId}
+          assistantDisplayName={assistantDisplayName}
         />
       );
 

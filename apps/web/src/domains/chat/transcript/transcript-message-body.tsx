@@ -481,6 +481,7 @@ export function TranscriptMessageBody({
                     onOpenApp={onOpenApp}
                     onOpenDocument={onOpenDocument}
                     assistantId={assistantId}
+                    assistantDisplayName={assistantDisplayName}
                     toolCalls={message.toolCalls}
                   />
                 </div>
@@ -766,6 +767,7 @@ export function TranscriptMessageBody({
                     onOpenApp={onOpenApp}
                     onOpenDocument={onOpenDocument}
                     assistantId={assistantId}
+                    assistantDisplayName={assistantDisplayName}
                     toolCalls={message.toolCalls}
                   />
                 </div>
@@ -912,6 +914,7 @@ export function TranscriptMessageBody({
                   onOpenApp={onOpenApp}
                   onOpenDocument={onOpenDocument}
                   assistantId={assistantId}
+                  assistantDisplayName={assistantDisplayName}
                   toolCalls={message.toolCalls}
                 />
               </div>
@@ -1033,6 +1036,7 @@ export function TranscriptMessageBody({
                 onOpenApp={onOpenApp}
                 onOpenDocument={onOpenDocument}
                 assistantId={assistantId}
+                assistantDisplayName={assistantDisplayName}
                 toolCalls={message.toolCalls}
               />
             </div>
