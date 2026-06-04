@@ -3,6 +3,8 @@ import { spawn } from "node:child_process";
 import type { CliInvocation } from "./util";
 
 const HATCH_TIMEOUT_MS = 120_000;
+// Docker hatches pull images and wait up to 5 min for container readiness.
+const DOCKER_HATCH_TIMEOUT_MS = 10 * 60 * 1000;
 
 export type HatchResult =
   | { ok: true; assistantId: string }
@@ -40,10 +42,16 @@ export function runHatch(
       resolve(result);
     };
 
+    const timeoutMs =
+      options?.remote === "docker" ? DOCKER_HATCH_TIMEOUT_MS : HATCH_TIMEOUT_MS;
     const timeout = setTimeout(() => {
       child.kill("SIGTERM");
-      finish({ ok: false, status: 500, error: "Hatch timed out after 120 seconds" });
-    }, HATCH_TIMEOUT_MS);
+      finish({
+        ok: false,
+        status: 500,
+        error: `Hatch timed out after ${timeoutMs / 1000} seconds`,
+      });
+    }, timeoutMs);
 
     child.stdout.on("data", (data: Buffer) => {
       stdout += data.toString();
