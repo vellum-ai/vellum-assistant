@@ -335,6 +335,7 @@ import {
   buildWelcomeGreeting,
   handleStatusCallback,
   handleVoiceWebhook,
+  outboundWillUseMediaStream,
 } from "../calls/twilio-routes.js";
 import { DEFAULT_ELEVENLABS_VOICE_ID } from "../config/schemas/elevenlabs.js";
 import { getDb } from "../memory/db-connection.js";
@@ -1376,6 +1377,91 @@ describe("twilio webhook routes", () => {
       // ConversationRelay should be emitted regardless of setup outcome
       expect(twiml).toContain("<ConversationRelay");
       expect(twiml).not.toContain("<Stream");
+    });
+  });
+
+  // ── Outbound preflight transport gate ───────────────────────────────
+  // `outboundWillUseMediaStream` is the SHARED predicate the outbound
+  // credential preflight (call-domain.startCall) uses to decide whether to run
+  // the local STT/TTS credential check. It must mirror buildVoiceWebhookTwiml's
+  // FULL transport decision: media-stream is used ONLY when STT routing is
+  // media-stream-custom AND the routeSetup outcome is normal_call / deny. For
+  // CR-native STT, or for interactive outcomes that buildVoiceWebhookTwiml
+  // CR-falls-back, it must return false so the preflight is skipped.
+
+  describe("outboundWillUseMediaStream (preflight transport gate)", () => {
+    test("media-stream-custom STT + normal_call outcome → true (preflight runs)", () => {
+      mockConfigObj.services.stt.provider = "openai-whisper" as any;
+      mockRouteSetupResult = {
+        outcome: { action: "normal_call", isInbound: false },
+        resolved: {
+          assistantId: "self",
+          isInbound: false,
+          otherPartyNumber: "+14155550199",
+          actorTrust: { trustClass: "guardian", memberRecord: null },
+        },
+      };
+      const session = createTestSession("conv-gate-ms-normal", "CA_gate_ms_1");
+
+      expect(outboundWillUseMediaStream(session)).toBe(true);
+    });
+
+    test("media-stream-custom STT + interactive (callee_verification) outcome → false (preflight skipped, CR-fallback)", () => {
+      // calls.verification.enabled makes routeSetup return callee_verification
+      // for an interactive outbound flow; buildVoiceWebhookTwiml CR-falls-back,
+      // so the call needs no local creds and the gate must skip the preflight.
+      mockConfigObj.services.stt.provider = "openai-whisper" as any;
+      mockRouteSetupResult = {
+        outcome: {
+          action: "callee_verification",
+          verificationConfig: { maxAttempts: 3, codeLength: 6 },
+        },
+        resolved: {
+          assistantId: "self",
+          isInbound: false,
+          otherPartyNumber: "+14155550199",
+          actorTrust: { trustClass: "guardian", memberRecord: null },
+        },
+      };
+      const session = createTestSession("conv-gate-ms-verify", "CA_gate_ms_2");
+
+      expect(outboundWillUseMediaStream(session)).toBe(false);
+    });
+
+    test("media-stream-custom STT + deny outcome → true (media-stream serves deny)", () => {
+      mockConfigObj.services.stt.provider = "openai-whisper" as any;
+      mockRouteSetupResult = {
+        outcome: {
+          action: "deny",
+          message: "Not authorized.",
+          logReason: "test",
+        },
+        resolved: {
+          assistantId: "self",
+          isInbound: false,
+          otherPartyNumber: "+14155550199",
+          actorTrust: { trustClass: "unknown", memberRecord: null },
+        },
+      };
+      const session = createTestSession("conv-gate-ms-deny", "CA_gate_ms_3");
+
+      expect(outboundWillUseMediaStream(session)).toBe(true);
+    });
+
+    test("CR-native STT (deepgram) → false regardless of outcome (preflight skipped)", () => {
+      mockConfigObj.services.stt.provider = "deepgram" as any;
+      mockRouteSetupResult = {
+        outcome: { action: "normal_call", isInbound: false },
+        resolved: {
+          assistantId: "self",
+          isInbound: false,
+          otherPartyNumber: "+14155550199",
+          actorTrust: { trustClass: "guardian", memberRecord: null },
+        },
+      };
+      const session = createTestSession("conv-gate-cr", "CA_gate_cr_1");
+
+      expect(outboundWillUseMediaStream(session)).toBe(false);
     });
   });
 

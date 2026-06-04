@@ -35,8 +35,15 @@ let configuredProvider: TtsProviderId = "elevenlabs";
 // provider, e.g. the fallback default).
 let providerConfigs: Record<string, Record<string, unknown>> = {};
 
+// When true, the config has NO `services.tts` block at all (partial/edge
+// config). The capability resolver must treat this as "unconfigured" and not
+// throw on the missing block.
+let omitTtsBlock = false;
+
 mock.module("../config/loader.js", () => ({
-  loadConfig: () => ({ services: { tts: { provider: configuredProvider } } }),
+  loadConfig: () => ({
+    services: omitTtsBlock ? {} : { tts: { provider: configuredProvider } },
+  }),
 }));
 
 mock.module("../tts/tts-config-resolver.js", () => ({
@@ -91,23 +98,30 @@ const fakeCatalog: Record<
   },
 };
 
+const buildFakeEntry = (id: string) => {
+  const entry = fakeCatalog[id];
+  if (!entry) return null;
+  return {
+    id,
+    mediaStreamPlayback: entry.mediaStreamPlayback,
+    secretRequirements: [
+      {
+        credentialStoreKey: entry.key,
+        credentialLookup: entry.credentialLookup,
+        displayName: `${id} key`,
+        setCommand: "set",
+      },
+    ],
+  };
+};
+
 mock.module("../tts/provider-catalog.js", () => ({
   getCatalogProvider: (id: string) => {
-    const entry = fakeCatalog[id];
+    const entry = buildFakeEntry(id);
     if (!entry) throw new Error(`Unknown TTS provider "${id}"`);
-    return {
-      id,
-      mediaStreamPlayback: entry.mediaStreamPlayback,
-      secretRequirements: [
-        {
-          credentialStoreKey: entry.key,
-          credentialLookup: entry.credentialLookup,
-          displayName: `${id} key`,
-          setCommand: "set",
-        },
-      ],
-    };
+    return entry;
   },
+  getCatalogProviderOrNull: (id: string) => buildFakeEntry(id),
 }));
 
 // Stored credentials keyed by credential store key (mutated per test).
@@ -165,6 +179,7 @@ function makeProvider(id: string): TtsProvider {
 
 beforeEach(() => {
   configuredProvider = "elevenlabs";
+  omitTtsBlock = false;
   storedKeys = {};
   envProviderKeys = {};
   providerConfigs = {};
@@ -228,6 +243,28 @@ describe("resolveTelephonyTtsCapability", () => {
     expect(result.status).toBe("not-playable");
     if (result.status === "not-playable") {
       expect(result.reason).toBe("missing-credentials");
+    }
+  });
+
+  test("missing services.tts block is not-playable (unconfigured), no throw", async () => {
+    omitTtsBlock = true;
+
+    const result = await resolveTelephonyTtsCapability();
+    expect(result.status).toBe("not-playable");
+    if (result.status === "not-playable") {
+      expect(result.reason).toBe("unconfigured");
+      expect(result.providerId).toBeNull();
+    }
+  });
+
+  test("unknown provider is not-playable (unknown-provider), no throw", async () => {
+    configuredProvider = "not-a-real-tts-provider" as TtsProviderId;
+
+    const result = await resolveTelephonyTtsCapability();
+    expect(result.status).toBe("not-playable");
+    if (result.status === "not-playable") {
+      expect(result.reason).toBe("unknown-provider");
+      expect(result.providerId).toBe("not-a-real-tts-provider");
     }
   });
 

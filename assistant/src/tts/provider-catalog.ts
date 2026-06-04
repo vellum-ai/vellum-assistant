@@ -377,3 +377,18 @@ export function getCatalogProvider(id: TtsProviderId): TtsProviderCatalogEntry {
   }
   return entry;
 }
+
+/**
+ * Non-throwing variant of {@link getCatalogProvider}: returns the catalog entry
+ * for the given id, or `null` when the id is not in the catalog (e.g. a
+ * malformed/unknown `services.tts.provider`).
+ *
+ * Use this on paths that must degrade gracefully on a bad config rather than
+ * crash — notably the telephony credential preflight, which must turn an
+ * unknown provider into a not-ready gap instead of throwing.
+ */
+export function getCatalogProviderOrNull(
+  id: string,
+): TtsProviderCatalogEntry | null {
+  return catalogById.get(id as TtsProviderId) ?? null;
+}

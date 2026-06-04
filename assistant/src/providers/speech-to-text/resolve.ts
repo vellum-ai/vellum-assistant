@@ -137,8 +137,16 @@ export type TelephonySttCapability =
  * - `"missing-credentials"` — the provider is eligible but has no API key.
  */
 export async function resolveTelephonySttCapability(): Promise<TelephonySttCapability> {
-  const config = getConfig();
-  const provider = config.services.stt.provider;
+  // Safe access: a partial/edge config (e.g. no `services` block) must resolve
+  // to "unconfigured" rather than throwing — call setup must never crash on a
+  // malformed config.
+  const provider = getConfig().services?.stt?.provider;
+  if (!provider) {
+    return {
+      status: "unconfigured",
+      reason: "No STT provider configured (services.stt.provider is unset)",
+    };
+  }
 
   const entry = getProviderEntry(provider as SttProviderId);
   if (!entry) {

@@ -105,6 +105,46 @@ mock.module("../daemon/handlers/config-ingress.js", () => ({
   syncTwilioWebhooks: async () => ({ success: true }),
 }));
 
+// Credential-compatibility preflight (PR 10). Default ready so existing dial
+// tests are unaffected; the not-ready test toggles this to assert the call is
+// blocked before Twilio dialing.
+let credentialReadiness: Awaited<
+  ReturnType<
+    typeof import("../calls/telephony-credential-preflight.js").resolveTelephonyCredentialReadiness
+  >
+> = { status: "ready" };
+
+mock.module("../calls/telephony-credential-preflight.js", () => ({
+  resolveTelephonyCredentialReadiness: async () => credentialReadiness,
+  describeCredentialGaps: (
+    missing: Array<{ kind: string; providerId: string | null; reason: string }>,
+  ) =>
+    missing
+      .map(
+        (g) =>
+          `${g.kind === "stt" ? "speech-to-text" : "text-to-speech"} provider ${
+            g.providerId ? `"${g.providerId}"` : "(unconfigured)"
+          } (${g.reason})`,
+      )
+      .join(", "),
+}));
+
+// Whether the outbound preflight gate considers the call a media-stream call.
+// The gate (`outboundWillUseMediaStream`, in twilio-routes.js) mirrors the FULL
+// transport decision: media-stream only when STT routing is media-stream-custom
+// AND routeSetup's outcome is normal_call/deny. It returns false for CR-native
+// STT AND for interactive outbound flows (e.g. verification) that CR-fall-back,
+// in which case the preflight is skipped. Default true so the existing
+// not-ready test exercises the preflight; the skip tests toggle it false.
+let usesMediaStreamTransport = true;
+
+mock.module("../calls/twilio-routes.js", () => ({
+  outboundWillUseMediaStream: () => usesMediaStreamTransport,
+  // call-domain.ts only consumes `outboundWillUseMediaStream` from this module;
+  // the remaining exports are unused on the startCall/cancelCall paths exercised
+  // by these tests.
+}));
+
 import {
   clearActiveCallLeases,
   getActiveCallLease,
@@ -131,6 +171,8 @@ beforeEach(() => {
   twilioInitiateCallArgs = [];
   mockIngressEnabled = true;
   mockIngressPublicBaseUrl = "https://test.example.com";
+  credentialReadiness = { status: "ready" };
+  usesMediaStreamTransport = true;
 });
 
 let ensuredConvIds = new Set<string>();
@@ -308,7 +350,7 @@ describe("startCall — pointer message regression", () => {
     ensureConversation(convId);
 
     const result = await startCall({
-      phoneNumber: "+15559876543",
+      phoneNumber: "+12025550123",
       task: "Test call",
       conversationId: convId,
     });
@@ -318,7 +360,7 @@ describe("startCall — pointer message regression", () => {
     expect(twilioInitiateCallArgs).toEqual([
       {
         from: "+15550001111",
-        to: "+15559876543",
+        to: "+12025550123",
         webhookUrl: "https://test.example.com/webhooks/twilio/voice/test",
         statusCallbackUrl: "https://test.example.com/webhooks/twilio/status",
       },
@@ -337,7 +379,7 @@ describe("startCall — pointer message regression", () => {
 
     const text = getLatestAssistantText(convId);
     expect(text).not.toBeNull();
-    expect(text!).toContain("+15559876543");
+    expect(text!).toContain("+12025550123");
     expect(text!).toContain("started");
   });
 
@@ -347,7 +389,7 @@ describe("startCall — pointer message regression", () => {
     mockIngressEnabled = false;
 
     const result = await startCall({
-      phoneNumber: "+15559876543",
+      phoneNumber: "+12025550123",
       task: "Test call",
       conversationId: convId,
     });
@@ -363,8 +405,80 @@ describe("startCall — pointer message regression", () => {
 
     const text = getLatestAssistantText(convId);
     expect(text).not.toBeNull();
-    expect(text!).toContain("+15559876543");
+    expect(text!).toContain("+12025550123");
     expect(text!).toContain("failed");
+  });
+
+  test("credential preflight not-ready blocks dialing and writes a setup pointer", async () => {
+    const convId = "conv-domain-cred-preflight";
+    ensureConversation(convId);
+    credentialReadiness = {
+      status: "not-ready",
+      missing: [
+        {
+          kind: "stt",
+          providerId: "openai-whisper",
+          reason: "missing-credentials",
+        },
+      ],
+    };
+
+    const result = await startCall({
+      phoneNumber: "+12025550123",
+      task: "Test call",
+      conversationId: convId,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(400);
+      expect(result.error).toContain("openai-whisper");
+    }
+    // Never reached Twilio dialing.
+    expect(twilioInitiateCallCount).toBe(0);
+    expect(listActiveCallLeases()).toHaveLength(0);
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    const text = getLatestAssistantText(convId);
+    expect(text).not.toBeNull();
+    expect(text!).toContain("+12025550123");
+    expect(text!).toContain("openai-whisper");
+  });
+
+  test("non-media-stream transport (CR-native or interactive CR-fallback) skips the outbound credential preflight and dials", async () => {
+    // `outboundWillUseMediaStream` returns false both for CR-native STT
+    // (deepgram / google — Twilio CR does STT + native TTS) AND for interactive
+    // outbound flows that buildVoiceWebhookTwiml CR-falls-back (e.g.
+    // calls.verification.enabled → callee_verification). In both cases the call
+    // is served by ConversationRelay and needs no local credentials, so the
+    // gate must skip the preflight even when it would report not-ready —
+    // otherwise the call is wrongly blocked. (The full STT-routing +
+    // routeSetup-outcome decision is unit-tested directly against the real
+    // helper in twilio-routes.test.ts.)
+    const convId = "conv-domain-cred-preflight-skipped";
+    ensureConversation(convId);
+    usesMediaStreamTransport = false;
+    credentialReadiness = {
+      status: "not-ready",
+      missing: [
+        {
+          kind: "stt",
+          providerId: "openai-whisper",
+          reason: "missing-credentials",
+        },
+      ],
+    };
+
+    const result = await startCall({
+      phoneNumber: "+12025550123",
+      task: "Test call",
+      conversationId: convId,
+    });
+
+    expect(result.ok).toBe(true);
+    // The preflight was skipped, so Twilio dialing proceeded.
+    expect(twilioInitiateCallCount).toBe(1);
   });
 
   test("failed call writes a failed pointer to the initiating conversation", async () => {
@@ -373,7 +487,7 @@ describe("startCall — pointer message regression", () => {
     twilioInitiateCallBehavior = "error";
 
     const result = await startCall({
-      phoneNumber: "+15559876543",
+      phoneNumber: "+12025550123",
       task: "Test call",
       conversationId: convId,
     });
@@ -386,7 +500,7 @@ describe("startCall — pointer message regression", () => {
 
     const text = getLatestAssistantText(convId);
     expect(text).not.toBeNull();
-    expect(text!).toContain("+15559876543");
+    expect(text!).toContain("+12025550123");
     expect(text!).toContain("failed");
   });
 
@@ -395,7 +509,7 @@ describe("startCall — pointer message regression", () => {
     ensureConversation(convId);
 
     const startResult = await startCall({
-      phoneNumber: "+15559876543",
+      phoneNumber: "+12025550123",
       task: "Test call",
       conversationId: convId,
     });

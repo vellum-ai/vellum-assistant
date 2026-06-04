@@ -36,12 +36,18 @@ import {
   getCallSession,
   getCallSessionByCallSid,
   getPendingQuestion,
+  recordCallEvent,
   updateCallSession,
 } from "./call-store.js";
 import { activeMediaStreamSessions } from "./media-stream-server.js";
 import { activeRelayConnections } from "./relay-server.js";
+import {
+  describeCredentialGaps,
+  resolveTelephonyCredentialReadiness,
+} from "./telephony-credential-preflight.js";
 import { getTwilioConfig } from "./twilio-config.js";
 import { TwilioConversationRelayProvider } from "./twilio-provider.js";
+import { outboundWillUseMediaStream } from "./twilio-routes.js";
 import type { CallSession } from "./types.js";
 import { preflightVoiceIngress } from "./voice-ingress-preflight.js";
 
@@ -447,6 +453,55 @@ export async function startCall(
       initiatedFromConversationId: conversationId,
     });
     sessionId = session.id;
+
+    // Credential-compatibility preflight: on the media-stream call path the
+    // daemon does STT + TTS itself, so both providers need usable credentials
+    // or the call connects silent. Fail BEFORE placing the Twilio call —
+    // record the failure event, point the user at the missing credential, and
+    // do not dial.
+    //
+    // GATE: only run this for calls that will actually be served by the
+    // media-stream transport (`<Connect><Stream>`). `outboundWillUseMediaStream`
+    // mirrors the FULL transport decision buildVoiceWebhookTwiml makes for this
+    // exact session: media-stream is used ONLY when STT routing is
+    // `media-stream-custom` AND routeSetup's outcome is one media-stream can
+    // serve (normal_call / deny). It returns false for:
+    //   - conversation-relay-native STT (deepgram / google): Twilio CR does STT
+    //     + native TTS, so no local credentials are needed; AND
+    //   - interactive outbound flows that buildVoiceWebhookTwiml CR-falls-back
+    //     (e.g. calls.verification.enabled → callee_verification): these are
+    //     served by CR too, so the preflight must be skipped or it would
+    //     wrongly block the call for missing local STT/TTS creds.
+    // Sharing the predicate with buildVoiceWebhookTwiml guarantees the gate and
+    // the real TwiML branch cannot drift.
+    //
+    // CROSS-PR NOTE (PR 11): PR 11 removes the CR-fallback entirely — all setup
+    // outcomes route to the media-stream transport. When that lands,
+    // outboundWillUseMediaStream collapses to "strategy === media-stream-custom"
+    // (and, once routing always selects it, to always-true); PR 11 must
+    // simplify that shared helper accordingly. This call site needs no change.
+    const credentialReadiness = outboundWillUseMediaStream(session)
+      ? await resolveTelephonyCredentialReadiness()
+      : ({ status: "ready" } as const);
+    if (credentialReadiness.status === "not-ready") {
+      const summary = describeCredentialGaps(credentialReadiness.missing);
+      recordCallEvent(session.id, "telephony_credential_preflight_failed", {
+        direction: "outbound",
+        missing: credentialReadiness.missing,
+      });
+      updateCallSession(session.id, {
+        status: "failed",
+        endedAt: Date.now(),
+        lastError: `Telephony credential preflight failed: ${summary}`,
+      });
+      const reason = `Call setup is incomplete — configure the missing voice provider credential(s): ${summary}.`;
+      postFailedCallPointer(conversationId, phoneNumber, reason);
+      log.warn(
+        { callSessionId: session.id, missing: credentialReadiness.missing },
+        "Outbound call blocked by telephony credential preflight",
+      );
+      return { ok: false, error: reason, status: 400 };
+    }
 
     // Create a dedicated voice conversation for this call so that voice
     // transcripts live in their own conversation, separate from the chat that

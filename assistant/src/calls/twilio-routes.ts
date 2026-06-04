@@ -54,10 +54,10 @@ import {
   releaseCallbackClaim,
   updateCallSession,
 } from "./call-store.js";
-import { routeSetup } from "./relay-setup-router.js";
+import { routeSetup, type SetupOutcome } from "./relay-setup-router.js";
 import { resolveCallHints } from "./stt-hints.js";
 import { resolveTelephonySttRouting } from "./telephony-stt-routing.js";
-import type { CallStatus } from "./types.js";
+import type { CallSession, CallStatus } from "./types.js";
 import { resolveVoiceQualityProfile } from "./voice-quality.js";
 
 const log = getLogger("twilio-routes");
@@ -381,6 +381,69 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
 }
 
 /**
+ * The set of {@link routeSetup} outcomes that the media-stream transport
+ * (`<Connect><Stream>`) can serve directly.
+ *
+ * The media-stream transport supports `normal_call` and `deny` (which speaks a
+ * message and tears down). Every OTHER outcome requires an interactive
+ * sub-flow (DTMF entry, name capture, guardian wait, verification, invite
+ * redemption) that media-stream cannot perform, so {@link buildVoiceWebhookTwiml}
+ * CR-falls-back for those. This predicate is the single source of truth for
+ * that branch, shared with the outbound preflight gate so the two can never
+ * drift.
+ */
+function setupOutcomeUsesMediaStream(outcome: SetupOutcome): boolean {
+  return outcome.action === "normal_call" || outcome.action === "deny";
+}
+
+/**
+ * Decide whether an OUTBOUND call will actually be served by the media-stream
+ * transport (`<Connect><Stream>`) — the ONLY path that needs local STT + TTS
+ * credentials — mirroring the FULL transport decision {@link buildVoiceWebhookTwiml}
+ * makes for the same call/session.
+ *
+ * Media-stream is used iff BOTH hold:
+ *   1. STT routing resolves to the `media-stream-custom` strategy
+ *      (CR-native providers — deepgram / google — let Twilio do STT + native
+ *      TTS, so no local credentials are needed); AND
+ *   2. the {@link routeSetup} outcome for this session is one the media-stream
+ *      transport serves directly ({@link setupOutcomeUsesMediaStream}). When
+ *      `calls.verification.enabled` (or any other interactive flow) makes
+ *      `routeSetup` return e.g. `callee_verification`, `buildVoiceWebhookTwiml`
+ *      CR-falls-back, so this call is served by CR and needs NO local creds.
+ *
+ * Returning `false` for the CR-fallback case is what lets the outbound preflight
+ * gate skip the credential check for interactive flows that don't use the
+ * media-stream transport. Any unresolved/unknown STT routing is treated as
+ * NOT-media-stream (skip the preflight; the CR path handles itself), so a
+ * partial/malformed config can never crash call setup.
+ *
+ * CROSS-PR NOTE (PR 11): PR 11 removes the CR-fallback entirely — ALL outcomes
+ * route to the media-stream transport. When that lands, condition (2) becomes
+ * vacuous and this helper collapses to "strategy === media-stream-custom" (and,
+ * once routing always selects media-stream-custom, to always-true). PR 11 must
+ * simplify both this helper and {@link buildVoiceWebhookTwiml}'s setup-outcome
+ * branch together so they stay in lockstep.
+ */
+export function outboundWillUseMediaStream(session: CallSession): boolean {
+  const routing = resolveTelephonySttRouting();
+  if (
+    routing.status !== "resolved" ||
+    routing.strategy.strategy !== "media-stream-custom"
+  ) {
+    return false;
+  }
+
+  const { outcome } = routeSetup({
+    callSessionId: session.id,
+    session,
+    from: session.fromNumber ?? "",
+    to: session.toNumber ?? "",
+  });
+  return setupOutcomeUsesMediaStream(outcome);
+}
+
+/**
  * Shared TwiML generation for both inbound and outbound voice webhooks.
  *
  * Resolves the telephony STT routing strategy from `services.stt.provider`
@@ -487,7 +550,9 @@ function buildVoiceWebhookTwiml(
   // a message and tears down). All other outcomes require interactive
   // sub-flows (DTMF entry, name capture, guardian wait) that media-stream
   // cannot perform. Reject these deterministically before stream bootstrap.
-  if (outcome.action !== "normal_call" && outcome.action !== "deny") {
+  // `setupOutcomeUsesMediaStream` is the shared predicate the outbound
+  // preflight gate (`outboundWillUseMediaStream`) reuses so the two cannot drift.
+  if (!setupOutcomeUsesMediaStream(outcome)) {
     log.warn(
       {
         callSessionId,

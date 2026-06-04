@@ -60,6 +60,10 @@ import {
   type MediaStreamSttSessionConfig,
 } from "./media-stream-stt-session.js";
 import { routeSetup } from "./relay-setup-router.js";
+import {
+  describeCredentialGaps,
+  resolveTelephonyCredentialReadiness,
+} from "./telephony-credential-preflight.js";
 
 const log = getLogger("media-stream-server");
 
@@ -377,13 +381,13 @@ export class MediaStreamCallSession {
         );
         registerCallController(this.callSessionId, this.controller);
 
-        // Fire the initial greeting.
-        this.controller.startInitialGreeting().catch((err) => {
-          log.error(
-            { err, callSessionId: this.callSessionId },
-            "Failed to start initial greeting on media-stream session",
-          );
-        });
+        // Credential-compatibility preflight: the media-stream is already
+        // connected and the daemon does STT + TTS itself here. If the
+        // configured providers lack usable credentials the call would sit
+        // silent, so verify readiness (async) before greeting; when not ready,
+        // tear down, speak a short setup-required message, and end the call
+        // instead of connect-and-sit-silent.
+        void this.preflightCredentialsThenGreet(session);
         return;
       }
 
@@ -455,6 +459,91 @@ export class MediaStreamCallSession {
         });
         return;
     }
+  }
+
+  /**
+   * Run the media-stream credential preflight for a normal call. When ready,
+   * fire the initial greeting through the already-created controller. When NOT
+   * ready, tear the just-bootstrapped controller down, record the failure
+   * event, speak a short setup-required message over the normal media-stream
+   * TTS path, and end the call — never connect-and-sit-silent.
+   *
+   * The not-ready teardown mirrors the deny branch: mark the session failed,
+   * run finalization (since `handleTransportClosed` exits early on terminal
+   * status), speak, then end after the play URL has been delivered.
+   */
+  private async preflightCredentialsThenGreet(
+    session: ReturnType<typeof getCallSession>,
+  ): Promise<void> {
+    let readiness: Awaited<
+      ReturnType<typeof resolveTelephonyCredentialReadiness>
+    >;
+    try {
+      readiness = await resolveTelephonyCredentialReadiness();
+    } catch (err) {
+      // Treat a preflight error as ready so a transient config-read failure
+      // doesn't hang up an otherwise-valid call; downstream synthesis/STT
+      // already degrade safely (TTS via the playability guard).
+      log.error(
+        { err, callSessionId: this.callSessionId },
+        "Telephony credential preflight threw — proceeding with call setup",
+      );
+      readiness = { status: "ready" };
+    }
+
+    if (readiness.status === "not-ready") {
+      const summary = describeCredentialGaps(readiness.missing);
+      log.warn(
+        { callSessionId: this.callSessionId, missing: readiness.missing },
+        "Inbound media-stream call blocked by telephony credential preflight",
+      );
+
+      // Tear down the controller bootstrapped synchronously above before its
+      // greeting can attempt (silent) synthesis.
+      if (this.controller) {
+        this.controller.destroy();
+        this.controller = null;
+        unregisterCallController(this.callSessionId);
+      }
+
+      recordCallEvent(
+        this.callSessionId,
+        "telephony_credential_preflight_failed",
+        {
+          direction: "inbound",
+          missing: readiness.missing,
+          transport: "media-stream",
+        },
+      );
+      updateCallSession(this.callSessionId, {
+        status: "failed",
+        endedAt: Date.now(),
+        lastError: `Telephony credential preflight failed: ${summary}`,
+      });
+      // Run finalization now because handleTransportClosed will see terminal
+      // status and exit early when the WebSocket closes.
+      this.runFinalizationAndGrantCleanup(session);
+      void speakSystemPrompt(
+        this.output,
+        "Sorry, this assistant isn't set up to take calls right now. Please try again later. Goodbye.",
+      ).finally(() => {
+        setTimeout(
+          () =>
+            this.output.endSession(`Credential preflight failed: ${summary}`),
+          3000,
+        );
+      });
+      return;
+    }
+
+    // Ready — fire the initial greeting on the already-registered controller.
+    if (!this.controller) return;
+    this.controller.startInitialGreeting().catch((err) => {
+      log.error(
+        { err, callSessionId: this.callSessionId },
+        "Failed to start initial greeting on media-stream session",
+      );
+    });
   }
 
   // ── Finalization helper for early-teardown paths ─────────────────
