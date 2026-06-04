@@ -172,9 +172,10 @@ export function parseArgs(): ParsedArgs {
     }
   }
 
-  // Platform-hosted assistants use a session token; local assistants use a
-  // guardian JWT. Both are skipped entirely when --token supplies the
-  // credential, so no saved credentials are read.
+  // Platform-hosted assistants (cloud "vellum") use a session token; every
+  // other topology — local, docker, and "paired" (a remote assistant paired
+  // from another machine) — uses a bearer guardian JWT. Both are skipped
+  // entirely when --token supplies the credential, so no saved creds are read.
   const platformToken = bearerTokenOverride
     ? undefined
     : cloud === "vellum"

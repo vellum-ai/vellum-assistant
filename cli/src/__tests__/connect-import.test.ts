@@ -69,7 +69,7 @@ describe("connect import", () => {
     const entry = findAssistantByName("paired-dev-aaa");
     expect(entry).not.toBeNull();
     expect(entry!.runtimeUrl).toBe("http://10.0.0.5:7830");
-    expect(entry!.cloud).toBe("local");
+    expect(entry!.cloud).toBe("paired");
     expect(loadGuardianToken("paired-dev-aaa")?.accessToken).toBe("test-token");
   });
 
