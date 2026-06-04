@@ -24339,6 +24339,41 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  routes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        assistant_id:
+                          type: string
+                        type:
+                          type: string
+                        callback_path:
+                          type: string
+                        callback_url:
+                          type: string
+                        source_identifier:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                      required:
+                        - id
+                        - assistant_id
+                        - type
+                        - callback_path
+                        - callback_url
+                        - source_identifier
+                      additionalProperties: false
+                required:
+                  - routes
+                additionalProperties: false
   /v1/webhooks/register:
     post:
       operationId: webhooks_register_post
@@ -24351,6 +24386,44 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  callbackUrl:
+                    type: string
+                  type:
+                    type: string
+                  path:
+                    type: string
+                  mode:
+                    type: string
+                    enum:
+                      - platform
+                      - self-hosted
+                required:
+                  - callbackUrl
+                  - type
+                  - path
+                  - mode
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                type:
+                  type: string
+                path:
+                  type: string
+                source:
+                  type: string
+              required:
+                - type
+              additionalProperties: false
   /v1/work-items:
     get:
       operationId: workitems_get
