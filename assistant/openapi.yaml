@@ -19370,6 +19370,57 @@ paths:
               required:
                 - enabled
               additionalProperties: false
+  /v1/schedules/usage-summary:
+    get:
+      operationId: schedules_usagesummary_get
+      summary: Get schedule usage summaries
+      description: Return per-schedule run counts and usage totals for a time range.
+      tags:
+        - schedules
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  summaries:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        scheduleId:
+                          type: string
+                        runCount:
+                          type: number
+                        totalEstimatedCostUsd:
+                          type: number
+                        eventCount:
+                          type: number
+                      required:
+                        - scheduleId
+                        - runCount
+                        - totalEstimatedCostUsd
+                        - eventCount
+                      additionalProperties: false
+                    description: Schedule usage summary rows
+                required:
+                  - summaries
+                additionalProperties: false
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: integer
+          description: Start epoch millis (required)
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: integer
+          description: End epoch millis (required)
   /v1/search:
     get:
       operationId: search_get

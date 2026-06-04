@@ -76,6 +76,7 @@ import { recordUsageEvent } from "../memory/llm-usage-store.js";
 import { rawRun } from "../memory/raw-query.js";
 import type { AssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
+import { BadRequestError } from "../runtime/routes/errors.js";
 import { ROUTES as HEARTBEAT_ROUTES } from "../runtime/routes/heartbeat-routes.js";
 import { ROUTES as SCHEDULE_ROUTES } from "../runtime/routes/schedule-routes.js";
 import type { RouteDefinition } from "../runtime/routes/types.js";
@@ -83,6 +84,7 @@ import {
   completeScheduleRun,
   createSchedule,
   createScheduleRun,
+  getScheduleRuns,
   listSchedules,
 } from "../schedule/schedule-store.js";
 import { scheduleTask } from "../tasks/task-scheduler.js";
@@ -146,6 +148,28 @@ function recordUsageCostAt(
     "UPDATE llm_usage_events SET created_at = ? WHERE id = ?",
     createdAt,
     event.id,
+  );
+}
+
+function setScheduleRunWindow({
+  runId,
+  startedAt,
+  finishedAt,
+  status = "ok",
+}: {
+  runId: string;
+  startedAt: number;
+  finishedAt: number | null;
+  status?: "ok" | "error" | "running";
+}) {
+  rawRun(
+    "UPDATE cron_runs SET status = ?, started_at = ?, finished_at = ?, duration_ms = ?, created_at = ? WHERE id = ?",
+    status,
+    startedAt,
+    finishedAt,
+    finishedAt == null ? null : finishedAt - startedAt,
+    startedAt,
+    runId,
   );
 }
 
@@ -226,6 +250,78 @@ describe("schedule run-now trust propagation", () => {
     expect(processCalls[0].isInteractive).toBe(false);
     expect(typeof observedTaskRunIds[0]).toBe("string");
     expect(fakeConversation.taskRunId).toBeUndefined();
+  });
+
+  test("manual run-now opens task-backed schedule runs before task processing", async () => {
+    const task = createTask({
+      title: "Manual Usage Task",
+      template: "spend tokens manually",
+    });
+    const schedule = scheduleTask({
+      taskId: task.id,
+      name: "Manual scheduled task",
+      cronExpression: "* * * * *",
+    });
+
+    const from = Date.now() - 1000;
+    let usageEventCreatedAt: number | null = null;
+    let runsDuringProcessing: ReturnType<typeof getScheduleRuns> = [];
+    fakeConversation = {
+      taskRunId: undefined,
+      async processMessage(options: Record<string, unknown>) {
+        processCalls.push(options);
+        const conversationId = getOrCreateCalls[0]?.conversationId;
+        runsDuringProcessing = getScheduleRuns(schedule.id);
+        usageEventCreatedAt = Date.now();
+        recordUsageCostAt(
+          conversationId ?? "missing-conversation",
+          "manual-scheduled-task-usage",
+          usageEventCreatedAt,
+          0.25,
+        );
+        return "message-id";
+      },
+    };
+
+    const route = findRoute("schedules/:id/run", "POST");
+    await route.handler({ pathParams: { id: schedule.id } });
+    const to = Date.now() + 1000;
+
+    expect(usageEventCreatedAt).not.toBeNull();
+    expect(runsDuringProcessing).toHaveLength(1);
+    expect(runsDuringProcessing[0].status).toBe("running");
+    expect(runsDuringProcessing[0].conversationId).toBeNull();
+    expect(runsDuringProcessing[0].startedAt).toBeLessThanOrEqual(
+      usageEventCreatedAt!,
+    );
+
+    const runs = getScheduleRuns(schedule.id);
+    expect(runs).toHaveLength(1);
+    expect(runs[0].id).toBe(runsDuringProcessing[0].id);
+    expect(runs[0].status).toBe("ok");
+    expect(runs[0].conversationId).toBe(getOrCreateCalls[0].conversationId);
+    expect(runs[0].finishedAt).not.toBeNull();
+    expect(runs[0].finishedAt!).toBeGreaterThanOrEqual(usageEventCreatedAt!);
+
+    const summaryRoute = findRoute("schedules/usage-summary", "GET");
+    const summaryResult = summaryRoute.handler({
+      queryParams: { from: String(from), to: String(to) },
+    }) as {
+      summaries: Array<{
+        scheduleId: string;
+        runCount: number;
+        totalEstimatedCostUsd: number;
+        eventCount: number;
+      }>;
+    };
+    expect(
+      summaryResult.summaries.find((row) => row.scheduleId === schedule.id),
+    ).toEqual({
+      scheduleId: schedule.id,
+      runCount: 1,
+      totalEstimatedCostUsd: 0.25,
+      eventCount: 1,
+    });
   });
 });
 
@@ -720,6 +816,169 @@ describe("schedule and heartbeat run metadata", () => {
     };
 
     expect(result.runs[0].estimatedCostUsd).toBeCloseTo(0.02);
+  });
+});
+
+// ── schedules/usage-summary ───────────────────────────────────────────────
+
+describe("GET /schedules/usage-summary", () => {
+  beforeEach(() => {
+    clearTables();
+  });
+
+  function getUsageSummary(queryParams: Record<string, string>) {
+    const route = findRoute("schedules/usage-summary", "GET");
+    return route.handler({ queryParams }) as {
+      summaries: Array<{
+        scheduleId: string;
+        runCount: number;
+        totalEstimatedCostUsd: number;
+        eventCount: number;
+      }>;
+    };
+  }
+
+  test("returns zero rows when no schedules exist", () => {
+    const result = getUsageSummary({ from: "0", to: "5000" });
+
+    expect(result.summaries).toEqual([]);
+  });
+
+  test("includes active and inactive schedules with zero activity", () => {
+    const active = createSchedule({
+      name: "Active summary schedule",
+      cronExpression: "* * * * *",
+      message: "hi",
+      syntax: "cron",
+    });
+    const inactive = createSchedule({
+      name: "Inactive summary schedule",
+      cronExpression: "0 9 * * *",
+      message: "hi",
+      syntax: "cron",
+      enabled: false,
+    });
+
+    const result = getUsageSummary({ from: "0", to: "5000" });
+    const byScheduleId = new Map(
+      result.summaries.map((summary) => [summary.scheduleId, summary]),
+    );
+
+    expect(byScheduleId.get(active.id)).toEqual({
+      scheduleId: active.id,
+      runCount: 0,
+      totalEstimatedCostUsd: 0,
+      eventCount: 0,
+    });
+    expect(byScheduleId.get(inactive.id)).toEqual({
+      scheduleId: inactive.id,
+      runCount: 0,
+      totalEstimatedCostUsd: 0,
+      eventCount: 0,
+    });
+  });
+
+  test("counts runs by started_at in the inclusive range regardless of status", () => {
+    const schedule = createSchedule({
+      name: "Run count schedule",
+      cronExpression: "* * * * *",
+      message: "hi",
+      syntax: "cron",
+    });
+    const beforeRun = createScheduleRun(schedule.id, "conv-runs");
+    const startRun = createScheduleRun(schedule.id, "conv-runs");
+    const errorRun = createScheduleRun(schedule.id, "conv-runs");
+    const runningRun = createScheduleRun(schedule.id, "conv-runs");
+    const afterRun = createScheduleRun(schedule.id, "conv-runs");
+
+    setScheduleRunWindow({
+      runId: beforeRun,
+      startedAt: 999,
+      finishedAt: 1100,
+    });
+    setScheduleRunWindow({
+      runId: startRun,
+      startedAt: 1000,
+      finishedAt: 1200,
+    });
+    setScheduleRunWindow({
+      runId: errorRun,
+      startedAt: 1500,
+      finishedAt: 1700,
+      status: "error",
+    });
+    setScheduleRunWindow({
+      runId: runningRun,
+      startedAt: 2000,
+      finishedAt: null,
+      status: "running",
+    });
+    setScheduleRunWindow({
+      runId: afterRun,
+      startedAt: 2001,
+      finishedAt: 2100,
+    });
+
+    const result = getUsageSummary({ from: "1000", to: "2000" });
+
+    expect(result.summaries).toHaveLength(1);
+    expect(result.summaries[0].runCount).toBe(3);
+  });
+
+  test("sums usage by schedule run windows and excludes reused-conversation usage outside those windows", () => {
+    const schedule = createSchedule({
+      name: "Usage attribution schedule",
+      cronExpression: "* * * * *",
+      message: "hi",
+      syntax: "cron",
+      reuseConversation: true,
+    });
+    const conversation = createConversation({
+      title: "Reused schedule conversation",
+      source: "schedule",
+      scheduleJobId: schedule.id,
+    });
+    const includedRun = createScheduleRun(schedule.id, conversation.id);
+    const outsideRangeRun = createScheduleRun(schedule.id, conversation.id);
+
+    setScheduleRunWindow({
+      runId: includedRun,
+      startedAt: 1000,
+      finishedAt: 2000,
+    });
+    setScheduleRunWindow({
+      runId: outsideRangeRun,
+      startedAt: 3000,
+      finishedAt: 3500,
+    });
+
+    recordUsageCostAt(conversation.id, "summary-before-run", 900, 0.4);
+    recordUsageCostAt(conversation.id, "summary-at-start", 1000, 0.01);
+    recordUsageCostAt(conversation.id, "summary-inside-run", 1500, 0.02);
+    recordUsageCostAt(conversation.id, "summary-at-finish", 2000, 0.03);
+    recordUsageCostAt(conversation.id, "summary-between-runs", 2500, 0.5);
+    recordUsageCostAt(conversation.id, "summary-outside-range-run", 3200, 0.8);
+
+    const result = getUsageSummary({ from: "1000", to: "2000" });
+
+    expect(result.summaries).toHaveLength(1);
+    expect(result.summaries[0]).toMatchObject({
+      scheduleId: schedule.id,
+      runCount: 1,
+      eventCount: 3,
+    });
+    expect(result.summaries[0].totalEstimatedCostUsd).toBeCloseTo(0.06);
+  });
+
+  test("validates required numeric range parameters", () => {
+    expect(() => getUsageSummary({ to: "2000" })).toThrow(BadRequestError);
+    expect(() => getUsageSummary({ from: "1000" })).toThrow(BadRequestError);
+    expect(() => getUsageSummary({ from: "abc", to: "2000" })).toThrow(
+      BadRequestError,
+    );
+    expect(() => getUsageSummary({ from: "3000", to: "2000" })).toThrow(
+      BadRequestError,
+    );
   });
 });
 

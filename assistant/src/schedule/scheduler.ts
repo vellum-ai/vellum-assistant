@@ -28,6 +28,7 @@ import {
   type RoutingIntent,
   type ScheduleJob,
   scheduleRetry,
+  setScheduleRunConversationId,
 } from "./schedule-store.js";
 
 const log = getLogger("scheduler");
@@ -442,6 +443,7 @@ export async function runScheduleDueWorkOnce(
         job.syntax === "rrule" &&
         job.expression != null &&
         hasSetConstructs(job.expression);
+      const runId = createScheduleRun(job.id, null);
       let failed = false;
       try {
         log.info(
@@ -472,14 +474,13 @@ export async function runScheduleDueWorkOnce(
           },
         );
 
+        setScheduleRunConversationId(runId, result.conversationId);
         onScheduleConversationCreated?.({
           conversationId: result.conversationId,
           scheduleJobId: job.id,
           title: result.status === "failed" ? `${job.name}: Error` : job.name,
         });
 
-        // Track the schedule run using the task's conversation
-        const runId = createScheduleRun(job.id, result.conversationId);
         if (result.status === "failed") {
           const errorMessage = result.error ?? "Task run failed";
           completeScheduleRun(runId, {
@@ -530,7 +531,7 @@ export async function runScheduleDueWorkOnce(
           scheduleJobId: job.id,
           title: `${job.name}: Error`,
         });
-        const runId = createScheduleRun(job.id, fallbackConversation.id);
+        setScheduleRunConversationId(runId, fallbackConversation.id);
         completeScheduleRun(runId, { status: "error", error: message });
         emitTaskActivityFailed({
           taskId,

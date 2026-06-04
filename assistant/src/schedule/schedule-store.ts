@@ -598,7 +598,7 @@ export function cancelSchedule(id: string): boolean {
 
 export function createScheduleRun(
   jobId: string,
-  conversationId: string,
+  conversationId: string | null,
 ): string {
   const db = getDb();
   const id = uuid();
@@ -618,6 +618,17 @@ export function createScheduleRun(
     })
     .run();
   return id;
+}
+
+export function setScheduleRunConversationId(
+  runId: string,
+  conversationId: string,
+): void {
+  const db = getDb();
+  db.update(scheduleRuns)
+    .set({ conversationId })
+    .where(eq(scheduleRuns.id, runId))
+    .run();
 }
 
 export function completeScheduleRun(

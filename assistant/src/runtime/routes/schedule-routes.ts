@@ -28,8 +28,10 @@ import {
   getSchedule,
   getScheduleRuns,
   listSchedules,
+  setScheduleRunConversationId,
   updateSchedule,
 } from "../../schedule/schedule-store.js";
+import { getScheduleUsageSummaries } from "../../schedule/schedule-usage-store.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
@@ -84,6 +86,13 @@ const scheduleRunSchema = z.object({
   conversationArchivedAt: z.number().nullable(),
   estimatedCostUsd: z.number(),
   createdAt: z.number(),
+});
+
+const scheduleUsageSummarySchema = z.object({
+  scheduleId: z.string(),
+  runCount: z.number(),
+  totalEstimatedCostUsd: z.number(),
+  eventCount: z.number(),
 });
 
 // ---------------------------------------------------------------------------
@@ -367,6 +376,40 @@ function handleListScheduleRuns(
   };
 }
 
+function parseUsageSummaryRange(queryParams: Record<string, string>): {
+  from: number;
+  to: number;
+} {
+  const fromRaw = queryParams.from;
+  const toRaw = queryParams.to;
+
+  if (!fromRaw || !toRaw) {
+    throw new BadRequestError(
+      'Missing required query parameters: "from" and "to" (epoch milliseconds)',
+    );
+  }
+
+  const from = Number(fromRaw);
+  const to = Number(toRaw);
+
+  if (!Number.isFinite(from) || !Number.isFinite(to)) {
+    throw new BadRequestError(
+      '"from" and "to" must be valid numbers (epoch milliseconds)',
+    );
+  }
+
+  if (from > to) {
+    throw new BadRequestError('"from" must be less than or equal to "to"');
+  }
+
+  return { from, to };
+}
+
+function handleScheduleUsageSummary(queryParams: Record<string, string>) {
+  const range = parseUsageSummaryRange(queryParams);
+  return { summaries: getScheduleUsageSummaries(range) };
+}
+
 // ---------------------------------------------------------------------------
 // Shared route definitions (HTTP + IPC)
 // ---------------------------------------------------------------------------
@@ -396,6 +439,40 @@ export const ROUTES: RouteDefinition[] = [
     }),
     handler: ({ queryParams }: RouteHandlerArgs) =>
       handleListSchedules(queryParams ?? {}),
+  },
+  {
+    operationId: "getScheduleUsageSummary",
+    endpoint: "schedules/usage-summary",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Get schedule usage summaries",
+    description:
+      "Return per-schedule run counts and usage totals for a time range.",
+    tags: ["schedules"],
+    queryParams: [
+      {
+        name: "from",
+        type: "integer",
+        required: true,
+        description: "Start epoch millis (required)",
+      },
+      {
+        name: "to",
+        type: "integer",
+        required: true,
+        description: "End epoch millis (required)",
+      },
+    ],
+    responseBody: z.object({
+      summaries: z
+        .array(scheduleUsageSummarySchema)
+        .describe("Schedule usage summary rows"),
+    }),
+    handler: ({ queryParams }: RouteHandlerArgs) =>
+      handleScheduleUsageSummary(queryParams ?? {}),
   },
   {
     operationId: "createSchedule",
@@ -611,6 +688,7 @@ async function handleRunScheduleNow(id: string) {
   const taskMatch = schedule.message.match(/^run_task:(\S+)$/);
   if (taskMatch) {
     const taskId = taskMatch[1];
+    const runId = createScheduleRun(schedule.id, null);
     try {
       log.info(
         { jobId: schedule.id, name: schedule.name, taskId },
@@ -637,7 +715,7 @@ async function handleRunScheduleNow(id: string) {
         },
       );
 
-      const runId = createScheduleRun(schedule.id, result.conversationId);
+      setScheduleRunConversationId(runId, result.conversationId);
       if (result.status === "failed") {
         completeScheduleRun(runId, {
           status: "error",
@@ -658,7 +736,7 @@ async function handleRunScheduleNow(id: string) {
         origin: "schedule",
         systemHint: `Schedule (manual): ${schedule.name}`,
       });
-      const runId = createScheduleRun(schedule.id, fallbackConversation.id);
+      setScheduleRunConversationId(runId, fallbackConversation.id);
       completeScheduleRun(runId, { status: "error", error: message });
     }
     return handleListSchedules({});
