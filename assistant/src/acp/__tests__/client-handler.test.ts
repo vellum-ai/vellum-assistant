@@ -1,4 +1,5 @@
 import type { ChildProcess } from "node:child_process";
+import * as nodeChildProcess from "node:child_process";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type {
@@ -13,7 +14,10 @@ import type { ServerMessage } from "../../daemon/message-protocol.js";
 // process. Each spawn returns an inert fake ChildProcess.
 const spawnEnvCalls: (Record<string, string> | undefined)[] = [];
 
+// Preserve every real `node:child_process` export (execFile, exec, fork, …)
+// that other modules in the import graph rely on; only override `spawn`.
 mock.module("node:child_process", () => ({
+  ...nodeChildProcess,
   spawn: (
     _command: string,
     _args: string[],
