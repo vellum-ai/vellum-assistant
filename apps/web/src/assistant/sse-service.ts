@@ -36,6 +36,7 @@ import {
   subscribeEvents,
   type EventStream,
 } from "@/lib/streaming/stream-transport";
+import { useSSEConnectedStore } from "@/stores/sse-connected-store";
 
 const RESUME_DEDUP_WINDOW_MS = 1000;
 
@@ -55,6 +56,18 @@ export const sseService: SseService = {
   attach(assistantId) {
     let current: EventStream | null = null;
     let cancelled = false;
+    // Mirror live-stream presence into the shared store so consumers can read
+    // SSE liveness reactively — the menu-bar status dot
+    // (`useElectronStatusSync`) and push-notification suppression. Driven off
+    // the `current` transition rather than the bus: `sse.opened` / `sse.closed`
+    // are discrete reconnect *triggers* (carrying a cause) used for reconcile
+    // passes, and graceful teardowns (hide, suspend, detach) deliberately do
+    // not publish `sse.closed` (it would wrongly end in-flight turns), so a
+    // bus subscription would leave the store stuck `true` after a clean close.
+    const setCurrent = (stream: EventStream | null): void => {
+      current = stream;
+      useSSEConnectedStore.getState().setConnected(stream !== null);
+    };
     // Independent dedup windows per handler. A shared timestamp was
     // wrong: `app.resume`'s no-op (current already non-null) would
     // update the shared mark and then suppress a `power.resume` that
@@ -78,7 +91,7 @@ export const sseService: SseService = {
           publish("sse.event", envelope);
         },
         (err) => {
-          current = null;
+          setCurrent(null);
           publish("sse.closed", { reason: err.message });
           Sentry.addBreadcrumb({
             category: "event_bus.sse",
@@ -96,13 +109,13 @@ export const sseService: SseService = {
         stream.cancel();
         return;
       }
-      current = stream;
+      setCurrent(stream);
       publish("sse.opened", { assistantId, cause: causeAtOpen });
     };
 
     const teardown = () => {
       current?.cancel();
-      current = null;
+      setCurrent(null);
     };
 
     // App lifecycle (renderer-visibility resume): tear down on
@@ -220,7 +233,7 @@ export const sseService: SseService = {
       unsubPowerUnlock();
       unsubReachabilityRetry();
       current?.cancel();
-      current = null;
+      setCurrent(null);
     };
   },
 };

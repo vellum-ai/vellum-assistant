@@ -20,16 +20,29 @@ mock.module("./avatar", () => ({ onAvatarChange: () => () => undefined }));
 const avatarBitmapMock = mock((_size: number): Buffer | null => null);
 mock.module("./avatar-image", () => ({ avatarBitmap: avatarBitmapMock }));
 
+// A resources path so the Dock's bundle-icon restore loads via
+// `createFromPath` (the production path) rather than the empty-image dev
+// fallback. `resourcesPath` is only defined inside a packaged Electron app, so
+// define it here before importing `./dock`.
+Object.defineProperty(process, "resourcesPath", {
+  value: "/fake/Resources",
+  writable: true,
+});
+
 const setIconMock = mock((_icon: unknown) => undefined);
 const createFromBitmapMock = mock((_buf: Buffer, _opts: unknown) => ({
   __kind: "bitmap",
 }));
-const createEmptyMock = mock(() => ({ __kind: "empty" }));
+const createEmptyMock = mock(() => ({ __kind: "empty", isEmpty: () => true }));
+// Stable reference for the resolved bundle icon so tests can assert identity.
+const bundleImage = { __kind: "bundle", isEmpty: () => false };
+const createFromPathMock = mock((_p: string) => bundleImage);
 mock.module("electron", () => ({
   app: { dock: { setIcon: setIconMock } },
   nativeImage: {
     createFromBitmap: createFromBitmapMock,
     createEmpty: createEmptyMock,
+    createFromPath: createFromPathMock,
   },
 }));
 
@@ -53,6 +66,8 @@ beforeEach(() => {
   setIconMock.mockClear();
   createFromBitmapMock.mockClear();
   createEmptyMock.mockClear();
+  createFromPathMock.mockClear();
+  createFromPathMock.mockReturnValue(bundleImage);
 });
 
 describe("formatBadge", () => {
@@ -154,20 +169,37 @@ describe("applyDockIcon", () => {
     expect(setIconMock).not.toHaveBeenCalled();
   });
 
-  test("restores the bundle icon once a previously-set avatar is cleared", () => {
+  test("restores the bundled app icon once a previously-set avatar is cleared", () => {
     avatarBitmapMock.mockReturnValue(fakeAvatar());
     applyDockIcon();
     setIconMock.mockClear();
 
-    // Avatar cleared after one was applied → restore via an empty image.
+    // Avatar cleared after one was applied → re-apply the bundled app icon
+    // (not an empty image, which would blank the Dock tile).
     avatarBitmapMock.mockReturnValue(null);
     applyDockIcon();
-    expect(createEmptyMock).toHaveBeenCalledTimes(1);
-    expect(setIconMock).toHaveBeenCalledWith({ __kind: "empty" });
+    expect(createFromPathMock).toHaveBeenCalledTimes(1);
+    expect(setIconMock).toHaveBeenCalledWith(bundleImage);
+    expect(createEmptyMock).not.toHaveBeenCalled();
 
-    // A second clear is a no-op: nothing to restore again.
+    // A second clear is a no-op: the bundled icon is already in place.
     setIconMock.mockClear();
     applyDockIcon();
+    expect(setIconMock).not.toHaveBeenCalled();
+  });
+
+  test("leaves the Dock icon in place on clear when the bundle icon can't be resolved (dev)", () => {
+    // `bun run dev` runs against Electron's default icon with no bundled
+    // `.icns` at the resources path — `createFromPath` returns an empty image.
+    createFromPathMock.mockReturnValue({ __kind: "empty", isEmpty: () => true });
+
+    avatarBitmapMock.mockReturnValue(fakeAvatar());
+    applyDockIcon();
+    setIconMock.mockClear();
+
+    avatarBitmapMock.mockReturnValue(null);
+    applyDockIcon();
+    // No blanking: better to leave the last avatar than show an empty tile.
     expect(setIconMock).not.toHaveBeenCalled();
   });
 });

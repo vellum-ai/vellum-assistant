@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import { app, nativeImage, type NativeImage } from "electron";
 import { z } from "zod";
 
@@ -180,6 +182,28 @@ const DOCK_CORNER_RADIUS_RATIO = 0.23;
 // avatar exists, and only reset when a previously-set avatar is cleared.
 let dockIconApplied = false;
 
+// The per-environment bundled app icon, copied beside the app's resources by
+// electron-builder (`extraResources: build/icon.icns → icon.icns`) and loaded
+// lazily on first restore. `undefined` = not yet probed, `null` = absent
+// (e.g. `bun run dev`, which runs against Electron's default icon).
+let bundleIconCache: NativeImage | null | undefined;
+
+// Electron exposes no "reset to bundle icon" for the Dock — `app.dock.setIcon`
+// only sets an image, and `nativeImage.createEmpty()` blanks the tile rather
+// than reverting. So we re-apply the bundled icon explicitly to mirror the
+// native app's `applicationIconImage = nil` fallback. Resolving the real
+// per-env `.icns` at runtime (rather than embedding one mark) keeps dev /
+// staging / production icons correct.
+const bundleIcon = (): NativeImage | null => {
+  if (bundleIconCache !== undefined) return bundleIconCache;
+  const base = process.resourcesPath;
+  const icon = base
+    ? nativeImage.createFromPath(path.join(base, "icon.icns"))
+    : nativeImage.createEmpty();
+  bundleIconCache = icon.isEmpty() ? null : icon;
+  return bundleIconCache;
+};
+
 /**
  * Build the Dock icon from the cached avatar: clip to a squircle and inset
  * it inside a transparent 512px canvas. Returns `null` when no avatar is
@@ -205,8 +229,10 @@ export const buildDockIcon = (): NativeImage | null => {
  * Apply (or restore) the Dock icon for the current avatar.
  *
  *   - Avatar present → mask to a squircle and set it via `app.dock.setIcon`.
- *   - Avatar cleared after one was set → restore the bundled app icon by
- *     setting an empty image (Electron falls back to the bundle icon).
+ *   - Avatar cleared after one was set → re-apply the bundled app icon (the
+ *     native `applicationIconImage = nil` fallback). When the bundled icon
+ *     isn't resolvable (dev), leave the last icon in place rather than
+ *     blanking the Dock with an empty image.
  *   - No avatar and none ever set → leave the bundled icon untouched so the
  *     first paint shows it naturally, matching the native fallback.
  */
@@ -217,8 +243,12 @@ export const applyDockIcon = (): void => {
   if (icon) {
     app.dock.setIcon(icon);
     dockIconApplied = true;
-  } else if (dockIconApplied) {
-    app.dock.setIcon(nativeImage.createEmpty());
+    return;
+  }
+  if (!dockIconApplied) return;
+  const bundle = bundleIcon();
+  if (bundle) {
+    app.dock.setIcon(bundle);
     dockIconApplied = false;
   }
 };
@@ -291,8 +321,10 @@ export const installDock = (): void => {
   applyBadge();
 };
 
-// Test seam — resets the avatar-applied flag so a test starts from the
-// first-paint state (no icon ever set). Production code never calls this.
+// Test seam — resets the avatar-applied flag and the cached bundle icon so a
+// test starts from the first-paint state (no icon ever set). Production code
+// never calls this.
 export const __resetForTesting = (): void => {
   dockIconApplied = false;
+  bundleIconCache = undefined;
 };

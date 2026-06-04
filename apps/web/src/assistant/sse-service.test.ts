@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import * as eventBus from "@/lib/event-bus";
 import { requestSseReconnect } from "@/lib/streaming/sse-reconnect-control";
+import { useSSEConnectedStore } from "@/stores/sse-connected-store";
 
 type EventHandler = (envelope: AssistantEventEnvelope) => void;
 type ReconnectHandler = (cause: "error" | "watchdog") => void;
@@ -137,6 +138,47 @@ describe("sseService.attach — connection lifecycle", () => {
       ([name]) => name === "sse.closed",
     );
     expect(closedCalls).toHaveLength(0);
+  });
+});
+
+// Locks the wire that drives the menu-bar status dot: `deriveAssistantStatus`
+// reads `useSSEConnectedStore`, which is meaningless unless the SSE service
+// keeps it in sync with the live stream. The store is driven off the `current`
+// transition (not the bus) so graceful teardowns — which intentionally don't
+// publish `sse.closed` — still flip it back to disconnected.
+describe("sseService.attach — SSE-connected store wiring", () => {
+  beforeEach(() => {
+    useSSEConnectedStore.setState({ isConnected: false });
+  });
+
+  test("marks the store connected once the stream opens", () => {
+    expect(useSSEConnectedStore.getState().isConnected).toBe(false);
+    sseService.attach("asst-1");
+    expect(useSSEConnectedStore.getState().isConnected).toBe(true);
+  });
+
+  test("marks the store disconnected on a transport error", () => {
+    sseService.attach("asst-1");
+    expect(useSSEConnectedStore.getState().isConnected).toBe(true);
+
+    activeOnError!(new Error("network error"));
+    expect(useSSEConnectedStore.getState().isConnected).toBe(false);
+  });
+
+  test("marks the store disconnected on a graceful teardown (app.hidden)", () => {
+    sseService.attach("asst-1");
+    expect(useSSEConnectedStore.getState().isConnected).toBe(true);
+
+    eventBus.publish("app.hidden", { signal: "visibility" });
+    expect(useSSEConnectedStore.getState().isConnected).toBe(false);
+  });
+
+  test("marks the store disconnected on detach", () => {
+    const detach = sseService.attach("asst-1");
+    expect(useSSEConnectedStore.getState().isConnected).toBe(true);
+
+    detach();
+    expect(useSSEConnectedStore.getState().isConnected).toBe(false);
   });
 });
 
