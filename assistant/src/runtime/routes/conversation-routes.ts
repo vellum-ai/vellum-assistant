@@ -829,7 +829,11 @@ export function handleListMessages({
     const attachmentBlocks = attachmentRefs.map(
       (_ref, refIdx) => aligned.refIndexToAttachment.get(refIdx) ?? null,
     );
-    const rendered = renderHistoryContent(m.content, attachmentBlocks);
+    const rendered = renderHistoryContent(
+      m.content,
+      attachmentBlocks,
+      m.id ?? undefined,
+    );
 
     // Strip <no_response/> markers from assistant messages so web/API clients
     // never see the raw sentinel. Only assistant messages produce it; user

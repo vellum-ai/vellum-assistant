@@ -303,6 +303,46 @@ describe("renderHistoryContent", () => {
     ]);
   });
 
+  test("synthesizes a positional id when a tool_use lacks a provider id", () => {
+    const output = renderHistoryContent(
+      [
+        { type: "tool_use", name: "bash", input: { command: "ls" } },
+        { type: "tool_use", name: "bash", input: { command: "pwd" } },
+      ],
+      undefined,
+      "msg-1",
+    );
+
+    // Same positional scheme the web client used to synthesize, so snapshot and
+    // stream tool calls stay keyed consistently and the client can drop its own
+    // fallback once it no longer skews ahead of the daemon.
+    expect(output.toolCalls.map((tc) => tc.id)).toEqual([
+      "tool-history-msg-1-0",
+      "tool-history-msg-1-1",
+    ]);
+  });
+
+  test("keeps the provider id and only synthesizes for blocks missing one", () => {
+    const output = renderHistoryContent(
+      [
+        {
+          type: "tool_use",
+          id: "tu_1",
+          name: "bash",
+          input: { command: "ls" },
+        },
+        { type: "tool_use", name: "bash", input: { command: "pwd" } },
+      ],
+      undefined,
+      "msg-1",
+    );
+
+    expect(output.toolCalls.map((tc) => tc.id)).toEqual([
+      "tu_1",
+      "tool-history-msg-1-1",
+    ]);
+  });
+
   // ── Persisted risk-option ladders (Phase B of conflation track) ─────────────
 
   test("hydrates persisted _risk*Options annotations onto tool calls", () => {
