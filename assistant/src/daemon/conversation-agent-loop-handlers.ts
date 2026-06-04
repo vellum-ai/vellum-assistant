@@ -185,17 +185,12 @@ export interface EventHandlerState {
   assistantRowAwaitingFinalization: boolean;
   readonly pendingToolResults: Map<string, PendingToolResult>;
   /**
-   * Id of the grouped `user` tool-result row for the current batch of results,
-   * reserved when the first result of the batch arrives and rewritten in place
-   * as sibling parallel results land. `undefined` until the first result of a
-   * batch is persisted and again after the batch is finalized.
-   */
-  pendingToolResultRowId: string | undefined;
-  /**
-   * In-flight reservation of the grouped tool-result row, shared across the
-   * concurrent `handleToolResult` calls of one parallel-tool batch so they
-   * reserve exactly one row. `undefined` until the first result triggers a
-   * reservation and again after the batch is finalized.
+   * Reservation of the grouped `user` tool-result row for the current batch,
+   * resolving to the row id. Shared across the concurrent `handleToolResult`
+   * calls of one parallel-tool batch so they reserve exactly one row and write
+   * into it as sibling results land. `undefined` until the first result of a
+   * batch triggers a reservation (reset on a failed reservation so the next
+   * arrival can retry) and again after the batch is finalized.
    */
   pendingToolResultRowReservation: Promise<string> | undefined;
   readonly persistedToolUseIds: Set<string>;
@@ -351,7 +346,6 @@ export function createEventHandlerState(): EventHandlerState {
     lastAssistantMessageId: undefined,
     assistantRowAwaitingFinalization: false,
     pendingToolResults: new Map(),
-    pendingToolResultRowId: undefined,
     pendingToolResultRowReservation: undefined,
     persistedToolUseIds: new Set(),
     accumulatedDirectives: [],
@@ -1043,19 +1037,13 @@ function ensureToolResultRowReserved(
   conversationId: string,
   metadata: Record<string, unknown>,
 ): Promise<string> {
-  if (state.pendingToolResultRowId !== undefined) {
-    return Promise.resolve(state.pendingToolResultRowId);
-  }
   if (state.pendingToolResultRowReservation === undefined) {
     state.pendingToolResultRowReservation = reserveMessage(
       conversationId,
       "user",
       metadata,
     )
-      .then((reserved) => {
-        state.pendingToolResultRowId = reserved.id;
-        return reserved.id;
-      })
+      .then((reserved) => reserved.id)
       .catch((err) => {
         state.pendingToolResultRowReservation = undefined;
         throw err;
@@ -1180,7 +1168,6 @@ export async function finalizePendingToolResultRow(
     state.persistedToolUseIds.add(id);
   }
   state.pendingToolResults.clear();
-  state.pendingToolResultRowId = undefined;
   state.pendingToolResultRowReservation = undefined;
 }
 

@@ -607,7 +607,9 @@ describe("tool preview lifecycle", () => {
         (call) => call[1] === "user",
       );
       expect(userReserves).toHaveLength(1);
-      expect(state.pendingToolResultRowId).toBe("tool-result-row");
+      expect(await state.pendingToolResultRowReservation).toBe(
+        "tool-result-row",
+      );
       const blocks = latestWrittenBlocks();
       expect(blocks).toHaveLength(1);
       expect(blocks[0]).toMatchObject({
@@ -692,7 +694,9 @@ describe("tool preview lifecycle", () => {
         (call) => call[1] === "user",
       );
       expect(userReserves).toHaveLength(1);
-      expect(state.pendingToolResultRowId).toBe("tool-result-row");
+      expect(await state.pendingToolResultRowReservation).toBe(
+        "tool-result-row",
+      );
       const blocks = latestWrittenBlocks();
       expect(blocks.map((b) => b.tool_use_id).sort()).toEqual([
         "toolu_a",
@@ -732,7 +736,7 @@ describe("tool preview lifecycle", () => {
       ).length;
       expect(reservesAfterDrain).toBe(reservesAfterArrival);
       expect(state.pendingToolResults.size).toBe(0);
-      expect(state.pendingToolResultRowId).toBeUndefined();
+      expect(state.pendingToolResultRowReservation).toBeUndefined();
       expect(state.persistedToolUseIds.has("toolu_a")).toBe(true);
     });
   });
