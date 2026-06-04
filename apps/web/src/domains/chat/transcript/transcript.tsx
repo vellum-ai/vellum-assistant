@@ -55,6 +55,12 @@ export interface TranscriptProps {
    *  own set if not provided. Callers that need cross-render persistence
    *  should pass a stable ref. */
   expandedToolCallIds?: Set<string>;
+  /** Persistent expanded progress-card / thinking-block state. Optional — the
+   *  Transcript owns its own maps if not provided. Callers that need the state
+   *  to survive a transcript remount (e.g. when the tool-detail drawer opens)
+   *  should pass stable refs (the chat session store's maps). */
+  expandedCardIds?: Map<string, boolean>;
+  expandedThinkingKeys?: Map<string, boolean>;
   /** Optional renderer for `kind: "pendingSecret"` items. PR 7 passes the
    *  real `SecretPromptCard` here. */
   renderPendingSecret?: (requestId: string) => ReactNode;
@@ -101,10 +107,6 @@ export interface TranscriptProps {
   onSubagentClick?: (subagentId: string) => void;
   /** Callback to abort/stop a running subagent from an inline card. */
   onStopSubagent?: (subagentId: string) => void;
-  /** Whether the combined per-turn activity-summary card is enabled
-   *  (feature-flag gated). Threaded down to `TranscriptMessageBody`, which
-   *  gates the `TurnProgressCard` render on it. */
-  activitySummaryEnabled?: boolean;
   /** Optional render-prop that produces the chat avatar element to mount
    *  at the bottom of the conversation. Rendered inside the latest-edge
    *  region so the avatar pins to the bottom of the viewport while the
@@ -137,9 +139,6 @@ export interface TranscriptProps {
 
 export interface TranscriptHandle {
   scrollToLatest(opts?: { behavior?: "auto" | "smooth" }): void;
-  /** Scroll the element carrying a matching `data-activity-anchor` into
-   *  view and flash a transient highlight. Safe no-op for missing anchors. */
-  scrollToActivity(anchorId: string): void;
   getScrollElement(): HTMLDivElement | null;
   /** Inner wrapper that surrounds all rendered children. Sized to the
    *  scroll content; observable via `ResizeObserver` to detect when
@@ -180,32 +179,15 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
     const effectiveExpandedToolCallIds =
       rest.expandedToolCallIds ?? ownedExpandedToolCallIds;
 
-    const [expandedCardIds] = useState(() => new Map<string, boolean>());
-    const [expandedThinkingKeys] = useState(() => new Map<string, boolean>());
+    const [ownedExpandedCardIds] = useState(() => new Map<string, boolean>());
+    const expandedCardIds = rest.expandedCardIds ?? ownedExpandedCardIds;
+    const [ownedExpandedThinkingKeys] = useState(
+      () => new Map<string, boolean>(),
+    );
+    const expandedThinkingKeys =
+      rest.expandedThinkingKeys ?? ownedExpandedThinkingKeys;
 
     const partition = useMemo(() => partitionLatestTurn(items), [items]);
-
-    const scrollToActivity = useCallback((anchorId: string) => {
-      const root = scrollRef.current;
-      if (!root) return;
-      const el = root.querySelector<HTMLElement>(
-        `[data-activity-anchor="${CSS.escape(anchorId)}"]`,
-      );
-      if (!el) return;
-      const prefersReduced =
-        typeof window !== "undefined" &&
-        typeof window.matchMedia === "function" &&
-        window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      el.scrollIntoView({
-        behavior: prefersReduced ? "auto" : "smooth",
-        block: "start",
-      });
-      el.setAttribute("data-activity-highlight", "true");
-      window.setTimeout(
-        () => el.removeAttribute("data-activity-highlight"),
-        1600,
-      );
-    }, []);
 
     useImperativeHandle(
       ref,
@@ -218,7 +200,6 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
             behavior: opts?.behavior ?? "auto",
           });
         },
-        scrollToActivity,
         getScrollElement() {
           return scrollRef.current;
         },
@@ -250,7 +231,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
           };
         },
       }),
-      [rest.scrollCoordinatorState, scrollToActivity],
+      [rest.scrollCoordinatorState],
     );
 
     const rowProps = {
@@ -280,8 +261,6 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
       assistantId: rest.assistantId,
       onSubagentClick: rest.onSubagentClick,
       onStopSubagent: rest.onStopSubagent,
-      activitySummaryEnabled: rest.activitySummaryEnabled,
-      onActivityStepClick: scrollToActivity,
     };
 
     return (

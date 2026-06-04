@@ -192,7 +192,7 @@ export function HeaderStepCarousel({
           <>
             <span
               aria-hidden="true"
-              className="shrink-0 text-[var(--content-tertiary)] opacity-10"
+              className="shrink-0 text-[var(--border-element)]"
             >
               |
             </span>

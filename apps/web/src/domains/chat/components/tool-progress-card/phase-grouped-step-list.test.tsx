@@ -220,6 +220,100 @@ describe("PhaseGroupedStepList — renderStep override", () => {
   });
 });
 
+describe("PhaseGroupedStepList — timeline mode", () => {
+  test("keeps the phase-section / phase-header / phase-step-pill testids", () => {
+    const steps: ToolCallCardStep[] = [
+      bash("ls", "completed", "1s", "tc-a"),
+      thinking("Reasoning"),
+    ];
+    const { getAllByTestId } = render(
+      <PhaseGroupedStepList steps={steps} timeline />,
+    );
+    expect(getAllByTestId("phase-section").length).toBe(2);
+    expect(getAllByTestId("phase-header").length).toBe(2);
+    // 1 bash pill (with info) + 1 thinking pill.
+    expect(getAllByTestId("phase-step-pill").length).toBe(2);
+  });
+
+  test("completed section renders the circular CheckCircle2 node with data-status", () => {
+    const steps: ToolCallCardStep[] = [
+      bash("ls", "completed", "1s", "tc-a"),
+    ];
+    const { getAllByTestId } = render(
+      <PhaseGroupedStepList steps={steps} timeline />,
+    );
+    const icons = getAllByTestId("phase-header-status-icon");
+    expect(icons.length).toBe(1);
+    expect(icons[0]!.getAttribute("data-status")).toBe("completed");
+    // CheckCircle2 (lucide) renders an <svg> — distinct from the bare `Check`
+    // glyph by the circle path it carries. Assert it's an SVG node and not the
+    // three-dot indicator (which renders dot <span> children, not an svg).
+    expect(icons[0]!.tagName.toLowerCase()).toBe("svg");
+  });
+
+  test("failed section renders the circular AlertCircle node with data-status", () => {
+    const steps: ToolCallCardStep[] = [
+      { kind: "tool_error", message: "context window exceeded" },
+    ];
+    const { getAllByTestId } = render(
+      <PhaseGroupedStepList steps={steps} timeline />,
+    );
+    const icons = getAllByTestId("phase-header-status-icon");
+    expect(icons[0]!.getAttribute("data-status")).toBe("failed");
+    expect(icons[0]!.tagName.toLowerCase()).toBe("svg");
+  });
+
+  test("running section keeps the three-dot indicator node", () => {
+    const steps: ToolCallCardStep[] = [
+      bash("sleep 5", "running", "", "tc-a"),
+    ];
+    const { getAllByTestId } = render(
+      <PhaseGroupedStepList steps={steps} timeline />,
+    );
+    const icons = getAllByTestId("phase-header-status-icon");
+    expect(icons[0]!.getAttribute("data-status")).toBeNull();
+    expect(icons[0]!.children.length).toBe(3);
+  });
+
+  test("renders a gapped connector line for every non-last section (and a lead-in above the first), none for the last", () => {
+    const steps: ToolCallCardStep[] = [
+      bash("ls", "completed", "1s", "tc-a"),
+      thinking("Reasoning"),
+      bash("pwd", "completed", "1s", "tc-b"),
+    ];
+    const { getAllByTestId } = render(
+      <PhaseGroupedStepList steps={steps} timeline />,
+    );
+    const sections = getAllByTestId("phase-section");
+    expect(sections.length).toBe(3);
+    const connectorsIn = (section: Element) =>
+      Array.from(
+        section.querySelectorAll('div[aria-hidden][class*="w-px"]'),
+      ) as HTMLElement[];
+
+    // First section: the inter-node segment (`top-6 bottom-0`) + the lead-in.
+    expect(connectorsIn(sections[0]!).length).toBe(2);
+    // Middle section: one inter-node segment.
+    expect(connectorsIn(sections[1]!).length).toBe(1);
+    // Last section: no line trails below the final circle.
+    expect(connectorsIn(sections[2]!).length).toBe(0);
+
+    // First section carries the lead-in (`bottom-full`) up toward the header.
+    expect(
+      connectorsIn(sections[0]!).some((el) =>
+        el.className.includes("bottom-full"),
+      ),
+    ).toBe(true);
+
+    // The inter-node segment starts below its node (`top-6`) and runs to the
+    // section bottom (`bottom-0`) — a small, even gap before the next node.
+    const interNode = (section: Element) =>
+      connectorsIn(section).find((el) => el.className.includes("top-6"))!;
+    expect(interNode(sections[1]!).className).toContain("top-6");
+    expect(interNode(sections[1]!).className).toContain("bottom-0");
+  });
+});
+
 describe("PhaseGroupedStepList — phase header total duration", () => {
   test("sums step durations across the section", () => {
     const steps: ToolCallCardStep[] = [

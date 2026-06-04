@@ -31,9 +31,9 @@ mock.module("@/domains/chat/components/surfaces/surface-router", () => ({
 }));
 
 mock.module(
-  "@/domains/chat/components/tool-call-progress-card/tool-call-progress-card",
+  "@/domains/chat/components/activity-run-card/activity-run-card",
   () => ({
-    ToolCallProgressCard: () => <div data-testid="tool-call-progress-card" />,
+    ActivityRunCard: () => <div data-testid="activity-run-card" />,
   }),
 );
 
@@ -237,7 +237,7 @@ describe("Transcript — inline subagent rendering (PR 8)", () => {
     // out of its body it would have no renderable steps, leaving just the
     // leading-thinking preamble (already shown as message text) — pure noise.
     const toolCard = container.querySelector(
-      '[data-testid="tool-call-progress-card"]',
+      '[data-testid="activity-run-card"]',
     );
     expect(toolCard).toBeNull();
   });
@@ -439,7 +439,7 @@ describe("Transcript — toolUseId anchor (PR 3)", () => {
     expect(cards[0].getAttribute("data-subagent-id")).toBe("sa-anchored");
     // The spawn-only group must not surface a generic progress card.
     expect(
-      container.querySelector('[data-testid="tool-call-progress-card"]'),
+      container.querySelector('[data-testid="activity-run-card"]'),
     ).toBeNull();
   });
 });
@@ -585,7 +585,7 @@ describe("Transcript — live → reconcile card lifecycle (PR 6)", () => {
     let cards = getAllByTestId("subagent-inline-card");
     expect(cards.length).toBe(1);
     expect(cards[0].getAttribute("data-subagent-id")).toBe("sa-lifecycle");
-    expect(queryByTestId("tool-call-progress-card")).toBeNull();
+    expect(queryByTestId("activity-run-card")).toBeNull();
 
     // Server reconcile: the parent message id swaps to "server-1" while the
     // local tool-call id "tu-1" is preserved (keepLocalToolState). The
@@ -606,7 +606,7 @@ describe("Transcript — live → reconcile card lifecycle (PR 6)", () => {
     cards = getAllByTestId("subagent-inline-card");
     expect(cards.length).toBe(1);
     expect(cards[0].getAttribute("data-subagent-id")).toBe("sa-lifecycle");
-    expect(queryByTestId("tool-call-progress-card")).toBeNull();
+    expect(queryByTestId("activity-run-card")).toBeNull();
   });
 
   test("card survives reconcile via the byParent re-anchor when parentToolUseId is absent (older daemon)", () => {
@@ -666,7 +666,7 @@ describe("Transcript — live → reconcile card lifecycle (PR 6)", () => {
     );
 
     expect(queryAllByTestId("subagent-inline-card").length).toBe(0);
-    expect(queryByTestId("tool-call-progress-card")).toBeNull();
+    expect(queryByTestId("activity-run-card")).toBeNull();
   });
 });
 

@@ -62,6 +62,16 @@ export interface ChatSessionState {
   pendingLocalDeletions: Set<string>;
   confirmationToolCallMap: Map<string, string>;
   expandedToolCallIds: Set<string>;
+  /**
+   * Persistent expand state for the activity/tool progress cards and thinking
+   * blocks. Held in the store (not local `Transcript` state) so a user's
+   * expand choice survives the transcript remount that happens when the
+   * tool-detail drawer opens/closes (`mainView` change moves the chat content
+   * in/out of the `ResizablePanel`). Keyed by the card's first tool-call id /
+   * the thinking block's expansion key.
+   */
+  expandedCardIds: Map<string, boolean>;
+  expandedThinkingKeys: Map<string, boolean>;
 
   // --- Cross-conversation cache ---
   contextWindowUsageByConversation: Map<string, ContextWindowUsage>;
@@ -161,6 +171,8 @@ function initialState(): ChatSessionState {
     pendingLocalDeletions: new Set(),
     confirmationToolCallMap: new Map(),
     expandedToolCallIds: new Set(),
+    expandedCardIds: new Map(),
+    expandedThinkingKeys: new Map(),
     contextWindowUsageByConversation: new Map(),
     previousConversationId: null,
     previousAssistantId: null,
@@ -274,6 +286,8 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
       pendingLocalDeletions: new Set(),
       confirmationToolCallMap: new Map(),
       expandedToolCallIds: new Set(),
+      expandedCardIds: new Map(),
+      expandedThinkingKeys: new Map(),
       contextWindowUsageByConversation: usageByConversation,
       previousConversationId: activeConversationId,
       previousAssistantId: assistantId,

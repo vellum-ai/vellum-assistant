@@ -11,45 +11,65 @@ import type { Surface } from "@/domains/chat/types/types";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 
 /**
- * Grouped content shape for the interleaved render branch — merge adjacent
- * `toolCall`/`tool` entries into one group, merge adjacent `thinking` entries
- * into one group, and pass `text`/`surface` through individually.
+ * One item inside an `activity` run for the merged activity-summary grouping.
+ * A `thinking` item carries the contentOrder ids of a contiguous reasoning
+ * run; a `tool` item carries a single tool-call/contentOrder id.
  */
-export type ContentGroup =
-  | { type: "text"; id: string }
-  | { type: "toolCalls"; ids: string[] }
-  | { type: "thinking"; ids: string[] }
-  | { type: "surface"; id: string };
+export type ActivityRunItem =
+  | { kind: "thinking"; ids: string[] }
+  | { kind: "tool"; id: string };
 
 /**
- * Group consecutive `message.contentOrder` entries — merge adjacent
- * `toolCall`/`tool` entries into one group, merge adjacent `thinking` entries
- * into one group, and pass `text`/`surface` through individually. Mirrors macOS
- * `groupContentBlocks`.
+ * Grouped content shape for the merged activity-summary render branch. Adjacent
+ * thinking + tool entries merge into one `activity` group (broken only by a
+ * `text` or `surface` entry); `text`/`surface` pass through individually.
  */
-export function groupMessageContent(message: DisplayMessage): ContentGroup[] {
-  const groups: ContentGroup[] = [];
+export type MergedContentGroup =
+  | { type: "text"; id: string }
+  | { type: "surface"; id: string }
+  | { type: "activity"; items: ActivityRunItem[] };
+
+/**
+ * Group `message.contentOrder` into merged activity runs for the
+ * activity-summary (flag-ON) render path. A contiguous run of `thinking` +
+ * `toolCall`/`tool` entries collapses into a single `activity` group whose
+ * `items` preserve interleaved order; consecutive `thinking` entries merge
+ * into one thinking item's `ids`. A `text` or `surface` entry closes the open
+ * activity group and passes through as its own group. Pure — no React/DOM.
+ */
+export function groupMessageActivityRuns(
+  message: DisplayMessage,
+): MergedContentGroup[] {
+  const groups: MergedContentGroup[] = [];
+  let current: { type: "activity"; items: ActivityRunItem[] } | null = null;
+
   for (const entry of message.contentOrder ?? []) {
-    if (entry.type === "toolCall" || entry.type === "tool") {
-      const lastGroup = groups[groups.length - 1];
-      if (lastGroup?.type === "toolCalls") {
-        lastGroup.ids.push(entry.id);
-      } else {
-        groups.push({ type: "toolCalls", ids: [entry.id] });
+    if (entry.type === "thinking") {
+      if (!current) {
+        current = { type: "activity", items: [] };
+        groups.push(current);
       }
-    } else if (entry.type === "thinking") {
-      const lastGroup = groups[groups.length - 1];
-      if (lastGroup?.type === "thinking") {
-        lastGroup.ids.push(entry.id);
+      const lastItem = current.items[current.items.length - 1];
+      if (lastItem?.kind === "thinking") {
+        lastItem.ids.push(entry.id);
       } else {
-        groups.push({ type: "thinking", ids: [entry.id] });
+        current.items.push({ kind: "thinking", ids: [entry.id] });
       }
+    } else if (entry.type === "toolCall" || entry.type === "tool") {
+      if (!current) {
+        current = { type: "activity", items: [] };
+        groups.push(current);
+      }
+      current.items.push({ kind: "tool", id: entry.id });
     } else if (entry.type === "text") {
+      current = null;
       groups.push({ type: "text", id: entry.id });
     } else if (entry.type === "surface") {
+      current = null;
       groups.push({ type: "surface", id: entry.id });
     }
   }
+
   return groups;
 }
 

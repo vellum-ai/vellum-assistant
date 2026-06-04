@@ -4,7 +4,7 @@ import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { Surface } from "@/domains/chat/types/types";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import {
-  groupMessageContent,
+  groupMessageActivityRuns,
   isSubagentSpawnCall,
   isSuppressedUiTool,
   isTaskProgressSurface,
@@ -35,31 +35,58 @@ function surface(data: Record<string, unknown>): Surface {
   return { surfaceId: "s1", surfaceType: "card", data };
 }
 
-describe("groupMessageContent", () => {
-  test("merges consecutive toolCall/tool and thinking, passes text/surface", () => {
+describe("groupMessageActivityRuns", () => {
+  test("merges contiguous thinking + tool runs, broken by text/surface", () => {
+    const message = assistant({
+      contentOrder: [
+        { type: "thinking", id: "0" },
+        { type: "toolCall", id: "a" },
+        { type: "thinking", id: "1" },
+        { type: "text", id: "0" },
+        { type: "tool", id: "b" },
+        { type: "surface", id: "s0" },
+        { type: "thinking", id: "2" },
+      ],
+    });
+
+    expect(groupMessageActivityRuns(message)).toEqual([
+      {
+        type: "activity",
+        items: [
+          { kind: "thinking", ids: ["0"] },
+          { kind: "tool", id: "a" },
+          { kind: "thinking", ids: ["1"] },
+        ],
+      },
+      { type: "text", id: "0" },
+      { type: "activity", items: [{ kind: "tool", id: "b" }] },
+      { type: "surface", id: "s0" },
+      { type: "activity", items: [{ kind: "thinking", ids: ["2"] }] },
+    ]);
+  });
+
+  test("merges consecutive thinking entries into one thinking item's ids", () => {
     const message = assistant({
       contentOrder: [
         { type: "thinking", id: "0" },
         { type: "thinking", id: "1" },
         { type: "toolCall", id: "a" },
-        { type: "tool", id: "b" },
-        { type: "text", id: "0" },
-        { type: "surface", id: "0" },
-        { type: "toolCall", id: "c" },
       ],
     });
 
-    expect(groupMessageContent(message)).toEqual([
-      { type: "thinking", ids: ["0", "1"] },
-      { type: "toolCalls", ids: ["a", "b"] },
-      { type: "text", id: "0" },
-      { type: "surface", id: "0" },
-      { type: "toolCalls", ids: ["c"] },
+    expect(groupMessageActivityRuns(message)).toEqual([
+      {
+        type: "activity",
+        items: [
+          { kind: "thinking", ids: ["0", "1"] },
+          { kind: "tool", id: "a" },
+        ],
+      },
     ]);
   });
 
   test("empty / missing contentOrder yields no groups", () => {
-    expect(groupMessageContent(assistant({}))).toEqual([]);
+    expect(groupMessageActivityRuns(assistant({}))).toEqual([]);
   });
 });
 

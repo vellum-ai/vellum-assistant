@@ -20,6 +20,7 @@ const meta: Meta<typeof ToolStepPill> = {
         "sparkle",
         "user-plus",
         "bolt",
+        "brain",
       ],
     },
     label: { control: "text" },
@@ -96,6 +97,30 @@ export const Active: Story = {
     iconName: "sparkle",
     label: "review-cycle",
     riskLevel: "low",
+    active: true,
+    onClick: () => {},
+  },
+};
+
+/**
+ * Thinking pill — the new brain-branded, clickable reasoning step. Opens the
+ * full reasoning in the shared tool-detail drawer when clicked.
+ */
+export const Thinking: Story = {
+  args: {
+    iconName: "brain",
+    label: "Got the date. Now let me do a second tool call.",
+    ariaLabel: "View thinking",
+    onClick: () => {},
+  },
+};
+
+/** Thinking pill in its selected state (its detail drawer is open). */
+export const ThinkingActive: Story = {
+  args: {
+    iconName: "brain",
+    label: "Got the date. Now let me do a second tool call.",
+    ariaLabel: "View thinking",
     active: true,
     onClick: () => {},
   },

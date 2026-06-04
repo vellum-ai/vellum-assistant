@@ -5,6 +5,7 @@
  *  Zustand turn store; these functions own the data mapping. */
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import type { ToolDetailPayload } from "@/stores/viewer-store";
 import type {
   ToolActivityMetadata,
   WebSearchResultItem,
@@ -112,6 +113,13 @@ export interface ToolCallCardData {
    * per-kind table in `deriveCurrentStepInfo`.
    */
   currentStepInfo: string;
+  /**
+   * Kind of the latest step driving the header. `"thinking"` when the run's
+   * last built step is a thinking segment (so the card can render a brain
+   * glyph beside `currentStepInfo`); `"tool"` otherwise. Optional so other
+   * `ToolCallCardData` constructors/consumers are unaffected.
+   */
+  currentStepKind?: "thinking" | "tool";
   /** Pre-formatted step count, e.g. `"2 steps"`. */
   stepCount: string;
   /** Ordered sub-steps to render when expanded. */
@@ -300,6 +308,32 @@ function computeToolDurationLabel(tc: ChatMessageToolCall): string {
   return formatMs(Math.max(0, tc.completedAt - tc.startedAt));
 }
 
+/**
+ * Build the tool-detail drawer payload for a single tool call. Shared by the
+ * activity-run card's tool-step pill and the inline single-tool chip so the
+ * drawer payload construction lives in one place. Reuses the same
+ * `deriveStepLabel` / status / duration derivations the card row uses, so the
+ * drawer opens with identical title/activity/status/duration regardless of
+ * which affordance the user clicks.
+ */
+export function toolDetailPayloadFromToolCall(
+  tc: ChatMessageToolCall,
+): ToolDetailPayload {
+  const { title, activity } = deriveStepLabel(tc);
+  return {
+    toolCallId: tc.id,
+    toolName: tc.toolName,
+    title,
+    activity,
+    input: tc.input ?? {},
+    result: tc.result,
+    status: deriveToolStepStatus(tc),
+    riskLevel: tc.riskLevel,
+    riskReason: tc.riskReason,
+    durationLabel: computeToolDurationLabel(tc),
+  };
+}
+
 function buildToolStep(tc: ChatMessageToolCall): ToolCallCardStep {
   const { title, info, activity, iconName } = deriveStepLabel(tc);
   return {
@@ -485,76 +519,124 @@ function deriveCardState(
 // ---------------------------------------------------------------------------
 
 /**
- * Pure projection of (toolCalls, liveWebActivity, leadingThinkingText) →
- * card data. Split out from the hook so tests can drive it without React
- * context plumbing.
- *
- * Always returns a `ToolCallCardData` (never null) so non-web groups still
- * render the unified card. Callers that need legacy "no web tools → bail
- * to legacy card" behaviour (the PR-6 cutover keeps the legacy card alive
- * for mixed/pending-confirmation groups) should layer that decision on top.
+ * Ordered input item for {@link computeToolCallCardDataFromItems}. A `thinking`
+ * item carries an already-resolved reasoning string; a `toolCall` item carries
+ * a single tool call. Walking these in order lets the card interleave thinking
+ * between tool steps (e.g. `thinking → tool → thinking`) rather than only
+ * prepending a single leading-thinking step ahead of all tools.
  */
-export function computeToolCallCardData(
-  toolCalls: ChatMessageToolCall[],
+export type ToolCallCardItem =
+  | { kind: "thinking"; text: string }
+  | { kind: "toolCall"; toolCall: ChatMessageToolCall };
+
+/**
+ * Build the per-tool {@link ToolCallCardStep} for a single tool call, mirroring
+ * the web/non-web branch logic of {@link computeToolCallCardData}. Returns
+ * `null` for a `subagent_spawn` call (rendered inline elsewhere). Shared by
+ * both the legacy `(toolCalls, …)` projection and the ordered-items projection
+ * so the per-tool behaviour cannot drift.
+ */
+function buildStepForToolCall(
+  tc: ChatMessageToolCall,
   liveWebActivity: Record<string, ToolActivityMetadata>,
-  leadingThinkingText: string | null,
+): ToolCallCardStep | null {
+  if (isSubagentSpawnCall(tc)) return null;
+  if (!isWebTool(tc)) {
+    return buildToolStep(tc);
+  }
+  const metadata = resolveMetadata(tc, liveWebActivity);
+  const terminal = isTerminalStatus(tc);
+  if (metadata?.webSearch) {
+    const ws = metadata.webSearch;
+    if (isFailedEmptyWebSearch(ws, tc)) {
+      return buildWebSearchErrorStep(ws);
+    }
+    return buildWebSearchStep(ws, terminal);
+  }
+  if (metadata?.webFetch) {
+    return buildWebFetchStep(metadata.webFetch);
+  }
+  if (!terminal) {
+    return buildPlaceholderStep();
+  }
+  if (tc.toolName === "web_search" && typeof tc.result === "string") {
+    return buildWebSearchStepFromResultText(tc.result) ?? buildEmptyWebSearchStep();
+  }
+  return buildEmptyWebSearchStep();
+}
+
+/**
+ * Pure projection of ordered (thinking | toolCall) items → card data. Walks the
+ * items IN ORDER so thinking steps interleave with tool steps. The card-level
+ * header / state / carousel derive from the renderable (non-spawn) tool calls,
+ * exactly as the legacy `(toolCalls, …)` projection does.
+ */
+export function computeToolCallCardDataFromItems(
+  items: ToolCallCardItem[],
+  liveWebActivity: Record<string, ToolActivityMetadata>,
 ): ToolCallCardData {
+  const toolCalls = items
+    .filter((i): i is { kind: "toolCall"; toolCall: ChatMessageToolCall } =>
+      i.kind === "toolCall",
+    )
+    .map((i) => i.toolCall);
   // `subagent_spawn` calls are rendered inline by `SubagentInlineProgressCard`
   // at the transcript level — surfacing them as steps inside the unified card
-  // would render the spawn twice. The daemon exposes the spawn as a bundled
-  // skill, so the LLM actually emits `skill_execute` with
-  // `input.tool === "subagent_spawn"` (see `conversation-tool-setup.ts`'s
-  // `skill_execute` interceptor) — matching the bare `toolName` would miss
-  // every spawn and let the unified card swallow them as generic skill steps.
+  // would render the spawn twice.
   const renderableToolCalls = toolCalls.filter(
     (tc) => !isSubagentSpawnCall(tc),
   );
 
   const steps: ToolCallCardStep[] = [];
-
-  if (leadingThinkingText) {
-    steps.push({
-      kind: "thinking",
-      durationLabel: "",
-      text: leadingThinkingText,
-    });
-  }
-
-  for (const tc of renderableToolCalls) {
-    if (!isWebTool(tc)) {
-      steps.push(buildToolStep(tc));
+  // Tracks the text of the most recently pushed step that originated from a
+  // GENUINE thinking *item* (a `{ kind: "thinking" }` reasoning segment) and
+  // is still the last step in the list. Web-tool synthesis can also emit
+  // `kind: "thinking"` steps (the `Searching...` placeholder, `web_fetch`
+  // "Reading …"); those must keep flowing through the tool/web header
+  // derivation, so we don't promote them to a "Thinking" header.
+  let trailingThinkingText: string | null = null;
+  for (const item of items) {
+    if (item.kind === "thinking") {
+      if (item.text) {
+        steps.push({ kind: "thinking", durationLabel: "", text: item.text });
+        trailingThinkingText = item.text;
+      }
       continue;
     }
-    const metadata = resolveMetadata(tc, liveWebActivity);
-    const terminal = isTerminalStatus(tc);
-    if (metadata?.webSearch) {
-      const ws = metadata.webSearch;
-      if (isFailedEmptyWebSearch(ws, tc)) {
-        steps.push(buildWebSearchErrorStep(ws));
-      } else {
-        steps.push(buildWebSearchStep(ws, terminal));
-      }
-    } else if (metadata?.webFetch) {
-      steps.push(buildWebFetchStep(metadata.webFetch));
-    } else if (!terminal) {
-      steps.push(buildPlaceholderStep());
-    } else if (tc.toolName === "web_search" && typeof tc.result === "string") {
-      const parsed = buildWebSearchStepFromResultText(tc.result);
-      steps.push(parsed ?? buildEmptyWebSearchStep());
-    } else {
-      steps.push(buildEmptyWebSearchStep());
+    const step = buildStepForToolCall(item.toolCall, liveWebActivity);
+    if (step) {
+      steps.push(step);
+      trailingThinkingText = null;
     }
   }
 
   const state = deriveCardState(renderableToolCalls);
-  const currentStepTitle = deriveCurrentStepTitle(
-    renderableToolCalls,
-    liveWebActivity,
-  );
-  const currentStepInfo = deriveCurrentStepInfo(
-    renderableToolCalls,
-    liveWebActivity,
-  );
+
+  // The collapsed header reflects the LATEST built step. When the run ends in
+  // a genuine thinking segment (e.g. `tool → thinking`), the header carousels
+  // to that thinking text under a "Thinking" title — we have no per-segment
+  // daemon label. Otherwise it keeps the existing tool/web derivation so
+  // web-search header nuances (tense, error copy, query subtext) and the
+  // synthetic web placeholders are preserved.
+  let currentStepTitle: string;
+  let currentStepInfo: string;
+  let currentStepKind: "thinking" | "tool";
+  if (trailingThinkingText !== null) {
+    currentStepTitle = "Thinking";
+    currentStepInfo = trailingThinkingText;
+    currentStepKind = "thinking";
+  } else {
+    currentStepTitle = deriveCurrentStepTitle(
+      renderableToolCalls,
+      liveWebActivity,
+    );
+    currentStepInfo = deriveCurrentStepInfo(
+      renderableToolCalls,
+      liveWebActivity,
+    );
+    currentStepKind = "tool";
+  }
+
   const carouselItems = deriveCarouselItems(
     renderableToolCalls,
     liveWebActivity,
@@ -564,9 +646,39 @@ export function computeToolCallCardData(
   return {
     currentStepTitle,
     currentStepInfo,
+    currentStepKind,
     stepCount,
     steps,
     state,
     carouselItems,
   };
+}
+
+/**
+ * Pure projection of (toolCalls, liveWebActivity, leadingThinkingText) →
+ * card data. Split out from the hook so tests can drive it without React
+ * context plumbing.
+ *
+ * Always returns a `ToolCallCardData` (never null) so non-web groups still
+ * render the unified card. Callers that need legacy "no web tools → bail
+ * to legacy card" behaviour (the PR-6 cutover keeps the legacy card alive
+ * for mixed/pending-confirmation groups) should layer that decision on top.
+ *
+ * Delegates to {@link computeToolCallCardDataFromItems} after flattening the
+ * leading-thinking text + tool calls into ordered items — producing output
+ * identical to the historical inline loop.
+ */
+export function computeToolCallCardData(
+  toolCalls: ChatMessageToolCall[],
+  liveWebActivity: Record<string, ToolActivityMetadata>,
+  leadingThinkingText: string | null,
+): ToolCallCardData {
+  const items: ToolCallCardItem[] = [];
+  if (leadingThinkingText) {
+    items.push({ kind: "thinking", text: leadingThinkingText });
+  }
+  for (const tc of toolCalls) {
+    items.push({ kind: "toolCall", toolCall: tc });
+  }
+  return computeToolCallCardDataFromItems(items, liveWebActivity);
 }

@@ -110,7 +110,6 @@ function makeHandle(): TranscriptHandle & {
   }));
   return {
     scrollToLatest,
-    scrollToActivity: mock((_anchorId: string) => {}),
     getScrollElement,
     getContentElement,
     getViewportHeight,

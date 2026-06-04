@@ -53,7 +53,7 @@ export interface ToolStepPillProps {
  * enough that descenders ("g", "p", "y") get clipped without extra leading.
  */
 const BASE_CLASSES =
-  "inline-flex min-w-0 max-w-full items-center gap-1 self-start rounded-full border px-[10px] py-[6px] text-left leading-normal";
+  "inline-flex min-w-0 max-w-full items-center gap-1 self-start rounded-full px-2 py-1 text-left leading-normal";
 
 /** Cursor / transition / focus-ring affordances when the pill is a button. */
 const INTERACTIVE_BASE =
@@ -74,13 +74,15 @@ export function ToolStepPill({
   // overrides tone's background wholesale so we never emit conflicting
   // arbitrary-value classes — Tailwind resolves equal-specificity collisions by
   // stylesheet order, not class-attribute order.
+  // No outline. Idle pills carry a `--surface-overlay` fill; the open pill
+  // (its drawer showing) reads as active via the stronger `--surface-active`.
   const colorClasses = active
     ? tone === "error"
-      ? "border-[var(--border-base)] bg-[var(--surface-active)] text-[var(--system-negative-strong)]"
-      : "border-[var(--border-base)] bg-[var(--surface-active)] text-[var(--content-default)]"
+      ? "bg-[var(--surface-active)] text-[var(--system-negative-strong)]"
+      : "bg-[var(--surface-active)] text-[var(--content-default)]"
     : tone === "error"
-      ? "border-[var(--system-negative-weak)] bg-[var(--system-negative-weak)] text-[var(--system-negative-strong)]"
-      : "border-[var(--border-base)] bg-transparent text-[var(--content-default)]";
+      ? "bg-[var(--system-negative-weak)] text-[var(--system-negative-strong)]"
+      : "bg-[var(--surface-overlay)] text-[var(--content-default)]";
 
   const Glyph = ICON_MAP[iconName] ?? Bolt;
   const iconColor =
@@ -104,12 +106,9 @@ export function ToolStepPill({
   );
 
   if (onClick) {
-    // Active pills hover toward the stronger `surface-active`; idle pills lift
-    // to `surface-base`. Kept as distinct whole classes so the active hover
-    // doesn't fight the idle hover.
-    const hoverClass = active
-      ? "hover:bg-[var(--surface-active)]"
-      : "hover:bg-[var(--surface-base)]";
+    // Both idle and active pills lift to `surface-active` on hover (idle from
+    // `surface-overlay`, active already there).
+    const hoverClass = "hover:bg-[var(--surface-active)]";
 
     // When onRiskBadgeClick is also provided, use a <div role="button"> as the
     // outer wrapper so the RiskBadge can render its own <button> without

@@ -30,20 +30,55 @@ mock.module("@/domains/chat/components/surfaces/surface-router", () => ({
 }));
 
 mock.module(
-  "@/domains/chat/components/tool-call-progress-card/tool-call-progress-card",
+  "@/domains/chat/components/activity-run-card/activity-run-card",
   () => ({
-    ToolCallProgressCard: ({
+    ActivityRunCard: ({
       autoExpand,
       toolCalls,
+      items,
     }: {
       autoExpand?: boolean;
       toolCalls: Array<{ id: string }>;
+      items?: Array<
+        | { kind: "thinking"; text: string }
+        | { kind: "toolCall"; toolCall: { id: string } }
+      >;
     }) => (
       <div
         data-testid="tool-progress-card"
         data-auto-expand={autoExpand ? "true" : "false"}
         data-tool-call-ids={toolCalls.map((tc) => tc.id).join(",")}
+        // Surface the ordered items so the merged-card tests can assert the
+        // interleaved thinking + tool steps the card would render in its body.
+        data-item-kinds={items?.map((i) => i.kind).join(",") ?? ""}
+        data-item-thinking={
+          items
+            ?.filter(
+              (i): i is { kind: "thinking"; text: string } =>
+                i.kind === "thinking",
+            )
+            .map((i) => i.text)
+            .join("|") ?? ""
+        }
+        data-item-tool-ids={
+          items
+            ?.filter(
+              (i): i is { kind: "toolCall"; toolCall: { id: string } } =>
+                i.kind === "toolCall",
+            )
+            .map((i) => i.toolCall.id)
+            .join(",") ?? ""
+        }
       />
+    ),
+  }),
+);
+
+mock.module(
+  "@/domains/chat/components/inline-activity-link/inline-tool-link",
+  () => ({
+    InlineToolLink: ({ toolCall }: { toolCall: { id: string } }) => (
+      <div data-testid="inline-tool-link" data-tool-call-id={toolCall.id} />
     ),
   }),
 );
@@ -52,7 +87,6 @@ import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import type { Surface } from "@/domains/chat/types/types";
 
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
-import { buildTurnActivity } from "@/domains/chat/transcript/turn-activity";
 
 import { textBody } from "@/domains/chat/utils/message-test-helpers";
 const noop = () => {};
@@ -309,7 +343,11 @@ describe("TranscriptMessageBody", () => {
         message={{
           id: "m1",
           role: "assistant",
-          contentOrder: [{ type: "tool", id: "tc-1" }],
+          thinkingSegments: ["reasoning"],
+          contentOrder: [
+            { type: "thinking", id: "0" },
+            { type: "tool", id: "tc-1" },
+          ],
           toolCalls: [
             {
               id: "tc-1",
@@ -338,7 +376,11 @@ describe("TranscriptMessageBody", () => {
           id: "m1",
           role: "assistant",
           ...textBody(""),
-          contentOrder: [{ type: "tool", id: "tc-1" }],
+          thinkingSegments: ["reasoning"],
+          contentOrder: [
+            { type: "thinking", id: "0" },
+            { type: "tool", id: "tc-1" },
+          ],
           toolCalls: [
             {
               id: "tc-1",
@@ -366,7 +408,11 @@ describe("TranscriptMessageBody", () => {
         message={{
           id: "m1",
           role: "assistant",
-          contentOrder: [{ type: "tool", id: "tc-1" }],
+          thinkingSegments: ["reasoning"],
+          contentOrder: [
+            { type: "thinking", id: "0" },
+            { type: "tool", id: "tc-1" },
+          ],
           toolCalls: [
             {
               id: "tc-1",
@@ -396,11 +442,14 @@ describe("TranscriptMessageBody", () => {
           id: "m1",
           role: "assistant",
           contentOrder: [
+            { type: "thinking", id: "0" },
             { type: "tool", id: "tc-1" },
             { type: "text", id: "0" },
+            { type: "thinking", id: "1" },
             { type: "tool", id: "tc-2" },
           ],
           textSegments: ["Next I will check logs."],
+          thinkingSegments: ["reason A", "reason B"],
           toolCalls: [
             {
               id: "tc-1",
@@ -438,10 +487,12 @@ describe("TranscriptMessageBody", () => {
           id: "m1",
           role: "assistant",
           contentOrder: [
+            { type: "thinking", id: "0" },
             { type: "tool", id: "tc-1" },
             { type: "text", id: "0" },
           ],
           textSegments: ["Here is what I found."],
+          thinkingSegments: ["reasoning"],
           toolCalls: [
             {
               id: "tc-1",
@@ -471,10 +522,12 @@ describe("TranscriptMessageBody", () => {
           id: "m1",
           role: "assistant",
           contentOrder: [
+            { type: "thinking", id: "0" },
             { type: "tool", id: "tc-1" },
             { type: "text", id: "0" },
           ],
           textSegments: ["Done."],
+          thinkingSegments: ["reasoning"],
           toolCalls: [
             {
               id: "tc-1",
@@ -503,11 +556,14 @@ describe("TranscriptMessageBody", () => {
           id: "m1",
           role: "assistant",
           contentOrder: [
+            { type: "thinking", id: "0" },
             { type: "tool", id: "tc-1" },
             { type: "text", id: "0" },
+            { type: "thinking", id: "1" },
             { type: "tool", id: "tc-2" },
           ],
           textSegments: ["Next I will check logs."],
+          thinkingSegments: ["reason A", "reason B"],
           toolCalls: [
             {
               id: "tc-1",
@@ -720,102 +776,6 @@ describe("TranscriptMessageBody", () => {
     expect(bubble!.contains(markdown)).toBe(true);
   });
 
-  test("preserves contentOrder for an interleaved [text, tool, text] user message (tool between text, outside bubbles)", () => {
-    const { container } = render(
-      <TranscriptMessageBody
-        message={{
-          id: "u-order-2",
-          role: "user",
-          contentOrder: [
-            { type: "text", id: "0" },
-            { type: "tool", id: "tc-1" },
-            { type: "text", id: "1" },
-          ],
-          textSegments: [
-            "before tool",
-            "after tool",
-          ],
-          toolCalls: [
-            {
-              id: "tc-1",
-              toolName: "bash",
-              input: {},
-              status: "completed",
-            },
-          ],
-        }}
-        expandedToolCallIds={new Set()}
-        expandedCardIds={new Map()}
-        expandedThinkingKeys={new Map()}
-        onSurfaceAction={noop}
-      />,
-    );
-
-    const markdowns = container.querySelectorAll("[data-testid='markdown']");
-    const toolCard = container.querySelector(
-      "[data-testid='tool-progress-card']",
-    );
-    expect(markdowns.length).toBe(2);
-    expect(markdowns[0]!.textContent).toBe("before tool");
-    expect(markdowns[1]!.textContent).toBe("after tool");
-    expect(toolCard).not.toBeNull();
-
-    // DOM order matches contentOrder: text → tool → text.
-    expect(
-      markdowns[0]!.compareDocumentPosition(toolCard!) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    expect(
-      toolCard!.compareDocumentPosition(markdowns[1]!) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-
-    // Two separate surface-lift bubbles wrap the two text runs; the tool card
-    // is outside both.
-    const bubbles = container.querySelectorAll(
-      "[class*='bg-[var(--surface-lift)]']",
-    );
-    expect(bubbles.length).toBe(2);
-    for (const bubble of bubbles) {
-      expect(bubble.contains(toolCard)).toBe(false);
-    }
-  });
-
-  test("omits the user bubble when an interleaved user message has no text or attachments", () => {
-    const { container } = render(
-      <TranscriptMessageBody
-        message={{
-          id: "u4",
-          role: "user",
-          ...textBody(""),
-          contentOrder: [{ type: "tool", id: "tc-1" }],
-          toolCalls: [
-            {
-              id: "tc-1",
-              toolName: "bash",
-              input: {},
-              status: "completed",
-            },
-          ],
-        }}
-        expandedToolCallIds={new Set()}
-        expandedCardIds={new Map()}
-        expandedThinkingKeys={new Map()}
-        onSurfaceAction={noop}
-      />,
-    );
-
-    // No visible text and no attachments: the empty surface-lift bubble must
-    // not render.
-    expect(
-      container.querySelector("[class*='bg-[var(--surface-lift)]']"),
-    ).toBeNull();
-    // Non-text elements (the tool-call card) still render.
-    expect(
-      container.querySelector("[data-testid='tool-progress-card']"),
-    ).not.toBeNull();
-  });
-
   test("auto-expands legacy tool-only messages while a tool runs, until content appears", () => {
     const { getByTestId, rerender } = render(
       <TranscriptMessageBody
@@ -928,52 +888,78 @@ describe("TranscriptMessageBody", () => {
     expect(html).not.toContain("Thinking…");
   });
 
-  test("renders a thinking block interleaved with tool calls", () => {
+  test("merges interleaved thinking + tool into one activity card", () => {
     // GIVEN an assistant message that reasons, calls a tool, then answers
     // WHEN it is rendered (interleaved path — contentOrder carries a tool)
-    const html = renderMessage({
-      id: "m-think-interleaved",
-      role: "assistant",
-      textSegments: ["done"],
-      thinkingSegments: ["why I called the tool"],
-      contentOrder: [
-        { type: "thinking", id: "0" },
-        { type: "toolCall", id: "0" },
-        { type: "text", id: "0" },
-      ],
-      toolCalls: [
-        { id: "tc-1", toolName: "bash", input: {}, status: "completed" },
-      ],
-      timestamp: 1_000,
-    });
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m-think-interleaved",
+          role: "assistant",
+          textSegments: ["done"],
+          thinkingSegments: ["why I called the tool"],
+          contentOrder: [
+            { type: "thinking", id: "0" },
+            { type: "toolCall", id: "0" },
+            { type: "text", id: "0" },
+          ],
+          toolCalls: [
+            { id: "tc-1", toolName: "bash", input: {}, status: "completed" },
+          ],
+          timestamp: 1_000,
+        }}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
+        onSurfaceAction={noop}
+      />,
+    );
 
-    // THEN both the thinking block and the tool-call card render
-    expect(html).toContain("Thought process");
-    expect(html).toContain('data-testid="tool-progress-card"');
+    // THEN the thinking + tool merge into a single boxed activity card whose
+    // ordered body carries both the reasoning and the tool step.
+    const card = container.querySelector("[data-testid='tool-progress-card']");
+    expect(card).not.toBeNull();
+    expect(card!.getAttribute("data-item-kinds")).toBe("thinking,toolCall");
+    expect(card!.getAttribute("data-item-thinking")).toBe(
+      "why I called the tool",
+    );
   });
 
-  function renderedAnchorIds(container: HTMLElement): string[] {
-    return Array.from(
-      container.querySelectorAll("[data-activity-anchor]"),
-    ).map((el) => el.getAttribute("data-activity-anchor")!);
+
+  // ---------------------------------------------------------------------------
+  // Merged activity-run rendering (always-on)
+  // ---------------------------------------------------------------------------
+
+  /** A task-progress surface fixture, as produced by a `task_progress` card. */
+  function taskProgressSurface(surfaceId: string): Surface {
+    return {
+      surfaceId,
+      surfaceType: "card",
+      data: {
+        template: "task_progress",
+        templateData: {
+          steps: [{ id: "s1", label: "Do the thing", status: "completed" }],
+        },
+      },
+    };
   }
 
-  function projectedAnchorIds(message: DisplayMessage): string[] {
-    return buildTurnActivity(message).steps.map((s) => s.anchorId);
-  }
-
-  test("interleaved render anchors exactly match buildTurnActivity step anchors", () => {
+  test("merges contiguous thinking + tool runs into one card per run", () => {
+    // contentOrder [thinking, tool, thinking, text, tool, thinking] →
+    // two activity runs (before/after the text), each one merged card, plus
+    // the text between them.
     const message: DisplayMessage = {
-      id: "m-anchor-interleaved",
+      id: "m-merged",
       role: "assistant",
-      textSegments: ["done"],
-      thinkingSegments: ["why I called the tool", "more reasoning"],
+      textSegments: ["the middle answer"],
+      thinkingSegments: ["reason A", "reason B", "reason C"],
       contentOrder: [
         { type: "thinking", id: "0" },
         { type: "toolCall", id: "0" },
         { type: "thinking", id: "1" },
-        { type: "toolCall", id: "1" },
         { type: "text", id: "0" },
+        { type: "toolCall", id: "1" },
+        { type: "thinking", id: "2" },
       ],
       toolCalls: [
         { id: "tc-a", toolName: "bash", input: {}, status: "completed" },
@@ -992,178 +978,54 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
-    const projected = projectedAnchorIds(message);
-    expect(projected.length).toBe(4);
-    // Interleaved DOM order matches projection order exactly.
-    expect(renderedAnchorIds(container)).toEqual(projected);
-  });
-
-  test("legacy render anchors exactly match buildTurnActivity step anchors", () => {
-    const message: DisplayMessage = {
-      id: "m-anchor-legacy",
-      role: "assistant",
-      textSegments: ["the answer"],
-      thinkingSegments: ["chain of thought"],
-      contentOrder: [{ type: "thinking", id: "0" }],
-      toolCalls: [
-        { id: "tc-legacy", toolName: "bash", input: {}, status: "completed" },
-      ],
-      timestamp: 1_000,
-    };
-
-    const { container } = render(
-      <TranscriptMessageBody
-        message={message}
-        expandedToolCallIds={new Set()}
-        expandedCardIds={new Map()}
-        expandedThinkingKeys={new Map()}
-        onSurfaceAction={noop}
-      />,
+    // Exactly two merged tool cards (one per run).
+    const cards = container.querySelectorAll(
+      "[data-testid='tool-progress-card']",
     );
+    expect(cards.length).toBe(2);
 
-    const projected = projectedAnchorIds(message);
-    expect(projected.length).toBe(2);
-    // The legacy DOM renders the trailing tool card above the reasoning block,
-    // while the projection lists thinking first then the trailing tool step —
-    // so the anchor *ids* are byte-identical but emitted in a different order.
-    // Compare as sets to assert the critical render-id === projection-id match.
-    expect(new Set(renderedAnchorIds(container))).toEqual(new Set(projected));
-  });
-
-  test("legacy [spawn, bash] anchors the tool card on the bash call, matching buildTurnActivity", () => {
-    // GIVEN a legacy turn whose FIRST tool call is a subagent spawn followed by
-    // a renderable bash call — `buildTurnActivity` anchors the legacy tool step
-    // on the first NON-spawn (renderable) call, so the rendered DOM anchor must
-    // resolve to the bash id, not the leading spawn id.
-    const message: DisplayMessage = {
-      id: "m-anchor-legacy-spawn",
-      role: "assistant",
-      textSegments: ["the answer"],
-      thinkingSegments: ["chain of thought"],
-      contentOrder: [{ type: "thinking", id: "0" }],
-      toolCalls: [
-        {
-          id: "tc-spawn",
-          toolName: "subagent_spawn",
-          input: {},
-          status: "completed",
-        },
-        { id: "tc-bash", toolName: "bash", input: {}, status: "completed" },
-      ],
-      timestamp: 1_000,
-    };
-
-    const { container } = render(
-      <TranscriptMessageBody
-        message={message}
-        expandedToolCallIds={new Set()}
-        expandedCardIds={new Map()}
-        expandedThinkingKeys={new Map()}
-        onSurfaceAction={noop}
-      />,
+    // The first card's ordered body is thinking → tool → thinking, carrying
+    // both reasoning texts and the tool step.
+    const first = cards[0]!;
+    expect(first.getAttribute("data-item-kinds")).toBe(
+      "thinking,toolCall,thinking",
     );
+    expect(first.getAttribute("data-item-thinking")).toBe("reason A|reason B");
+    expect(first.getAttribute("data-item-tool-ids")).toBe("tc-a");
 
-    const projected = projectedAnchorIds(message);
-    // Two projected steps: the thinking block and the trailing tool step.
-    expect(projected.length).toBe(2);
-    // The trailing tool step anchors on the bash call's id (the first
-    // renderable, non-spawn call) — NOT the leading spawn.
-    const toolAnchor = projected.find((id) => id.includes("-tc-"));
-    expect(toolAnchor).toBe("activity-m-anchor-legacy-spawn-tc-tc-bash");
+    // The second card carries the trailing tool + thinking run.
+    const second = cards[1]!;
+    expect(second.getAttribute("data-item-kinds")).toBe("toolCall,thinking");
+    expect(second.getAttribute("data-item-tool-ids")).toBe("tc-b");
 
-    // Render anchors are byte-identical to the projection (legacy emits the
-    // trailing tool card above the reasoning block, so order differs; compare
-    // as a set to assert id equality).
-    expect(new Set(renderedAnchorIds(container))).toEqual(new Set(projected));
+    // The text between the two runs renders.
+    const markdowns = container.querySelectorAll("[data-testid='markdown']");
+    expect(
+      Array.from(markdowns).some((m) => m.textContent === "the middle answer"),
+    ).toBe(true);
+
+    // No legacy summary card and no scroll anchors remain.
+    expect(
+      container.querySelector("[data-testid='turn-activity-header']"),
+    ).toBeNull();
+    expect(container.querySelector("[data-activity-anchor]")).toBeNull();
   });
 
-  test("a subagent-spawn-only group produces no activity anchor", () => {
+  test("a pure-thinking run renders an inline ThoughtProcessLink, not a tool card", () => {
+    // contentOrder carries a tool elsewhere so the interleaved branch is taken,
+    // but the FIRST run before the text is pure thinking.
     const message: DisplayMessage = {
-      id: "m-spawn-only",
+      id: "m-pure-thinking",
       role: "assistant",
-      textSegments: ["spawning"],
+      textSegments: ["answer"],
+      thinkingSegments: ["just reasoning"],
       contentOrder: [
-        { type: "toolCall", id: "0" },
+        { type: "thinking", id: "0" },
         { type: "text", id: "0" },
-      ],
-      toolCalls: [
-        {
-          id: "tc-spawn",
-          toolName: "subagent_spawn",
-          input: {},
-          status: "completed",
-        },
-      ],
-      timestamp: 1_000,
-    };
-
-    const { container } = render(
-      <TranscriptMessageBody
-        message={message}
-        expandedToolCallIds={new Set()}
-        expandedCardIds={new Map()}
-        expandedThinkingKeys={new Map()}
-        onSurfaceAction={noop}
-      />,
-    );
-
-    expect(projectedAnchorIds(message)).toEqual([]);
-    expect(renderedAnchorIds(container)).toEqual([]);
-  });
-
-  test("legacy spawn-only turn renders no tool activity anchor (no empty wrapper)", () => {
-    // GIVEN a legacy turn (no tool entries in contentOrder) whose toolCalls are
-    // ALL subagent spawns. The tool card filters the spawns out and renders
-    // nothing, so the anchored flex wrapper must NOT render — otherwise it
-    // leaves a stray empty `gap-2` gap before the inline subagent cards/text.
-    const message: DisplayMessage = {
-      id: "m-legacy-spawn-only",
-      role: "assistant",
-      textSegments: ["the answer"],
-      contentOrder: [{ type: "text", id: "0" }],
-      toolCalls: [
-        {
-          id: "tc-spawn-1",
-          toolName: "subagent_spawn",
-          input: {},
-          status: "completed",
-        },
-        {
-          id: "tc-spawn-2",
-          toolName: "subagent_spawn",
-          input: {},
-          status: "completed",
-        },
-      ],
-      timestamp: 1_000,
-    };
-
-    const { container } = render(
-      <TranscriptMessageBody
-        message={message}
-        expandedToolCallIds={new Set()}
-        expandedCardIds={new Map()}
-        expandedThinkingKeys={new Map()}
-        onSurfaceAction={noop}
-      />,
-    );
-
-    // No tool step is projected, and no anchored tool wrapper is rendered.
-    expect(projectedAnchorIds(message)).toEqual([]);
-    expect(renderedAnchorIds(container)).toEqual([]);
-  });
-
-  test("a suppressed ui_show group produces no activity anchor", () => {
-    const message: DisplayMessage = {
-      id: "m-ui-show",
-      role: "assistant",
-      textSegments: ["showing UI"],
-      contentOrder: [
         { type: "toolCall", id: "0" },
-        { type: "text", id: "0" },
       ],
       toolCalls: [
-        { id: "tc-ui", toolName: "ui_show", input: {}, status: "completed" },
+        { id: "tc-a", toolName: "bash", input: {}, status: "completed" },
       ],
       timestamp: 1_000,
     };
@@ -1178,155 +1040,80 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
-    expect(projectedAnchorIds(message)).toEqual([]);
-    expect(renderedAnchorIds(container)).toEqual([]);
+    // The pure-thinking run renders as the inline `ThoughtProcessLink`
+    // ("Thought process"). The trailing lone bash tool run renders as the
+    // compact inline chip, NOT a boxed tool card.
+    expect(
+      container.querySelector("[data-testid='thought-process-link']"),
+    ).not.toBeNull();
+    expect(container.textContent).toContain("Thought process");
+    expect(
+      container.querySelectorAll("[data-testid='tool-progress-card']").length,
+    ).toBe(0);
+    expect(
+      container.querySelectorAll("[data-testid='inline-tool-link']").length,
+    ).toBe(1);
   });
 
-  // ---------------------------------------------------------------------------
-  // Combined activity-summary card (web-activity-summary flag)
-  // ---------------------------------------------------------------------------
-
-  /** A task-progress surface fixture, as produced by a `task_progress` card. */
-  function taskProgressSurface(surfaceId: string): Surface {
-    return {
-      surfaceId,
-      surfaceType: "card",
-      data: {
-        template: "task_progress",
-        templateData: {
-          steps: [{ id: "s1", label: "Do the thing", status: "completed" }],
-        },
-      },
-    };
-  }
-
-  /** Assistant message with thinking + a tool call + a task-progress surface. */
-  function activityMessage(surfaceId = "tps-1"): DisplayMessage {
-    return {
-      id: "m-activity",
+  test("a task-progress surface renders inline (not hoisted, not suppressed)", () => {
+    const message: DisplayMessage = {
+      id: "m-activity-inline",
       role: "assistant",
       textSegments: ["all done"],
       thinkingSegments: ["reasoning"],
       contentOrder: [
         { type: "thinking", id: "0" },
         { type: "toolCall", id: "0" },
-        { type: "surface", id: surfaceId },
+        { type: "surface", id: "tps-1" },
         { type: "text", id: "0" },
       ],
       toolCalls: [
         { id: "tc-1", toolName: "bash", input: {}, status: "completed" },
       ],
-      surfaces: [taskProgressSurface(surfaceId)],
+      surfaces: [taskProgressSurface("tps-1")],
       timestamp: 1_000,
     };
-  }
 
-  test("flag ON: renders one combined card at the top with the task-progress surface hoisted, not inline", () => {
-    const message = activityMessage();
-    const { container, getByTestId } = render(
+    const { container } = render(
       <TranscriptMessageBody
         message={message}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
         expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
-        activitySummaryEnabled
       />,
     );
 
-    // Exactly one combined-card header block renders, and it is the first child
-    // of the assistant content column (above the inline tool card).
-    const header = getByTestId("turn-activity-header");
-    expect(header).not.toBeNull();
+    // No summary card.
     expect(
-      container.querySelectorAll("[data-testid='turn-activity-header']").length,
-    ).toBe(1);
-
-    const toolCard = container.querySelector(
-      "[data-testid='tool-progress-card']",
+      container.querySelector("[data-testid='turn-activity-header']"),
+    ).toBeNull();
+    // The task-progress surface renders exactly once, in its inline position
+    // AFTER the merged activity card.
+    const surfaces = container.querySelectorAll(
+      "[data-testid='surface'][data-surface-id='tps-1']",
     );
-    expect(toolCard).not.toBeNull();
+    expect(surfaces.length).toBe(1);
+    const card = container.querySelector("[data-testid='tool-progress-card']");
+    expect(card).not.toBeNull();
     expect(
-      header.compareDocumentPosition(toolCard!) &
+      card!.compareDocumentPosition(surfaces[0]!) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-
-    // The task-progress surface renders exactly once, and it lives INSIDE the
-    // header block (hoisted) — not in its inline position.
-    const surfaces = container.querySelectorAll(
-      "[data-testid='surface'][data-surface-id='tps-1']",
-    );
-    expect(surfaces.length).toBe(1);
-    expect(header.contains(surfaces[0]!)).toBe(true);
-
-    // Inline tool/thinking cards still render with their activity anchors.
-    expect(renderedAnchorIds(container)).toEqual(projectedAnchorIds(message));
   });
 
-  test("flag ON: clicking a pill calls onActivityStepClick with a matching inline anchorId", () => {
-    const message = activityMessage();
-    const clicked: string[] = [];
-    const { container } = render(
-      <TranscriptMessageBody
-        message={message}
-        expandedToolCallIds={new Set()}
-        expandedCardIds={new Map()}
-        expandedThinkingKeys={new Map()}
-        onSurfaceAction={noop}
-        activitySummaryEnabled
-        onActivityStepClick={(id) => clicked.push(id)}
-      />,
-    );
-
-    // The combined card starts collapsed; expand it so the step pills mount.
-    const expandToggle = container.querySelector(
-      "[aria-label='Expand steps']",
-    );
-    expect(expandToggle).not.toBeNull();
-    fireEvent.click(expandToggle!);
-
-    const pill = container.querySelector("[data-testid='turn-progress-pill']");
-    expect(pill).not.toBeNull();
-    // The pill wraps the actual clickable; click the inner button/element.
-    fireEvent.click(pill!.querySelector("button") ?? pill!);
-
-    expect(clicked.length).toBe(1);
-    // The clicked anchor matches one of the message's inline anchors.
-    expect(renderedAnchorIds(container)).toContain(clicked[0]!);
-  });
-
-  test("flag OFF (default): no combined card; task-progress surface renders inline", () => {
-    const message = activityMessage();
-    const { container } = render(
-      <TranscriptMessageBody
-        message={message}
-        expandedToolCallIds={new Set()}
-        expandedCardIds={new Map()}
-        expandedThinkingKeys={new Map()}
-        onSurfaceAction={noop}
-      />,
-    );
-
-    expect(
-      container.querySelector("[data-testid='turn-activity-header']"),
-    ).toBeNull();
-    // The task-progress surface renders once, in its original inline position.
-    const surfaces = container.querySelectorAll(
-      "[data-testid='surface'][data-surface-id='tps-1']",
-    );
-    expect(surfaces.length).toBe(1);
-  });
-
-  test("flag ON but no tool/thinking activity: no combined card; surface renders inline", () => {
+  test("a lone single bash tool run renders the inline chip, not a card", () => {
     const message: DisplayMessage = {
-      id: "m-no-activity",
+      id: "m-lone-tool",
       role: "assistant",
-      textSegments: ["here is a plan"],
+      textSegments: ["done"],
       contentOrder: [
+        { type: "toolCall", id: "0" },
         { type: "text", id: "0" },
-        { type: "surface", id: "tps-2" },
       ],
-      surfaces: [taskProgressSurface("tps-2")],
+      toolCalls: [
+        { id: "tc-lone", toolName: "bash", input: {}, status: "completed" },
+      ],
       timestamp: 1_000,
     };
 
@@ -1337,17 +1124,51 @@ describe("TranscriptMessageBody", () => {
         expandedCardIds={new Map()}
         expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
-        activitySummaryEnabled
       />,
     );
 
-    // No steps → no combined card, and the surface is NOT hoisted.
+    const chip = container.querySelector("[data-testid='inline-tool-link']");
+    expect(chip).not.toBeNull();
+    expect(chip!.getAttribute("data-tool-call-id")).toBe("tc-lone");
     expect(
-      container.querySelector("[data-testid='turn-activity-header']"),
+      container.querySelector("[data-testid='tool-progress-card']"),
     ).toBeNull();
-    const surfaces = container.querySelectorAll(
-      "[data-testid='surface'][data-surface-id='tps-2']",
+  });
+
+  test("a tool + thinking run still renders the boxed activity card", () => {
+    const message: DisplayMessage = {
+      id: "m-tool-thinking",
+      role: "assistant",
+      textSegments: ["done"],
+      thinkingSegments: ["reasoning about the tool"],
+      contentOrder: [
+        { type: "toolCall", id: "0" },
+        { type: "thinking", id: "0" },
+        { type: "text", id: "0" },
+      ],
+      toolCalls: [
+        { id: "tc-mix", toolName: "bash", input: {}, status: "completed" },
+      ],
+      timestamp: 1_000,
+    };
+
+    const { container } = render(
+      <TranscriptMessageBody
+        message={message}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
+        onSurfaceAction={noop}
+      />,
     );
-    expect(surfaces.length).toBe(1);
+
+    // A run with more than one card item (tool + thinking) is NOT a lone tool,
+    // so it stays the boxed card.
+    expect(
+      container.querySelector("[data-testid='tool-progress-card']"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[data-testid='inline-tool-link']"),
+    ).toBeNull();
   });
 });

@@ -1,7 +1,7 @@
 /**
  * Shared web-search step-row primitives consumed by both
  * `WebSearchProgressCard` (the dedicated purely-web card) and
- * `ToolCallProgressCard` (the unified card that handles mixed groups).
+ * `ActivityRunCard` (the unified card that handles mixed groups).
  *
  * Lifted here to dedupe the previously copy/pasted `OverflowChip` definitions
  * and the `web_search` / `web_search_error` step renderers across the two

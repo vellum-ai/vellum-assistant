@@ -1,5 +1,5 @@
 /**
- * Tests for the unified `ToolCallProgressCard` dispatcher.
+ * Tests for the unified `ActivityRunCard` dispatcher.
  *
  * Covers the post-unification rendering contract:
  *  - Non-web tool groups (bash, read, MCP, etc.) render via the shared
@@ -22,6 +22,7 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import type { ToolCallCardItem } from "@/domains/chat/hooks/tool-call-card-utils";
 
 // The viewer store (pulled in transitively for `openToolDetail`) imports the
 // generated daemon SDK, which isn't built in CI/worktree checkouts. Stub the
@@ -34,8 +35,8 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   documentsByIdGet: async () => ({ data: undefined }),
 }));
 
-const { ToolCallProgressCard } = await import(
-  "@/domains/chat/components/tool-call-progress-card/tool-call-progress-card"
+const { ActivityRunCard } = await import(
+  "@/domains/chat/components/activity-run-card/activity-run-card"
 );
 const { useViewerStore } = await import("@/stores/viewer-store");
 
@@ -62,11 +63,11 @@ function makeToolCall(
 function renderCard(
   toolCalls: ChatMessageToolCall[],
   overrides: Partial<
-    ComponentProps<typeof ToolCallProgressCard>
+    ComponentProps<typeof ActivityRunCard>
   > = {},
 ) {
   return render(
-    <ToolCallProgressCard
+    <ActivityRunCard
       toolCalls={toolCalls}
       expandedToolCallIds={new Set()}
       onExpandChange={() => {}}
@@ -76,7 +77,7 @@ function renderCard(
   );
 }
 
-describe("ToolCallProgressCard — non-web tool group", () => {
+describe("ActivityRunCard — non-web tool group", () => {
   test("renders the unified shell with the bash carousel header collapsed by default", () => {
     const toolCalls = [
       makeToolCall({
@@ -136,7 +137,7 @@ describe("ToolCallProgressCard — non-web tool group", () => {
   });
 });
 
-describe("ToolCallProgressCard — tool step pill", () => {
+describe("ActivityRunCard — tool step pill", () => {
   test("non-web tool step renders a tool-step-pill with activity + risk badge", () => {
     const toolCalls = [
       makeToolCall({
@@ -197,7 +198,7 @@ describe("ToolCallProgressCard — tool step pill", () => {
   });
 });
 
-describe("ToolCallProgressCard — web tool group regression", () => {
+describe("ActivityRunCard — web tool group regression", () => {
   test("web_search-only groups still render through WebSearchProgressCard", () => {
     const toolCalls = [
       makeToolCall({
@@ -225,7 +226,7 @@ describe("ToolCallProgressCard — web tool group regression", () => {
       }),
     ];
     const { getByRole, rerender } = render(
-      <ToolCallProgressCard
+      <ActivityRunCard
         toolCalls={toolCalls}
         expandedToolCallIds={new Set()}
         onExpandChange={() => {}}
@@ -236,7 +237,7 @@ describe("ToolCallProgressCard — web tool group regression", () => {
     expect(getByRole("button", { name: /collapse steps/i })).toBeTruthy();
 
     rerender(
-      <ToolCallProgressCard
+      <ActivityRunCard
         toolCalls={toolCalls}
         expandedToolCallIds={new Set()}
         onExpandChange={() => {}}
@@ -248,7 +249,7 @@ describe("ToolCallProgressCard — web tool group regression", () => {
   });
 });
 
-describe("ToolCallProgressCard — mixed group", () => {
+describe("ActivityRunCard — mixed group", () => {
   test("web_search + bash falls through to the unified shell with one step per call", () => {
     const toolCalls = [
       makeToolCall({
@@ -271,7 +272,7 @@ describe("ToolCallProgressCard — mixed group", () => {
   });
 });
 
-describe("ToolCallProgressCard — confirmation short-circuit", () => {
+describe("ActivityRunCard — confirmation short-circuit", () => {
   test("pendingConfirmationToolCallId renders the inline approve/deny UI, not the progress card", () => {
     const toolCalls = [
       makeToolCall({
@@ -300,7 +301,7 @@ describe("ToolCallProgressCard — confirmation short-circuit", () => {
   });
 });
 
-describe("ToolCallProgressCard — subagent_spawn filtering", () => {
+describe("ActivityRunCard — subagent_spawn filtering", () => {
   test("renders null for a single subagent_spawn group (inline card handles it)", () => {
     const toolCalls = [
       makeToolCall({
@@ -372,7 +373,7 @@ describe("ToolCallProgressCard — subagent_spawn filtering", () => {
   });
 });
 
-describe("ToolCallProgressCard — unknown-command nudge", () => {
+describe("ActivityRunCard — unknown-command nudge", () => {
   test("renders the 'Create a rule' nudge for tool calls flagged as unknown", () => {
     const toolCalls = [
       makeToolCall({
@@ -463,7 +464,7 @@ describe("ToolCallProgressCard — unknown-command nudge", () => {
   });
 });
 
-describe("ToolCallProgressCard — expansion derived from state", () => {
+describe("ActivityRunCard — expansion derived from state", () => {
   test("mounts collapsed while loading", () => {
     const toolCalls = [
       makeToolCall({
@@ -503,7 +504,7 @@ describe("ToolCallProgressCard — expansion derived from state", () => {
       }),
     ];
     const { getByRole, rerender } = render(
-      <ToolCallProgressCard
+      <ActivityRunCard
         toolCalls={running}
         expandedToolCallIds={new Set()}
         onExpandChange={() => {}}
@@ -523,7 +524,7 @@ describe("ToolCallProgressCard — expansion derived from state", () => {
       }),
     ];
     rerender(
-      <ToolCallProgressCard
+      <ActivityRunCard
         toolCalls={completed}
         expandedToolCallIds={new Set()}
         onExpandChange={() => {}}
@@ -544,7 +545,7 @@ describe("ToolCallProgressCard — expansion derived from state", () => {
       }),
     ];
     const { getByRole, rerender } = render(
-      <ToolCallProgressCard
+      <ActivityRunCard
         toolCalls={running}
         expandedToolCallIds={new Set()}
         onExpandChange={() => {}}
@@ -567,7 +568,7 @@ describe("ToolCallProgressCard — expansion derived from state", () => {
       }),
     ];
     rerender(
-      <ToolCallProgressCard
+      <ActivityRunCard
         toolCalls={completed}
         expandedToolCallIds={new Set()}
         onExpandChange={() => {}}
@@ -593,7 +594,7 @@ describe("ToolCallProgressCard — expansion derived from state", () => {
       }),
     ];
     const { getByRole } = render(
-      <ToolCallProgressCard
+      <ActivityRunCard
         toolCalls={toolCalls}
         expandedToolCallIds={new Set()}
         onExpandChange={() => {}}
@@ -616,7 +617,7 @@ describe("ToolCallProgressCard — expansion derived from state", () => {
       }),
     ];
     const { getByRole } = render(
-      <ToolCallProgressCard
+      <ActivityRunCard
         toolCalls={toolCalls}
         expandedToolCallIds={new Set()}
         onExpandChange={() => {}}
@@ -686,7 +687,7 @@ describe("ToolCallProgressCard — expansion derived from state", () => {
       }),
     ];
     const { getByRole, rerender } = render(
-      <ToolCallProgressCard
+      <ActivityRunCard
         toolCalls={toolCalls}
         expandedToolCallIds={new Set()}
         onExpandChange={() => {}}
@@ -697,7 +698,7 @@ describe("ToolCallProgressCard — expansion derived from state", () => {
     expect(getByRole("button", { name: /collapse steps/i })).toBeTruthy();
 
     rerender(
-      <ToolCallProgressCard
+      <ActivityRunCard
         toolCalls={toolCalls}
         expandedToolCallIds={new Set()}
         onExpandChange={() => {}}
@@ -709,7 +710,7 @@ describe("ToolCallProgressCard — expansion derived from state", () => {
   });
 });
 
-describe("ToolCallProgressCard — web group error chrome", () => {
+describe("ActivityRunCard — web group error chrome", () => {
   test("a purely-web group with an errored tool call renders the shell's error icon", () => {
     // Previously the `WebSearchView` recomputed state from raw status only,
     // so an errored web_search rendered the green check (loading → complete)
@@ -731,7 +732,7 @@ describe("ToolCallProgressCard — web group error chrome", () => {
   });
 });
 
-describe("ToolCallProgressCard — mixed group web_search_error rendering", () => {
+describe("ActivityRunCard — mixed group web_search_error rendering", () => {
   test("renders an ErrorChip (not the default pill) for a web_search_error step in a mixed group", () => {
     // The unified card's `ExpandedStep` previously fell through to
     // `DefaultStepPill` for `web_search_error`, dropping the dedicated
@@ -773,7 +774,7 @@ describe("ToolCallProgressCard — mixed group web_search_error rendering", () =
   });
 });
 
-describe("ToolCallProgressCard — leadingThinkingText", () => {
+describe("ActivityRunCard — leadingThinkingText", () => {
   test("prepends a thinking step to the expanded body when supplied", () => {
     const toolCalls = [
       makeToolCall({
@@ -791,5 +792,109 @@ describe("ToolCallProgressCard — leadingThinkingText", () => {
     expect(getByText("Let me check the directory first.")).toBeTruthy();
     // The step count reflects the prepended thinking step.
     expect(getByText2("2 steps")).toBeTruthy();
+  });
+});
+
+describe("ActivityRunCard — header reflects the latest step", () => {
+  test("a run ending in a thinking step shows 'Thinking' + the thinking text in the header", () => {
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        toolName: "read_file",
+        status: "completed",
+        input: { path: "/tmp/state.txt" },
+        startedAt: 0,
+        completedAt: 100,
+      }),
+    ];
+    const items: ToolCallCardItem[] = [
+      { kind: "toolCall", toolCall: toolCalls[0]! },
+      { kind: "thinking", text: "Now I understand the current state." },
+    ];
+    const { getByText, getByTestId } = renderCard(toolCalls, { items });
+    // Collapsed header carousels to the latest (thinking) step.
+    expect(getByText("Thinking")).toBeTruthy();
+    expect(getByText("Now I understand the current state.")).toBeTruthy();
+    // The brain glyph renders as an <svg> inside the header carousel.
+    const shell = getByTestId("tool-progress-card-shell");
+    expect(shell.querySelector("svg")).toBeTruthy();
+  });
+
+  test("a run ending in a tool step keeps the tool title/info in the header", () => {
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        toolName: "bash",
+        status: "completed",
+        input: { command: "echo hi" },
+        startedAt: 0,
+        completedAt: 100,
+      }),
+    ];
+    const items: ToolCallCardItem[] = [
+      { kind: "thinking", text: "Let me check the directory first." },
+      { kind: "toolCall", toolCall: toolCalls[0]! },
+    ];
+    const { getByText, queryByText } = renderCard(toolCalls, { items });
+    expect(getByText("Working (bash)")).toBeTruthy();
+    expect(getByText("echo hi")).toBeTruthy();
+    // The leading thinking text is NOT promoted into the header (it's a body
+    // step only).
+    expect(queryByText("Let me check the directory first.")).toBeNull();
+  });
+});
+
+describe("ActivityRunCard — thinking pill", () => {
+  // A long reasoning text so we can assert hard-cap truncation (60 chars).
+  const LONG_THINKING =
+    "I should first inspect the repository layout before running anything destructive on disk.";
+
+  test("renders the thinking step as a clickable, truncated tool-step-pill", () => {
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        toolName: "bash",
+        status: "running",
+        input: { command: "ls" },
+      }),
+    ];
+    const { getByLabelText } = renderCard(toolCalls, {
+      leadingThinkingText: LONG_THINKING,
+      expandedCardIds: new Map([["tc-1", true]]),
+    });
+    // The thinking step renders as a clickable pill (a <button>), not a
+    // plain row. Scoped by its aria-label so it isn't confused with the
+    // sibling bash tool pill.
+    const pill = getByLabelText("View thinking");
+    expect(pill.tagName.toLowerCase()).toBe("button");
+    // Hard-capped at 60 chars with a trailing ellipsis.
+    const text = pill.textContent ?? "";
+    expect(text).toContain("…");
+    expect(text.length).toBeLessThanOrEqual(60);
+    // The full untruncated text is NOT present in the pill.
+    expect(text).not.toContain("destructive on disk");
+  });
+
+  test("clicking the thinking pill opens the drawer with the full reasoning text", () => {
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        toolName: "bash",
+        status: "running",
+        input: { command: "ls" },
+      }),
+    ];
+    const { getByLabelText } = renderCard(toolCalls, {
+      leadingThinkingText: LONG_THINKING,
+      expandedCardIds: new Map([["tc-1", true]]),
+    });
+    fireEvent.click(getByLabelText("View thinking"));
+    const detail = useViewerStore.getState().activeToolDetail;
+    expect(detail).not.toBeNull();
+    expect(detail?.kind).toBe("thinking");
+    expect(detail?.title).toBe("Thinking");
+    // Drawer carries the FULL (untruncated) reasoning text.
+    expect(detail?.thinkingText).toBe(LONG_THINKING);
+    expect(useViewerStore.getState().mainView).toBe("tool-detail");
   });
 });

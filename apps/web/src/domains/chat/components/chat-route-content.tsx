@@ -231,7 +231,6 @@ export function ChatRouteContent({
   const assistantState = useAssistantLifecycleStore.use.assistantState();
   const assistantName = useAssistantIdentityStore.use.name();
   const chatPullToRefreshEnabled = useClientFeatureFlagStore.use.chatPullToRefreshEnabled();
-  const activitySummaryEnabled = useClientFeatureFlagStore.use.webActivitySummary();
   const deployToVercel = useAssistantFeatureFlagStore.use.deployToVercel();
   const doctorEnabled = useClientFeatureFlagStore.use.doctor();
 
@@ -1144,6 +1143,11 @@ export function ChatRouteContent({
     conversationId: activeConversationId,
     assistantDisplayName: assistantName?.trim() || undefined,
     expandedToolCallIds: useChatSessionStore.getState().expandedToolCallIds,
+    // Store-owned so card/thinking expansion survives the transcript remount
+    // when the tool-detail drawer opens/closes (otherwise clicking a pill
+    // would collapse the activity card).
+    expandedCardIds: useChatSessionStore.getState().expandedCardIds,
+    expandedThinkingKeys: useChatSessionStore.getState().expandedThinkingKeys,
     onOpenRuleEditor: handleOpenRuleEditorForToolCall,
     onOpenApp: handleOpenApp,
     onOpenDocument: handleOpenDocument,
@@ -1221,7 +1225,6 @@ export function ChatRouteContent({
     },
     onSubagentClick,
     onStopSubagent,
-    activitySummaryEnabled,
     renderOnboardingChoice: () => (
       <OnboardingChoiceCard
         onSelectSpecific={handleSelectSpecific}
@@ -1574,6 +1577,7 @@ export function ChatRouteContent({
           defaultRightWidth={400}
           minLeftWidth={300}
           minRightWidth={400}
+          hideDivider
           left={chatContent}
           right={
             <LazyBoundary>
