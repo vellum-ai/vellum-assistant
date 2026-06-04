@@ -6,8 +6,11 @@ import type { VelayHeaders } from "./protocol.js";
 
 const MAX_WEBSOCKET_CLOSE_REASON_BYTES = 123;
 
-
 const VELAY_ALLOWED_HTTP_PATH_PREFIXES = ["/webhooks/twilio/"] as const;
+const VELAY_ALLOWED_WEBSOCKET_EXACT_PATHS = [
+  "/v1/live-voice",
+  "/v1/stt/stream",
+] as const;
 
 /**
  * Injected unconditionally by the HTTP bridge on every request forwarded to
@@ -22,6 +25,15 @@ export const VELAY_FORWARDED_HEADER = "x-velay-forwarded" as const;
 export function isAllowedVelayHttpPath(path: string): boolean {
   return VELAY_ALLOWED_HTTP_PATH_PREFIXES.some((prefix) =>
     path.startsWith(prefix),
+  );
+}
+
+export function isAllowedVelayWebSocketPath(path: string): boolean {
+  return (
+    isAllowedVelayHttpPath(path) ||
+    VELAY_ALLOWED_WEBSOCKET_EXACT_PATHS.includes(
+      path as (typeof VELAY_ALLOWED_WEBSOCKET_EXACT_PATHS)[number],
+    )
   );
 }
 
@@ -63,8 +75,15 @@ export function buildLoopbackWebSocketUrl(
   path: string,
   rawQuery?: string,
 ): string | undefined {
-  const httpUrl = buildLoopbackHttpUrl(gatewayLoopbackBaseUrl, path, rawQuery);
-  if (!httpUrl) return undefined;
+  if (!isSafeOriginRelativePath(path) || !isAllowedVelayWebSocketPath(path)) {
+    return undefined;
+  }
+
+  const httpUrl = buildUpstreamUrl(
+    gatewayLoopbackBaseUrl,
+    path,
+    formatRawQuery(rawQuery),
+  );
 
   try {
     const url = new URL(httpUrl);
