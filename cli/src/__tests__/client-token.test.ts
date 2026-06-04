@@ -8,11 +8,22 @@ import {
   beforeEach,
   describe,
   expect,
+  mock,
   test,
 } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+// Track whether the local token store is read — the ephemeral path must NOT
+// touch it when --token is supplied. Mock before importing client.ts.
+let loadGuardianTokenCalls = 0;
+mock.module("../lib/guardian-token.js", () => ({
+  loadGuardianToken: () => {
+    loadGuardianTokenCalls += 1;
+    return null;
+  },
+}));
 
 // An EMPTY temp dir so there is no lockfile entry — the ephemeral path must
 // work without one. Env mutation is scoped to each test and restored after, so
@@ -60,6 +71,21 @@ describe("client --token (ephemeral)", () => {
     expect(parsed.assistantId).toBe("self"); // DAEMON_INTERNAL_ASSISTANT_ID
     expect(parsed.bearerToken).toBe("test-jwt-token");
     expect(parsed.platformToken).toBeUndefined();
+  });
+
+  test("does not read the local token store when --token is provided", () => {
+    loadGuardianTokenCalls = 0;
+    process.argv = [
+      "bun",
+      "vellum",
+      "client",
+      "--url",
+      REMOTE_URL,
+      "--token",
+      "tok",
+    ];
+    parseArgs();
+    expect(loadGuardianTokenCalls).toBe(0);
   });
 
   test("--assistant-id overrides the default 'self' segment", () => {

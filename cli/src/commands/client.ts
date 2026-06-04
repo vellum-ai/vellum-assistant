@@ -159,25 +159,39 @@ export function parseArgs(): ParsedArgs {
   const cloud = entry?.cloud;
   const species: Species = (entry?.species as Species) ?? "vellum";
 
-  // Platform-hosted assistants use a session token; local assistants use a guardian JWT.
-  const platformToken =
-    cloud === "vellum" ? (readPlatformToken() ?? undefined) : undefined;
-  const bearerToken =
-    cloud === "vellum"
+  // Ephemeral auth: a handed-over token (e.g. from `vellum pair`) used for this
+  // session only. Resolve it BEFORE the credential lookup below so an ephemeral
+  // session never reads (or writes) the local token store.
+  let bearerTokenOverride: string | undefined;
+  for (let i = 0; i < flagArgs.length; i++) {
+    if (
+      (flagArgs[i] === "--token" || flagArgs[i] === "-t") &&
+      flagArgs[i + 1]
+    ) {
+      bearerTokenOverride = flagArgs[i + 1];
+    }
+  }
+
+  // Platform-hosted assistants use a session token; local assistants use a
+  // guardian JWT. Both are skipped entirely when --token supplies the
+  // credential, so no saved credentials are read.
+  const platformToken = bearerTokenOverride
+    ? undefined
+    : cloud === "vellum"
+      ? (readPlatformToken() ?? undefined)
+      : undefined;
+  const bearerToken = bearerTokenOverride
+    ? bearerTokenOverride
+    : cloud === "vellum"
       ? undefined
       : (loadGuardianToken(entry?.assistantId ?? "")?.accessToken ?? undefined);
 
   let interfaceId: SupportedInterface = CLI_INTERFACE_ID;
-  // Ephemeral auth: a handed-over token (e.g. from `vellum pair`) used for this
-  // session only — overrides the lockfile/guardian token and is never persisted.
-  let bearerTokenOverride: string | undefined;
 
   for (let i = 0; i < flagArgs.length; i++) {
     const flag = flagArgs[i];
     if ((flag === "--url" || flag === "-u") && flagArgs[i + 1]) {
       runtimeUrl = flagArgs[++i];
-    } else if ((flag === "--token" || flag === "-t") && flagArgs[i + 1]) {
-      bearerTokenOverride = flagArgs[++i];
     } else if (
       (flag === "--assistant-id" || flag === "-a") &&
       flagArgs[i + 1]
@@ -196,20 +210,14 @@ export function parseArgs(): ParsedArgs {
     }
   }
 
-  // An explicit --token takes precedence and forces the bearer (Authorization)
-  // path — even against a platform entry — so an ephemeral session never reads
-  // or writes the local token store.
-  const finalBearerToken = bearerTokenOverride ?? bearerToken;
-  const finalPlatformToken = bearerTokenOverride ? undefined : platformToken;
-
   return {
     runtimeUrl: maybeSwapToLocalhost(runtimeUrl.replace(/\/+$/, "")),
     assistantId,
     assistantName,
     species,
     cloud,
-    platformToken: finalPlatformToken,
-    bearerToken: finalBearerToken,
+    platformToken,
+    bearerToken,
     interfaceId,
   };
 }
