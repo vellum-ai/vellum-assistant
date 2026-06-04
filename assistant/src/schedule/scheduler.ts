@@ -585,6 +585,8 @@ export async function runScheduleDueWorkOnce(
     let ok: boolean;
     let errorMsg: string | undefined;
     const conversationReused = reusedConversationId != null;
+    let runConversationId = reusedConversationId;
+    const runId = createScheduleRun(job.id, reusedConversationId);
 
     if (reusedConversationId) {
       // Reuse path: keep using the injected `processMessage` callback so the
@@ -626,6 +628,8 @@ export async function runScheduleDueWorkOnce(
         scheduleJobId: job.id,
         suppressFailureNotifications: job.quiet === true,
         onConversationCreated: (newConversationId) => {
+          runConversationId = newConversationId;
+          setScheduleRunConversationId(runId, newConversationId);
           onScheduleConversationCreated?.({
             conversationId: newConversationId,
             scheduleJobId: job.id,
@@ -642,11 +646,13 @@ export async function runScheduleDueWorkOnce(
         !result.ok && result.conversationId === ""
           ? `bootstrap-error:${job.id}`
           : result.conversationId;
+      if (runConversationId !== conversationId) {
+        runConversationId = conversationId;
+        setScheduleRunConversationId(runId, conversationId);
+      }
       ok = result.ok;
       errorMsg = result.error?.message;
     }
-
-    const runId = createScheduleRun(job.id, conversationId);
 
     if (ok) {
       completeScheduleRun(runId, { status: "ok" });
