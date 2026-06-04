@@ -36,7 +36,8 @@ export function ImageGenerationCard() {
   // Updates automatically when the cache refreshes.
   const serverImageGenMode = useMemo<ServiceMode>(() => {
     if (!daemonConfig) return getLocalSetting(LS_IMAGE_GEN_MODE, "your-own") as ServiceMode;
-    return (daemonConfig.services?.["image-generation"]?.mode ?? getLocalSetting(LS_IMAGE_GEN_MODE, "your-own")) as ServiceMode;
+    const mode = daemonConfig.services?.["image-generation"]?.mode;
+    return (mode === "managed" || mode === "your-own" ? mode : getLocalSetting(LS_IMAGE_GEN_MODE, "your-own")) as ServiceMode;
   }, [daemonConfig]);
 
   const [imageGenMode, setDraftImageGenMode] = useDraftOverride(serverImageGenMode);
