@@ -24,6 +24,7 @@ import type { TrustContext } from "../daemon/trust-context.js";
 import { toTrustContext } from "../runtime/actor-trust-resolver.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
+import { getTtsPlaybackDelayMs } from "./call-constants.js";
 import type {
   SetupFlowInput,
   SetupFlowResult,
@@ -67,6 +68,19 @@ export interface CallSetupFlowDeps {
   ): void;
   /** Invoked once the flow resolves, with its terminal result. */
   onComplete(result: SetupFlowResult): void;
+  /**
+   * Delay (ms) to wait after speaking a terminal prompt before tearing down
+   * the transport, so queued TTS playback isn't flushed by `endSession()`.
+   * Defaults to {@link getTtsPlaybackDelayMs}; overridable (e.g. `0`) so unit
+   * tests don't sleep for real seconds.
+   */
+  hangupDelayMs?: number;
+  /**
+   * Scheduler used to defer the transport teardown. Defaults to `setTimeout`;
+   * injectable so tests can drive timers deterministically. Must invoke `fn`
+   * after roughly `delayMs`.
+   */
+  schedule?: (fn: () => void, delayMs: number) => void;
 }
 
 // ── Flow ─────────────────────────────────────────────────────────────
@@ -122,7 +136,18 @@ export class CallSetupFlow implements SetupFlowInput {
 
   // ── Internal ────────────────────────────────────────────────────────
 
-  /** Speak the denial copy, end the session, and resolve as `ended`. */
+  /**
+   * Speak the denial copy, then resolve as `ended`. The transport teardown is
+   * deferred by the TTS playback delay so the denial audio has time to play —
+   * `endSession()` flushes any queued playback (e.g. on `MediaStreamOutput`),
+   * so calling it synchronously after `speakSystemPrompt()` (which only
+   * guarantees the audio was queued, not heard) would cut off the message.
+   *
+   * Mirrors the deny paths in `relay-server.ts` and `media-stream-server.ts`:
+   * the session is reported ended immediately, but the actual transport
+   * `endSession()` fires only after the (injectable) delay via a scheduled
+   * timer — it never blocks the event loop with a real sleep.
+   */
   private async handleDeny(
     outcome: Extract<SetupOutcome, { action: "deny" }>,
   ): Promise<SetupFlowResult> {
@@ -130,8 +155,16 @@ export class CallSetupFlow implements SetupFlowInput {
       logReason: outcome.logReason,
     });
     await this.deps.speakSystemPrompt(this.transport, outcome.message);
-    this.transport.endSession(outcome.logReason);
-    return this.complete({ kind: "ended", reason: outcome.logReason });
+    const result = this.complete({ kind: "ended", reason: outcome.logReason });
+    this.scheduleHangup(() => this.transport.endSession(outcome.logReason));
+    return result;
+  }
+
+  /** Defer a transport teardown by the (overridable) TTS playback delay. */
+  private scheduleHangup(fn: () => void): void {
+    const delayMs = this.deps.hangupDelayMs ?? getTtsPlaybackDelayMs();
+    const schedule = this.deps.schedule ?? setTimeout;
+    schedule(fn, delayMs);
   }
 
   /** Mark the flow completed, notify via `onComplete`, and return the result. */

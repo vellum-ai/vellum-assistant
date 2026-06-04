@@ -62,6 +62,9 @@ function makeDeps() {
   const completed: SetupFlowResult[] = [];
   const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
   const spoken: Array<{ text: string }> = [];
+  // Captured scheduled teardowns; tests fire them manually to assert the
+  // deny hangup is deferred rather than synchronous. No real timers run.
+  const scheduled: Array<{ fn: () => void; delayMs: number }> = [];
   const deps: CallSetupFlowDeps = {
     async speakSystemPrompt(_transport, text) {
       spoken.push({ text });
@@ -72,8 +75,12 @@ function makeDeps() {
     onComplete(result) {
       completed.push(result);
     },
+    hangupDelayMs: 1234,
+    schedule(fn, delayMs) {
+      scheduled.push({ fn, delayMs });
+    },
   };
-  return { deps, completed, events, spoken };
+  return { deps, completed, events, spoken, scheduled };
 }
 
 const RESOLVED: SetupResolved = {
@@ -120,7 +127,7 @@ describe("CallSetupFlow", () => {
     expect(transport.calls.ended).toHaveLength(0);
   });
 
-  test("deny speaks the message, ends the session, resolves to ended", async () => {
+  test("deny speaks the message and resolves to ended without ending the session synchronously", async () => {
     const outcome: SetupOutcome = {
       action: "deny",
       message: "This number is not authorized.",
@@ -136,17 +143,27 @@ describe("CallSetupFlow", () => {
     expect(depsCtx.spoken).toEqual([
       { text: "This number is not authorized." },
     ]);
-    expect(transport.calls.ended).toEqual([
-      "Inbound voice ACL: member policy deny",
-    ]);
+    // The transport teardown must NOT fire synchronously — endSession()
+    // flushes queued TTS playback, so the denial audio needs time to play.
+    expect(transport.calls.ended).toHaveLength(0);
+    // Instead the teardown is scheduled with the (injected) playback delay.
+    expect(depsCtx.scheduled).toHaveLength(1);
+    expect(depsCtx.scheduled[0]!.delayMs).toBe(1234);
+    // The session is still reported ended right away.
     expect(depsCtx.completed).toEqual([result]);
+    expect(flow.getState()).toBe("completed");
     expect(depsCtx.events).toEqual([
       {
         type: "inbound_acl_denied",
         payload: { logReason: "Inbound voice ACL: member policy deny" },
       },
     ]);
-    expect(flow.getState()).toBe("completed");
+
+    // Once the scheduled delay elapses, the session is torn down.
+    depsCtx.scheduled[0]!.fn();
+    expect(transport.calls.ended).toEqual([
+      "Inbound voice ACL: member policy deny",
+    ]);
   });
 
   test("unsupported actions throw UnsupportedSetupFlowError", async () => {
