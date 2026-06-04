@@ -49,7 +49,7 @@ export function AiPage() {
       <ImageGenerationCard />
       <TextToSpeechCard />
       <SpeechToTextCard />
-      <AcpCredentialsCard assistantId={assistantId} />
+      <AcpCredentialsCard />
     </div>
   );
 }

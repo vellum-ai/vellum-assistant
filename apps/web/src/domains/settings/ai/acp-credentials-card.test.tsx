@@ -31,6 +31,8 @@ interface LinkArgs {
   body: { field: string; value: string };
 }
 
+const ASSISTANT_ID = "asst-1";
+
 const linkMock = mock(async (_args: LinkArgs) => ({
   data: { field: _args.body.field, linked: true },
 }));
@@ -43,22 +45,37 @@ mock.module("@/lib/sentry/capture-error", () => ({
   captureError: () => {},
 }));
 
+// The card self-fetches its assistant id via `assistantsListOptions`; mock the
+// generated options factory and `useQuery` so the assistant id resolves the
+// same way `EmailServiceCard` derives it (results[0].id). Tests that need the
+// "no assistant" branch override `assistantListRef.results` to be empty.
+const assistantListRef: { results: { id: string }[] } = {
+  results: [{ id: ASSISTANT_ID }],
+};
+
+mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
+  assistantsListOptions: () => ({
+    queryKey: [{ _id: "assistantsList" }],
+  }),
+}));
+
+mock.module("@tanstack/react-query", () => ({
+  useQuery: () => ({ data: assistantListRef, isLoading: false, isError: false }),
+}));
+
 const { AcpCredentialsCard } = await import(
   "@/domains/settings/ai/acp-credentials-card"
 );
 
-const ASSISTANT_ID = "asst-1";
-
 afterEach(() => {
   cleanup();
   linkMock.mockClear();
+  assistantListRef.results = [{ id: ASSISTANT_ID }];
 });
 
 describe("AcpCredentialsCard", () => {
   test("states the in-pod privacy model", () => {
-    const { getByText } = render(
-      <AcpCredentialsCard assistantId={ASSISTANT_ID} />,
-    );
+    const { getByText } = render(<AcpCredentialsCard />);
     expect(
       getByText(/stored only in your private environment/i),
     ).toBeDefined();
@@ -67,7 +84,7 @@ describe("AcpCredentialsCard", () => {
 
   test("links the git token, then Replace overwrites the stored secret", async () => {
     const { getByLabelText, getByText, queryByText, queryByLabelText } = render(
-      <AcpCredentialsCard assistantId={ASSISTANT_ID} />,
+      <AcpCredentialsCard />,
     );
 
     const gitInput = getByLabelText("Git token") as HTMLInputElement;
@@ -131,7 +148,7 @@ describe("AcpCredentialsCard", () => {
 
   test("switching the Claude dropdown during replace and linking clears the replace form", async () => {
     const { getByLabelText, getByText, queryByText, queryByLabelText } = render(
-      <AcpCredentialsCard assistantId={ASSISTANT_ID} />,
+      <AcpCredentialsCard />,
     );
 
     // Link the Claude OAuth token (the default dropdown mode).
@@ -205,9 +222,8 @@ describe("AcpCredentialsCard", () => {
   });
 
   test("does not call the daemon when no assistant is present", () => {
-    const { getByText, queryByLabelText } = render(
-      <AcpCredentialsCard assistantId={undefined} />,
-    );
+    assistantListRef.results = [];
+    const { getByText, queryByLabelText } = render(<AcpCredentialsCard />);
     expect(getByText(/No assistant found yet/i)).toBeDefined();
     expect(queryByLabelText("Git token")).toBeNull();
     expect(linkMock).not.toHaveBeenCalled();

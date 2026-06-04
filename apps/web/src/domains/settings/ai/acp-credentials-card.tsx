@@ -2,12 +2,15 @@ import type { ReactNode } from "react";
 import { CircleCheck, Loader2, ShieldCheck } from "lucide-react";
 import { useCallback, useState } from "react";
 
+import { useQuery } from "@tanstack/react-query";
+
 import { Button } from "@vellum/design-library/components/button";
 import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Input } from "@vellum/design-library/components/input";
 import { Notice } from "@vellum/design-library/components/notice";
 import { Typography } from "@vellum/design-library/components/typography";
 
+import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
 import { acpCredentialsLinkPost } from "@/generated/daemon/sdk.gen";
 import type { AcpCredentialsLinkPostData } from "@/generated/daemon/types.gen";
 import { DetailCard } from "@/components/detail-card";
@@ -41,10 +44,6 @@ type AcpField = AcpCredentialsLinkPostData["body"]["field"];
 
 type ClaudeMode = "claude_oauth_token" | "anthropic_api_key";
 
-interface AcpCredentialsCardProps {
-  assistantId: string | undefined;
-}
-
 const CLAUDE_MODE_OPTIONS: { value: ClaudeMode; label: string }[] = [
   { value: "claude_oauth_token", label: "Claude OAuth token" },
   { value: "anthropic_api_key", label: "Anthropic API key" },
@@ -57,7 +56,12 @@ const FIELD_LABEL: Record<AcpField, string> = {
   git_token: "Git token",
 };
 
-export function AcpCredentialsCard({ assistantId }: AcpCredentialsCardProps) {
+export function AcpCredentialsCard() {
+  // Self-fetch the assistant id (mirrors EmailServiceCard) rather than taking
+  // it as a prop — the AI settings page no longer threads it down.
+  const { data: assistantList } = useQuery(assistantsListOptions());
+  const assistantId = assistantList?.results?.[0]?.id;
+
   // Which Claude credential the user wants to link.
   const [claudeMode, setClaudeMode] = useState<ClaudeMode>("claude_oauth_token");
 
