@@ -109,6 +109,18 @@ describe("resolveNavigation", () => {
       ).toEqual(ALLOW);
     });
 
+    test("query strings do not break onboarding path matching", () => {
+      expect(
+        guard(s({ onboardingCompleted: true, isReplay: true }), "/assistant/onboarding/privacy?replay=1"),
+      ).toEqual(ALLOW);
+      expect(
+        guard(
+          s({ onboardingCompleted: false, tosAccepted: true, aiDataConsent: true }),
+          "/assistant/onboarding/hatching?hosting=local",
+        ),
+      ).toEqual(ALLOW);
+    });
+
     test("redirects non-local user from local-only onboarding screen", () => {
       expect(
         guard(s({ isLocalMode: false, onboardingCompleted: false }), "/assistant/onboarding/welcome"),

@@ -216,18 +216,13 @@ function probePlatformSession(
     .then(async (result) => {
       if (isStale()) return;
       if (result.ok && result.data.user) {
-        set(
-          options.setUserOnSuccess
-            ? {
-                platformSession: "present",
-                user: toAuthUser(result.data.user),
-              }
-            : { platformSession: "present" },
-        );
-        // Sync platform assistants to lockfile so hasAssistants() reflects
-        // all known assistants (local + platform) by the time any routing
-        // decision runs. This closes the gap where a user creates a platform
-        // assistant on vellum.ai and then opens the desktop app.
+        const userUpdate = options.setUserOnSuccess
+          ? { user: toAuthUser(result.data.user) }
+          : {};
+        // Sync platform assistants to the lockfile BEFORE setting
+        // platformSession to "present". The auth middleware unblocks on
+        // `platformSession !== "unknown"`, and hasAssistants() must
+        // already reflect synced platform assistants at that point.
         if (isLocalMode()) {
           try {
             const apiAssistants = await listAssistants();
@@ -238,6 +233,8 @@ function probePlatformSession(
             // Sync failed — continue with cached lockfile data
           }
         }
+        if (isStale()) return;
+        set({ platformSession: "present", ...userUpdate });
       } else if (options.clearOnFailure) {
         set({ platformSession: "absent" });
       }

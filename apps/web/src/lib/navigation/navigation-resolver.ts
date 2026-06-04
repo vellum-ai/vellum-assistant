@@ -109,8 +109,13 @@ export function resolveNavigation(
 
 function resolveRouteGuard(
   state: NavigationState,
-  pathname: string,
+  pathnameWithSearch: string,
 ): NavigationDecision {
+  // Split off the query string so path-matching uses the bare path,
+  // but returnTo encoding preserves the full URL for post-login return.
+  const qIdx = pathnameWithSearch.indexOf("?");
+  const path = qIdx >= 0 ? pathnameWithSearch.slice(0, qIdx) : pathnameWithSearch;
+
   // 1. Wait for session to settle
   if (!state.sessionSettled) return { action: "wait" };
 
@@ -119,25 +124,25 @@ function resolveRouteGuard(
 
   // 3. Unauthenticated
   if (!state.isAuthenticated) {
-    if (state.isLocalMode && isOnboardingPath(pathname)) return { action: "allow" };
+    if (state.isLocalMode && isOnboardingPath(path)) return { action: "allow" };
     if (state.isLocalMode && !state.hasAssistants && !effectiveOnboardingCompleted(state)) {
       return { action: "redirect", to: routes.onboarding.welcome };
     }
     return {
       action: "redirect",
-      to: `${routes.account.login}?returnTo=${encodeURIComponent(pathname)}`,
+      to: `${routes.account.login}?returnTo=${encodeURIComponent(pathnameWithSearch)}`,
     };
   }
 
   // 4. Authenticated, on an onboarding route
-  if (isOnboardingPath(pathname)) {
+  if (isOnboardingPath(path)) {
     if (effectiveOnboardingCompleted(state) && !state.isReplay) {
       return { action: "redirect", to: routes.assistant };
     }
-    if (LOCAL_ONLY_ONBOARDING_PATHS.has(pathname) && !state.isLocalMode) {
+    if (LOCAL_ONLY_ONBOARDING_PATHS.has(path) && !state.isLocalMode) {
       return { action: "redirect", to: routes.assistant };
     }
-    if (pathname === routes.onboarding.hatching && !(state.tosAccepted && state.aiDataConsent)) {
+    if (path === routes.onboarding.hatching && !(state.tosAccepted && state.aiDataConsent)) {
       return { action: "redirect", to: onboardingEntrypoint(state.isLocalMode) };
     }
     return { action: "allow" };

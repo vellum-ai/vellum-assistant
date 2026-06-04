@@ -28,7 +28,7 @@ export const authMiddleware: MiddlewareFunction = async ({ request, context }, n
 
   const decision = resolveNavigation(state, {
     kind: "route-guard",
-    pathname: url.pathname,
+    pathname: url.pathname + url.search,
   });
 
   if (decision.action === "wait") {
