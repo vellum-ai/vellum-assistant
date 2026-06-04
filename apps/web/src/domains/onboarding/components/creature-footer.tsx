@@ -14,6 +14,12 @@ import { publicAsset } from "@/utils/public-asset";
  * makes the layout viewport span the full physical screen.
  *
  * Uses a plain `<img>` (Vite serves static assets — no Next.js Image needed).
+ *
+ * `w-[108%]` (slightly wider than the viewport) intentionally enlarges the
+ * creatures ~8%; the parent's `overflow-hidden` + `justify-center` trim the
+ * resulting sliver evenly off the left/right edge creatures. `max-w-[900px]`
+ * still caps the strip on wide (desktop) viewports, so the bump only applies
+ * at phone widths where the art would otherwise be exactly viewport-wide.
  */
 export function CreatureFooter({ className = "" }: { className?: string }) {
   return (
@@ -26,7 +32,7 @@ export function CreatureFooter({ className = "" }: { className?: string }) {
         alt=""
         width={1200}
         height={180}
-        className="w-full max-w-[900px] object-cover object-bottom"
+        className="w-[108%] max-w-[900px] object-cover object-bottom"
       />
     </div>
   );
