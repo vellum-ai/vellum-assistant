@@ -46,7 +46,16 @@ const EXCLUDED_PREFIXES = [
 
 const EXCLUDED_SEGMENTS = ["/playground/"];
 
+/**
+ * Web-facing exceptions that fall under an excluded prefix but ARE proxied
+ * through the platform gateway and consumed by the web app. Most `/v1/acp/`
+ * routes are CLI-only session endpoints, but credential-linking is a settings
+ * UI flow and must be present in the generated SDK.
+ */
+const INCLUDED_PATHS = ["/v1/acp/credentials/link"];
+
 function shouldExclude(path: string): boolean {
+  if (INCLUDED_PATHS.includes(path)) return false;
   if (EXCLUDED_PREFIXES.some((prefix) => path.startsWith(prefix))) return true;
   if (EXCLUDED_SEGMENTS.some((seg) => path.includes(seg))) return true;
   return false;
