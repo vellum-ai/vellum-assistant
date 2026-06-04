@@ -31,7 +31,7 @@ interface SetupContext {
 
 // ── Setup outcomes ───────────────────────────────────────────────────
 
-type SetupOutcome =
+export type SetupOutcome =
   | { action: "normal_call"; isInbound: boolean }
   | {
       action: "verification";
