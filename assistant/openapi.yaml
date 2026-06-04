@@ -12742,7 +12742,7 @@ paths:
     get:
       operationId: identity_intro_get
       summary: Get identity greetings
-      description: Returns an array of greetings sourced from SOUL.md, LLM cache, or static fallbacks.
+      description: Returns greetings sourced from SOUL.md, the generated cache, fresh LLM generation, or generic fallbacks.
       tags:
         - identity
       responses:
