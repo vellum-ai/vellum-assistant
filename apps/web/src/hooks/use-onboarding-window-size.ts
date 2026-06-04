@@ -4,33 +4,43 @@ import { useLocation } from "react-router";
 import { setOnboardingWindow } from "@/runtime/main-window";
 
 /**
- * Shared path prefix of every onboarding step route (welcome, hosting,
- * api-key, privacy, prechat, hatching — all under
- * `/assistant/onboarding/*`; see `routes.onboarding` in `@/utils/routes`).
- * Matching the prefix keeps the onboarding window size applied for the
- * whole flow without re-listing each step.
+ * Route prefixes that should render in the compact (440×630) window: the
+ * onboarding flow (`/assistant/onboarding/*`) and the standalone auth
+ * screens (`/account/*` — login, signup, password reset, OAuth callbacks).
+ * Both are chrome-less, narrow, pre-app surfaces. Everything else (the main
+ * app) uses the large window.
+ *
+ * `/assistant/about` is deliberately NOT here, and the hook is never mounted
+ * on it — it renders in a separate About `BrowserWindow` off the same SPA,
+ * and the resize IPC targets the main window, so signalling from there would
+ * resize the wrong window.
  */
-const ONBOARDING_PATH_PREFIX = "/assistant/onboarding/";
+const COMPACT_PATH_PREFIXES = ["/assistant/onboarding/", "/account"];
+
+function isCompactRoute(pathname: string): boolean {
+  return COMPACT_PATH_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+}
 
 /**
- * Keep the Electron main window sized to the onboarding layout (440×630,
- * matching the macOS Swift client) while an onboarding step is showing,
- * and let it grow back to the resizable main-app size everywhere else.
+ * Keep the Electron main window sized to the compact layout (440×630,
+ * matching the macOS Swift client) while on a compact route — onboarding or
+ * the `/account/*` auth screens — and large everywhere else in the app.
  *
- * Mounted once at the app root (`RootLayout`). Off Electron the call is a
- * no-op, so this is inert on web and iOS. Driving it from the route — not
- * the `onboarding.completed` flag — keeps the small window applied across
- * every step (including the post-completion-flag prechat/hatching screens,
- * which the macOS client also shows in the small window).
+ * Mounted on every route group whose content lives in the main window:
+ * `RootLayout` (the `/assistant` app, incl. onboarding) and the `/account`
+ * layout. Off Electron the call is a no-op, so this is inert on web and iOS.
+ * Driving it from the route — not the `onboarding.completed` flag — keeps
+ * the small window applied across the whole pre-app surface, including the
+ * post-completion-flag prechat/hatching screens.
  */
 export function useOnboardingWindowSize(): void {
   const { pathname } = useLocation();
-  const isOnboarding = pathname.startsWith(ONBOARDING_PATH_PREFIX);
+  const isCompact = isCompactRoute(pathname);
 
-  // Depend on the derived boolean, not the raw pathname, so the effect
-  // (and its IPC round-trip) only runs when onboarding-ness actually flips
-  // — not on every navigation within the app or within the flow.
+  // Depend on the derived boolean, not the raw pathname, so the effect (and
+  // its IPC round-trip) only runs when compact-ness actually flips — not on
+  // every navigation within a group.
   useEffect(() => {
-    void setOnboardingWindow(isOnboarding);
-  }, [isOnboarding]);
+    void setOnboardingWindow(isCompact);
+  }, [isCompact]);
 }

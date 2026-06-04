@@ -42,6 +42,22 @@ describe("useOnboardingWindowSize", () => {
     expect(setOnboardingWindowMock).toHaveBeenLastCalledWith(false);
   });
 
+  test("requests the small window on the /account auth screens", () => {
+    for (const path of [
+      "/account",
+      "/account/login",
+      "/account/signup",
+      "/account/provider/callback",
+      "/account/password/reset",
+    ]) {
+      setOnboardingWindowMock.mockClear();
+      currentPath = path;
+      const { unmount } = renderHook(() => useOnboardingWindowSize());
+      expect(setOnboardingWindowMock).toHaveBeenLastCalledWith(true);
+      unmount();
+    }
+  });
+
   test("covers every onboarding step under the shared prefix", () => {
     for (const step of [
       "/assistant/onboarding/welcome",

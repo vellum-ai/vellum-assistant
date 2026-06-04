@@ -6,6 +6,7 @@ import {
   onboardingCompletedMiddleware,
 } from "@/lib/onboarding-middleware";
 import { RootLayout } from "@/root-layout";
+import { AccountLayout } from "@/domains/account/account-layout";
 import { ChatLayout } from "@/domains/chat/chat-layout";
 import { ChatPage } from "@/domains/chat/chat-page";
 import { ConversationRedirect } from "@/domains/chat/conversation-redirect";
@@ -54,6 +55,9 @@ export const router = createBrowserRouter(
       path: "/account",
       ErrorBoundary: RouteErrorBoundary,
       HydrateFallback: RootHydrateFallback,
+      // Sizes the main window compact (440×630) for the auth screens, which
+      // render outside RootLayout. Renders the child routes via <Outlet/>.
+      Component: AccountLayout,
       children: [
         // Pathless wrapper so lazy-chunk failures render the chunk-fail
         // variant of `RouteErrorBoundary` (inline copy + Reload button)
