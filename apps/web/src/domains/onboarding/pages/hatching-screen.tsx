@@ -5,7 +5,7 @@ import { useNavigate, useSearchParams } from "react-router";
 
 import { Button } from "@vellum/design-library/components/button";
 import { ProgressBar } from "@vellum/design-library/components/progress-bar";
-import { getAssistant, hatchAssistant } from "@/assistant/api";
+import { getAssistant } from "@/assistant/api";
 import {
   isPlatformHostedDisabled,
   PLATFORM_HOSTED_DISABLED_MESSAGE,
@@ -20,14 +20,18 @@ import type { CharacterTraits } from "@/types/avatar";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { extractErrorMessage } from "@/utils/api-errors";
 import { isLocalMode, loadLockfile, setSelectedAssistantId, saveLockfileAssistant, primeLocalGatewayConnection, getLocalGatewayUrl } from "@/lib/local-mode";
-import { hatchLocalAssistant } from "@/runtime/local-mode-host";
 import { getOnboardingEntrypoint } from "@/domains/onboarding/gate";
+import {
+  getLocalHatchPromise,
+  getPlatformHatchPromise,
+  clearLocalHatch,
+  clearPlatformHatch,
+} from "@/domains/onboarding/hatch-trigger";
 import { applyPendingProviderKey } from "@/domains/onboarding/provider-key";
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import {
   readAiDataConsent,
   readOnboardingCompleted,
-  readSelectedVersion,
   readTosAccepted,
   useOnboardingCompleted,
   writeSelectedVersion,
@@ -49,11 +53,6 @@ import { routes } from "@/utils/routes";
 const POLL_INTERVAL_MS = 3000;
 const COMPLETION_NAVIGATE_DELAY_MS = 800;
 const MAX_HATCH_WAIT_MS = 300_000;
-
-// Module-level promises so HMR remounts and StrictMode double-mounts
-// can await the same in-flight hatch instead of spawning duplicates.
-let localHatchPromise: Promise<import("@/runtime/local-mode-host").LocalHatchResult> | null = null;
-let platformHatchPromise: Promise<import("@/assistant/api").HatchResult> | null = null;
 
 type HatchPhase = "initializing" | "provisioning" | "connecting" | "ready";
 
@@ -98,7 +97,7 @@ export function decideHatchGate(input: {
   cameFromPrivacyScreen: boolean;
 }): HatchGateDecision {
   if (!isSessionSettled(input.sessionStatus)) return { kind: "wait" };
-  if (!isAuthenticated(input.sessionStatus)) {
+  if (!isAuthenticated(input.sessionStatus) && !isLocalMode()) {
     return { kind: "redirect", to: routes.account.login };
   }
   if (input.onboardingCompleted && !input.isReplay) {
@@ -122,6 +121,16 @@ export function HatchingScreen() {
   const useLocalHatch = isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud";
   const userId = useAuthStore.use.user()?.id ?? null;
   const sessionStatus = useAuthStore.use.sessionStatus();
+
+  // Refs for values the hatch effect reads but must NOT restart on.
+  // The platform-session probe can settle mid-hatch and change userId
+  // (from the local placeholder to the real platform user), which would
+  // re-trigger the effect, cancel the in-flight readiness poll, and
+  // start a duplicate hatch.
+  const userIdRef = useRef(userId);
+  userIdRef.current = userId;
+  const sessionStatusRef = useRef(sessionStatus);
+  sessionStatusRef.current = sessionStatus;
   const [, setOnboardingCompleted] = useOnboardingCompleted();
   const [hatchTraits] = useState<CharacterTraits>(() =>
     randomCharacterTraits(BUNDLED_COMPONENTS),
@@ -158,9 +167,11 @@ export function HatchingScreen() {
 
 
   useEffect(() => {
-    const cameFromPrivacyScreen = hasRecentPrivacyConsent(userId);
+    const snapshotUserId = userIdRef.current;
+    const snapshotSessionStatus = sessionStatusRef.current;
+    const cameFromPrivacyScreen = hasRecentPrivacyConsent(snapshotUserId);
     const decision = decideHatchGate({
-      sessionStatus,
+      sessionStatus: snapshotSessionStatus,
       isReplay,
       onboardingCompleted: readOnboardingCompleted(),
       tosAccepted: readTosAccepted(),
@@ -181,15 +192,13 @@ export function HatchingScreen() {
     let readyPollTimer: ReturnType<typeof setTimeout> | null = null;
     const pollStartMs = Date.now();
 
-    const pinnedVersion = readSelectedVersion();
-
     const handleHatchReady = () => {
       try {
         writeSelectedVersion("");
       } catch (err) {
         captureError(err, { context: "onboarding_mark_completed" });
       }
-      markPrivacyConsent(userId);
+      markPrivacyConsent(userIdRef.current);
       setDisplayProgress(1);
       displayProgressRef.current = 1;
       segmentStartRef.current = 1;
@@ -234,19 +243,18 @@ export function HatchingScreen() {
         return;
       }
 
-      // Local/Docker hatch lifecycle:
-      // 1. hatchLocalAssistant() runs the CLI (Vite middleware on web/dev,
-      //    main process over IPC in Electron) to spawn the daemon + gateway
-      // 2. Reload lockfile to discover the new assistant
-      // 3. Acquire gateway token + set self-hosted connection
-      // 4. Navigate to pre-chat flow
+      // The privacy screen fires the hatch before navigating here.
+      // If the promise is missing (page refresh, direct URL entry),
+      // bounce back to the privacy screen rather than re-triggering.
       if (useLocalHatch) {
+        const hatchPromise = getLocalHatchPromise();
+        if (!hatchPromise) {
+          void navigate(getOnboardingEntrypoint(), { replace: true });
+          return;
+        }
         try {
-          if (!localHatchPromise) {
-            localHatchPromise = hatchLocalAssistant();
-          }
-          const result = await localHatchPromise;
-          localHatchPromise = null;
+          const result = await hatchPromise;
+          clearLocalHatch();
           if (cancelled) return;
           if (!result.ok) {
             setError(result.error ?? "Failed to hatch local assistant.");
@@ -257,12 +265,6 @@ export function HatchingScreen() {
             setSelectedAssistantId(result.assistantId);
           }
 
-          // Wait for the gateway + daemon to be fully ready before proceeding.
-          // The CLI's hatch command spawns them as background processes and exits
-          // before they finish starting up. We poll /readyz (gateway + upstream
-          // daemon) and then attempt to acquire the gateway auth token. Both must
-          // succeed before we navigate away — the guardian token file may not
-          // exist on disk until after /readyz passes.
           transitionPhase("connecting");
           let gatewayReady = false;
           while (!cancelled && !gatewayReady) {
@@ -298,9 +300,6 @@ export function HatchingScreen() {
           }
           if (cancelled) return;
 
-          // Apply the model-provider key collected on the API-key step to the
-          // freshly hatched assistant. Non-blocking on failure — onboarding
-          // proceeds and the user can fix it in Settings.
           if (result.assistantId) {
             try {
               await applyPendingProviderKey(result.assistantId);
@@ -311,21 +310,21 @@ export function HatchingScreen() {
 
           handleHatchReady();
         } catch {
-          localHatchPromise = null;
+          clearLocalHatch();
           if (cancelled) return;
           setError("Failed to hatch local assistant. Check CLI logs for details.");
         }
         return;
       }
 
+      const platformPromise = getPlatformHatchPromise();
+      if (!platformPromise) {
+        void navigate(getOnboardingEntrypoint(), { replace: true });
+        return;
+      }
       try {
-        if (!platformHatchPromise) {
-          platformHatchPromise = hatchAssistant(
-            pinnedVersion ? { version: pinnedVersion } : undefined,
-          );
-        }
-        const result = await platformHatchPromise;
-        platformHatchPromise = null;
+        const result = await platformPromise;
+        clearPlatformHatch();
         if (cancelled) return;
         if (!result.ok) {
           Sentry.captureMessage("Onboarding hatch request failed", {
@@ -351,7 +350,7 @@ export function HatchingScreen() {
           }
         }
       } catch (err) {
-        platformHatchPromise = null;
+        clearPlatformHatch();
         captureError(err, { context: "onboarding_hatch_assistant" });
         if (cancelled) return;
       }
@@ -425,16 +424,18 @@ export function HatchingScreen() {
       if (navigateTimer) clearTimeout(navigateTimer);
       if (readyPollTimer) clearTimeout(readyPollTimer);
     };
+  // sessionStatus and userId are read via refs — they inform the
+  // initial gate decision but must not restart a running hatch when
+  // the platform-session probe settles and changes them mid-flow.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     attempt,
     hatchTraits,
-    sessionStatus,
     isReplay,
     navigate,
     setOnboardingCompleted,
     transitionPhase,
     useLocalHatch,
-    userId,
   ]);
 
   useEffect(() => {

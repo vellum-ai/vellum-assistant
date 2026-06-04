@@ -23,7 +23,9 @@ import {
   useShareDiagnostics,
   useTosAccepted,
 } from "@/domains/onboarding/prefs";
+import { triggerLocalHatch, triggerPlatformHatch } from "@/domains/onboarding/hatch-trigger";
 import { markPrivacyConsent } from "@/domains/onboarding/signals";
+import { isLocalMode } from "@/lib/local-mode";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useAuthStore } from "@/stores/auth-store";
@@ -110,9 +112,19 @@ export function PrivacyScreen() {
         variant,
       });
     }
-    // Preserve the hosting param (Local/Docker need it so hatching runs the
-    // local hatch instead of a platform hatch).
     const hostingParam = searchParams.get("hosting");
+    const useLocalHatch = isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud";
+
+    // Fire the hatch before navigating so the hatching screen picks up
+    // the in-flight promise instead of triggering its own.
+    if (!isReplay) {
+      if (useLocalHatch) {
+        triggerLocalHatch();
+      } else {
+        triggerPlatformHatch();
+      }
+    }
+
     const params = new URLSearchParams();
     if (hostingParam) params.set("hosting", hostingParam);
     if (isReplay) params.set("replay", "1");

@@ -2,10 +2,14 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const isLocalModeMock = mock(() => true);
 const hasAssistantsMock = mock(() => false);
+const readOnboardingCompletedMock = mock(() => false);
 mock.module("@/lib/local-mode", () => ({
   isLocalMode: isLocalModeMock,
   hasAssistants: hasAssistantsMock,
   getLocalGatewayUrl: () => undefined,
+}));
+mock.module("@/domains/onboarding/prefs", () => ({
+  readOnboardingCompleted: readOnboardingCompletedMock,
 }));
 
 import { authMiddleware } from "./auth-middleware";
@@ -39,11 +43,72 @@ const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
 beforeEach(() => {
   isLocalModeMock.mockImplementation(() => true);
   hasAssistantsMock.mockImplementation(() => false);
+  readOnboardingCompletedMock.mockImplementation(() => false);
   useAuthStore.setState(initialAuthState, true);
 });
 
 afterEach(() => {
   useAuthStore.setState(initialAuthState, true);
+});
+
+describe("authMiddleware — unauthenticated local mode", () => {
+  test("redirects to onboarding welcome instead of login", async () => {
+    useAuthStore.setState({
+      sessionStatus: "unauthenticated",
+      user: null,
+      platformSession: "absent",
+    });
+
+    const res = await runMiddleware(routes.assistant);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe(routes.onboarding.welcome);
+  });
+
+  test("allows onboarding routes through without authentication", async () => {
+    useAuthStore.setState({
+      sessionStatus: "unauthenticated",
+      user: null,
+      platformSession: "absent",
+    });
+
+    const args = {
+      request: new Request(`http://localhost${routes.onboarding.hosting}`),
+      context: { set: () => {}, get: () => null },
+    } as unknown as Parameters<typeof authMiddleware>[0];
+    let nextCalled = false;
+    const next = (async () => {
+      nextCalled = true;
+      return new Response();
+    }) as Parameters<typeof authMiddleware>[1];
+    await authMiddleware(args, next);
+    expect(nextCalled).toBe(true);
+  });
+
+  test("redirects to login when onboarding already completed", async () => {
+    readOnboardingCompletedMock.mockImplementation(() => true);
+    useAuthStore.setState({
+      sessionStatus: "unauthenticated",
+      user: null,
+      platformSession: "absent",
+    });
+
+    const res = await runMiddleware(routes.assistant);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toContain("/account/login");
+  });
+
+  test("redirects to login in platform mode when unauthenticated", async () => {
+    isLocalModeMock.mockImplementation(() => false);
+    useAuthStore.setState({
+      sessionStatus: "unauthenticated",
+      user: null,
+      platformSession: "absent",
+    });
+
+    const res = await runMiddleware(routes.assistant);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toContain("/account/login");
+  });
 });
 
 describe("authMiddleware — local-mode onboarding fork", () => {

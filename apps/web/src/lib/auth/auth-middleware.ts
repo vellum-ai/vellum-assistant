@@ -18,8 +18,10 @@ import { useAuthStore, type AuthUser } from "@/stores/auth-store";
 import { isAuthenticated, isSessionSettled } from "@/stores/session-status";
 import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
 import { isLocalMode, hasAssistants } from "@/lib/local-mode";
+import { readOnboardingCompleted } from "@/domains/onboarding/prefs";
 import { resolveLocalOnboardingRoute } from "@/utils/local-onboarding-route";
 import { whenStoreState } from "@/utils/when-store-state";
+import { routes } from "@/utils/routes";
 
 export const authUserContext = createRouterContext<AuthUser | null>(null);
 
@@ -35,6 +37,19 @@ export const authMiddleware: MiddlewareFunction = async ({ request, context }, n
     if (isGatewayAuthMode()) {
       return next();
     }
+
+    if (isLocalMode()) {
+      const url = new URL(request.url);
+      if (url.pathname.includes("/onboarding/")) {
+        return next();
+      }
+      // Fresh user: route to the onboarding welcome. Returning user
+      // with an expired session: route to login so they re-auth.
+      if (!readOnboardingCompleted()) {
+        throw redirect(routes.onboarding.welcome);
+      }
+    }
+
     const url = new URL(request.url);
     const returnTo = encodeURIComponent(url.pathname + url.search);
     throw redirect(`/account/login?returnTo=${returnTo}`);
