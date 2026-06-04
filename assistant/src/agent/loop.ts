@@ -491,14 +491,10 @@ export interface ResolvedSystemPrompt {
  */
 export interface MidLoopCompaction {
   /**
-   * Re-apply runtime injections onto the post-compaction history the loop
-   * passes in and return the history to continue from. The loop supplies the
-   * committed base (the compacted messages when the pipeline compacted, the
-   * stripped pre-compaction history otherwise) and the per-turn `turnContext`
-   * it ran the turn with via {@link PostCompactionHookInput}, so the hook
-   * re-injects from the loop's own working state rather than reading it back
-   * from orchestrator state. The input is an object so further re-injection
-   * inputs can migrate loop-ward by growing that type.
+   * Re-apply runtime injections onto the post-compaction history and return
+   * the history to continue from. The loop supplies its own working state via
+   * {@link PostCompactionHookInput} so the hook re-injects from that rather
+   * than reading it back from orchestrator state.
    */
   postCompactionHook: (input: PostCompactionHookInput) => Promise<Message[]>;
 }
@@ -733,17 +729,14 @@ export class AgentLoop {
    * out or exhausted its retry budget so the caller yields
    * `exitReason = "budget"` and the orchestrator escalates.
    *
-   * `turnContext` is the loop-scoped pipeline context (its `turnIndex` is the
-   * tool-use iteration) used for the compaction call and circuit-breaker
-   * accounting. `reinjectTurnContext` is the per-turn conversation context the
-   * post-compaction hook forwards to the injector chain — its `turnIndex` is
-   * the conversation turn count, so re-injection observes/logs against the
-   * conversation turn rather than the loop iteration.
+   * `turnContext` is the per-turn conversation context: it drives the
+   * compaction pipeline call and circuit-breaker accounting, and is forwarded
+   * to the post-compaction hook so re-injection observes/logs against the
+   * conversation turn.
    */
   private async compact(
     history: Message[],
     turnContext: TurnContext,
-    reinjectTurnContext: TurnContext | undefined,
     compaction: MidLoopCompaction,
     signal: AbortSignal | undefined,
     onEvent: (event: AgentEvent) => void | Promise<void>,
@@ -818,12 +811,9 @@ export class AgentLoop {
     // Re-inject onto the same base the `compaction_completed` dispatch commits:
     // the compacted messages when the pipeline compacted, the stripped
     // pre-compaction history otherwise.
-    const reinjectBase = compactResult.compacted
-      ? compactResult.messages
-      : rawHistory;
     return compaction.postCompactionHook({
-      history: reinjectBase,
-      turnContext: reinjectTurnContext,
+      history: compactResult.compacted ? compactResult.messages : rawHistory,
+      turnContext,
     });
   }
 
@@ -1599,8 +1589,7 @@ export class AgentLoop {
               );
               const compacted = await this.compact(
                 history,
-                turnCtx,
-                turnContext,
+                turnContext ?? turnCtx,
                 compaction,
                 signal,
                 onEvent,

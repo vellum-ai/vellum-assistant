@@ -32,21 +32,14 @@ import type { TurnContext } from "../../../types.js";
 
 /**
  * The slice of the hook's context the agent loop supplies from its own working
- * state: the post-compaction `history` to re-inject onto and the canonical
- * per-turn `turnContext` the loop already holds. As further re-injection inputs
- * migrate loop-ward they are added here, and the loop hands the hook an object
- * of this shape via {@link MidLoopCompaction.postCompactionHook}.
+ * state. Re-injection inputs migrate loop-ward by growing this type; the loop
+ * hands the hook an object of this shape via
+ * {@link MidLoopCompaction.postCompactionHook}.
  */
 export interface PostCompactionHookInput {
   /** Compacted message history to re-inject onto. */
   history: Message[];
-  /**
-   * Canonical per-turn conversation context forwarded to the injector chain;
-   * its `turnIndex` is the conversation turn count (not the loop's tool-use
-   * iteration), so re-injection observes/logs against the conversation turn.
-   * Optional to match {@link RuntimeInjectionOptions.turnContext}; the loop
-   * supplies the same base context the orchestrator threaded into the turn.
-   */
+  /** Per-turn conversation context forwarded to the injector chain. */
   turnContext?: TurnContext;
 }
 
