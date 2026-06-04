@@ -94,6 +94,7 @@ import { HOOKS } from "../plugin-api/constants.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
 import { defaultCompactionTerminal } from "../plugins/defaults/compaction/terminal.js";
 import { deepRepairHistory } from "../plugins/defaults/history-repair/terminal.js";
+import postCompactReinject from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
 import {
   asDefaultGraphPayload,
   type DefaultMemoryRetrievalDeps,
@@ -2059,7 +2060,7 @@ export async function runAgentLoopImpl(
         // stripInjectionsForCompaction() unconditionally removed the existing
         // NOW.md block, so re-inject the current content regardless of whether
         // compaction actually ran.
-        const injection = await applyRuntimeInjections(ctx.messages, {
+        const injection = await postCompactReinject(ctx.messages, {
           ...injectionOpts,
           pkbContext: currentPkbContent,
           memoryV2Static: currentMemoryV2Static,
