@@ -26,6 +26,8 @@ import {
   getPlatformHatchPromise,
   clearLocalHatch,
   clearPlatformHatch,
+  triggerLocalHatch,
+  triggerPlatformHatch,
 } from "@/domains/onboarding/hatch-trigger";
 import { applyPendingProviderKey } from "@/domains/onboarding/provider-key";
 import { lifecycleService } from "@/assistant/lifecycle-service";
@@ -165,6 +167,17 @@ export function HatchingScreen() {
     setAnimationEpoch((n) => n + 1);
   }, []);
 
+  // If the main effect returned early because the session wasn't settled
+  // yet ("wait"), re-trigger it once the session settles so the gate
+  // can re-evaluate. This is a separate effect so sessionStatus changes
+  // during an in-flight hatch don't restart the main effect.
+  const [gateWaiting, setGateWaiting] = useState(false);
+  useEffect(() => {
+    if (gateWaiting && isSessionSettled(sessionStatus)) {
+      setGateWaiting(false);
+      setAttempt((n) => n + 1);
+    }
+  }, [gateWaiting, sessionStatus]);
 
   useEffect(() => {
     const snapshotUserId = userIdRef.current;
@@ -182,7 +195,10 @@ export function HatchingScreen() {
       void navigate(decision.to, { replace: true });
       return;
     }
-    if (decision.kind === "wait") return;
+    if (decision.kind === "wait") {
+      setGateWaiting(true);
+      return;
+    }
 
     setPlatformHostedDisabled(false);
 
@@ -516,6 +532,11 @@ export function HatchingScreen() {
                 setAnimationEpoch((n) => n + 1);
                 setError(null);
                 setPlatformHostedDisabled(false);
+                if (useLocalHatch) {
+                  triggerLocalHatch();
+                } else {
+                  triggerPlatformHatch();
+                }
                 setAttempt((n) => n + 1);
               }}
             >

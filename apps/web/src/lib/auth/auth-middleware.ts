@@ -40,7 +40,7 @@ export const authMiddleware: MiddlewareFunction = async ({ request, context }, n
 
     if (isLocalMode()) {
       const url = new URL(request.url);
-      if (url.pathname.includes("/onboarding/")) {
+      if (url.pathname.startsWith("/assistant/onboarding/")) {
         return next();
       }
       // Fresh user: route to the onboarding welcome. Returning user
@@ -57,7 +57,7 @@ export const authMiddleware: MiddlewareFunction = async ({ request, context }, n
 
   if (isLocalMode() && !hasAssistants()) {
     const url = new URL(request.url);
-    if (!url.pathname.includes("/onboarding/") && !url.pathname.includes("/account")) {
+    if (!url.pathname.startsWith("/assistant/onboarding/") && !url.pathname.includes("/account")) {
       throw redirect(await resolveLocalOnboardingRoute());
     }
   }
