@@ -635,6 +635,12 @@ function makeCtx(
       { role: "user", content: [{ type: "text", text: "Hello" }] },
     ] as Message[],
     processing: true,
+    isProcessing(this: { processing: boolean }) {
+      return this.processing;
+    },
+    setProcessing(this: { processing: boolean }, value: boolean) {
+      this.processing = value;
+    },
     abortController: new AbortController(),
     currentRequestId: "test-req",
 
