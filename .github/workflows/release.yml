@@ -2272,6 +2272,9 @@ jobs:
         with:
           packages: packages/environments packages/local-mode
 
+      - name: Stamp release version into package.json
+        run: jq --arg v "${{ needs.extract-version.outputs.version }}" '.version = $v' package.json > package.json.tmp && mv package.json.tmp package.json
+
       - name: Build and package Electron app
         env:
           VELLUM_ENVIRONMENT: ${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'production' }}
