@@ -1981,7 +1981,7 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Refresh guardian access token",
           description:
-            "Refreshes an expired guardian access token. Accepts expired JWTs (signature, audience, and policy epoch are still verified — only the expiration check is relaxed).",
+            "Refreshes an expired guardian access token. Accepts expired JWTs (signature, audience, and policy epoch are still verified — only the expiration check is relaxed). Requires `refreshToken` and the `deviceId` the token was issued to; the refresh token is device-bound and is rejected if the device does not match.",
           operationId: "guardianRefresh",
           security: [{ BearerAuth: [] }],
           requestBody: {
@@ -1994,7 +1994,14 @@ export function buildSchema(): Record<string, unknown> {
           },
           responses: {
             "200": { description: "New access token returned" },
+            "400": {
+              description: "Missing required field (refreshToken or deviceId)",
+            },
             "401": { description: "Unauthorized — invalid token" },
+            "403": {
+              description:
+                "Refresh token revoked, reused, or presented from a non-matching device",
+            },
             "502": { description: "Failed to reach assistant runtime" },
           },
         },
@@ -3330,8 +3337,14 @@ export function buildSchema(): Record<string, unknown> {
               name: "n",
               in: "query",
               required: false,
-              schema: { type: "integer", minimum: 1, maximum: 1000, default: 10 },
-              description: "Number of log entries to return (1–1000, default: 10)",
+              schema: {
+                type: "integer",
+                minimum: 1,
+                maximum: 1000,
+                default: 10,
+              },
+              description:
+                "Number of log entries to return (1–1000, default: 10)",
             },
             {
               name: "level",
@@ -3364,11 +3377,13 @@ export function buildSchema(): Record<string, unknown> {
                       lines: {
                         type: "array",
                         items: { type: "object" },
-                        description: "Matching log entries in chronological order",
+                        description:
+                          "Matching log entries in chronological order",
                       },
                       truncated: {
                         type: "boolean",
-                        description: "True if earlier matching entries exist beyond n",
+                        description:
+                          "True if earlier matching entries exist beyond n",
                       },
                     },
                   },
@@ -4022,7 +4037,8 @@ export function buildSchema(): Record<string, unknown> {
                   properties: {
                     type: {
                       type: "string",
-                      description: "Email provider type (e.g. resend, mailgun, vellum)",
+                      description:
+                        "Email provider type (e.g. resend, mailgun, vellum)",
                     },
                     guardian_email: {
                       type: "string",
@@ -4314,7 +4330,13 @@ export function buildSchema(): Record<string, unknown> {
       schemas: {
         BackupSnapshot: {
           type: "object",
-          required: ["path", "filename", "created_at", "size_bytes", "encrypted"],
+          required: [
+            "path",
+            "filename",
+            "created_at",
+            "size_bytes",
+            "encrypted",
+          ],
           properties: {
             path: { type: "string" },
             filename: { type: "string" },
