@@ -21,7 +21,6 @@ import {
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { getRiskBadgeStyle, getProvenanceText, wasExpected, getEffectiveRiskDisplay } from "@/domains/chat/utils/risk";
-import { deriveToolCallStatus } from "@/domains/chat/utils/derive-tool-call-status";
 import { formatStartTime, useElapsedTime } from "@/domains/chat/hooks/use-elapsed-time";
 
 import type { ConfirmationDecision } from "@/types/event-types";
@@ -76,8 +75,8 @@ function getIcon(toolName: string, inputSummary: string = ""): ReactNode {
   return ICON_MAP[iconKey] ?? <Wrench className="h-3.5 w-3.5" />;
 }
 
-function StatusIcon({ status, isError }: { status: string; isError?: boolean }) {
-  if (status === "running") {
+function StatusIcon({ isRunning, isError }: { isRunning: boolean; isError: boolean }) {
+  if (isRunning) {
     // Wrap in a fixed-size slot so the layout doesn't shift when the icon
     // transitions from the 16px circle icons to the 6px pulsing dot.
     return (
@@ -86,7 +85,7 @@ function StatusIcon({ status, isError }: { status: string; isError?: boolean }) 
       </span>
     );
   }
-  if (status === "error" || isError) {
+  if (isError) {
     return <XCircle className="h-4 w-4 text-[var(--system-negative-strong)] shrink-0" />;
   }
   return <CheckCircle2 className="h-4 w-4 text-[var(--system-positive-strong)] shrink-0" />;
@@ -263,9 +262,12 @@ export function ToolCallChip({
   embedded = false,
 }: ToolCallChipProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
-  const status = deriveToolCallStatus(toolCall);
-  const isRunning = status === "running";
-  const isError = status === "error";
+  // `status` is not stored; the chip only needs the two booleans it branches
+  // on. An errored call resolves to error; otherwise a call is still running
+  // until it has either a result payload or a (force-)completion timestamp.
+  const isError = Boolean(toolCall.isError);
+  const isRunning =
+    !isError && toolCall.result === undefined && toolCall.completedAt == null;
   const hasPendingConfirmation = !!toolCall.pendingConfirmation;
   const duration = useElapsedTime(toolCall.startedAt, !isRunning, toolCall.completedAt);
   const startTimeLabel = formatStartTime(toolCall.startedAt);
@@ -304,7 +306,7 @@ export function ToolCallChip({
 
   const subItemRow = (
     <div className={`flex min-w-0 items-center gap-2 py-2 ${embedded ? "pl-6 pr-3 text-body-small-default" : ""}`}>
-      <StatusIcon status={status} isError={toolCall.isError} />
+      <StatusIcon isRunning={isRunning} isError={isError} />
       {!embedded && getIcon(toolCall.name, inputSummary)}
       <span className="min-w-0 truncate text-[var(--content-secondary)]">{label}</span>
       {toolCall.riskLevel && !isRunning && !(hasPendingConfirmation && isActiveConfirmation) && (() => {
@@ -512,7 +514,7 @@ export function ToolCallChip({
           expanded ? "rounded-b-none" : ""
         }`}
       >
-        <StatusIcon status={status} isError={toolCall.isError} />
+        <StatusIcon isRunning={isRunning} isError={isError} />
         <span className={isError ? "text-[var(--system-negative-strong)]" : "text-[var(--content-default)]"}>
           {statusLabel}
         </span>
