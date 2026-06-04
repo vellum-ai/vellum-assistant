@@ -1,14 +1,14 @@
 import { useEffect } from "react";
 import { NavLink, Outlet, useLocation } from "react-router";
 
-import { Typography, cn } from "@vellum/design-library";
+import { Typography, cn } from "@vellumai/design-library";
 
-import { PageShell } from "@/components/page-shell";
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
+import { PageShell } from "@/components/page-shell";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
-import { routes } from "@/utils/routes";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { routes } from "@/utils/routes";
 
 interface IntelligenceTab {
   readonly label: string;

@@ -1,7 +1,7 @@
 
 import { X } from "lucide-react";
 
-import { Button } from "@vellum/design-library";
+import { Button } from "@vellumai/design-library";
 
 export interface MissingApiKeyBannerProps {
   onOpenSettings: () => void;

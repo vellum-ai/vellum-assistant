@@ -1,10 +1,10 @@
 import { Navigate } from "react-router";
 
-import { Notice } from "@vellum/design-library/components/notice";
-import { usePlatformGate } from "@/hooks/use-platform-gate";
-import { useCurrentPlatformAssistant } from "@/hooks/use-current-platform-assistant";
 import { EmailsTab } from "@/domains/logs/components/emails-tab";
+import { useCurrentPlatformAssistant } from "@/hooks/use-current-platform-assistant";
+import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { routes } from "@/utils/routes";
+import { Notice } from "@vellumai/design-library/components/notice";
 
 export function EmailsPage() {
   const platformGate = usePlatformGate();

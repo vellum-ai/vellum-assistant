@@ -1,17 +1,17 @@
 import * as Sentry from "@sentry/react";
 import {
-  AlertTriangle,
-  Bug,
-  Flame,
-  Info,
-  Timer,
-  XCircle,
+    AlertTriangle,
+    Bug,
+    Flame,
+    Info,
+    Timer,
+    XCircle,
 } from "lucide-react";
 import { type ReactNode, useCallback } from "react";
 
-import { Button } from "@vellum/design-library/components/button";
-import { toast } from "@vellum/design-library/components/toast";
 import { DetailCard } from "@/components/detail-card";
+import { Button } from "@vellumai/design-library/components/button";
+import { toast } from "@vellumai/design-library/components/toast";
 
 export function SentryTestingPanel() {
   const handleCaptureError = useCallback(() => {

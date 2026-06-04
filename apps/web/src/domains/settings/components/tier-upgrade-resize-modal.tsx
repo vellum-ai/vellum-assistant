@@ -3,22 +3,22 @@ import { useState } from "react";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Modal } from "@vellum/design-library/components/modal";
-import { Notice } from "@vellum/design-library/components/notice";
-import { toast } from "@vellum/design-library/components/toast";
 import { extractResizeError } from "@/domains/settings/components/resize-errors";
 import {
-  assistantsActiveRetrieveOptions,
-  assistantsResizeMutation,
-  organizationsBillingSubscriptionOnboardingRetrieveOptions,
+    assistantsActiveRetrieveOptions,
+    assistantsResizeMutation,
+    organizationsBillingSubscriptionOnboardingRetrieveOptions,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { MachineSizeEnum } from "@/generated/api/types.gen";
 import {
-  allowedMachineSizesForTier,
-  SIZE_DESCRIPTION,
-  SIZE_LABEL,
+    allowedMachineSizesForTier,
+    SIZE_DESCRIPTION,
+    SIZE_LABEL,
 } from "@/lib/billing/machine-sizes";
+import { Button } from "@vellumai/design-library/components/button";
+import { Modal } from "@vellumai/design-library/components/modal";
+import { Notice } from "@vellumai/design-library/components/notice";
+import { toast } from "@vellumai/design-library/components/toast";
 
 export interface TierUpgradeResizeModalProps {
   open: boolean;

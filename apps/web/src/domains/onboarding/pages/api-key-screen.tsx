@@ -1,21 +1,21 @@
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Dropdown } from "@vellum/design-library/components/dropdown";
-import { Input } from "@vellum/design-library/components/input";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import {
-  DEFAULT_ONBOARDING_PROVIDER,
-  onboardingProvider,
-  ONBOARDING_PROVIDERS,
-  type OnboardingProviderId,
+    DEFAULT_ONBOARDING_PROVIDER,
+    ONBOARDING_PROVIDERS,
+    onboardingProvider,
+    type OnboardingProviderId,
 } from "@/domains/onboarding/provider-catalog";
 import {
-  peekPendingProviderKey,
-  setPendingProviderKey,
+    peekPendingProviderKey,
+    setPendingProviderKey,
 } from "@/domains/onboarding/provider-key";
 import { routes } from "@/utils/routes";
+import { Button } from "@vellumai/design-library/components/button";
+import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Input } from "@vellumai/design-library/components/input";
 
 export function ApiKeyScreen() {
   const navigate = useNavigate();

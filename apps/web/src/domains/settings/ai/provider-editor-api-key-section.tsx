@@ -1,9 +1,9 @@
 import { useState } from "react";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Dropdown } from "@vellum/design-library/components/dropdown";
-import { Input } from "@vellum/design-library/components/input";
-import { Typography } from "@vellum/design-library/components/typography";
+import { Button } from "@vellumai/design-library/components/button";
+import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Input } from "@vellumai/design-library/components/input";
+import { Typography } from "@vellumai/design-library/components/typography";
 import { ChevronRight, Loader2 } from "lucide-react";
 
 import type { ConnectionProvider, CredentialEntry } from "@/domains/settings/ai/provider-connections-client";

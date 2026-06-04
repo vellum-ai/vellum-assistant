@@ -1,12 +1,12 @@
 import { useState, type FormEvent } from "react";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Input, Textarea } from "@vellum/design-library/components/input";
-import { Modal } from "@vellum/design-library/components/modal";
 import {
-  createSchedule,
-  type CreateSchedulePayload,
+    createSchedule,
+    type CreateSchedulePayload,
 } from "@/domains/settings/api/schedules";
+import { Button } from "@vellumai/design-library/components/button";
+import { Input, Textarea } from "@vellumai/design-library/components/input";
+import { Modal } from "@vellumai/design-library/components/modal";
 
 // ---------------------------------------------------------------------------
 // Cron presets — cover the most common cases without forcing users to learn

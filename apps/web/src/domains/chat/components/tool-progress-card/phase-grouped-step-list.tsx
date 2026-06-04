@@ -16,25 +16,25 @@
  */
 
 import {
-  AlertTriangle,
-  Bolt,
-  Check,
-  Code,
-  FileText,
-  Monitor,
-  Pen,
-  Plug,
-  Sparkles,
-  UserPlus,
-  type LucideIcon,
+    AlertTriangle,
+    Bolt,
+    Check,
+    Code,
+    FileText,
+    Monitor,
+    Pen,
+    Plug,
+    Sparkles,
+    UserPlus,
+    type LucideIcon,
 } from "lucide-react";
 import { Fragment, type ReactNode } from "react";
 
-import { Typography } from "@vellum/design-library";
+import { Typography } from "@vellumai/design-library";
 
+import type { IconName } from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
 import { formatMs, type ToolCallCardStep } from "@/domains/chat/hooks/tool-call-card-utils";
-import type { IconName } from "@/domains/chat/components/tool-progress-card/derive-step-label";
 
 /** Concrete lucide icon for each `IconName` produced by `deriveStepLabel`. */
 export const ICON_MAP: Record<IconName, LucideIcon> = {

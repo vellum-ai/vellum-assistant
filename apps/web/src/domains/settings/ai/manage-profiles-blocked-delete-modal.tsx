@@ -1,7 +1,7 @@
-import { Button } from "@vellum/design-library/components/button";
-import { Dropdown } from "@vellum/design-library/components/dropdown";
-import { Modal } from "@vellum/design-library/components/modal";
-import { Typography } from "@vellum/design-library/components/typography";
+import { Button } from "@vellumai/design-library/components/button";
+import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Modal } from "@vellumai/design-library/components/modal";
+import { Typography } from "@vellumai/design-library/components/typography";
 
 import type { ProfileWithName } from "@/domains/settings/ai/ai-types";
 

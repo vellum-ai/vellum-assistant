@@ -1,4 +1,4 @@
-import { Button } from "@vellum/design-library";
+import { Button } from "@vellumai/design-library";
 import { Coins, Plus } from "lucide-react";
 
 interface CreditsCardProps {

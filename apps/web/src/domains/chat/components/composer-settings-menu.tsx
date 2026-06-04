@@ -1,43 +1,39 @@
 
-import { Check, Plus, Sparkles, SlidersHorizontal } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { Check, Plus, SlidersHorizontal, Sparkles } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
-import { toast } from "@vellum/design-library/components/toast";
-import { BottomSheet } from "@vellum/design-library";
-import { Button } from "@vellum/design-library";
-import { Menu } from "@vellum/design-library";
-import { PanelItem } from "@vellum/design-library";
-import { Tooltip } from "@vellum/design-library";
+import {
+    gateAutoProfile,
+    profilePickerLabel,
+    visibleProfilesForPicker,
+    type ProfilePickerEntry,
+} from "@/assistant/profile-pickers";
+import { useProfileQuickAdd } from "@/components/profile-quick-add-provider";
+import { activeProfileModelQueryKey } from "@/domains/chat/hooks/use-active-profile-model";
 import { client } from "@/generated/api/client.gen";
 import {
-  conversationsByIdGet,
-  conversationsByIdInferenceprofilePut,
+    conversationsByIdGet,
+    conversationsByIdInferenceprofilePut,
 } from "@/generated/daemon/sdk.gen";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import {
-  profilePickerLabel,
-  visibleProfilesForPicker,
-  gateAutoProfile,
-  type ProfilePickerEntry,
-} from "@/assistant/profile-pickers";
-import { useProfileQuickAdd } from "@/components/profile-quick-add-provider";
+    deleteConversationOverride,
+    getConversationOverride,
+    getGlobalThresholds,
+    setConversationOverride,
+    setGlobalThresholds,
+} from "@/lib/threshold-api";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import {
-  deleteConversationOverride,
-  getConversationOverride,
-  getGlobalThresholds,
-  setConversationOverride,
-  setGlobalThresholds,
-} from "@/lib/threshold-api";
-import {
-  THRESHOLD_PRESETS,
-  overrideAction,
-  presetFromThreshold,
-  type ThresholdPreset,
+    THRESHOLD_PRESETS,
+    overrideAction,
+    presetFromThreshold,
+    type ThresholdPreset,
 } from "@/utils/threshold-presets";
-import { activeProfileModelQueryKey } from "@/domains/chat/hooks/use-active-profile-model";
+import { BottomSheet, Button, Menu, PanelItem, Tooltip } from "@vellumai/design-library";
+import { toast } from "@vellumai/design-library/components/toast";
 
 interface Props {
   assistantId: string;

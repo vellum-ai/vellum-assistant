@@ -2,18 +2,18 @@ import { Loader2, RotateCw, Wrench } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Notice } from "@vellum/design-library/components/notice";
-import { toast } from "@vellum/design-library/components/toast";
-import { AssistantBackups } from "@/domains/settings/components/assistant-backups";
-import { RestartAssistant } from "@/domains/settings/components/restart-assistant";
-import { RecoveryModeControls } from "@/domains/settings/components/recovery-mode-controls";
 import { type Assistant, getAssistant } from "@/assistant/api";
+import { AssistantBackups } from "@/domains/settings/components/assistant-backups";
+import { RecoveryModeControls } from "@/domains/settings/components/recovery-mode-controls";
+import { RestartAssistant } from "@/domains/settings/components/restart-assistant";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
-import { useAuthStore } from "@/stores/auth-store";
 import { captureError } from "@/lib/sentry/capture-error";
+import { useAuthStore } from "@/stores/auth-store";
 import { clearOnboardingFlags } from "@/utils/onboarding-cleanup";
 import { routes } from "@/utils/routes";
+import { Button } from "@vellumai/design-library/components/button";
+import { Notice } from "@vellumai/design-library/components/notice";
+import { toast } from "@vellumai/design-library/components/toast";
 
 function isInternalUser(email: string | null, isAdmin: boolean): boolean {
   if (isAdmin) return true;

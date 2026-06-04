@@ -1,7 +1,7 @@
 import { Menu, X } from "lucide-react";
 import { type ReactNode, useEffect, useRef } from "react";
 
-import { Button } from "@vellum/design-library";
+import { Button } from "@vellumai/design-library";
 
 /** Tailwind `sm` breakpoint — matches the `sm:hidden` class on the drawer. */
 const SM_MEDIA_QUERY = "(min-width: 640px)";

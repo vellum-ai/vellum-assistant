@@ -14,12 +14,12 @@
 
 import { create } from "zustand";
 
-import { toast } from "@vellum/design-library";
 import { integrationsVercelConfigGet } from "@/generated/daemon/sdk.gen";
 import type { AppsByIdPublishPostResponse } from "@/generated/daemon/types.gen";
 import { createSelectors } from "@/utils/create-selectors";
 import { publishApp } from "@/utils/publish-app";
 import { shareApp as shareAppApi } from "@/utils/share-app";
+import { toast } from "@vellumai/design-library";
 
 // ---------------------------------------------------------------------------
 // Types

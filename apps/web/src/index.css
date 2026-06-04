@@ -1,6 +1,6 @@
 @import "tailwindcss";
-@import "@vellum/design-library/tokens.css";
-@source "../node_modules/@vellum/design-library/src/**/*.tsx";
+@import "@vellumai/design-library/tokens.css";
+@source "../node_modules/@vellumai/design-library/src/**/*.tsx";
 
 /* Base element styles — theme-aware defaults inherited by all descendants. */
 body {

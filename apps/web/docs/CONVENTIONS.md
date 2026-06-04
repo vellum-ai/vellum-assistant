@@ -741,7 +741,7 @@ consumed as a `file:` dependency and resolved via its `exports` field
 in `package.json` — no Vite alias or tsconfig `paths` needed.
 
 ```ts
-import { Button, Typography } from "@vellum/design-library";
+import { Button, Typography } from "@vellumai/design-library";
 ```
 
 Design system components accept props and render UI. They must not
@@ -773,7 +773,7 @@ usage).
 
 ```ts
 // Domain wrapper — lives in domains/chat/components/chat-markdown-message.tsx
-import { MarkdownMessage } from "@vellum/design-library";
+import { MarkdownMessage } from "@vellumai/design-library";
 
 // OAuthAwareLink defined in the same file (or extracted to a lib file)
 export function ChatMarkdownMessage(props: ChatMarkdownMessageProps) {

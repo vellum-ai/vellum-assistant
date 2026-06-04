@@ -1,13 +1,13 @@
 import { ChevronRight, type LucideIcon } from "lucide-react";
 import { type ReactNode, type Ref } from "react";
 
+import { ContextMenu } from "@vellumai/design-library";
 import {
-  Collapsible,
-  type CollapsibleItemProps,
-  type CollapsibleRootProps,
-} from "@vellum/design-library/components/collapsible";
-import { ContextMenu } from "@vellum/design-library";
-import { cn } from "@vellum/design-library/utils/cn";
+    Collapsible,
+    type CollapsibleItemProps,
+    type CollapsibleRootProps,
+} from "@vellumai/design-library/components/collapsible";
+import { cn } from "@vellumai/design-library/utils/cn";
 
 /**
  * Navigation-specific collapsible section — composes the design library

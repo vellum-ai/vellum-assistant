@@ -3,8 +3,8 @@ import { Brain } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { BottomSheet, Button } from "@vellum/design-library";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { BottomSheet, Button } from "@vellumai/design-library";
 
 export interface ContextWindowUsage {
   tokens: number;

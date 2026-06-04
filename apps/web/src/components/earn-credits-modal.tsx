@@ -1,18 +1,18 @@
 import {
-  ArrowLeft,
-  Check,
-  Copy,
-  CreditCard,
-  Gift,
-  Loader2,
-  Share2,
-  Users,
+    ArrowLeft,
+    Check,
+    Copy,
+    CreditCard,
+    Gift,
+    Loader2,
+    Share2,
+    Users,
 } from "lucide-react";
 import { useCallback, useState, type ReactNode } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 
-import { Button, Input, Modal } from "@vellum/design-library";
+import { Button, Input, Modal } from "@vellumai/design-library";
 
 import { referralCodesMeRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
 

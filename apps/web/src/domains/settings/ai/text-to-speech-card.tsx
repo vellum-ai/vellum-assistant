@@ -2,28 +2,28 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Dropdown } from "@vellum/design-library/components/dropdown";
-import { Input } from "@vellum/design-library/components/input";
-import { toast } from "@vellum/design-library/components/toast";
 import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
 import { ttsProvidersGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { synthesizeTTS } from "@/lib/tts-synthesize";
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
+import { Button } from "@vellumai/design-library/components/button";
+import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Input } from "@vellumai/design-library/components/input";
+import { toast } from "@vellumai/design-library/components/toast";
 
 import {
-  TTS_PROVIDERS,
-  LS_TTS_PROVIDER,
-  LS_TTS_API_KEY_PREFIX,
-  LS_TTS_VOICE_ID_PREFIX,
-} from "@/domains/settings/ai/ai-types";
-import {
-  ByoServiceCard,
-  CredentialsGuide,
-  SaveButton,
-  ResetButton,
+    ByoServiceCard,
+    CredentialsGuide,
+    ResetButton,
+    SaveButton,
 } from "@/domains/settings/ai/ai-shared-ui";
+import {
+    LS_TTS_API_KEY_PREFIX,
+    LS_TTS_PROVIDER,
+    LS_TTS_VOICE_ID_PREFIX,
+    TTS_PROVIDERS,
+} from "@/domains/settings/ai/ai-types";
 
 export function TextToSpeechCard() {
   const { data: assistantList } = useQuery(assistantsListOptions());

@@ -1,9 +1,9 @@
 import { useMemo } from "react";
 
 import {
-  Dropdown,
-  type DropdownOption,
-} from "@vellum/design-library/components/dropdown";
+    Dropdown,
+    type DropdownOption,
+} from "@vellumai/design-library/components/dropdown";
 
 import { getEffectiveTimezone } from "@/utils/effective-timezone";
 import { resolveLastTimezoneCalendarDays } from "@/utils/usage-window";

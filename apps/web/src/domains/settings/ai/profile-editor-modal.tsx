@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { Button } from "@vellum/design-library/components/button";
-import { Dropdown } from "@vellum/design-library/components/dropdown";
-import { Input, Textarea } from "@vellum/design-library/components/input";
-import { Modal } from "@vellum/design-library/components/modal";
-import { Tag } from "@vellum/design-library/components/tag";
-import { Toggle } from "@vellum/design-library/components/toggle";
-import { Typography } from "@vellum/design-library/components/typography";
+import { Button } from "@vellumai/design-library/components/button";
+import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Input, Textarea } from "@vellumai/design-library/components/input";
+import { Modal } from "@vellumai/design-library/components/modal";
+import { Tag } from "@vellumai/design-library/components/tag";
+import { Toggle } from "@vellumai/design-library/components/toggle";
+import { Typography } from "@vellumai/design-library/components/typography";
 import { ChevronRight } from "lucide-react";
 
 import { getModelsForProvider } from "@/assistant/llm-model-catalog";
@@ -17,13 +17,13 @@ import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import type { ProfileEntry, ProfileStatus, ProfileWithName } from "@/domains/settings/ai/ai-types";
 import { INFERENCE_PROVIDER_DISPLAY_NAMES, OPENAI_COMPATIBLE_PROVIDER } from "@/domains/settings/ai/ai-types";
 import {
-  ProfileAdvancedParams,
-  THINKING_LEVEL_INHERIT,
+    ProfileAdvancedParams,
+    THINKING_LEVEL_INHERIT,
 } from "@/domains/settings/ai/profile-advanced-params";
 import { ProfileEditorProviderSection } from "@/domains/settings/ai/profile-editor-provider-section";
 import { resolveProfileParamVisibility } from "@/domains/settings/ai/profile-param-visibility";
-import { deriveProfileDefaults } from "@/domains/settings/ai/profile-prefill";
 import { AUTO_PROFILE_NAME } from "@/domains/settings/ai/profile-pickers";
+import { deriveProfileDefaults } from "@/domains/settings/ai/profile-prefill";
 import type { ConnectionProvider, ProviderConnection } from "@/domains/settings/ai/provider-connections-client";
 import { ProviderCreateForm } from "@/domains/settings/ai/provider-create-form";
 import { useLabelKeySync } from "@/domains/settings/ai/use-label-key-sync";

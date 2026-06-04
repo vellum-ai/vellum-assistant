@@ -1,12 +1,12 @@
 import { ChevronLeft } from "lucide-react";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Input } from "@vellum/design-library/components/input";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import {
-  PERSONALITY_GROUPS,
-  type PersonalityGroup,
+    PERSONALITY_GROUPS,
+    type PersonalityGroup,
 } from "@/domains/onboarding/prechat-names";
+import { Button } from "@vellumai/design-library/components/button";
+import { Input } from "@vellumai/design-library/components/input";
 
 interface NameExchangeScreenProps {
   userName: string;

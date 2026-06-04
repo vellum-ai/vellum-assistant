@@ -1,36 +1,36 @@
 import {
-  Crown,
-  Loader2,
-  Trash2,
+    Crown,
+    Loader2,
+    Trash2,
 } from "lucide-react";
-import { useNavigate, useSearchParams } from "react-router";
 import { useCallback, useEffect, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { Button } from "@vellum/design-library/components/button";
-import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
-import { Notice } from "@vellum/design-library/components/notice";
 import { DomainField } from "@/domains/settings/components/domain-field";
-import { toast } from "@vellum/design-library/components/toast";
 import {
-  assistantsDomainsCreateMutation,
-  assistantsDomainsDestroyMutation,
-  assistantsDomainsListOptions,
-  assistantsDomainsListQueryKey,
-  assistantsDomainsVerificationStatusRetrieveOptions,
-  assistantsEmailAddressesCreateMutation,
-  assistantsEmailAddressesDestroyMutation,
-  assistantsEmailAddressesListOptions,
-  assistantsEmailAddressesListQueryKey,
-  assistantsEmailAddressesStatusRetrieveOptions,
-  assistantsEmailAddressesStatusRetrieveQueryKey,
-  assistantsListQueryKey,
-  organizationsBillingSubscriptionRetrieveOptions,
+    assistantsDomainsCreateMutation,
+    assistantsDomainsDestroyMutation,
+    assistantsDomainsListOptions,
+    assistantsDomainsListQueryKey,
+    assistantsDomainsVerificationStatusRetrieveOptions,
+    assistantsEmailAddressesCreateMutation,
+    assistantsEmailAddressesDestroyMutation,
+    assistantsEmailAddressesListOptions,
+    assistantsEmailAddressesListQueryKey,
+    assistantsEmailAddressesStatusRetrieveOptions,
+    assistantsEmailAddressesStatusRetrieveQueryKey,
+    assistantsListQueryKey,
+    organizationsBillingSubscriptionRetrieveOptions,
 } from "@/generated/api/@tanstack/react-query.gen";
 import { captureError } from "@/lib/sentry/capture-error";
-import { routes } from "@/utils/routes";
 import { extractErrorMessage } from "@/utils/api-errors";
+import { routes } from "@/utils/routes";
+import { Button } from "@vellumai/design-library/components/button";
+import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
+import { Notice } from "@vellumai/design-library/components/notice";
+import { toast } from "@vellumai/design-library/components/toast";
 
 import { DomainVerificationChip } from "@/domains/settings/ai/ai-shared-ui";
 

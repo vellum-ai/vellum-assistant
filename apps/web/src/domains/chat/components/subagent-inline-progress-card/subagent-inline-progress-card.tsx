@@ -22,7 +22,7 @@
 import { Square } from "lucide-react";
 import { useCallback, type MouseEvent } from "react";
 
-import { Button } from "@vellum/design-library";
+import { Button } from "@vellumai/design-library";
 
 import { SubagentAvatarChip } from "@/components/avatar/subagent-avatar-chip";
 import { PhaseGroupedStepList } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";

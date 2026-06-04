@@ -2,12 +2,12 @@ import { useEffect } from "react";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-import { toast } from "@vellum/design-library/components/toast";
 import {
-  organizationsBillingPortalSessionCreateMutation,
-  organizationsBillingSubscriptionRetrieveOptions,
+    organizationsBillingPortalSessionCreateMutation,
+    organizationsBillingSubscriptionRetrieveOptions,
 } from "@/generated/api/@tanstack/react-query.gen";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
+import { toast } from "@vellumai/design-library/components/toast";
 
 export const PORTAL_RETURN_SNAPSHOT_KEY = "billing-portal-return-snapshot";
 

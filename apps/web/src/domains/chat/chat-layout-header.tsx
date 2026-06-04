@@ -1,13 +1,13 @@
-import { useCallback, type ReactNode } from "react";
+import { Button } from "@vellumai/design-library";
 import {
-  ChevronLeft,
-  ChevronRight,
-  House,
-  Menu as MenuIcon,
-  PanelLeft,
-  Search,
+    ChevronLeft,
+    ChevronRight,
+    House,
+    Menu as MenuIcon,
+    PanelLeft,
+    Search,
 } from "lucide-react";
-import { Button } from "@vellum/design-library";
+import { useCallback, type ReactNode } from "react";
 
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 

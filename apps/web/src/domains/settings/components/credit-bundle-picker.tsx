@@ -1,9 +1,9 @@
 import { Info } from "lucide-react";
 import { useMemo } from "react";
 
-import { Dropdown } from "@vellum/design-library/components/dropdown";
-import { Typography } from "@vellum/design-library/components/typography";
 import type { CreditTier, CreditTierEnum } from "@/generated/api/types.gen";
+import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Typography } from "@vellumai/design-library/components/typography";
 import { formatDelta, formatMonthly } from "./tier-pricing";
 
 /**

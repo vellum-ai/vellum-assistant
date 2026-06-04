@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "@vellum/design-library",
+      "name": "@vellumai/design-library",
       "dependencies": {
         "katex": "0.17.0",
       },

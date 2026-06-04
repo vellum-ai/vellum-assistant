@@ -2,7 +2,7 @@
 import { CheckCircle, Loader2, X } from "lucide-react";
 import { type FormEvent, useState } from "react";
 
-import { Card, Input, Typography } from "@vellum/design-library";
+import { Card, Input, Typography } from "@vellumai/design-library";
 
 export interface ContactPromptCardProps {
   contactRequest: {

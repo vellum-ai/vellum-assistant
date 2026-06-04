@@ -2,20 +2,20 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { useMemo, useState } from "react";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Input } from "@vellum/design-library/components/input";
-import { SegmentControl } from "@vellum/design-library/components/segment-control";
-import { Toggle } from "@vellum/design-library/components/toggle";
-import { toast } from "@vellum/design-library/components/toast";
 import {
-  assistantsUpgradePolicyDetailReadOptions,
-  assistantsUpgradePolicyDetailReadQueryKey,
+    assistantsUpgradePolicyDetailReadOptions,
+    assistantsUpgradePolicyDetailReadQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
 import { assistantsUpgradePolicyDetailPartialUpdate } from "@/generated/api/sdk.gen";
 import type {
-  FrequencyEnum,
-  UpgradePolicy,
+    FrequencyEnum,
+    UpgradePolicy,
 } from "@/generated/api/types.gen";
+import { Button } from "@vellumai/design-library/components/button";
+import { Input } from "@vellumai/design-library/components/input";
+import { SegmentControl } from "@vellumai/design-library/components/segment-control";
+import { toast } from "@vellumai/design-library/components/toast";
+import { Toggle } from "@vellumai/design-library/components/toggle";
 
 const DAY_ENTRIES: ReadonlyArray<[label: string, backendIndex: number]> = [
   ["Mon", 0],

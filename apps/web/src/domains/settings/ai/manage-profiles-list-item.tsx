@@ -1,9 +1,9 @@
 import { GripVertical, Trash2 } from "lucide-react";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Tag } from "@vellum/design-library/components/tag";
-import { Toggle } from "@vellum/design-library/components/toggle";
-import { Typography } from "@vellum/design-library/components/typography";
+import { Button } from "@vellumai/design-library/components/button";
+import { Tag } from "@vellumai/design-library/components/tag";
+import { Toggle } from "@vellumai/design-library/components/toggle";
+import { Typography } from "@vellumai/design-library/components/typography";
 
 import type { ProfileWithName } from "@/domains/settings/ai/ai-types";
 import { AUTO_PROFILE_NAME } from "@/domains/settings/ai/profile-pickers";

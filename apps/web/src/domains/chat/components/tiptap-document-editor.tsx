@@ -7,29 +7,29 @@
  * - Text selection tracking with character offset conversion
  */
 
-import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Extension } from "@tiptap/core";
-import { BubbleMenu } from "@tiptap/react/menus";
-import { EditorContent, useEditor } from "@tiptap/react";
 import Link from "@tiptap/extension-link";
-import StarterKit from "@tiptap/starter-kit";
-import { Markdown, type MarkdownStorage } from "tiptap-markdown";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import { EditorContent, useEditor } from "@tiptap/react";
+import { BubbleMenu } from "@tiptap/react/menus";
+import StarterKit from "@tiptap/starter-kit";
+import { cn } from "@vellumai/design-library";
 import {
-  Bold,
-  Code,
-  Italic,
-  Link as LinkIcon,
-  MessageSquareText,
-  Strikethrough,
+    Bold,
+    Code,
+    Italic,
+    Link as LinkIcon,
+    MessageSquareText,
+    Strikethrough,
 } from "lucide-react";
-import { cn } from "@vellum/design-library";
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Markdown, type MarkdownStorage } from "tiptap-markdown";
 
 import type { CommentAnchor } from "@/domains/chat/utils/tiptap-position-map";
 import {
-  charOffsetToPmPos,
-  pmPosToCharOffset,
+    charOffsetToPmPos,
+    pmPosToCharOffset,
 } from "@/domains/chat/utils/tiptap-position-map";
 
 // ---------------------------------------------------------------------------

@@ -3,46 +3,46 @@ import { useEffect, useState } from "react";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Card } from "@vellum/design-library/components/card";
-import { Modal } from "@vellum/design-library/components/modal";
-import { Notice } from "@vellum/design-library/components/notice";
-import { Tag } from "@vellum/design-library/components/tag";
-import { toast } from "@vellum/design-library/components/toast";
-import { Typography } from "@vellum/design-library/components/typography";
+import {
+    buildPortalReturnSnapshot,
+    formatGraceDate,
+    getEffectiveCancelDate,
+    useBillingPortalSession,
+} from "@/domains/settings/hooks/use-billing-portal-session";
+import {
+    organizationsBillingPlansRetrieveOptions,
+    organizationsBillingPlansRetrieveQueryKey,
+    organizationsBillingSubscriptionChangeCreditTierCreateMutation,
+    organizationsBillingSubscriptionChangeMachineTierCreateMutation,
+    organizationsBillingSubscriptionChangeStorageTierCreateMutation,
+    organizationsBillingSubscriptionOnboardingRetrieveOptions,
+    organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
+    organizationsBillingSubscriptionRetrieveOptions,
+    organizationsBillingSubscriptionRetrieveQueryKey,
+    organizationsBillingSubscriptionUpgradeCreateMutation,
+} from "@/generated/api/@tanstack/react-query.gen";
+import type {
+    CreditTier,
+    CreditTierEnum,
+    MachineTier,
+    MachineTierEnum,
+    ProPlan,
+    StorageTier,
+    StorageTierEnum,
+    SubscriptionStatusEnum,
+} from "@/generated/api/types.gen";
+import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
+import { Button } from "@vellumai/design-library/components/button";
+import { Card } from "@vellumai/design-library/components/card";
+import { Modal } from "@vellumai/design-library/components/modal";
+import { Notice } from "@vellumai/design-library/components/notice";
+import { Tag } from "@vellumai/design-library/components/tag";
+import { toast } from "@vellumai/design-library/components/toast";
+import { Typography } from "@vellumai/design-library/components/typography";
 import { CreditBundlePicker } from "./credit-bundle-picker";
 import { DowngradeReconfirmModal } from "./downgrade-reconfirm-modal";
 import { PlanFeatureList } from "./plan-feature-list";
 import { TierPicker, isTierDisabled } from "./tier-picker";
-import type {
-  CreditTier,
-  CreditTierEnum,
-  MachineTier,
-  MachineTierEnum,
-  ProPlan,
-  StorageTier,
-  StorageTierEnum,
-  SubscriptionStatusEnum,
-} from "@/generated/api/types.gen";
-import {
-  organizationsBillingPlansRetrieveOptions,
-  organizationsBillingPlansRetrieveQueryKey,
-  organizationsBillingSubscriptionChangeCreditTierCreateMutation,
-  organizationsBillingSubscriptionChangeMachineTierCreateMutation,
-  organizationsBillingSubscriptionChangeStorageTierCreateMutation,
-  organizationsBillingSubscriptionOnboardingRetrieveOptions,
-  organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
-  organizationsBillingSubscriptionRetrieveOptions,
-  organizationsBillingSubscriptionRetrieveQueryKey,
-  organizationsBillingSubscriptionUpgradeCreateMutation,
-} from "@/generated/api/@tanstack/react-query.gen";
-import {
-  buildPortalReturnSnapshot,
-  formatGraceDate,
-  getEffectiveCancelDate,
-  useBillingPortalSession,
-} from "@/domains/settings/hooks/use-billing-portal-session";
-import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
 
 
 /**

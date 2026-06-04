@@ -1,13 +1,13 @@
 import {
-  CircleAlert,
-  Pin,
-  PinOff,
+    CircleAlert,
+    Pin,
+    PinOff,
 } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { cn } from "@vellum/design-library";
 import { isConversationPinned } from "@/domains/chat/utils/group-conversations";
 import type { Conversation } from "@/types/conversation-types";
+import { cn } from "@vellumai/design-library";
 
 // ---------------------------------------------------------------------------
 // ThreadPinToggle — leading pin icon for thread rows

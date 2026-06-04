@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
-import type { DropdownOption } from "@vellum/design-library/components/dropdown";
 import type { MachineSizeEnum } from "@/generated/api/types.gen";
+import type { DropdownOption } from "@vellumai/design-library/components/dropdown";
 
 /**
  * Pro tier ceilings → machine sizes the org may run at within that tier.

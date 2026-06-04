@@ -7,27 +7,27 @@
  * for real-time panel updates.
  */
 
+import { Typography } from "@vellumai/design-library";
+import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
-import { Loader2 } from "lucide-react";
-import { Typography } from "@vellum/design-library";
 
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
-import { getEditChatConversationId, setEditChatConversationId } from "@/utils/edit-chat-session";
+import {
+    documentsByIdConversationsPost,
+    documentsByIdGet,
+    documentsByIdPdfGet,
+} from "@/generated/daemon/sdk.gen";
+import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { useViewerStore } from "@/stores/viewer-store";
+import type { DocumentContent } from "@/types/document-types";
+import { getEditChatConversationId, setEditChatConversationId } from "@/utils/edit-chat-session";
 import { routes } from "@/utils/routes";
 import {
-  documentsByIdConversationsPost,
-  documentsByIdGet,
-  documentsByIdPdfGet,
-} from "@/generated/daemon/sdk.gen";
-import type { DocumentContent } from "@/types/document-types";
-import { useDocumentCommentEvents } from "./hooks/use-document-comment-events";
-import { useBusSubscription } from "@/hooks/use-bus-subscription";
-import {
-  DocumentViewerContainer,
-  type DocumentViewerContainerHandle,
+    DocumentViewerContainer,
+    type DocumentViewerContainerHandle,
 } from "./components/document-viewer-container";
+import { useDocumentCommentEvents } from "./hooks/use-document-comment-events";
 
 // ---------------------------------------------------------------------------
 // Component

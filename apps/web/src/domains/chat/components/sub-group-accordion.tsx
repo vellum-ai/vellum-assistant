@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
 
 import { CollapsibleNavSection } from "@/components/collapsible-nav-section";
-import { PanelItem, SideMenu } from "@vellum/design-library";
-import type { Conversation } from "@/types/conversation-types";
 import type { SubGroup } from "@/domains/chat/utils/sub-group";
+import type { Conversation } from "@/types/conversation-types";
+import { PanelItem, SideMenu } from "@vellumai/design-library";
 
 // ---------------------------------------------------------------------------
 // SubGroupAccordion — shared sub-accordion for Background + Scheduled

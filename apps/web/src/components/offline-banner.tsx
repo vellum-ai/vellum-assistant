@@ -1,8 +1,8 @@
 import { WifiOff } from "lucide-react";
 
-import { Notice } from "@vellum/design-library/components/notice";
-import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useNetworkStatus } from "@/hooks/use-network-status";
+import { useIsNativePlatform } from "@/runtime/native-auth";
+import { Notice } from "@vellumai/design-library/components/notice";
 
 /**
  * Non-intrusive banner shown when the Capacitor iOS app loses network

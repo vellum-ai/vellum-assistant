@@ -1,47 +1,47 @@
 import {
-  AlertTriangle,
-  Bell,
-  BellOff,
-  Check,
-  CheckCheck,
-  Loader2,
-  Moon,
+    AlertTriangle,
+    Bell,
+    BellOff,
+    Check,
+    CheckCheck,
+    Loader2,
+    Moon,
 } from "lucide-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Navigate } from "react-router";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { BottomSheet } from "@vellum/design-library/components/bottom-sheet";
-import { Input } from "@vellum/design-library/components/input";
-import { Menu } from "@vellum/design-library/components/menu";
-import { Notice } from "@vellum/design-library/components/notice";
-import { PanelItem } from "@vellum/design-library/components/panel-item";
-import { Popover } from "@vellum/design-library/components/popover";
-import { useIsMobile } from "@/hooks/use-is-mobile";
 import {
-  useActiveAssistantIsPlatformHosted,
-  useActiveAssistantLifecycleIsLoading,
-  usePlatformGate,
-} from "@/hooks/use-platform-gate";
-import { routes } from "@/utils/routes";
+    SNOOZE_OPTIONS,
+    formatRelativeDate,
+    invalidateNotificationQueries,
+    isSnoozed,
+} from "@/domains/settings/utils/notification";
 import {
-  organizationsNotificationsAcknowledgeCreateMutation,
-  organizationsNotificationsListOptions,
-  organizationsNotificationsPauseRulesCreateMutation,
-  organizationsNotificationsPauseRulesDestroyMutation,
-  organizationsNotificationsSnoozeCreateMutation,
+    organizationsNotificationsAcknowledgeCreateMutation,
+    organizationsNotificationsListOptions,
+    organizationsNotificationsPauseRulesCreateMutation,
+    organizationsNotificationsPauseRulesDestroyMutation,
+    organizationsNotificationsSnoozeCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type {
-  NotificationList,
-  PauseRuleRead,
+    NotificationList,
+    PauseRuleRead,
 } from "@/generated/api/types.gen";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import {
-  SNOOZE_OPTIONS,
-  formatRelativeDate,
-  invalidateNotificationQueries,
-  isSnoozed,
-} from "@/domains/settings/utils/notification";
+    useActiveAssistantIsPlatformHosted,
+    useActiveAssistantLifecycleIsLoading,
+    usePlatformGate,
+} from "@/hooks/use-platform-gate";
+import { routes } from "@/utils/routes";
+import { BottomSheet } from "@vellumai/design-library/components/bottom-sheet";
+import { Input } from "@vellumai/design-library/components/input";
+import { Menu } from "@vellumai/design-library/components/menu";
+import { Notice } from "@vellumai/design-library/components/notice";
+import { PanelItem } from "@vellumai/design-library/components/panel-item";
+import { Popover } from "@vellumai/design-library/components/popover";
 
 interface SnoozeMenuProps {
   notificationId: string;

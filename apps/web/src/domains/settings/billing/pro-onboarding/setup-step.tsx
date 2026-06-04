@@ -3,24 +3,24 @@ import { useState } from "react";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Modal } from "@vellum/design-library/components/modal";
-import { Notice } from "@vellum/design-library/components/notice";
-import { Typography } from "@vellum/design-library/components/typography";
+import {
+    assistantsActiveRetrieveOptions,
+    assistantsResizeMutation,
+} from "@/generated/api/@tanstack/react-query.gen";
 import type { MachineSizeEnum, MachineTierEnum } from "@/generated/api/types.gen";
 import {
-  assistantsActiveRetrieveOptions,
-  assistantsResizeMutation,
-} from "@/generated/api/@tanstack/react-query.gen";
-import {
-  SIZE_DESCRIPTION,
-  SIZE_LABEL,
+    SIZE_DESCRIPTION,
+    SIZE_LABEL,
 } from "@/lib/billing/machine-sizes";
+import { Button } from "@vellumai/design-library/components/button";
+import { Modal } from "@vellumai/design-library/components/modal";
+import { Notice } from "@vellumai/design-library/components/notice";
+import { Typography } from "@vellumai/design-library/components/typography";
 
 import { IconBadge, StepDots } from "./primitives";
 import {
-  allowedMachineSizesForTier,
-  extractOnboardingErrorMessage,
+    allowedMachineSizesForTier,
+    extractOnboardingErrorMessage,
 } from "./utils";
 
 function ResourceCard({

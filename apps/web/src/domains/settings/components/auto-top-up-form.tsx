@@ -1,7 +1,7 @@
 import { useState, type ChangeEvent } from "react";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Input } from "@vellum/design-library/components/input";
+import { Button } from "@vellumai/design-library/components/button";
+import { Input } from "@vellumai/design-library/components/input";
 
 export interface AutoTopUpFormValues {
   threshold_usd: string;

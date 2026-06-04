@@ -2,15 +2,15 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Archive, Loader2, RotateCcw } from "lucide-react";
 import { useCallback, useState } from "react";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Card } from "@vellum/design-library/components/card";
 import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
-import { useArchivedConversationListQuery } from "@/hooks/conversation-queries";
-import { invalidateConversationQueries } from "@/utils/conversation-cache";
-import type { Conversation } from "@/types/conversation-types";
 import { conversationsByIdUnarchivePost } from "@/generated/daemon/sdk.gen";
-import { toast } from "@vellum/design-library";
+import { useArchivedConversationListQuery } from "@/hooks/conversation-queries";
 import { captureError } from "@/lib/sentry/capture-error";
+import type { Conversation } from "@/types/conversation-types";
+import { invalidateConversationQueries } from "@/utils/conversation-cache";
+import { toast } from "@vellumai/design-library";
+import { Button } from "@vellumai/design-library/components/button";
+import { Card } from "@vellumai/design-library/components/card";
 
 function formatConversationDate(timestamp: number | undefined): string {
   if (timestamp == null) return "";

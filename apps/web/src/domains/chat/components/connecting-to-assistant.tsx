@@ -1,17 +1,17 @@
 
 import { AlertTriangle, Loader2 } from "lucide-react";
-import { Link } from "react-router";
 import type { FC, ReactNode } from "react";
+import { Link } from "react-router";
 
-import { Button, Modal, Typography } from "@vellum/design-library";
 import type {
-  ConnectionServerState,
-  ReachabilityState,
+    ConnectionServerState,
+    ReachabilityState,
 } from "@/assistant/use-assistant-reachability";
 import { MAX_ATTEMPTS } from "@/assistant/use-assistant-reachability";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { VELLUM_COMMUNITY_URL } from "@/utils/external-urls";
 import { routes } from "@/utils/routes";
+import { Button, Modal, Typography } from "@vellumai/design-library";
 
 interface ConnectingToAssistantProps {
   state: ReachabilityState;

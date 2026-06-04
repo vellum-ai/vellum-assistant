@@ -1,14 +1,14 @@
 import { Info } from "lucide-react";
 import { useMemo } from "react";
 
-import { Dropdown } from "@vellum/design-library/components/dropdown";
-import { Typography } from "@vellum/design-library/components/typography";
 import type {
-  MachineTier,
-  MachineTierEnum,
-  StorageTier,
-  StorageTierEnum,
+    MachineTier,
+    MachineTierEnum,
+    StorageTier,
+    StorageTierEnum,
 } from "@/generated/api/types.gen";
+import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Typography } from "@vellumai/design-library/components/typography";
 import { formatDelta, formatMonthly } from "./tier-pricing";
 
 /**

@@ -1,6 +1,6 @@
 import { type ReactNode } from "react";
 
-import { cn } from "@vellum/design-library";
+import { cn } from "@vellumai/design-library";
 
 import { LoginBackground } from "@/domains/account/login-background";
 

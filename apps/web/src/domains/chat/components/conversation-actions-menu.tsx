@@ -1,33 +1,33 @@
 import {
-  Archive,
-  ArchiveRestore,
-  Circle,
-  CircleCheck,
-  Copy,
-  ExternalLink,
-  FolderInput,
-  GitBranch,
-  MessageCircle,
-  Microscope,
-  MoreHorizontal,
-  Pencil,
-  Pin,
-  PinOff,
-  RefreshCw,
-  Sparkles,
-  type LucideIcon,
+    Archive,
+    ArchiveRestore,
+    Circle,
+    CircleCheck,
+    Copy,
+    ExternalLink,
+    FolderInput,
+    GitBranch,
+    MessageCircle,
+    Microscope,
+    MoreHorizontal,
+    Pencil,
+    Pin,
+    PinOff,
+    RefreshCw,
+    Sparkles,
+    type LucideIcon,
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
-import {
-  BottomSheet,
-  ContextMenu,
-  Menu,
-  PanelItem,
-} from "@vellum/design-library";
 import type { MoveToGroupTarget } from "@/domains/chat/utils/group-conversations";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useIsNativePlatform } from "@/runtime/native-auth";
+import {
+    BottomSheet,
+    ContextMenu,
+    Menu,
+    PanelItem,
+} from "@vellumai/design-library";
 
 /**
  * Hover-revealed "more" menu for a conversation row. Renders an ellipsis

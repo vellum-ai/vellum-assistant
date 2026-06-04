@@ -2,14 +2,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { useMemo, useState } from "react";
 
-import { Button } from "@vellum/design-library/components/button";
-import { toast } from "@vellum/design-library/components/toast";
-import { useEnvironmentStore } from "@/stores/environment-store";
 import {
-  assistantsSleepPolicyDetailReadOptions,
-  assistantsSleepPolicyDetailReadQueryKey,
-  assistantsSleepPolicyDetailPartialUpdateMutation,
+    assistantsSleepPolicyDetailPartialUpdateMutation,
+    assistantsSleepPolicyDetailReadOptions,
+    assistantsSleepPolicyDetailReadQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
+import { useEnvironmentStore } from "@/stores/environment-store";
+import { Button } from "@vellumai/design-library/components/button";
+import { toast } from "@vellumai/design-library/components/toast";
 
 const PRESET_OPTIONS: ReadonlyArray<{
   label: string;
