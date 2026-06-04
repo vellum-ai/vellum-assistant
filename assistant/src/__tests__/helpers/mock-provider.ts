@@ -1,3 +1,7 @@
+// Type-only import: this binds the mock to the real `Provider` contract so it
+// can be passed to a live `AgentLoop` without casts. It must stay `import type`
+// — a value import would pull `providers/types.ts`'s runtime exports into this
+// shared helper, which the test-machinery isolation rule forbids.
 import type {
   Message,
   Provider,
