@@ -12791,6 +12791,68 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  images:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        mimeType:
+                          type: string
+                        dataBase64:
+                          type: string
+                        title:
+                          type: string
+                      required:
+                        - mimeType
+                        - dataBase64
+                      additionalProperties: false
+                  text:
+                    type: string
+                  resolvedModel:
+                    type: string
+                required:
+                  - images
+                  - resolvedModel
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                prompt:
+                  type: string
+                mode:
+                  type: string
+                  enum:
+                    - generate
+                    - edit
+                sourceImages:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      mimeType:
+                        type: string
+                      dataBase64:
+                        type: string
+                    required:
+                      - mimeType
+                      - dataBase64
+                    additionalProperties: false
+                model:
+                  type: string
+                variants:
+                  type: number
+              required:
+                - prompt
+              additionalProperties: false
   /v1/inference/chatgpt-subscription/auth:
     post:
       operationId: inference_chatgptsubscription_auth_post
