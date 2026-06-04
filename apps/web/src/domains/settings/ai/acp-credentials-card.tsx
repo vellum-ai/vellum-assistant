@@ -97,16 +97,22 @@ export function AcpCredentialsCard({ assistantId }: AcpCredentialsCardProps) {
           throwOnError: true,
         });
         setLinked((l) => ({ ...l, [field]: true }));
-        // Close any in-progress "replace" input now that the overwrite landed.
-        setReplacing((r) => ({ ...r, [field]: false }));
-        // For Claude, only one of the two fields can be the active credential;
-        // clear the other so the UI shows a single linked Claude credential.
         if (field === "claude_oauth_token" || field === "anthropic_api_key") {
+          // For Claude, only one of the two fields can be the active
+          // credential; clear the other's linked flag so the UI shows a single
+          // linked Claude credential. The Claude row's `replacing` prop ORs
+          // both Claude flags, so reset BOTH replacing flags — otherwise a
+          // replace started against the now-cleared field would keep the row
+          // stuck on the replace form after a successful link.
           const other: AcpField =
             field === "claude_oauth_token"
               ? "anthropic_api_key"
               : "claude_oauth_token";
           setLinked((l) => ({ ...l, [other]: false }));
+          setReplacing((r) => ({ ...r, [field]: false, [other]: false }));
+        } else {
+          // Close any in-progress "replace" input now that the overwrite landed.
+          setReplacing((r) => ({ ...r, [field]: false }));
         }
       } catch (err) {
         captureError(err, { context: "acp_link_credential", bestEffort: true });

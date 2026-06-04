@@ -129,6 +129,81 @@ describe("AcpCredentialsCard", () => {
     expect(queryByLabelText("Git token")).toBeNull();
   });
 
+  test("switching the Claude dropdown during replace and linking clears the replace form", async () => {
+    const { getByLabelText, getByText, queryByText, queryByLabelText } = render(
+      <AcpCredentialsCard assistantId={ASSISTANT_ID} />,
+    );
+
+    // Link the Claude OAuth token (the default dropdown mode).
+    const claudeInput = getByLabelText(
+      "Claude OAuth token",
+    ) as HTMLInputElement;
+    fireEvent.change(claudeInput, { target: { value: "claude_oauth" } });
+
+    // The Claude row is the only credential row containing the mode dropdown
+    // (combobox), so scope button lookup to that row to disambiguate it.
+    const findClaudeButton = (text: string) =>
+      Array.from(document.querySelectorAll("button")).find((b) => {
+        if (b.textContent !== text) return false;
+        const row = b.closest("div.rounded-lg");
+        return row?.querySelector('[role="combobox"]') != null;
+      });
+
+    fireEvent.click(findClaudeButton("Link")!);
+    await waitFor(() => {
+      expect(linkMock).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect(getByText(/Claude OAuth token linked/i)).toBeDefined();
+    });
+
+    // Start a replace, then switch the dropdown to the OTHER Claude credential.
+    fireEvent.click(getByText("Replace"));
+    await waitFor(() => {
+      expect(queryByLabelText("Claude OAuth token")).not.toBeNull();
+    });
+
+    const trigger = document.querySelector(
+      '[role="combobox"]',
+    ) as HTMLElement;
+    fireEvent.click(trigger);
+    const apiKeyOption = await waitFor(() => {
+      const el = Array.from(
+        document.querySelectorAll('[role="option"]'),
+      ).find((o) => o.textContent?.includes("Anthropic API key"));
+      expect(el).toBeDefined();
+      return el as HTMLElement;
+    });
+    fireEvent.click(apiKeyOption);
+
+    const apiKeyInput = (await waitFor(() => {
+      const el = queryByLabelText("Anthropic API key") as HTMLInputElement | null;
+      expect(el).not.toBeNull();
+      return el!;
+    })) as HTMLInputElement;
+
+    // Submit the new (Anthropic API key) credential.
+    fireEvent.change(apiKeyInput, { target: { value: "sk-ant" } });
+    fireEvent.click(findClaudeButton("Replace")!);
+
+    await waitFor(() => {
+      expect(linkMock).toHaveBeenCalledTimes(2);
+    });
+    expect(linkMock.mock.calls[1]![0]).toMatchObject({
+      body: { field: "anthropic_api_key", value: "sk-ant" },
+    });
+
+    // The replace form must be gone: linked state shows, no input lingers.
+    await waitFor(() => {
+      expect(getByText(/Anthropic API key linked/i)).toBeDefined();
+    });
+    expect(queryByLabelText("Anthropic API key")).toBeNull();
+    expect(queryByLabelText("Claude OAuth token")).toBeNull();
+    expect(
+      queryByText(/Enter a new value to overwrite the stored credential/i),
+    ).toBeNull();
+  });
+
   test("does not call the daemon when no assistant is present", () => {
     const { getByText, queryByLabelText } = render(
       <AcpCredentialsCard assistantId={undefined} />,
