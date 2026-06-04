@@ -673,9 +673,14 @@ describe("buildSystemPrompt", () => {
       expect(result).toContain("Batch independent tool calls");
     });
 
-    test("bundled communication section renders and sorts before the parallel-tool-calls block", () => {
-      // `01-communication` sorts ahead of `01-parallel-tool-calls`, so the
-      // communication guidance leads the operational sections.
+    test("bundled communication section renders right before the identity section", () => {
+      // `07b-communication` sorts after `07-external-content` and before
+      // `08-identity`, so the communication guidance reads as a lead-in to
+      // the identity/soul persona block rather than top-of-prompt boilerplate.
+      writeFileSync(
+        join(TEST_DIR, "IDENTITY.md"),
+        "# My Identity\n\nI am Vellum.",
+      );
       const result = buildSystemPrompt();
       expect(result).toContain("## Communication");
       // The core rule: deliberation belongs in private thinking, not text.
@@ -686,11 +691,14 @@ describe("buildSystemPrompt", () => {
       expect(result).toContain(
         "Always prioritize communication preferences that you've established",
       );
+      const externalIdx = result.indexOf("## External Content");
       const communicationIdx = result.indexOf("## Communication");
-      const parallelIdx = result.indexOf("<use_parallel_tool_calls>");
+      const identityIdx = result.indexOf("# My Identity\n\nI am Vellum.");
+      expect(externalIdx).toBeGreaterThan(-1);
       expect(communicationIdx).toBeGreaterThan(-1);
-      expect(parallelIdx).toBeGreaterThan(-1);
-      expect(communicationIdx).toBeLessThan(parallelIdx);
+      expect(identityIdx).toBeGreaterThan(-1);
+      expect(externalIdx).toBeLessThan(communicationIdx);
+      expect(communicationIdx).toBeLessThan(identityIdx);
     });
 
     test("workspace prefix with frontmatter renders body at the very top", () => {
