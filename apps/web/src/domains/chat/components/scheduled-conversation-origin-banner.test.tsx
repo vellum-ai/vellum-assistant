@@ -12,6 +12,7 @@ import type { Conversation } from "@/types/conversation-types";
 const fetchSchedulesMock = mock(
   async (_assistantId: string): Promise<AssistantSchedule[]> => [],
 );
+let isOrgReady = true;
 
 mock.module("@/utils/schedules", () => ({
   fetchSchedules: fetchSchedulesMock,
@@ -23,6 +24,10 @@ mock.module("@/utils/schedules", () => ({
       : null,
 }));
 
+mock.module("@/hooks/use-is-org-ready", () => ({
+  useIsOrgReady: () => isOrgReady,
+}));
+
 const { ScheduledConversationOriginBanner } = await import(
   "@/domains/chat/components/scheduled-conversation-origin-banner"
 );
@@ -30,6 +35,7 @@ const { ScheduledConversationOriginBanner } = await import(
 afterEach(() => {
   cleanup();
   fetchSchedulesMock.mockClear();
+  isOrgReady = true;
 });
 
 function renderWithProviders(element: ReactElement) {
@@ -126,5 +132,20 @@ describe("ScheduledConversationOriginBanner", () => {
 
     expect(fetchSchedulesMock).not.toHaveBeenCalled();
     expect(screen.queryByText("Started by schedule")).toBeNull();
+  });
+
+  test("waits for org readiness before fetching schedule details", () => {
+    isOrgReady = false;
+
+    renderWithProviders(
+      <ScheduledConversationOriginBanner
+        assistantId="assistant-1"
+        conversation={scheduledConversation()}
+      />,
+    );
+
+    expect(fetchSchedulesMock).not.toHaveBeenCalled();
+    expect(screen.getByText("Started by schedule")).toBeTruthy();
+    expect(screen.getByText("Scheduled automation")).toBeTruthy();
   });
 });

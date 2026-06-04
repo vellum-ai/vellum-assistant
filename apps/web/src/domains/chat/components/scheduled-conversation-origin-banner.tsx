@@ -4,6 +4,7 @@ import { Link } from "react-router";
 
 import { Button } from "@vellumai/design-library/components/button";
 
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { assistantSchedulesQueryKey } from "@/lib/sync/query-tags";
 import type { Conversation } from "@/types/conversation-types";
 import { isScheduledConversation } from "@/utils/conversation-predicates";
@@ -27,11 +28,12 @@ export function ScheduledConversationOriginBanner({
     conversation != null &&
     isScheduledConversation(conversation) &&
     scheduleJobId != null;
+  const isOrgReady = useIsOrgReady();
 
   const { data: schedules, isFetched } = useQuery({
     queryKey: assistantSchedulesQueryKey(assistantId),
     queryFn: () => fetchSchedules(assistantId!),
-    enabled: shouldRender && !!assistantId,
+    enabled: shouldRender && !!assistantId && isOrgReady,
     staleTime: 30_000,
   });
 
