@@ -17,4 +17,9 @@ describe("feature flag catalog", () => {
       "experimentActivationFlow20260603" in ASSISTANT_FLAG_DEFAULTS,
     ).toBe(false);
   });
+
+  test("exposes schedule usage UI as an off-by-default client flag", () => {
+    expect(CLIENT_FLAG_DEFAULTS.scheduleUsageUI).toBe(false);
+    expect("scheduleUsageUI" in ASSISTANT_FLAG_DEFAULTS).toBe(false);
+  });
 });

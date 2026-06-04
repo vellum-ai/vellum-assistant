@@ -16,6 +16,7 @@ import {
 import { decorateUsageBreakdownGroups } from "@/domains/logs/group-labels";
 import { fetchUsageProfileMetadata } from "@/domains/logs/profile-metadata";
 import { assistantSchedulesQueryKey } from "@/lib/sync/query-tags";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { fetchSchedules, type AssistantSchedule } from "@/utils/schedules";
 import type {
   UsageBreakdownResponse,
@@ -41,6 +42,7 @@ import {
 import {
   buildUsageSearchParams,
   FALLBACK_USAGE_GROUP_BY,
+  getUsageGroupByOptions,
   readUsageUrlState,
   resolveEffectiveUsageGranularity,
   resolveRangeWindow,
@@ -50,7 +52,6 @@ import {
   shouldRetryUsageGroupQuery,
   trendTitle,
   type UsageSearchParamsUpdate,
-  USAGE_GROUP_BY_OPTIONS,
 } from "@/domains/logs/usage-tab-state";
 import {
   UsageTrendChart,
@@ -92,19 +93,21 @@ const COST_OPTIMIZATION_PROMPT = [
 export function UsageTab({ assistantId }: UsageTabProps) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const scheduleUsageEnabled = useClientFeatureFlagStore.use.scheduleUsageUI();
   const { range, groupBy, scheduleId } = useMemo(
-    () => readUsageUrlState(searchParams),
-    [searchParams],
+    () => readUsageUrlState(searchParams, { scheduleUsageEnabled }),
+    [scheduleUsageEnabled, searchParams],
   );
   const timezone = useEffectiveTimezone();
   const updateUsageSearchParams = useCallback(
     (update: UsageSearchParamsUpdate) => {
       setSearchParams(
-        (prev) => buildUsageSearchParams(prev, update),
+        (prev) =>
+          buildUsageSearchParams(prev, update, { scheduleUsageEnabled }),
         { replace: true },
       );
     },
-    [setSearchParams],
+    [scheduleUsageEnabled, setSearchParams],
   );
   // Depend on `timezone` so bounded ranges (e.g. "Today", "Last 7 days")
   // recompute their from/to boundaries in the effective zone when it changes
@@ -120,6 +123,7 @@ export function UsageTab({ assistantId }: UsageTabProps) {
   const schedulesQuery = useQuery({
     queryKey: assistantSchedulesQueryKey(assistantId),
     queryFn: () => fetchSchedules(assistantId),
+    enabled: scheduleUsageEnabled,
     staleTime: 10_000,
   });
 
@@ -367,7 +371,12 @@ export function UsageTab({ assistantId }: UsageTabProps) {
   const isHourly = effectiveGranularity === "hourly";
   const trendGroupBy =
     seriesGroupBy && seriesQuery.error ? undefined : effectiveGroupBy;
-  const showScheduleFilter = effectiveGroupBy === "schedule";
+  const groupByOptions = useMemo(
+    () => getUsageGroupByOptions(scheduleUsageEnabled),
+    [scheduleUsageEnabled],
+  );
+  const showScheduleFilter =
+    scheduleUsageEnabled && effectiveGroupBy === "schedule";
 
   const handleGroupByChange = (nextGroupBy: UsageGroupBy) => {
     if (nextGroupBy === groupBy && effectiveGroupBy !== groupBy) {
@@ -423,6 +432,7 @@ export function UsageTab({ assistantId }: UsageTabProps) {
               <GroupByPicker
                 value={effectiveGroupBy}
                 onChange={handleGroupByChange}
+                options={groupByOptions}
               />
             </div>
           </div>
@@ -806,9 +816,11 @@ function TotalsSkeleton() {
 function GroupByPicker({
   value,
   onChange,
+  options,
 }: {
   value: UsageGroupBy;
   onChange: (value: UsageGroupBy) => void;
+  options: Array<{ value: UsageGroupBy; label: string }>;
 }) {
   return (
     <div className="flex items-center">
@@ -817,7 +829,7 @@ function GroupByPicker({
         onChange={onChange}
         menuAlign="end"
         menuMinWidth={196}
-        options={USAGE_GROUP_BY_OPTIONS.map((option) => ({
+        options={options.map((option) => ({
           value: option.value,
           label: option.label,
         }))}

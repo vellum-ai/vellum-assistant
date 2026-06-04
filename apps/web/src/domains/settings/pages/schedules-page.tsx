@@ -43,6 +43,7 @@ import {
   assistantScheduleUsageSummaryQueryKey,
   assistantSchedulesQueryKey,
 } from "@/lib/sync/query-tags";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { routes } from "@/utils/routes";
 import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 
@@ -481,12 +482,14 @@ function ScriptTimeoutField({
 export function ScheduleDetailView({
   schedule,
   assistantId,
+  scheduleUsageEnabled,
   onBack,
   onDeleted,
   onUpdated,
 }: {
   schedule: Schedule;
   assistantId: string;
+  scheduleUsageEnabled: boolean;
   onBack: () => void;
   onDeleted: () => void;
   onUpdated: () => void;
@@ -556,16 +559,18 @@ export function ScheduleDetailView({
             <Tag tone={MODE_TONE[schedule.mode] ?? "neutral"}>
               {schedule.mode}
             </Tag>
-            <Button
-              variant="outlined"
-              size="compact"
-              leftIcon={<BarChart3 className="h-3.5 w-3.5" />}
-              onClick={() =>
-                navigate(routes.logs.usageForSchedule(schedule.id))
-              }
-            >
-              View usage
-            </Button>
+            {scheduleUsageEnabled ? (
+              <Button
+                variant="outlined"
+                size="compact"
+                leftIcon={<BarChart3 className="h-3.5 w-3.5" />}
+                onClick={() =>
+                  navigate(routes.logs.usageForSchedule(schedule.id))
+                }
+              >
+                View usage
+              </Button>
+            ) : null}
             {sourceConversationId ? (
               <Button
                 variant="outlined"
@@ -770,13 +775,12 @@ function ScheduleUsageStats({
     );
   }
 
-  const isUnavailable = usage.status === "error";
-  const cost = isUnavailable
-    ? "--"
-    : formatScheduleCost(usage.summary.totalEstimatedCostUsd);
-  const runs = isUnavailable
-    ? "--"
-    : formatScheduleRunCount(usage.summary.runCount);
+  if (usage.status === "error") {
+    return null;
+  }
+
+  const cost = formatScheduleCost(usage.summary.totalEstimatedCostUsd);
+  const runs = formatScheduleRunCount(usage.summary.runCount);
 
   return (
     <div className="flex w-[136px] shrink-0 items-center justify-end gap-3 text-right">
@@ -1214,6 +1218,7 @@ export function SchedulesPage() {
   const queryClient = useQueryClient();
   const { scheduleId } = useParams<{ scheduleId?: string }>();
   const tz = useEffectiveTimezone();
+  const scheduleUsageEnabled = useClientFeatureFlagStore.use.scheduleUsageUI();
   const {
     data: assistantList,
     isLoading: isAssistantLoading,
@@ -1239,7 +1244,11 @@ export function SchedulesPage() {
     isLoading: isUsageSummaryLoading,
     isError: isUsageSummaryError,
   } = useQuery(
-    scheduleUsageSummaryQueryOptions(assistantId, tz, scheduleId == null),
+    scheduleUsageSummaryQueryOptions(
+      assistantId,
+      tz,
+      scheduleUsageEnabled && scheduleId == null,
+    ),
   );
 
   const {
@@ -1279,7 +1288,7 @@ export function SchedulesPage() {
       SYSTEM_TASK_STATS_RUN_LIMIT,
     ],
     queryFn: () => fetchHeartbeatRuns(assistantId!, SYSTEM_TASK_STATS_RUN_LIMIT),
-    enabled: !!assistantId && heartbeatConfig != null,
+    enabled: scheduleUsageEnabled && !!assistantId && heartbeatConfig != null,
     staleTime: 10_000,
   });
 
@@ -1297,7 +1306,10 @@ export function SchedulesPage() {
     ],
     queryFn: () =>
       fetchConsolidationRuns(assistantId!, SYSTEM_TASK_STATS_RUN_LIMIT),
-    enabled: !!assistantId && consolidationConfig?.available === true,
+    enabled:
+      scheduleUsageEnabled &&
+      !!assistantId &&
+      consolidationConfig?.available === true,
     staleTime: 10_000,
   });
 
@@ -1326,6 +1338,9 @@ export function SchedulesPage() {
 
   const usageForSchedule = useCallback(
     (scheduleId: string): ScheduleRowUsage => {
+      if (!scheduleUsageEnabled) {
+        return { status: "error" };
+      }
       if (isUsageSummaryLoading) {
         return { status: "loading" };
       }
@@ -1339,7 +1354,12 @@ export function SchedulesPage() {
           zeroScheduleUsageSummary(scheduleId),
       };
     },
-    [isUsageSummaryError, isUsageSummaryLoading, usageSummaryByScheduleId],
+    [
+      isUsageSummaryError,
+      isUsageSummaryLoading,
+      scheduleUsageEnabled,
+      usageSummaryByScheduleId,
+    ],
   );
 
   const systemStatsRange = useMemo(
@@ -1347,6 +1367,9 @@ export function SchedulesPage() {
     [tz],
   );
   const heartbeatUsage: ScheduleRowUsage = useMemo(() => {
+    if (!scheduleUsageEnabled) {
+      return { status: "error" };
+    }
     if (isHeartbeatStatsLoading) {
       return { status: "loading" };
     }
@@ -1365,9 +1388,13 @@ export function SchedulesPage() {
     heartbeatRunsForStats,
     isHeartbeatStatsError,
     isHeartbeatStatsLoading,
+    scheduleUsageEnabled,
     systemStatsRange,
   ]);
   const consolidationUsage: ScheduleRowUsage = useMemo(() => {
+    if (!scheduleUsageEnabled) {
+      return { status: "error" };
+    }
     if (isConsolidationStatsLoading) {
       return { status: "loading" };
     }
@@ -1386,6 +1413,7 @@ export function SchedulesPage() {
     consolidationRunsForStats,
     isConsolidationStatsError,
     isConsolidationStatsLoading,
+    scheduleUsageEnabled,
     systemStatsRange,
   ]);
 
@@ -1560,6 +1588,7 @@ export function SchedulesPage() {
         key={selectedSchedule.id}
         schedule={selectedSchedule}
         assistantId={assistantId}
+        scheduleUsageEnabled={scheduleUsageEnabled}
         onBack={navigateToSchedules}
         onDeleted={() => {
           navigateToSchedules();
@@ -1669,7 +1698,7 @@ export function SchedulesPage() {
         </Button>
       </div>
 
-      {isUsageSummaryError ? (
+      {scheduleUsageEnabled && isUsageSummaryError ? (
         <Notice tone="warning" className="py-2 text-body-small-default">
           Schedule usage stats are unavailable right now.
         </Notice>
@@ -1688,9 +1717,11 @@ export function SchedulesPage() {
                 usage={usageForSchedule(schedule.id)}
                 onClick={() => navigateToSchedule(schedule.id)}
                 onToggle={(enabled) => void handleToggle(schedule.id, enabled)}
-                onOpenUsage={() =>
-                  navigate(routes.logs.usageForSchedule(schedule.id))
-                }
+                onOpenUsage={() => {
+                  if (scheduleUsageEnabled) {
+                    navigate(routes.logs.usageForSchedule(schedule.id));
+                  }
+                }}
               />
             ))}
           </div>
@@ -1730,9 +1761,11 @@ export function SchedulesPage() {
                 usage={usageForSchedule(schedule.id)}
                 onClick={() => navigateToSchedule(schedule.id)}
                 onToggle={(enabled) => void handleToggle(schedule.id, enabled)}
-                onOpenUsage={() =>
-                  navigate(routes.logs.usageForSchedule(schedule.id))
-                }
+                onOpenUsage={() => {
+                  if (scheduleUsageEnabled) {
+                    navigate(routes.logs.usageForSchedule(schedule.id));
+                  }
+                }}
               />
             ))}
           </div>

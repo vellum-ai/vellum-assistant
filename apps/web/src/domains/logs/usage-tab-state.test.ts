@@ -6,6 +6,7 @@ import {
 } from "@/components/charts/format-date-label";
 import {
   buildUsageSearchParams,
+  getUsageGroupByOptions,
   readUsageUrlState,
   resolveRangeWindow,
 } from "@/domains/logs/usage-tab-state";
@@ -149,6 +150,20 @@ describe("usage URL state", () => {
     });
   });
 
+  test("ignores schedule grouping and schedule filters when schedule usage UI is disabled", () => {
+    const params = new URLSearchParams(
+      "range=today&groupBy=schedule&scheduleId=schedule-123",
+    );
+
+    expect(
+      readUsageUrlState(params, { scheduleUsageEnabled: false }),
+    ).toEqual({
+      range: "today",
+      groupBy: "task",
+      scheduleId: undefined,
+    });
+  });
+
   test("falls back for invalid range and group-by params", () => {
     const params = new URLSearchParams(
       "range=yesterday&groupBy=not-real&scheduleId=",
@@ -213,5 +228,15 @@ describe("usage URL state", () => {
     );
 
     expect(params.toString()).toBe("range=90d&groupBy=schedule");
+  });
+
+  test("omits schedule grouping from picker options when schedule usage UI is disabled", () => {
+    expect(getUsageGroupByOptions(false).map((option) => option.value)).toEqual([
+      "task",
+      "profile",
+      "model",
+      "provider",
+      "conversation",
+    ]);
   });
 });

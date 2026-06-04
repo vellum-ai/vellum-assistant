@@ -30,6 +30,7 @@ const USAGE_GROUP_BYS = new Set<UsageGroupBy>([
   "profile",
   "schedule",
 ]);
+const SCHEDULE_USAGE_GROUP_BY = "schedule";
 
 export const USAGE_GROUP_LABELS: Record<UsageGroupBy, string> = {
   task: LLM_USAGE_DIMENSION_LABELS.task,
@@ -53,6 +54,17 @@ export const USAGE_GROUP_BY_OPTIONS: Array<{
   { value: "conversation", label: USAGE_GROUP_LABELS.conversation },
 ];
 
+export function getUsageGroupByOptions(scheduleUsageEnabled = true): Array<{
+  value: UsageGroupBy;
+  label: string;
+}> {
+  return scheduleUsageEnabled
+    ? USAGE_GROUP_BY_OPTIONS
+    : USAGE_GROUP_BY_OPTIONS.filter(
+        (option) => option.value !== SCHEDULE_USAGE_GROUP_BY,
+      );
+}
+
 export interface UsageUrlState {
   range: UsageTimeRange;
   groupBy: UsageGroupBy;
@@ -65,12 +77,18 @@ export interface UsageSearchParamsUpdate {
   scheduleId?: string | null;
 }
 
+interface UsageUrlStateOptions {
+  scheduleUsageEnabled?: boolean;
+}
+
 export function readUsageUrlState(
   searchParams: URLSearchParams,
+  options: UsageUrlStateOptions = {},
 ): UsageUrlState {
+  const scheduleUsageEnabled = options.scheduleUsageEnabled ?? true;
   const range = searchParams.get("range");
   const rawGroupBy = searchParams.get("groupBy");
-  const groupBy = isUsageGroupBy(rawGroupBy)
+  const groupBy = isUsageGroupBy(rawGroupBy, scheduleUsageEnabled)
     ? rawGroupBy
     : DEFAULT_USAGE_GROUP_BY;
   return {
@@ -94,14 +112,21 @@ export function readUsageScheduleId(
 export function buildUsageSearchParams(
   searchParams: URLSearchParams,
   update: UsageSearchParamsUpdate,
+  options: UsageUrlStateOptions = {},
 ): URLSearchParams {
+  const scheduleUsageEnabled = options.scheduleUsageEnabled ?? true;
   const next = new URLSearchParams(searchParams);
 
   if (update.range !== undefined) {
     next.set("range", update.range);
   }
   if (update.groupBy !== undefined) {
-    next.set("groupBy", update.groupBy);
+    next.set(
+      "groupBy",
+      !scheduleUsageEnabled && update.groupBy === SCHEDULE_USAGE_GROUP_BY
+        ? DEFAULT_USAGE_GROUP_BY
+        : update.groupBy,
+    );
   }
   if (update.scheduleId !== undefined) {
     if (update.scheduleId === null || update.scheduleId.trim().length === 0) {
@@ -110,7 +135,10 @@ export function buildUsageSearchParams(
       next.set("scheduleId", update.scheduleId);
     }
   }
-  if (next.get("groupBy") !== "schedule") {
+  if (!scheduleUsageEnabled && next.get("groupBy") === SCHEDULE_USAGE_GROUP_BY) {
+    next.set("groupBy", DEFAULT_USAGE_GROUP_BY);
+  }
+  if (next.get("groupBy") !== SCHEDULE_USAGE_GROUP_BY) {
     next.delete("scheduleId");
   }
 
@@ -121,8 +149,15 @@ function isUsageTimeRange(value: string | null): value is UsageTimeRange {
   return value != null && USAGE_TIME_RANGES.has(value as UsageTimeRange);
 }
 
-function isUsageGroupBy(value: string | null): value is UsageGroupBy {
-  return value != null && USAGE_GROUP_BYS.has(value as UsageGroupBy);
+function isUsageGroupBy(
+  value: string | null,
+  scheduleUsageEnabled: boolean,
+): value is UsageGroupBy {
+  return (
+    value != null &&
+    USAGE_GROUP_BYS.has(value as UsageGroupBy) &&
+    (scheduleUsageEnabled || value !== SCHEDULE_USAGE_GROUP_BY)
+  );
 }
 
 export function shouldFetchUsageSeries(

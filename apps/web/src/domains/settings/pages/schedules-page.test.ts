@@ -410,7 +410,7 @@ describe("ScheduleRow", () => {
     expect(detailClicks).toBe(0);
   });
 
-  test("renders loading placeholders and unavailable error stats", () => {
+  test("renders loading placeholders and hides unavailable error stats", () => {
     const { rerender } = render(
       createElement(ScheduleRow, {
         schedule: rowSchedule(),
@@ -433,6 +433,8 @@ describe("ScheduleRow", () => {
       }),
     );
 
-    expect(screen.getAllByText("--")).toHaveLength(2);
+    expect(document.body.textContent).not.toContain("Cost");
+    expect(document.body.textContent).not.toContain("Runs");
+    expect(document.body.textContent).not.toContain("--");
   });
 });

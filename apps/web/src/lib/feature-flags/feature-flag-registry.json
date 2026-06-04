@@ -42,6 +42,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "schedule-usage-ui",
+      "scope": "client",
+      "key": "schedule-usage-ui",
+      "label": "Schedule Usage UI",
+      "description": "Show schedule-specific usage stats and schedule grouping/filtering in usage analytics.",
+      "defaultEnabled": false
+    },
+    {
       "id": "local-docker-enabled",
       "scope": "client",
       "key": "local-docker-enabled",
