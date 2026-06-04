@@ -11,6 +11,7 @@ import {
   LINKABLE_ACP_FIELDS,
   LINKABLE_FIELD_DESCRIPTIONS,
   type LinkableAcpField,
+  MUTUALLY_EXCLUSIVE_FIELD,
 } from "../../acp/credential-fields.js";
 import { getAcpSessionManager } from "../../acp/index.js";
 import {
@@ -30,11 +31,13 @@ import { acpSessionHistory } from "../../memory/schema.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
+  deleteSecureKeyAsync,
   getActiveBackendName,
   setSecureKeyAsync,
 } from "../../security/secure-keys.js";
 import {
   assertMetadataWritable,
+  deleteCredentialMetadata,
   upsertCredentialMetadata,
 } from "../../tools/credentials/metadata-store.js";
 import { getLogger } from "../../util/logger.js";
@@ -154,6 +157,11 @@ async function spawnSession({ body }: RouteHandlerArgs) {
  *  - IN-POD ONLY: the value goes to the local secure store; it is never sent
  *    centrally (no managed-catalog / platform sync call on this path).
  *  - Locked to the {@link LINKABLE_ACP_FIELDS} allowlist.
+ *  - MUTUALLY-EXCLUSIVE Claude credentials switch cleanly: linking one Claude
+ *    credential (`claude_oauth_token` / `anthropic_api_key`) deletes its
+ *    sibling (value + policy metadata) per {@link MUTUALLY_EXCLUSIVE_FIELD}, so
+ *    the reader's OAuth-first precedence in `prepare-agent-env.ts` honours the
+ *    user's latest choice instead of silently keeping the stale token.
  */
 async function linkCredential({ body }: RouteHandlerArgs) {
   const rawField = body?.field;
@@ -191,6 +199,18 @@ async function linkCredential({ body }: RouteHandlerArgs) {
     allowedTools: [ACP_SPAWN_TOOL],
     usageDescription: LINKABLE_FIELD_DESCRIPTIONS[field],
   });
+
+  // Clear the mutually-exclusive sibling (if any) so the OAuth-first resolver
+  // honours this latest choice. Without this, switching from the OAuth token to
+  // the Anthropic API key (or back) would leave the old credential stored and
+  // the resolver would keep using it. Best-effort/idempotent: deleting a
+  // never-linked sibling is a no-op.
+  const sibling = MUTUALLY_EXCLUSIVE_FIELD[field];
+  if (sibling) {
+    await deleteSecureKeyAsync(credentialKey(ACP_CREDENTIAL_SERVICE, sibling));
+    deleteCredentialMetadata(ACP_CREDENTIAL_SERVICE, sibling);
+    log.info({ field, sibling }, "Cleared mutually-exclusive ACP credential");
+  }
 
   log.info({ field }, "ACP credential linked");
 

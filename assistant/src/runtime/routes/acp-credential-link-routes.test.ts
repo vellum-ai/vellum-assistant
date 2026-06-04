@@ -146,4 +146,79 @@ describe("POST /v1/acp/credentials/link", () => {
       await getSecureKeyAsync(credentialKey("acp", "git_token")),
     ).toBeFalsy();
   });
+
+  test("linking anthropic_api_key clears a previously-linked claude_oauth_token (value + metadata)", async () => {
+    const handler = getLinkHandler();
+    // User first linked the OAuth token...
+    await handler({ body: { field: "claude_oauth_token", value: "oauth-1" } });
+    // ...then switches to an Anthropic API key via the settings card.
+    await handler({ body: { field: "anthropic_api_key", value: "sk-ant-1" } });
+
+    // The stale OAuth token (which the OAuth-first resolver would otherwise
+    // keep using) is gone — value and policy metadata both removed.
+    expect(
+      await getSecureKeyAsync(credentialKey("acp", "claude_oauth_token")),
+    ).toBeFalsy();
+    expect(
+      getCredentialMetadata("acp", "claude_oauth_token"),
+    ).toBeUndefined();
+
+    // The newly-linked API key is present and scoped.
+    expect(
+      await getSecureKeyAsync(credentialKey("acp", "anthropic_api_key")),
+    ).toBe("sk-ant-1");
+    expect(
+      getCredentialMetadata("acp", "anthropic_api_key")?.allowedTools,
+    ).toEqual(["acp_spawn"]);
+  });
+
+  test("linking claude_oauth_token clears a previously-linked anthropic_api_key (value + metadata)", async () => {
+    const handler = getLinkHandler();
+    await handler({ body: { field: "anthropic_api_key", value: "sk-ant-2" } });
+    await handler({ body: { field: "claude_oauth_token", value: "oauth-2" } });
+
+    expect(
+      await getSecureKeyAsync(credentialKey("acp", "anthropic_api_key")),
+    ).toBeFalsy();
+    expect(getCredentialMetadata("acp", "anthropic_api_key")).toBeUndefined();
+
+    expect(
+      await getSecureKeyAsync(credentialKey("acp", "claude_oauth_token")),
+    ).toBe("oauth-2");
+    expect(
+      getCredentialMetadata("acp", "claude_oauth_token")?.allowedTools,
+    ).toEqual(["acp_spawn"]);
+  });
+
+  test("linking a Claude credential when no sibling is stored is a no-op for the sibling", async () => {
+    const handler = getLinkHandler();
+    const result = await handler({
+      body: { field: "anthropic_api_key", value: "sk-ant-only" },
+    });
+
+    expect(result).toEqual({ field: "anthropic_api_key", linked: true });
+    expect(
+      await getSecureKeyAsync(credentialKey("acp", "anthropic_api_key")),
+    ).toBe("sk-ant-only");
+    // Sibling was never linked — still absent, no error.
+    expect(
+      await getSecureKeyAsync(credentialKey("acp", "claude_oauth_token")),
+    ).toBeFalsy();
+  });
+
+  test("linking openai_api_key / git_token never touches any Claude credential", async () => {
+    const handler = getLinkHandler();
+    await handler({ body: { field: "claude_oauth_token", value: "oauth-3" } });
+
+    for (const field of ["openai_api_key", "git_token"] as const) {
+      await handler({ body: { field, value: `v-${field}` } });
+      // The Claude credential is untouched (no sibling relationship).
+      expect(
+        await getSecureKeyAsync(credentialKey("acp", "claude_oauth_token")),
+      ).toBe("oauth-3");
+      expect(
+        getCredentialMetadata("acp", "claude_oauth_token")?.allowedTools,
+      ).toEqual(["acp_spawn"]);
+    }
+  });
 });

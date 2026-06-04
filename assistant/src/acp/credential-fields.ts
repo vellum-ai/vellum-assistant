@@ -42,3 +42,22 @@ export const LINKABLE_FIELD_DESCRIPTIONS: Record<LinkableAcpField, string> = {
   openai_api_key: "OpenAI/Codex API key for ACP agent authentication",
   git_token: "Git token for ACP agent clone/push",
 };
+
+/**
+ * Mutually-exclusive Claude credentials. The reader's `resolveLlmCredential`
+ * (`acp/prepare-agent-env.ts`) checks `claude_oauth_token` FIRST and only
+ * falls back to `anthropic_api_key` when OAuth is absent, so linking the API
+ * key while a stale OAuth token is still stored would silently keep using the
+ * OAuth token. To make switching auth methods actually take effect, the link
+ * writer deletes a field's sibling here after writing the new one. The two
+ * Claude credentials point at each other; `openai_api_key` and `git_token`
+ * have no sibling. Keeping this data-driven map next to the field list keeps
+ * the writer's clear-on-link behaviour in lockstep with the reader's
+ * OAuth-first precedence.
+ */
+export const MUTUALLY_EXCLUSIVE_FIELD: Partial<
+  Record<LinkableAcpField, LinkableAcpField>
+> = {
+  claude_oauth_token: "anthropic_api_key",
+  anthropic_api_key: "claude_oauth_token",
+};
