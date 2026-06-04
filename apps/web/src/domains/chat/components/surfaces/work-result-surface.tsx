@@ -1,14 +1,13 @@
 import {
-  AlertTriangle,
+  ArrowLeftRight,
   ArrowRight,
-  CheckCircle2,
-  CircleDot,
+  CircleAlert,
+  CircleCheck,
   Clock3,
   ExternalLink,
   FileText,
   ListChecks,
-  Sparkles,
-  XCircle,
+  OctagonX,
 } from "lucide-react";
 
 import type { Surface } from "@/domains/chat/types/types";
@@ -230,32 +229,32 @@ function parseData(value: unknown): WorkResultSurfaceData {
 function toneClasses(tone: WorkResultTone | undefined): {
   text: string;
   bg: string;
-  border: string;
+  rail: string;
 } {
   switch (tone) {
     case "positive":
       return {
         text: "text-[var(--system-positive-strong)]",
         bg: "bg-[var(--system-positive-weak)]",
-        border: "border-[var(--system-positive-weak)]",
+        rail: "bg-[var(--system-positive-strong)]",
       };
     case "warning":
       return {
         text: "text-[var(--system-mid-strong)]",
         bg: "bg-[var(--system-mid-weak)]",
-        border: "border-[var(--system-mid-weak)]",
+        rail: "bg-[var(--system-mid-strong)]",
       };
     case "negative":
       return {
         text: "text-[var(--system-negative-strong)]",
         bg: "bg-[var(--system-negative-weak)]",
-        border: "border-[var(--system-negative-weak)]",
+        rail: "bg-[var(--system-negative-strong)]",
       };
     default:
       return {
         text: "text-[var(--content-secondary)]",
         bg: "bg-[var(--surface-base)]",
-        border: "border-[var(--border-base)]",
+        rail: "bg-[var(--border-element)]",
       };
   }
 }
@@ -266,11 +265,11 @@ function ResultStatusBadge({ status }: { status?: WorkResultStatus }) {
   const tone = toneClasses(config.tone);
   const Icon =
     status === "completed"
-      ? CheckCircle2
+      ? CircleCheck
       : status === "partial"
-        ? AlertTriangle
+        ? CircleAlert
         : status === "failed"
-          ? XCircle
+          ? OctagonX
           : Clock3;
 
   return (
@@ -312,36 +311,6 @@ function MetricGrid({ metrics }: { metrics: WorkResultMetric[] }) {
   );
 }
 
-function ItemIcon({
-  item,
-  sectionType,
-}: {
-  item: WorkResultItem;
-  sectionType: WorkResultSectionType;
-}) {
-  const tone = toneClasses(item.tone);
-  const Icon =
-    item.tone === "positive"
-      ? CheckCircle2
-      : item.tone === "warning"
-        ? AlertTriangle
-        : item.tone === "negative"
-          ? XCircle
-          : sectionType === "artifacts"
-            ? FileText
-            : sectionType === "timeline"
-              ? CircleDot
-              : ListChecks;
-
-  return (
-    <span
-      className={`mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${tone.bg} ${tone.text}`}
-    >
-      <Icon className="h-3.5 w-3.5" />
-    </span>
-  );
-}
-
 function MetadataRow({ metadata }: { metadata: WorkResultMetadata[] }) {
   if (metadata.length === 0) return null;
   return (
@@ -359,22 +328,21 @@ function MetadataRow({ metadata }: { metadata: WorkResultMetadata[] }) {
   );
 }
 
-function ItemList({
-  items,
-  sectionType,
-}: {
-  items: WorkResultItem[];
-  sectionType: WorkResultSectionType;
-}) {
+function ItemList({ items }: { items: WorkResultItem[] }) {
   if (items.length === 0) return null;
   return (
     <div className="mt-3 divide-y divide-[var(--border-base)]">
-      {items.map((item) => (
+      {items.map((item) => {
+        const tone = toneClasses(item.tone);
+        return (
         <div
           key={item.id ?? item.title}
           className="flex gap-3 py-2.5 first:pt-0 last:pb-0"
         >
-          <ItemIcon item={item} sectionType={sectionType} />
+          <span
+            aria-hidden
+            className={`w-[3px] shrink-0 self-stretch rounded-full ${tone.rail}`}
+          />
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-start gap-2">
               <span className="min-w-0 flex-1 text-body-medium-default text-[var(--content-strong)]">
@@ -397,7 +365,8 @@ function ItemList({
             <MetadataRow metadata={item.metadata ?? []} />
           </div>
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -443,51 +412,53 @@ function DiffBlock({ diffs }: { diffs: WorkResultDiff[] }) {
 function SectionIcon({ type }: { type: WorkResultSectionType }) {
   const Icon =
     type === "warnings"
-      ? AlertTriangle
+      ? CircleAlert
       : type === "artifacts"
         ? FileText
         : type === "diff"
-          ? ArrowRight
+          ? ArrowLeftRight
           : type === "timeline"
             ? Clock3
-            : Sparkles;
-  const tone =
+            : ListChecks;
+  // The section header carries the type marker exactly once. Items below use a
+  // tone rail instead of icons, so nothing is repeated. Only "attention"
+  // sections get a tone color; everything else stays monochrome.
+  const color =
     type === "warnings"
-      ? toneClasses("warning")
-      : type === "artifacts"
-        ? toneClasses("positive")
-        : toneClasses("neutral");
-  return (
-    <span
-      className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${tone.bg} ${tone.text}`}
-    >
-      <Icon className="h-4 w-4" />
-    </span>
-  );
+      ? "text-[var(--system-mid-strong)]"
+      : "text-[var(--content-tertiary)]";
+  return <Icon className={`h-4 w-4 shrink-0 ${color}`} aria-hidden />;
 }
 
 function ResultSection({ section }: { section: WorkResultSection }) {
   const type = section.type ?? "items";
+  const count =
+    type === "diff"
+      ? (section.diffs?.length ?? 0)
+      : (section.items?.length ?? 0);
   return (
     <section className="border-t border-[var(--border-base)] pt-4 first:border-t-0 first:pt-0">
-      <div className="flex gap-3">
+      <div className="flex items-center gap-2">
         <SectionIcon type={type} />
-        <div className="min-w-0 flex-1">
-          <h4 className="text-title-small text-[var(--content-strong)]">
-            {section.title}
-          </h4>
-          {section.description && (
-            <p className="mt-0.5 text-body-small-default text-[var(--content-quiet)]">
-              {section.description}
-            </p>
-          )}
-          {type === "diff" ? (
-            <DiffBlock diffs={section.diffs ?? []} />
-          ) : (
-            <ItemList items={section.items ?? []} sectionType={type} />
-          )}
-        </div>
+        <h4 className="text-title-small text-[var(--content-strong)]">
+          {section.title}
+        </h4>
+        {count > 0 && (
+          <span className="rounded-full bg-[var(--surface-active)] px-1.5 py-0.5 text-label-small-default tabular-nums text-[var(--content-tertiary)]">
+            {count}
+          </span>
+        )}
       </div>
+      {section.description && (
+        <p className="mt-1 text-body-small-default text-[var(--content-quiet)]">
+          {section.description}
+        </p>
+      )}
+      {type === "diff" ? (
+        <DiffBlock diffs={section.diffs ?? []} />
+      ) : (
+        <ItemList items={section.items ?? []} />
+      )}
     </section>
   );
 }
