@@ -111,7 +111,6 @@ export type Middleware<A, R> = (
  * and in `DEFAULT_TIMEOUTS` (PR 12). The registry only understands these.
  */
 export type PipelineName =
-  | "turn"
   | "memoryRetrieval"
   | "tokenEstimate"
   | "compaction"
@@ -123,9 +122,6 @@ export type PipelineName =
 // Concrete field-level types land in M2/M3 PRs as each pipeline is wrapped.
 // Until then we expose `unknown`-tagged aliases so downstream code can name
 // the types without depending on unstable internal shapes.
-
-export type TurnArgs = { readonly input: unknown };
-export type TurnResult = { readonly output: unknown };
 
 /**
  * A single retrieved memory artifact.
@@ -549,7 +545,6 @@ export type CircuitBreakerResult = {
  * `getMiddlewaresFor<P>()` type narrowing in PR 13.
  */
 export interface PipelineMiddlewareMap {
-  turn: Middleware<TurnArgs, TurnResult>;
   memoryRetrieval: Middleware<MemoryArgs, MemoryResult>;
   tokenEstimate: Middleware<TokenEstimateArgs, TokenEstimateResult>;
   compaction: Middleware<CompactionArgs, CompactionResult>;

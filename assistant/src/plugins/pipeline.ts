@@ -50,7 +50,6 @@ const moduleLogger = getLogger("plugin-pipeline");
  * a design update.
  */
 export const DEFAULT_TIMEOUTS: Record<PipelineName, number | null> = {
-  turn: null,
   memoryRetrieval: null,
   tokenEstimate: null,
   compaction: null,

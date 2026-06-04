@@ -59,15 +59,6 @@ describe("plugin core types", () => {
       config: { parse: (input: unknown) => input },
     };
 
-    // Generic passthrough — typed per slot below because per-pipeline
-    // arg/result types have diverged from the early `{input: unknown}` /
-    // `{output: unknown}` placeholders as individual pipeline wrap-up PRs
-    // land.
-    const passthrough: Middleware<
-      { input: unknown },
-      { output: unknown }
-    > = async (args, next, _ctx) => next(args);
-
     // `memoryRetrieval` has a concrete typed signature (MemoryArgs →
     // MemoryResult) introduced in PR 20, so it can't use the generic
     // `{ input }` passthrough above.
@@ -186,7 +177,6 @@ describe("plugin core types", () => {
       ],
       injectors: [injector],
       middleware: {
-        turn: passthrough,
         memoryRetrieval: memoryPassthrough,
         tokenEstimate: tokenEstimatePassthrough,
         compaction: compactionPassthrough,
@@ -198,7 +188,7 @@ describe("plugin core types", () => {
 
     // Minimal runtime check so the test body is non-empty.
     expect(plugin.manifest.name).toBe("sample-plugin");
-    expect(plugin.middleware.turn).toBe(passthrough);
+    expect(plugin.middleware.memoryRetrieval).toBe(memoryPassthrough);
   });
 
   test("PluginTimeoutError carries pipeline, plugin, and elapsed fields", () => {
@@ -214,7 +204,7 @@ describe("plugin core types", () => {
   });
 
   test("PluginTimeoutError omits plugin suffix when unknown", () => {
-    const err = new PluginTimeoutError("turn", undefined, 1234);
+    const err = new PluginTimeoutError("tokenEstimate", undefined, 1234);
     expect(err.pluginName).toBeUndefined();
     expect(err.message).not.toContain("offending plugin");
   });

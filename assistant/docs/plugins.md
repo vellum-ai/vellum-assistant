@@ -430,15 +430,14 @@ first.
 Every pipeline slot and its purpose. Type details live in
 [`types.ts`](../src/plugins/types.ts).
 
-| Pipeline          | Purpose                                                                                                       |
-| ----------------- | ------------------------------------------------------------------------------------------------------------- |
-| `turn`            | The outermost wrapper around a single assistant turn. Middleware here sees everything a turn does end-to-end. |
-| `memoryRetrieval` | PKB, NOW.md, and memory-graph retrieval for a turn. Output is a merged `MemoryResult`.                        |
-| `tokenEstimate`   | The token-count estimate used for budgeting. Wraps `estimatePromptTokensRaw`.                                 |
-| `compaction`      | The conversation-compaction step. Wraps `ContextWindowManager.maybeCompact`.                                  |
-| `overflowReduce`  | The reducer tier loop invoked when a turn blows the context budget.                                           |
-| `persistence`     | Every message CRUD op (`add` / `update` / `delete`). Discriminated by `args.op`.                              |
-| `circuitBreaker`  | The compaction circuit breaker. Tracks consecutive-failure state, decides whether to open the circuit.        |
+| Pipeline          | Purpose                                                                                                |
+| ----------------- | ------------------------------------------------------------------------------------------------------ |
+| `memoryRetrieval` | PKB, NOW.md, and memory-graph retrieval for a turn. Output is a merged `MemoryResult`.                 |
+| `tokenEstimate`   | The token-count estimate used for budgeting. Wraps `estimatePromptTokensRaw`.                          |
+| `compaction`      | The conversation-compaction step. Wraps `ContextWindowManager.maybeCompact`.                           |
+| `overflowReduce`  | The reducer tier loop invoked when a turn blows the context budget.                                    |
+| `persistence`     | Every message CRUD op (`add` / `update` / `delete`). Discriminated by `args.op`.                       |
+| `circuitBreaker`  | The compaction circuit breaker. Tracks consecutive-failure state, decides whether to open the circuit. |
 
 ## Timeouts
 
@@ -449,15 +448,14 @@ duration. See
 [`assistant/src/plugins/pipeline.ts`](../src/plugins/pipeline.ts) for the
 current values.
 
-| Pipeline          | Timeout  | Rationale                                                                                                         |
-| ----------------- | -------- | ----------------------------------------------------------------------------------------------------------------- |
-| `turn`            | none     | Turn duration is bounded by the provider's HTTP timeout on the underlying model call, not a pipeline-level timer. |
-| `memoryRetrieval` | 5000 ms  | Memory reads may hit Qdrant and disk; 5 s leaves slack for cold caches without blocking the turn indefinitely.    |
-| `tokenEstimate`   | 1000 ms  | Same — CPU-bound, should return instantly.                                                                        |
-| `compaction`      | 30000 ms | Summarization involves a provider call; mirrors the pipeline-level budget for LLM-backed operations.              |
-| `overflowReduce`  | 30000 ms | Iterative compaction; matches the `compaction` budget since each tier step may invoke it.                         |
-| `persistence`     | 10000 ms | SQLite writes, Qdrant deletes, and disk syncs. 10 s is generous for the slowest op (batched segment inserts).     |
-| `circuitBreaker`  | 500 ms   | Numeric state update — must be near-instant.                                                                      |
+| Pipeline          | Timeout  | Rationale                                                                                                      |
+| ----------------- | -------- | -------------------------------------------------------------------------------------------------------------- |
+| `memoryRetrieval` | 5000 ms  | Memory reads may hit Qdrant and disk; 5 s leaves slack for cold caches without blocking the turn indefinitely. |
+| `tokenEstimate`   | 1000 ms  | Same — CPU-bound, should return instantly.                                                                     |
+| `compaction`      | 30000 ms | Summarization involves a provider call; mirrors the pipeline-level budget for LLM-backed operations.           |
+| `overflowReduce`  | 30000 ms | Iterative compaction; matches the `compaction` budget since each tier step may invoke it.                      |
+| `persistence`     | 10000 ms | SQLite writes, Qdrant deletes, and disk syncs. 10 s is generous for the slowest op (batched segment inserts).  |
+| `circuitBreaker`  | 500 ms   | Numeric state update — must be near-instant.                                                                   |
 
 `null` timeouts skip the timer entirely. Finite timeouts arm a
 `setTimeout` that races the pipeline via `Promise.race`.

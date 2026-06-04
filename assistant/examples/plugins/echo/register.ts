@@ -55,8 +55,6 @@ import type {
   Plugin,
   TokenEstimateArgs,
   TokenEstimateResult,
-  TurnArgs,
-  TurnResult,
 } from "../../../src/plugins/types.js";
 
 const runtime = (globalThis as { __vellumPluginRuntime?: VellumPluginRuntime })
@@ -136,7 +134,6 @@ const echoPlugin: Plugin = {
     version: "0.1.0",
   },
   middleware: {
-    turn: makeObserver<TurnArgs, TurnResult>("turn"),
     memoryRetrieval: makeObserver<MemoryArgs, MemoryResult>("memoryRetrieval"),
     tokenEstimate: makeObserver<TokenEstimateArgs, TokenEstimateResult>(
       "tokenEstimate",
