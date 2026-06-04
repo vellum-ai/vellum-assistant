@@ -137,7 +137,7 @@ describe("appendTextDelta", () => {
     expect(result[1]!.id).toBe("row-X");
     expect(text(result[1]!)).toBe("Hello");
     expect(liveAssistantRowId(result, true)).toBe("row-X");
-    expect(result[1]!.textSegments).toEqual([{ type: "text", content: "Hello" }]);
+    expect(result[1]!.textSegments).toEqual(["Hello"]);
   });
 
   it("folds a later LLM call's delta into the assistant tail, recording its id as an alias", () => {
@@ -150,7 +150,7 @@ describe("appendTextDelta", () => {
     // GIVEN the first LLM call has finalized into an assistant tail
     const call1Final = makeAssistantMsg({
       id: "row-A",
-      textSegments: [{ type: "text", content: "Hello" }],
+      textSegments: ["Hello"],
       contentOrder: [{ type: "text", id: "0" }],
     });
 
@@ -197,7 +197,7 @@ describe("appendTextDelta", () => {
     // GIVEN an anchor row that already owns "row-B" as a merged alias
     const anchor = makeAssistantMsg({
       id: "row-A",
-      textSegments: [{ type: "text", content: "Hello" }],
+      textSegments: ["Hello"],
       contentOrder: [{ type: "text", id: "0" }],
       mergedMessageIds: ["row-B"],
     });
@@ -303,7 +303,7 @@ describe("finalizeMessageComplete", () => {
   it("finalizes running tool calls when finalizing", () => {
     const toolCall: ChatMessageToolCall = {
       id: "t-1",
-      toolName: "bash",
+      name: "bash",
       input: { command: "ls" },
       status: "running",
     };
@@ -400,7 +400,7 @@ describe("handleConversationError", () => {
       toolCalls: [
         {
           id: "tc-1",
-          toolName: "search",
+          name: "search",
           input: {},
           status: "running",
         },
@@ -426,7 +426,7 @@ describe("handleConversationError", () => {
 describe("upsertToolCall", () => {
   const toolCall = {
     id: "tc-1",
-    toolName: "web_search",
+    name: "web_search",
     input: {} as Record<string, unknown>,
     status: "running" as const,
   };
@@ -438,18 +438,18 @@ describe("upsertToolCall", () => {
     expect(result).toHaveLength(2);
     expect(result[1]!.toolCalls).toHaveLength(1);
     expect(result[1]!.toolCalls![0]!.id).toBe("tc-1");
-    expect(result[1]!.toolCalls![0]!.toolName).toBe("web_search");
+    expect(result[1]!.toolCalls![0]!.name).toBe("web_search");
   });
 
   it("updates existing tool call by id", () => {
     const msg = makeAssistantMsg({
-      toolCalls: [{ id: "tc-1", toolName: "old_name", input: {}, status: "running" as const }],
+      toolCalls: [{ id: "tc-1", name: "old_name", input: {}, status: "running" as const }],
     });
-    const updatedTc = { id: "tc-1", toolName: "web_search", input: {} as Record<string, unknown>, status: "running" as const };
+    const updatedTc = { id: "tc-1", name: "web_search", input: {} as Record<string, unknown>, status: "running" as const };
     const result = upsertToolCall([msg], updatedTc);
 
     expect(result[0]!.toolCalls).toHaveLength(1);
-    expect(result[0]!.toolCalls![0]!.toolName).toBe("web_search");
+    expect(result[0]!.toolCalls![0]!.name).toBe("web_search");
   });
 
   it("folds into the assistant tail rather than opening a duplicate bubble", () => {
@@ -682,7 +682,7 @@ describe("attachSurface", () => {
 describe("applyToolResult — activityMetadata", () => {
   const baseToolCall: ChatMessageToolCall = {
     id: "tc-1",
-    toolName: "web_search",
+    name: "web_search",
     input: { query: "tigers" },
     status: "running",
     startedAt: 1000,
@@ -745,7 +745,7 @@ describe("finalizeOnIdle", () => {
       id: "a1",
       ...seg(""),
       toolCalls: [
-        { id: "tc-1", toolName: "web_search", input: {}, status: "running" },
+        { id: "tc-1", name: "web_search", input: {}, status: "running" },
       ],
       contentOrder: [{ type: "toolCall", id: "tc-1" }],
     });
@@ -753,7 +753,7 @@ describe("finalizeOnIdle", () => {
       id: "a2",
       ...seg("some text"),
       toolCalls: [
-        { id: "tc-2", toolName: "web_fetch", input: {}, status: "running" },
+        { id: "tc-2", name: "web_fetch", input: {}, status: "running" },
       ],
       contentOrder: [{ type: "toolCall", id: "tc-2" }],
     });
@@ -778,7 +778,7 @@ describe("finalizeOnIdle", () => {
     // untouched.
     const msg = makeAssistantMsg({
       toolCalls: [
-        { id: "tc-1", toolName: "web_search", input: {}, status: "completed" },
+        { id: "tc-1", name: "web_search", input: {}, status: "completed" },
       ],
     });
     const prev = [msg];
@@ -803,13 +803,13 @@ describe("finalizeOnIdle", () => {
     const msgA = makeAssistantMsg({
       id: "a-1",
       toolCalls: [
-        { id: "tc-old", toolName: "bash", input: {}, status: "running" },
+        { id: "tc-old", name: "bash", input: {}, status: "running" },
       ],
     });
     const msgB = makeAssistantMsg({
       id: "a-2",
       toolCalls: [
-        { id: "tc-new", toolName: "web_search", input: {}, status: "running" },
+        { id: "tc-new", name: "web_search", input: {}, status: "running" },
       ],
     });
     const result = finalizeOnIdle([msgA, msgB]);
@@ -831,7 +831,7 @@ describe("applyToolResult — cross-message matching", () => {
       id: "a1",
       ...seg(""),
       toolCalls: [
-        { id: "tc-early", toolName: "web_search", input: {}, status: "running" },
+        { id: "tc-early", name: "web_search", input: {}, status: "running" },
       ],
       contentOrder: [{ type: "toolCall", id: "tc-early" }],
     });
@@ -839,7 +839,7 @@ describe("applyToolResult — cross-message matching", () => {
       id: "a2",
       ...seg("some later text"),
       toolCalls: [
-        { id: "tc-later", toolName: "bash", input: {}, status: "running" },
+        { id: "tc-later", name: "bash", input: {}, status: "running" },
       ],
       contentOrder: [{ type: "toolCall", id: "tc-later" }],
     });
@@ -860,14 +860,14 @@ describe("applyToolResult — cross-message matching", () => {
       id: "a1",
       ...seg(""),
       toolCalls: [
-        { id: "tc-1", toolName: "web_search", input: {}, status: "running" },
+        { id: "tc-1", name: "web_search", input: {}, status: "running" },
       ],
     });
     const msg2 = makeAssistantMsg({
       id: "a2",
       ...seg(""),
       toolCalls: [
-        { id: "tc-2", toolName: "bash", input: {}, status: "running" },
+        { id: "tc-2", name: "bash", input: {}, status: "running" },
       ],
     });
     const result = applyToolResult([userMsg, msg1, msg2], {
@@ -882,7 +882,7 @@ describe("applyToolResult — cross-message matching", () => {
   it("falls back to last running tool call when toolUseId does not match any message", () => {
     const msg = makeAssistantMsg({
       toolCalls: [
-        { id: "tc-1", toolName: "bash", input: {}, status: "running" },
+        { id: "tc-1", name: "bash", input: {}, status: "running" },
       ],
     });
     const result = applyToolResult([msg], {

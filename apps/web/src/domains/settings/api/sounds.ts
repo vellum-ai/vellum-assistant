@@ -7,8 +7,8 @@
  * read from the exact same on-disk format.
  */
 
-import { client } from "@/generated/api/client.gen";
 import {
+  workspaceFileContentGet,
   workspaceTreeGet,
   workspaceWritePost,
 } from "@/generated/daemon/sdk.gen";
@@ -35,8 +35,7 @@ export async function fetchSoundsConfig(
   assistantId: string,
 ): Promise<SoundsConfig> {
   try {
-    const { data, error, response } = await client.get<Blob, unknown>({
-      url: "/v1/assistants/{assistant_id}/workspace/file/content/",
+    const { data, error, response } = await workspaceFileContentGet({
       path: { assistant_id: assistantId },
       query: { path: CONFIG_PATH },
       parseAs: "blob",
@@ -122,8 +121,7 @@ export async function fetchSoundFile(
     return null;
   }
   try {
-    const { data, error, response } = await client.get<Blob, unknown>({
-      url: "/v1/assistants/{assistant_id}/workspace/file/content/",
+    const { data, error, response } = await workspaceFileContentGet({
       path: { assistant_id: assistantId },
       query: { path: `${SOUNDS_DIR}/${filename}` },
       parseAs: "blob",

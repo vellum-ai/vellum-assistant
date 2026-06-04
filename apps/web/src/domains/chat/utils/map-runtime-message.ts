@@ -1,4 +1,7 @@
-import type { ConversationMessageSurface } from "@vellumai/assistant-api";
+import type {
+  ConversationMessage,
+  ConversationMessageSurface,
+} from "@vellumai/assistant-api";
 import { runtimeAttachmentsToDisplay } from "@/domains/chat/utils/attachment-mapping";
 import { parseAttachmentSummariesFromContent } from "@/domains/chat/utils/parse-attachment-summaries";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
@@ -8,17 +11,7 @@ import type {
   SlackRuntimeMessage,
   Surface,
 } from "@/domains/chat/types/types";
-import { mapRuntimeToolCalls, normalizeContentOrder, normalizeTextSegments, type RuntimeMessage } from "@/domains/chat/api/messages";
-
-/**
- * Narrow a wire message `role` (an open string on the canonical contract) to
- * the two roles the transcript renders. History and reconcile both pre-filter
- * server rows to user/assistant before reaching here, so non-user rows can
- * only be assistant turns.
- */
-export function toDisplayRole(role: string): "user" | "assistant" {
-  return role === "user" ? "user" : "assistant";
-}
+import { mapRuntimeToolCalls, normalizeContentOrder } from "@/domains/chat/api/messages";
 
 /**
  * Narrow the wire surface `display` (an open string) to the display union.
@@ -53,7 +46,7 @@ export function mapServerSurfaces(
 }
 
 /**
- * Intermediate representation of a RuntimeMessage after all server-side fields
+ * Intermediate representation of a ConversationMessage after all server-side fields
  * have been parsed, cleaned, and normalized. Both `history.ts` (initial load)
  * and `reconcile.ts` (periodic server sync) must go through
  * `prepareServerMessage` to produce this — the single-entry-point design
@@ -67,9 +60,7 @@ export function mapServerSurfaces(
 export interface PreparedRuntimeMessage {
   parsedAttachments: DisplayAttachment[] | undefined;
   structuredAttachments: DisplayAttachment[] | undefined;
-  normalizedSegments:
-    | Array<{ type: string; content: string; [key: string]: unknown }>
-    | undefined;
+  normalizedSegments: string[] | undefined;
   normalizedContentOrder: Array<{ type: string; id: string }> | undefined;
   toolCalls: ReturnType<typeof mapRuntimeToolCalls> | undefined;
   slackMessage: SlackRuntimeMessage | undefined;
@@ -94,15 +85,15 @@ export function parseRuntimeTimestamp(
 }
 
 /**
- * Parse and normalize all server-side fields from a `RuntimeMessage`.
+ * Parse and normalize all server-side fields from a `ConversationMessage`.
  *
- * This is the single source of truth for interpreting a RuntimeMessage's raw
+ * This is the single source of truth for interpreting a ConversationMessage's raw
  * fields into display-ready values. Text segments are normalized and have their
  * inlined attachment summary lines stripped, fallback attachment stubs are
  * reconstructed from those lines, structured attachments are mapped from the
  * daemon's metadata, and timestamps are coerced to epoch ms.
  */
-export function prepareServerMessage(m: RuntimeMessage): PreparedRuntimeMessage {
+export function prepareServerMessage(m: ConversationMessage): PreparedRuntimeMessage {
   const structuredAttachments =
     m.attachments && m.attachments.length > 0
       ? runtimeAttachmentsToDisplay(m.attachments)
@@ -116,18 +107,17 @@ export function prepareServerMessage(m: RuntimeMessage): PreparedRuntimeMessage 
   // segments[0] (as a prior implementation did) left raw "[File attachment]"
   // text in trailing segments, which the transcript renderer then printed
   // into chat bubbles. LUM-1527.
-  const rawSegments = normalizeTextSegments(m.textSegments);
+  const rawSegments =
+    m.textSegments && m.textSegments.length > 0 ? m.textSegments : undefined;
   const parsedAttachmentsAccum: DisplayAttachment[] = [];
   const normalizedSegments = rawSegments
     ? rawSegments.map((seg) => {
         const { cleanedContent: segCleaned, attachments: segAttachments } =
-          parseAttachmentSummariesFromContent(seg.content);
+          parseAttachmentSummariesFromContent(seg);
         if (segAttachments) {
           parsedAttachmentsAccum.push(...segAttachments);
         }
-        return segCleaned === seg.content
-          ? seg
-          : { ...seg, content: segCleaned };
+        return segCleaned;
       })
     : undefined;
 
@@ -168,18 +158,18 @@ export function prepareServerMessage(m: RuntimeMessage): PreparedRuntimeMessage 
 }
 
 /**
- * Map a `RuntimeMessage` to a `DisplayMessage`.
+ * Map a `ConversationMessage` to a `DisplayMessage`.
  *
  * Used by `history.ts` for initial page loads where there is no local state
  * to merge. For reconciliation (where local state must be preserved), use
  * `prepareServerMessage` directly and apply the merge overlay.
  */
-export function mapRuntimeToDisplayMessage(m: RuntimeMessage): DisplayMessage {
+export function mapRuntimeToDisplayMessage(m: ConversationMessage): DisplayMessage {
   const prepared = prepareServerMessage(m);
 
   const msg: DisplayMessage = {
     id: m.id,
-    role: toDisplayRole(m.role),
+    role: m.role,
   };
   if (m.mergedMessageIds?.length) msg.mergedMessageIds = m.mergedMessageIds;
   if (m.surfaces) msg.surfaces = mapServerSurfaces(m.surfaces);
@@ -198,7 +188,7 @@ export function mapRuntimeToDisplayMessage(m: RuntimeMessage): DisplayMessage {
 }
 
 /**
- * Derive the cleaned, flat plain-text body of a raw `RuntimeMessage`.
+ * Derive the cleaned, flat plain-text body of a raw `ConversationMessage`.
  *
  * Normalizes and cleans the wire `textSegments` (stripping inlined
  * attachment summary lines) and joins them with the daemon's spacing rules,
@@ -206,6 +196,6 @@ export function mapRuntimeToDisplayMessage(m: RuntimeMessage): DisplayMessage {
  * `segmentsToPlainText`. Used where a raw server message must be compared
  * against a display row (reconciliation) or summarized (diagnostics, inspector).
  */
-export function runtimeMessagePlainText(m: RuntimeMessage): string {
+export function runtimeMessagePlainText(m: ConversationMessage): string {
   return segmentsToPlainText(prepareServerMessage(m).normalizedSegments);
 }

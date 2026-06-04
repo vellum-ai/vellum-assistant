@@ -10,6 +10,7 @@
 import { getConfiguredProvider } from "../providers/provider-send-message.js";
 import type { Provider } from "../providers/types.js";
 import { runBtwSidechain } from "../runtime/btw-sidechain.js";
+import { publishConversationTitleChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
 import { Mutex } from "../util/mutex.js";
 import {
@@ -94,8 +95,6 @@ export interface GenerateTitleParams {
   userMessage?: string;
   /** Assistant response text (first turn). */
   assistantResponse?: string;
-  /** Callback to emit title update events. */
-  onTitleUpdated?: (title: string) => void;
   /** Abort signal. */
   signal?: AbortSignal;
 }
@@ -107,14 +106,8 @@ export interface GenerateTitleParams {
 export async function generateAndPersistConversationTitle(
   params: GenerateTitleParams,
 ): Promise<{ title: string; updated: boolean }> {
-  const {
-    conversationId,
-    context,
-    userMessage,
-    assistantResponse,
-    onTitleUpdated,
-    signal,
-  } = params;
+  const { conversationId, context, userMessage, assistantResponse, signal } =
+    params;
 
   // Check current title is replaceable
   const conversation = getConversation(conversationId);
@@ -128,7 +121,7 @@ export async function generateAndPersistConversationTitle(
     // No provider available — fall back to context-derived title or untitled
     const fallback = deriveFallbackTitle(context) ?? UNTITLED_FALLBACK;
     updateConversationTitle(conversationId, fallback, 1);
-    onTitleUpdated?.(fallback);
+    publishConversationTitleChanged(conversationId, fallback);
     return { title: fallback, updated: true };
   }
 
@@ -151,7 +144,7 @@ export async function generateAndPersistConversationTitle(
     }
 
     updateConversationTitle(conversationId, title, 1);
-    onTitleUpdated?.(title);
+    publishConversationTitleChanged(conversationId, title);
     log.info({ conversationId, title }, "Auto-generated conversation title");
     return { title, updated: true };
   }
@@ -168,7 +161,7 @@ export async function generateAndPersistConversationTitle(
 
   const fallback = deriveFallbackTitle(context) ?? UNTITLED_FALLBACK;
   updateConversationTitle(conversationId, fallback, 1);
-  onTitleUpdated?.(fallback);
+  publishConversationTitleChanged(conversationId, fallback);
   return { title: fallback, updated: true };
 }
 
@@ -217,7 +210,7 @@ export function queueGenerateConversationTitle(
           const fallback =
             deriveFallbackTitle(params.context) ?? UNTITLED_FALLBACK;
           updateConversationTitle(params.conversationId, fallback);
-          params.onTitleUpdated?.(fallback);
+          publishConversationTitleChanged(params.conversationId, fallback);
         }
       } catch {
         // Best-effort
@@ -230,7 +223,6 @@ export function queueGenerateConversationTitle(
 export interface RegenerateTitleParams {
   conversationId: string;
   provider?: Provider;
-  onTitleUpdated?: (title: string) => void;
   signal?: AbortSignal;
 }
 
@@ -242,7 +234,7 @@ export interface RegenerateTitleParams {
 export async function regenerateConversationTitle(
   params: RegenerateTitleParams,
 ): Promise<{ title: string; updated: boolean }> {
-  const { conversationId, onTitleUpdated, signal } = params;
+  const { conversationId, signal } = params;
 
   const conversation = getConversation(conversationId);
   if (!conversation || !conversation.isAutoTitle) {
@@ -286,7 +278,7 @@ export async function regenerateConversationTitle(
     }
 
     updateConversationTitle(conversationId, title, 1);
-    onTitleUpdated?.(title);
+    publishConversationTitleChanged(conversationId, title);
     log.info(
       { conversationId, title },
       "Re-generated conversation title (second pass)",

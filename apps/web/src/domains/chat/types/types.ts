@@ -2,6 +2,10 @@
  * Shared types for the chat/surface system.
  */
 
+import type {
+  ConversationMessage,
+  ConversationMessageSurface,
+} from "@vellumai/assistant-api";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayAttachment } from "@/types/attachment-types";
 import type { SlackMessageLink } from "@/utils/slack-message-link";
@@ -9,7 +13,10 @@ import type { SlackMessageLink } from "@/utils/slack-message-link";
 export type { DisplayAttachment } from "@/types/attachment-types";
 
 export type { SlackMessageLink } from "@/utils/slack-message-link";
-export { parseSlackMessageLink, getSlackLinkUrl } from "@/utils/slack-message-link";
+export {
+  parseSlackMessageLink,
+  getSlackLinkUrl,
+} from "@/utils/slack-message-link";
 
 export interface SlackMessageSender {
   id?: string;
@@ -58,9 +65,17 @@ export interface DisplayMessage {
    * these as aliases so a live SSE row can merge into its collapsed history row.
    */
   mergedMessageIds?: string[];
-  role: "user" | "assistant";
+  /**
+   * Message role, carried straight through from the canonical wire contract
+   * (`ConversationMessage["role"]`). The transcript renders `"user"` rows as
+   * the sender's bubble and treats every other role as an assistant turn, so
+   * no narrowing of the wire value is required.
+   */
+  role: ConversationMessage["role"];
   surfaces?: Surface[];
-  textSegments?: Array<{ type: string; content: string; [key: string]: unknown }>;
+  /** Ordered text bodies, matching the wire `textSegments: string[]`. Each
+   *  entry is referenced positionally by a `text:N` entry in `contentOrder`. */
+  textSegments?: string[];
   contentOrder?: Array<{ type: string; id: string }>;
   slackMessage?: SlackRuntimeMessage;
   toolCalls?: ChatMessageToolCall[];
@@ -85,13 +100,17 @@ export interface DisplayMessage {
   isSubagentNotification?: boolean;
 }
 
-export interface Surface {
-  surfaceId: string;
-  surfaceType: string;
-  title?: string;
-  data: Record<string, unknown>;
-  actions?: Array<{ id: string; label: string; style?: string; data?: Record<string, unknown> }>;
+/**
+ * A UI surface (widget) rendered in the transcript. Extends the canonical wire
+ * `ConversationMessageSurface` (carrying `surfaceId`/`surfaceType`/`data`/
+ * `actions`/`completed`/`completionSummary`/`toolCallId`) with the client-only
+ * binding state the wire omits: a narrowed placement and the live attach/orphan
+ * tracking used while a streaming row's id is still settling.
+ */
+export interface Surface extends ConversationMessageSurface {
+  /** Narrowed placement; the wire ships `display` as a free string. */
   display?: "inline" | "panel";
+  /** Resolved id of the message the surface is bound to. */
   messageId?: string;
   /** True when the surface's messageId doesn't match any existing message
    *  at the time of ui_surface_show. The streaming message's id may not
@@ -99,17 +118,6 @@ export interface Surface {
    *  surface to the current streaming message as a fallback. Cleared
    *  once the surface is bound to a resolved message id. */
   orphaned?: boolean;
-  /** Set after the user acts on the surface — matches macOS
-   *  `SurfaceCompletionState`. The surface stays in the message but
-   *  renders as a non-interactive chip instead of the active widget. */
-  completed?: boolean;
-  completionSummary?: string;
-  /** Id of the tool call that produced this surface (e.g. the `ui_show` or
-   *  `app_open` proxy tool). App previews gate on whether this tool call's
-   *  result has arrived (`isSurfaceToolCallComplete`) rather than on
-   *  whole-turn streaming state. When absent, completeness falls back to the
-   *  latest surface-producing tool call in the message. */
-  toolCallId?: string;
 }
 
 /**
@@ -122,6 +130,8 @@ export interface Surface {
  * which is handled by the `hasActions` check below.
  */
 const INHERENTLY_INTERACTIVE_SURFACE_TYPES = [
+  "choice",
+  "oauth_connect",
   "form",
   "confirmation",
   "file_upload",
@@ -132,15 +142,18 @@ const INHERENTLY_INTERACTIVE_SURFACE_TYPES = [
  * Whether a surface requires user interaction to "complete".
  *
  * A surface is interactive when it either carries explicit action buttons
- * or is an inherently interactive type (form, confirmation, file_upload).
- * Display-only surfaces — tables, cards, lists, and dynamic pages without
+ * or is an inherently interactive type (choice, oauth_connect, form, confirmation, file_upload).
+ * Display-only surfaces — copy blocks, tables, cards, lists, and dynamic pages without
  * actions — are non-interactive and should never block the composer.
  */
 export function isSurfaceInteractive(surface: Surface): boolean {
   if (surface.completed) return false;
   const hasActions =
     Array.isArray(surface.actions) && surface.actions.length > 0;
-  return hasActions || INHERENTLY_INTERACTIVE_SURFACE_TYPES.includes(surface.surfaceType);
+  return (
+    hasActions ||
+    INHERENTLY_INTERACTIVE_SURFACE_TYPES.includes(surface.surfaceType)
+  );
 }
 
 /**
@@ -189,7 +202,7 @@ export function isSurfaceToolCallComplete(
   }
   let latestSurfaceToolCall: ChatMessageToolCall | undefined;
   for (const toolCall of toolCalls ?? []) {
-    if (SURFACE_PRODUCING_TOOL_NAMES.has(toolCall.toolName)) {
+    if (SURFACE_PRODUCING_TOOL_NAMES.has(toolCall.name)) {
       latestSurfaceToolCall = toolCall;
     }
   }

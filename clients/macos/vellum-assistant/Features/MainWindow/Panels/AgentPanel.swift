@@ -81,6 +81,7 @@ struct AgentPanelContent: View {
             .padding(.top, VSpacing.lg)
         }
         .onAppear {
+            skillsManager.fetchCategories()
             skillsManager.fetchSkills()
             if let skillId = focusedSkillId {
                 selectedSkillId = skillId
@@ -176,38 +177,57 @@ struct AgentPanelContent: View {
 
     private var categorySidebar: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
-            categorySidebarRow(icon: VIcon.layoutGrid.rawValue, label: "All", category: nil)
-            ForEach(SkillCategory.allCases.sorted { $0.displayName < $1.displayName }, id: \.rawValue) { category in
-                categorySidebarRow(icon: category.icon.rawValue, label: category.displayName, category: category)
+            categorySidebarRow(icon: VIcon.layoutGrid.rawValue, label: "All", slug: nil)
+            ForEach(skillsManager.categories.sorted { $0.label < $1.label }) { cat in
+                categorySidebarRow(icon: categoryIconName(cat.icon), label: cat.label, slug: cat.slug)
             }
         }
     }
 
-    private func categorySidebarRow(icon: String, label: String, category: SkillCategory?) -> some View {
+    private func categorySidebarRow(icon: String, label: String, slug: String?) -> some View {
         VNavItem(
             icon: icon,
             label: label,
-            isActive: skillsManager.selectedCategory == category,
+            isActive: skillsManager.selectedCategory == slug,
             action: {
-                withAnimation(VAnimation.fast) { skillsManager.selectedCategory = category }
+                withAnimation(VAnimation.fast) { skillsManager.selectedCategory = slug }
             }
         ) {
             if !skillsManager.isSearching {
-                let count = category.map { skillsManager.categoryCounts[$0, default: 0] } ?? skillsManager.searchFilteredCount
+                let count = slug.map { skillsManager.categoryCounts[$0, default: 0] } ?? skillsManager.searchFilteredCount
                 Text("\(count)")
                     .font(VFont.labelDefault)
                     .foregroundStyle(VColor.contentTertiary)
             }
         }
         .accessibilityLabel("\(label) filter")
-        .accessibilityAddTraits(skillsManager.selectedCategory == category ? .isSelected : [])
+        .accessibilityAddTraits(skillsManager.selectedCategory == slug ? .isSelected : [])
+    }
+
+    private func categoryIconName(_ yamlIcon: String) -> String {
+        switch yamlIcon {
+        case "mail": return VIcon.mail.rawValue
+        case "calendar": return VIcon.calendar.rawValue
+        case "message-circle": return VIcon.messageCircle.rawValue
+        case "globe": return VIcon.globe.rawValue
+        case "zap": return VIcon.zap.rawValue
+        case "code": return VIcon.wrench.rawValue
+        case "mic": return VIcon.mic.rawValue
+        case "shopping-cart": return VIcon.shoppingCart.rawValue
+        case "palette": return VIcon.palette.rawValue
+        case "heart": return VIcon.heart.rawValue
+        case "settings": return VIcon.settings.rawValue
+        case "link-2": return VIcon.link.rawValue
+        default: return VIcon.layoutGrid.rawValue
+        }
     }
 
     // MARK: - Empty State
 
     private var emptyStateTitle: String {
-        if let category = skillsManager.selectedCategory {
-            return "No \(category.displayName) Skills"
+        if let slug = skillsManager.selectedCategory {
+            let label = skillsManager.categories.first { $0.slug == slug }?.label ?? slug
+            return "No \(label) Skills"
         }
         switch skillsManager.skillFilter {
         case .all: return "No Skills Available"

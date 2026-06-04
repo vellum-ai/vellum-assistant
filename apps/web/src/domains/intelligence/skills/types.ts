@@ -9,15 +9,7 @@ export type SkillKind = "bundled" | "installed" | "catalog";
 
 export type SkillStatus = "enabled" | "disabled" | "available";
 
-export type SkillCategory =
-  | "communication"
-  | "productivity"
-  | "development"
-  | "media"
-  | "automation"
-  | "webSocial"
-  | "knowledge"
-  | "integration";
+export type SkillCategory = string;
 
 export interface SkillInfo {
   id: string;

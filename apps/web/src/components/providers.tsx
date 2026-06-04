@@ -5,8 +5,18 @@
  * switching users or orgs yields a fresh React Query cache instead of
  * leaking stale data.
  *
- * Only third-party library providers (React Query, Radix Tooltip) belong
- * here. App state uses Zustand stores — see `src/stores/`.
+ * Third-party library providers (React Query, Radix Tooltip) belong here.
+ * Ordinary app state still lives in Zustand stores — see `src/stores/`.
+ *
+ * Narrow exception: cross-domain "lifted controller" providers like
+ * `ProfileQuickAddProvider` also mount here. It owns UI (the profile
+ * quick-add modal) that must be reachable from multiple domains without any
+ * one of them importing another (which `local/no-cross-domain-imports`
+ * forbids), and it must sit inside the request-scoped `QueryClient` because
+ * it runs a `useQuery`. Lifting it to this top-level composition is the only
+ * place that satisfies both constraints — so it lives here rather than in a
+ * store. Do not treat this as license to move general app state out of
+ * Zustand.
  *
  * Reference: https://tanstack.com/query/latest/docs/framework/react/guides/important-defaults
  */
@@ -14,8 +24,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@vellum/design-library";
 import { useState, type ReactNode } from "react";
 
-import { useAuthStore } from "@/stores/auth-store";
+import { useAuthStore, useIsAuthenticated } from "@/stores/auth-store";
 import { useOrganizationStore } from "@/stores/organization-store";
+import { ProfileQuickAddProvider } from "@/components/profile-quick-add-provider";
 
 function createQueryClient(): QueryClient {
   return new QueryClient({
@@ -54,25 +65,25 @@ function ScopeKeyedQueryClientProvider({
 }: {
   children: ReactNode;
 }) {
-  const isLoggedIn = useAuthStore.use.isLoggedIn();
+  const isAuthenticated = useIsAuthenticated();
   const user = useAuthStore.use.user();
   const currentOrganizationId =
     useOrganizationStore.use.currentOrganizationId();
   const scopeKey = `${
-    isLoggedIn ? `user:${user?.id ?? "unknown"}` : "anonymous"
+    isAuthenticated ? `user:${user?.id ?? "unknown"}` : "anonymous"
   }:org:${currentOrganizationId ?? "none"}`;
 
   return (
     <RequestScopedQueryClientProvider key={scopeKey}>
-      {children}
+      <ProfileQuickAddProvider>{children}</ProfileQuickAddProvider>
     </RequestScopedQueryClientProvider>
   );
 }
 
 export function AppProviders({ children }: { children: ReactNode }) {
-  const isLoggedIn = useAuthStore.use.isLoggedIn();
+  const isAuthenticated = useIsAuthenticated();
   const user = useAuthStore.use.user();
-  const authScopeKey = isLoggedIn
+  const authScopeKey = isAuthenticated
     ? `user:${user?.id ?? "unknown"}`
     : "anonymous";
 

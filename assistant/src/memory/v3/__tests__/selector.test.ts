@@ -4,9 +4,12 @@
  * Coverage matrix:
  *   - Returned IDs map to the right member slugs by 1-based index, with
  *     `pinned` driven by `pinned_ids`.
- *   - Omitted `ids` → ALL members of the leaf (recall-safe).
+ *   - Omitted `ids` → ALL members of the leaf (recall-safe; bounded to one
+ *     leaf, so this stays a select-all unlike the L1 router).
  *   - Explicit `ids: []` → no pages (deliberate abstention).
- *   - No provider / missing tool_use / schema mismatch / throw → ALL members.
+ *   - No provider / missing tool_use / schema mismatch / throw → no pages
+ *     (degrade to the deterministic lanes), the last three after a re-prompt
+ *     retry; a malformed response that recovers on retry returns its pages.
  *   - The per-leaf `<pages>` prefix is byte-identical across two calls with
  *     different turns (the cache invariant).
  *   - `selectAcrossLeaves` flattens per-leaf results and never exceeds the
@@ -80,6 +83,45 @@ function toolUseResponse(input: Record<string, unknown>): ProviderResponse {
     stopReason: "tool_use",
     usage: { inputTokens: 0, outputTokens: 0 },
     content: [{ type: "tool_use", id: "tu-1", name: "select_pages", input }],
+  };
+}
+
+/** A 200 response that carries no tool_use — the malformed-but-successful case
+ * the re-prompt retry exists to recover from. */
+function noToolResponse(): ProviderResponse {
+  return {
+    model: "stub-model",
+    stopReason: "end_turn",
+    usage: { inputTokens: 0, outputTokens: 0 },
+    content: [{ type: "text", text: "no tool call" }],
+  };
+}
+
+/** Provider returning a different response per call (the i-th call returns
+ * responses[i], or the last entry once exhausted), recording each call so a
+ * test can assert how many attempts were made. */
+function makeSequenceProvider(responses: ProviderResponse[]): Provider {
+  let i = 0;
+  return {
+    name: "sequence",
+    sendMessage: async (messages, options) => {
+      providerCalls.push({ messages, options });
+      const response = responses[Math.min(i, responses.length - 1)];
+      i += 1;
+      return response;
+    },
+  };
+}
+
+/** Provider that records each call and then throws — for the throw-after-retries
+ * path (the provider's own RetryProvider has already exhausted its backoff). */
+function makeThrowingProvider(): Provider {
+  return {
+    name: "throwing",
+    sendMessage: async (messages, options) => {
+      providerCalls.push({ messages, options });
+      throw new Error("boom");
+    },
   };
 }
 
@@ -206,10 +248,8 @@ describe("selectFromLeaf — id mapping", () => {
 // selectFromLeaf — recall-safe fallbacks.
 // ---------------------------------------------------------------------------
 
-describe("selectFromLeaf — recall-safe fallbacks", () => {
-  const allAlice = ALICE_MEMBERS.map((slug) => ({ slug, pinned: false }));
-
-  test("no provider → ALL members", async () => {
+describe("selectFromLeaf — degradation on failure", () => {
+  test("no provider → no pages, without calling the provider", async () => {
     providerStub = null;
     const result = await selectFromLeaf(
       "people/alice",
@@ -217,26 +257,23 @@ describe("selectFromLeaf — recall-safe fallbacks", () => {
       makeTree(),
       summaryOf,
     );
-    expect(result).toEqual(allAlice);
+    expect(result).toEqual([]);
+    expect(providerCalls).toHaveLength(0);
   });
 
-  test("missing tool_use → ALL members", async () => {
-    providerStub = makeProvider({
-      model: "stub-model",
-      stopReason: "end_turn",
-      usage: { inputTokens: 0, outputTokens: 0 },
-      content: [{ type: "text", text: "no tool call" }],
-    });
+  test("missing tool_use → no pages after retrying", async () => {
+    providerStub = makeProvider(noToolResponse());
     const result = await selectFromLeaf(
       "people/alice",
       makeTurn("x"),
       makeTree(),
       summaryOf,
     );
-    expect(result).toEqual(allAlice);
+    expect(result).toEqual([]);
+    expect(providerCalls).toHaveLength(3);
   });
 
-  test("schema mismatch → ALL members", async () => {
+  test("schema mismatch → no pages after retrying", async () => {
     providerStub = makeProvider(toolUseResponse({ ids: "not-an-array" }));
     const result = await selectFromLeaf(
       "people/alice",
@@ -244,23 +281,35 @@ describe("selectFromLeaf — recall-safe fallbacks", () => {
       makeTree(),
       summaryOf,
     );
-    expect(result).toEqual(allAlice);
+    expect(result).toEqual([]);
+    expect(providerCalls).toHaveLength(3);
   });
 
-  test("provider throw → ALL members", async () => {
-    providerStub = {
-      name: "throwing",
-      sendMessage: async () => {
-        throw new Error("boom");
-      },
-    };
+  test("provider throw → no pages after retrying", async () => {
+    providerStub = makeThrowingProvider();
     const result = await selectFromLeaf(
       "people/alice",
       makeTurn("x"),
       makeTree(),
       summaryOf,
     );
-    expect(result).toEqual(allAlice);
+    expect(result).toEqual([]);
+    expect(providerCalls).toHaveLength(3);
+  });
+
+  test("a malformed response that recovers on retry returns its pages", async () => {
+    providerStub = makeSequenceProvider([
+      noToolResponse(),
+      toolUseResponse({ ids: [2] }),
+    ]);
+    const result = await selectFromLeaf(
+      "people/alice",
+      makeTurn("the 1:1"),
+      makeTree(),
+      summaryOf,
+    );
+    expect(result).toEqual([{ slug: "alice-1on1", pinned: false }]);
+    expect(providerCalls).toHaveLength(2);
   });
 });
 
@@ -298,18 +347,35 @@ describe("selectFromLeaf — request shape", () => {
     const [blockA, blockB] = providerCalls[0].messages[0].content as Array<{
       type: string;
       text: string;
-      cache_control?: { type: string };
+      cache_control?: { type: string; ttl?: string };
     }>;
     expect(blockA.type).toBe("text");
     expect(blockA.text).toContain("<leaf>people/alice</leaf>");
     expect(blockA.text).toContain("<pages>");
     expect(blockA.text).toContain("[1] alice-bio — summary of alice-bio");
-    expect(blockA.cache_control).toEqual({ type: "ephemeral" });
+    expect(blockA.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
 
     expect(blockB.type).toBe("text");
     expect(blockB.text).toContain("<current_message>alice?</current_message>");
     expect(blockB.text).toContain("<recent_context>");
     expect(blockB.cache_control).toBeUndefined();
+  });
+
+  test("situational context renders in the per-turn block when present", async () => {
+    providerStub = makeProvider(toolUseResponse({ ids: [1] }));
+    await selectFromLeaf(
+      "people/alice",
+      {
+        ...makeTurn("alice?"),
+        situationalContext: "Today is Saturday. Alice's anniversary is today.",
+      },
+      makeTree(),
+      summaryOf,
+    );
+    const blockB = providerCalls[0].messages[0].content[1] as { text: string };
+    expect(blockB.text).toContain(
+      "<situation>Today is Saturday. Alice's anniversary is today.</situation>",
+    );
   });
 
   test("system prompt mentions pinned (locks the pinning commitment)", async () => {

@@ -46,6 +46,7 @@ import {
 } from "../context/post-turn-tool-result-truncation.js";
 import {
   estimatePromptTokens,
+  estimatePromptTokensWithTools,
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
 import type { ContextWindowManager } from "../context/window-manager.js";
@@ -60,6 +61,7 @@ import { commitAppTurnChanges } from "../memory/app-git-service.js";
 import { getApp, listAppFiles, resolveAppDir } from "../memory/app-store.js";
 import { enqueueAutoAnalysisOnCompaction } from "../memory/auto-analysis-enqueue.js";
 import {
+  addMessage,
   deleteMessageById,
   getConversation,
   getConversationOriginChannel,
@@ -68,17 +70,14 @@ import {
   getLastUserTimestampBefore,
   getMessageById,
   provenanceFromTrustContext,
-  setConversationHistoryStrippedAt,
   setLastNotifiedInferenceProfile,
   updateConversationContextWindow,
   updateConversationSlackContextWatermark,
+  updateMessageMetadata,
 } from "../memory/conversation-crud.js";
 import { getResolvedConversationDirPath } from "../memory/conversation-directories.js";
 import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
-import {
-  isReplaceableTitle,
-  queueRegenerateConversationTitle,
-} from "../memory/conversation-title-service.js";
+import { isReplaceableTitle } from "../memory/conversation-title-service.js";
 import { isBackgroundConversationType } from "../memory/conversation-types.js";
 import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import {
@@ -98,37 +97,26 @@ import { HOOKS } from "../plugin-api/constants.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
 import { defaultCompactionTerminal } from "../plugins/defaults/compaction/terminal.js";
 import { deepRepairHistory } from "../plugins/defaults/history-repair/terminal.js";
+import postCompactReinject from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
 import {
   asDefaultGraphPayload,
   type DefaultMemoryRetrievalDeps,
   type GraphMemoryPayload,
   runDefaultMemoryRetrieval,
 } from "../plugins/defaults/memory-retrieval/register.js";
-import { defaultPersistenceTerminal } from "../plugins/defaults/persistence/terminal.js";
-import { defaultTitleGenerateTerminal } from "../plugins/defaults/title-generate/terminal.js";
-import { defaultTokenEstimateTerminal } from "../plugins/defaults/token-estimate/terminal.js";
 import { DEFAULT_TIMEOUTS, runHook, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
   CompactionArgs,
   CompactionResult,
-  EstimateArgs,
-  EstimateResult,
   MemoryArgs,
   MemoryResult,
   OverflowReduceArgs,
   OverflowReduceResult,
-  PersistAddResult,
-  PersistArgs,
-  PersistResult,
   TurnContext as PluginTurnContext,
 } from "../plugins/types.js";
 import { PluginExecutionError, PluginTimeoutError } from "../plugins/types.js";
-import type {
-  ContentBlock,
-  Message,
-  ToolDefinition,
-} from "../providers/types.js";
+import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import { resolveActorTrust } from "../runtime/actor-trust-resolver.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
@@ -147,7 +135,6 @@ import {
   type AssistantAttachmentDraft,
   cleanAssistantContent,
 } from "./assistant-attachments.js";
-import { cleanupBootstrapAfterTurnThreshold } from "./bootstrap-turn-cleanup.js";
 import { resolveOverflowAction } from "./context-overflow-policy.js";
 import {
   createInitialReducerState,
@@ -158,6 +145,7 @@ import {
   createEventHandlerState,
   dispatchAgentEvent,
   type EventHandlerDeps,
+  markHistoryStrippedBestEffort,
 } from "./conversation-agent-loop-handlers.js";
 import {
   approveHostAttachmentRead,
@@ -211,7 +199,6 @@ import type {
 } from "./message-protocol.js";
 import type { MemoryRecalled } from "./message-types/memory.js";
 import type { ConfirmationStateChanged } from "./message-types/messages.js";
-import { conversationMetadataSyncTag } from "./message-types/sync.js";
 import { parseActualTokensFromError } from "./parse-actual-tokens-from-error.js";
 import {
   persistUnsendableImageDowngrades,
@@ -222,29 +209,6 @@ import type { TrustContext } from "./trust-context.js";
 import { stripHistoricalWebSearchResults } from "./web-search-history.js";
 
 const log = getLogger("conversation-agent-loop");
-
-/**
- * Best-effort persistence of the history-stripped marker after an
- * injection-strip event (compaction / overflow recovery). The marker is a
- * durability hint, not turn-critical state — a transient SQLite write failure
- * (SQLITE_BUSY, disk-full, read-only FS) must not abort the turn. Logs a
- * warning and continues on failure, preserving the long-standing non-fatal
- * contract for this metadata write.
- */
-function markHistoryStrippedBestEffort(
-  conversationId: string,
-  strippedAt: number,
-  logger: ReturnType<typeof getLogger>,
-): void {
-  try {
-    setConversationHistoryStrippedAt(conversationId, strippedAt);
-  } catch (err) {
-    logger.warn(
-      { err },
-      "Failed to persist history-stripped marker after compaction strip (non-fatal)",
-    );
-  }
-}
 
 const DISK_PRESSURE_ERROR_CODE = "DISK_SPACE_CRITICAL" as const;
 const DISK_PRESSURE_ERROR_CATEGORY = "disk_pressure";
@@ -330,6 +294,19 @@ function buildPluginTurnContext(
   };
 }
 
+/**
+ * Trust class of the actor whose turn is in progress, for the compactor's
+ * image manifest filter. Prefers the turn-start snapshot
+ * ({@link AgentLoopConversationContext.currentTurnTrustContext}) over the live
+ * trust context so compaction running in a later tool iteration can't pick up
+ * a concurrent request's actor.
+ */
+function resolveTurnActorTrustClass(
+  ctx: AgentLoopConversationContext,
+): TrustContext["trustClass"] | undefined {
+  return (ctx.currentTurnTrustContext ?? ctx.trustContext)?.trustClass;
+}
+
 // ── Context Interface ────────────────────────────────────────────────
 
 /**
@@ -357,7 +334,8 @@ export interface AssistantSurface {
 export interface AgentLoopConversationContext {
   readonly conversationId: string;
   messages: Message[];
-  processing: boolean;
+  isProcessing(): boolean;
+  setProcessing(value: boolean): void;
   abortController: AbortController | null;
   currentRequestId?: string;
   /**
@@ -574,6 +552,13 @@ export async function runAgentLoopImpl(
   });
   let yieldedForHandoff = false;
   let yieldedForBudget = false;
+  // Whether the most recent agent-loop run produced at least one new assistant
+  // message — the loop's own forward-progress signal, used by the ordering
+  // retry gate and the overflow convergence fold.
+  let lastRunAppendedNewMessages = false;
+  // The messages the most recent agent-loop run appended on top of its base —
+  // the loop's own new-output boundary, persisted as this turn's new messages.
+  let lastRunNewMessages: Message[] = [];
   let pendingCheckpointYield: "budget" | "handoff" | null = null;
   // Captured when the auto_compress_latest_turn rerun yields at the mid-loop
   // budget checkpoint. SSE emission happens immediately at the detection site;
@@ -914,55 +899,6 @@ export async function runAgentLoopImpl(
       }
     }
 
-    // Generate title early — the user message alone is sufficient context.
-    // Firing before the main LLM call removes the delay of waiting for the
-    // full assistant response. The second-pass regeneration at turn 3 will
-    // refine the title with more context.
-    // No abort signal — title generation should complete even if the user
-    // cancels the response, since the user message is already persisted.
-    // Deferred via setTimeout so the main agent loop LLM call enqueues
-    // first, avoiding rate-limit slot contention on strict configs.
-    if (isReplaceableTitle(turnStartConversation?.title ?? null)) {
-      // TurnContext routed through the canonical builder so the pipeline's
-      // log record reports the same `conversationId`/`turnIndex` shape as
-      // every other slot in this turn. Title generation does not depend on
-      // the context-window manager attached by the builder, but sharing the
-      // builder keeps the invariant enforced in one place.
-      const titlePipelineCtx = buildPluginTurnContext(ctx, reqId);
-      const titleArgs = {
-        conversationId: ctx.conversationId,
-        provider: ctx.provider,
-        userMessage: options?.titleText ?? content,
-        onTitleUpdated: (title: string) => {
-          onEvent({
-            type: "conversation_title_updated",
-            conversationId: ctx.conversationId,
-            title,
-          });
-          onEvent({
-            type: "sync_changed",
-            tags: [conversationMetadataSyncTag(ctx.conversationId)],
-          });
-        },
-      };
-      setTimeout(() => {
-        runPipeline(
-          "titleGenerate",
-          getMiddlewaresFor("titleGenerate"),
-          defaultTitleGenerateTerminal,
-          titleArgs,
-          titlePipelineCtx,
-          DEFAULT_TIMEOUTS.titleGenerate,
-        ).catch((err) => {
-          // Fire-and-forget — keep previous non-propagating semantics.
-          // queueGenerateConversationTitle already swallows internal
-          // errors; this catch covers pipeline-layer errors (timeouts,
-          // middleware throws) without surfacing them to the agent loop.
-          rlog.warn({ err }, "titleGenerate pipeline failed (non-fatal)");
-        });
-      }, 0);
-    }
-
     const isFirstMessage = ctx.messages.length === 1;
     // Promote a pending post-compaction re-inject signal (e.g. from `/compact`)
     // into `compactedThisTurn` so NOW.md / PKB / v2 static blocks land on this
@@ -1115,12 +1051,9 @@ export async function runAgentLoopImpl(
       });
     }
     const compactionOptions = {
-      lastCompactedAt: ctx.contextCompactedAt ?? undefined,
       precomputedEstimate: compactCheck.estimatedTokens,
-      conversationOriginChannel:
-        getConversationOriginChannel(ctx.conversationId) ?? undefined,
       overrideProfile: resolveCurrentOverrideProfile() ?? null,
-      actorTrustClass: ctx.trustContext?.trustClass,
+      actorTrustClass: resolveTurnActorTrustClass(ctx),
     };
     let compacted: Awaited<
       ReturnType<typeof ctx.contextWindowManager.maybeCompact>
@@ -1166,7 +1099,7 @@ export async function runAgentLoopImpl(
     }
     // Only track circuit-breaker state when a summary LLM call actually ran.
     // `summaryFailed` is `undefined` on early returns (compaction disabled,
-    // below threshold, cooldown active, no eligible messages, truncation-only
+    // below threshold, no eligible messages, truncation-only
     // path) — treating those as "successful" compactions would silently reset
     // the 3-strike counter and break the invariant.
     if (compacted && compacted.summaryFailed !== undefined) {
@@ -1293,24 +1226,12 @@ export async function runAgentLoopImpl(
 
       // Persist the injected block text in message metadata so it survives
       // conversation reloads (eviction, restart, fork). loadFromDb re-injects
-      // from metadata. Routed through the `persistence` pipeline so plugins
-      // can observe or override metadata updates alongside add/delete.
+      // from metadata.
       if (graphResult.injectedBlockText) {
         try {
-          await runPipeline<PersistArgs, PersistResult>(
-            "persistence",
-            getMiddlewaresFor("persistence"),
-            defaultPersistenceTerminal,
-            {
-              op: "update",
-              messageId: userMessageId,
-              updates: {
-                memoryInjectedBlock: graphResult.injectedBlockText,
-              },
-            },
-            buildPluginTurnContext(ctx, reqId),
-            DEFAULT_TIMEOUTS.persistence,
-          );
+          updateMessageMetadata(userMessageId, {
+            memoryInjectedBlock: graphResult.injectedBlockText,
+          });
         } catch (err) {
           rlog.warn(
             { err },
@@ -1745,18 +1666,7 @@ export async function runAgentLoopImpl(
           metadataUpdates.memoryV2StaticBlock =
             injection.blocks.memoryV2StaticBlock;
         }
-        await runPipeline<PersistArgs, PersistResult>(
-          "persistence",
-          getMiddlewaresFor("persistence"),
-          defaultPersistenceTerminal,
-          {
-            op: "update",
-            messageId: userMessageId,
-            updates: metadataUpdates,
-          },
-          buildPluginTurnContext(ctx, reqId),
-          DEFAULT_TIMEOUTS.persistence,
-        );
+        updateMessageMetadata(userMessageId, metadataUpdates);
       } catch (err) {
         rlog.warn({ err }, "Failed to persist injection metadata (non-fatal)");
       }
@@ -1772,51 +1682,18 @@ export async function runAgentLoopImpl(
     let reducerState: ReducerState | undefined;
 
     const toolTokenBudget = ctx.agentLoop.getToolTokenBudget(runMessages);
-    // Canonical calibration key — passed to the `tokenEstimate` pipeline for
-    // every preflight/mid-loop estimate, the overflow reducer config, and the
-    // convergence-path `estimatePromptTokens` call. Matches the key recorded
-    // by `handleUsage` for wrapper providers (OpenRouter routing to
-    // Anthropic → key is `"anthropic"`).
+    // Canonical calibration key — used by the preflight estimate, the
+    // overflow reducer config, and the convergence-path `estimatePromptTokens`
+    // call. Matches the key recorded by `handleUsage` for wrapper providers
+    // (OpenRouter routing to Anthropic → key is `"anthropic"`).
     const estimationProviderName = getCalibrationProviderKey(ctx.provider);
 
-    // Shared `TurnContext` for every `tokenEstimate` pipeline invocation in
-    // this turn. The pipeline is the extension point for plugins that want
-    // to substitute an alternate estimator (e.g. provider-native tokenization)
-    // without touching orchestrator code.
-    //
-    // Routed through the canonical builder — `turnIndex` is `ctx.turnCount`,
-    // trust cascades through per-turn/conversation-level/fallback, and the
-    // context-window handle rides along so any middleware that wants to
-    // reuse the manager (e.g. to compute compaction-aware estimates) can.
-    const pipelineTurnCtx = buildPluginTurnContext(ctx, reqId);
-
-    const runTokenEstimatePipeline = (
-      history: Message[],
-    ): Promise<EstimateResult> =>
-      runPipeline<EstimateArgs, EstimateResult>(
-        "tokenEstimate",
-        getMiddlewaresFor("tokenEstimate"),
-        defaultTokenEstimateTerminal,
-        {
-          // Shallow-frozen copies so a misbehaving middleware that mutates
-          // `args.history` or `args.tools` in place (e.g. trims the array
-          // before calling next) can't silently strip prompt context from
-          // the orchestrator's live `runMessages` / resolved-tools arrays.
-          // TypeScript `readonly` on `EstimateArgs` does not prevent
-          // `push`/`splice` at runtime; the frozen wrapper throws in strict
-          // mode and isolates any mutation attempts from the call-site state.
-          history: Object.freeze([...history]) as Message[],
-          systemPrompt: ctx.systemPrompt,
-          tools: Object.freeze([
-            ...ctx.agentLoop.getResolvedTools(history),
-          ]) as ToolDefinition[],
-          providerName: estimationProviderName,
-        },
-        pipelineTurnCtx,
-        DEFAULT_TIMEOUTS.tokenEstimate,
-      );
-
-    const preflightTokens = await runTokenEstimatePipeline(runMessages);
+    const preflightTokens = estimatePromptTokensWithTools(
+      runMessages,
+      ctx.systemPrompt,
+      ctx.agentLoop.getResolvedTools(runMessages),
+      estimationProviderName,
+    );
 
     if (overflowRecovery.enabled && preflightTokens > preflightBudget) {
       rlog.warn(
@@ -1879,7 +1756,7 @@ export async function runAgentLoopImpl(
                 options: {
                   ...(opts ?? {}),
                   overrideProfile: resolveCurrentOverrideProfile() ?? null,
-                  actorTrustClass: ctx.trustContext?.trustClass,
+                  actorTrustClass: resolveTurnActorTrustClass(ctx),
                 },
               },
               buildPluginTurnContext(ctx, reqId),
@@ -2056,13 +1933,12 @@ export async function runAgentLoopImpl(
     // context with a fresh array; `runHook` forwards whichever the chain
     // settles on. Order is plugin registration order.
     //
-    // Fires BEFORE `preRunHistoryLength` is captured so the boundary
-    // between pre-existing and hook-emitted messages — consumed by the
-    // ordering-error retry gate, the post-run reconcile loop, and the
-    // new-message extraction for persistence — reflects exactly what
-    // `agentLoop.run` receives.
+    // Fires BEFORE the agent loop runs so the hook-emitted messages are part
+    // of the loop's input; the loop then reports its own appended output via
+    // `AgentLoopRunResult.newMessages`, which is what persistence consumes.
     const userPromptCtx: UserPromptSubmitContext = {
       conversationId: ctx.conversationId,
+      prompt: options?.titleText ?? content,
       originalMessages: ctx.messages,
       latestMessages: runMessages,
       logger: rlog,
@@ -2072,8 +1948,6 @@ export async function runAgentLoopImpl(
       userPromptCtx,
     );
     runMessages = finalUserPromptCtx.latestMessages;
-
-    let preRunHistoryLength = runMessages.length;
 
     const shouldGenerateTitle = isReplaceableTitle(
       getConversation(ctx.conversationId)?.title ?? null,
@@ -2108,43 +1982,24 @@ export async function runAgentLoopImpl(
     rlog.info({ callSite: turnCallSite }, "Starting agent loop run");
 
     // Thread the orchestrator's canonical per-turn context into the agent
-    // loop so its internal pipeline invocations (llmCall, emptyResponse,
-    // toolError, toolExecute) see the real conversation identity / trust /
-    // contextWindowManager instead of the synthesized `"agent-loop"`
-    // placeholder. The loop clones this value and overwrites `turnIndex`
-    // with its own tool-use iteration counter.
+    // loop so its internal pipeline invocations (e.g. compaction) see the
+    // real conversation identity / trust / contextWindowManager instead of
+    // the synthesized `"agent-loop"` placeholder. The loop clones this value
+    // and overwrites `turnIndex` with its own tool-use iteration counter.
     const loopTurnCtx = buildPluginTurnContext(ctx, reqId);
 
-    // Hooks for the loop-owned mid-loop compaction. The agent loop owns the
+    // Hook for the loop-owned mid-loop compaction. The agent loop owns the
     // trigger (its budget gate), the `compaction` pipeline call, the result
     // interpretation (circuit-breaker bookkeeping + the exhaustion decision),
-    // and the inline continue; these callbacks bridge the durable / injection
-    // state the loop is intentionally blind to. Durable persistence and
-    // re-injection stay orchestrator-supplied for now.
+    // and the inline continue; this callback bridges the injection state the
+    // loop is intentionally blind to. Durable persistence is signalled via
+    // events; re-injection stays orchestrator-supplied for now.
     const midLoopCompaction: MidLoopCompaction = {
-      prepare: (rawHistory) => {
-        // The loop already stripped runtime injections; commit the raw
-        // persistent messages to durable state and resolve pipeline options.
-        ctx.messages = rawHistory;
-        markHistoryStrippedBestEffort(ctx.conversationId, Date.now(), rlog);
-        return {
-          options: {
-            lastCompactedAt: ctx.contextCompactedAt ?? undefined,
-            force: true,
-            targetInputTokensOverride:
-              resolveCurrentContextBudget().preflightBudget,
-            conversationOriginChannel:
-              getConversationOriginChannel(ctx.conversationId) ?? undefined,
-            overrideProfile: resolveCurrentOverrideProfile() ?? null,
-            actorTrustClass: ctx.trustContext?.trustClass,
-          },
-        };
-      },
       reinject: async () => {
         // stripInjectionsForCompaction() unconditionally removed the existing
         // NOW.md block, so re-inject the current content regardless of whether
         // compaction actually ran.
-        const injection = await applyRuntimeInjections(ctx.messages, {
+        const injection = await postCompactReinject({
           ...injectionOpts,
           pkbContext: currentPkbContent,
           memoryV2Static: currentMemoryV2Static,
@@ -2160,22 +2015,13 @@ export async function runAgentLoopImpl(
             : injectionOpts.slackChronologicalMessages,
           mode: currentInjectionMode,
           turnContext: buildPluginTurnContext(ctx, reqId),
+          history: ctx.messages,
+          graphMemory: ctx.graphMemory,
+          isTrustedActor,
+          logger: rlog,
         });
         runMessages = injection.messages;
-        if (isTrustedActor && currentInjectionMode !== "minimal") {
-          ctx.graphMemory.retrackCachedNodes();
-        }
-        const midLoopCompactStrip =
-          stripHistoricalWebSearchResults(runMessages);
-        if (midLoopCompactStrip.stats.blocksStripped > 0) {
-          rlog.info(
-            { phase: "mid-loop-compact", ...midLoopCompactStrip.stats },
-            "Converted historical web_search_tool_result blocks to text summaries",
-          );
-          runMessages = midLoopCompactStrip.messages;
-        }
         preRepairMessages = runMessages;
-        preRunHistoryLength = runMessages.length;
         return runMessages;
       },
     };
@@ -2192,10 +2038,8 @@ export async function runAgentLoopImpl(
       msgs: Message[],
       compaction?: MidLoopCompaction,
     ): Promise<Message[]> => {
-      const { history, exitReason } = await ctx.agentLoop.run(
-        msgs,
-        eventHandler,
-        {
+      const { history, exitReason, appendedNewMessages, newMessages } =
+        await ctx.agentLoop.run(msgs, eventHandler, {
           signal: abortController.signal,
           requestId: reqId,
           onCheckpoint,
@@ -2209,8 +2053,9 @@ export async function runAgentLoopImpl(
           // `<memory>` block, so anchor the provider's long-TTL cache breakpoint
           // on the most recent stable message instead.
           mutableLatestUserMessage: memoryV3Live,
-        },
-      );
+        });
+      lastRunAppendedNewMessages = appendedNewMessages;
+      lastRunNewMessages = newMessages;
       if (exitReason === "handoff") {
         yieldedForHandoff = true;
         pendingCheckpointYield = "handoff";
@@ -2248,10 +2093,7 @@ export async function runAgentLoopImpl(
     }
 
     // One-shot ordering error retry
-    if (
-      state.orderingErrorDetected &&
-      updatedHistory.length === preRunHistoryLength
-    ) {
+    if (state.orderingErrorDetected && !lastRunAppendedNewMessages) {
       rlog.warn(
         { phase: "retry" },
         "Provider ordering error detected, attempting one-shot deep-repair retry",
@@ -2270,7 +2112,6 @@ export async function runAgentLoopImpl(
       const retryStrip = stripHistoricalWebSearchResults(runMessages);
       runMessages = retryStrip.messages;
       preRepairMessages = runMessages;
-      preRunHistoryLength = runMessages.length;
       state.orderingErrorDetected = false;
       state.deferredOrderingError = null;
 
@@ -2381,12 +2222,11 @@ export async function runAgentLoopImpl(
       let convergenceStripped =
         findLastInjectedNowContent(ctx.messages) === null;
 
-      if (updatedHistory.length > preRunHistoryLength) {
+      if (lastRunAppendedNewMessages) {
         ctx.messages = stripInjectionsForCompaction(updatedHistory);
-        markHistoryStrippedBestEffort(ctx.conversationId, Date.now(), rlog);
+        markHistoryStrippedBestEffort(ctx.conversationId);
         convergenceStripped = true;
         preRepairMessages = updatedHistory;
-        preRunHistoryLength = updatedHistory.length;
       }
       if (!reducerState) {
         reducerState = createInitialReducerState();
@@ -2526,7 +2366,7 @@ export async function runAgentLoopImpl(
             ctx.contextWindowManager.maybeCompact(msgs, signal!, {
               ...(opts ?? {}),
               overrideProfile: resolveCurrentOverrideProfile() ?? null,
-              actorTrustClass: ctx.trustContext?.trustClass,
+              actorTrustClass: resolveTurnActorTrustClass(ctx),
             }),
           abortController.signal,
         );
@@ -2589,7 +2429,6 @@ export async function runAgentLoopImpl(
           runMessages = convergenceStrip.messages;
         }
         preRepairMessages = runMessages;
-        preRunHistoryLength = runMessages.length;
         state.contextTooLargeDetected = false;
         yieldedForBudget = false;
 
@@ -2612,12 +2451,11 @@ export async function runAgentLoopImpl(
           // Fold rerun progress into ctx.messages so the next reducer
           // tier operates on up-to-date history instead of stale
           // pre-rerun messages.
-          if (updatedHistory.length > preRunHistoryLength) {
+          if (lastRunAppendedNewMessages) {
             ctx.messages = stripInjectionsForCompaction(updatedHistory);
-            markHistoryStrippedBestEffort(ctx.conversationId, Date.now(), rlog);
+            markHistoryStrippedBestEffort(ctx.conversationId);
             convergenceStripped = true;
             preRepairMessages = updatedHistory;
-            preRunHistoryLength = updatedHistory.length;
           }
         }
       }
@@ -2656,10 +2494,8 @@ export async function runAgentLoopImpl(
                 messages: ctx.messages,
                 signal: abortController.signal,
                 options: {
-                  lastCompactedAt: ctx.contextCompactedAt ?? undefined,
                   force: true,
                   minKeepRecentUserTurns: 0,
-                  targetInputTokensOverride: correctedTarget,
                   overrideProfile: resolveCurrentOverrideProfile() ?? null,
                 },
               },
@@ -2689,7 +2525,7 @@ export async function runAgentLoopImpl(
             }
           }
           // Only track when the summary LLM actually ran; `force: true`
-          // bypasses the cooldown but not the early-return paths.
+          // bypasses the auto-threshold gate but not the early-return paths.
           if (
             emergencyCompact &&
             emergencyCompact.summaryFailed !== undefined
@@ -2735,7 +2571,6 @@ export async function runAgentLoopImpl(
             runMessages = fallbackStrip.messages;
           }
           preRepairMessages = runMessages;
-          preRunHistoryLength = runMessages.length;
           state.contextTooLargeDetected = false;
 
           updatedHistory = await runAgentLoop(runMessages);
@@ -2789,25 +2624,6 @@ export async function runAgentLoopImpl(
       onEvent(buildConversationErrorMessage(ctx.conversationId, classified));
     }
 
-    // Reconcile synthesized cancellation tool_results
-    for (let i = preRunHistoryLength; i < updatedHistory.length; i++) {
-      const msg = updatedHistory[i];
-      if (msg.role === "user") {
-        for (const block of msg.content) {
-          if (
-            block.type === "tool_result" &&
-            !state.pendingToolResults.has(block.tool_use_id) &&
-            !state.persistedToolUseIds.has(block.tool_use_id)
-          ) {
-            state.pendingToolResults.set(block.tool_use_id, {
-              content: block.content,
-              isError: block.is_error ?? false,
-            });
-          }
-        }
-      }
-    }
-
     // Flush remaining tool results
     if (state.pendingToolResults.size > 0) {
       const toolResultBlocks = Array.from(
@@ -2836,19 +2652,13 @@ export async function runAgentLoopImpl(
         assistantMessageInterface:
           capturedTurnInterfaceContext.assistantMessageInterface,
       };
-      await runPipeline<PersistArgs, PersistResult>(
-        "persistence",
-        getMiddlewaresFor("persistence"),
-        defaultPersistenceTerminal,
+      await addMessage(
+        ctx.conversationId,
+        "user",
+        JSON.stringify(toolResultBlocks),
         {
-          op: "add",
-          conversationId: ctx.conversationId,
-          role: "user",
-          content: JSON.stringify(toolResultBlocks),
           metadata: toolResultMetadata,
         },
-        buildPluginTurnContext(ctx, reqId),
-        DEFAULT_TIMEOUTS.persistence,
       );
       state.pendingToolResults.clear();
     }
@@ -2874,24 +2684,13 @@ export async function runAgentLoopImpl(
       };
       let yieldNoticePersistedId: string | null = null;
       try {
-        const yieldPersistResult = (await runPipeline<
-          PersistArgs,
-          PersistResult
-        >(
-          "persistence",
-          getMiddlewaresFor("persistence"),
-          defaultPersistenceTerminal,
-          {
-            op: "add",
-            conversationId: ctx.conversationId,
-            role: "assistant",
-            content: JSON.stringify(yieldNoticeMessage.content),
-            metadata: yieldNoticeMetadata,
-          },
-          buildPluginTurnContext(ctx, reqId),
-          DEFAULT_TIMEOUTS.persistence,
-        )) as PersistAddResult;
-        yieldNoticePersistedId = yieldPersistResult.message.id;
+        const yieldRow = await addMessage(
+          ctx.conversationId,
+          "assistant",
+          JSON.stringify(yieldNoticeMessage.content),
+          { metadata: yieldNoticeMetadata },
+        );
+        yieldNoticePersistedId = yieldRow.id;
       } catch (err) {
         // Non-fatal — a DB hiccup must not escalate a budget-yield exit into
         // a turn-level throw. The live SSE event was already emitted, so the
@@ -2947,7 +2746,7 @@ export async function runAgentLoopImpl(
     }
 
     // Reconstruct history
-    const newMessages = updatedHistory.slice(preRunHistoryLength).map((msg) => {
+    const newMessages = lastRunNewMessages.map((msg) => {
       if (msg.role !== "assistant") return msg;
       const { cleanedContent } = cleanAssistantContent(msg.content);
       const cleanedBlocks = cleanedContent as ContentBlock[];
@@ -2978,10 +2777,6 @@ export async function runAgentLoopImpl(
         state.assistantRowAwaitingFinalization &&
         state.lastAssistantMessageId
       ) {
-        // Direct `deleteMessageById` (not via the `persistence` pipeline):
-        // see the same rationale on the matching cleanup in
-        // `handleLlmCallStarted` — an unfinalized reservation has no
-        // observable history for plugins.
         try {
           deleteMessageById(state.lastAssistantMessageId);
         } catch (err) {
@@ -3003,20 +2798,12 @@ export async function runAgentLoopImpl(
       const errorAssistantMessage = createAssistantMessage(
         state.providerErrorUserMessage,
       );
-      const errorPersistResult = (await runPipeline<PersistArgs, PersistResult>(
-        "persistence",
-        getMiddlewaresFor("persistence"),
-        defaultPersistenceTerminal,
-        {
-          op: "add",
-          conversationId: ctx.conversationId,
-          role: "assistant",
-          content: JSON.stringify(errorAssistantMessage.content),
-          metadata: errChannelMeta,
-        },
-        buildPluginTurnContext(ctx, reqId),
-        DEFAULT_TIMEOUTS.persistence,
-      )) as PersistAddResult;
+      const errorRow = await addMessage(
+        ctx.conversationId,
+        "assistant",
+        JSON.stringify(errorAssistantMessage.content),
+        { metadata: errChannelMeta },
+      );
       persistedErrorAssistantMessage = true;
       // Repoint `lastAssistantMessageId` at the synthetic error row so the
       // post-loop sync, attachment resolution, and `message_complete`/
@@ -3025,7 +2812,7 @@ export async function runAgentLoopImpl(
       // above. Mark finalization complete so the next LLM call in this run
       // (or a downstream handler) doesn't try to clean up an id that
       // already corresponds to a finalized row.
-      state.lastAssistantMessageId = errorPersistResult.message.id;
+      state.lastAssistantMessageId = errorRow.id;
       state.assistantRowAwaitingFinalization = false;
       newMessages.push(errorAssistantMessage);
       // Pipe the just-assigned message id into any orphaned LLM request log
@@ -3039,10 +2826,7 @@ export async function runAgentLoopImpl(
       // other conversations cannot collide. Non-fatal — a DB hiccup must
       // not escalate a provider rejection into a turn-level throw.
       try {
-        backfillMessageIdOnLogs(
-          ctx.conversationId,
-          errorPersistResult.message.id,
-        );
+        backfillMessageIdOnLogs(ctx.conversationId, errorRow.id);
       } catch (err) {
         rlog.warn(
           { err },
@@ -3247,30 +3031,6 @@ export async function runAgentLoopImpl(
         publishLoopMessagesChanged();
       }
     }
-
-    // Second title pass: after 3 completed turns, re-generate the title
-    // using the last 3 messages for better context. Only fires when the
-    // current title was auto-generated (isAutoTitle = 1) and the user
-    // has not opted out via `conversations.skipAutoRetitling`.
-    if (ctx.turnCount === 2 && !getConfig().conversations.skipAutoRetitling) {
-      // turnCount is 0-indexed, incremented in finally; 2 = about to become 3rd turn
-      queueRegenerateConversationTitle({
-        conversationId: ctx.conversationId,
-        provider: ctx.provider,
-        onTitleUpdated: (title) => {
-          onEvent({
-            type: "conversation_title_updated",
-            conversationId: ctx.conversationId,
-            title,
-          });
-          onEvent({
-            type: "sync_changed",
-            tags: [conversationMetadataSyncTag(ctx.conversationId)],
-          });
-        },
-        signal: abortController.signal,
-      });
-    }
   } catch (err) {
     const errorCtx = {
       phase: "agent_loop" as const,
@@ -3330,8 +3090,6 @@ export async function runAgentLoopImpl(
     }
   } finally {
     if (turnStarted) {
-      cleanupBootstrapAfterTurnThreshold(ctx.conversationId);
-
       ctx.turnCount++;
       const config = getConfig();
       const maxWait = config.workspaceGit?.turnCommitMaxWaitMs ?? 4000;
@@ -3369,7 +3127,7 @@ export async function runAgentLoopImpl(
     ctx.profiler.emitSummary(ctx.traceEmitter, reqId);
 
     ctx.abortController = null;
-    ctx.processing = false;
+    ctx.setProcessing(false);
     ctx.onConfirmationOutcome = undefined;
     ctx.surfaceActionRequestIds.delete(ctx.currentRequestId ?? "");
     ctx.approvedViaPromptThisTurn = false;
@@ -3516,7 +3274,7 @@ export async function applyCompactionResult(
     result.summaryText,
     ctx.contextCompactedMessageCount,
   );
-  markHistoryStrippedBestEffort(ctx.conversationId, compactedAt, log);
+  markHistoryStrippedBestEffort(ctx.conversationId);
   if (options.slackContextCompactionWatermarkTs) {
     updateConversationSlackContextWatermark(
       ctx.conversationId,

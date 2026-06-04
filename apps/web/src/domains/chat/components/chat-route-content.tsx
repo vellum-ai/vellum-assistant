@@ -17,6 +17,7 @@ import { ChatBody } from "@/domains/chat/components/chat-body";
 import { SlackChannelFooter } from "@/domains/chat/components/slack-channel-footer";
 import { ConversationStarterGrid } from "@/domains/chat/components/conversation-starter-grid";
 import { ComposerNotices } from "@/domains/chat/components/composer-notices";
+import { ChatRuleEditorModal } from "@/domains/chat/components/chat-rule-editor-modal";
 import { SendErrorModal } from "@/domains/chat/components/send-error-modal";
 import { ConfirmationPromptCard } from "@/domains/chat/components/confirmation-prompt-card";
 import { ContactPromptCard } from "@/domains/chat/components/contact-prompt-card";
@@ -28,7 +29,7 @@ import { useConversationStarters } from "@/domains/chat/hooks/use-conversation-s
 import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
 import type { TranscriptHandle, TranscriptProps } from "@/domains/chat/transcript/transcript";
 import { useTranscriptScroll } from "@/domains/chat/transcript/use-transcript-scroll";
-import { hasAnyInteractiveSurface, hasPendingAssistantResponse } from "@/domains/chat/utils/chat";
+import { hasAnyInteractiveSurface, hasPendingAssistantResponse, toolCallToRuleContext } from "@/domains/chat/utils/chat";
 import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone";
 import type { ChatAttachment } from "@/domains/chat/components/chat-attachments/use-chat-attachments";
 import type { ChatEmptyStateProps } from "@/domains/chat/components/chat-empty-state";
@@ -97,7 +98,7 @@ import { haptic } from "@/utils/haptics";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
 import { type TurnState, useTurnStore } from "@/domains/chat/turn-store";
-import { DiskPressureBanner, type DiskPressureBannerMode } from "@/domains/chat/components/disk-pressure-banner";
+import { DiskPressureBanner, type DiskPressureBannerMode } from "@/components/disk-pressure-banner";
 import { submitQuestionResponse } from "@/domains/chat/api/interactions";
 import { useStreamStore } from "@/domains/chat/stream-store";
 
@@ -292,6 +293,12 @@ export function ChatRouteContent({
     handleConfirmationSubmit,
     handleAllowAndCreateRule,
     handleOpenRuleEditorForToolCall,
+    handleSaveRule,
+    handleSaveAsNewRule,
+    showRuleEditor,
+    ruleEditorContext,
+    dismissRuleEditor,
+    isSavingRule,
     handleQuestionResponse,
     handleSurfaceAction,
     unknownNudgeToolCallIds,
@@ -396,6 +403,34 @@ export function ChatRouteContent({
 
   const activeToolDetail = useViewerStore.use.activeToolDetail();
   const closeToolDetail = useViewerStore.use.closeToolDetail();
+
+  /** Open the rule editor for the tool call shown in the detail panel. */
+  const handleToolDetailRiskBadgeClick = useCallback(() => {
+    if (!activeToolDetail) {
+      return;
+    }
+    const tc = messages
+      .flatMap((m) => m.toolCalls ?? [])
+      .find((t) => t.id === activeToolDetail.toolCallId);
+    if (!tc) {
+      return;
+    }
+    handleOpenRuleEditorForToolCall(toolCallToRuleContext(tc));
+  }, [activeToolDetail, messages, handleOpenRuleEditorForToolCall]);
+
+  // The mobile tool-detail overlay lives in a separate portal subtree
+  // (`MobileChatOverlays`) and can't reach the rule-editor state owned here, so
+  // it signals through the viewer store. Open the editor whenever the request
+  // seq advances past the last one we handled.
+  const ruleEditorRequestSeq = useViewerStore.use.ruleEditorRequestSeq();
+  const handledRuleEditorSeqRef = useRef(ruleEditorRequestSeq);
+  useEffect(() => {
+    if (ruleEditorRequestSeq === handledRuleEditorSeqRef.current) {
+      return;
+    }
+    handledRuleEditorSeqRef.current = ruleEditorRequestSeq;
+    handleToolDetailRiskBadgeClick();
+  }, [ruleEditorRequestSeq, handleToolDetailRiskBadgeClick]);
 
   // -------------------------------------------------------------------------
   // Feature flags
@@ -598,6 +633,17 @@ export function ChatRouteContent({
           }
           setError(null);
         }}
+      />
+    ) : null;
+
+  const ruleEditorModalNode =
+    showRuleEditor && ruleEditorContext ? (
+      <ChatRuleEditorModal
+        context={ruleEditorContext}
+        isSaving={isSavingRule}
+        onSave={handleSaveRule}
+        onSaveAsNew={handleSaveAsNewRule}
+        onDismiss={dismissRuleEditor}
       />
     ) : null;
 
@@ -1221,7 +1267,9 @@ export function ChatRouteContent({
     onVoiceError: setVoiceError,
     onVoiceBeforeStart: handleVoiceBeforeStart,
     onStopGenerating: handleStopGenerating,
+    canStopGenerating,
     assistantId,
+    conversationId: activeConversation?.conversationId,
     modelSupportsVision: activeModelSupportsVision,
     onRecallLastMessage: phase === "idle" ? () => {
       const content = startEditing();
@@ -1483,6 +1531,7 @@ export function ChatRouteContent({
           }
         />
         {sendErrorModalNode}
+        {ruleEditorModalNode}
       </>
     );
   }
@@ -1510,6 +1559,7 @@ export function ChatRouteContent({
             }
           />
           {sendErrorModalNode}
+          {ruleEditorModalNode}
         </>
       );
     }
@@ -1529,11 +1579,13 @@ export function ChatRouteContent({
               <ToolDetailPanel
                 detail={activeToolDetail}
                 onClose={closeToolDetail}
+                onRiskBadgeClick={handleToolDetailRiskBadgeClick}
               />
             </LazyBoundary>
           }
         />
         {sendErrorModalNode}
+        {ruleEditorModalNode}
       </>
     );
   }
@@ -1542,6 +1594,7 @@ export function ChatRouteContent({
     <>
       {chatContent}
       {sendErrorModalNode}
+      {ruleEditorModalNode}
     </>
   );
 }

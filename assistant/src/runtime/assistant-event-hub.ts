@@ -43,7 +43,7 @@ import { appendEventToStream } from "../signals/event-stream.js";
 import { getLogger } from "../util/logger.js";
 import type { AssistantEvent } from "./assistant-event.js";
 import { buildAssistantEvent } from "./assistant-event.js";
-import { stampAndBuffer } from "./conversation-stream-state.js";
+import { stampAndBuffer } from "./assistant-stream-state.js";
 
 const log = getLogger("assistant-event-hub");
 

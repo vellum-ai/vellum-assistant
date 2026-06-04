@@ -7,7 +7,11 @@ import type {
   DirectoryScopeOption,
   ScopeOption,
 } from "@/types/interaction-ui-types";
-import type { PendingToolConfirmation } from "@/domains/chat/api/event-types";
+import type {
+  ChatMessageToolCall,
+  PendingToolConfirmation,
+} from "@/domains/chat/api/event-types";
+import type { ToolCallRuleContext } from "@/domains/chat/hooks/use-interaction-actions";
 
 export const ERROR_MESSAGES: Record<string, string> = {
   rate_limit_exceeded: "Too many requests. Please wait a moment and try again.",
@@ -301,6 +305,23 @@ export function deriveCommandText(
   } catch {
     return toolName;
   }
+}
+
+/** Builds the rule-editor context passed to `handleOpenRuleEditorForToolCall`. */
+export function toolCallToRuleContext(
+  tc: ChatMessageToolCall,
+): ToolCallRuleContext {
+  return {
+    toolName: tc.name,
+    riskLevel: tc.riskLevel,
+    riskReason: tc.riskReason,
+    input: tc.input ?? {},
+    allowlistOptions: tc.riskAllowlistOptions ?? [],
+    scopeOptions: tc.scopeOptions ?? [],
+    riskScopeOptions: tc.riskScopeOptions ?? [],
+    directoryScopeOptions: tc.riskDirectoryScopeOptions ?? [],
+    matchedTrustRuleId: tc.matchedTrustRuleId,
+  };
 }
 
 const MINUTES_PER_HOUR = 60;

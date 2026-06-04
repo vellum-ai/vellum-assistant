@@ -352,7 +352,8 @@ export interface HistoryConversationContext {
   readonly traceEmitter: TraceEmitter;
   /** @internal */ sendToClient: (msg: ServerMessage) => void;
   messages: Message[];
-  processing: boolean;
+  isProcessing(): boolean;
+  setProcessing(value: boolean): void;
   abortController: AbortController | null;
   currentRequestId?: string;
   runAgentLoop(
@@ -371,7 +372,7 @@ export interface HistoryConversationContext {
  * Returns the number of messages removed.
  */
 export function undo(conversation: HistoryConversationContext): number {
-  if (conversation.processing) return 0;
+  if (conversation.isProcessing()) return 0;
 
   const lastUserIdx = findLastUndoableUserMessageIndex(conversation.messages);
   if (lastUserIdx === -1) return 0;
@@ -417,7 +418,7 @@ export async function regenerate(
   conversation: HistoryConversationContext,
   requestId?: string,
 ): Promise<void> {
-  if (conversation.processing) {
+  if (conversation.isProcessing()) {
     conversation.sendToClient({
       type: "error",
       conversationId: conversation.conversationId,
@@ -571,7 +572,7 @@ export async function regenerate(
   // Set up processing state manually and call runAgentLoop directly,
   // bypassing processMessage to avoid duplicating the user message
   // in both this.messages and the DB.
-  conversation.processing = true;
+  conversation.setProcessing(true);
   conversation.abortController = new AbortController();
   const resolvedRequestId = requestId ?? uuid();
   conversation.currentRequestId = resolvedRequestId;

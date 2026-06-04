@@ -1,18 +1,17 @@
 /**
- * Tests for the `agent_loop_exit` instrumentation added in this PR.
+ * Tests for the `agent_loop_exit` instrumentation.
  *
  * Coverage targets:
- *  1. **One emit per run** — the idempotency guard fires once, even if the
- *     code path would otherwise reach two emit sites (the empty-response
- *     throw → catch-block fallback case).
+ *  1. **One emit per run** — the idempotency guard fires once, even when
+ *     multiple exit conditions stack and the code path would otherwise
+ *     reach a second emit site.
  *  2. **Reason matches break site** — for each reachable break site, the
  *     emitted reason is the one documented in `AgentLoopExitReason`.
  *  3. **Always the last AgentEvent of terminal runs** — consumers can rely on
  *     positional ordering to find it when a run reaches a terminal state.
  *
- * Sites not exercised here (`empty_response_exhausted`, `aborted_via_error`)
- * require deeper provider fakery and are best covered by integration tests
- * once we wire up the empty-response pipeline mock.
+ * Sites not exercised here (`aborted_via_error`) require deeper provider
+ * fakery and are best covered by integration tests.
  */
 import { describe, expect, spyOn, test } from "bun:test";
 
@@ -379,14 +378,9 @@ describe("AgentLoop exit-reason instrumentation", () => {
       toolExecutor: toolExecutor,
     });
 
-    let prepared = false;
     let reinjected = false;
     const events: AgentEvent[] = [];
     const compaction: MidLoopCompaction = {
-      prepare: () => {
-        prepared = true;
-        return { options: undefined };
-      },
       reinject: async () => {
         reinjected = true;
         return [userMessage];
@@ -414,9 +408,8 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
     // THEN the loop runs the compaction ceremony in place and continues to a
     // clean exit instead of yielding for budget. The durable commit is
-    // signalled via a `compaction_applied` event rather than an injected hook.
-    expect(prepared).toBe(true);
-    expect(events.some((event) => event.type === "compaction_applied")).toBe(
+    // signalled via a `compaction_completed` event rather than an injected hook.
+    expect(events.some((event) => event.type === "compaction_completed")).toBe(
       true,
     );
     expect(reinjected).toBe(true);
@@ -435,7 +428,6 @@ describe("AgentLoop exit-reason instrumentation", () => {
     });
 
     const compaction: MidLoopCompaction = {
-      prepare: () => ({ options: undefined }),
       reinject: async () => {
         throw new Error("reinject must not run after a timeout");
       },
@@ -472,7 +464,6 @@ describe("AgentLoop exit-reason instrumentation", () => {
     });
 
     const compaction: MidLoopCompaction = {
-      prepare: () => ({ options: undefined }),
       reinject: async () => {
         throw new Error("reinject must not run when exhausted");
       },

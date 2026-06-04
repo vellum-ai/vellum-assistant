@@ -15,6 +15,13 @@ import { create } from "zustand";
 
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import { createSelectors } from "@/utils/create-selectors";
+import {
+  isAuthenticated,
+  isSessionSettled,
+  hasLivePlatformSession,
+  type PlatformSessionStatus,
+  type SessionStatus,
+} from "@/stores/session-status";
 
 import {
   getSession,
@@ -32,7 +39,9 @@ import {
   getPlatformAssistants,
   getLocalAssistants,
   clearSelectedAssistant,
+  setSelectedAssistantId,
   primeLocalGatewayConnection,
+  primeLocalGatewayConnectionWithRepair,
   syncPlatformAssistantsToLockfile,
 } from "@/lib/local-mode";
 import { listAssistants } from "@/assistant/api";
@@ -79,27 +88,28 @@ function toAuthUser(raw: RawSessionUser | null): AuthUser | null {
 }
 
 interface AuthState {
-  isLoggedIn: boolean;
-  isLoading: boolean;
+  sessionStatus: SessionStatus;
   user: AuthUser | null;
-  hasPlatformSession: boolean;
-  /**
-   * Whether the platform-session probe has settled. The local gateway path
-   * sets `isLoading: false` before probing `getSession()`, so `false` here
-   * means "unknown", not "no session" — consumers that gate on a missing
-   * session must wait for this to flip true before treating the absence as
-   * confirmed.
-   */
-  platformSessionResolved: boolean;
+  platformSession: PlatformSessionStatus;
 }
 
 interface AuthActions {
   initSession: () => Promise<void>;
+  connectLocalAssistant: (assistantId: string) => Promise<void>;
   refreshSession: () => Promise<boolean>;
   logout: () => Promise<void>;
 }
 
 type AuthStore = AuthState & AuthActions;
+
+/**
+ * The store's `set`, narrowed to what the probe needs: a partial patch or a
+ * functional updater that reads current state (used to resolve the first
+ * settle without clobbering a value a newer probe already wrote).
+ */
+type AuthSet = (
+  partial: Partial<AuthState> | ((state: AuthState) => Partial<AuthState>),
+) => void;
 
 let previousUserId: string | null = null;
 let broadcastChannel: BroadcastChannel | null = null;
@@ -113,6 +123,31 @@ const GATEWAY_LOCAL_USER: AuthUser = {
   firstName: "Local",
   lastName: "User",
 };
+
+/**
+ * Named state transitions — the store declares *which session it is entering*
+ * instead of re-listing the same field combinations at every call site. Each
+ * returns the patch for `set()`, so the actions read as a state machine.
+ *
+ * `platformSession` is left untouched by transitions that don't know it yet
+ * (a follow-up probe settles it); transitions that do know it set it inline.
+ */
+const authenticatedPlatformUser = (user: AuthUser | null): Partial<AuthState> => ({
+  sessionStatus: "authenticated",
+  user,
+  platformSession: "present",
+});
+
+const authenticatedLocalUser = (): Partial<AuthState> => ({
+  sessionStatus: "authenticated",
+  user: GATEWAY_LOCAL_USER,
+});
+
+const sessionEnded = (): Partial<AuthState> => ({
+  sessionStatus: "unauthenticated",
+  user: null,
+  platformSession: "absent",
+});
 
 function syncOrganizationState(nextUserId: string | null): void {
   if (!nextUserId || (previousUserId && previousUserId !== nextUserId)) {
@@ -133,85 +168,148 @@ function syncUserScopedState(nextUserId: string | null): void {
 // Monotonic id stamped on each platform-session probe. Probes can overlap
 // (an app-resume refresh firing while the initial probe is still in flight),
 // and a stale completion must not mutate session state — most importantly it
-// must not flip `platformSessionResolved` back to `true` while a newer probe
-// is still pending, which would resurface the very race this state guards.
-// Only the latest probe's id matches `latestPlatformProbe`, so older probes
-// no-op.
+// must not move `platformSession` while a newer probe is still pending, which
+// would resurface the very race this state guards. Only the latest probe's id
+// matches `latestPlatformProbe`, so older probes no-op.
 let latestPlatformProbe = 0;
+
+// Settle promise for the most recently launched probe, reassigned on every
+// launch. Because re-probes keep the last `"present"`/`"absent"` rather than
+// reopening `"unknown"` (so reactive consumers don't flicker), the displayed
+// `platformSession` can be a prior result while a fresh probe is still in
+// flight. Imperative readers that must not act on a not-yet-refreshed value
+// (the onboarding route fork) await `whenPlatformSessionSettled`, which chases
+// this reference so a probe that becomes latest mid-wait is awaited too.
+// Initialized resolved: before any probe runs the status is `"unknown"`, which
+// those callers already gate on separately.
+let platformProbeSettled: Promise<void> = Promise.resolve();
 
 /**
  * Run the fire-and-forget platform-session probe used by the local gateway
  * auth paths, which return control before the session is known.
  *
- * `platformSessionResolved` is reset to `false` up front and flipped back to
- * `true` only once the probe settles, so a *re-run* probe (app-resume refresh,
- * return from a provider callback) re-enters the "unknown" state instead of
- * leaving a stale `true` from the previous probe. Consumers that treat a
- * missing session as confirmed must wait for this flip; until then a cached
- * platform assistant stands in as a liveness signal.
+ * The probe never reopens the `"unknown"` window: a re-run (app-resume
+ * refresh, return from a provider callback) leaves the last `"present"` /
+ * `"absent"` in place until the new result lands, so reactive consumers keep
+ * showing the last-known session instead of flickering on every resume. Only
+ * the initial boot probe starts from `"unknown"`, and the `.finally` settle
+ * resolves that first `"unknown"` to `"absent"` when neither branch confirmed
+ * a session.
  *
  * Overlapping probes are resolved latest-wins: each call captures a probe id
  * and only the newest probe is allowed to settle state, so a slower earlier
- * probe cannot retire the "unknown" window a later probe just opened.
+ * probe cannot overwrite the result of a later one.
  *
  * `setUserOnSuccess` adopts the probed user as the active user (the
  * no-platform-assistant local path, which starts as the placeholder local
- * user). `clearOnFailure` drives `hasPlatformSession` to `false` on a negative
+ * user). `clearOnFailure` drives the status to `"absent"` on a negative
  * result (the refresh path, which must retract a session that has ended);
  * init paths leave a prior optimistic value untouched.
  */
 function probePlatformSession(
-  set: (partial: Partial<AuthState>) => void,
+  set: AuthSet,
   options: { setUserOnSuccess?: boolean; clearOnFailure?: boolean } = {},
 ): void {
   const probeId = ++latestPlatformProbe;
   const isStale = (): boolean => probeId !== latestPlatformProbe;
-  set({ platformSessionResolved: false });
-  getSession()
+  platformProbeSettled = getSession()
     .then((result) => {
       if (isStale()) return;
       if (result.ok && result.data.user) {
-        const next: Partial<AuthState> = { hasPlatformSession: true };
-        if (options.setUserOnSuccess) {
-          next.user = toAuthUser(result.data.user);
-        }
-        set(next);
+        set(
+          options.setUserOnSuccess
+            ? {
+                platformSession: "present",
+                user: toAuthUser(result.data.user),
+              }
+            : { platformSession: "present" },
+        );
       } else if (options.clearOnFailure) {
-        set({ hasPlatformSession: false });
+        set({ platformSession: "absent" });
       }
     })
     .catch(() => {
       if (isStale()) return;
       if (options.clearOnFailure) {
-        set({ hasPlatformSession: false });
+        set({ platformSession: "absent" });
       }
     })
     .finally(() => {
       if (isStale()) return;
-      set({ platformSessionResolved: true });
+      // Settle the initial boot probe: when neither branch above confirmed or
+      // cleared a session (init paths don't clear on failure), the first
+      // `"unknown"` resolves to `"absent"`. A probe that already settled
+      // `"present"`/`"absent"` is left untouched.
+      set((state) =>
+        state.platformSession === "unknown"
+          ? { platformSession: "absent" }
+          : {},
+      );
     });
 }
 
+/**
+ * Resolve once no platform-session probe is in flight, or immediately when none
+ * is running.
+ *
+ * Reactive consumers read `platformSession` directly and rely on re-probes
+ * leaving the last `"present"`/`"absent"` in place (no flicker). Imperative
+ * one-shot readers that must not branch on a stale value — the onboarding
+ * hosting/welcome fork — await this instead, so they observe the fresh probe
+ * result regardless of what the tri-state currently shows.
+ *
+ * A probe can become the latest *after* the wait begins (an app-resume refresh
+ * firing while we await the current probe). Awaiting a single captured promise
+ * would let the resolver proceed when that probe settles even though a newer
+ * one is still pending. Instead this chases `platformProbeSettled`: after each
+ * await it re-checks whether a newer probe replaced the reference and waits that
+ * one out too, returning only once the reference is unchanged across an await —
+ * i.e. no probe launched while waiting for the last one.
+ */
+export async function whenPlatformSessionSettled(): Promise<void> {
+  let awaited = platformProbeSettled;
+  await awaited;
+  while (platformProbeSettled !== awaited) {
+    awaited = platformProbeSettled;
+    await awaited;
+  }
+}
+
+/**
+ * Probe the platform session only when one could exist — non-local mode, or
+ * local mode with at least one platform assistant in the lockfile. When there
+ * is nothing to probe, settle directly to `"absent"` rather than leaving the
+ * status `"unknown"`. Centralizes the reachability gate shared by the local
+ * gateway auth entry points (`initSession`, `refreshSession`,
+ * `connectLocalAssistant`).
+ */
+function probePlatformSessionIfReachable(
+  set: AuthSet,
+  options?: { setUserOnSuccess?: boolean; clearOnFailure?: boolean },
+): void {
+  if (!isLocalMode() || getPlatformAssistants().length > 0) {
+    probePlatformSession(set, options);
+  } else {
+    set({ platformSession: "absent" });
+  }
+}
+
 const useAuthStoreBase = create<AuthStore>()((set) => ({
-  isLoggedIn: false,
-  isLoading: true,
+  sessionStatus: "initializing",
   user: null,
-  hasPlatformSession: false,
-  platformSessionResolved: false,
+  platformSession: "unknown",
 
   initSession: async () => {
     if (isGatewayAuthEnabled()) {
       try {
         await primeLocalGatewayConnection();
-        set({ isLoggedIn: true, isLoading: false, user: GATEWAY_LOCAL_USER });
+        set(authenticatedLocalUser());
       } catch {
-        set({ isLoggedIn: false, isLoading: false, user: null });
+        // Gateway prime failed: settle to unauthenticated but leave
+        // `platformSession` for the follow-up probe to resolve.
+        set({ sessionStatus: "unauthenticated", user: null });
       }
-      if (!isLocalMode() || getPlatformAssistants().length > 0) {
-        probePlatformSession(set);
-      } else {
-        set({ platformSessionResolved: true });
-      }
+      probePlatformSessionIfReachable(set);
       return;
     }
 
@@ -230,27 +328,27 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
               if (apiAssistants.ok) {
                 await syncPlatformAssistantsToLockfile(apiAssistants.data);
                 if (getPlatformAssistants().length === 0 && getLocalAssistants().length === 0) {
-                  set({ isLoggedIn: true, isLoading: false, user, hasPlatformSession: true, platformSessionResolved: true });
+                  set(authenticatedPlatformUser(user));
                   return;
                 }
               }
             } catch {
               // Sync failed — continue with cached data
             }
-            set({ isLoggedIn: true, isLoading: false, user, hasPlatformSession: true, platformSessionResolved: true });
+            set(authenticatedPlatformUser(user));
             return;
           }
         } catch {
           // Session check failed — fall through to unauthenticated
         }
-        set({ isLoggedIn: false, isLoading: false, user: null, platformSessionResolved: true });
+        set(sessionEnded());
         return;
       }
-      set({ isLoggedIn: true, isLoading: false, user: GATEWAY_LOCAL_USER });
+      set(authenticatedLocalUser());
       if (!suppressPlatformProbe) {
         probePlatformSession(set, { setUserOnSuccess: true });
       } else {
-        set({ platformSessionResolved: true });
+        set({ platformSession: "absent" });
       }
       suppressPlatformProbe = false;
       return;
@@ -261,7 +359,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       if (result.ok && result.data.user) {
         const user = toAuthUser(result.data.user);
         syncUserScopedState(user?.id ?? null);
-        set({ isLoggedIn: true, isLoading: false, user, hasPlatformSession: true, platformSessionResolved: true });
+        set(authenticatedPlatformUser(user));
         return;
       }
     } catch (err) {
@@ -280,7 +378,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
           if (retryResult.ok && retryResult.data.user) {
             const user = toAuthUser(retryResult.data.user);
             syncUserScopedState(user?.id ?? null);
-            set({ isLoggedIn: true, isLoading: false, user, hasPlatformSession: true, platformSessionResolved: true });
+            set(authenticatedPlatformUser(user));
             return;
           }
         }
@@ -290,23 +388,40 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
     }
 
     syncUserScopedState(null);
-    set({ isLoggedIn: false, isLoading: false, user: null, platformSessionResolved: true });
+    set(sessionEnded());
+  },
+
+  /**
+   * Connect to a specific local assistant from an interactive surface (the
+   * login picker / auto-connect). Selects the assistant, primes its gateway
+   * connection, and marks the session logged in.
+   *
+   * Unlike {@link AuthActions.initSession}, which is the best-effort boot
+   * probe and swallows failures, this rethrows so the caller can surface the
+   * reason — including the typed `GuardianTokenError` from the host seam — and
+   * offer recovery instead of dead-ending. It primes through
+   * `primeLocalGatewayConnectionWithRepair`, which self-heals a stopped or
+   * mis-seeded assistant via `wake` before surfacing any error — matching the
+   * native client's re-pair-on-connect bootstrap. The boot probe deliberately
+   * stays on the plain primitive so app launch never spawns daemon processes.
+   */
+  connectLocalAssistant: async (assistantId: string) => {
+    setSelectedAssistantId(assistantId);
+    await primeLocalGatewayConnectionWithRepair();
+    set(authenticatedLocalUser());
+    probePlatformSessionIfReachable(set);
   },
 
   refreshSession: async () => {
     if (isGatewayAuthMode()) {
       try {
         await ensureGatewayToken(getLocalTokenUrl());
-        set({ isLoggedIn: true });
+        set({ sessionStatus: "authenticated" });
       } catch {
-        set({ isLoggedIn: false, user: null, hasPlatformSession: false });
+        set(sessionEnded());
         return false;
       }
-      if (!isLocalMode() || getPlatformAssistants().length > 0) {
-        probePlatformSession(set, { clearOnFailure: true });
-      } else {
-        set({ platformSessionResolved: true });
-      }
+      probePlatformSessionIfReachable(set, { clearOnFailure: true });
       return true;
     }
 
@@ -315,14 +430,14 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       if (result.ok && result.data.user) {
         const user = toAuthUser(result.data.user);
         syncUserScopedState(user?.id ?? null);
-        set({ isLoggedIn: true, user, hasPlatformSession: true, platformSessionResolved: true });
+        set(authenticatedPlatformUser(user));
         return true;
       }
     } catch (err) {
       console.warn("auth.refreshSession failed", err);
     }
     syncUserScopedState(null);
-    set({ isLoggedIn: false, user: null, hasPlatformSession: false, platformSessionResolved: true });
+    set(sessionEnded());
     return false;
   },
 
@@ -333,12 +448,12 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       clearOnboardingFlags();
       clearOrganization();
       clearUserScopedStorage();
-      // Clear lifecycle state BEFORE flipping `isLoggedIn` so the
-      // assistant sync hooks don't observe a stale assistant id in
-      // their first re-render. The `respondToInputs` `!isLoggedIn`
+      // Clear lifecycle state BEFORE `sessionStatus` leaves `authenticated`
+      // so the assistant sync hooks don't observe a stale assistant id in
+      // their first re-render. The `respondToInputs` not-authenticated
       // branch is the safety net for token-expiry-style flips.
       lifecycleService.resetForLogout();
-      set({ isLoggedIn: false, user: null, hasPlatformSession: false, platformSessionResolved: true });
+      set(sessionEnded());
       broadcastAuthChange();
       return;
     }
@@ -355,13 +470,32 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       clearOrganization();
       clearUserScopedStorage();
       lifecycleService.resetForLogout();
-      set({ isLoggedIn: false, user: null, hasPlatformSession: false, platformSessionResolved: true });
+      set(sessionEnded());
       broadcastAuthChange();
     }
   },
 }));
 
 export const useAuthStore = createSelectors(useAuthStoreBase);
+
+/**
+ * Semantic read hooks — the reactive public API for components.
+ *
+ * Each subscribes to one atomic field and answers a single domain question, so
+ * components never re-encode the enum (`sessionStatus === "authenticated"`,
+ * `platformSession === "present"`) and never juggle a pair of booleans. They
+ * compose the pure `session-status` predicates over the atomic selectors
+ * generated by `createSelectors`, keeping Zustand's `Object.is` snapshot
+ * equality stable.
+ */
+export const useIsAuthenticated = (): boolean =>
+  isAuthenticated(useAuthStore.use.sessionStatus());
+
+export const useIsSessionInitializing = (): boolean =>
+  !isSessionSettled(useAuthStore.use.sessionStatus());
+
+export const useHasPlatformSession = (): boolean =>
+  hasLivePlatformSession(useAuthStore.use.platformSession());
 
 /**
  * Subscribe to app-resume signals on the layout-scoped event bus and to

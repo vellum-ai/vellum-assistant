@@ -37,20 +37,20 @@ afterEach(() => {
 
 describe("usePlatformGate — default (standard pattern)", () => {
   test('returns "full" when platform-hosted and logged in', () => {
-    useAuthStore.setState({ hasPlatformSession: true });
+    useAuthStore.setState({ platformSession: "present" });
     const { result } = renderHook(() => usePlatformGate());
     expect(result.current).toBe("full");
   });
 
   test('returns "disabled" when platform-hosted and not logged in', () => {
-    useAuthStore.setState({ hasPlatformSession: false });
+    useAuthStore.setState({ platformSession: "absent" });
     const { result } = renderHook(() => usePlatformGate());
     expect(result.current).toBe("disabled");
   });
 
   test('returns "disabled" in local mode before flag hydration', () => {
     isLocalModeMock.mockImplementation(() => true);
-    useAuthStore.setState({ hasPlatformSession: true });
+    useAuthStore.setState({ platformSession: "present" });
     useAssistantFeatureFlagStore.setState({ hasHydrated: false });
     const { result } = renderHook(() => usePlatformGate());
     expect(result.current).toBe("disabled");
@@ -58,7 +58,7 @@ describe("usePlatformGate — default (standard pattern)", () => {
 
   test('returns "full" in local mode when hydrated, logged in, and flag ON', () => {
     isLocalModeMock.mockImplementation(() => true);
-    useAuthStore.setState({ hasPlatformSession: true });
+    useAuthStore.setState({ platformSession: "present" });
     useAssistantFeatureFlagStore.setState({
       hasHydrated: true,
       platformFeaturesInLocalMode: true,
@@ -69,7 +69,7 @@ describe("usePlatformGate — default (standard pattern)", () => {
 
   test('returns "gated" in local mode when platform features flag is OFF', () => {
     isLocalModeMock.mockImplementation(() => true);
-    useAuthStore.setState({ hasPlatformSession: true });
+    useAuthStore.setState({ platformSession: "present" });
     useAssistantFeatureFlagStore.setState({
       hasHydrated: true,
       platformFeaturesInLocalMode: false,
@@ -82,7 +82,7 @@ describe("usePlatformGate — default (standard pattern)", () => {
 describe("usePlatformGate — { platformHostedOnly: true }", () => {
   test('returns "full" when lifecycle resolves to active+platform-hosted and logged in', () => {
     setLifecycle({ kind: "active", isLocal: false });
-    useAuthStore.setState({ hasPlatformSession: true });
+    useAuthStore.setState({ platformSession: "present" });
     const { result } = renderHook(() =>
       usePlatformGate({ platformHostedOnly: true }),
     );
@@ -91,7 +91,7 @@ describe("usePlatformGate — { platformHostedOnly: true }", () => {
 
   test('returns "disabled" when lifecycle resolves to active+platform-hosted and NOT logged in', () => {
     setLifecycle({ kind: "active", isLocal: false });
-    useAuthStore.setState({ hasPlatformSession: false });
+    useAuthStore.setState({ platformSession: "absent" });
     const { result } = renderHook(() =>
       usePlatformGate({ platformHostedOnly: true }),
     );
@@ -102,7 +102,7 @@ describe("usePlatformGate — { platformHostedOnly: true }", () => {
     // The "platform mode + self-hosted assistant" case: API returns
     // is_local: true, lifecycle projects { kind: "self_hosted" }.
     setLifecycle({ kind: "self_hosted" });
-    useAuthStore.setState({ hasPlatformSession: true });
+    useAuthStore.setState({ platformSession: "present" });
     const { result } = renderHook(() =>
       usePlatformGate({ platformHostedOnly: true }),
     );
@@ -115,7 +115,7 @@ describe("usePlatformGate — { platformHostedOnly: true }", () => {
     // { kind: "active", isLocal: true }.
     isLocalModeMock.mockImplementation(() => true);
     setLifecycle({ kind: "active", isLocal: true });
-    useAuthStore.setState({ hasPlatformSession: true });
+    useAuthStore.setState({ platformSession: "present" });
     const { result } = renderHook(() =>
       usePlatformGate({ platformHostedOnly: true }),
     );
@@ -128,7 +128,7 @@ describe("usePlatformGate — { platformHostedOnly: true }", () => {
     // in that case — platform-hosted-only UI IS meaningful here.
     isLocalModeMock.mockImplementation(() => true);
     setLifecycle({ kind: "active", isLocal: false });
-    useAuthStore.setState({ hasPlatformSession: true });
+    useAuthStore.setState({ platformSession: "present" });
     const { result } = renderHook(() =>
       usePlatformGate({ platformHostedOnly: true }),
     );
@@ -140,7 +140,7 @@ describe("usePlatformGate — { platformHostedOnly: true }", () => {
     // it has no bearing on UI that targets a platform-hosted assistant.
     isLocalModeMock.mockImplementation(() => true);
     setLifecycle({ kind: "active", isLocal: false });
-    useAuthStore.setState({ hasPlatformSession: true });
+    useAuthStore.setState({ platformSession: "present" });
     useAssistantFeatureFlagStore.setState({
       hasHydrated: true,
       platformFeaturesInLocalMode: false,
@@ -158,7 +158,7 @@ describe("usePlatformGate — { platformHostedOnly: true }", () => {
     // hosting is the only signal that matters.
     isLocalModeMock.mockImplementation(() => true);
     setLifecycle({ kind: "active", isLocal: false });
-    useAuthStore.setState({ hasPlatformSession: true });
+    useAuthStore.setState({ platformSession: "present" });
     useAssistantFeatureFlagStore.setState({ hasHydrated: false });
     const { result } = renderHook(() =>
       usePlatformGate({ platformHostedOnly: true }),
@@ -172,7 +172,7 @@ describe("usePlatformGate — { platformHostedOnly: true }", () => {
     // is self-hosted, so we resolve on session only — matching the
     // "none resolved" rows of the truth table.
     setLifecycle({ kind: "loading" });
-    useAuthStore.setState({ hasPlatformSession: true });
+    useAuthStore.setState({ platformSession: "present" });
     const { result } = renderHook(() =>
       usePlatformGate({ platformHostedOnly: true }),
     );
@@ -181,7 +181,7 @@ describe("usePlatformGate — { platformHostedOnly: true }", () => {
 
   test('returns "disabled" during loading lifecycle state when NOT logged in', () => {
     setLifecycle({ kind: "loading" });
-    useAuthStore.setState({ hasPlatformSession: false });
+    useAuthStore.setState({ platformSession: "absent" });
     const { result } = renderHook(() =>
       usePlatformGate({ platformHostedOnly: true }),
     );
@@ -201,7 +201,7 @@ describe("usePlatformGate — { platformHostedOnly: true }", () => {
       { kind: "awaiting_version_selection" },
       { kind: "error", message: "boom" },
     ];
-    useAuthStore.setState({ hasPlatformSession: true });
+    useAuthStore.setState({ platformSession: "present" });
     for (const assistantState of kinds) {
       setLifecycle(assistantState);
       const { result, unmount } = renderHook(() =>

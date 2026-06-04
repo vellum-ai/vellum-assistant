@@ -1,5 +1,6 @@
 import type { Server } from "bun";
 
+import { isActorTokenRevoked } from "../../auth/actor-token-revocation.js";
 import { ensureVellumGuardianBinding } from "../../auth/guardian-bootstrap.js";
 import { CURRENT_POLICY_EPOCH } from "../../auth/policy.js";
 import { mintToken, verifyToken } from "../../auth/token-service.js";
@@ -29,17 +30,32 @@ export async function handleCreateToken(
 
   const authHeader = req.headers.get("authorization");
   if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) {
-    log.warn("Token create rejected: missing or malformed Authorization header");
+    log.warn(
+      "Token create rejected: missing or malformed Authorization header",
+    );
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
   const bearerToken = authHeader.slice(7);
   const verifyResult = verifyToken(bearerToken, "vellum-gateway");
   if (!verifyResult.ok) {
-    log.warn({ reason: verifyResult.reason }, "Token create rejected: invalid guardian token");
+    log.warn(
+      { reason: verifyResult.reason },
+      "Token create rejected: invalid guardian token",
+    );
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
   if (verifyResult.claims.scope_profile !== "actor_client_v1") {
-    log.warn({ scope: verifyResult.claims.scope_profile }, "Token create rejected: insufficient scope");
+    log.warn(
+      { scope: verifyResult.claims.scope_profile },
+      "Token create rejected: insufficient scope",
+    );
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  // Don't let a revoked token re-mint a fresh one — that would be an escape
+  // hatch around device revocation, since the source token still verifies by
+  // signature until it expires.
+  if (isActorTokenRevoked(bearerToken, verifyResult.claims)) {
+    log.warn("Token create rejected: source token revoked");
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 

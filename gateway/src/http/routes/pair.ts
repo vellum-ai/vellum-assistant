@@ -24,6 +24,7 @@
  * Response body: `{ token, expiresAt, guardianId, assistantId }`
  */
 
+import { mintAndRecordDeviceBoundAccessToken } from "../../auth/guardian-bootstrap.js";
 import { CURRENT_POLICY_EPOCH } from "../../auth/policy.js";
 import { mintToken } from "../../auth/token-service.js";
 import { KNOWN_EXTENSION_ORIGINS } from "../../chrome-extension-origins.js";
@@ -31,6 +32,7 @@ import { assistantDbQuery } from "../../db/assistant-db-proxy.js";
 import { getLogger } from "../../logger.js";
 import { isLoopbackAddress } from "../../util/is-loopback-address.js";
 import { VELAY_FORWARDED_HEADER } from "../../velay/bridge-utils.js";
+import { requestArrivedViaEdgeProxy } from "../edge-forwarded-header.js";
 
 const log = getLogger("pair");
 
@@ -74,9 +76,7 @@ function checkRateLimit(peerIp: string): {
 
   if (entry.timestamps.length >= RATE_LIMIT_MAX_REQUESTS) {
     const oldestInWindow = entry.timestamps[0] ?? now;
-    const resetAt = Math.ceil(
-      (oldestInWindow + RATE_LIMIT_WINDOW_MS) / 1000,
-    );
+    const resetAt = Math.ceil((oldestInWindow + RATE_LIMIT_WINDOW_MS) / 1000);
     return {
       allowed: false,
       limit: RATE_LIMIT_MAX_REQUESTS,
@@ -219,6 +219,16 @@ export async function handlePair(
     return errorResponse("FORBIDDEN", "endpoint is local-only", 403);
   }
 
+  // Defense-in-depth: reject requests forwarded by the self-hosted nginx edge
+  // (e.g. the SPA reached over an ngrok tunnel). The edge sets this marker
+  // unconditionally and it cannot be spoofed or stripped by the client — see
+  // edge-forwarded-header.ts. The X-Forwarded-For check below also catches the
+  // edge today, but this marker is the explicit, unspoofable signal.
+  if (requestArrivedViaEdgeProxy(req)) {
+    auditDeny(req, clientIp, "edge_proxy_forwarded");
+    return errorResponse("FORBIDDEN", "endpoint is local-only", 403);
+  }
+
   if (!clientIp || !isLoopbackAddress(clientIp)) {
     auditDeny(req, clientIp, "non_loopback_peer");
     return errorResponse("FORBIDDEN", "endpoint is local-only", 403);
@@ -273,6 +283,29 @@ export async function handlePair(
   const guardianPrincipalId = await resolveLocalGuardianPrincipalId();
   const assistantId = getExternalAssistantId();
 
+  // Optionally, a client may supply a deviceId to receive a device-bound,
+  // DB-recorded, refreshable token pair (revocable per device) instead of the
+  // legacy stateless token. The body is optional — a malformed or absent body
+  // simply leaves deviceId undefined and preserves the stateless path.
+  let deviceId: string | undefined;
+  let bodyPlatform: string | undefined;
+  if ((req.headers.get("content-type") ?? "").includes("json")) {
+    try {
+      const body = (await req.json()) as {
+        deviceId?: unknown;
+        platform?: unknown;
+      };
+      if (typeof body.deviceId === "string" && body.deviceId.trim()) {
+        deviceId = body.deviceId.trim();
+      }
+      if (typeof body.platform === "string" && body.platform.trim()) {
+        bodyPlatform = body.platform.trim();
+      }
+    } catch {
+      // Ignore malformed/empty body — fall back to the stateless path.
+    }
+  }
+
   if (interfaceId === "chrome-extension") {
     // Require the request to originate from a known Vellum extension origin.
     //
@@ -298,6 +331,18 @@ export async function handlePair(
       );
     }
 
+    // Device-bound path: mint a recorded, per-device-revocable access token.
+    if (deviceId) {
+      return mintDeviceBoundPairResponse({
+        guardianPrincipalId,
+        assistantId,
+        deviceId,
+        platform: bodyPlatform ?? interfaceId,
+        interfaceId,
+        clientId,
+      });
+    }
+
     const expiresAt = Date.now() + PAIR_TOKEN_TTL_SECONDS * 1000;
     const token = mintToken({
       aud: "vellum-gateway",
@@ -321,10 +366,76 @@ export async function handlePair(
     });
   }
 
+  // CLI pairing (e.g. `vellum pair`): a loopback-local caller mints a
+  // device-bound token for another machine. No extension-origin check applies
+  // (the CLI is not a browser); the loopback / X-Forwarded-For / edge-marker
+  // guards above are the boundary. A deviceId is required — CLI pairing is
+  // always device-scoped (and thus revocable).
+  if (interfaceId === "cli") {
+    if (!deviceId) {
+      return errorResponse(
+        "BAD_REQUEST",
+        "cli interface requires a deviceId",
+        400,
+      );
+    }
+    return mintDeviceBoundPairResponse({
+      guardianPrincipalId,
+      assistantId,
+      deviceId,
+      platform: bodyPlatform ?? "cli",
+      interfaceId,
+      clientId,
+    });
+  }
+
   auditDeny(req, clientIp, "unknown_interface", { interfaceId });
   return errorResponse(
     "BAD_REQUEST",
     `unsupported interface: '${interfaceId}'`,
     400,
   );
+}
+
+/**
+ * Mint a device-bound, recorded, per-device-revocable access token (short pair
+ * TTL, no refresh token) and build the pair response. Shared by the
+ * chrome-extension (deviceId) and cli pairing paths.
+ *
+ * No refresh token is issued: a long-lived refresh could silently re-mint long
+ * access tokens, so refreshable pairing is deferred until that's handled
+ * explicitly. The recorded token is immediately revocable; the short TTL bounds
+ * its reach in the interim.
+ */
+function mintDeviceBoundPairResponse(opts: {
+  guardianPrincipalId: string;
+  assistantId: string;
+  deviceId: string;
+  platform: string;
+  interfaceId: string;
+  clientId: string | null;
+}): Response {
+  const access = mintAndRecordDeviceBoundAccessToken({
+    guardianPrincipalId: opts.guardianPrincipalId,
+    deviceId: opts.deviceId,
+    platform: opts.platform,
+    ttlSeconds: PAIR_TOKEN_TTL_SECONDS,
+  });
+
+  log.info(
+    {
+      interfaceId: opts.interfaceId,
+      clientId: opts.clientId,
+      guardianPrincipalId: opts.guardianPrincipalId,
+      platform: opts.platform,
+    },
+    "Client paired successfully via loopback (device-bound)",
+  );
+
+  return Response.json({
+    token: access.accessToken,
+    expiresAt: new Date(access.accessTokenExpiresAt).toISOString(),
+    guardianId: opts.guardianPrincipalId,
+    assistantId: opts.assistantId,
+  });
 }

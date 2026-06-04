@@ -153,6 +153,9 @@ function createFakeConversation(conversationId: string): Conversation {
     isProcessing(this: { processing: boolean }) {
       return this.processing;
     },
+    setProcessing(this: { processing: boolean }, value: boolean) {
+      this.processing = value;
+    },
     setChannelCapabilities: () => {},
     setAssistantId: () => {},
     setTrustContext(this: { trustContext: unknown }, ctx: unknown) {

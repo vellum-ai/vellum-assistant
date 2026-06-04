@@ -29,6 +29,8 @@
  * empty selection) falls back to v2 memory rather than dropping all memory.
  */
 
+import { existsSync, readFileSync } from "node:fs";
+
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { getConfig } from "../../config/loader.js";
 import type { AssistantConfig } from "../../config/schema.js";
@@ -42,7 +44,11 @@ import {
   type TurnContext as PluginTurnContext,
 } from "../../plugins/types.js";
 import { getLogger } from "../../util/logger.js";
-import { getWorkspaceDir } from "../../util/platform.js";
+import {
+  getWorkspaceDir,
+  getWorkspacePromptPath,
+} from "../../util/platform.js";
+import { stripCommentLines } from "../../util/strip-comment-lines.js";
 import { getPageIndex } from "../v2/page-index.js";
 import { injectCapabilitiesLeaf, isCapabilitySlug } from "./capabilities.js";
 import { loadCore } from "./core.js";
@@ -166,9 +172,42 @@ function getLanes(config: AssistantConfig): Promise<ShadowLanes> {
 }
 
 /**
+ * Read the live NOW.md scratchpad (the user's short "what's salient right now"
+ * file), stripped of its comment lines. Mirrors `readNowScratchpad` in the
+ * conversation-runtime assembly but reads through the light platform / strip
+ * utilities directly, so the v3 plugin does not pull the heavy conversation
+ * assembly module into its load (and its test). Returns `null` when absent,
+ * empty, or unreadable.
+ */
+function readNowContext(): string | null {
+  const nowPath = getWorkspacePromptPath("NOW.md");
+  if (!existsSync(nowPath)) return null;
+  try {
+    const stripped = stripCommentLines(readFileSync(nowPath, "utf-8")).trim();
+    return stripped.length > 0 ? stripped : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Compose the situational signal threaded into L1 routing and L2 selection: the
+ * current date plus the live NOW.md scratchpad. The date alone is a weak signal,
+ * but together with the scratchpad it lets retrieval surface a leaf the message
+ * never names (e.g. an anniversary that falls today). Always returns at least
+ * the date line — this mirrors the `c_now`/NOW.md signal the v2 retriever uses.
+ */
+function buildSituationalContext(): string {
+  const now = readNowContext();
+  const today = `Today is ${new Date().toDateString()}.`;
+  return now ? `${today}\n\n${now}` : today;
+}
+
+/**
  * Build a v3 {@link TurnContext} from the conversation's persisted messages.
  * `currentMessage` is the latest user message; `recentContext` is the tail of
- * the recent transcript. Returns `null` when there is no user message to route
+ * the recent transcript; `situationalContext` carries the current date and the
+ * live NOW.md scratchpad. Returns `null` when there is no user message to route
  * on (nothing to shadow this turn).
  */
 function buildShadowTurn(
@@ -198,6 +237,7 @@ function buildShadowTurn(
     turnNumber: turnIndex,
     currentMessage,
     recentContext,
+    situationalContext: buildSituationalContext(),
   };
 }
 

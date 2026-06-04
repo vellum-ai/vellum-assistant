@@ -1,23 +1,22 @@
 /**
  * Message operations: history retrieval, polling, sending, and attachments.
  *
- * The daemon's history-row wire contract (`RuntimeMessage` / `RuntimeToolCall`)
- * is derived from the canonical `ConversationMessage` schema in
- * `@vellumai/assistant-api`, alongside content normalization helpers and the
- * `postChatMessage` / `uploadChatAttachment` / `deleteQueuedMessage` writes.
+ * The daemon's history-row wire contract is the canonical `ConversationMessage`
+ * schema from `@vellumai/assistant-api`, consumed here alongside content
+ * normalization helpers and the `postChatMessage` / `uploadChatAttachment` /
+ * `deleteQueuedMessage` writes.
  */
 
 import { captureError } from "@/lib/sentry/capture-error";
 import type {
   ConversationMessage,
-  ConversationMessageAttachment,
   ConversationMessageToolCall,
   ConversationSubagentNotification,
 } from "@vellumai/assistant-api";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayMessage } from "@/domains/chat/types/types";
-import { client } from "@/generated/api/client.gen";
 import {
+  attachmentsPost,
   messagesGet,
   messagesPost,
   messagesQueuedByIdSteerPost,
@@ -41,24 +40,13 @@ const POLL_INTERVAL_MS = 1000;
 const POLL_TIMEOUT_MS = 120_000;
 
 /**
- * A single tool call as returned by the daemon's history endpoint. Canonical
- * wire contract — re-exported under the runtime-local name so the web derives
- * from one source of truth instead of a hand-rolled copy that can drift.
- */
-export type RuntimeToolCall = ConversationMessageToolCall;
-
-/** Attachment metadata returned by the daemon's message history endpoint. */
-export type RuntimeAttachment = ConversationMessageAttachment;
-
-/**
  * Subagent notification as carried by the web. The wire shape
  * (`ConversationSubagentNotification`) is enriched during history
  * reconstruction with the client-derived id of the parent assistant message
  * that spawned the subagent (see `history.ts`); those fields are not part of
  * the wire contract.
  */
-export interface RuntimeSubagentNotification
-  extends ConversationSubagentNotification {
+export interface RuntimeSubagentNotification extends ConversationSubagentNotification {
   /** StableId of the parent assistant message that spawned this subagent. */
   parentMessageStableId?: string;
   /** Daemon UUID of the parent assistant message. Stable across reloads. */
@@ -66,29 +54,21 @@ export interface RuntimeSubagentNotification
 }
 
 /**
- * A consolidated conversation-history row as returned by the daemon's messages
- * endpoint. Canonical wire contract from `@vellumai/assistant-api`; the
- * display-ready shape (`DisplayMessage`) is produced by
- * `mapRuntimeToDisplayMessage` / `prepareServerMessage`.
- */
-export type RuntimeMessage = ConversationMessage;
-
-/**
  * Coerce the daemon messages endpoint's `Array<unknown>` rows into the
- * canonical `RuntimeMessage` shape. The route declares message items as
+ * canonical `ConversationMessage` shape. The route declares message items as
  * `unknown` on the wire, so consumers narrow defensively here rather than
  * trusting the element type.
  */
 function extractRuntimeMessages(
   data: MessagesGetResponse | undefined,
-): RuntimeMessage[] {
+): ConversationMessage[] {
   const raw = Array.isArray(data?.messages) ? data.messages : [];
   return raw.filter(
-    (m): m is RuntimeMessage =>
+    (m): m is ConversationMessage =>
       !!m &&
       typeof m === "object" &&
-      typeof (m as RuntimeMessage).id === "string" &&
-      typeof (m as RuntimeMessage).role === "string",
+      typeof (m as ConversationMessage).id === "string" &&
+      typeof (m as ConversationMessage).role === "string",
   );
 }
 
@@ -96,7 +76,7 @@ export async function pollForResponse(
   assistantId: string,
   userMessageId: string,
   conversationId: string,
-): Promise<RuntimeMessage | null> {
+): Promise<ConversationMessage | null> {
   const deadline = Date.now() + POLL_TIMEOUT_MS;
 
   while (Date.now() < deadline) {
@@ -137,50 +117,50 @@ export async function pollForResponse(
 }
 
 /**
- * Convert daemon-returned tool calls into the ChatMessageToolCall shape
- * used by the web client. The daemon returns `{ name, input, result?, isError? }`
- * while the UI expects `{ id, toolName, input, status, result?, isError? }`.
- * The synthesised `id` uses the array index, matching how contentOrder
- * references tool calls by index in history payloads.
+ * Narrow the wire's free-form `confirmationDecision` string to the closed set
+ * the client renders. Unknown values collapse to `undefined`.
+ */
+function narrowConfirmationDecision(
+  value: string | undefined,
+): ChatMessageToolCall["confirmationDecision"] {
+  return value === "approved" || value === "denied" || value === "timed_out"
+    ? value
+    : undefined;
+}
+
+/**
+ * Project a canonical wire tool call onto the `ChatMessageToolCall` rendered in
+ * the transcript. The wire base already carries every shared field (`name`,
+ * `input`, `result`, the risk/approval fields, the `risk*Options` ladders), so
+ * we only layer the client-only live state: the stable `id` and a `status`
+ * derived from `isError`/`result`. The `id` is the provider tool-use id the
+ * wire now carries — the same id the live `tool_use_start` stream uses, so
+ * reconcile matches snapshot and stream tool calls by it. We fall back to a
+ * positional synthesized id only for daemons predating the wire `id` field.
  */
 export function mapRuntimeToolCalls(
-  toolCalls: RuntimeToolCall[],
+  toolCalls: ConversationMessageToolCall[],
   messageId: string,
 ): ChatMessageToolCall[] {
-  return toolCalls.map((tc, idx) => ({
-    id: `tool-history-${messageId}-${idx}`,
-    toolName: tc.name,
-    input: tc.input,
-    status: tc.isError
-      ? ("error" as const)
-      : tc.result === undefined
-        ? ("running" as const)
-        : ("completed" as const),
-    ...(tc.result !== undefined ? { result: tc.result } : {}),
-    ...(tc.isError !== undefined ? { isError: tc.isError } : {}),
-    ...(tc.riskLevel !== undefined ? { riskLevel: tc.riskLevel } : {}),
-    ...(tc.riskReason !== undefined ? { riskReason: tc.riskReason } : {}),
-    ...(tc.matchedTrustRuleId !== undefined
-      ? { matchedTrustRuleId: tc.matchedTrustRuleId }
-      : {}),
-    ...(tc.approvalMode !== undefined ? { approvalMode: tc.approvalMode } : {}),
-    ...(tc.approvalReason !== undefined
-      ? { approvalReason: tc.approvalReason }
-      : {}),
-    ...(tc.riskThreshold !== undefined
-      ? { riskThreshold: tc.riskThreshold }
-      : {}),
-    ...(tc.startedAt !== undefined ? { startedAt: tc.startedAt } : {}),
-    ...(tc.completedAt !== undefined ? { completedAt: tc.completedAt } : {}),
-    ...(tc.confirmationDecision !== undefined
-      ? {
-          confirmationDecision: tc.confirmationDecision as
-            | "approved"
-            | "denied"
-            | "timed_out",
-        }
-      : {}),
-  }));
+  return toolCalls.map((tc, idx) => {
+    // Drop the wire's free-form `confirmationDecision` from the spread and add
+    // it back only when it narrows to a known value. A history row that omits
+    // it must not materialize `confirmationDecision: undefined`, or
+    // reconciliation would spread that over a live `"denied"`/`"timed_out"`
+    // decision set locally by `useInteractionActions`.
+    const { confirmationDecision: wireDecision, ...rest } = tc;
+    const confirmationDecision = narrowConfirmationDecision(wireDecision);
+    return {
+      ...rest,
+      id: tc.id ?? `tool-history-${messageId}-${idx}`,
+      status: tc.isError
+        ? ("error" as const)
+        : tc.result === undefined
+          ? ("running" as const)
+          : ("completed" as const),
+      ...(confirmationDecision !== undefined ? { confirmationDecision } : {}),
+    };
+  });
 }
 
 /**
@@ -218,39 +198,6 @@ export function normalizeContentOrder(
   for (const entry of raw) {
     const normalized = normalizeContentOrderEntry(entry);
     if (normalized) result.push(normalized);
-  }
-  return result.length > 0 ? result : undefined;
-}
-
-/**
- * Normalize a textSegments array from the server. The server sends plain
- * strings, but the client expects objects with `{ type, content }`.
- */
-export function normalizeTextSegments(
-  raw: unknown[] | undefined,
-):
-  | Array<{ type: string; content: string; [key: string]: unknown }>
-  | undefined {
-  if (!raw || raw.length === 0) return undefined;
-  const result: Array<{
-    type: string;
-    content: string;
-    [key: string]: unknown;
-  }> = [];
-  for (const entry of raw) {
-    if (typeof entry === "string") {
-      result.push({ type: "text", content: entry });
-    } else if (entry && typeof entry === "object" && !Array.isArray(entry)) {
-      const obj = entry as Record<string, unknown>;
-      if (typeof obj.content === "string") {
-        const type = typeof obj.type === "string" ? obj.type : "text";
-        result.push({ ...obj, type, content: obj.content } as {
-          type: string;
-          content: string;
-          [key: string]: unknown;
-        });
-      }
-    }
   }
   return result.length > 0 ? result : undefined;
 }
@@ -306,7 +253,7 @@ export async function getChatHistory(
 export async function fetchConversationMessages(
   assistantId: string,
   conversationId: string,
-): Promise<RuntimeMessage[]> {
+): Promise<ConversationMessage[]> {
   const { data, error, response } = await messagesGet({
     path: { assistant_id: assistantId },
     query: { conversationId },
@@ -354,7 +301,7 @@ export type UploadAttachmentResult =
  * Upload a single file as a chat attachment and return the server-assigned id.
  *
  * The assistant backend exposes a multipart upload at
- * `/v1/assistants/{assistant_id}/attachments/` that accepts a `file` field
+ * `/v1/assistants/{assistant_id}/attachments` that accepts a `file` field
  * plus `filename` and `mimeType` text fields. The response body contains an
  * `id` that can be included in a subsequent `postChatMessage` call via
  * `attachmentIds`.
@@ -366,25 +313,9 @@ export async function uploadChatAttachment(
   const filename = file.name || "attachment";
   const mimeType = file.type || "application/octet-stream";
 
-  const form = new FormData();
-  form.append("filename", filename);
-  form.append("mimeType", mimeType);
-  form.append("file", file, filename);
-
-  const { data, error, response } = await client.post<
-    Record<string, unknown>,
-    unknown
-  >({
-    url: "/v1/assistants/{assistant_id}/attachments/",
+  const { data, error, response } = await attachmentsPost({
     path: { assistant_id: assistantId },
-    body: form as unknown as Record<string, unknown>,
-    // Pass the FormData through without serialization so the browser sets
-    // the correct multipart boundary on Content-Type.
-    bodySerializer: (body: unknown) => body as BodyInit,
-    headers: {
-      // Let fetch compute the multipart boundary for us.
-      "Content-Type": null,
-    },
+    body: { file, filename, mimeType },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to upload attachment");
@@ -401,12 +332,7 @@ export async function uploadChatAttachment(
     return { ok: false, status: response.status, error: { detail } };
   }
 
-  const dataRecord =
-    data && typeof data === "object" && !Array.isArray(data)
-      ? (data as Record<string, unknown>)
-      : undefined;
-  const rawId = dataRecord?.id;
-  const id = typeof rawId === "string" ? rawId : undefined;
+  const id = data?.id;
   if (!id) {
     return {
       ok: false,

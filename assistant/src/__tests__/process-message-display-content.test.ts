@@ -12,7 +12,7 @@ let activeConversation: unknown;
 type TestSlashResolution =
   | { kind: "passthrough"; content: string }
   | { kind: "unknown"; message: string }
-  | { kind: "compact"; targetInputTokensOverride?: number };
+  | { kind: "compact" };
 
 let resolveSlashForTest: (
   content: string,
@@ -129,10 +129,14 @@ function makeTestConversation() {
     drain: () => [],
     size: () => 0,
   } as unknown as MessageQueue;
+  let processing = false;
   const messagingCtx: MessagingConversationContext = {
     conversationId: "conv-display-content",
     messages,
-    processing: false,
+    isProcessing: () => processing,
+    setProcessing: (value: boolean) => {
+      processing = value;
+    },
     abortController: null,
     queue: queueStub,
     getTurnChannelContext: () => turnChannelContext,

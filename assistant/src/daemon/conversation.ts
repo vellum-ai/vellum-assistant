@@ -52,7 +52,6 @@ import { registerToolTraceListener } from "../events/tool-trace-listener.js";
 import { resolveCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import {
   getConversation,
-  getConversationOriginChannel,
   getConversationOverrideProfileFromRow,
   setConversationHistoryStrippedAt,
 } from "../memory/conversation-crud.js";
@@ -68,6 +67,7 @@ import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import type { InteractiveUiResult } from "../runtime/interactive-ui.js";
+import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { ToolExecutor } from "../tools/executor.js";
 import { getAllToolDefinitions } from "../tools/registry.js";
 import type { ToolLifecycleEvent } from "../tools/types.js";
@@ -143,6 +143,7 @@ import type {
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 import { isHostProxyTransport } from "./message-types/conversations.js";
 import type { ConfirmationStateChanged } from "./message-types/messages.js";
+import { conversationMetadataSyncTag } from "./message-types/sync.js";
 import { TraceEmitter } from "./trace-emitter.js";
 
 const log = getLogger("conversation");
@@ -174,7 +175,7 @@ export class Conversation {
   /** @internal */ provider: Provider;
   /** @internal */ messages: Message[] = [];
   /** @internal */ agentLoop: AgentLoop;
-  /** @internal */ processing = false;
+  private _processing = false;
   private stale = false;
   /** @internal */ abortController: AbortController | null = null;
   /** @internal */ prompter: PermissionPrompter;
@@ -733,7 +734,30 @@ export class Conversation {
   }
 
   isProcessing(): boolean {
-    return this.processing;
+    return this._processing;
+  }
+
+  /**
+   * Mutate the server-authoritative `processing` flag. Web/Capacitor/CLI
+   * caches treat this flag as the source of truth for the avatar streaming
+   * ring and thinking indicator, so the `true → false` clear must announce
+   * itself: the daemon flips it in the agent-loop `finally` (after an awaited
+   * turn-boundary commit), which is later than the user-visible terminal SSE
+   * events, and a racing metadata refetch can otherwise re-read the
+   * not-yet-cleared `true` and clobber the client's optimistic `false`.
+   *
+   * Emitting a metadata invalidation on the clear lets every client GET the
+   * authoritative `false`, per the multi-client-sync contract in AGENTS.md
+   * ("emit the invalidation after the canonical state write succeeds").
+   */
+  setProcessing(value: boolean): void {
+    const wasProcessing = this._processing;
+    this._processing = value;
+    if (wasProcessing && !value) {
+      void publishSyncInvalidation([
+        conversationMetadataSyncTag(this.conversationId),
+      ]);
+    }
   }
 
   markStale(): void {
@@ -836,7 +860,7 @@ export class Conversation {
   }
 
   canHandoffAtCheckpoint(): boolean {
-    return this.processing && this.hasQueuedMessages();
+    return this._processing && this.hasQueuedMessages();
   }
 
   hasPendingConfirmation(requestId: string): boolean {
@@ -1020,9 +1044,7 @@ export class Conversation {
     }
   }
 
-  async forceCompact(options?: {
-    targetInputTokensOverride?: number;
-  }): Promise<ContextWindowResult> {
+  async forceCompact(): Promise<ContextWindowResult> {
     const conversationRow = getConversation(this.conversationId);
     const overrideProfile =
       getConversationOverrideProfileFromRow(conversationRow) ?? null;
@@ -1066,11 +1088,7 @@ export class Conversation {
       this.abortController?.signal ?? undefined,
       {
         force: true,
-        lastCompactedAt: this.contextCompactedAt ?? undefined,
-        conversationOriginChannel:
-          getConversationOriginChannel(this.conversationId) ?? undefined,
         overrideProfile,
-        targetInputTokensOverride: options?.targetInputTokensOverride,
         actorTrustClass: this.trustContext?.trustClass,
       },
     );
@@ -1251,7 +1269,7 @@ export class Conversation {
   async persistUserMessage(
     options: PersistMessageOptions,
   ): Promise<{ id: string; deduplicated: boolean }> {
-    if (!this.processing) {
+    if (!this._processing) {
       await this.ensureActorScopedHistory();
     }
     return persistUserMessageImpl(this, options);

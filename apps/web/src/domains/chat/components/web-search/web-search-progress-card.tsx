@@ -46,9 +46,11 @@ import type { ToolCallCardStep } from "@/domains/chat/hooks/tool-call-card-utils
  * A single sub-step inside the expanded card. Discriminated by `kind`:
  * - `"thinking"` → renders the step's text inside the default phase pill.
  * - `"web_search"` → renders one `FaviconChip` per result (up to the supplied
- *   list) followed by an optional `+N more` overflow chip when `overflow > 0`.
- *   `title` is supplied by the selector so the phase header label can switch
- *   between "Searching the web" (in-flight) and "Searched the web" (terminal).
+ *   list) followed by an optional `+N more` overflow pill when
+ *   `overflowResults` is non-empty. The pill opens a popover listing those
+ *   additional sources as links. `title` is supplied by the selector so the
+ *   phase header label can switch between "Searching the web" (in-flight) and
+ *   "Searched the web" (terminal).
  * - `"web_search_error"` → renders an `ErrorChip` with the provider's
  *   `errorMessage`. Used when the search itself failed and there are no
  *   results to surface.
@@ -64,7 +66,7 @@ export type StepDescriptor =
       durationLabel: string;
       linkCount: number;
       results: WebSearchResultItem[];
-      overflow?: number;
+      overflowResults?: WebSearchResultItem[];
     }
   | {
       kind: "web_search_error";

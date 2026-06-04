@@ -253,6 +253,70 @@ describe("response parsing", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Snapshot seq watermark (ATL-780)
+// ---------------------------------------------------------------------------
+
+describe("snapshot seq threading", () => {
+  test("threads the seq from /messages onto the latest-page result", async () => {
+    /**
+     * The daemon advertises the conversation's durably-persisted seq on
+     * the snapshot; the latest page must surface it so the accept-point
+     * caller can record it as the conversation baseline. Recording is the
+     * caller's job (after its stale-response guard), not the fetcher's.
+     */
+    // GIVEN a latest-page snapshot that reports a persisted seq
+    nextResponse = makeJsonResponse({
+      messages: [{ id: "m1", role: "user", ...textBody("hello") }],
+      hasMore: false,
+      seq: 42,
+    });
+
+    // WHEN the latest page is fetched
+    const result = await fetchLatestHistoryPage("asst-1", "K");
+
+    // THEN the result carries the seq
+    expect(result.seq).toBe(42);
+  });
+
+  test("threads null when the daemon omits the seq field (older daemon)", async () => {
+    /**
+     * An older daemon predates the seq field. The result reports null so
+     * the caller falls back to today's cold-start behavior.
+     */
+    // GIVEN a snapshot from a daemon that omits the seq field
+    nextResponse = makeJsonResponse({
+      messages: [{ id: "m1", role: "user", ...textBody("hello") }],
+      hasMore: false,
+    });
+
+    // WHEN the latest page is fetched
+    const result = await fetchLatestHistoryPage("asst-1", "K");
+
+    // THEN no honest position is threaded
+    expect(result.seq).toBeNull();
+  });
+
+  test("threads null when the daemon reports an explicit null seq", async () => {
+    /**
+     * The daemon returns null when nothing has been persisted in-process
+     * (cold conversation, post-restart, aged-out map).
+     */
+    // GIVEN a snapshot that explicitly reports a null seq
+    nextResponse = makeJsonResponse({
+      messages: [],
+      hasMore: false,
+      seq: null,
+    });
+
+    // WHEN the latest page is fetched
+    const result = await fetchLatestHistoryPage("asst-1", "K");
+
+    // THEN it is threaded as no honest position
+    expect(result.seq).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Subagent notification extraction
 // ---------------------------------------------------------------------------
 

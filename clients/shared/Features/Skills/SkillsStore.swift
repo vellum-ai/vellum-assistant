@@ -15,6 +15,7 @@ public final class SkillsStore: ObservableObject {
     @Published public var loadedBodies: [String: String] = [:]
     @Published public var isLoading = false
 
+    @Published public var categories: [SkillCategoryDef] = []
     @Published public var categoryCounts: [String: Int] = [:]
     @Published public var totalCount: Int = 0
 
@@ -156,6 +157,17 @@ public final class SkillsStore: ObservableObject {
                 totalCount = response.totalCount ?? response.skills.count
             }
             isLoading = false
+        }
+    }
+
+    // MARK: - Fetch Categories
+
+    public func fetchCategories() {
+        Task {
+            let result = await skillsClient.fetchCategories()
+            if !result.isEmpty {
+                categories = result
+            }
         }
     }
 

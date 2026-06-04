@@ -4,6 +4,7 @@ import {
   validateEdgeToken,
   mintServiceToken,
 } from "../../auth/token-exchange.js";
+import { isActorTokenRevoked } from "../../auth/actor-token-revocation.js";
 import { parseSub } from "../../auth/subject.js";
 import type { GatewayConfig } from "../../config.js";
 import { getLogger } from "../../logger.js";
@@ -12,6 +13,59 @@ const log = getLogger("live-voice-ws");
 
 // Cap buffered messages to prevent unbounded memory growth if upstream stalls
 const MAX_PENDING_MESSAGES = 100;
+
+// ---------------------------------------------------------------------------
+// Velay-attested managed auth headers
+// ---------------------------------------------------------------------------
+//
+// In managed/cloud deployments the only ingress is the velay tunnel. On a
+// validated `/v1/live-voice` upgrade, velay authenticates the browser's
+// wsToken against the platform, STRIPS any client-supplied copies of these
+// headers, and INJECTS trusted ones before forwarding the upgrade through the
+// tunnel to the gateway. A browser on a managed assistant cannot mint the
+// local actor edge JWT the self-hosted path requires, so the gateway trusts
+// this velay attestation INSTEAD — but only in managed mode, where velay is
+// the sole ingress. In self-hosted mode there is no velay to strip/inject
+// these headers, so they are never trusted (a client could spoof them).
+const VELAY_USER_ID_HEADER = "x-velay-user-id";
+const VELAY_ORG_ID_HEADER = "x-velay-org-id";
+const VELAY_ACTOR_HEADER = "x-velay-actor";
+
+/**
+ * True when the gateway runs in managed/cloud mode (vembda + velay ingress).
+ * Mirrors the `IS_PLATFORM` check used by the gateway's HTTP edge auth
+ * (`src/http/middleware/auth.ts`) and feature-flag resolver.
+ */
+function isPlatformManaged(): boolean {
+  const v = process.env.IS_PLATFORM?.trim().toLowerCase();
+  return v === "1" || v === "true";
+}
+
+/** Velay-attested managed caller context, extracted from injected headers. */
+type VelayAttestedContext = {
+  userId: string;
+  orgId: string;
+};
+
+/**
+ * Extract a velay-attested managed caller context from the upgrade request.
+ *
+ * Returns null when the request does not carry a complete, well-formed velay
+ * attestation (`X-Velay-User-Id` + `X-Velay-Org-Id` both present, with
+ * `X-Velay-Actor: user`). Callers MUST only trust the result in managed mode.
+ */
+function extractVelayAttestedContext(
+  req: Request,
+): VelayAttestedContext | null {
+  const userId = req.headers.get(VELAY_USER_ID_HEADER)?.trim();
+  const orgId = req.headers.get(VELAY_ORG_ID_HEADER)?.trim();
+  const actor = req.headers.get(VELAY_ACTOR_HEADER)?.trim().toLowerCase();
+
+  if (!userId || !orgId || actor !== "user") {
+    return null;
+  }
+  return { userId, orgId };
+}
 
 export type LiveVoiceSocketData = {
   wsType: "live-voice";
@@ -61,6 +115,23 @@ function checkLiveVoiceAuth(
     return null;
   }
 
+  // Managed/cloud path: velay (the sole ingress) validates the browser wsToken
+  // and injects trusted X-Velay-* headers. We trust them ONLY in managed mode —
+  // a self-hosted gateway has no velay to strip client-supplied copies, so it
+  // must never honor these headers and instead requires the actor edge JWT.
+  if (isPlatformManaged()) {
+    const velayContext = extractVelayAttestedContext(req);
+    if (velayContext) {
+      log.info(
+        { userId: velayContext.userId, orgId: velayContext.orgId },
+        "Live voice WS: authenticated via velay-attested managed context",
+      );
+      return null;
+    }
+    // No (or incomplete) velay attestation — fall through to the actor-JWT
+    // path below so a managed deployment still accepts a valid actor edge JWT.
+  }
+
   const authHeader = req.headers.get("authorization");
   const queryToken = url.searchParams.get("token");
   const rawToken = authHeader
@@ -77,6 +148,11 @@ function checkLiveVoiceAuth(
   const result = validateEdgeToken(rawToken);
   if (!result.ok) {
     log.warn({ reason: result.reason }, "Live voice WS: authentication failed");
+    return new Response("Unauthorized", { status: 401 });
+  }
+
+  if (isActorTokenRevoked(rawToken, result.claims)) {
+    log.warn("Live voice WS: rejected — actor token revoked");
     return new Response("Unauthorized", { status: 401 });
   }
 

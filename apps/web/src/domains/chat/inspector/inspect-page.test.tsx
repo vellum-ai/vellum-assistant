@@ -65,7 +65,7 @@ let authUserStub: AuthUserStub | null = {
   email: "dev@vellum.ai",
   isStaff: false,
 };
-let authLoadingStub = false;
+let sessionInitializingStub = false;
 
 let contextStub: ContextStub = {
   data: undefined,
@@ -78,7 +78,7 @@ let contextStub: ContextStub = {
 interface MessageListEntry {
   id: string;
   role: "user" | "assistant";
-  textSegments?: Array<{ type: string; content: string; [key: string]: unknown }>;
+  textSegments?: string[];
   contentOrder?: Array<{ type: string; id: string }>;
   timestamp: number;
 }
@@ -127,9 +127,9 @@ mock.module("@/stores/auth-store", () => ({
   useAuthStore: {
     use: {
       user: () => authUserStub,
-      isLoading: () => authLoadingStub,
     },
   },
+  useIsSessionInitializing: () => sessionInitializingStub,
 }));
 
 mock.module("@/domains/chat/inspector/inspector-api", () => ({
@@ -170,7 +170,7 @@ beforeEach(() => {
   searchParamsMap = new Map();
   assistantStub = { assistantId: "asst-1" };
   authUserStub = { email: "dev@vellum.ai", isStaff: false };
-  authLoadingStub = false;
+  sessionInitializingStub = false;
   contextStub = {
     data: undefined,
     isLoading: true,

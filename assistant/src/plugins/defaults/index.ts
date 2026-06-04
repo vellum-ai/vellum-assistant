@@ -31,14 +31,10 @@ import { defaultCompactionPlugin } from "./compaction/register.js";
 import { defaultEmptyResponsePlugin } from "./empty-response/register.js";
 import { defaultHistoryRepairPlugin } from "./history-repair/register.js";
 import { defaultInjectorsPlugin } from "./injectors/register.js";
-import { defaultLlmCallPlugin } from "./llm-call/register.js";
 import { defaultMemoryRetrievalPlugin } from "./memory-retrieval/register.js";
 import { defaultOverflowReducePlugin } from "./overflow-reduce/register.js";
-import { defaultPersistencePlugin } from "./persistence/register.js";
 import { defaultTitleGeneratePlugin } from "./title-generate/register.js";
-import { defaultTokenEstimatePlugin } from "./token-estimate/register.js";
 import { defaultToolErrorPlugin } from "./tool-error/register.js";
-import { defaultToolExecutePlugin } from "./tool-execute/register.js";
 import { defaultToolResultTruncatePlugin } from "./tool-result-truncate/register.js";
 
 /**
@@ -53,19 +49,15 @@ import { defaultToolResultTruncatePlugin } from "./tool-result-truncate/register
  */
 function getAllDefaultPlugins(): readonly Plugin[] {
   return [
-    defaultLlmCallPlugin,
-    defaultToolExecutePlugin,
     defaultToolResultTruncatePlugin,
     defaultEmptyResponsePlugin,
     defaultToolErrorPlugin,
     defaultMemoryRetrievalPlugin,
     defaultInjectorsPlugin,
-    defaultTokenEstimatePlugin,
     defaultOverflowReducePlugin,
     defaultHistoryRepairPlugin,
     defaultCompactionPlugin,
     defaultCircuitBreakerPlugin,
-    defaultPersistencePlugin,
     defaultTitleGeneratePlugin,
     memoryV3ShadowPlugin,
   ];
@@ -99,7 +91,7 @@ export function registerDefaultPlugins(): void {
  * so integration tests that exercise the full agent loop have a
  * production-parity plugin stack. Use this in `beforeEach` of tests that
  * dispatch through pipelines with a terminal that assumes the default
- * plugin handles every op (e.g. persistence, overflowReduce).
+ * plugin handles every op (e.g. overflowReduce).
  *
  * Tests that specifically need an empty registry (pipeline-unit tests, the
  * plugin-registry tests themselves) should continue to call

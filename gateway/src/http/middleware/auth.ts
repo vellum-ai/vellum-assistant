@@ -1,10 +1,12 @@
 import type { Server } from "bun";
 
+import { isActorTokenRevoked } from "../../auth/actor-token-revocation.js";
 import { findVellumGuardian } from "../../auth/guardian-bootstrap.js";
 import { resolveScopeProfile } from "../../auth/scopes.js";
 import { parseSub } from "../../auth/subject.js";
 import { validateEdgeToken } from "../../auth/token-exchange.js";
-import type { Scope } from "../../auth/types.js";
+import type { Scope, TokenClaims } from "../../auth/types.js";
+import { AuthFallbackCountTracker } from "../../auth-fallback-count-tracker.js";
 import { AuthFallbackLogThrottle } from "../../auth-fallback-log-throttle.js";
 import type { AuthRateLimiter } from "../../auth-rate-limiter.js";
 import { credentialKey } from "../../credential-key.js";
@@ -19,6 +21,12 @@ const log = getLogger("auth");
 // without per-request noise. Process-lifetime — createAuthMiddleware is invoked
 // per request, so this state can't live in its closure.
 const loopbackFallbackLogThrottle = new AuthFallbackLogThrottle();
+
+// Exact, unthrottled count of every loopback fallback, keyed by
+// (guard, path, failureKind). Drained and shipped to the daemon telemetry route
+// by AuthFallbackReporter. Process-lifetime singleton for the same reason as the
+// throttle above; exported so the reporter and tests share the one instance.
+export const loopbackFallbackCountTracker = new AuthFallbackCountTracker();
 
 type GetClientIp = () => string;
 
@@ -249,7 +257,7 @@ export function createAuthMiddleware(
       );
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
-    return null;
+    return rejectIfActorTokenRevoked(req, token, result.claims);
   }
 
   function validateScopedEdgeBearer(
@@ -276,6 +284,8 @@ export function createAuthMiddleware(
       );
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const revoked = rejectIfActorTokenRevoked(req, token, result.claims);
+    if (revoked) return revoked;
     const scopes = resolveScopeProfile(result.claims.scope_profile);
     if (!scopes.has(scope)) {
       if (
@@ -337,6 +347,25 @@ export function createAuthMiddleware(
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  /**
+   * Reject a validated edge token whose actor record has been revoked. Returns
+   * a 401 response when revoked, or null to continue. Fail-open for non-actor
+   * and unrecorded tokens (see isActorTokenRevoked).
+   */
+  function rejectIfActorTokenRevoked(
+    req: Request,
+    token: string,
+    claims: TokenClaims,
+  ): Response | null {
+    if (!isActorTokenRevoked(token, claims)) return null;
+    authRateLimiter.recordFailure(getClientIp());
+    log.warn(
+      { path: new URL(req.url).pathname },
+      "Edge auth rejected: actor token revoked",
+    );
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   function allowLegacyLoopbackFallback(
     req: Request,
     server: Server<unknown> | undefined,
@@ -350,6 +379,11 @@ export function createAuthMiddleware(
       typeof extra?.authFailure === "string"
         ? extra.authFailure
         : "unspecified";
+
+    // Count every fallback (unthrottled) for telemetry. The throttle below only
+    // governs log volume — it must not gate the count, or the data undercounts.
+    loopbackFallbackCountTracker.increment(guard, path, failureKind);
+
     if (
       loopbackFallbackLogThrottle.shouldLog(`${guard} ${path} ${failureKind}`)
     ) {
@@ -411,6 +445,8 @@ export function createAuthMiddleware(
       );
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const revoked = rejectIfActorTokenRevoked(req, token, result.claims);
+    if (revoked) return revoked;
     const parsed = parseSub(result.claims.sub);
     if (
       !parsed.ok ||

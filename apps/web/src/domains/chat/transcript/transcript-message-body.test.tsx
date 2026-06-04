@@ -116,7 +116,7 @@ describe("TranscriptMessageBody", () => {
       toolCalls: [
         {
           id: "tc-1",
-          toolName: "bash",
+          name: "bash",
           input: {},
           status: "completed",
           startedAt: 1_500,
@@ -138,7 +138,7 @@ describe("TranscriptMessageBody", () => {
       toolCalls: [
         {
           id: "tc-1",
-          toolName: "bash",
+          name: "bash",
           input: {},
           status: "running",
           startedAt: 1_500,
@@ -311,7 +311,7 @@ describe("TranscriptMessageBody", () => {
           toolCalls: [
             {
               id: "tc-1",
-              toolName: "bash",
+              name: "bash",
               input: {},
               status: "running",
             },
@@ -340,7 +340,7 @@ describe("TranscriptMessageBody", () => {
           toolCalls: [
             {
               id: "tc-1",
-              toolName: "bash",
+              name: "bash",
               input: {},
               status: "completed",
             },
@@ -368,7 +368,7 @@ describe("TranscriptMessageBody", () => {
           toolCalls: [
             {
               id: "tc-1",
-              toolName: "bash",
+              name: "bash",
               input: {},
               status: "completed",
             },
@@ -398,17 +398,17 @@ describe("TranscriptMessageBody", () => {
             { type: "text", id: "0" },
             { type: "tool", id: "tc-2" },
           ],
-          textSegments: [{ type: "text", content: "Next I will check logs." }],
+          textSegments: ["Next I will check logs."],
           toolCalls: [
             {
               id: "tc-1",
-              toolName: "bash",
+              name: "bash",
               input: {},
               status: "completed",
             },
             {
               id: "tc-2",
-              toolName: "bash",
+              name: "bash",
               input: {},
               status: "completed",
             },
@@ -439,11 +439,11 @@ describe("TranscriptMessageBody", () => {
             { type: "tool", id: "tc-1" },
             { type: "text", id: "0" },
           ],
-          textSegments: [{ type: "text", content: "Here is what I found." }],
+          textSegments: ["Here is what I found."],
           toolCalls: [
             {
               id: "tc-1",
-              toolName: "bash",
+              name: "bash",
               input: {},
               status: "completed",
             },
@@ -472,11 +472,11 @@ describe("TranscriptMessageBody", () => {
             { type: "tool", id: "tc-1" },
             { type: "text", id: "0" },
           ],
-          textSegments: [{ type: "text", content: "Done." }],
+          textSegments: ["Done."],
           toolCalls: [
             {
               id: "tc-1",
-              toolName: "bash",
+              name: "bash",
               input: {},
               status: "completed",
             },
@@ -505,17 +505,17 @@ describe("TranscriptMessageBody", () => {
             { type: "text", id: "0" },
             { type: "tool", id: "tc-2" },
           ],
-          textSegments: [{ type: "text", content: "Next I will check logs." }],
+          textSegments: ["Next I will check logs."],
           toolCalls: [
             {
               id: "tc-1",
-              toolName: "bash",
+              name: "bash",
               input: {},
               status: "completed",
             },
             {
               id: "tc-2",
-              toolName: "bash",
+              name: "bash",
               input: {},
               status: "running",
             },
@@ -654,7 +654,7 @@ describe("TranscriptMessageBody", () => {
             { type: "text", id: "0" },
             { type: "surface", id: "s-1" },
           ],
-          textSegments: [{ type: "text", content: "do this" }],
+          textSegments: ["do this"],
           surfaces: [{ surfaceId: "s-1" } as never],
         }}
         expandedToolCallIds={new Set()}
@@ -688,7 +688,7 @@ describe("TranscriptMessageBody", () => {
             { type: "surface", id: "s-1" },
             { type: "text", id: "0" },
           ],
-          textSegments: [{ type: "text", content: "after surface" }],
+          textSegments: ["after surface"],
           surfaces: [{ surfaceId: "s-1" } as never],
         }}
         expandedToolCallIds={new Set()}
@@ -730,13 +730,13 @@ describe("TranscriptMessageBody", () => {
             { type: "text", id: "1" },
           ],
           textSegments: [
-            { type: "text", content: "before tool" },
-            { type: "text", content: "after tool" },
+            "before tool",
+            "after tool",
           ],
           toolCalls: [
             {
               id: "tc-1",
-              toolName: "bash",
+              name: "bash",
               input: {},
               status: "completed",
             },
@@ -790,7 +790,7 @@ describe("TranscriptMessageBody", () => {
           toolCalls: [
             {
               id: "tc-1",
-              toolName: "bash",
+              name: "bash",
               input: {},
               status: "completed",
             },
@@ -824,7 +824,7 @@ describe("TranscriptMessageBody", () => {
           toolCalls: [
             {
               id: "tc-1",
-              toolName: "bash",
+              name: "bash",
               input: {},
               status: "running",
             },
@@ -849,7 +849,7 @@ describe("TranscriptMessageBody", () => {
           toolCalls: [
             {
               id: "tc-1",
-              toolName: "bash",
+              name: "bash",
               input: {},
               status: "completed",
             },
@@ -872,7 +872,7 @@ describe("TranscriptMessageBody", () => {
     const html = renderMessage({
       id: "m-think",
       role: "assistant",
-      textSegments: [{ type: "text", content: "the answer" }],
+      textSegments: ["the answer"],
       thinkingSegments: ["chain of thought"],
       contentOrder: [
         { type: "thinking", id: "0" },
@@ -932,7 +932,7 @@ describe("TranscriptMessageBody", () => {
     const html = renderMessage({
       id: "m-think-interleaved",
       role: "assistant",
-      textSegments: [{ type: "text", content: "done" }],
+      textSegments: ["done"],
       thinkingSegments: ["why I called the tool"],
       contentOrder: [
         { type: "thinking", id: "0" },
@@ -940,7 +940,7 @@ describe("TranscriptMessageBody", () => {
         { type: "text", id: "0" },
       ],
       toolCalls: [
-        { id: "tc-1", toolName: "bash", input: {}, status: "completed" },
+        { id: "tc-1", name: "bash", input: {}, status: "completed" },
       ],
       timestamp: 1_000,
     });

@@ -1,4 +1,3 @@
-import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
@@ -8,6 +7,8 @@ import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Input } from "@vellum/design-library/components/input";
 import { toast } from "@vellum/design-library/components/toast";
 import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
+import { ttsProvidersGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { synthesizeTTS } from "@/lib/tts-synthesize";
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
 
@@ -25,7 +26,21 @@ import {
 } from "@/domains/settings/ai/ai-shared-ui";
 
 export function TextToSpeechCard() {
-  const defaultProviderId = TTS_PROVIDERS[0]?.id ?? "elevenlabs";
+  const { data: assistantList } = useQuery(assistantsListOptions());
+  const assistantId = assistantList?.results?.[0]?.id;
+  const assistantName = assistantList?.results?.[0]?.name ?? "your assistant";
+  const isOrgReady = useIsOrgReady();
+
+  const { data: catalogData } = useQuery({
+    ...ttsProvidersGetOptions({
+      path: { assistant_id: assistantId! },
+    }),
+    enabled: !!assistantId && isOrgReady,
+    staleTime: Infinity,
+  });
+  const providers = catalogData?.providers ?? TTS_PROVIDERS;
+
+  const defaultProviderId = providers[0]?.id ?? "elevenlabs";
   const [draftProvider, setDraftProvider] = useState<string>(() =>
     getLocalSetting(LS_TTS_PROVIDER, defaultProviderId),
   );
@@ -34,16 +49,11 @@ export function TextToSpeechCard() {
   const [voiceIdText, setVoiceIdText] = useState("");
   const [initialVoiceId, setInitialVoiceId] = useState("");
   const [providerHasKey, setProviderHasKey] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
-  const { data: assistantList } = useQuery(assistantsListOptions());
-  const assistantName = assistantList?.results?.[0]?.name ?? "your assistant";
 
   const selectedProvider = useMemo(() => {
-    return (
-      TTS_PROVIDERS.find((p) => p.id === draftProvider) ?? TTS_PROVIDERS[0]!
-    );
-  }, [draftProvider]);
+    return providers.find((p) => p.id === draftProvider) ?? providers[0]!;
+  }, [draftProvider, providers]);
 
   const loadProviderState = useCallback((providerId: string) => {
     const storedKey = getLocalSetting(LS_TTS_API_KEY_PREFIX + providerId, "");
@@ -69,22 +79,17 @@ export function TextToSpeechCard() {
   }, [draftProvider, initialProvider, apiKeyText, voiceIdText, initialVoiceId]);
 
   const handleSave = useCallback(() => {
-    setSaving(true);
-    try {
-      setLocalSetting(LS_TTS_PROVIDER, draftProvider);
-      const trimmedKey = apiKeyText.trim();
-      if (trimmedKey.length > 0) {
-        setLocalSetting(LS_TTS_API_KEY_PREFIX + draftProvider, trimmedKey);
-        setProviderHasKey(true);
-      }
-      const trimmedVoiceId = voiceIdText.trim();
-      setLocalSetting(LS_TTS_VOICE_ID_PREFIX + draftProvider, trimmedVoiceId);
-      setInitialProvider(draftProvider);
-      setInitialVoiceId(trimmedVoiceId);
-      setApiKeyText("");
-    } finally {
-      setSaving(false);
+    setLocalSetting(LS_TTS_PROVIDER, draftProvider);
+    const trimmedKey = apiKeyText.trim();
+    if (trimmedKey.length > 0) {
+      setLocalSetting(LS_TTS_API_KEY_PREFIX + draftProvider, trimmedKey);
+      setProviderHasKey(true);
     }
+    const trimmedVoiceId = voiceIdText.trim();
+    setLocalSetting(LS_TTS_VOICE_ID_PREFIX + draftProvider, trimmedVoiceId);
+    setInitialProvider(draftProvider);
+    setInitialVoiceId(trimmedVoiceId);
+    setApiKeyText("");
   }, [draftProvider, apiKeyText, voiceIdText]);
 
   const handleReset = useCallback(() => {
@@ -151,13 +156,13 @@ export function TextToSpeechCard() {
     >
       <div className="space-y-4">
         <div className="space-y-1">
-          <label className="block text-body-small-default text-[var(--content-quiet)]">
+          <label className="block text-body-small-default text-[var(--content-tertiary)]">
             Provider
           </label>
           <Dropdown
             value={draftProvider}
             onChange={setDraftProvider}
-            options={TTS_PROVIDERS.map((p) => ({
+            options={providers.map((p) => ({
               value: p.id,
               label: p.displayName,
             }))}
@@ -166,7 +171,7 @@ export function TextToSpeechCard() {
         </div>
 
         <div className="space-y-1">
-          <label className="block text-body-small-default text-[var(--content-quiet)]">
+          <label className="block text-body-small-default text-[var(--content-tertiary)]">
             API Key
           </label>
           <Input
@@ -180,7 +185,7 @@ export function TextToSpeechCard() {
 
         {selectedProvider.supportsVoiceSelection && (
           <div className="space-y-1">
-            <label className="block text-body-small-default text-[var(--content-quiet)]">
+            <label className="block text-body-small-default text-[var(--content-tertiary)]">
               Voice ID
             </label>
             <Input
@@ -204,10 +209,7 @@ export function TextToSpeechCard() {
             {testing ? "Testing…" : "Test"}
           </Button>
           <div className="ml-auto flex items-center gap-2">
-            <SaveButton onClick={handleSave} disabled={!hasChanges || saving} />
-            {saving && (
-              <Loader2 className="h-4 w-4 animate-spin text-stone-400" />
-            )}
+            <SaveButton onClick={handleSave} disabled={!hasChanges} />
             {providerHasKey && <ResetButton onClick={handleReset} />}
           </div>
         </div>

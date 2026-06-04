@@ -120,6 +120,12 @@ function makeFakeContext(opts: {
     conversationId: "conv-app-control-preactivation",
     messages: [],
     processing: false,
+    isProcessing(this: { processing: boolean }) {
+      return this.processing;
+    },
+    setProcessing(this: { processing: boolean }, value: boolean) {
+      this.processing = value;
+    },
     abortController: null,
     queue: opts.queue,
     traceEmitter: new TraceEmitter("conv-app-control-preactivation", () => {}),

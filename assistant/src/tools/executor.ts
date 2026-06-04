@@ -1,18 +1,10 @@
 import { readFileSync } from "node:fs";
 
-import { parseChannelId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import { bridgeCesApproval } from "../credential-execution/approval-bridge.js";
 import { isCesShellLockdownEnabled } from "../credential-execution/feature-gates.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { RiskLevel } from "../permissions/types.js";
-import { runPipeline } from "../plugins/pipeline.js";
-import { getMiddlewaresFor } from "../plugins/registry.js";
-import type {
-  ToolExecuteArgs,
-  ToolExecuteResult,
-  TurnContext,
-} from "../plugins/types.js";
 import { isUntrustedTrustClass } from "../runtime/actor-trust-resolver.js";
 import { redactSensitiveFields } from "../security/redaction.js";
 import { TokenExpiredError } from "../security/token-manager.js";
@@ -52,54 +44,10 @@ export class ToolExecutor {
     name: string,
     input: Record<string, unknown>,
     context: ToolContext,
-    /**
-     * Optional per-turn context threaded in by the agent loop. Production
-     * sites propagate the orchestrator-built `TurnContext` (real
-     * `conversationId`, trust cascade, attached `contextWindowManager`) so
-     * middleware registered on the `toolExecute` pipeline sees the same
-     * context every other pipeline slot uses. When omitted (CLI/test
-     * invocations that call `ToolExecutor.execute` directly), the executor
-     * synthesizes a fallback context from the {@link ToolContext}.
-     */
-    turnContext?: TurnContext,
   ): Promise<ToolExecutionResult> {
-    // Prefer the orchestrator-supplied `turnContext` so the pipeline sees
-    // the real conversation identity, per-turn trust, and context-window
-    // manager. When absent (CLI / test invocations that bypass the agent
-    // loop), synthesize a minimal context from the `ToolContext`.
-    const turnCtx: TurnContext = turnContext ?? {
-      requestId: context.requestId ?? "",
-      conversationId: context.conversationId,
-      turnIndex: 0,
-      trust: {
-        sourceChannel: parseChannelId(context.executionChannel) ?? "vellum",
-        trustClass: context.trustClass,
-      },
-    };
-
-    const middlewares = getMiddlewaresFor("toolExecute");
     const { name: executionName, input: executionInput } =
       resolveToolInvocationAlias(name, input, context.allowedToolNames);
-    const pipelineArgs: ToolExecuteArgs = {
-      name: executionName,
-      input: executionInput,
-      context,
-    };
-
-    // No pipeline-level timeout: `executeInternal` already wraps the real
-    // tool invocation in `executeWithTimeout`, which is the sole enforcer
-    // of the per-tool budget. The pipeline itself runs untimed so that
-    // upstream phases (permission checks, approval waits, middleware) are
-    // not racing the tool budget — only the actual tool call is. Runaway
-    // middleware is a plugin-health concern handled by per-plugin timeouts,
-    // not here.
-    return runPipeline<ToolExecuteArgs, ToolExecuteResult>(
-      "toolExecute",
-      middlewares,
-      (args) => this.executeInternal(args.name, args.input, args.context),
-      pipelineArgs,
-      turnCtx,
-    );
+    return this.executeInternal(executionName, executionInput, context);
   }
 
   private async executeInternal(

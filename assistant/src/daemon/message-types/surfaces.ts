@@ -4,6 +4,9 @@
 
 export type SurfaceType =
   | "card"
+  | "choice"
+  | "copy_block"
+  | "oauth_connect"
   | "form"
   | "list"
   | "table"
@@ -14,6 +17,8 @@ export type SurfaceType =
   | "task_preferences";
 
 export const INTERACTIVE_SURFACE_TYPES: SurfaceType[] = [
+  "choice",
+  "oauth_connect",
   "form",
   "confirmation",
   "dynamic_page",
@@ -38,6 +43,45 @@ export interface CardSurfaceData {
   template?: string;
   /** Arbitrary data consumed by the template renderer. Shape depends on template. */
   templateData?: Record<string, unknown>;
+}
+
+export interface ChoiceOption {
+  id: string;
+  title: string;
+  description?: string;
+  /** Visually highlight this option as the assistant's recommendation. */
+  recommended?: boolean;
+  /** Optional structured payload returned with this choice. */
+  data?: Record<string, unknown>;
+}
+
+export interface ChoiceSurfaceData {
+  description?: string;
+  options: ChoiceOption[];
+  selectionMode?: "single" | "multiple";
+  /**
+   * When true, clicking an option submits it immediately. Defaults to true for
+   * single-select choice surfaces.
+   */
+  commitOnSelect?: boolean;
+  submitLabel?: string;
+}
+
+export interface CopyBlockSurfaceData {
+  text: string;
+  label?: string;
+  language?: string;
+}
+
+export interface OAuthConnectSurfaceData {
+  /** OAuth provider key from the managed provider catalog, e.g. "google". */
+  providerKey: string;
+  /** Optional display label. The client falls back to the provider catalog. */
+  displayName?: string;
+  /** Optional helper text. The client falls back to the provider catalog. */
+  description?: string;
+  /** Optional provider logo URL. The client falls back to the provider catalog. */
+  logoUrl?: string | null;
 }
 
 export interface FormField {
@@ -150,6 +194,9 @@ export interface DocumentPreviewSurfaceData {
 
 export type SurfaceData =
   | CardSurfaceData
+  | ChoiceSurfaceData
+  | CopyBlockSurfaceData
+  | OAuthConnectSurfaceData
   | FormSurfaceData
   | ListSurfaceData
   | TableSurfaceData
@@ -197,6 +244,21 @@ export interface UiSurfaceShowCard extends UiSurfaceShowBase {
   data: CardSurfaceData;
 }
 
+export interface UiSurfaceShowChoice extends UiSurfaceShowBase {
+  surfaceType: "choice";
+  data: ChoiceSurfaceData;
+}
+
+export interface UiSurfaceShowCopyBlock extends UiSurfaceShowBase {
+  surfaceType: "copy_block";
+  data: CopyBlockSurfaceData;
+}
+
+export interface UiSurfaceShowOAuthConnect extends UiSurfaceShowBase {
+  surfaceType: "oauth_connect";
+  data: OAuthConnectSurfaceData;
+}
+
 export interface UiSurfaceShowForm extends UiSurfaceShowBase {
   surfaceType: "form";
   data: FormSurfaceData;
@@ -234,6 +296,9 @@ export interface UiSurfaceShowDocumentPreview extends UiSurfaceShowBase {
 
 export type UiSurfaceShow =
   | UiSurfaceShowCard
+  | UiSurfaceShowChoice
+  | UiSurfaceShowCopyBlock
+  | UiSurfaceShowOAuthConnect
   | UiSurfaceShowForm
   | UiSurfaceShowList
   | UiSurfaceShowTable

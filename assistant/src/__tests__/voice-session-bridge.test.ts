@@ -96,10 +96,10 @@ function makePersistingStreamingSession(
 
   let turnChannelContext: TurnChannelContext | null = null;
   let turnInterfaceContext: TurnInterfaceContext | null = null;
+  let processing = false;
   const session = {
     conversationId,
     messages: [],
-    processing: false,
     abortController: null,
     currentRequestId: undefined,
     queue: {} as never,
@@ -108,7 +108,10 @@ function makePersistingStreamingSession(
       scopeId: "default",
       includeDefaultFallback: false,
     },
-    isProcessing: () => session.processing,
+    isProcessing: () => processing,
+    setProcessing: (value: boolean) => {
+      processing = value;
+    },
     persistUserMessage: async (
       ...args: Parameters<Conversation["persistUserMessage"]>
     ) => persistUserMessageImpl(session, ...args),
@@ -138,7 +141,7 @@ function makePersistingStreamingSession(
       for (const event of events) {
         onEvent(event);
       }
-      session.processing = false;
+      processing = false;
       session.abortController = null;
       session.currentRequestId = undefined;
     },

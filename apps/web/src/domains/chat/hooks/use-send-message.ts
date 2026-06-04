@@ -44,7 +44,7 @@ import {
   removeConversation,
   resolveDraftKey,
 } from "@/utils/conversation-cache-mutations";
-import { findConversation } from "@/utils/conversation-cache";
+import { findConversation, patchConversation } from "@/utils/conversation-cache";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import {
   consumePendingPreChatContext,
@@ -68,7 +68,8 @@ import { useMessageQueue } from "@/domains/chat/hooks/use-message-queue";
 import { conversationsByIdCancelPost } from "@/generated/daemon/sdk.gen";
 import type { Conversation } from "@/types/conversation-types";
 import { getPendingInteractions } from "@/domains/chat/api/interactions";
-import { type RuntimeMessage, fetchConversationMessages, postChatMessage, pollForResponse } from "@/domains/chat/api/messages";
+import { fetchConversationMessages, postChatMessage, pollForResponse } from "@/domains/chat/api/messages";
+import type { ConversationMessage } from "@vellumai/assistant-api";
 import { supportsServerMintedConversation } from "@/lib/backwards-compat/server-minted-conversation";
 
 // ---------------------------------------------------------------------------
@@ -384,7 +385,7 @@ export function useSendMessage({
             setError({ message: "Assistant did not respond in time." });
             return;
           }
-          let serverMessages: RuntimeMessage[] = [];
+          let serverMessages: ConversationMessage[] = [];
           try {
             serverMessages = await fetchConversationMessages(
               postResult.assistantId,
@@ -515,7 +516,7 @@ export function useSendMessage({
         id: optimisticUserId,
         isOptimistic: true,
         role: "user",
-        textSegments: [{ type: "text", content }],
+        textSegments: [content],
         contentOrder: [{ type: "text", id: "0" }],
         timestamp: Date.now(),
         ...(attachments.length > 0 ? { attachments } : {}),
@@ -724,6 +725,9 @@ export function useSendMessage({
   const handleStopGenerating = useCallback(async () => {
     if (!assistantId || !activeConversationId) return;
     useStreamStore.getState().bumpEpoch();
+    patchConversation(queryClient, assistantId, activeConversationId, {
+      isProcessing: false,
+    });
     endTurn({ conversationId: activeConversationId, reason: "cancelled" });
     setMessages(clearPendingConfirmationsFromMessages);
     useInteractionStore.getState().resetAll();
@@ -737,7 +741,7 @@ export function useSendMessage({
     } catch {
       // Best-effort — the daemon may have already finished
     }
-  }, [assistantId, activeConversationId]);
+  }, [assistantId, activeConversationId, queryClient]);
 
   return {
     sendMessage,

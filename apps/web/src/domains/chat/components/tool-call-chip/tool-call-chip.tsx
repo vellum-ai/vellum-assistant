@@ -24,7 +24,7 @@ import { getRiskBadgeStyle, getProvenanceText, wasExpected, getEffectiveRiskDisp
 import { formatStartTime, useElapsedTime } from "@/domains/chat/hooks/use-elapsed-time";
 
 import type { ConfirmationDecision } from "@/types/event-types";
-import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
+import type { AllowlistOption, DirectoryScopeOption, RiskScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import {
   extractInputSummary,
@@ -44,7 +44,9 @@ export interface ToolCallChipProps {
     input: Record<string, unknown>;
     allowlistOptions: AllowlistOption[];
     scopeOptions: ScopeOption[];
+    riskScopeOptions: RiskScopeOption[];
     directoryScopeOptions: DirectoryScopeOption[];
+    matchedTrustRuleId?: string;
   }) => void;
   isSubmittingConfirmation?: boolean;
   isActiveConfirmation?: boolean;
@@ -266,13 +268,13 @@ export function ToolCallChip({
   const duration = useElapsedTime(toolCall.startedAt, !isRunning, toolCall.completedAt);
   const startTimeLabel = formatStartTime(toolCall.startedAt);
 
-  const inputSummary = extractInputSummary(toolCall.toolName, toolCall.input);
+  const inputSummary = extractInputSummary(toolCall.name, toolCall.input);
   const activity = toolCall.input?.activity ?? toolCall.input?.reason;
   const activityLabel = typeof activity === "string" && activity.trim() ? activity.trim() : null;
   const label = activityLabel
     ?? (isRunning
-      ? friendlyRunningLabel(toolCall.toolName, inputSummary)
-      : friendlyToolLabel(toolCall.toolName, inputSummary));
+      ? friendlyRunningLabel(toolCall.name, inputSummary)
+      : friendlyToolLabel(toolCall.name, inputSummary));
 
   const canExpand =
     (hasPendingConfirmation && isActiveConfirmation) ||
@@ -301,7 +303,7 @@ export function ToolCallChip({
   const subItemRow = (
     <div className={`flex min-w-0 items-center gap-2 py-2 ${embedded ? "pl-6 pr-3 text-body-small-default" : ""}`}>
       <StatusIcon status={toolCall.status} isError={toolCall.isError} />
-      {!embedded && getIcon(toolCall.toolName, inputSummary)}
+      {!embedded && getIcon(toolCall.name, inputSummary)}
       <span className="min-w-0 truncate text-[var(--content-secondary)]">{label}</span>
       {toolCall.riskLevel && toolCall.status !== "running" && !(hasPendingConfirmation && isActiveConfirmation) && (() => {
         const { displayLevel, inherentRisk } = getEffectiveRiskDisplay(toolCall.approvalReason, toolCall.riskLevel);
@@ -327,13 +329,15 @@ export function ToolCallChip({
             onClick={(e) => {
               e.stopPropagation();
               onOpenRuleEditor?.({
-                toolName: toolCall.toolName,
+                toolName: toolCall.name,
                 riskLevel: toolCall.riskLevel,
                 riskReason: toolCall.riskReason,
                 input: toolCall.input,
-                allowlistOptions: toolCall.allowlistOptions ?? [],
+                allowlistOptions: toolCall.riskAllowlistOptions ?? [],
                 scopeOptions: toolCall.scopeOptions ?? [],
-                directoryScopeOptions: toolCall.directoryScopeOptions ?? [],
+                riskScopeOptions: toolCall.riskScopeOptions ?? [],
+                directoryScopeOptions: toolCall.riskDirectoryScopeOptions ?? [],
+                matchedTrustRuleId: toolCall.matchedTrustRuleId,
               });
             }}
             // typography: off-scale — compact risk badge pill
@@ -381,7 +385,7 @@ export function ToolCallChip({
             </div>
             <div className="text-[var(--content-secondary)]">Tool Name</div>
             <div className="text-[var(--content-secondary)]">
-              {toolCall.toolName.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+              {toolCall.name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
             </div>
             {startTimeLabel && (
               <div className="mt-0.5 text-[var(--content-tertiary)]">{startTimeLabel}</div>

@@ -77,6 +77,8 @@ function makeTarget(): WakeTarget {
       run: (async (messages: Message[]) => ({
         history: messages,
         exitReason: null,
+        appendedNewMessages: false,
+        newMessages: [],
       })) as WakeTarget["agentLoop"]["run"],
     },
     getMessages: () => history,

@@ -3,6 +3,7 @@ import { describe, expect, it } from "bun:test";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 
 import {
+  completeSubmittedSurface,
   clearPendingConfirmationsFromMessages,
   dismissInteractiveSurfaces,
   newTurnId,
@@ -84,6 +85,53 @@ describe("dismissInteractiveSurfaces", () => {
     );
     expect(dismissedIds.has("s-1")).toBe(true);
     expect(updatedMessages[0]!.surfaces).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// completeSubmittedSurface
+// ---------------------------------------------------------------------------
+
+describe("completeSubmittedSurface", () => {
+  it("optimistically completes choice surfaces after submit", () => {
+    const messages = [
+      msg({
+        surfaces: [
+          {
+            surfaceId: "s-choice",
+            surfaceType: "choice",
+            completed: false,
+            data: {},
+            actions: [{ id: "inbox", label: "Clean up my inbox" }],
+          } as never,
+        ],
+      }),
+    ];
+
+    const result = completeSubmittedSurface(messages, "s-choice", "inbox");
+
+    expect(result).not.toBe(messages);
+    expect(result[0]!.surfaces![0]!.completed).toBe(true);
+    expect(result[0]!.surfaces![0]!.completionSummary).toBe(
+      "Clean up my inbox",
+    );
+  });
+
+  it("leaves non-completing surfaces unchanged", () => {
+    const messages = [
+      msg({
+        surfaces: [
+          {
+            surfaceId: "s-copy",
+            surfaceType: "copy_block",
+            completed: false,
+            data: {},
+          } as never,
+        ],
+      }),
+    ];
+
+    expect(completeSubmittedSurface(messages, "s-copy", "copy")).toBe(messages);
   });
 });
 

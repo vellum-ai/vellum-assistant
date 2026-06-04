@@ -3,7 +3,6 @@ import {
   ChartColumn,
   ChevronDown,
   ChevronUp,
-  Gift,
   LogOut,
   MessageSquareText,
   Settings as SettingsIcon,
@@ -15,7 +14,6 @@ import { useNavigate } from "react-router";
 
 import {
   BottomSheet,
-  Button,
   PanelItem,
   Popover,
   SideMenu,
@@ -25,7 +23,7 @@ import { LazyBoundary } from "@/components/lazy-boundary";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { hardNavigate } from "@/lib/auth/hard-navigate";
-import { useAuthStore } from "@/stores/auth-store";
+import { useAuthStore, useIsAuthenticated } from "@/stores/auth-store";
 import {
   useActiveAssistantIsPlatformHosted,
   usePlatformGate,
@@ -33,6 +31,8 @@ import {
 import { adminUrl, routes } from "@/utils/routes";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { organizationsBillingSummaryRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
+
+import { CreditsCard } from "./credits-card";
 
 // Modal only opens when the user clicks "Share Feedback" — defer loading
 // until then to keep the modal's form deps (markdown editor, etc.) out of
@@ -59,13 +59,13 @@ export function PreferencesMenu({
   assistantVersion,
   activeConversationId,
 }: PreferencesMenuProps) {
-  const isLoggedIn = useAuthStore.use.isLoggedIn();
+  const isAuthenticated = useIsAuthenticated();
   const isMobile = useIsMobile();
   const [isOpen, setIsOpen] = useState(false);
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
   const [isEarnCreditsOpen, setIsEarnCreditsOpen] = useState(false);
 
-  if (!isLoggedIn) {
+  if (!isAuthenticated) {
     return null;
   }
 
@@ -93,7 +93,7 @@ export function PreferencesMenu({
       {isMobile ? (
         <BottomSheet.Root open={isOpen} onOpenChange={setIsOpen}>
           <BottomSheet.Trigger asChild>{trigger}</BottomSheet.Trigger>
-          <BottomSheet.Content>
+          <BottomSheet.Content className="max-h-[85dvh]">
             <BottomSheet.Header className="sr-only">
               <BottomSheet.Title>Preferences</BottomSheet.Title>
             </BottomSheet.Header>
@@ -166,46 +166,26 @@ function PreferencesMenuContent({
 
   return (
     <>
-      <ThemeToggle className="px-2 pt-0" />
-
-      <MenuDivider />
+      <ThemeToggle className="px-2 py-0" />
 
       {showBillingRows ? (
-        <>
-          {effectiveBalance !== null ? (
-            <>
-              <div className="flex items-center justify-between gap-3 py-2 pl-[8px]">
-                <span
-                  className="text-body-medium-lighter"
-                  style={{ color: "var(--content-default)" }}
-                >
-                  {formatWholeCredits(effectiveBalance)} credits
-                </span>
-                <Button
-                  variant="ghost"
-                  size="compact"
-                  onClick={() => {
-                    onClose();
-                    navigate(routes.settings.billing);
-                  }}
-                >
-                  Add credits
-                </Button>
-              </div>
-              <MenuDivider />
-            </>
-          ) : null}
-
-          <PanelItem
-            icon={Gift}
-            label="Earn credits"
-            onSelect={() => {
+        <div className="my-2">
+          <CreditsCard
+            balance={
+              effectiveBalance !== null
+                ? formatWholeCredits(effectiveBalance)
+                : null
+            }
+            onAddCredits={() => {
+              onClose();
+              navigate(routes.settings.billing);
+            }}
+            onEarnCredits={() => {
               onClose();
               onEarnCredits();
             }}
           />
-          <MenuDivider />
-        </>
+        </div>
       ) : null}
 
       <PanelItem
@@ -270,14 +250,4 @@ function formatWholeCredits(value: string): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
-}
-
-function MenuDivider() {
-  return (
-    <div
-      aria-hidden="true"
-      className="my-1 h-px"
-      style={{ background: "var(--border-overlay)" }}
-    />
-  );
 }

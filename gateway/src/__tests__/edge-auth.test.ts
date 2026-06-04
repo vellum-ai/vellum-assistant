@@ -43,7 +43,8 @@ mock.module("../auth/token-exchange.js", () => ({
 }));
 
 const { AuthRateLimiter } = await import("../auth-rate-limiter.js");
-const { createAuthMiddleware } = await import("../http/middleware/auth.js");
+const { createAuthMiddleware, loopbackFallbackCountTracker } =
+  await import("../http/middleware/auth.js");
 
 const PLATFORM_USER_ID = "user-abc-123";
 
@@ -68,6 +69,7 @@ function makeLoopbackServer(address = "127.0.0.1") {
 beforeEach(() => {
   mockReadCredential = mock(async () => undefined);
   mockValidateEdgeToken = mock(() => ({ ok: false, reason: "noop" }));
+  loopbackFallbackCountTracker.reset();
 });
 
 afterEach(() => {
@@ -190,6 +192,20 @@ describe("requireEdgeAuth — JWT mode", () => {
     const res = await requireEdgeAuth(makeReq(), makeLoopbackServer());
     expect(res).toBeNull();
     expect(mockValidateEdgeToken).not.toHaveBeenCalled();
+  });
+
+  test("a loopback fallback is counted by (guard, path, failureKind)", async () => {
+    const { requireEdgeAuth } = makeMiddleware();
+    await requireEdgeAuth(makeReq(), makeLoopbackServer());
+    await requireEdgeAuth(makeReq(), makeLoopbackServer());
+    expect(loopbackFallbackCountTracker.snapshot()).toEqual([
+      {
+        guard: "edge",
+        path: "/v1/something",
+        failureKind: "missing_authorization",
+        count: 2,
+      },
+    ]);
   });
 
   test("null on valid bearer token", async () => {

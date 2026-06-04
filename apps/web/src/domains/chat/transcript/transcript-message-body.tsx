@@ -17,10 +17,6 @@ import { SubagentInlineProgressCard } from "@/domains/chat/components/subagent-i
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router";
 import { ThinkingBlock } from "@/domains/chat/components/thinking-block";
 import { ToolCallProgressCard } from "@/domains/chat/components/tool-call-progress-card/tool-call-progress-card";
-import {
-  getLeadingThinkingText,
-  getLegacyLeadingThinkingText,
-} from "@/domains/chat/components/tool-progress-card/get-leading-thinking-text";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
@@ -35,7 +31,7 @@ import {
   type SubagentEntry,
 } from "@/domains/chat/subagent-store";
 import type { ConfirmationDecision } from "@/types/event-types";
-import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
+import type { AllowlistOption, DirectoryScopeOption, RiskScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 
 export interface OpenRuleEditorContext {
@@ -45,6 +41,7 @@ export interface OpenRuleEditorContext {
   input?: Record<string, unknown>;
   allowlistOptions: AllowlistOption[];
   scopeOptions: ScopeOption[];
+  riskScopeOptions: RiskScopeOption[];
   directoryScopeOptions: DirectoryScopeOption[];
 }
 
@@ -129,8 +126,8 @@ export interface TranscriptMessageBodyProps {
  * miss every spawn and leave inline subagent cards unrendered.
  */
 export function isSubagentSpawnCall(toolCall: ChatMessageToolCall): boolean {
-  if (toolCall.toolName === "subagent_spawn") return true;
-  if (toolCall.toolName !== "skill_execute") return false;
+  if (toolCall.name === "subagent_spawn") return true;
+  if (toolCall.name !== "skill_execute") return false;
   const input = toolCall.input;
   if (input == null || typeof input !== "object") return false;
   return (input as Record<string, unknown>).tool === "subagent_spawn";
@@ -464,7 +461,7 @@ export function TranscriptMessageBody({
   // is visible.
   const isSuppressedUiTool = (tc: ChatMessageToolCall) =>
     !tc.pendingConfirmation &&
-    (tc.toolName === "ui_show" || tc.toolName === "ui_update" || tc.toolName === "ui_dismiss");
+    (tc.name === "ui_show" || tc.name === "ui_update" || tc.name === "ui_dismiss");
 
   // Hard line breaks are enabled for every transcript message regardless of
   // role: single `\n`s in assistant output (not just user Shift+Enter input)
@@ -484,6 +481,7 @@ export function TranscriptMessageBody({
                     onOpenApp={onOpenApp}
                     onOpenDocument={onOpenDocument}
                     assistantId={assistantId}
+                    assistantDisplayName={assistantDisplayName}
                     toolCalls={message.toolCalls}
                   />
                 </div>
@@ -724,7 +722,6 @@ export function TranscriptMessageBody({
                       pendingConfirmationToolCallId={pendingConfirmationToolCallId}
                       unknownNudgeToolCallIds={unknownNudgeToolCallIds}
                       onDismissUnknownNudge={onDismissUnknownNudge}
-                      leadingThinkingText={getLeadingThinkingText(message, gi)}
                     />
                   )}
                   {renderInlineSubagentCards(toolCalls)}
@@ -749,12 +746,9 @@ export function TranscriptMessageBody({
             if (group.type === "text") {
               const textSegments = message.textSegments ?? [];
               const numericIdx = parseInt(group.id, 10);
-              const seg = !isNaN(numericIdx)
+              const text = !isNaN(numericIdx)
                 ? textSegments[numericIdx]
-                : textSegments.find(
-                    (s) => (s as Record<string, unknown>).id === group.id,
-                  );
-              const text = seg?.content;
+                : undefined;
               if (!text) {
                 return null;
               }
@@ -773,6 +767,7 @@ export function TranscriptMessageBody({
                     onOpenApp={onOpenApp}
                     onOpenDocument={onOpenDocument}
                     assistantId={assistantId}
+                    assistantDisplayName={assistantDisplayName}
                     toolCalls={message.toolCalls}
                   />
                 </div>
@@ -900,12 +895,8 @@ export function TranscriptMessageBody({
       flushThinking(false);
       if (entry.type === "text") {
         const segIndex = parseInt(entry.id, 10);
-        const seg = !isNaN(segIndex)
-          ? textSegmentsArr[segIndex]
-          : textSegmentsArr.find(
-              (s) => (s as Record<string, unknown>).id === entry.id,
-            );
-        const segText = seg?.content ?? entry.id;
+        const seg = !isNaN(segIndex) ? textSegmentsArr[segIndex] : undefined;
+        const segText = seg ?? entry.id;
         contentEntries.push({
           type: "text",
           node: renderTextWithInlineSurfaces(segText, `text-${entry.id}`),
@@ -923,6 +914,7 @@ export function TranscriptMessageBody({
                   onOpenApp={onOpenApp}
                   onOpenDocument={onOpenDocument}
                   assistantId={assistantId}
+                  assistantDisplayName={assistantDisplayName}
                   toolCalls={message.toolCalls}
                 />
               </div>
@@ -992,7 +984,6 @@ export function TranscriptMessageBody({
               pendingConfirmationToolCallId={pendingConfirmationToolCallId}
               unknownNudgeToolCallIds={unknownNudgeToolCallIds}
               onDismissUnknownNudge={onDismissUnknownNudge}
-              leadingThinkingText={getLegacyLeadingThinkingText(message)}
             />
             {renderInlineSubagentCards(legacyToolCalls)}
           </>
@@ -1045,6 +1036,7 @@ export function TranscriptMessageBody({
                 onOpenApp={onOpenApp}
                 onOpenDocument={onOpenDocument}
                 assistantId={assistantId}
+                assistantDisplayName={assistantDisplayName}
                 toolCalls={message.toolCalls}
               />
             </div>

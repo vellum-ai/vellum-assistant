@@ -384,7 +384,7 @@ describe("toSlimSkill", () => {
     expect(slim!.kind).toBe("catalog");
     expect(slim!.status).toBe("available");
     expect(slim!.origin).toBe("skillssh");
-    expect(slim!.category).toBe("knowledge");
+    expect(slim!.category).toBe("integrations");
     expect((slim as any).slug).toBe("owner/repo/my-skill");
     expect((slim as any).sourceRepo).toBe("owner/repo");
     expect((slim as any).installs).toBe(0);

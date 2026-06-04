@@ -1,4 +1,4 @@
-import { useAuthStore } from "@/stores/auth-store";
+import { useHasPlatformSession } from "@/stores/auth-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { isLocalMode } from "@/lib/local-mode";
@@ -47,7 +47,7 @@ export interface PlatformGateOptions {
    *
    * Defaults to `false` — the standard `"full" / "disabled" / "gated"`
    * behavior gated on `platformFeaturesInLocalMode`, hydration, and
-   * `hasPlatformSession`.
+   * the platform session.
    */
   platformHostedOnly?: boolean;
 }
@@ -164,7 +164,11 @@ export function usePlatformGate(
   // `Object.is` snapshot equality is stable and `useSyncExternalStore`
   // does not loop. See CONVENTIONS.md § State management — `useShallow`
   // is not introduced in new code; atomic selectors avoid the need.
-  const hasPlatformSession = useAuthStore.use.hasPlatformSession();
+  // Read the optimistic value: `"present"` is a live session, while both
+  // `"absent"` and the pre-settle `"unknown"` gate the surface. A re-probe
+  // keeps the last `"present"`/`"absent"` until the new result lands, so this
+  // doesn't flicker to `"disabled"` on app resume.
+  const hasPlatformSession = useHasPlatformSession();
   const platformFeaturesOff = useAssistantFeatureFlagStore(
     (s) =>
       (s as Record<string, unknown>).platformFeaturesInLocalMode === false,

@@ -40,6 +40,7 @@ const noopLogger: PluginLogger = {
 function makeCtx(messages: Message[]): UserPromptSubmitContext {
   return {
     conversationId: "conv-test",
+    prompt: "",
     originalMessages: messages,
     latestMessages: messages,
     logger: noopLogger,

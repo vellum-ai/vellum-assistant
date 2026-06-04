@@ -140,7 +140,7 @@ export interface WakeTarget {
    * The wake invokes this in its `finally` block AFTER
    * `markProcessing(false)`. Order matters: if drain ran while
    * processing was still true, `enqueueMessage`'s gate
-   * (`if (!ctx.processing) return ...`) would still see processing=true
+   * (`if (!ctx.isProcessing()) return ...`) would still see processing=true
    * and the drain itself would be a no-op against any racy late sends.
    * Running drain after processing is released matches the canonical
    * user-turn finally path in `conversation-agent-loop.ts`.
@@ -963,7 +963,7 @@ export async function wakeAgentForOpportunity(
 
       // Run completed cleanly. The canonical user-turn pattern
       // (conversation-agent-loop.ts:1860, 2106-2126) updates
-      // `ctx.messages` first, then resets `ctx.processing = false`, then
+      // `ctx.messages` first, then clears the flag via `ctx.setProcessing(false)`, then
       // calls `ctx.drainQueue(...)`. We mirror that order so a message
       // queued during the wake dequeues against an already-updated
       // history — otherwise `drainSingleMessage` reads `ctx.messages`

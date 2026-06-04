@@ -65,7 +65,12 @@ import {
 } from "@/lib/local-mode";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useIsNativePlatform } from "@/runtime/native-auth.js";
-import { useAuthStore } from "@/stores/auth-store.js";
+import {
+  useAuthStore,
+  useIsAuthenticated,
+  useIsSessionInitializing,
+} from "@/stores/auth-store.js";
+import { hasLivePlatformSession } from "@/stores/session-status";
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import { routes } from "@/utils/routes.js";
@@ -84,8 +89,8 @@ export function PreChatFlow() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const user = useAuthStore.use.user();
-  const isLoggedIn = useAuthStore.use.isLoggedIn();
-  const isAuthLoading = useAuthStore.use.isLoading();
+  const isAuthenticated = useIsAuthenticated();
+  const isAuthInitializing = useIsSessionInitializing();
   const userId = user?.id ?? null;
   const firstName = user?.firstName ?? "";
   const lastName = user?.lastName ?? "";
@@ -100,6 +105,8 @@ export function PreChatFlow() {
   const showIOSAppStep = isIOSWeb && !readIOSAppDownloaded();
   const condensedPrechatFlag =
     useClientFeatureFlagStore.use.prechatOnboardingCondensedFlow();
+  const activationFlowEnabled =
+    useClientFeatureFlagStore.use.experimentActivationFlow20260603();
   const selfIntroGreetingEnabled =
     useClientFeatureFlagStore.use.selfIntroGreeting();
   const preferredFunnelVariant =
@@ -158,8 +165,8 @@ export function PreChatFlow() {
     persistNativeStep(currentStep === "nativeVibe" ? "nativeVibe" : null);
   }, [isNative, currentStep, persistNativeStep]);
 
-  const hasPlatformSession = useAuthStore.use.hasPlatformSession();
-  const platformSessionResolved = useAuthStore.use.platformSessionResolved();
+  const platformSession = useAuthStore.use.platformSession();
+  const hasPlatformSession = hasLivePlatformSession(platformSession);
   const [selectedTools, setSelectedTools] = useState<Set<string>>(
     () => new Set(),
   );
@@ -183,7 +190,7 @@ export function PreChatFlow() {
   const { data: activeAssistant } = useQuery({
     ...assistantsActiveRetrieveOptions(),
     enabled:
-      !isAuthLoading && isLoggedIn && (!localMode || hasPlatformSession),
+      !isAuthInitializing && isAuthenticated && (!localMode || hasPlatformSession),
   });
   // The onboarding recipe is platform-only marketing-funnel data, resolved on
   // the platform from a UTM attribution cookie. Native and local runtimes have
@@ -193,7 +200,7 @@ export function PreChatFlow() {
   const { data: fetchedRecipe, isLoading: recipeLoading } = useQuery({
     queryKey: ["onboarding-recipe", userId],
     queryFn: fetchOnboardingRecipe,
-    enabled: !isAuthLoading && isLoggedIn && !isNative && !localMode,
+    enabled: !isAuthInitializing && isAuthenticated && !isNative && !localMode,
     staleTime: Infinity,
   });
   const recipe = fetchedRecipe ?? null;
@@ -208,8 +215,7 @@ export function PreChatFlow() {
   // the funnel up so a returning user isn't raced past their steps.
   const platformFunnelAvailable = isPlatformFunnelAvailable({
     localMode,
-    hasPlatformSession,
-    platformSessionResolved,
+    platformSession,
     hasCachedPlatformAssistant: localPlatformAssistantId !== null,
   });
   const canOfferGoogleStep = platformFunnelAvailable;
@@ -225,7 +231,7 @@ export function PreChatFlow() {
     decision: "pending" | "ok" | "missing";
   };
   const [consent, setConsent] = useState<ConsentSnapshot>(() => {
-    if (isAuthLoading || !isLoggedIn) {
+    if (isAuthInitializing || !isAuthenticated) {
       return { userId, decision: "pending" };
     }
     return {
@@ -236,18 +242,18 @@ export function PreChatFlow() {
   });
   const consentDecision = consent.decision;
   useEffect(() => {
-    if (isAuthLoading || !isLoggedIn) return;
+    if (isAuthInitializing || !isAuthenticated) return;
     if (consent.userId === userId && consent.decision !== "pending") return;
     setConsent({
       userId,
       decision:
         readTosAccepted() || hasRecentPrivacyConsent(userId) ? "ok" : "missing",
     });
-  }, [consent, isAuthLoading, isLoggedIn, userId]);
+  }, [consent, isAuthInitializing, isAuthenticated, userId]);
 
   useEffect(() => {
-    if (isAuthLoading) return;
-    if (!isLoggedIn) {
+    if (isAuthInitializing) return;
+    if (!isAuthenticated) {
       void navigate(routes.account.login, { replace: true });
       return;
     }
@@ -262,8 +268,8 @@ export function PreChatFlow() {
     if (consentDecision === "pending") return;
   }, [
     consentDecision,
-    isAuthLoading,
-    isLoggedIn,
+    isAuthInitializing,
+    isAuthenticated,
     isNative,
     isReplay,
     navigate,
@@ -275,8 +281,8 @@ export function PreChatFlow() {
   const consentReady = isNative || consentDecision === "ok";
   const recipeReady = !recipeLoading;
   const shouldHidePrechat =
-    isAuthLoading ||
-    !isLoggedIn ||
+    isAuthInitializing ||
+    !isAuthenticated ||
     !consentReady ||
     !recipeReady ||
     (readOnboardingCompleted() && !isReplay);
@@ -324,6 +330,7 @@ export function PreChatFlow() {
       userName,
       assistantName,
       selfIntroGreetingEnabled,
+      activationFlowEnabled,
       googleConnected,
       googleScopes,
       connectedScopes: args?.connectedScopes,

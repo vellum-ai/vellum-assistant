@@ -1,10 +1,10 @@
-import { mapServerSurfaces, prepareServerMessage, toDisplayRole } from "@/domains/chat/utils/map-runtime-message";
+import { mapServerSurfaces, prepareServerMessage } from "@/domains/chat/utils/map-runtime-message";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
-import { dedupeDisplayMessages, mergeLatestHistoryMessage, messagesEqual } from "@/domains/chat/utils/message-merge";
+import { dedupeDisplayMessages, mergeLatestHistoryMessage, mergeThinkingSegments, messagesEqual } from "@/domains/chat/utils/message-merge";
 import { sortByTimestamp, sortedByTimestamp, timestampToMs } from "@/domains/chat/utils/message-sorting";
 import type { DisplayMessage } from "@/domains/chat/types/types";
-import type { RuntimeMessage } from "@/domains/chat/api/messages";
+import type { ConversationMessage } from "@vellumai/assistant-api";
 
 // Re-export public types and utilities so existing consumers that import
 // from `./reconcile` continue to work without changes.
@@ -64,7 +64,7 @@ function indexDisplayMessageByIdentity(
 
 function findDisplayMessageByRuntimeIdentity(
   indexById: Map<string, DisplayMessage>,
-  message: RuntimeMessage,
+  message: ConversationMessage,
 ): DisplayMessage | undefined {
   for (const id of messageIdentityKeys(message)) {
     const existing = indexById.get(id);
@@ -257,7 +257,7 @@ export function reconcileDisplayMessagesWithLatestHistory(
  */
 export function reconcileMessages(
   local: DisplayMessage[],
-  server: RuntimeMessage[],
+  server: ConversationMessage[],
   options?: { oldestPageTimestamp?: number | null },
 ): DisplayMessage[] {
   if (server.length === 0) return dedupeDisplayMessages(local);
@@ -306,7 +306,7 @@ export function reconcileMessages(
         return [];
       }
 
-      const msg: DisplayMessage = { id: m.id, role: toDisplayRole(m.role) };
+      const msg: DisplayMessage = { id: m.id, role: m.role };
       if (m.mergedMessageIds?.length) msg.mergedMessageIds = m.mergedMessageIds;
       if (m.subagentNotification) msg.isSubagentNotification = true;
       if (prepared.slackMessage ?? localMsg?.slackMessage) {
@@ -359,11 +359,14 @@ export function reconcileMessages(
         if (localMsg!.contentOrder) msg.contentOrder = localMsg!.contentOrder;
         if (localMsg!.textSegments) msg.textSegments = localMsg!.textSegments;
         if (localMsg!.surfaces) msg.surfaces = localMsg!.surfaces;
-        // Keep locally-accumulated thinking deltas in lockstep with the
-        // local contentOrder; fall back to the server snapshot when the
-        // local row never saw any thinking SSE events.
-        const localThinking = localMsg!.thinkingSegments ?? prepared.thinkingSegments;
-        if (localThinking) msg.thinkingSegments = localThinking;
+        // Keep locally-accumulated thinking deltas in lockstep with the local
+        // contentOrder, but heal each block from the server snapshot when the
+        // live stream missed deltas (e.g. dropped while the tab was hidden).
+        const thinking = mergeThinkingSegments(
+          localMsg!.thinkingSegments,
+          prepared.thinkingSegments,
+        );
+        if (thinking) msg.thinkingSegments = thinking;
       } else {
         // Prefer local surfaces (updated by SSE ui_surface_update events)
         // over server surfaces which may be stale.
@@ -395,9 +398,13 @@ export function reconcileMessages(
         }
         if (prepared.normalizedContentOrder) msg.contentOrder = prepared.normalizedContentOrder;
         if (prepared.normalizedSegments) msg.textSegments = prepared.normalizedSegments;
-        // Prefer locally-accumulated thinking deltas (richer, in-progress)
-        // over the server snapshot, which may lag the live stream.
-        const thinking = localMsg?.thinkingSegments ?? prepared.thinkingSegments;
+        // Prefer locally-accumulated thinking deltas (richer, in-progress) over
+        // the server snapshot, but heal each block from the server when the
+        // live stream missed deltas (e.g. dropped while the tab was hidden).
+        const thinking = mergeThinkingSegments(
+          localMsg?.thinkingSegments,
+          prepared.thinkingSegments,
+        );
         if (thinking) msg.thinkingSegments = thinking;
       }
 

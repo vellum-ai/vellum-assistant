@@ -311,7 +311,7 @@ terminal runs at the innermost layer. See
 [`assistant/src/plugins/pipeline.ts`](../src/plugins/pipeline.ts) for the
 composition algorithm.
 
-Four common patterns emerge from that signature:
+Five common patterns emerge from that signature:
 
 ### Observe-only
 
@@ -320,8 +320,8 @@ return the result unchanged. Wrap the call in `try`/`finally` so your
 observer runs on both success and failure paths.
 
 ```typescript
-const observer: Middleware<ToolExecuteArgs, ToolExecuteResult> =
-  async function observeToolExecute(args, next, ctx) {
+const observer: Middleware<MemoryArgs, MemoryResult> =
+  async function observeRetrieval(args, next, ctx) {
     const start = performance.now();
     let outcome: "success" | "error" = "success";
     try {
@@ -331,27 +331,22 @@ const observer: Middleware<ToolExecuteArgs, ToolExecuteResult> =
       throw err;
     } finally {
       const ms = Math.round(performance.now() - start);
-      console.error(JSON.stringify({ tool: args.name, ms, outcome }));
+      console.error(
+        JSON.stringify({ conversationId: args.conversationId, ms, outcome }),
+      );
     }
   };
 ```
 
 ### Transform input
 
-Rewrite `args` before calling downstream. Useful for request shimming
-(adding headers, redacting inputs, picking a different provider).
+Rewrite `args` before calling downstream. Useful for reshaping the inputs
+(forcing an untrusted read, narrowing the turn the retriever sees).
 
 ```typescript
-const addHeader: Middleware<LLMCallArgs, LLMCallResult> =
-  async function addHeader(args, next, ctx) {
-    const tagged = {
-      ...args,
-      options: {
-        ...args.options,
-        config: { ...args.options?.config, requestId: ctx.requestId },
-      },
-    };
-    return next(tagged);
+const untrustedRead: Middleware<MemoryArgs, MemoryResult> =
+  async function untrustedRead(args, next, ctx) {
+    return next({ ...args, trustContext: undefined });
   };
 ```
 
@@ -360,14 +355,14 @@ const addHeader: Middleware<LLMCallArgs, LLMCallResult> =
 Call `next(args)` first, then modify the result before returning.
 
 ```typescript
-const redactPII: Middleware<LLMCallArgs, LLMCallResult> =
-  async function redactPII(args, next, ctx) {
-    const response = await next(args);
-    return {
-      ...response,
-      content: response.content.map(redactBlock),
-    };
-  };
+const dropNow: Middleware<MemoryArgs, MemoryResult> = async function dropNow(
+  args,
+  next,
+  ctx,
+) {
+  const result = await next(args);
+  return { ...result, nowContent: null };
+};
 ```
 
 ### Short-circuit
@@ -377,10 +372,11 @@ terminal and any inner middleware are skipped. Use this to stub, cache,
 or mock a pipeline.
 
 ```typescript
-const cacheHit: Middleware<LLMCallArgs, LLMCallResult> =
-  async function cacheHit(args, next, ctx) {
-    const cached = await lookupCache(args);
-    if (cached) return cached;
+const skipUntrusted: Middleware<MemoryArgs, MemoryResult> =
+  async function skipUntrusted(args, next, ctx) {
+    if (!isTrusted(ctx.trust)) {
+      return { pkbContent: null, nowContent: null, memoryGraphBlocks: [] };
+    }
     return next(args);
   };
 ```
@@ -392,10 +388,10 @@ through any outer middleware unchanged — there is no internal
 `try`/`catch` around user middleware.
 
 ```typescript
-const denyIfUnauthorized: Middleware<ToolExecuteArgs, ToolExecuteResult> =
-  async function denyIfUnauthorized(args, next, ctx) {
-    if (!isAuthorizedFor(args.name, ctx.trust)) {
-      throw new Error(`tool ${args.name} denied by policy`);
+const denyIfUntrusted: Middleware<MemoryArgs, MemoryResult> =
+  async function denyIfUntrusted(args, next, ctx) {
+    if (!isTrusted(ctx.trust)) {
+      throw new Error(`memoryRetrieval denied by policy`);
     }
     return next(args);
   };
@@ -408,7 +404,7 @@ pipeline runner pulls `Function.name` into its `chain` log field so
 operators can see the registered chain at a glance:
 
 ```
-plugin.pipeline pipeline=llmCall chain=["observeLlm","addHeader","defaultLlmCall"] durationMs=1840 outcome=success
+plugin.pipeline pipeline=memoryRetrieval chain=["observeRetrieval","dropNow","defaultMemoryRetrieval"] durationMs=1840 outcome=success
 ```
 
 ## Hooks
@@ -430,30 +426,19 @@ first.
 | `shutdown`           | Once when the plugin is torn down.                                | `PluginShutdownContext`   |
 | `user-prompt-submit` | Once per user turn, before the agent loop receives the messages.  | `UserPromptSubmitContext` |
 | `post-tool-use`      | Once per tool result, before it joins the provider-bound history. | `PostToolUseContext`      |
-
-The default `history-repair` plugin runs its repair pass in
-`user-prompt-submit`; the default `tool-result-truncate` plugin tail-drops
-oversized tool output in `post-tool-use`.
+| `stop`               | Once per run when the model yields a turn with no tool calls.     | `StopContext`             |
 
 ## Pipeline reference
 
 Every pipeline slot and its purpose. Type details live in
 [`types.ts`](../src/plugins/types.ts).
 
-| Pipeline          | Purpose                                                                                                                                            |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `turn`            | The outermost wrapper around a single assistant turn. Middleware here sees everything a turn does end-to-end.                                      |
-| `llmCall`         | Every call to `Provider.sendMessage`. Input carries `messages` and `options` (with `tools`, `systemPrompt`, `config`, `onEvent`, `signal` inside). |
-| `toolExecute`     | Every `ToolExecutor.execute` call. Input carries `name`, `input`, and the full `ToolContext`.                                                      |
-| `memoryRetrieval` | PKB, NOW.md, and memory-graph retrieval for a turn. Output is a merged `MemoryResult`.                                                             |
-| `tokenEstimate`   | The token-count estimate used for budgeting. Wraps `estimatePromptTokensRaw`.                                                                      |
-| `compaction`      | The conversation-compaction step. Wraps `ContextWindowManager.maybeCompact`.                                                                       |
-| `overflowReduce`  | The reducer tier loop invoked when a turn blows the context budget.                                                                                |
-| `persistence`     | Every message CRUD op (`add` / `update` / `delete`). Discriminated by `args.op`.                                                                   |
-| `titleGenerate`   | Conversation title generation. Fire-and-forget by default.                                                                                         |
-| `emptyResponse`   | The decision about what to do when the model returns an empty turn (nudge / accept / error).                                                       |
-| `toolError`       | The decision about what to do when one or more tool calls errored on a turn.                                                                       |
-| `circuitBreaker`  | The compaction circuit breaker. Tracks consecutive-failure state, decides whether to open the circuit.                                             |
+| Pipeline          | Purpose                                                                                                |
+| ----------------- | ------------------------------------------------------------------------------------------------------ |
+| `memoryRetrieval` | PKB, NOW.md, and memory-graph retrieval for a turn. Output is a merged `MemoryResult`.                 |
+| `compaction`      | The conversation-compaction step. Wraps `ContextWindowManager.maybeCompact`.                           |
+| `overflowReduce`  | The reducer tier loop invoked when a turn blows the context budget.                                    |
+| `circuitBreaker`  | The compaction circuit breaker. Tracks consecutive-failure state, decides whether to open the circuit. |
 
 ## Timeouts
 
@@ -466,17 +451,9 @@ current values.
 
 | Pipeline          | Timeout  | Rationale                                                                                                      |
 | ----------------- | -------- | -------------------------------------------------------------------------------------------------------------- |
-| `turn`            | none     | Turn duration is bounded by the downstream `llmCall` / `toolExecute` timeouts, not a pipeline-level timer.     |
-| `llmCall`         | none     | Deferred to the provider's HTTP timeout so network hiccups surface as provider errors, not pipeline timeouts.  |
-| `toolExecute`     | none     | Deferred to the per-tool timeout already enforced by `ToolExecutor`.                                           |
 | `memoryRetrieval` | 5000 ms  | Memory reads may hit Qdrant and disk; 5 s leaves slack for cold caches without blocking the turn indefinitely. |
-| `tokenEstimate`   | 1000 ms  | Same — CPU-bound, should return instantly.                                                                     |
 | `compaction`      | 30000 ms | Summarization involves a provider call; mirrors the pipeline-level budget for LLM-backed operations.           |
 | `overflowReduce`  | 30000 ms | Iterative compaction; matches the `compaction` budget since each tier step may invoke it.                      |
-| `persistence`     | 10000 ms | SQLite writes, Qdrant deletes, and disk syncs. 10 s is generous for the slowest op (batched segment inserts).  |
-| `titleGenerate`   | 30000 ms | Provider-backed. Fire-and-forget, but the budget exists so a stuck call doesn't leak forever.                  |
-| `emptyResponse`   | 500 ms   | Decision logic only — must be near-instant.                                                                    |
-| `toolError`       | 500 ms   | Decision logic only — must be near-instant.                                                                    |
 | `circuitBreaker`  | 500 ms   | Numeric state update — must be near-instant.                                                                   |
 
 `null` timeouts skip the timer entirely. Finite timeouts arm a
@@ -814,7 +791,7 @@ Every pipeline invocation emits one structured line tagged
 
 | Field                                      | Meaning                                                                 |
 | ------------------------------------------ | ----------------------------------------------------------------------- |
-| `pipeline`                                 | Pipeline name (`llmCall`, `toolExecute`, …).                            |
+| `pipeline`                                 | Pipeline name (`compaction`, `overflowReduce`, …).                      |
 | `chain`                                    | Ordered list of middleware function names, outermost first.             |
 | `durationMs`                               | Total time spent in the composed chain.                                 |
 | `outcome`                                  | `"success"`, `"error"`, or `"timeout"`.                                 |

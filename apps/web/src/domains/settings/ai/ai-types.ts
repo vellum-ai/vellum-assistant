@@ -1,6 +1,18 @@
 import { PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
 
 // ---------------------------------------------------------------------------
+// Profile status
+// ---------------------------------------------------------------------------
+
+export type ProfileStatus = "active" | "disabled";
+
+// ---------------------------------------------------------------------------
+// Provider constants
+// ---------------------------------------------------------------------------
+
+export const OPENAI_COMPATIBLE_PROVIDER = "openai-compatible";
+
+// ---------------------------------------------------------------------------
 // Call-site override draft
 // ---------------------------------------------------------------------------
 
@@ -22,7 +34,7 @@ export type ServiceMode = "managed" | "your-own";
 
 export interface ProfileEntry {
   source?: "managed" | "user";
-  status?: "active" | "disabled";
+  status?: ProfileStatus;
   label?: string | null;
   description?: string | null;
   provider?: string | null;
@@ -292,4 +304,4 @@ export const LS_TTS_VOICE_ID_PREFIX = "vellum:voice:ttsVoiceId:";
 export const LS_STT_PROVIDER = "vellum:voice:sttProvider";
 export const LS_STT_API_KEY_PREFIX = "vellum:voice:sttApiKey:";
 
-export const LS_IMAGE_GEN_CREDENTIAL = "vellum:ai:geminiKey";
+

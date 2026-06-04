@@ -217,6 +217,43 @@ describe("orchestrate — fixture sequence (carry-forward)", () => {
     expect(t2.currentSelections.map((s) => s.slug)).not.toContain("page-a");
     expect(t2.finalInjection).toContain("page-a");
   });
+
+  test("carry-forward survives a turn whose selections fill the cap", async () => {
+    const tree = makeTree();
+    // Cap of 1: under a naive record-then-cap order this turn's own selection
+    // would evict the carried page before injection. Snapshotting the carry
+    // BEFORE recording this turn keeps the earlier page in the injection.
+    const workingSet = new WorkingSet(1);
+    const needle = fakeNeedle([]);
+    const stub = (selectIds: number[]): Provider => ({
+      name: "stub",
+      sendMessage: async (_messages, options) =>
+        options?.tools?.[0]?.name === "open_leaves"
+          ? toolUseResponse("open_leaves", { ids: [1] })
+          : toolUseResponse("select_pages", { ids: selectIds, pinned_ids: [] }),
+    });
+
+    providerStub = stub([1]); // turn 1 → page-a
+    await orchestrate(makeTurn(1, "page a"), {
+      tree,
+      core: new Set(),
+      needle,
+      workingSet,
+      pageSummary: summaryOf,
+    });
+
+    providerStub = stub([2]); // turn 2 → page-b, never re-selects page-a
+    const t2 = await orchestrate(makeTurn(2, "page b"), {
+      tree,
+      core: new Set(),
+      needle,
+      workingSet,
+      pageSummary: summaryOf,
+    });
+
+    expect(t2.currentSelections.map((s) => s.slug)).toEqual(["page-b"]);
+    expect(t2.finalInjection).toContain("page-a"); // carried despite the cap
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -298,14 +335,16 @@ describe("orchestrate — edge cases", () => {
     expect(result.finalInjection).toEqual(["page-a", "page-b"]);
   });
 
-  test("L1 routing fallback (omitted ids → all leaves) still works", async () => {
+  test("omitted L1 ids opens only the deterministic lanes, not the whole tree", async () => {
     const tree = makeTree();
-    // Omitted ids → routeL1 opens ALL leaves; select everything per leaf.
+    // L1 omits ids → routeL1 opens NO routed leaves; only the needle/core lanes
+    // drive the open set, so the whole tree is never fanned out (topic-y, which
+    // nothing routes or needles to, stays closed).
     providerStub = {
       name: "stub",
       sendMessage: async (_messages, options) => {
         if (options?.tools?.[0]?.name === "open_leaves") {
-          return toolUseResponse("open_leaves", {}); // omitted ids
+          return toolUseResponse("open_leaves", {}); // omitted ids → []
         }
         return toolUseResponse("select_pages", {}); // omitted → all members
       },
@@ -313,15 +352,12 @@ describe("orchestrate — edge cases", () => {
     const result = await orchestrate(makeTurn(1, "x"), {
       tree,
       core: new Set(),
-      needle: fakeNeedle([]),
+      needle: fakeNeedle(["page-a"]), // needle opens domain-a/topic-x only
       workingSet: new WorkingSet(),
       pageSummary: summaryOf,
     });
-    expect(result.openedLeaves).toEqual([
-      "domain-a/topic-x",
-      "domain-a/topic-y",
-    ]);
-    expect(result.finalInjection).toEqual(["page-a", "page-b", "page-c"]);
+    expect(result.openedLeaves).toEqual(["domain-a/topic-x"]);
+    expect(result.finalInjection).toEqual(["page-a", "page-b"]);
   });
 
   test("pinned current-turn selections land in the working set", async () => {

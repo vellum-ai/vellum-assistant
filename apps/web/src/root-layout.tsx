@@ -7,7 +7,11 @@ import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useVisibleViewport } from "@/hooks/use-visible-viewport";
 import { useAssistantLifecycle } from "@/assistant/use-lifecycle";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
-import { useAuthStore } from "@/stores/auth-store";
+import {
+  useAuthStore,
+  useIsSessionInitializing,
+  useHasPlatformSession,
+} from "@/stores/auth-store";
 import { useEnvironmentStore } from "@/stores/environment-store";
 import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
 import { useDocumentEditorSync } from "@/hooks/use-document-editor-sync";
@@ -18,6 +22,8 @@ import { useFeatureFlagBusSync } from "@/hooks/use-feature-flag-bus-sync";
 import { useClientFeatureFlagSync } from "@/hooks/use-client-feature-flag-sync";
 import { useAssistantFeatureFlagSync } from "@/hooks/use-assistant-feature-flag-sync";
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
+import { useDynamicFavicon } from "@/hooks/use-dynamic-favicon";
 import { TimezoneSync } from "@/components/timezone-sync";
 
 /**
@@ -55,14 +61,13 @@ export function RootLayout() {
   const visibleViewport = useVisibleViewport();
 
   const navigate = useNavigate();
-  const isLoggedIn = useAuthStore.use.isLoggedIn();
-  const authLoading = useAuthStore.use.isLoading();
-  const hasPlatformSession = useAuthStore.use.hasPlatformSession();
+  const sessionStatus = useAuthStore.use.sessionStatus();
+  const isSessionInitializing = useIsSessionInitializing();
+  const hasPlatformSession = useHasPlatformSession();
   const isNonProduction = useEnvironmentStore.use.isNonProduction();
-  useClientFeatureFlagSync(hasPlatformSession && !authLoading);
+  useClientFeatureFlagSync(hasPlatformSession && !isSessionInitializing);
   useAssistantLifecycle({
-    isLoggedIn,
-    isLoading: authLoading,
+    sessionStatus,
     isRetired: false,
     isNonProduction,
     hasPlatformSession,
@@ -81,6 +86,12 @@ export function RootLayout() {
   useFeatureFlagBusSync(assistantId, isAssistantActive);
   useNotificationIntentSync(assistantId);
   useDocumentEditorSync();
+
+  // Keep the browser favicon in sync with the assistant's avatar across
+  // every authenticated route (chat, settings, logs, etc.). Mounted here
+  // so the favicon persists when navigating between sibling layouts.
+  const avatar = useAssistantAvatar(assistantId);
+  useDynamicFavicon(avatar.customImageUrl, avatar.components, avatar.traits);
 
   useEventBusInit({ assistantId, isAssistantActive });
   // Inbound deep-link navigation + window activation. Mounted here

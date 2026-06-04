@@ -42,7 +42,7 @@ import {
 } from "@/domains/settings/api/oauth-apps";
 
 import { fetchOAuthProviderDetail } from "@/domains/settings/api/oauth-providers";
-import { IntegrationIcon } from "@/domains/settings/components/integration-icon";
+import { IntegrationIcon } from "@/components/integrations/integration-icon";
 import {
   type OAuthCompletePayload,
   oauthCompletionStorageKey,

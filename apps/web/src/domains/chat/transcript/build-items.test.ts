@@ -275,7 +275,7 @@ describe("buildTranscriptItems", () => {
       ...textBody("Here is the result."),
       id: "s-mixed",
       toolCalls: [
-        { id: "tc-1", toolName: "unknown", input: {}, status: "completed", result: "orphan" },
+        { id: "tc-1", name: "unknown", input: {}, status: "completed", result: "orphan" },
       ],
     });
 
@@ -294,8 +294,8 @@ describe("buildTranscriptItems", () => {
       ...textBody(""),
       id: "s-mixed-known",
       toolCalls: [
-        { id: "tc-1", toolName: "unknown", input: {}, status: "completed", result: "orphan" },
-        { id: "tc-2", toolName: "bash", input: { command: "ls" }, status: "completed", result: "file.txt" },
+        { id: "tc-1", name: "unknown", input: {}, status: "completed", result: "orphan" },
+        { id: "tc-2", name: "bash", input: { command: "ls" }, status: "completed", result: "file.txt" },
       ],
     });
 
@@ -316,7 +316,7 @@ describe("buildTranscriptItems", () => {
       id: "s-mixed-surface",
       surfaces: [surface],
       toolCalls: [
-        { id: "tc-1", toolName: "unknown", input: {}, status: "completed", result: "orphan" },
+        { id: "tc-1", name: "unknown", input: {}, status: "completed", result: "orphan" },
       ],
     });
 
@@ -338,7 +338,7 @@ describe("buildTranscriptItems", () => {
         { id: "a1", filename: "test.txt", mimeType: "text/plain", sizeBytes: 12, previewUrl: null },
       ],
       toolCalls: [
-        { id: "tc-1", toolName: "unknown", input: {}, status: "completed", result: "orphan" },
+        { id: "tc-1", name: "unknown", input: {}, status: "completed", result: "orphan" },
       ],
     });
 
@@ -357,7 +357,7 @@ describe("buildTranscriptItems", () => {
       ...textBody(""),
       id: "s-real-tool",
       toolCalls: [
-        { id: "tc-1", toolName: "bash", input: { command: "ls" }, status: "completed", result: "file.txt" },
+        { id: "tc-1", name: "bash", input: { command: "ls" }, status: "completed", result: "file.txt" },
       ],
     });
 
@@ -386,7 +386,7 @@ describe("buildTranscriptItems", () => {
     // the flat content field — those rows are meaningful and must render.
     const segmentsOnly = makeMessage({role: "user",
       id: "s-segments-only",
-      textSegments: [{ type: "text", content: "Hello via segments" }],
+      textSegments: ["Hello via segments"],
     });
 
     const items = buildTranscriptItems({
@@ -517,10 +517,10 @@ describe("buildTranscriptItems", () => {
     const assistant = makeMessage({role: "assistant",
       id: "s-assistant",
       toolCalls: [
-        { id: "tc-1", toolName: "bash", input: { command: "echo hi" }, status: "completed" },
+        { id: "tc-1", name: "bash", input: { command: "echo hi" }, status: "completed" },
       ],
       textSegments: [
-        { type: "text", content: "Pushed. Catalog regenerated." },
+        "Pushed. Catalog regenerated.",
       ],
       contentOrder: [
         { type: "toolCall", id: "tc-1" },

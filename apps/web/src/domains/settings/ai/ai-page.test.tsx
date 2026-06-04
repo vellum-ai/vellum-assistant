@@ -20,7 +20,10 @@ import { MemoryRouter } from "react-router";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import type { SubscriptionResponse } from "@/generated/api/types.gen";
-import { organizationsBillingSubscriptionRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
+import {
+  assistantsListQueryKey,
+  organizationsBillingSubscriptionRetrieveQueryKey,
+} from "@/generated/api/@tanstack/react-query.gen";
 
 // The settings-card barrel re-exports toast surfaces; stub them so barrel
 // resolution doesn't pull the real toast module during the static render.
@@ -40,6 +43,7 @@ mock.module("@/hooks/use-platform-gate", () => ({
 const { EmailServiceCard } = await import("@/domains/settings/ai/email-service-card");
 
 const ASSISTANT_ID = "asst-1";
+const ASSISTANT_HANDLE = "my-assistant";
 
 function makeSubscription(
   managedEmail: boolean,
@@ -61,13 +65,17 @@ function renderCard(subscription: SubscriptionResponse): string {
     defaultOptions: { queries: { retry: false } },
   });
   client.setQueryData(
+    assistantsListQueryKey(),
+    { results: [{ id: ASSISTANT_ID, handle: ASSISTANT_HANDLE }] },
+  );
+  client.setQueryData(
     organizationsBillingSubscriptionRetrieveQueryKey(),
     subscription,
   );
   return renderToStaticMarkup(
     <QueryClientProvider client={client}>
       <MemoryRouter>
-        <EmailServiceCard assistantId={ASSISTANT_ID} assistantHandle="my-assistant" />
+        <EmailServiceCard />
       </MemoryRouter>
     </QueryClientProvider>,
   );

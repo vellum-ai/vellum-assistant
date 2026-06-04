@@ -10,6 +10,8 @@
  * - acceptA2AInvite()  — self-hosted broker: orchestrate complete + redeem across daemons
  */
 
+import { z } from "zod";
+
 import {
   getConfig,
   invalidateConfigCache,
@@ -38,42 +40,55 @@ const log = getLogger("config-a2a");
 
 // ── Result types ────────────────────────────────────────────────────
 
-export interface A2AConfigResult {
-  success: boolean;
-  enabled: boolean;
-  activeConnections: number;
-  error?: string;
-}
+export const A2AConfigResultSchema = z.object({
+  success: z.boolean(),
+  enabled: z.boolean(),
+  activeConnections: z.number(),
+  error: z.string().optional(),
+});
+export type A2AConfigResult = z.infer<typeof A2AConfigResultSchema>;
 
-export interface CreateA2AInviteResult {
-  success: boolean;
-  inviteId?: string;
-  token?: string;
-  expiresAt?: number;
-  senderGatewayUrl?: string;
-  error?: string;
-}
+export const CreateA2AInviteResultSchema = z.object({
+  success: z.boolean(),
+  inviteId: z.string().optional(),
+  token: z.string().optional(),
+  expiresAt: z.number().optional(),
+  senderGatewayUrl: z.string().optional(),
+  error: z.string().optional(),
+});
+export type CreateA2AInviteResult = z.infer<typeof CreateA2AInviteResultSchema>;
 
-export interface CompleteA2AInviteResult {
-  success: boolean;
-  sender?: { assistantId: string; displayName: string; gatewayUrl: string };
-  error?: string;
-}
+export const CompleteA2AInviteResultSchema = z.object({
+  success: z.boolean(),
+  sender: z
+    .object({
+      assistantId: z.string(),
+      displayName: z.string(),
+      gatewayUrl: z.string(),
+    })
+    .optional(),
+  error: z.string().optional(),
+});
+export type CompleteA2AInviteResult = z.infer<
+  typeof CompleteA2AInviteResultSchema
+>;
 
-export interface RedeemA2AInviteResult {
-  success: boolean;
-  contactId?: string;
-  alreadyConnected?: boolean;
-  error?: string;
-}
+export const RedeemA2AInviteResultSchema = z.object({
+  success: z.boolean(),
+  contactId: z.string().optional(),
+  alreadyConnected: z.boolean().optional(),
+  error: z.string().optional(),
+});
+export type RedeemA2AInviteResult = z.infer<typeof RedeemA2AInviteResultSchema>;
 
-export interface AcceptA2AInviteResult {
-  success: boolean;
-  contactId?: string;
-  alreadyConnected?: boolean;
-  error?: string;
-  errorCode?: string;
-}
+export const AcceptA2AInviteResultSchema = z.object({
+  success: z.boolean(),
+  contactId: z.string().optional(),
+  alreadyConnected: z.boolean().optional(),
+  error: z.string().optional(),
+  errorCode: z.string().optional(),
+});
+export type AcceptA2AInviteResult = z.infer<typeof AcceptA2AInviteResultSchema>;
 
 // ── Config operations ───────────────────────────────────────────────
 

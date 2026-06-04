@@ -46,27 +46,11 @@ import type {
   CircuitBreakerResult,
   CompactionArgs,
   CompactionResult,
-  EmptyResponseArgs,
-  EmptyResponseResult,
-  LLMCallArgs,
-  LLMCallResult,
   MemoryArgs,
   MemoryResult,
   OverflowReduceArgs,
   OverflowReduceResult,
-  PersistArgs,
-  PersistResult,
   Plugin,
-  TitleArgs,
-  TitleResult,
-  TokenEstimateArgs,
-  TokenEstimateResult,
-  ToolErrorArgs,
-  ToolErrorResult,
-  ToolExecuteArgs,
-  ToolExecuteResult,
-  TurnArgs,
-  TurnResult,
 } from "../../../src/plugins/types.js";
 
 const runtime = (globalThis as { __vellumPluginRuntime?: VellumPluginRuntime })
@@ -146,25 +130,11 @@ const echoPlugin: Plugin = {
     version: "0.1.0",
   },
   middleware: {
-    turn: makeObserver<TurnArgs, TurnResult>("turn"),
-    llmCall: makeObserver<LLMCallArgs, LLMCallResult>("llmCall"),
-    toolExecute: makeObserver<ToolExecuteArgs, ToolExecuteResult>(
-      "toolExecute",
-    ),
     memoryRetrieval: makeObserver<MemoryArgs, MemoryResult>("memoryRetrieval"),
-    tokenEstimate: makeObserver<TokenEstimateArgs, TokenEstimateResult>(
-      "tokenEstimate",
-    ),
     compaction: makeObserver<CompactionArgs, CompactionResult>("compaction"),
     overflowReduce: makeObserver<OverflowReduceArgs, OverflowReduceResult>(
       "overflowReduce",
     ),
-    persistence: makeObserver<PersistArgs, PersistResult>("persistence"),
-    titleGenerate: makeObserver<TitleArgs, TitleResult>("titleGenerate"),
-    emptyResponse: makeObserver<EmptyResponseArgs, EmptyResponseResult>(
-      "emptyResponse",
-    ),
-    toolError: makeObserver<ToolErrorArgs, ToolErrorResult>("toolError"),
     circuitBreaker: makeObserver<CircuitBreakerArgs, CircuitBreakerResult>(
       "circuitBreaker",
     ),

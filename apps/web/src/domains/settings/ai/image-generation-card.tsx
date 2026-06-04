@@ -1,5 +1,5 @@
 import { Loader2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -9,7 +9,6 @@ import { toast } from "@vellum/design-library/components/toast";
 import { captureError } from "@/lib/sentry/capture-error";
 import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
 import {
-  removeLocalSetting,
   setLocalSetting,
   getLocalSetting,
 } from "@/utils/local-settings";
@@ -18,13 +17,13 @@ import type { ServiceMode } from "@/domains/settings/ai/ai-types";
 import {
   AVAILABLE_IMAGE_GEN_MODELS,
   IMAGE_GEN_MODEL_DISPLAY_NAMES,
-  LS_IMAGE_GEN_CREDENTIAL,
   LS_IMAGE_GEN_MODE,
   LS_IMAGE_GEN_MODEL,
 } from "@/domains/settings/ai/ai-types";
 import { reconcileFromDaemonConfig } from "@/domains/settings/ai/ai-utils";
 import { ServiceCard, SaveButton, ResetButton } from "@/domains/settings/ai/ai-shared-ui";
 import { useAssistantId, useDaemonConfigQuery, useDaemonConfigMutation, useProvisionProviderKey } from "@/domains/settings/ai/use-daemon-config";
+import { useDraftOverride } from "@/domains/settings/ai/use-draft-override";
 import { modelImagegenPut } from "@/generated/daemon/sdk.gen";
 
 export function ImageGenerationCard() {
@@ -41,17 +40,7 @@ export function ImageGenerationCard() {
     return reconciled.imageGenMode ?? (getLocalSetting(LS_IMAGE_GEN_MODE, "your-own") as ServiceMode);
   }, [daemonConfig]);
 
-  // Draft override — null means the user hasn't changed the value yet.
-  const [draftImageGenMode, setDraftImageGenMode] = useState<ServiceMode | null>(null);
-
-  // Auto-clear draft once the server value catches up after save.
-  useEffect(() => {
-    if (draftImageGenMode !== null && serverImageGenMode === draftImageGenMode) {
-      setDraftImageGenMode(null);
-    }
-  }, [serverImageGenMode, draftImageGenMode]);
-
-  const imageGenMode = draftImageGenMode ?? serverImageGenMode;
+  const [imageGenMode, setDraftImageGenMode] = useDraftOverride(serverImageGenMode);
 
   const [imageGenModel, setImageGenModel] = useState(() =>
     getLocalSetting(LS_IMAGE_GEN_MODEL, "gemini-3.1-flash-image-preview"),
@@ -99,7 +88,6 @@ export function ImageGenerationCard() {
       setLocalSetting(LS_IMAGE_GEN_MODE, imageGenMode);
       setLocalSetting(LS_IMAGE_GEN_MODEL, imageGenModel);
       if (hasUserKey) {
-        setLocalSetting(LS_IMAGE_GEN_CREDENTIAL, trimmed);
         setImageGenApiKey("");
       }
       toast.success("Image generation settings saved.");
@@ -118,7 +106,6 @@ export function ImageGenerationCard() {
   ]);
 
   const handleReset = useCallback(() => {
-    removeLocalSetting(LS_IMAGE_GEN_CREDENTIAL);
     setImageGenApiKey("");
     setImageGenModel("gemini-3.1-flash-image-preview");
     setLocalSetting(LS_IMAGE_GEN_MODEL, "gemini-3.1-flash-image-preview");

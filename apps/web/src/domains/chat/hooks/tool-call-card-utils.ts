@@ -53,8 +53,14 @@ export type ToolCallCardStep =
       title: string;
       durationLabel: string;
       linkCount: number;
+      /** Results shown inline as favicon chips (clamped to `MAX_VISIBLE_RESULTS`). */
       results: WebSearchResultItem[];
-      overflow?: number;
+      /**
+       * Results beyond the visible clamp. Surfaced behind the `+N more`
+       * overflow pill so the additional sources remain reachable. Empty or
+       * omitted when every result fits inline.
+       */
+      overflowResults?: WebSearchResultItem[];
     }
   | {
       kind: "web_search_error";
@@ -132,9 +138,9 @@ export function formatMs(ms: number): string {
   return `${Math.round(ms / 1000)}s`;
 }
 
-/** True when `tc.toolName` is a web tool (`web_search` / `web_fetch`). */
+/** True when `tc.name` is a web tool (`web_search` / `web_fetch`). */
 function isWebTool(tc: ChatMessageToolCall): boolean {
-  return WEB_TOOL_NAMES.has(tc.toolName);
+  return WEB_TOOL_NAMES.has(tc.name);
 }
 
 /**
@@ -153,8 +159,8 @@ function isWebTool(tc: ChatMessageToolCall): boolean {
  * hooks module stays self-contained (no cross-domain dep on transcript code).
  */
 function isSubagentSpawnLikeCall(tc: ChatMessageToolCall): boolean {
-  if (tc.toolName === "subagent_spawn") return true;
-  if (tc.toolName !== "skill_execute") return false;
+  if (tc.name === "subagent_spawn") return true;
+  if (tc.name !== "skill_execute") return false;
   const input = tc.input;
   if (input == null || typeof input !== "object") return false;
   return input.tool === "subagent_spawn";
@@ -171,11 +177,11 @@ function webSearchStepTitle(terminal: boolean): string {
 
 function clampResults(results: WebSearchResultItem[]): {
   visible: WebSearchResultItem[];
-  overflow: number;
+  overflowResults: WebSearchResultItem[];
 } {
   return {
     visible: results.slice(0, MAX_VISIBLE_RESULTS),
-    overflow: Math.max(0, results.length - MAX_VISIBLE_RESULTS),
+    overflowResults: results.slice(MAX_VISIBLE_RESULTS),
   };
 }
 
@@ -183,14 +189,14 @@ function buildWebSearchStep(
   metadata: NonNullable<ToolActivityMetadata["webSearch"]>,
   terminal: boolean,
 ): ToolCallCardStep {
-  const { visible, overflow } = clampResults(metadata.results);
+  const { visible, overflowResults } = clampResults(metadata.results);
   return {
     kind: "web_search",
     title: webSearchStepTitle(terminal),
     durationLabel: formatMs(metadata.durationMs),
     linkCount: metadata.resultCount,
     results: visible,
-    overflow,
+    overflowResults,
   };
 }
 
@@ -214,14 +220,14 @@ function buildWebSearchStepFromResultText(
 ): (ToolCallCardStep & { kind: "web_search" }) | null {
   const parsed = parseWebSearchResultText(text);
   if (parsed.length === 0) return null;
-  const { visible, overflow } = clampResults(parsed);
+  const { visible, overflowResults } = clampResults(parsed);
   return {
     kind: "web_search",
     title: webSearchStepTitle(true),
     durationLabel: "",
     linkCount: parsed.length,
     results: visible,
-    overflow,
+    overflowResults,
   };
 }
 
@@ -356,10 +362,10 @@ function deriveCurrentStepTitle(
       ) {
         return "Web search failed";
       }
-      if (tc.toolName === "web_search") {
+      if (tc.name === "web_search") {
         return webSearchStepTitle(terminal);
       }
-      if (tc.toolName === "web_fetch") {
+      if (tc.name === "web_fetch") {
         return "Thinking";
       }
     } else {
@@ -408,7 +414,7 @@ function deriveCurrentStepInfo(
       return `Reading ${wf.domain}`;
     }
 
-    if (tc.toolName === "web_search") {
+    if (tc.name === "web_search") {
       if (!terminal) {
         const query =
           typeof tc.input?.query === "string" ? tc.input.query.trim() : "";
@@ -423,7 +429,7 @@ function deriveCurrentStepInfo(
       }
     }
 
-    if (tc.toolName === "web_fetch") {
+    if (tc.name === "web_fetch") {
       const url = typeof tc.input?.url === "string" ? tc.input.url : "";
       const host = url ? extractDomain(url) : "";
       if (host) return terminal ? host : `Reading ${host}`;
@@ -443,7 +449,7 @@ function deriveCarouselItems(
 ): WebSearchResultItem[] {
   for (let i = toolCalls.length - 1; i >= 0; i--) {
     const tc = toolCalls[i]!;
-    if (tc.toolName !== "web_search") continue;
+    if (tc.name !== "web_search") continue;
     const metadata = resolveMetadata(tc, liveWebActivity);
     const results = metadata?.webSearch?.results;
     if (results && results.length > 0) return results;
@@ -489,9 +495,8 @@ function deriveCardState(
 // ---------------------------------------------------------------------------
 
 /**
- * Pure projection of (toolCalls, liveWebActivity, leadingThinkingText) →
- * card data. Split out from the hook so tests can drive it without React
- * context plumbing.
+ * Pure projection of (toolCalls, liveWebActivity) → card data. Split out
+ * from the hook so tests can drive it without React context plumbing.
  *
  * Always returns a `ToolCallCardData` (never null) so non-web groups still
  * render the unified card. Callers that need legacy "no web tools → bail
@@ -501,7 +506,6 @@ function deriveCardState(
 export function computeToolCallCardData(
   toolCalls: ChatMessageToolCall[],
   liveWebActivity: Record<string, ToolActivityMetadata>,
-  leadingThinkingText: string | null,
 ): ToolCallCardData {
   // `subagent_spawn` calls are rendered inline by `SubagentInlineProgressCard`
   // at the transcript level — surfacing them as steps inside the unified card
@@ -515,14 +519,6 @@ export function computeToolCallCardData(
   );
 
   const steps: ToolCallCardStep[] = [];
-
-  if (leadingThinkingText) {
-    steps.push({
-      kind: "thinking",
-      durationLabel: "",
-      text: leadingThinkingText,
-    });
-  }
 
   for (const tc of renderableToolCalls) {
     if (!isWebTool(tc)) {
@@ -542,7 +538,7 @@ export function computeToolCallCardData(
       steps.push(buildWebFetchStep(metadata.webFetch));
     } else if (!terminal) {
       steps.push(buildPlaceholderStep());
-    } else if (tc.toolName === "web_search" && typeof tc.result === "string") {
+    } else if (tc.name === "web_search" && typeof tc.result === "string") {
       const parsed = buildWebSearchStepFromResultText(tc.result);
       steps.push(parsed ?? buildEmptyWebSearchStep());
     } else {

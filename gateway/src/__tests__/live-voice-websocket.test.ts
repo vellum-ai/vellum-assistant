@@ -1,6 +1,14 @@
 import { readFileSync } from "node:fs";
 
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
 import { CURRENT_POLICY_EPOCH } from "../auth/policy.js";
 import { initSigningKey, mintToken } from "../auth/token-service.js";
@@ -241,6 +249,125 @@ describe("createLiveVoiceWebsocketHandler", () => {
   });
 });
 
+describe("createLiveVoiceWebsocketHandler — velay-attested managed auth", () => {
+  const TEST_TOKEN = mintEdgeToken();
+  const VELAY_USER_ID = "11111111-1111-1111-1111-111111111111";
+  const VELAY_ORG_ID = "22222222-2222-2222-2222-222222222222";
+  const originalIsPlatform = process.env.IS_PLATFORM;
+
+  function setPlatform(on: boolean) {
+    if (on) {
+      process.env.IS_PLATFORM = "true";
+    } else {
+      delete process.env.IS_PLATFORM;
+    }
+  }
+
+  function makeVelayReq(
+    headers: Record<string, string> = {
+      "x-velay-user-id": VELAY_USER_ID,
+      "x-velay-org-id": VELAY_ORG_ID,
+      "x-velay-actor": "user",
+    },
+  ) {
+    return new Request("http://localhost:7830/v1/live-voice", {
+      headers: { upgrade: "websocket", ...headers },
+    });
+  }
+
+  afterEach(() => {
+    if (originalIsPlatform === undefined) {
+      delete process.env.IS_PLATFORM;
+    } else {
+      process.env.IS_PLATFORM = originalIsPlatform;
+    }
+  });
+
+  test("managed mode + valid X-Velay-* headers authorizes the upgrade", () => {
+    setPlatform(true);
+    const handler = createLiveVoiceWebsocketHandler(makeConfig());
+    const server = makeFakeServer();
+    const res = handler(makeVelayReq(), server);
+
+    expect(res).toBeUndefined();
+    expect(server.upgrade).toHaveBeenCalledTimes(1);
+  });
+
+  test("managed mode without velay headers and without actor JWT is rejected", () => {
+    setPlatform(true);
+    const handler = createLiveVoiceWebsocketHandler(makeConfig());
+    const req = new Request("http://localhost:7830/v1/live-voice", {
+      headers: { upgrade: "websocket" },
+    });
+    const server = makeFakeServer();
+    const res = handler(req, server);
+
+    expect(res).toBeInstanceOf(Response);
+    expect(res!.status).toBe(401);
+    expect(server.upgrade).not.toHaveBeenCalled();
+  });
+
+  test("managed mode with X-Velay-Actor other than 'user' is rejected", () => {
+    setPlatform(true);
+    const handler = createLiveVoiceWebsocketHandler(makeConfig());
+    const server = makeFakeServer();
+    const res = handler(
+      makeVelayReq({
+        "x-velay-user-id": VELAY_USER_ID,
+        "x-velay-org-id": VELAY_ORG_ID,
+        "x-velay-actor": "service",
+      }),
+      server,
+    );
+
+    expect(res).toBeInstanceOf(Response);
+    expect(res!.status).toBe(401);
+    expect(server.upgrade).not.toHaveBeenCalled();
+  });
+
+  test("managed mode missing org id falls through and is rejected", () => {
+    setPlatform(true);
+    const handler = createLiveVoiceWebsocketHandler(makeConfig());
+    const server = makeFakeServer();
+    const res = handler(
+      makeVelayReq({
+        "x-velay-user-id": VELAY_USER_ID,
+        "x-velay-actor": "user",
+      }),
+      server,
+    );
+
+    expect(res).toBeInstanceOf(Response);
+    expect(res!.status).toBe(401);
+    expect(server.upgrade).not.toHaveBeenCalled();
+  });
+
+  test("local mode does NOT trust client-supplied X-Velay-* headers", () => {
+    setPlatform(false);
+    const handler = createLiveVoiceWebsocketHandler(makeConfig());
+    const server = makeFakeServer();
+    const res = handler(makeVelayReq(), server);
+
+    expect(res).toBeInstanceOf(Response);
+    expect(res!.status).toBe(401);
+    expect(server.upgrade).not.toHaveBeenCalled();
+  });
+
+  test("managed mode still accepts a valid actor edge JWT (no velay headers)", () => {
+    setPlatform(true);
+    const handler = createLiveVoiceWebsocketHandler(makeConfig());
+    const req = new Request(
+      `http://localhost:7830/v1/live-voice?token=${TEST_TOKEN}`,
+      { headers: { upgrade: "websocket" } },
+    );
+    const server = makeFakeServer();
+    const res = handler(req, server);
+
+    expect(res).toBeUndefined();
+    expect(server.upgrade).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("getLiveVoiceWebsocketHandlers", () => {
   const OriginalWebSocket = globalThis.WebSocket;
   let fakeUpstream: ReturnType<typeof createFakeUpstreamWs>;
@@ -449,5 +576,72 @@ describe("live voice gateway boundary", () => {
     expect(source).toMatch(
       /if \(isLiveVoiceSocketData\(ws\.data\)\) \{\s+liveVoiceWebsocketHandlers\.close\(ws as never, code, reason\);\s+return;\s+\}/,
     );
+  });
+});
+
+describe("createLiveVoiceWebsocketHandler — revocation", () => {
+  // These tests exercise the gateway DB, so set it up per-test. (The other
+  // suites run without a DB; the revocation check is fail-open when the DB is
+  // absent, so they upgrade as before.)
+  let testRoot: string;
+
+  beforeEach(async () => {
+    const { mkdtempSync, mkdirSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    testRoot = mkdtempSync(join(tmpdir(), "live-voice-revocation-"));
+    mkdirSync(join(testRoot, "protected"), { recursive: true });
+    process.env.GATEWAY_SECURITY_DIR = join(testRoot, "protected");
+    const { initGatewayDb } = await import("../db/connection.js");
+    await initGatewayDb();
+  });
+
+  afterEach(async () => {
+    const { resetGatewayDb } = await import("../db/connection.js");
+    resetGatewayDb();
+    delete process.env.GATEWAY_SECURITY_DIR;
+    const { rmSync } = await import("node:fs");
+    try {
+      rmSync(testRoot, { recursive: true, force: true });
+    } catch {
+      /* best effort */
+    }
+  });
+
+  test("returns 401 when the actor token has been revoked", async () => {
+    const { getGatewayDb } = await import("../db/connection.js");
+    const { actorTokenRecords } = await import("../db/schema.js");
+    const { createHash } = await import("node:crypto");
+
+    const jwt = mintEdgeToken();
+    const now = Date.now();
+    getGatewayDb()
+      .insert(actorTokenRecords)
+      .values({
+        id: "id-revoked",
+        tokenHash: createHash("sha256").update(jwt).digest("hex"),
+        guardianPrincipalId: "guardian-001",
+        hashedDeviceId: createHash("sha256").update("device").digest("hex"),
+        platform: "web",
+        status: "revoked",
+        issuedAt: now,
+        expiresAt: now + 300_000,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+
+    const handler = createLiveVoiceWebsocketHandler(makeConfig());
+    const server = makeFakeServer();
+    const res = handler(
+      new Request(`http://127.0.0.1:7830/v1/live-voice?token=${jwt}`, {
+        headers: { upgrade: "websocket" },
+      }),
+      server,
+    );
+
+    expect(res).not.toBeNull();
+    expect(res!.status).toBe(401);
+    expect(server.upgrade).not.toHaveBeenCalled();
   });
 });

@@ -26,6 +26,8 @@
  *   fired immediately before the agent loop receives a user's prompt
  * - {@link PostToolUseContext} — passed to `post-tool-use` hook, fired once
  *   per tool result before it joins the provider-bound history
+ * - {@link StopContext} — passed to `stop` hook, fired when the model yields
+ *   a response with no tool calls
  * - {@link PluginHookFn} — signature every lifecycle hook implements
  * - {@link PluginLogger} — pino-compatible logger shape on the contexts
  * - {@link ToolDefinition} — author-facing tool spec (default-export shape
@@ -33,7 +35,7 @@
  * - {@link ToolContext} — passed to a plugin tool's `execute` method
  * - {@link ToolExecutionResult} — return shape of a plugin tool's `execute`
  *
- * Pipeline-argument types (`LLMCallArgs`, `MemoryArgs`, etc.) currently
+ * Pipeline-argument types (`MemoryArgs`, `CompactionArgs`, etc.) currently
  * live in `assistant/src/plugins/types.ts` and have not yet migrated into
  * this package. A follow-up PR will move them into this surface as the
  * per-pipeline schemas stabilize.
@@ -47,6 +49,8 @@ export type {
   PluginLogger,
   PluginShutdownContext,
   PostToolUseContext,
+  StopContext,
+  StopDecision,
   ToolContext,
   ToolDefinition,
   ToolExecutionResult,

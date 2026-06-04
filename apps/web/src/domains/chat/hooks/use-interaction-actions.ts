@@ -12,9 +12,9 @@
  */
 
 import { captureError } from "@/lib/sentry/capture-error";
-import { type Dispatch, type SetStateAction, useCallback, useState } from "react";
+import { type Dispatch, type SetStateAction, useCallback, useRef, useState } from "react";
 
-import { addTrustRule } from "@/lib/trust-rules-api";
+import { addTrustRule, fetchTrustRules, suggestTrustRule, updateTrustRule } from "@/lib/trust-rules-api";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
@@ -23,13 +23,82 @@ import { useConversationStore } from "@/stores/conversation-store";
 import { useTurnStore } from "@/domains/chat/turn-store";
 import { endTurn } from "@/domains/chat/turn-coordinator";
 
-import { clearConfirmationByRequestId } from "@/domains/chat/hooks/send-message-utils";
+import {
+  clearConfirmationByRequestId,
+  completeSubmittedSurface,
+} from "@/domains/chat/hooks/send-message-utils";
 import { deriveCommandText } from "@/domains/chat/utils/chat";
 import type { ConfirmationDecision } from "@/types/event-types";
-import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
+import type { AllowlistOption, DirectoryScopeOption, RiskScopeOption, ScopeOption } from "@/types/interaction-ui-types";
+import type { TrustRuleItem, TrustRuleSuggestion } from "@/types/trust-rules";
 import type { QuestionResponseEntry } from "@/domains/chat/api/event-types";
 import { submitConfirmation, submitContactPrompt, submitQuestionResponse, submitSecretResponse } from "@/domains/chat/api/interactions";
 import { submitSurfaceAction } from "@/domains/chat/api/surfaces";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Credential-bearing input keys whose values are redacted before the command
+ * text is sent to the suggestion LLM. Mirrors the macOS `sensitiveKeys` set
+ * (ChatMessage.swift) so neither client leaks secrets into the prompt.
+ */
+const SENSITIVE_INPUT_KEYS = new Set([
+  "value", "secret", "password", "token", "client_secret", "api_key",
+  "authorization", "access_token", "refresh_token", "api_secret",
+  "accesstoken", "refreshtoken", "apikey", "apisecret", "clientsecret",
+  "x-api-key",
+]);
+
+function isSensitiveKey(key: string): boolean {
+  return SENSITIVE_INPUT_KEYS.has(key.toLowerCase());
+}
+
+/**
+ * Stringifies a tool-input value for the suggestion prompt. Strings pass
+ * through; objects/arrays are JSON-encoded (so nested structures don't become
+ * `"[object Object]"`) with sensitive keys redacted at any depth.
+ */
+function stringifyInputValue(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  try {
+    return JSON.stringify(value, (key, val) =>
+      key && isSensitiveKey(key) ? "[redacted]" : val,
+    );
+  } catch {
+    return String(value);
+  }
+}
+
+/**
+ * Builds a full command text from tool call input for the suggestion endpoint.
+ * Formats all key-value pairs rather than extracting just the primary field,
+ * giving the LLM full context for pattern suggestion.
+ */
+function buildFullCommandText(input?: Record<string, unknown>): string {
+  if (!input) {
+    return "";
+  }
+  const entries = Object.entries(input).filter(
+    ([, v]) => v !== undefined && v !== null && v !== "",
+  );
+  if (entries.length === 0) {
+    return "";
+  }
+  if (entries.length === 1) {
+    const [k, v] = entries[0];
+    return isSensitiveKey(k) ? "[redacted]" : stringifyInputValue(v);
+  }
+  return entries
+    .map(([k, v]) => `${k}: ${isSensitiveKey(k) ? "[redacted]" : stringifyInputValue(v)}`)
+    .join("\n");
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -45,6 +114,8 @@ export interface RuleEditorContext {
   directoryScopeOptions: DirectoryScopeOption[];
   commandText: string;
   commandDescription: string;
+  existingRule?: TrustRuleItem;
+  suggestion?: TrustRuleSuggestion;
 }
 
 /** Shape for `handleOpenRuleEditorForToolCall`'s argument. */
@@ -55,7 +126,9 @@ export interface ToolCallRuleContext {
   input?: Record<string, unknown>;
   allowlistOptions: AllowlistOption[];
   scopeOptions: ScopeOption[];
+  riskScopeOptions: RiskScopeOption[];
   directoryScopeOptions: DirectoryScopeOption[];
+  matchedTrustRuleId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -71,6 +144,7 @@ export interface UseInteractionActionsReturn {
   handleAllowAndCreateRule: () => Promise<void>;
   handleOpenRuleEditorForToolCall: (context: ToolCallRuleContext) => void;
   handleSaveRule: (rule: { toolName: string; pattern: string; riskLevel: string; scope: string }) => Promise<void>;
+  handleSaveAsNewRule: (rule: { toolName: string; pattern: string; riskLevel: string; scope: string }) => Promise<void>;
   handleQuestionResponse: (responses: QuestionResponseEntry[]) => Promise<void>;
   handleSurfaceAction: (surfaceId: string, actionId: string, data?: Record<string, unknown>) => Promise<void>;
   showRuleEditor: boolean;
@@ -102,6 +176,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
   const [ruleEditorContext, setRuleEditorContext] = useState<RuleEditorContext | null>(null);
   const [isSavingRule, setIsSavingRule] = useState(false);
   const [unknownNudgeToolCallIds, setUnknownNudgeToolCallIds] = useState<Set<string>>(new Set());
+  const suggestionAbortRef = useRef<AbortController | null>(null);
 
   // -------------------------------------------------------------------------
   // Secret handlers
@@ -299,9 +374,9 @@ export function useInteractionActions(): UseInteractionActionsReturn {
                 pendingConfirmation: null,
                 riskLevel: snapshot.riskLevel,
                 riskReason: snapshot.riskReason,
-                allowlistOptions: snapshot.allowlistOptions,
+                riskAllowlistOptions: snapshot.allowlistOptions,
                 scopeOptions: snapshot.scopeOptions,
-                directoryScopeOptions: snapshot.directoryScopeOptions,
+                riskDirectoryScopeOptions: snapshot.directoryScopeOptions,
                 confirmationDecision: confirmationDecisionValue,
               };
               const updated = [...prev];
@@ -328,9 +403,9 @@ export function useInteractionActions(): UseInteractionActionsReturn {
           pendingConfirmation: null,
           riskLevel: snapshot.riskLevel,
           riskReason: snapshot.riskReason,
-          allowlistOptions: snapshot.allowlistOptions,
+          riskAllowlistOptions: snapshot.allowlistOptions,
           scopeOptions: snapshot.scopeOptions,
-          directoryScopeOptions: snapshot.directoryScopeOptions,
+          riskDirectoryScopeOptions: snapshot.directoryScopeOptions,
           confirmationDecision: confirmationDecisionValue,
         };
         const updated = [...prev];
@@ -460,6 +535,66 @@ export function useInteractionActions(): UseInteractionActionsReturn {
   );
 
   // -------------------------------------------------------------------------
+  // Trust rule suggestion (shared by both rule-editor entry points)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Fires the best-effort LLM trust-rule suggestion in the background and
+   * merges the result into the open rule-editor context. Aborts any in-flight
+   * suggestion first so reopening the editor can't apply a stale one, and skips
+   * the merge if the fetch was superseded/dismissed. Used by both the risk-badge
+   * and the "Allow & Create Rule" confirmation entry points.
+   */
+  const fireSuggestion = useCallback(
+    (params: {
+      assistantId: string;
+      toolName: string;
+      input?: Record<string, unknown>;
+      riskLevel?: string;
+      riskReason?: string;
+      resolvedAllowlistOptions: AllowlistOption[];
+      scopeOptions: ScopeOption[];
+      directoryScopeOptions: DirectoryScopeOption[];
+      existingRule?: TrustRuleItem;
+    }) => {
+      suggestionAbortRef.current?.abort();
+      const abortController = new AbortController();
+      suggestionAbortRef.current = abortController;
+
+      const scopeOpts =
+        params.resolvedAllowlistOptions.length > 0
+          ? params.resolvedAllowlistOptions.map((o) => ({ pattern: o.pattern, label: o.label }))
+          : params.scopeOptions.map((o) => ({ pattern: o.scope, label: o.label }));
+
+      void (async () => {
+        try {
+          const suggestion = await suggestTrustRule(params.assistantId, {
+            tool: params.toolName,
+            command: buildFullCommandText(params.input),
+            riskAssessment: {
+              risk: params.riskLevel ?? "medium",
+              reasoning: params.riskReason ?? "",
+              reasonDescription: params.riskReason ?? "",
+            },
+            scopeOptions: scopeOpts,
+            directoryScopeOptions: params.directoryScopeOptions.map((o) => ({ scope: o.scope, label: o.label })),
+            intent: "auto_approve",
+            existingRule: params.existingRule
+              ? { id: params.existingRule.id, pattern: params.existingRule.pattern, risk: params.existingRule.risk }
+              : undefined,
+          });
+          if (!abortController.signal.aborted) {
+            setRuleEditorContext((prev) => (prev ? { ...prev, suggestion } : null));
+          }
+        } catch {
+          // Suggestion is best-effort — silently ignore failures.
+        }
+      })();
+    },
+    [],
+  );
+
+  // -------------------------------------------------------------------------
   // Allow & Create Rule flow
   // -------------------------------------------------------------------------
 
@@ -487,6 +622,24 @@ export function useInteractionActions(): UseInteractionActionsReturn {
       commandDescription: snapshot.riskReason ?? snapshot.description ?? "",
     };
 
+    // Open the editor in create mode and pre-populate it with a background LLM
+    // suggestion, matching macOS `fetchSuggestionAndOpenEditor`. The confirmation
+    // snapshot carries no `matchedTrustRuleId`, so this path is always create-only.
+    const openCreateEditor = (context: RuleEditorContext) => {
+      setRuleEditorContext(context);
+      setShowRuleEditor(true);
+      fireSuggestion({
+        assistantId: ctx.assistantId,
+        toolName: snapshot.toolName ?? "",
+        input: snapshot.input,
+        riskLevel: snapshot.riskLevel,
+        riskReason: snapshot.riskReason ?? snapshot.description,
+        resolvedAllowlistOptions: snapshot.allowlistOptions ?? [],
+        scopeOptions: snapshot.scopeOptions ?? [],
+        directoryScopeOptions: snapshot.directoryScopeOptions ?? [],
+      });
+    };
+
     try {
       const result = await submitConfirmation(
         ctx.assistantId,
@@ -499,60 +652,123 @@ export function useInteractionActions(): UseInteractionActionsReturn {
         useInteractionStore.getState().submitConfirmationEnd();
         useInteractionStore.getState().setInlineConfirmationToolCallId(null);
         setMessages((prev: DisplayMessage[]) => clearConfirmationByRequestId(prev, snapshot.requestId));
-        setRuleEditorContext(editorContext);
-        setShowRuleEditor(true);
+        openCreateEditor(editorContext);
         return;
       }
 
       cleanupAfterConfirmationDecision(snapshot, mappedToolCallId, "allow");
 
-      setRuleEditorContext({ ...editorContext, requestId: "" });
-      setShowRuleEditor(true);
+      openCreateEditor({ ...editorContext, requestId: "" });
     } catch (err) {
       captureError(err, { context: "allow_and_create_rule" });
       useInteractionStore.getState().setInlineConfirmationToolCallId(null);
       setMessages((prev: DisplayMessage[]) => clearConfirmationByRequestId(prev, snapshot.requestId));
-      setRuleEditorContext(editorContext);
-      setShowRuleEditor(true);
+      openCreateEditor(editorContext);
       setError({ message: "Failed to submit confirmation, but you can still create a rule." });
       useInteractionStore.getState().submitConfirmationEnd();
     }
-  }, [pendingConfirmation, isSubmittingConfirmation, cleanupAfterConfirmationDecision]);
+  }, [pendingConfirmation, isSubmittingConfirmation, cleanupAfterConfirmationDecision, fireSuggestion]);
 
   const handleOpenRuleEditorForToolCall = useCallback(
     (context: ToolCallRuleContext) => {
-      setRuleEditorContext({
+      const ctx = useStreamStore.getState().streamContext;
+      if (!ctx) {
+        return;
+      }
+
+      // Cancel any previous suggestion fetch.
+      suggestionAbortRef.current?.abort();
+      suggestionAbortRef.current = null;
+
+      // Only `riskAllowlistOptions` (minimatch globs) are valid save-path
+      // patterns. Per the `tool_result` wire contract, `riskScopeOptions` are a
+      // regex-flavored, display-only ladder and must NOT be persisted as trust
+      // rules, so we never feed them into the "Apply to" list. When no saveable
+      // ladder is present we leave this empty and let the modal's
+      // buildApplyToOptions synthesize the fallback (raw command, or wildcard
+      // for natural-language input).
+      const resolvedAllowlistOptions: AllowlistOption[] =
+        context.allowlistOptions.length > 0 ? context.allowlistOptions : [];
+
+      const baseContext: RuleEditorContext = {
         requestId: "",
         toolName: context.toolName,
         riskLevel: context.riskLevel ?? "medium",
-        allowlistOptions: context.allowlistOptions,
+        allowlistOptions: resolvedAllowlistOptions,
         scopeOptions: context.scopeOptions,
         directoryScopeOptions: context.directoryScopeOptions,
         commandText: deriveCommandText(context.input, context.toolName),
         commandDescription: context.riskReason ?? "",
-      });
-      setShowRuleEditor(true);
+      };
+
+      // Fetch matched rule (edit mode) then open modal immediately.
+      // Suggestion fetch fires in the background after modal is open.
+      const openModal = async () => {
+        let existingRule: TrustRuleItem | undefined;
+        if (context.matchedTrustRuleId) {
+          try {
+            const rules = await fetchTrustRules(ctx.assistantId, { tool: context.toolName });
+            existingRule = rules.find((r) => r.id === context.matchedTrustRuleId);
+            if (!existingRule) {
+              const defaultRules = await fetchTrustRules(ctx.assistantId, { origin: "default", tool: context.toolName });
+              existingRule = defaultRules.find((r) => r.id === context.matchedTrustRuleId);
+            }
+          } catch {
+            // Failed to fetch matched rule — fall through to create mode.
+          }
+        }
+
+        const editorContext: RuleEditorContext = { ...baseContext, existingRule };
+        setRuleEditorContext(editorContext);
+        setShowRuleEditor(true);
+
+        // Fire LLM suggestion in the background.
+        fireSuggestion({
+          assistantId: ctx.assistantId,
+          toolName: context.toolName,
+          input: context.input,
+          riskLevel: context.riskLevel,
+          riskReason: context.riskReason,
+          resolvedAllowlistOptions,
+          scopeOptions: context.scopeOptions,
+          directoryScopeOptions: context.directoryScopeOptions,
+          existingRule,
+        });
+      };
+
+      openModal().catch((err) => captureError(err, { context: "open_rule_editor" }));
     },
-    [],
+    [fireSuggestion],
   );
 
   const handleSaveRule = useCallback(
     async (rule: { toolName: string; pattern: string; riskLevel: string; scope: string }) => {
       const ctx = useStreamStore.getState().streamContext;
       const context = ruleEditorContext;
-      if (!ctx || !context) return;
-      if (isSavingRule) return;
+      if (!ctx || !context) {
+        return;
+      }
+      if (isSavingRule) {
+        return;
+      }
 
       if (!context.requestId) {
         setIsSavingRule(true);
         try {
-          await addTrustRule(ctx.assistantId, {
-            tool: rule.toolName,
-            pattern: rule.pattern,
-            risk: rule.riskLevel as "low" | "medium" | "high",
-            description: `${rule.toolName} — ${rule.pattern}`,
-            scope: rule.scope,
-          });
+          if (context.existingRule) {
+            // Edit mode: update the existing rule's risk level.
+            await updateTrustRule(ctx.assistantId, context.existingRule.id, {
+              risk: rule.riskLevel as "low" | "medium" | "high",
+            });
+          } else {
+            await addTrustRule(ctx.assistantId, {
+              tool: rule.toolName,
+              pattern: rule.pattern,
+              risk: rule.riskLevel as "low" | "medium" | "high",
+              description: `${rule.toolName} — ${rule.pattern}`,
+              scope: rule.scope,
+            });
+          }
         } catch (err) {
           captureError(err, { context: "save_trust_rule_direct" });
           setError({ message: "Failed to save trust rule. Please try again." });
@@ -601,6 +817,38 @@ export function useInteractionActions(): UseInteractionActionsReturn {
     [ruleEditorContext, isSavingRule],
   );
 
+  const handleSaveAsNewRule = useCallback(
+    async (rule: { toolName: string; pattern: string; riskLevel: string; scope: string }) => {
+      const ctx = useStreamStore.getState().streamContext;
+      const context = ruleEditorContext;
+      if (!ctx || !context) {
+        return;
+      }
+      if (isSavingRule) {
+        return;
+      }
+
+      setIsSavingRule(true);
+      try {
+        await addTrustRule(ctx.assistantId, {
+          tool: rule.toolName,
+          pattern: rule.pattern,
+          risk: rule.riskLevel as "low" | "medium" | "high",
+          description: `${rule.toolName} — ${rule.pattern}`,
+          scope: rule.scope,
+        });
+      } catch (err) {
+        captureError(err, { context: "save_as_new_trust_rule" });
+        setError({ message: "Failed to save trust rule. Please try again." });
+      } finally {
+        setIsSavingRule(false);
+        setShowRuleEditor(false);
+        setRuleEditorContext(null);
+      }
+    },
+    [ruleEditorContext, isSavingRule],
+  );
+
   // -------------------------------------------------------------------------
   // Surface action handler
   // -------------------------------------------------------------------------
@@ -642,40 +890,16 @@ export function useInteractionActions(): UseInteractionActionsReturn {
 
       useTurnStore.getState().requestSend();
 
-      const ONE_SHOT_SURFACE_TYPES = ["form", "confirmation", "file_upload", "card", "list", "table", "browser_view", "task_preferences"];
-      setMessages((prev: DisplayMessage[]) => {
-        for (let i = prev.length - 1; i >= 0; i--) {
-          const surface = prev[i]!.surfaces?.find((s) => s.surfaceId === surfaceId);
-          if (!surface) continue;
-          if (!ONE_SHOT_SURFACE_TYPES.includes(surface.surfaceType)) return prev;
-          const matchedAction = surface.actions?.find((a) => a.id === actionId);
-          const isCancellation =
-            actionId === "cancel" || actionId === "dismiss" ||
-            matchedAction?.style === "secondary";
-          const updated = [...prev];
-          updated[i] = {
-            ...prev[i]!,
-            surfaces: prev[i]!.surfaces?.map((s) =>
-              s.surfaceId === surfaceId
-                ? {
-                    ...s,
-                    completed: true,
-                    completionSummary: isCancellation
-                      ? "Cancelled"
-                      : matchedAction?.label ?? undefined,
-                  }
-                : s,
-            ),
-          };
-          return updated;
-        }
-        return prev;
-      });
+      setMessages((prev: DisplayMessage[]) =>
+        completeSubmittedSurface(prev, surfaceId, actionId),
+      );
     },
     [],
   );
 
   const dismissRuleEditor = useCallback(() => {
+    suggestionAbortRef.current?.abort();
+    suggestionAbortRef.current = null;
     setShowRuleEditor(false);
     setRuleEditorContext(null);
   }, []);
@@ -689,6 +913,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
     handleAllowAndCreateRule,
     handleOpenRuleEditorForToolCall,
     handleSaveRule,
+    handleSaveAsNewRule,
     handleQuestionResponse,
     handleSurfaceAction,
     showRuleEditor,

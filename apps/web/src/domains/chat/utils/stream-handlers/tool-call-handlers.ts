@@ -19,7 +19,7 @@ export function handleToolUseStart(
     event.toolUseId ?? `tool-${++ctx.toolCallIdCounterRef.current}`;
   const newToolCall: ChatMessageToolCall = {
     id: toolCallId,
-    toolName: event.toolName,
+    name: event.toolName,
     input: event.input,
     status: "running",
     startedAt: Date.now(),
@@ -63,8 +63,9 @@ export function handleToolResult(
       approvalMode: event.approvalMode,
       approvalReason: event.approvalReason,
       riskThreshold: event.riskThreshold,
-      allowlistOptions: event.riskAllowlistOptions,
-      directoryScopeOptions: event.riskDirectoryScopeOptions,
+      riskAllowlistOptions: event.riskAllowlistOptions,
+      riskScopeOptions: event.riskScopeOptions,
+      riskDirectoryScopeOptions: event.riskDirectoryScopeOptions,
       activityMetadata: event.activityMetadata,
     }),
   );

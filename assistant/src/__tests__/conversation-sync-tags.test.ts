@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 
 import {
@@ -18,6 +16,7 @@ import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { ROUTES as CONVERSATION_LIST_ROUTES } from "../runtime/routes/conversation-list-routes.js";
 import { ROUTES as CONVERSATION_MANAGEMENT_ROUTES } from "../runtime/routes/conversation-management-routes.js";
 import type { RouteDefinition } from "../runtime/routes/types.js";
+import { publishConversationTitleChanged } from "../runtime/sync/resource-sync-events.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 import { waitFor } from "./helpers/wait-for.js";
 
@@ -122,20 +121,33 @@ describe("conversation sync tags", () => {
     ).toBe(false);
   });
 
-  test("agent-loop title updates emit metadata-only sync tags (no list umbrella)", () => {
-    const source = readFileSync(
-      join(import.meta.dir, "..", "daemon", "conversation-agent-loop.ts"),
-      "utf-8",
-    );
-    const titleUpdateBlocks =
-      source.match(
-        /type: "conversation_title_updated"[\s\S]{0,500}?type: "sync_changed"[\s\S]{0,250}?tags: \[[\s\S]*?\]/g,
-      ) ?? [];
+  test("auto-title generation emits the typed title event and a metadata-only sync tag (no list umbrella)", async () => {
+    // Auto-title generation (first-pass on prompt submit, second-pass
+    // regeneration, bootstrap, and voice) persists via the title service and
+    // broadcasts through `publishConversationTitleChanged` — the same helper
+    // the rename route uses. Like a rename, generation is content-only: the
+    // row stays in place and only the title flips, so web patches the cached
+    // row from the typed `conversation_title_updated` event and the per-
+    // conversation metadata tag is the belt-and-suspenders signal. The list
+    // umbrella is deliberately omitted so web never redrains the paginated
+    // list for a title change.
+    const conversation = createConversation("Generating…");
 
-    expect(titleUpdateBlocks.length).toBeGreaterThanOrEqual(2);
-    for (const block of titleUpdateBlocks) {
-      expect(block).not.toContain("SYNC_TAGS.conversationsList");
-    }
+    const received = await captureEvents(() => {
+      publishConversationTitleChanged(conversation.id, "Generated title");
+    }, 2);
+
+    expect(received.map((event) => event.message.type)).toEqual([
+      "conversation_title_updated",
+      "sync_changed",
+    ]);
+    expect(received[1]!.message).toEqual({
+      type: "sync_changed",
+      tags: [conversationMetadataSyncTag(conversation.id)],
+    });
+    expect((received[1]!.message as { tags: string[] }).tags).not.toContain(
+      SYNC_TAGS.conversationsList,
+    );
   });
 
   test("create emits a sync_changed with the conversationsList umbrella tag", async () => {

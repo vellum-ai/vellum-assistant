@@ -256,6 +256,42 @@ function pickMoreCompleteArray<T>(
   return incoming.length >= current.length ? incoming : current;
 }
 
+/**
+ * Merge locally-accumulated thinking segments with the server's snapshot,
+ * keeping the longer text at each position and appending any extra trailing
+ * segments from either side.
+ *
+ * The live SSE stream is normally ahead of the server's periodic snapshot, so
+ * reconciliation defaults to the local copy. But thinking deltas that arrive
+ * while the stream is torn down (e.g. the tab is backgrounded and the stream
+ * reconnects mid-turn) are never replayed, leaving the local block truncated.
+ * Picking the longer text per index lets the local copy stay ahead during
+ * normal streaming while healing a truncated block once the server's snapshot
+ * carries the fuller reasoning. Position alignment is preserved so the row's
+ * `contentOrder` thinking ids keep resolving to the right segment.
+ */
+export function mergeThinkingSegments(
+  local: string[] | undefined,
+  server: string[] | undefined,
+): string[] | undefined {
+  if (!local || local.length === 0) return server;
+  if (!server || server.length === 0) return local;
+  const length = Math.max(local.length, server.length);
+  const merged: string[] = [];
+  for (let i = 0; i < length; i++) {
+    const localSegment = local[i];
+    const serverSegment = server[i];
+    if (localSegment == null) {
+      merged.push(serverSegment!);
+    } else if (serverSegment == null) {
+      merged.push(localSegment);
+    } else {
+      merged.push(serverSegment.length > localSegment.length ? serverSegment : localSegment);
+    }
+  }
+  return merged;
+}
+
 export function mergeLatestHistoryMessage(
   current: DisplayMessage,
   incoming: DisplayMessage,

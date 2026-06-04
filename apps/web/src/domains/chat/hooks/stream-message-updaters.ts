@@ -13,7 +13,7 @@ import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import type { Surface } from "@/domains/chat/types/types";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 import { toDisplayAttachments } from "@/utils/display-attachments";
-import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
+import type { AllowlistOption, DirectoryScopeOption, RiskScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { MessageCompleteEvent } from "@vellumai/assistant-api";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
@@ -133,7 +133,7 @@ export function createStreamingBubble(
       id: messageId ?? crypto.randomUUID(),
       ...(messageId ? {} : { isOptimistic: true }),
       role: "assistant",
-      textSegments: [{ type: "text", content: text }],
+      textSegments: [text],
       contentOrder: [{ type: "text", id: "0" }],
       timestamp: Date.now(),
     },
@@ -157,16 +157,10 @@ function appendTextIntoRow(
   const lastOrderEntry = order[order.length - 1];
 
   if (lastOrderEntry?.type === "text" && segments.length > 0) {
-    const lastSeg = segments[segments.length - 1];
-    if (lastSeg) {
-      segments[segments.length - 1] = {
-        ...lastSeg,
-        content: lastSeg.content + text,
-      };
-    }
+    segments[segments.length - 1] = segments[segments.length - 1]! + text;
   } else {
     const newIndex = segments.length;
-    segments.push({ type: "text", content: text });
+    segments.push(text);
     order.push({ type: "text", id: String(newIndex) });
   }
 
@@ -473,7 +467,7 @@ export function applyUserMessageEcho(
       id: serverId ?? crypto.randomUUID(),
       ...(serverId === undefined ? { isOptimistic: true } : {}),
       role: "user",
-      textSegments: [{ type: "text", content: event.text }],
+      textSegments: [event.text],
       contentOrder: [{ type: "text", id: "0" }],
       timestamp: Date.now(),
     },
@@ -766,9 +760,10 @@ export function applyToolResult(
     approvalMode?: string;
     approvalReason?: string;
     riskThreshold?: string;
-    allowlistOptions?: AllowlistOption[];
+    riskAllowlistOptions?: AllowlistOption[];
     scopeOptions?: ScopeOption[];
-    directoryScopeOptions?: DirectoryScopeOption[];
+    riskScopeOptions?: RiskScopeOption[];
+    riskDirectoryScopeOptions?: DirectoryScopeOption[];
     /**
      * Structured activity metadata from the tool_result event. Persisted on
      * the tool call so the new `WebSearchProgressCard` can keep rendering
@@ -826,9 +821,10 @@ export function applyToolResult(
     approvalMode: opts.approvalMode,
     approvalReason: opts.approvalReason,
     riskThreshold: opts.riskThreshold,
-    allowlistOptions: opts.allowlistOptions,
+    riskAllowlistOptions: opts.riskAllowlistOptions,
     scopeOptions: opts.scopeOptions,
-    directoryScopeOptions: opts.directoryScopeOptions,
+    riskScopeOptions: opts.riskScopeOptions,
+    riskDirectoryScopeOptions: opts.riskDirectoryScopeOptions,
     // Preserve any pre-existing metadata when the new event omits it
     // (no overwrite with undefined on re-applied tool results).
     ...(opts.activityMetadata !== undefined

@@ -190,7 +190,7 @@ mock.module("../runtime/sync/resource-sync-events.js", () => ({
 
 // findConversation mock
 type MockConversation = {
-  processing: boolean;
+  isProcessing(): boolean;
   messages: unknown[];
   getMessages: () => unknown[];
 };
@@ -426,7 +426,7 @@ describe("runProactiveArtifactJob", () => {
       // Set up an idle conversation so injection works fully
       const convMessages: unknown[] = [];
       mockConversations.set("conv-1", {
-        processing: false,
+        isProcessing: () => false,
         messages: convMessages,
         getMessages: () => convMessages,
       });
@@ -510,7 +510,7 @@ describe("runProactiveArtifactJob", () => {
         "MESSAGE: I created a monthly budget guide tailored to your needs.";
 
       mockConversations.set("conv-1", {
-        processing: false,
+        isProcessing: () => false,
         messages: [],
         getMessages: () => [],
       });
@@ -646,7 +646,7 @@ describe("runProactiveArtifactJob", () => {
       ];
 
       mockConversations.set("conv-1", {
-        processing: false,
+        isProcessing: () => false,
         messages: [],
         getMessages: () => [],
       });
@@ -710,7 +710,7 @@ describe("injectAuxAssistantMessage", () => {
   test("idle conversation: persists with skipIndexing, pushes to getMessages(), broadcasts delta + complete(aux) + list sync", async () => {
     const messages: unknown[] = [];
     mockConversations.set("conv-inject-1", {
-      processing: false,
+      isProcessing: () => false,
       messages,
       getMessages: () => messages,
     });
@@ -767,12 +767,7 @@ describe("injectAuxAssistantMessage", () => {
     const messages: unknown[] = [];
     let processingFlag = true;
     const conv: MockConversation = {
-      get processing() {
-        return processingFlag;
-      },
-      set processing(v: boolean) {
-        processingFlag = v;
-      },
+      isProcessing: () => processingFlag,
       messages,
       getMessages: () => messages,
     };
@@ -801,7 +796,7 @@ describe("injectAuxAssistantMessage", () => {
     const messages: unknown[] = [];
     // Conversation stays processing permanently — never becomes idle
     const conv: MockConversation = {
-      processing: true,
+      isProcessing: () => true,
       messages,
       getMessages: () => messages,
     };
