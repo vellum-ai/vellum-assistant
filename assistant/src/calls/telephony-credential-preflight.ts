@@ -60,6 +60,7 @@ import {
   DEFAULT_PLAYABLE_TTS_PROVIDER,
   resolveTelephonyTtsCapability,
   resolveTelephonyTtsCapabilityFor,
+  type TelephonyTtsCapability,
 } from "./telephony-tts-capability.js";
 
 const log = getLogger("telephony-credential-preflight");
@@ -161,11 +162,31 @@ async function resolveTtsGap(): Promise<TelephonyCredentialGap | null> {
   return {
     kind: "tts",
     providerId: configured.providerId,
-    reason:
-      configured.reason === "missing-credentials"
-        ? "missing-credentials"
-        : "not-playable",
+    reason: ttsReasonToGapReason(configured.reason),
   };
+}
+
+/**
+ * Map a TTS not-playable reason to the preflight's credential-gap reason.
+ *
+ * A missing/unknown `services.tts.provider` (the resolver now returns these as
+ * non-throwing `unconfigured`/`unknown-provider` reasons, mirroring the STT
+ * leg) becomes `unconfigured-provider`, so a malformed TTS config produces a
+ * not-ready gap — never a throw and never a silent-continue.
+ */
+function ttsReasonToGapReason(
+  reason: Exclude<TelephonyTtsCapability, { status: "playable" }>["reason"],
+): TelephonyCredentialMissingReason {
+  switch (reason) {
+    case "missing-credentials":
+      return "missing-credentials";
+    case "unconfigured":
+    case "unknown-provider":
+      return "unconfigured-provider";
+    case "unsupported-format":
+    case "missing-required-config":
+      return "not-playable";
+  }
 }
 
 // ---------------------------------------------------------------------------

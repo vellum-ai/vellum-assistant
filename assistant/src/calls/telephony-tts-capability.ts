@@ -27,6 +27,7 @@ import {
 } from "../security/secure-keys.js";
 import {
   getCatalogProvider,
+  getCatalogProviderOrNull,
   type MediaStreamPlaybackFormat,
 } from "../tts/provider-catalog.js";
 import {
@@ -62,18 +63,34 @@ export const DEFAULT_PLAYABLE_TTS_PROVIDER: TtsProviderId = "elevenlabs";
  *                              value is missing, so synthesis would throw
  *                              before producing audio (e.g. fish-audio's
  *                              `referenceId`).
+ * - `unconfigured`          — no `services.tts.provider` is configured (a
+ *                              partial/edge config, e.g. no `services.tts`
+ *                              block). The resolver returns this instead of
+ *                              throwing so the preflight can report a not-ready
+ *                              gap rather than crash.
+ * - `unknown-provider`      — the configured `services.tts.provider` is not in
+ *                              the TTS catalog. Returned (not thrown) for the
+ *                              same reason as `unconfigured`.
  */
 export type TelephonyTtsNotPlayableReason =
   | "unsupported-format"
   | "missing-credentials"
-  | "missing-required-config";
+  | "missing-required-config"
+  | "unconfigured"
+  | "unknown-provider";
 
-/** Result of {@link resolveTelephonyTtsCapability}. */
+/**
+ * Result of {@link resolveTelephonyTtsCapability}.
+ *
+ * `providerId` is `null` only when the configured provider is missing
+ * (`unconfigured`); for an `unknown-provider` it is the raw configured id so
+ * callers can name it.
+ */
 export type TelephonyTtsCapability =
   | { status: "playable"; providerId: TtsProviderId }
   | {
       status: "not-playable";
-      providerId: TtsProviderId;
+      providerId: TtsProviderId | null;
       reason: TelephonyTtsNotPlayableReason;
     };
 
@@ -191,7 +208,14 @@ export async function resolveProviderTelephonyCapability(
   providerId: TtsProviderId,
   providerConfig: Record<string, unknown>,
 ): Promise<TelephonyTtsCapability> {
-  const entry = getCatalogProvider(providerId);
+  // Non-throwing catalog lookup: an unknown/malformed `services.tts.provider`
+  // must resolve to a not-playable gap rather than throw, so the telephony
+  // preflight can fail-before-dial (outbound) or speak setup-required + end
+  // (inbound) instead of crashing or silently continuing into a silent call.
+  const entry = getCatalogProviderOrNull(providerId);
+  if (!entry) {
+    return { status: "not-playable", providerId, reason: "unknown-provider" };
+  }
 
   if (!isPlayableFormat(entry.mediaStreamPlayback.outputFormat)) {
     return { status: "not-playable", providerId, reason: "unsupported-format" };
@@ -228,6 +252,17 @@ export async function resolveProviderTelephonyCapability(
  */
 export async function resolveTelephonyTtsCapability(): Promise<TelephonyTtsCapability> {
   const config = loadConfig();
+
+  // Safe access: a partial/edge config (e.g. no `services.tts` block) must
+  // resolve to a not-playable "unconfigured" gap rather than throwing — call
+  // setup must never crash on a malformed config. This mirrors the STT leg
+  // (`resolveTelephonySttCapability`), which returns "unconfigured" for the
+  // same shape.
+  const configuredProvider = config.services?.tts?.provider;
+  if (!configuredProvider) {
+    return { status: "not-playable", providerId: null, reason: "unconfigured" };
+  }
+
   const resolved = resolveTtsConfig(config);
   return resolveProviderTelephonyCapability(
     resolved.provider,

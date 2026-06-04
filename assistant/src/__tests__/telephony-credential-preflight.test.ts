@@ -32,7 +32,11 @@ mock.module("../util/logger.js", () => ({
 
 // Configured providers (mutated per test).
 let configuredStt = "openai-whisper";
-let configuredTts = "elevenlabs";
+let configuredTts: string | undefined = "elevenlabs";
+// When true, the config has NO `services.tts` block at all (partial/edge
+// config). The capability resolver must treat this as "unconfigured" and not
+// throw on the missing block.
+let omitTtsBlock = false;
 // Per-TTS-provider config blocks (mutated per test).
 let ttsProviderConfigs: Record<string, Record<string, unknown>> = {};
 
@@ -40,7 +44,7 @@ mock.module("../config/loader.js", () => {
   const config = () => ({
     services: {
       stt: { provider: configuredStt },
-      tts: { provider: configuredTts },
+      ...(omitTtsBlock ? {} : { tts: { provider: configuredTts } }),
     },
   });
   return { loadConfig: config, getConfig: config };
@@ -49,7 +53,9 @@ mock.module("../config/loader.js", () => {
 mock.module("../tts/tts-config-resolver.js", () => ({
   resolveTtsConfig: () => ({
     provider: configuredTts,
-    providerConfig: ttsProviderConfigs[configuredTts] ?? {},
+    providerConfig: configuredTts
+      ? (ttsProviderConfigs[configuredTts] ?? {})
+      : {},
   }),
   resolveProviderTtsConfig: (_config: unknown, provider: string) =>
     ttsProviderConfigs[provider] ?? {},
@@ -77,23 +83,30 @@ const fakeTtsCatalog: Record<
   },
 };
 
+const buildFakeTtsEntry = (id: string) => {
+  const entry = fakeTtsCatalog[id];
+  if (!entry) return null;
+  return {
+    id,
+    mediaStreamPlayback: entry.mediaStreamPlayback,
+    secretRequirements: [
+      {
+        credentialStoreKey: entry.key,
+        credentialLookup: entry.credentialLookup,
+        displayName: `${id} key`,
+        setCommand: "set",
+      },
+    ],
+  };
+};
+
 mock.module("../tts/provider-catalog.js", () => ({
   getCatalogProvider: (id: string) => {
-    const entry = fakeTtsCatalog[id];
+    const entry = buildFakeTtsEntry(id);
     if (!entry) throw new Error(`Unknown TTS provider "${id}"`);
-    return {
-      id,
-      mediaStreamPlayback: entry.mediaStreamPlayback,
-      secretRequirements: [
-        {
-          credentialStoreKey: entry.key,
-          credentialLookup: entry.credentialLookup,
-          displayName: `${id} key`,
-          setCommand: "set",
-        },
-      ],
-    };
+    return entry;
   },
+  getCatalogProviderOrNull: (id: string) => buildFakeTtsEntry(id),
 }));
 
 // Stored credentials keyed by credential store key (mutated per test).
@@ -123,6 +136,7 @@ import {
 beforeEach(() => {
   configuredStt = "openai-whisper"; // credentialProvider: "openai"
   configuredTts = "elevenlabs";
+  omitTtsBlock = false;
   storedKeys = {};
   providerKeys = {};
   ttsProviderConfigs = {};
@@ -198,6 +212,40 @@ describe("resolveTelephonyCredentialReadiness", () => {
         providerId: null,
         reason: "unconfigured-provider",
       });
+    }
+  });
+
+  // Malformed config: no `services.tts` block at all. The TTS leg must NOT
+  // throw (which would surface as a generic 500 outbound, or be swallowed as
+  // "ready" inbound and dial into silence) — it returns a not-ready tts gap.
+  test("missing services.tts block → not-ready (tts) with no throw", async () => {
+    providerKeys.openai = "sk_openai"; // STT fine
+    omitTtsBlock = true;
+
+    const result = await resolveTelephonyCredentialReadiness();
+    expect(result.status).toBe("not-ready");
+    if (result.status === "not-ready") {
+      const ttsGaps = result.missing.filter((g) => g.kind === "tts");
+      expect(ttsGaps).toHaveLength(1);
+      expect(ttsGaps[0].providerId).toBeNull();
+      expect(ttsGaps[0].reason).toBe("unconfigured-provider");
+    }
+  });
+
+  // Malformed config: `services.tts.provider` is set but is not in the TTS
+  // catalog. The TTS leg must NOT throw on the catalog lookup — it returns a
+  // not-ready tts gap naming the unknown provider.
+  test("unknown services.tts.provider → not-ready (tts) with no throw", async () => {
+    providerKeys.openai = "sk_openai"; // STT fine
+    configuredTts = "not-a-real-tts-provider";
+
+    const result = await resolveTelephonyCredentialReadiness();
+    expect(result.status).toBe("not-ready");
+    if (result.status === "not-ready") {
+      const ttsGaps = result.missing.filter((g) => g.kind === "tts");
+      expect(ttsGaps).toHaveLength(1);
+      expect(ttsGaps[0].providerId).toBe("not-a-real-tts-provider");
+      expect(ttsGaps[0].reason).toBe("unconfigured-provider");
     }
   });
 
