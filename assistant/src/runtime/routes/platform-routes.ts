@@ -106,6 +106,7 @@ const CallbackRouteSchema = z.object({
   type: z.string(),
   callback_path: z.string(),
   callback_url: z.string(),
+  source_identifier: z.string().nullable(),
 });
 
 const CallbackRoutesListResponseSchema = z.object({
@@ -342,6 +343,7 @@ async function handleCallbackRoutesList(
     type: string;
     callback_path: string;
     callback_url: string;
+    source_identifier: string | null;
   }>;
 
   return { routes };

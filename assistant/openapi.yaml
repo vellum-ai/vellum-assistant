@@ -17957,12 +17957,17 @@ paths:
                           type: string
                         callback_url:
                           type: string
+                        source_identifier:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                       required:
                         - id
                         - assistant_id
                         - type
                         - callback_path
                         - callback_url
+                        - source_identifier
                       additionalProperties: false
                 required:
                   - routes
