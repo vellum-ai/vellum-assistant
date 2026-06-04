@@ -102,6 +102,46 @@ describe("isActorTokenRevoked", () => {
   });
 });
 
+describe("signature-encoding canonicalization (revocation bypass)", () => {
+  function mintActorJwt(): string {
+    return mintToken({
+      aud: "vellum-gateway",
+      sub: ACTOR_SUB,
+      scope_profile: "actor_client_v1",
+      policy_epoch: CURRENT_POLICY_EPOCH,
+      ttlSeconds: 3600,
+    });
+  }
+
+  // Append base64 padding to the signature segment. Buffer.from(.., "base64url")
+  // decodes it to the SAME bytes, so the JWT still verifies — but the raw string
+  // differs, which (pre-fix) made the revocation hash miss the stored record.
+  function padSignature(jwt: string): string {
+    const [h, p, sig] = jwt.split(".");
+    return `${h}.${p}.${sig}=`;
+  }
+
+  test("detects a revoked token whose signature segment is re-encoded with padding", () => {
+    const jwt = mintActorJwt();
+    insertTokenRecord(jwt, "revoked"); // stored under the canonical token hash
+
+    // Baseline: the canonical token is detected as revoked.
+    expect(isActorTokenRevoked(jwt, actorClaims)).toBe(true);
+
+    // Bypass attempt: same token, signature re-encoded (different string, same
+    // bytes). Must still resolve to the revoked record.
+    const padded = padSignature(jwt);
+    expect(padded).not.toBe(jwt);
+    expect(isActorTokenRevoked(padded, actorClaims)).toBe(true);
+  });
+
+  test("does not falsely revoke an active token re-encoded with padding", () => {
+    const jwt = mintActorJwt();
+    insertTokenRecord(jwt, "active");
+    expect(isActorTokenRevoked(padSignature(jwt), actorClaims)).toBe(false);
+  });
+});
+
 describe("runtime proxy enforcement", () => {
   function makeConfig() {
     return {

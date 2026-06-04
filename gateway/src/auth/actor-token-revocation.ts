@@ -41,6 +41,39 @@ function hashToken(token: string): string {
 }
 
 /**
+ * Canonicalize a token's base64url encoding so the revocation hash reproduces
+ * the canonical minted string that was stored.
+ *
+ * Tokens are stored/revoked under the hash of their CANONICAL minted string
+ * (mintToken encodes every segment with Buffer#toString("base64url") — no
+ * padding, canonical alphabet). But validateEdgeToken verifies the signature by
+ * decoding the signature segment to BYTES and comparing bytes — it never checks
+ * the segment's textual encoding. So a revoked token can be re-encoded (append
+ * `=` padding, swap to the +/ alphabet, embed whitespace, perturb non-canonical
+ * trailing bits) and still verify with identical signature bytes, yet hash to a
+ * different string and MISS the revoked record — letting a revoked token keep
+ * authenticating. Re-encoding each segment via a base64url decode→encode
+ * round-trip reproduces the canonical minted string, so the lookup hash matches
+ * regardless of how the caller spelled the token. (Only the signature segment
+ * is actually malleable — header/payload are the HMAC input and are already
+ * verified by the time we run — but round-tripping all three is the simplest
+ * exact reproduction. Also subsumes the previous `.trim()`, which only handled
+ * surrounding whitespace e.g. a `?token=<jwt>%20` WebSocket query param.)
+ */
+function canonicalizeTokenForHash(rawToken: string): string {
+  const trimmed = rawToken.trim();
+  const parts = trimmed.split(".");
+  if (parts.length !== 3) return trimmed;
+  try {
+    return parts
+      .map((seg) => Buffer.from(seg, "base64url").toString("base64url"))
+      .join(".");
+  } catch {
+    return trimmed;
+  }
+}
+
+/**
  * True only when `rawToken` is an actor token with an explicitly revoked record.
  * Fail-open in every other case (non-actor, no record, DB error).
  */
@@ -53,12 +86,7 @@ export function isActorTokenRevoked(
     return false;
   }
 
-  // Canonicalize before hashing. validateEdgeToken tolerates surrounding
-  // whitespace (base64url signature decode ignores it), but tokens are stored
-  // hashed in their canonical form — so a token supplied with trailing
-  // whitespace (e.g. a `?token=<jwt>%20` WebSocket query param) would hash to a
-  // different value and miss the revoked record. Trim so the lookup matches.
-  const tokenHash = hashToken(rawToken.trim());
+  const tokenHash = hashToken(canonicalizeTokenForHash(rawToken));
 
   try {
     const record = getGatewayDb()
