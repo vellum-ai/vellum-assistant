@@ -117,6 +117,10 @@ function getOpenableScheduleRunConversationId(run: ScheduleRun): string | null {
     : null;
 }
 
+function hasRunText(value: string | null | undefined): value is string {
+  return typeof value === "string" && value.length > 0;
+}
+
 function formatInterval(ms: number): string {
   const minutes = Math.round(ms / 60_000);
   if (minutes >= 60 && minutes % 60 === 0) {
@@ -230,12 +234,13 @@ interface RecentRunsCardProps {
   emptyMessage?: string;
 }
 
-function RecentRunsCard({
+export function RecentRunsCard({
   runs,
   isLoading,
   emptyMessage = "No runs yet.",
 }: RecentRunsCardProps) {
   const navigate = useNavigate();
+  const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
 
   return (
     <DetailCard title="Recent runs">
@@ -249,42 +254,83 @@ function RecentRunsCard({
         </p>
       ) : (
         <div className="divide-y divide-[var(--border-base)]">
-          {runs.map((run) => {
+          {runs.map((run, index) => {
             const conversationId = getOpenableScheduleRunConversationId(run);
+            const hasOutput = hasRunText(run.output);
+            const hasError = hasRunText(run.error);
+            const hasLocalDetails = !conversationId && (hasOutput || hasError);
+            const isExpanded = expandedRunId === run.id;
+            const detailsId = `schedule-run-details-${index}`;
             return (
-              <PanelItem
-                key={run.id}
-                label={
-                  <span className="flex min-w-0 flex-1 items-center gap-3">
-                    <StatusDot status={run.status} />
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-body-medium-lighter text-[var(--content-default)]">
-                        {formatTimestamp(run.startedAt)}
+              <div key={run.id}>
+                <PanelItem
+                  label={
+                    <span className="flex min-w-0 flex-1 items-center gap-3">
+                      <StatusDot status={run.status} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-body-medium-lighter text-[var(--content-default)]">
+                          {formatTimestamp(run.startedAt)}
+                        </span>
+                        <span className="block text-body-small-default text-[var(--content-tertiary)]">
+                          {formatDuration(run.durationMs)} ·{" "}
+                          {formatScheduleCost(run.estimatedCostUsd)}
+                          {run.status === "error" && run.error && (
+                            <span className="ml-2 text-[var(--system-negative-strong)]">
+                              {run.error.slice(0, 80)}
+                              {run.error.length > 80 ? "…" : ""}
+                            </span>
+                          )}
+                        </span>
                       </span>
-                      <span className="block text-body-small-default text-[var(--content-tertiary)]">
-                        {formatDuration(run.durationMs)} ·{" "}
-                        {formatScheduleCost(run.estimatedCostUsd)}
-                        {run.status === "error" && run.error && (
-                          <span className="ml-2 text-[var(--system-negative-strong)]">
-                            {run.error.slice(0, 80)}
-                            {run.error.length > 80 ? "…" : ""}
-                          </span>
-                        )}
-                      </span>
+                      {conversationId || hasLocalDetails ? (
+                        <ChevronRight
+                          className={`h-4 w-4 shrink-0 text-[var(--content-tertiary)] transition-transform ${
+                            isExpanded ? "rotate-90" : ""
+                          }`}
+                        />
+                      ) : null}
                     </span>
-                    {conversationId ? (
-                      <ChevronRight className="h-4 w-4 shrink-0 text-[var(--content-tertiary)]" />
-                    ) : null}
-                  </span>
-                }
-                onSelect={
-                  conversationId
-                    ? () => navigate(routes.conversation(conversationId))
-                    : undefined
-                }
-                aria-label={`Run at ${formatTimestamp(run.startedAt)}`}
-                className="h-auto py-2.5 gap-3 -mx-2 px-2"
-              />
+                  }
+                  onSelect={
+                    conversationId
+                      ? () => navigate(routes.conversation(conversationId))
+                      : hasLocalDetails
+                        ? () =>
+                            setExpandedRunId(isExpanded ? null : run.id)
+                        : undefined
+                  }
+                  aria-label={`Run at ${formatTimestamp(run.startedAt)}`}
+                  aria-expanded={hasLocalDetails ? isExpanded : undefined}
+                  aria-controls={hasLocalDetails ? detailsId : undefined}
+                  className="h-auto py-2.5 gap-3 -mx-2 px-2"
+                />
+                {hasLocalDetails && isExpanded ? (
+                  <div id={detailsId} className="px-2 pb-3">
+                    <div className="space-y-3 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-sunken)] p-3">
+                      {hasOutput ? (
+                        <div>
+                          <div className="mb-1 text-body-small-default text-[var(--content-secondary)]">
+                            Output
+                          </div>
+                          <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-body-small-default font-mono text-[var(--content-default)]">
+                            {run.output}
+                          </pre>
+                        </div>
+                      ) : null}
+                      {hasError ? (
+                        <div>
+                          <div className="mb-1 text-body-small-default text-[var(--content-secondary)]">
+                            Error
+                          </div>
+                          <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-body-small-default font-mono text-[var(--system-negative-strong)]">
+                            {run.error}
+                          </pre>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
             );
           })}
         </div>
