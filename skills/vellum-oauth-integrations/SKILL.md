@@ -43,6 +43,8 @@ All providers support "your-own" mode and some support "managed" mode.
 
 "managed" mode relies on a first-class integration with the Vellum Platform. Managed mode is typically easier to set up and get going, often only requiring the user to log in with no additional configuration needed before they can begin using the integration. Managed mode is the recommended method for most users, especially those that are less technical or newer to their Vellum assistant.
 
+When a task needs a managed OAuth connection, present it in chat with `ui_show` using `surface_type: "oauth_connect"` instead of sending the user to Settings or trying to open the OAuth flow from shell. See [Connecting Accounts](references/CONNECTING_ACCOUNTS.md) for the exact surface shape.
+
 Note that using managed mode:
 
 - Requires an account with the Vellum Platform
