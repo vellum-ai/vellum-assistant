@@ -33,6 +33,7 @@ import type {
 } from "../daemon/conversation-runtime-assembly.js";
 import type { PkbContextConversation } from "../daemon/pkb-context-tracker.js";
 import type { TrustContext } from "../daemon/trust-context.js";
+import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
 import type { PluginHookFn } from "../plugin-api/types.js";
 import type { Message } from "../providers/types.js";
@@ -121,18 +122,14 @@ export type PipelineName =
 // the types without depending on unstable internal shapes.
 
 /**
- * A single retrieved memory artifact.
- *
- * The memory-graph retriever emits complex, tightly-coupled state (content
- * blocks, query vectors, metrics, events, etc.) that downstream code in the
- * agent loop consumes holistically. Representing each memory-graph output as
- * an opaque `MemoryBlock` lets plugins swap in completely different shapes
- * (custom retrievers, mocks for testing) without requiring the plugin surface
- * to re-declare the graph result schema here. Refined by consumers via
- * runtime narrowing — the default retriever attaches a structural marker so
- * the agent loop can safely unwrap its own output.
+ * Full output of a single memory-graph retrieval — the object returned by
+ * {@link ConversationGraphMemory.prepareMemory} (injected messages, query
+ * vectors, metrics). The agent loop consumes these fields directly to drive
+ * PKB hint search and runtime injection.
  */
-export type MemoryBlock = unknown;
+export type GraphMemoryResult = Awaited<
+  ReturnType<ConversationGraphMemory["prepareMemory"]>
+>;
 
 /**
  * Inputs to the memory-retrieval pipeline. The pipeline takes only
@@ -160,16 +157,13 @@ export interface MemoryArgs {
  *
  * - `pkbContent` / `nowContent`: trimmed file contents ready for injection,
  *   or `null` when the file is missing/empty.
- * - `memoryGraphBlocks`: zero or one memory-graph retrievals (the default
- *   retriever yields exactly one when the actor is trusted and the graph
- *   produced output, zero otherwise). Multi-entry arrays are reserved for
- *   future multi-source retrievers; the current agent loop consumes only
- *   the first entry.
+ * - `graphResult`: the memory-graph retrieval, or `null` when the actor is
+ *   not trusted (the graph call is skipped entirely in that case).
  */
 export interface MemoryResult {
   readonly pkbContent: string | null;
   readonly nowContent: string | null;
-  readonly memoryGraphBlocks: ReadonlyArray<MemoryBlock>;
+  readonly graphResult: GraphMemoryResult | null;
 }
 
 /**

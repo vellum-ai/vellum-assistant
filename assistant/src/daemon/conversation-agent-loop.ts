@@ -84,7 +84,6 @@ import {
   backfillMessageIdOnLogs,
   recordSyntheticAgentErrorMessageLog,
 } from "../memory/llm-request-log-store.js";
-import { recordMemoryRecallLog } from "../memory/memory-recall-log-store.js";
 import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrospective-enqueue.js";
 import { PKB_WORKSPACE_SCOPE } from "../memory/pkb/types.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
@@ -99,9 +98,7 @@ import { defaultCompactionTerminal } from "../plugins/defaults/compaction/termin
 import { deepRepairHistory } from "../plugins/defaults/history-repair/terminal.js";
 import postCompactReinject from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
 import {
-  asDefaultGraphPayload,
   type DefaultMemoryRetrievalDeps,
-  type GraphMemoryPayload,
   runDefaultMemoryRetrieval,
 } from "../plugins/defaults/memory-retrieval/register.js";
 import { DEFAULT_TIMEOUTS, runHook, runPipeline } from "../plugins/pipeline.js";
@@ -197,7 +194,6 @@ import type {
   SurfaceType,
   UsageStats,
 } from "./message-protocol.js";
-import type { MemoryRecalled } from "./message-types/memory.js";
 import type { ConfirmationStateChanged } from "./message-types/messages.js";
 import { parseActualTokensFromError } from "./parse-actual-tokens-from-error.js";
 import {
@@ -1157,9 +1153,10 @@ export async function runAgentLoopImpl(
     // Memory retrieval pipeline — fetches PKB, NOW.md, and memory-graph
     // outputs through a single `memoryRetrieval` pipeline. Plugins may
     // replace the terminal behavior by registering a middleware that
-    // short-circuits with its own `MemoryResult`; the default terminal
-    // below runs `runDefaultMemoryRetrieval` which reproduces the prior
-    // in-lined behavior (PKB/NOW reads + gated graph call).
+    // short-circuits with its own `MemoryResult`; the default terminal runs
+    // `runDefaultMemoryRetrieval` (PKB/NOW reads + gated graph call), which
+    // also persists the retrieval's own side effects (injected-block
+    // metadata, recall log, `memory_recalled` event).
     const isTrustedActor = resolveTrustClass(ctx.trustContext) === "guardian";
     // Canonical builder — pulls trust from per-turn snapshot, then
     // conversation-level, then the synthetic fallback. Memory retrieval
@@ -1185,6 +1182,9 @@ export async function runAgentLoopImpl(
       config: getConfig(),
       onEvent,
       isTrustedActor,
+      conversationId: ctx.conversationId,
+      userMessageId,
+      logger: rlog,
     };
     const memoryResult: MemoryResult = await runPipeline(
       "memoryRetrieval",
@@ -1195,17 +1195,14 @@ export async function runAgentLoopImpl(
       DEFAULT_TIMEOUTS.memoryRetrieval,
     );
 
-    // Consume the memory-graph block when the default retriever emitted
-    // one. Custom plugins that substitute their own blocks without the
-    // default discriminator are expected to handle their own side effects
-    // (event emission, metric persistence) inside their middleware; this
-    // block short-circuits to the original no-op behavior in that case.
-    const defaultGraphPayload: GraphMemoryPayload | null =
-      asDefaultGraphPayload(memoryResult.memoryGraphBlocks);
+    // Consume the memory-graph retrieval. The retriever owns its own side
+    // effects (injected-block metadata, recall log, `memory_recalled` event);
+    // here the loop only takes the turn-scoped context it reuses downstream —
+    // the injected message list and the PKB query vectors.
+    const graphResult = memoryResult.graphResult;
     let pkbQueryVector: number[] | undefined;
     let pkbSparseVector: QdrantSparseVector | undefined;
-    if (defaultGraphPayload) {
-      const graphResult = defaultGraphPayload.result;
+    if (graphResult) {
       runMessages = graphResult.runMessages;
       // Select dense+sparse as a matched pair so RRF fusion combines two
       // signals aligned to the same query text:
@@ -1222,82 +1219,6 @@ export async function runAgentLoopImpl(
       } else {
         pkbQueryVector = graphResult.queryVector;
         pkbSparseVector = graphResult.sparseVector;
-      }
-
-      // Persist the injected block text in message metadata so it survives
-      // conversation reloads (eviction, restart, fork). loadFromDb re-injects
-      // from metadata.
-      if (graphResult.injectedBlockText) {
-        try {
-          updateMessageMetadata(userMessageId, {
-            memoryInjectedBlock: graphResult.injectedBlockText,
-          });
-        } catch (err) {
-          rlog.warn(
-            { err },
-            "Failed to persist memory injection to metadata (non-fatal)",
-          );
-        }
-      }
-
-      const m = graphResult.metrics;
-
-      try {
-        recordMemoryRecallLog({
-          conversationId: ctx.conversationId,
-          enabled: true,
-          degraded: false,
-          provider: m?.embeddingProvider ?? undefined,
-          model: m?.embeddingModel ?? undefined,
-          semanticHits: m?.semanticHits ?? 0,
-          mergedCount: m?.mergedCount ?? 0,
-          selectedCount: m?.selectedCount ?? 0,
-          tier1Count: m?.tier1Count ?? 0,
-          tier2Count: m?.tier2Count ?? 0,
-          hybridSearchLatencyMs: m?.hybridSearchLatencyMs ?? 0,
-          sparseVectorUsed: m?.sparseVectorUsed ?? false,
-          injectedTokens: graphResult.injectedTokens,
-          latencyMs: graphResult.latencyMs,
-          topCandidatesJson: (m?.topCandidates ?? []).map((c) => ({
-            key: c.nodeId,
-            type: c.type,
-            kind: "graph",
-            finalScore: c.score,
-            semantic: c.semanticSimilarity,
-            recency: c.recencyBoost,
-          })),
-          injectedText: graphResult.injectedBlockText ?? undefined,
-          reason: `graph:${graphResult.mode}`,
-          queryContext: m?.queryContext ?? undefined,
-        });
-      } catch (err) {
-        log.warn({ err }, "Failed to persist memory recall log (non-fatal)");
-      }
-
-      if (m) {
-        const memoryRecalledEvent: MemoryRecalled = {
-          type: "memory_recalled",
-          provider: m.embeddingProvider ?? "unknown",
-          model: m.embeddingModel ?? "unknown",
-          semanticHits: m.semanticHits,
-          mergedCount: m.mergedCount,
-          selectedCount: m.selectedCount,
-          tier1Count: m.tier1Count,
-          tier2Count: m.tier2Count,
-          hybridSearchLatencyMs: m.hybridSearchLatencyMs,
-          sparseVectorUsed: m.sparseVectorUsed,
-          injectedTokens: graphResult.injectedTokens,
-          latencyMs: graphResult.latencyMs,
-          topCandidates: m.topCandidates.map((c) => ({
-            key: c.nodeId,
-            type: c.type,
-            kind: "graph",
-            finalScore: c.score,
-            semantic: c.semanticSimilarity,
-            recency: c.recencyBoost,
-          })),
-        };
-        onEvent(memoryRecalledEvent);
       }
     }
 

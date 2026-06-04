@@ -375,7 +375,7 @@ or mock a pipeline.
 const skipUntrusted: Middleware<MemoryArgs, MemoryResult> =
   async function skipUntrusted(args, next, ctx) {
     if (!isTrusted(ctx.trust)) {
-      return { pkbContent: null, nowContent: null, memoryGraphBlocks: [] };
+      return { pkbContent: null, nowContent: null, graphResult: null };
     }
     return next(args);
   };

@@ -1,17 +1,19 @@
 /**
- * Tests for the `memoryRetrieval` plugin pipeline (PR 20).
+ * Tests for the `memoryRetrieval` plugin pipeline.
  *
- * Covers the default terminal behavior, timeout handling, and custom-plugin
- * substitution. Uses `mock.module` to stub the workspace PKB/NOW readers
- * so the test doesn't touch the developer's real `~/.vellum`. The memory
- * graph handle is a hand-rolled fake passed as a dependency — the default
- * retriever only needs `prepareMemory`.
+ * Covers the default terminal behavior, the side effects the retriever owns
+ * (injected-block metadata, recall log, `memory_recalled` event), timeout
+ * handling, and custom-plugin substitution. Uses `mock.module` to stub the
+ * workspace PKB/NOW readers and the persistence helpers so the test doesn't
+ * touch the developer's real `~/.vellum` or database. The memory graph handle
+ * is a hand-rolled fake passed as a dependency — the default retriever only
+ * needs `prepareMemory`.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-// Stub PKB/NOW readers BEFORE importing the module under test so the
-// bindings resolve through the mock.
+// Stub PKB/NOW readers and persistence helpers BEFORE importing the module
+// under test so the bindings resolve through the mocks.
 const readPkbContextMock = mock((): string | null => "pkb-default");
 const readNowContextMock = mock((): string | null => "now-default");
 mock.module("../daemon/conversation-runtime-assembly.js", () => ({
@@ -19,13 +21,21 @@ mock.module("../daemon/conversation-runtime-assembly.js", () => ({
   readNowScratchpad: readNowContextMock,
 }));
 
+const updateMessageMetadataMock = mock((_id: string, _updates: unknown) => {});
+mock.module("../memory/conversation-crud.js", () => ({
+  updateMessageMetadata: updateMessageMetadataMock,
+}));
+
+const recordMemoryRecallLogMock = mock((_entry: unknown) => {});
+mock.module("../memory/memory-recall-log-store.js", () => ({
+  recordMemoryRecallLog: recordMemoryRecallLogMock,
+}));
+
 import type { AssistantConfig } from "../config/schema.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import {
-  asDefaultGraphPayload,
-  DEFAULT_MEMORY_GRAPH_KIND,
   type DefaultMemoryRetrievalDeps,
   defaultMemoryRetrievalPlugin,
   runDefaultMemoryRetrieval,
@@ -71,16 +81,41 @@ function makeMemoryArgs(overrides: Partial<MemoryArgs> = {}): MemoryArgs {
   };
 }
 
+/** Canonical metrics payload the graph retriever attaches to a real hit. */
+function makeMetrics() {
+  return {
+    embeddingProvider: "openai",
+    embeddingModel: "text-embedding-3-small",
+    semanticHits: 2,
+    mergedCount: 3,
+    selectedCount: 1,
+    tier1Count: 1,
+    tier2Count: 0,
+    hybridSearchLatencyMs: 5,
+    sparseVectorUsed: true,
+    topCandidates: [
+      {
+        nodeId: "node-1",
+        type: "fact",
+        score: 0.9,
+        semanticSimilarity: 0.8,
+        recencyBoost: 0.1,
+      },
+    ],
+    queryContext: "query-context",
+  };
+}
+
 /**
  * Fake graph-memory whose `prepareMemory` returns a canonical result. The
- * default retriever threads this return value through
- * `MemoryResult.memoryGraphBlocks[0].result`, so tests can assert the block
- * shape by comparing the embedded object identity.
+ * default retriever threads this return value through `MemoryResult.graphResult`,
+ * so tests can assert the result by comparing object identity.
  */
 function makeFakeGraphMemory(overrides?: {
   messages?: Message[];
   injectedTokens?: number;
   injectedBlockText?: string | null;
+  metrics?: ReturnType<typeof makeMetrics> | null;
 }): {
   memory: ConversationGraphMemory;
   prepareMemoryMock: ReturnType<typeof mock>;
@@ -94,7 +129,7 @@ function makeFakeGraphMemory(overrides?: {
       overrides?.injectedBlockText === undefined
         ? null
         : overrides.injectedBlockText,
-    metrics: null,
+    metrics: overrides?.metrics ?? null,
   };
   const prepareMemoryMock = mock(async () => returnValue);
   const memory = {
@@ -113,6 +148,11 @@ function makeDeps(
     config: {} as AssistantConfig,
     onEvent: () => {},
     isTrustedActor: true,
+    conversationId: "conv-test",
+    userMessageId: "msg-test",
+    logger: {
+      warn: () => {},
+    } as unknown as DefaultMemoryRetrievalDeps["logger"],
     ...overrides,
   };
 }
@@ -121,12 +161,14 @@ beforeEach(() => {
   resetPluginRegistryForTests();
   readPkbContextMock.mockReset();
   readNowContextMock.mockReset();
+  updateMessageMetadataMock.mockReset();
+  recordMemoryRecallLogMock.mockReset();
   readPkbContextMock.mockImplementation(() => "pkb-default");
   readNowContextMock.mockImplementation(() => "now-default");
 });
 
 describe("runDefaultMemoryRetrieval", () => {
-  test("returns PKB, NOW, and a single graph block when the actor is trusted", async () => {
+  test("returns PKB, NOW, and the graph result when the actor is trusted", async () => {
     const { memory, prepareMemoryMock } = makeFakeGraphMemory();
     const deps = makeDeps({ graphMemory: memory, isTrustedActor: true });
 
@@ -134,33 +176,70 @@ describe("runDefaultMemoryRetrieval", () => {
 
     expect(result.pkbContent).toBe("pkb-default");
     expect(result.nowContent).toBe("now-default");
-    expect(result.memoryGraphBlocks).toHaveLength(1);
     expect(prepareMemoryMock).toHaveBeenCalledTimes(1);
-
-    const payload = asDefaultGraphPayload(result.memoryGraphBlocks);
-    expect(payload).not.toBeNull();
-    expect(payload?.kind).toBe(DEFAULT_MEMORY_GRAPH_KIND);
-    // The default retriever forwards the graph-memory return value
-    // verbatim under `payload.result` — consumers in the agent loop
-    // rely on that identity.
-    expect(payload?.result.mode).toBe("none");
+    // The default retriever forwards the graph-memory return value verbatim
+    // under `graphResult` — consumers in the agent loop rely on that identity.
+    expect(result.graphResult).not.toBeNull();
+    expect(result.graphResult?.mode).toBe("none");
   });
 
-  test("skips graph retrieval for untrusted actors", async () => {
+  test("skips graph retrieval and side effects for untrusted actors", async () => {
     const { memory, prepareMemoryMock } = makeFakeGraphMemory();
     const deps = makeDeps({ graphMemory: memory, isTrustedActor: false });
 
     const result = await runDefaultMemoryRetrieval(makeMemoryArgs(), deps);
 
     expect(prepareMemoryMock).not.toHaveBeenCalled();
-    expect(result.memoryGraphBlocks).toEqual([]);
+    expect(result.graphResult).toBeNull();
     expect(result.pkbContent).toBe("pkb-default");
     expect(result.nowContent).toBe("now-default");
+    expect(recordMemoryRecallLogMock).not.toHaveBeenCalled();
+    expect(updateMessageMetadataMock).not.toHaveBeenCalled();
+  });
+
+  test("persists injected block, recall log, and emits memory_recalled", async () => {
+    const received: ServerMessage[] = [];
+    const { memory } = makeFakeGraphMemory({
+      injectedBlockText: "injected-block",
+      metrics: makeMetrics(),
+    });
+    const deps = makeDeps({
+      graphMemory: memory,
+      onEvent: (msg) => received.push(msg),
+      userMessageId: "msg-42",
+      conversationId: "conv-42",
+    });
+
+    await runDefaultMemoryRetrieval(makeMemoryArgs(), deps);
+
+    expect(updateMessageMetadataMock).toHaveBeenCalledWith("msg-42", {
+      memoryInjectedBlock: "injected-block",
+    });
+    expect(recordMemoryRecallLogMock).toHaveBeenCalledTimes(1);
+    const logEntry = recordMemoryRecallLogMock.mock.calls[0]?.[0] as {
+      conversationId: string;
+      reason: string;
+    };
+    expect(logEntry.conversationId).toBe("conv-42");
+    expect(logEntry.reason).toBe("graph:none");
+    expect(received).toHaveLength(1);
+    expect(received[0]?.type).toBe("memory_recalled");
+  });
+
+  test("skips metadata persist when no block text is injected", async () => {
+    const { memory } = makeFakeGraphMemory({ injectedBlockText: null });
+    const deps = makeDeps({ graphMemory: memory });
+
+    await runDefaultMemoryRetrieval(makeMemoryArgs(), deps);
+
+    expect(updateMessageMetadataMock).not.toHaveBeenCalled();
+    // The recall log is still written even without an injected block.
+    expect(recordMemoryRecallLogMock).toHaveBeenCalledTimes(1);
   });
 
   test("propagates errors from prepareMemory rather than swallowing them", async () => {
     // Memory is critical — failures must surface to the caller (the agent
-    // loop) rather than silently degrading to an empty memory block.
+    // loop) rather than silently degrading to an empty graph result.
     const failingPrepare = mock(
       (
         _msgs: Message[],
@@ -191,26 +270,6 @@ describe("runDefaultMemoryRetrieval", () => {
   });
 });
 
-describe("asDefaultGraphPayload", () => {
-  test("returns null when the blocks array is empty", () => {
-    expect(asDefaultGraphPayload([])).toBeNull();
-  });
-
-  test("returns null when the first block lacks the default discriminator", () => {
-    expect(asDefaultGraphPayload([{ kind: "custom" }])).toBeNull();
-    expect(asDefaultGraphPayload([{}])).toBeNull();
-    expect(asDefaultGraphPayload([null])).toBeNull();
-  });
-
-  test("narrows blocks whose first entry carries the default discriminator", () => {
-    const payload = {
-      kind: DEFAULT_MEMORY_GRAPH_KIND,
-      result: { mode: "per-turn" } as never,
-    };
-    expect(asDefaultGraphPayload([payload])).toBe(payload);
-  });
-});
-
 describe("memoryRetrieval pipeline — default vs custom plugin", () => {
   test("default (no plugins registered) matches current retrieval exactly", async () => {
     const deps = makeDeps();
@@ -232,9 +291,8 @@ describe("memoryRetrieval pipeline — default vs custom plugin", () => {
 
     expect(terminalViaPipeline.pkbContent).toBe(terminalDirect.pkbContent);
     expect(terminalViaPipeline.nowContent).toBe(terminalDirect.nowContent);
-    expect(terminalViaPipeline.memoryGraphBlocks).toHaveLength(
-      terminalDirect.memoryGraphBlocks.length,
-    );
+    expect(terminalViaPipeline.graphResult).not.toBeNull();
+    expect(terminalDirect.graphResult).not.toBeNull();
   });
 
   test("with the default plugin registered, pipeline still produces default output", async () => {
@@ -253,19 +311,17 @@ describe("memoryRetrieval pipeline — default vs custom plugin", () => {
 
     expect(result.pkbContent).toBe("pkb-default");
     expect(result.nowContent).toBe("now-default");
-    expect(result.memoryGraphBlocks).toHaveLength(1);
-    expect(asDefaultGraphPayload(result.memoryGraphBlocks)).not.toBeNull();
+    expect(result.graphResult).not.toBeNull();
   });
 
-  test("custom plugin can replace all three sources via short-circuit", async () => {
-    const customBlock = { kind: "custom.source", text: "replacement" };
+  test("custom plugin can replace all sources via short-circuit", async () => {
     const customMiddleware: Middleware<MemoryArgs, MemoryResult> =
       async function customRetriever() {
         // Skip `next` entirely — the terminal never runs.
         return {
           pkbContent: "pkb-custom",
           nowContent: "now-custom",
-          memoryGraphBlocks: [customBlock],
+          graphResult: null,
         };
       };
 
@@ -292,14 +348,10 @@ describe("memoryRetrieval pipeline — default vs custom plugin", () => {
 
     expect(result.pkbContent).toBe("pkb-custom");
     expect(result.nowContent).toBe("now-custom");
-    expect(result.memoryGraphBlocks).toEqual([customBlock]);
+    expect(result.graphResult).toBeNull();
     // The terminal never ran, so the stubbed readers were NOT invoked.
     expect(readPkbContextMock).not.toHaveBeenCalled();
     expect(readNowContextMock).not.toHaveBeenCalled();
-    // And `asDefaultGraphPayload` must return null because the custom
-    // plugin supplied a block without the default discriminator — this is
-    // what drives the agent-loop escape hatch.
-    expect(asDefaultGraphPayload(result.memoryGraphBlocks)).toBeNull();
   });
 
   test("timeout: terminal that hangs past the budget fails with PluginTimeoutError", async () => {
@@ -398,7 +450,7 @@ describe("memoryRetrieval pipeline — default vs custom plugin", () => {
     expect(capturedSignal!.aborted).toBe(true);
   });
 
-  test("onEvent is invoked by the default retriever's terminal path", async () => {
+  test("onEvent is forwarded into the default retriever's terminal path", async () => {
     const received: ServerMessage[] = [];
     const { memory } = makeFakeGraphMemory();
     const deps = makeDeps({
@@ -409,10 +461,9 @@ describe("memoryRetrieval pipeline — default vs custom plugin", () => {
 
     await runDefaultMemoryRetrieval(makeMemoryArgs(), deps);
 
-    // The fake graph doesn't emit events, but the event sink must be
-    // forwarded intact so the real retriever can use it. Verify by
-    // reaching into the mock assertion above (prepareMemoryMock called
-    // with `onEvent`).
+    // The fake graph emits no events and reports no metrics, so no
+    // `memory_recalled` event is produced — but the sink must be forwarded
+    // intact so the real retriever can use it.
     expect(received).toEqual([]);
   });
 });
