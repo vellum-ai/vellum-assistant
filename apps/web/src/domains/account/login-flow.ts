@@ -1,4 +1,5 @@
-import { sanitizeReturnTo } from "@/domains/account/return-to";
+import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
+import { buildNavigationState } from "@/lib/navigation/build-state";
 import { routes } from "@/utils/routes";
 
 export const PROVIDER_ID = "workos-oidc";
@@ -49,11 +50,7 @@ export function resolvePostLoginDestination(
   destination: string;
   requiresFullPageNavigation: boolean;
 } {
-  const destination = sanitizeReturnTo(returnTo, fallback);
-  return {
-    destination,
-    requiresFullPageNavigation: requiresFullPageNavigation(destination),
-  };
+  return resolvePostAuthDestination({ returnTo, fallback, authIntent: "login" });
 }
 
 export function resolvePostAuthDestination({
@@ -68,11 +65,15 @@ export function resolvePostAuthDestination({
   destination: string;
   requiresFullPageNavigation: boolean;
 } {
-  if (authIntent === "signup") {
-    return {
-      destination: routes.onboarding.privacy,
-      requiresFullPageNavigation: false,
-    };
-  }
-  return resolvePostLoginDestination(returnTo, fallback);
+  const decision = resolveNavigation(buildNavigationState(), {
+    kind: "post-auth",
+    authIntent,
+    returnTo,
+    fallback,
+  });
+  const destination = decision.action === "redirect" ? decision.to : fallback;
+  return {
+    destination,
+    requiresFullPageNavigation: requiresFullPageNavigation(destination),
+  };
 }

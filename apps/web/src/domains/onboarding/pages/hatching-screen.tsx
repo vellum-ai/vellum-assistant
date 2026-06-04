@@ -21,29 +21,17 @@ import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-lay
 import { extractErrorMessage } from "@/utils/api-errors";
 import { isLocalMode, loadLockfile, setSelectedAssistantId, saveLockfileAssistant, primeLocalGatewayConnection, getLocalGatewayUrl } from "@/lib/local-mode";
 import { hatchLocalAssistant } from "@/runtime/local-mode-host";
-import { getOnboardingEntrypoint } from "@/domains/onboarding/gate";
 import { applyPendingProviderKey } from "@/domains/onboarding/provider-key";
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import {
-  readAiDataConsent,
-  readOnboardingCompleted,
   readSelectedVersion,
-  readTosAccepted,
   useOnboardingCompleted,
   writeSelectedVersion,
 } from "@/domains/onboarding/prefs";
-import {
-  clearPrivacyConsent,
-  hasRecentPrivacyConsent,
-  markPrivacyConsent,
-} from "@/domains/onboarding/signals";
+import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
+import { buildNavigationState } from "@/lib/navigation/build-state";
 import { isNativePlatform } from "@/runtime/native-auth";
 import { useAuthStore } from "@/stores/auth-store";
-import {
-  isAuthenticated,
-  isSessionSettled,
-  type SessionStatus,
-} from "@/stores/session-status";
 import { routes } from "@/utils/routes";
 
 const POLL_INTERVAL_MS = 3000;
@@ -90,27 +78,14 @@ export type HatchGateDecision =
   | { kind: "redirect"; to: string };
 
 export function decideHatchGate(input: {
-  sessionStatus: SessionStatus;
   isReplay: boolean;
-  onboardingCompleted: boolean;
-  tosAccepted: boolean;
-  aiDataConsentAccepted: boolean;
-  cameFromPrivacyScreen: boolean;
 }): HatchGateDecision {
-  if (!isSessionSettled(input.sessionStatus)) return { kind: "wait" };
-  if (!isAuthenticated(input.sessionStatus)) {
-    return { kind: "redirect", to: routes.account.login };
-  }
-  if (input.onboardingCompleted && !input.isReplay) {
-    return { kind: "redirect", to: routes.assistant };
-  }
-  // Consent (incl. local mode): the privacy screen is now shown for every
-  // hosting option, so require it for local hatches too. The privacy screen
-  // persists tosAccepted/aiDataConsent and marks the in-memory consent signal.
-  const persistedConsent = input.tosAccepted && input.aiDataConsentAccepted;
-  if (!input.cameFromPrivacyScreen && !persistedConsent) {
-    return { kind: "redirect", to: getOnboardingEntrypoint() };
-  }
+  const decision = resolveNavigation(
+    buildNavigationState({ isReplay: input.isReplay }),
+    { kind: "hatch-gate" },
+  );
+  if (decision.action === "redirect") return { kind: "redirect", to: decision.to };
+  if (decision.action === "wait") return { kind: "wait" };
   return { kind: "proceed" };
 }
 
@@ -158,15 +133,7 @@ export function HatchingScreen() {
 
 
   useEffect(() => {
-    const cameFromPrivacyScreen = hasRecentPrivacyConsent(userId);
-    const decision = decideHatchGate({
-      sessionStatus,
-      isReplay,
-      onboardingCompleted: readOnboardingCompleted(),
-      tosAccepted: readTosAccepted(),
-      aiDataConsentAccepted: readAiDataConsent(),
-      cameFromPrivacyScreen,
-    });
+    const decision = decideHatchGate({ isReplay });
     if (decision.kind === "redirect") {
       void navigate(decision.to, { replace: true });
       return;
@@ -189,7 +156,6 @@ export function HatchingScreen() {
       } catch (err) {
         captureError(err, { context: "onboarding_mark_completed" });
       }
-      markPrivacyConsent(userId);
       setDisplayProgress(1);
       displayProgressRef.current = 1;
       segmentStartRef.current = 1;
@@ -206,7 +172,6 @@ export function HatchingScreen() {
             } catch (err) {
               captureError(err, { context: "hatching_mark_onboarding_completed_native" });
             }
-            clearPrivacyConsent();
             // Native flow skips the pre-chat screen, so there's no
             // typed message to drive the auto-greet gate. Mark the
             // lifecycle one-shot so the destination chat mount shows

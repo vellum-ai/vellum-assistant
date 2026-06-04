@@ -14,13 +14,17 @@ import {
   syncPlatformAssistantsToLockfile,
 } from "@/lib/local-mode";
 import { isNativePlatform } from "@/runtime/native-auth";
-import { resolveLocalOnboardingRoute } from "@/utils/local-onboarding-route";
+import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
+import { buildNavigationState } from "@/lib/navigation/build-state";
 import { routes } from "@/utils/routes";
 
 async function getPostRetireRoute(): Promise<string> {
   if (isNativePlatform()) return routes.onboarding.prechat;
-  if (isLocalMode()) return resolveLocalOnboardingRoute();
-  return routes.onboarding.privacy;
+  const decision = resolveNavigation(
+    buildNavigationState(),
+    { kind: "route-guard", pathname: routes.assistant },
+  );
+  return decision.action === "redirect" ? decision.to : routes.onboarding.privacy;
 }
 
 interface RetireAssistantProps {

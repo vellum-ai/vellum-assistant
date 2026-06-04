@@ -213,7 +213,7 @@ function probePlatformSession(
   const probeId = ++latestPlatformProbe;
   const isStale = (): boolean => probeId !== latestPlatformProbe;
   platformProbeSettled = getSession()
-    .then((result) => {
+    .then(async (result) => {
       if (isStale()) return;
       if (result.ok && result.data.user) {
         set(
@@ -224,6 +224,20 @@ function probePlatformSession(
               }
             : { platformSession: "present" },
         );
+        // Sync platform assistants to lockfile so hasAssistants() reflects
+        // all known assistants (local + platform) by the time any routing
+        // decision runs. This closes the gap where a user creates a platform
+        // assistant on vellum.ai and then opens the desktop app.
+        if (isLocalMode()) {
+          try {
+            const apiAssistants = await listAssistants();
+            if (!isStale() && apiAssistants.ok) {
+              await syncPlatformAssistantsToLockfile(apiAssistants.data);
+            }
+          } catch {
+            // Sync failed — continue with cached lockfile data
+          }
+        }
       } else if (options.clearOnFailure) {
         set({ platformSession: "absent" });
       }
@@ -236,10 +250,6 @@ function probePlatformSession(
     })
     .finally(() => {
       if (isStale()) return;
-      // Settle the initial boot probe: when neither branch above confirmed or
-      // cleared a session (init paths don't clear on failure), the first
-      // `"unknown"` resolves to `"absent"`. A probe that already settled
-      // `"present"`/`"absent"` is left untouched.
       set((state) =>
         state.platformSession === "unknown"
           ? { platformSession: "absent" }
