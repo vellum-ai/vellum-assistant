@@ -1,13 +1,16 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { createElement } from "react";
 
+import * as schedulesApi from "@/domains/settings/api/schedules";
 import { routes } from "@/utils/routes";
 
 import type {
   Schedule,
   ScheduleRun,
+  ScheduleUsageSummary,
 } from "@/domains/settings/types/schedules";
+import type { ScheduleUsageSummaryRange } from "@/domains/settings/api/schedules";
 
 const navigateCalls: string[] = [];
 const navigateMock = (to: string) => {
@@ -19,7 +22,21 @@ mock.module("react-router", () => ({
   useParams: () => ({}),
 }));
 
+const fetchScheduleUsageSummaryMock = mock(
+  async (
+    _assistantId: string,
+    _range: ScheduleUsageSummaryRange,
+  ): Promise<ScheduleUsageSummary[]> => [],
+);
+let nowSpy: ReturnType<typeof spyOn> | null = null;
+
+mock.module("@/domains/settings/api/schedules", () => ({
+  ...schedulesApi,
+  fetchScheduleUsageSummary: fetchScheduleUsageSummaryMock,
+}));
+
 const {
+  scheduleUsageSummaryQueryOptions,
   canOpenScheduleRunConversation,
   canOpenScheduleSourceConversation,
   formatScheduleCost,
@@ -30,6 +47,9 @@ const {
 afterEach(() => {
   cleanup();
   navigateCalls.length = 0;
+  fetchScheduleUsageSummaryMock.mockClear();
+  nowSpy?.mockRestore();
+  nowSpy = null;
 });
 
 function schedule(
@@ -100,6 +120,42 @@ describe("formatScheduleCost", () => {
   test("falls back when cost is missing or invalid", () => {
     expect(formatScheduleCost(null)).toBe("—");
     expect(formatScheduleCost(Number.NaN)).toBe("—");
+  });
+});
+
+describe("scheduleUsageSummaryQueryOptions", () => {
+  test("resolves the usage window when the query fetches", async () => {
+    const firstNow = Date.UTC(2026, 5, 2, 18, 30, 0);
+    const secondNow = firstNow + 60_000;
+    nowSpy = spyOn(Date, "now").mockReturnValue(firstNow);
+    const options = scheduleUsageSummaryQueryOptions("assistant-1", "UTC");
+
+    expect(options.queryKey).toEqual([
+      "schedule-usage-summary",
+      "assistant-1",
+      "UTC",
+    ]);
+
+    await options.queryFn();
+    nowSpy.mockReturnValue(secondNow);
+    await options.queryFn();
+
+    expect(fetchScheduleUsageSummaryMock.mock.calls).toEqual([
+      [
+        "assistant-1",
+        {
+          from: Date.UTC(2026, 4, 27, 0, 0, 0),
+          to: firstNow,
+        },
+      ],
+      [
+        "assistant-1",
+        {
+          from: Date.UTC(2026, 4, 27, 0, 0, 0),
+          to: secondNow,
+        },
+      ],
+    ]);
   });
 });
 

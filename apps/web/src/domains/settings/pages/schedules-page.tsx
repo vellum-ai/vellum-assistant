@@ -689,6 +689,26 @@ export type ScheduleRowUsage =
   | { status: "error" }
   | { status: "ready"; summary: ScheduleUsageSummary };
 
+export function scheduleUsageSummaryQueryOptions(
+  assistantId: string | undefined,
+  tz: string,
+) {
+  return {
+    queryKey: ["schedule-usage-summary", assistantId, tz],
+    queryFn: () => {
+      if (!assistantId) {
+        return Promise.resolve<ScheduleUsageSummary[]>([]);
+      }
+      return fetchScheduleUsageSummary(
+        assistantId,
+        resolveScheduleUsageWindow(tz),
+      );
+    },
+    enabled: !!assistantId,
+    staleTime: 10_000,
+  };
+}
+
 function zeroScheduleUsageSummary(scheduleId: string): ScheduleUsageSummary {
   return {
     scheduleId,
@@ -1166,22 +1186,11 @@ export function SchedulesPage() {
     staleTime: 10_000,
   });
 
-  const usageWindow = useMemo(() => resolveScheduleUsageWindow(tz), [tz]);
   const {
     data: usageSummaries,
     isLoading: isUsageSummaryLoading,
     isError: isUsageSummaryError,
-  } = useQuery({
-    queryKey: [
-      "schedule-usage-summary",
-      assistantId,
-      usageWindow.from,
-      usageWindow.to,
-    ],
-    queryFn: () => fetchScheduleUsageSummary(assistantId!, usageWindow),
-    enabled: !!assistantId,
-    staleTime: 10_000,
-  });
+  } = useQuery(scheduleUsageSummaryQueryOptions(assistantId, tz));
 
   const {
     data: heartbeatConfig,
