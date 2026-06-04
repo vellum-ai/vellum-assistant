@@ -286,6 +286,11 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
   const displayCreditTier: CreditTierEnum | null =
     selectedCreditTier === undefined ? currentCreditTier : selectedCreditTier;
 
+  // Folds into TierPicker's headline Total. `priceForCredit` returns 0 for "No
+  // bundle" and for catalogs without credit_tiers (empty `creditTiers`), so the
+  // total stays byte-identical to before when the feature is off.
+  const selectedCreditPriceCents = priceForCredit(displayCreditTier);
+
   // For an active Pro subscriber, disable any storage tier strictly below the
   // current selection — downgrading storage is not allowed. TierPicker honors
   // the `disabled` flag via `isTierDisabled`; machine tiers stay fully enabled
@@ -821,6 +826,7 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                                 selectedStorageTier={selectedStorageTier}
                                 onMachineTierChange={setSelectedMachineTier}
                                 onStorageTierChange={setSelectedStorageTier}
+                                creditPriceCents={selectedCreditPriceCents}
                               />
                               {creditTiersEnabled && (
                                 <CreditBundlePicker
@@ -869,6 +875,10 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                                   onStorageTierChange={setSelectedStorageTier}
                                   currentMachinePriceCents={currentMachinePrice}
                                   currentStoragePriceCents={currentStoragePrice}
+                                  creditPriceCents={selectedCreditPriceCents}
+                                  currentCreditPriceCents={
+                                    currentCreditPriceCents
+                                  }
                                 />
                                 {creditTiersEnabled && (
                                   <CreditBundlePicker
