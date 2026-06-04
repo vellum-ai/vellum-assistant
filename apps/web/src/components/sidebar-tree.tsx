@@ -2,7 +2,7 @@ import { ChevronRight, type LucideIcon } from "lucide-react";
 import { Fragment } from "react";
 import { useLocation, useNavigate } from "react-router";
 
-import { SideMenu } from "@vellum/design-library";
+import { SideMenu } from "@vellumai/design-library";
 
 export interface SidebarItem {
   id: string;

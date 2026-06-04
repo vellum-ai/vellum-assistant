@@ -3,12 +3,12 @@ import { useCallback, useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Card } from "@vellum/design-library/components/card";
-import { Notice } from "@vellum/design-library/components/notice";
-import { toast } from "@vellum/design-library/components/toast";
-import { Typography } from "@vellum/design-library/components/typography";
 import { referralCodesMeRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
+import { Button } from "@vellumai/design-library/components/button";
+import { Card } from "@vellumai/design-library/components/card";
+import { Notice } from "@vellumai/design-library/components/notice";
+import { toast } from "@vellumai/design-library/components/toast";
+import { Typography } from "@vellumai/design-library/components/typography";
 
 /** Anchor ID on the referral panel so external links can scroll to it. */
 const REFERRAL_PANEL_ANCHOR_ID = "settings-referral-panel";

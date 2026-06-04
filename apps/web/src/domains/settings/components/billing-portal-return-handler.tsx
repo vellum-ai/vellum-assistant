@@ -1,20 +1,20 @@
-import { useNavigate, useSearchParams } from "react-router";
 import { useEffect, useRef } from "react";
+import { useNavigate, useSearchParams } from "react-router";
 
 import { useQueryClient } from "@tanstack/react-query";
 
-import { toast } from "@vellum/design-library/components/toast";
 import {
-  organizationsBillingSubscriptionRetrieveOptions,
-  organizationsBillingSubscriptionRetrieveQueryKey,
-} from "@/generated/api/@tanstack/react-query.gen";
-import {
-  clearPortalReturnSnapshot,
-  formatGraceDate,
-  type PortalReturnSnapshot,
-  readPortalReturnSnapshot,
+    clearPortalReturnSnapshot,
+    formatGraceDate,
+    type PortalReturnSnapshot,
+    readPortalReturnSnapshot,
 } from "@/domains/settings/hooks/use-billing-portal-session";
+import {
+    organizationsBillingSubscriptionRetrieveOptions,
+    organizationsBillingSubscriptionRetrieveQueryKey,
+} from "@/generated/api/@tanstack/react-query.gen";
 import { routes } from "@/utils/routes";
+import { toast } from "@vellumai/design-library/components/toast";
 
 const POLL_INTERVAL_MS = 1000;
 const POLL_TIMEOUT_MS = 15000;

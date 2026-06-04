@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 
-import { PortalContainerProvider } from "@vellum/design-library/utils/portal-container";
+import { PortalContainerProvider } from "@vellumai/design-library/utils/portal-container";
 import { CreatureFooter } from "./creature-footer";
 
 /**

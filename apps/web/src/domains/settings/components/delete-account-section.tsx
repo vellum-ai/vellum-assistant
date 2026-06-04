@@ -2,19 +2,19 @@ import { useMutation } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { Button } from "@vellum/design-library/components/button";
-import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
-import { Notice } from "@vellum/design-library/components/notice";
-import { toast } from "@vellum/design-library/components/toast";
 import { DetailCard } from "@/components/detail-card";
 import { userDeletionRequestCreateMutation } from "@/generated/api/@tanstack/react-query.gen";
 import {
-  useActiveAssistantLifecycleIsLoading,
-  usePlatformGate,
+    useActiveAssistantLifecycleIsLoading,
+    usePlatformGate,
 } from "@/hooks/use-platform-gate";
 import { hardNavigate } from "@/lib/auth/hard-navigate";
 import { useAuthStore } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
+import { Button } from "@vellumai/design-library/components/button";
+import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
+import { Notice } from "@vellumai/design-library/components/notice";
+import { toast } from "@vellumai/design-library/components/toast";
 
 export function DeleteAccountSection() {
   // platformHostedOnly: deleting a Vellum platform account from a UI that

@@ -1,7 +1,7 @@
-import { Link } from "react-router";
 import { Mail } from "lucide-react";
+import { Link } from "react-router";
 
-import { Button } from "@vellum/design-library";
+import { Button } from "@vellumai/design-library";
 
 import { AppleLogo } from "@/components/icons/apple-logo";
 import { GoogleLogo } from "@/components/icons/google-logo";

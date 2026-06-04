@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
 
-import { Button, Input, Modal } from "@vellum/design-library";
+import { Button, Input, Modal } from "@vellumai/design-library";
 
 /**
  * In-app rename modal for a single conversation. Replaces the browser's

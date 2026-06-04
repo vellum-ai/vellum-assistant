@@ -5,20 +5,20 @@ import { Navigate, useNavigate } from "react-router";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Card } from "@vellum/design-library/components/card";
-import { Notice } from "@vellum/design-library/components/notice";
-import { Typography } from "@vellum/design-library/components/typography";
 import {
-  organizationsBillingSubscriptionRetrieveOptions,
-  organizationsBillingSubscriptionRetrieveQueryKey,
+    organizationsBillingSubscriptionRetrieveOptions,
+    organizationsBillingSubscriptionRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
 import {
-  useActiveAssistantIsPlatformHosted,
-  useActiveAssistantLifecycleIsLoading,
-  usePlatformGate,
+    useActiveAssistantIsPlatformHosted,
+    useActiveAssistantLifecycleIsLoading,
+    usePlatformGate,
 } from "@/hooks/use-platform-gate";
 import { routes } from "@/utils/routes";
+import { Button } from "@vellumai/design-library/components/button";
+import { Card } from "@vellumai/design-library/components/card";
+import { Notice } from "@vellumai/design-library/components/notice";
+import { Typography } from "@vellumai/design-library/components/typography";
 
 /**
  * Stripe-redirect-vs-webhook-delivery race window.

@@ -26,7 +26,7 @@ const mockTooltip = ({ content, children }: Record<string, unknown>) =>
     children as ReactNode,
   );
 
-mock.module("@vellum/design-library", () => ({
+mock.module("@vellumai/design-library", () => ({
   Popover: {
     Root: passthrough,
     Trigger: mockTrigger,
@@ -35,12 +35,12 @@ mock.module("@vellum/design-library", () => ({
   Tooltip: mockTooltip,
 }));
 
+import {
+    CollapsedGroupIcon,
+    getGroupIndicatorState,
+} from "@/domains/chat/components/collapsed-group-icon";
 import type { Conversation } from "@/types/conversation-types";
 import { Pin } from "lucide-react";
-import {
-  CollapsedGroupIcon,
-  getGroupIndicatorState,
-} from "@/domains/chat/components/collapsed-group-icon";
 
 function makeConversation(
   overrides: Partial<Conversation> & { conversationId: string },

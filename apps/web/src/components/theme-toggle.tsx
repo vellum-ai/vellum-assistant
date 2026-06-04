@@ -1,16 +1,16 @@
 import { Heart, Monitor, Moon, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { cn, SegmentControl } from "@vellum/design-library";
+import { cn, SegmentControl } from "@vellumai/design-library";
 
+import {
+    applyThemePreference,
+    readStoredThemePreference,
+    type ThemePreference,
+    writeStoredThemePreference,
+} from "@/domains/settings/utils/theme-preferences";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { watchDeviceSetting } from "@/utils/device-settings";
-import {
-  applyThemePreference,
-  readStoredThemePreference,
-  type ThemePreference,
-  writeStoredThemePreference,
-} from "@/domains/settings/utils/theme-preferences";
 
 const BASE_THEME_OPTIONS: ReadonlyArray<{
   value: ThemePreference;

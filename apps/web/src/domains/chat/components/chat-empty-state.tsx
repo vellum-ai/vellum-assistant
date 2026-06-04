@@ -1,8 +1,8 @@
 
 import { type ReactNode } from "react";
 
-import { Typography } from "@vellum/design-library";
 import { DEFAULT_EMPTY_STATE_GREETING } from "@/domains/chat/utils/empty-state-constants";
+import { Typography } from "@vellumai/design-library";
 
 /**
  * Empty-state hero for a fresh chat: optional avatar and greeting headline.

@@ -1,7 +1,7 @@
 /**
  * Tests for `RenameConversationDialog`.
  *
- * The component is a thin composition over `@vellum/design-library`'s
+ * The component is a thin composition over `@vellumai/design-library`'s
  * `Modal` primitive (Radix Dialog under the hood). We mount it via
  * `@testing-library/react` (backed by happy-dom — see
  * `apps/web/test-setup.ts`) and exercise the user-facing behaviors that

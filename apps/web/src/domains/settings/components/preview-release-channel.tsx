@@ -1,36 +1,36 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  AlertTriangle,
-  ChevronDown,
-  Loader2,
-  RefreshCw,
-  RotateCcw,
-  Rocket,
+    AlertTriangle,
+    ChevronDown,
+    Loader2,
+    RefreshCw,
+    Rocket,
+    RotateCcw,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Collapsible } from "@vellum/design-library/components/collapsible";
-import { Dropdown } from "@vellum/design-library/components/dropdown";
-import { Modal } from "@vellum/design-library/components/modal";
-import { Notice } from "@vellum/design-library/components/notice";
-import { Radio, RadioGroup } from "@vellum/design-library/components/radio";
-import { Tag } from "@vellum/design-library/components/tag";
-import { toast } from "@vellum/design-library/components/toast";
 import {
-  assistantsReleaseChannelPreviewOptInCreateMutation,
-  assistantsReleaseChannelPreviewOptOutCreateMutation,
-  assistantsReleaseChannelRetrieveOptions,
-  assistantsReleaseChannelRetrieveQueryKey,
-  assistantsRetrieveQueryKey,
+    assistantsReleaseChannelPreviewOptInCreateMutation,
+    assistantsReleaseChannelPreviewOptOutCreateMutation,
+    assistantsReleaseChannelRetrieveOptions,
+    assistantsReleaseChannelRetrieveQueryKey,
+    assistantsRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type {
-  ModeEnum,
-  PreviewSafetyBackup,
-  ReleaseChannelStatus,
+    ModeEnum,
+    PreviewSafetyBackup,
+    ReleaseChannelStatus,
 } from "@/generated/api/types.gen";
-import { extractErrorMessage } from "@/utils/api-errors";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { extractErrorMessage } from "@/utils/api-errors";
+import { Button } from "@vellumai/design-library/components/button";
+import { Collapsible } from "@vellumai/design-library/components/collapsible";
+import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Modal } from "@vellumai/design-library/components/modal";
+import { Notice } from "@vellumai/design-library/components/notice";
+import { Radio, RadioGroup } from "@vellumai/design-library/components/radio";
+import { Tag } from "@vellumai/design-library/components/tag";
+import { toast } from "@vellumai/design-library/components/toast";
 
 interface PreviewReleaseChannelProps {
   assistantId: string;

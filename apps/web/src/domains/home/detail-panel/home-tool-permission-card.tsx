@@ -1,5 +1,5 @@
-import { Typography } from "@vellum/design-library";
 import type { FeedItem } from "@vellumai/assistant-api";
+import { Typography } from "@vellumai/design-library";
 
 type CredentialStatus =
   | "revoked"

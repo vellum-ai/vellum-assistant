@@ -1,44 +1,44 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  CheckCircle,
-  CloudOff,
-  Globe,
-  LayoutGrid,
-  Loader2,
-  Package,
-  Puzzle,
-  Sparkles,
-  Terminal,
-  TriangleAlert,
-  User,
-  X,
-  Zap,
+    CheckCircle,
+    CloudOff,
+    Globe,
+    LayoutGrid,
+    Loader2,
+    Package,
+    Puzzle,
+    Sparkles,
+    Terminal,
+    TriangleAlert,
+    User,
+    X,
+    Zap,
 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
-import { Button, Card, ConfirmDialog } from "@vellum/design-library";
-import { useDebouncedValue } from "@/hooks/use-debounced-value";
-import { useIsMobile } from "@/hooks/use-is-mobile";
-import { getLocalBool, setLocalBool } from "@/utils/local-settings";
 import { CategorySidebar } from "@/domains/intelligence/components/skills/category-sidebar";
-import { FilterBar } from "@/domains/intelligence/components/skills/skill-filters";
 import { SkillDetail } from "@/domains/intelligence/components/skills/skill-detail";
 import { SkillDetailMobile } from "@/domains/intelligence/components/skills/skill-detail-mobile";
+import { FilterBar } from "@/domains/intelligence/components/skills/skill-filters";
 import { SkillRow } from "@/domains/intelligence/components/skills/skill-row";
-import {
-  skillsGetOptions,
-  skillsGetQueryKey,
-  skillsByIdDeleteMutation,
-} from "@/generated/daemon/@tanstack/react-query.gen";
-import { type Options } from "@/generated/daemon/sdk.gen";
-import type { SkillsGetData } from "@/generated/daemon/types.gen";
 import { installSkill } from "@/domains/intelligence/skills/install";
 import {
-  type SkillFilter,
-  type SkillInfo,
+    type SkillFilter,
+    type SkillInfo,
 } from "@/domains/intelligence/skills/types";
 import { useSkillCategories } from "@/domains/intelligence/skills/use-skill-categories";
 import { resolveFilterParams, sortSkills } from "@/domains/intelligence/skills/utils";
+import {
+    skillsByIdDeleteMutation,
+    skillsGetOptions,
+    skillsGetQueryKey,
+} from "@/generated/daemon/@tanstack/react-query.gen";
+import { type Options } from "@/generated/daemon/sdk.gen";
+import type { SkillsGetData } from "@/generated/daemon/types.gen";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { useIsMobile } from "@/hooks/use-is-mobile";
+import { getLocalBool, setLocalBool } from "@/utils/local-settings";
+import { Button, Card, ConfirmDialog } from "@vellumai/design-library";
 
 interface SkillsTabProps {
   assistantId: string;

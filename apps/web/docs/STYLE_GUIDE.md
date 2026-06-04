@@ -99,7 +99,7 @@ one domain, it belongs inside `domains/<name>/`.
 Reusable, domain-agnostic UI components live in `components/` for
 cross-domain shared UI. The design system (Button, Card, Modal, etc.)
 lives in `packages/design-library/` and is imported as
-`@vellum/design-library`. Components in `components/` must not import
+`@vellumai/design-library`. Components in `components/` must not import
 domain state or feature hooks.
 
 Domain-specific compositions of design library components (e.g. a
@@ -134,14 +134,14 @@ Reference: [Vite — resolve.alias](https://vite.dev/config/shared-options.html#
 
 Group imports in this order, separated by blank lines:
 
-1. **External packages** (`react`, `react-router`, `@vellum/design-library`, etc.)
+1. **External packages** (`react`, `react-router`, `@vellumai/design-library`, etc.)
 2. **Alias imports** (`@/domains/...`, `@/components/...`, `@/lib/...`)
 3. **Relative imports** (`./`, `../`)
 
 ```ts
 import { useCallback, useMemo } from "react";
 import { useParams } from "react-router";
-import { Button } from "@vellum/design-library";
+import { Button } from "@vellumai/design-library";
 
 import { useMessageStore } from "@/domains/messages/message-store";
 

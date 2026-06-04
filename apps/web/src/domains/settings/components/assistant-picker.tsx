@@ -1,10 +1,10 @@
 import { Check, Monitor } from "lucide-react";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Tag } from "@vellum/design-library/components/tag";
-import { toast } from "@vellum/design-library/components/toast";
 import { DetailCard } from "@/components/detail-card";
 import { useCurrentPlatformAssistant } from "@/hooks/use-current-platform-assistant";
+import { Button } from "@vellumai/design-library/components/button";
+import { Tag } from "@vellumai/design-library/components/tag";
+import { toast } from "@vellumai/design-library/components/toast";
 
 export function AssistantPicker() {
   const {

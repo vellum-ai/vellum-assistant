@@ -6,41 +6,41 @@
  */
 
 import {
-  queryOptions,
-  useMutation,
-  useQuery,
-  useQueryClient,
+    queryOptions,
+    useMutation,
+    useQuery,
+    useQueryClient,
 } from "@tanstack/react-query";
 import {
-  Check,
-  Copy,
-  Download,
-  FileIcon,
-  FileText,
-  FolderOpen,
-  Image as ImageIcon,
-  Loader2,
-  Pencil,
-  Video,
+    Check,
+    Copy,
+    Download,
+    FileIcon,
+    FileText,
+    FolderOpen,
+    Image as ImageIcon,
+    Loader2,
+    Pencil,
+    Video,
 } from "lucide-react";
 import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode,
+    useCallback,
+    useEffect,
+    useRef,
+    useState,
+    type ReactNode,
 } from "react";
 
-import { Button } from "@vellum/design-library/components/button";
-import {
-  workspaceFileContentGet,
-  workspaceFileGet,
-  workspaceWritePost,
-} from "@/generated/daemon/sdk.gen";
-import type { WorkspaceFileGetResponse } from "@/generated/daemon/types.gen";
 import { FileMarkdown, isMarkdown } from "@/components/file-markdown";
 import { isJson, prettifyJson } from "@/domains/workspace/utils/file-json";
 import { formatFileSize } from "@/domains/workspace/utils/format-file-size";
+import {
+    workspaceFileContentGet,
+    workspaceFileGet,
+    workspaceWritePost,
+} from "@/generated/daemon/sdk.gen";
+import type { WorkspaceFileGetResponse } from "@/generated/daemon/types.gen";
+import { Button } from "@vellumai/design-library/components/button";
 
 import type { WorkspaceViewMode } from "@/domains/workspace/components/workspace-browser";
 

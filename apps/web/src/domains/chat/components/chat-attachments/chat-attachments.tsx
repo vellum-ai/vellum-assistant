@@ -3,7 +3,7 @@ import { AlertCircle, Paperclip } from "lucide-react";
 import type { ChangeEvent, FC } from "react";
 import { useCallback, useRef, useState } from "react";
 
-import { Button } from "@vellum/design-library";
+import { Button } from "@vellumai/design-library";
 
 import { AttachmentChip } from "@/domains/chat/components/chat-attachments/attachment-chip";
 import { AttachmentLoadingChip } from "@/domains/chat/components/chat-attachments/attachment-loading-chip";

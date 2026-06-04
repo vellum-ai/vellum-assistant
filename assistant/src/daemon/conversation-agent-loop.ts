@@ -1914,7 +1914,7 @@ export async function runAgentLoopImpl(
     // loop is intentionally blind to. Durable persistence is signalled via
     // events; re-injection stays orchestrator-supplied for now.
     const midLoopCompaction: MidLoopCompaction = {
-      reinject: async () => {
+      postCompactionHook: async ({ history, turnContext }) => {
         // stripInjectionsForCompaction() unconditionally removed the existing
         // NOW.md block, so re-inject the current content regardless of whether
         // compaction actually ran.
@@ -1933,8 +1933,8 @@ export async function runAgentLoopImpl(
             ? null
             : injectionOpts.slackChronologicalMessages,
           mode: currentInjectionMode,
-          turnContext: buildPluginTurnContext(ctx, reqId),
-          history: ctx.messages,
+          turnContext,
+          history,
           graphMemory: ctx.graphMemory,
           isTrustedActor,
           logger: rlog,

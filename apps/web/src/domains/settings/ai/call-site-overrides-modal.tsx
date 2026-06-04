@@ -3,35 +3,35 @@ import { useCallback, useMemo, useRef, useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 
-import { Button } from "@vellum/design-library/components/button";
-import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
-import { Input } from "@vellum/design-library/components/input";
-import { Modal } from "@vellum/design-library/components/modal";
-import { toast } from "@vellum/design-library/components/toast";
-import type { ConfigLlmCallsitesGetResponse } from "@/generated/daemon/types.gen";
+import {
+    getDefaultModelForProvider,
+} from "@/assistant/llm-model-catalog";
 import { configLlmCallsitesGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
+import type { ConfigLlmCallsitesGetResponse } from "@/generated/daemon/types.gen";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
-import {
-  getDefaultModelForProvider,
-} from "@/assistant/llm-model-catalog";
+import { Button } from "@vellumai/design-library/components/button";
+import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
+import { Input } from "@vellumai/design-library/components/input";
+import { Modal } from "@vellumai/design-library/components/modal";
+import { toast } from "@vellumai/design-library/components/toast";
 
 import {
-  type CallSiteOverrideDraft,
-  INFERENCE_PROVIDERS,
+    type CallSiteOverrideDraft,
+    INFERENCE_PROVIDERS,
 } from "@/domains/settings/ai/ai-types";
+import { CUSTOM_SENTINEL, draftsEqual, isDraftActive } from "@/domains/settings/ai/call-site-helpers";
+import { CallSiteOverrideRow } from "@/domains/settings/ai/call-site-overrides-row";
 import {
-  profilePickerLabel,
-  visibleProfilesForPicker,
-  gateAutoProfile,
-  selectSeedProfileForOverride,
+    gateAutoProfile,
+    profilePickerLabel,
+    selectSeedProfileForOverride,
+    visibleProfilesForPicker,
 } from "@/domains/settings/ai/profile-pickers";
 import {
-  useDaemonConfigQuery,
-  useDaemonConfigMutation,
+    useDaemonConfigMutation,
+    useDaemonConfigQuery,
 } from "@/domains/settings/ai/use-daemon-config";
-import { CUSTOM_SENTINEL, isDraftActive, draftsEqual } from "@/domains/settings/ai/call-site-helpers";
-import { CallSiteOverrideRow } from "@/domains/settings/ai/call-site-overrides-row";
 
 // ---------------------------------------------------------------------------
 // Types

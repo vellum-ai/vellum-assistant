@@ -1,14 +1,14 @@
 import { Mail, MailOpen, MessageSquare, RotateCcw, Trash2 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 
-import { cn, Tooltip } from "@vellum/design-library";
 import { formatRelativeDate } from "@/utils/format-date";
-import { CATEGORY_STYLES } from "./home-feed-filter-bar";
 import type {
-  FeedItem,
-  FeedItemCategory,
-  FeedItemStatus,
+    FeedItem,
+    FeedItemCategory,
+    FeedItemStatus,
 } from "@vellumai/assistant-api";
+import { cn, Tooltip } from "@vellumai/design-library";
+import { CATEGORY_STYLES } from "./home-feed-filter-bar";
 
 function HoverIconButton({
   label,

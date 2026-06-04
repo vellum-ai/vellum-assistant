@@ -1,13 +1,13 @@
-import { useCallback, useState } from "react";
+import { Button, Tag, Typography } from "@vellumai/design-library";
 import {
-  CheckCircle,
-  CircleDot,
-  MessageSquare,
-  Quote,
-  Trash2,
-  User,
+    CheckCircle,
+    CircleDot,
+    MessageSquare,
+    Quote,
+    Trash2,
+    User,
 } from "lucide-react";
-import { Button, Tag, Typography } from "@vellum/design-library";
+import { useCallback, useState } from "react";
 
 import type { DocumentsByIdCommentsPostResponse } from "@/generated/daemon/types.gen";
 import { DocumentCommentForm } from "./document-comment-form";

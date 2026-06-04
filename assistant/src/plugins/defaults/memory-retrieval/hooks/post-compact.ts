@@ -28,17 +28,30 @@ import { stripHistoricalWebSearchResults } from "../../../../daemon/web-search-h
 import type { ConversationGraphMemory } from "../../../../memory/graph/conversation-graph-memory.js";
 import type { PluginLogger } from "../../../../plugin-api/types.js";
 import type { Message } from "../../../../providers/types.js";
+import type { TurnContext } from "../../../types.js";
 
 /**
- * Everything the hook needs in a single context: the resolved
- * {@link RuntimeInjectionOptions} (spread top-level so each field stays
- * individually addressable), the history to re-inject onto, and the
+ * The slice of the hook's context the agent loop supplies from its own working
+ * state. Re-injection inputs migrate loop-ward by growing this type; the loop
+ * hands the hook an object of this shape via
+ * {@link MidLoopCompaction.postCompactionHook}.
+ */
+export interface PostCompactionHookInput {
+  /** Compacted message history to re-inject onto. */
+  history: Message[];
+  /** Per-turn conversation context forwarded to the injector chain. */
+  turnContext?: TurnContext;
+}
+
+/**
+ * Everything the hook needs in a single context: the loop-supplied
+ * {@link PostCompactionHookInput}, the resolved {@link RuntimeInjectionOptions}
+ * (spread top-level so each field stays individually addressable), and the
  * conversation-scoped state the options bag cannot carry (graph handle,
  * actor trust, and a turn-scoped logger).
  */
-export interface PostCompactContext extends RuntimeInjectionOptions {
-  /** Compacted message history to re-inject onto. */
-  history: Message[];
+export interface PostCompactContext
+  extends RuntimeInjectionOptions, PostCompactionHookInput {
   /** Per-conversation memory graph handle. */
   graphMemory: ConversationGraphMemory;
   /** True when the actor for this turn is trusted (guardian-class). */

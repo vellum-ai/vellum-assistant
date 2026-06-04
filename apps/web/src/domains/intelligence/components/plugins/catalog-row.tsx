@@ -1,5 +1,5 @@
-import { Card } from "@vellum/design-library";
 import type { PluginsSearchGetResponse } from "@/generated/daemon/types.gen";
+import { Card } from "@vellumai/design-library";
 
 interface CatalogRowProps {
   match: PluginsSearchGetResponse["matches"][number];

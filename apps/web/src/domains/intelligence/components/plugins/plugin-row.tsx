@@ -1,7 +1,7 @@
 import type { KeyboardEvent } from "react";
 
-import { Card } from "@vellum/design-library";
 import type { PluginsGetResponse } from "@/generated/daemon/types.gen";
+import { Card } from "@vellumai/design-library";
 
 interface PluginRowProps {
   plugin: PluginsGetResponse["plugins"][number];

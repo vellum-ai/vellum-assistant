@@ -3,7 +3,7 @@ import { forwardRef } from "react";
 
 import { cn } from "@/utils/misc";
 
-import { Button } from "@vellum/design-library";
+import { Button } from "@vellumai/design-library";
 
 /**
  * Suggestion-pill primitive used in the chat empty state. Wraps the `Button`

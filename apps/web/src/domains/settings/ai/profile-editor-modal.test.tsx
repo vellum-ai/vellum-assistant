@@ -19,12 +19,12 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 
-import * as sdkGen from "@/generated/daemon/sdk.gen";
 import type { ProviderConnection } from "@/domains/settings/ai/provider-connections-client";
+import * as sdkGen from "@/generated/daemon/sdk.gen";
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -37,7 +37,7 @@ let toastSuccessCalls: string[] = [];
 // does NOT fire a profile-create success toast itself — that toast belongs to
 // the surrounding surface (Settings via ManageProfilesModal, composer via its
 // own quick-add), preventing a double-fire.
-mock.module("@vellum/design-library/components/toast", () => ({
+mock.module("@vellumai/design-library/components/toast", () => ({
   toast: {
     success: (message: string) => {
       toastSuccessCalls.push(message);

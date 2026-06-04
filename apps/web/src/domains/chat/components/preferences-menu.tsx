@@ -1,42 +1,42 @@
 import { useQuery } from "@tanstack/react-query";
 import {
-  ChartColumn,
-  ChevronDown,
-  ChevronUp,
-  Gift,
-  LogOut,
-  MessageSquareText,
-  Settings as SettingsIcon,
-  Shield,
-  SlidersHorizontal,
+    ChartColumn,
+    ChevronDown,
+    ChevronUp,
+    Gift,
+    LogOut,
+    MessageSquareText,
+    Settings as SettingsIcon,
+    Shield,
+    SlidersHorizontal,
 } from "lucide-react";
 import { lazy, useState } from "react";
 import { useNavigate } from "react-router";
 
 import {
-  BottomSheet,
-  PanelItem,
-  Popover,
-  SideMenu,
-} from "@vellum/design-library";
+    BottomSheet,
+    PanelItem,
+    Popover,
+    SideMenu,
+} from "@vellumai/design-library";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
+import { ThemeToggle } from "@/components/theme-toggle";
+import { organizationsBillingSummaryRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
+import {
+    useActiveAssistantIsPlatformHosted,
+    usePlatformGate,
+} from "@/hooks/use-platform-gate";
 import { hardNavigate } from "@/lib/auth/hard-navigate";
 import { isLocalMode } from "@/lib/local-mode";
 import {
-  useAuthStore,
-  useHasPlatformSession,
-  useIsAuthenticated,
+    useAuthStore,
+    useHasPlatformSession,
+    useIsAuthenticated,
 } from "@/stores/auth-store";
-import {
-  useActiveAssistantIsPlatformHosted,
-  usePlatformGate,
-} from "@/hooks/use-platform-gate";
 import { adminUrl, routes } from "@/utils/routes";
-import { ThemeToggle } from "@/components/theme-toggle";
-import { organizationsBillingSummaryRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
 
 import { CreditsCard } from "./credits-card";
 

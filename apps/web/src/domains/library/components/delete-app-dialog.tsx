@@ -4,7 +4,7 @@
  */
 
 import type { AppSummary } from "@/types/app-types";
-import { ConfirmDialog } from "@vellum/design-library";
+import { ConfirmDialog } from "@vellumai/design-library";
 
 interface DeleteAppDialogProps {
   app: AppSummary | null;

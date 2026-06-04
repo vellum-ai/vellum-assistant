@@ -31,6 +31,7 @@ const { actorTokenRecords, actorRefreshTokenRecords } =
 const { handlePair, resetPairRateLimiterForTests } =
   await import("../http/routes/pair.js");
 const { hashToken } = await import("../auth/guardian-bootstrap.js");
+const { rotateCredentials } = await import("../auth/guardian-refresh.js");
 
 const LOOPBACK_IP = "127.0.0.1";
 const PROD_ORIGIN = "chrome-extension://hphbdmpffeigpcdjkckleobjmhhokpne";
@@ -80,7 +81,7 @@ afterEach(() => {
 });
 
 describe("/v1/pair device-bound minting", () => {
-  test("records a device-bound access token and issues NO refresh token", async () => {
+  test("records a device-bound access token AND a refresh token", async () => {
     const res = await handlePair(
       makePairRequest({ deviceId: "device-A", platform: "web" }),
       LOOPBACK_IP,
@@ -89,9 +90,12 @@ describe("/v1/pair device-bound minting", () => {
     const body = (await res.json()) as Record<string, unknown>;
 
     expect(typeof body.token).toBe("string");
-    // Refreshable pairing is deferred until hot-path revocation is enforced.
-    expect(body.refreshToken).toBeUndefined();
-    expect(body.refreshAfter).toBeUndefined();
+    // A device-scoped refresh token is now issued so the client can renew
+    // without re-pairing (safe now that hot-path revocation is enforced).
+    expect(typeof body.refreshToken).toBe("string");
+    expect((body.refreshToken as string).length).toBeGreaterThan(0);
+    expect(typeof body.refreshTokenExpiresAt).toBe("string");
+    expect(typeof body.refreshAfter).toBe("string");
 
     const tokens = activeTokens();
     expect(tokens).toHaveLength(1);
@@ -99,26 +103,49 @@ describe("/v1/pair device-bound minting", () => {
     expect(tokens[0].hashedDeviceId).toBe(hashToken("device-A"));
     expect(tokens[0].platform).toBe("web");
 
-    // No refresh token record is created on the pair path.
+    // A matching active refresh token record is written for the same device.
     const refresh = getGatewayDb()
       .select()
       .from(actorRefreshTokenRecords)
       .where(eq(actorRefreshTokenRecords.status, "active"))
       .all();
-    expect(refresh).toHaveLength(0);
+    expect(refresh).toHaveLength(1);
+    expect(refresh[0].guardianPrincipalId).toBe(GUARDIAN_ID);
+    expect(refresh[0].hashedDeviceId).toBe(hashToken("device-A"));
+    expect(refresh[0].tokenHash).toBe(hashToken(body.refreshToken as string));
   });
 
-  test("uses the short 24h pair TTL for the access token, not the 30-day bootstrap default", async () => {
+  test("the issued refresh token is redeemable for a fresh access token", async () => {
+    const res = await handlePair(
+      makePairRequest({ deviceId: "device-A" }),
+      LOOPBACK_IP,
+    );
+    const body = (await res.json()) as { token: string; refreshToken: string };
+
+    const rotated = rotateCredentials({ refreshToken: body.refreshToken });
+    expect(rotated.ok).toBe(true);
+    if (rotated.ok) {
+      // A new access token (and rotated refresh token) is minted.
+      expect(typeof rotated.result.accessToken).toBe("string");
+      expect(rotated.result.accessToken).not.toBe(body.token);
+      expect(rotated.result.refreshToken).not.toBe(body.refreshToken);
+      expect(rotated.result.guardianPrincipalId).toBe(GUARDIAN_ID);
+    }
+  });
+
+  test("uses the standard 30-day access TTL, consistent with refresh rotation", async () => {
     const before = Date.now();
     await handlePair(makePairRequest({ deviceId: "device-A" }), LOOPBACK_IP);
 
-    const PAIR_TTL_MS = 24 * 60 * 60 * 1000;
+    const DAY_MS = 24 * 60 * 60 * 1000;
     const [token] = activeTokens();
-    // expiresAt should be ~24h out (allow a generous window), and well under
-    // the 30-day bootstrap TTL — until hot-path revocation lands, the access
-    // token's blast radius must stay bounded.
-    expect(token.expiresAt! - before).toBeGreaterThan(PAIR_TTL_MS - 60_000);
-    expect(token.expiresAt! - before).toBeLessThan(PAIR_TTL_MS + 60_000);
+    // The device-bound access token uses the standard ~30-day TTL (NOT a short
+    // pair-specific TTL): a refresh token + hot-path revocation bound a leaked
+    // token's reach, and the TTL stays consistent with what /v1/guardian/refresh
+    // mints on rotation (rather than 24h at mint then 30d after the first
+    // refresh). Allow a generous window around 30 days.
+    expect(token.expiresAt! - before).toBeGreaterThan(29 * DAY_MS);
+    expect(token.expiresAt! - before).toBeLessThan(31 * DAY_MS);
   });
 
   test("re-pairing the same device revokes the prior active token (no unique-index violation)", async () => {
@@ -168,7 +195,7 @@ describe("/v1/pair cli interface", () => {
     });
   }
 
-  test("mints a device-bound access token (no Origin header required, no refresh)", async () => {
+  test("mints a device-bound token pair (no Origin header required)", async () => {
     const res = await handlePair(
       makeCliRequest({ deviceId: "device-cli" }),
       LOOPBACK_IP,
@@ -179,7 +206,7 @@ describe("/v1/pair cli interface", () => {
     expect(typeof body.token).toBe("string");
     expect(typeof body.expiresAt).toBe("string");
     expect(body.guardianId).toBe(GUARDIAN_ID);
-    expect(body.refreshToken).toBeUndefined();
+    expect(typeof body.refreshToken).toBe("string");
 
     const tokens = activeTokens();
     expect(tokens).toHaveLength(1);

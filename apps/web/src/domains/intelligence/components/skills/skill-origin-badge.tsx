@@ -1,8 +1,8 @@
 import { Box, Globe, Puzzle, Terminal, User } from "lucide-react";
 import { createElement } from "react";
 
-import { Tag } from "@vellum/design-library";
 import type { SkillOrigin } from "@/domains/intelligence/skills/types";
+import { Tag } from "@vellumai/design-library";
 
 const ORIGIN_META: Record<SkillOrigin, { label: string; icon: typeof Globe }> = {
   vellum: { label: "Vellum", icon: Box },

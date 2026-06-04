@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { Input } from "@vellum/design-library/components/input";
 import { SettingsDivider } from "@/domains/settings/components/settings-divider";
+import { Input } from "@vellumai/design-library/components/input";
 
 interface TimezoneEntry {
   identifier: string;

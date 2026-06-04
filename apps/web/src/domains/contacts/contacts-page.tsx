@@ -1,53 +1,53 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { toast } from "@vellum/design-library/components/toast";
+import { toast } from "@vellumai/design-library/components/toast";
 
 import {
-  MobileSidebarDrawer,
-  MobileSidebarTrigger,
+    MobileSidebarDrawer,
+    MobileSidebarTrigger,
 } from "@/components/mobile-sidebar-drawer";
 import { AssistantChannelsDetail } from "@/domains/contacts/components/assistant-channels-detail";
 import { ContactDetailView } from "@/domains/contacts/components/contact-detail-view";
-import { GenerateInviteLinkDialog } from "@/domains/contacts/components/generate-invite-link-dialog";
 import { ContactMergeDialog } from "@/domains/contacts/components/contact-merge-dialog";
 import { ContactsList } from "@/domains/contacts/components/contacts-list";
+import { GenerateInviteLinkDialog } from "@/domains/contacts/components/generate-invite-link-dialog";
 import { GuardianDetailView } from "@/domains/contacts/components/guardian-detail-view";
 import {
-  deleteContact as gatewayDeleteContact,
-  upsertContact,
-  verifyContactChannel,
+    deleteContact as gatewayDeleteContact,
+    upsertContact,
+    verifyContactChannel,
 } from "@/domains/contacts/contacts-gateway";
+import type {
+    AssistantChannelState,
+    ChannelInfo,
+    ChannelReadinessSnapshot,
+    ContactChannelPayload,
+    ContactPayload,
+    ContactSelection,
+} from "@/domains/contacts/types";
 import {
-  channelsAvailableGetOptions,
-  channelsReadinessGetOptions,
-  channelsReadinessGetQueryKey,
-  contactchannelsByContactChannelIdPatchMutation,
-  contactsGetOptions,
-  contactsGetQueryKey,
-  contactsMergePostMutation,
+    channelsAvailableGetOptions,
+    channelsReadinessGetOptions,
+    channelsReadinessGetQueryKey,
+    contactchannelsByContactChannelIdPatchMutation,
+    contactsGetOptions,
+    contactsGetQueryKey,
+    contactsMergePostMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import {
-  channelsAvailableGet,
-  integrationsSlackChannelConfigDelete,
-  integrationsSlackChannelConfigPost,
-  integrationsTelegramConfigDelete,
-  integrationsTelegramConfigPost,
-  integrationsTwilioCredentialsDelete,
-  integrationsTwilioCredentialsPost,
+    channelsAvailableGet,
+    integrationsSlackChannelConfigDelete,
+    integrationsSlackChannelConfigPost,
+    integrationsTelegramConfigDelete,
+    integrationsTelegramConfigPost,
+    integrationsTwilioCredentialsDelete,
+    integrationsTwilioCredentialsPost,
 } from "@/generated/daemon/sdk.gen";
 import type {
-  ChannelsAvailableGetResponse,
-  ContactsGetResponse,
+    ChannelsAvailableGetResponse,
+    ContactsGetResponse,
 } from "@/generated/daemon/types.gen";
-import type {
-  AssistantChannelState,
-  ChannelInfo,
-  ChannelReadinessSnapshot,
-  ContactChannelPayload,
-  ContactPayload,
-  ContactSelection,
-} from "@/domains/contacts/types";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 

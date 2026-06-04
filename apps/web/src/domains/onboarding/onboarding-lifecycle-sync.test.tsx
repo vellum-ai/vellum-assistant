@@ -1,23 +1,23 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import {
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
+    cleanup,
+    fireEvent,
+    render,
+    screen,
+    waitFor,
 } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { useEffect, useState, type ReactNode } from "react";
 
 import {
-  DEFAULT_PRECHAT_INITIAL_MESSAGE,
-  STORAGE_KEY,
+    DEFAULT_PRECHAT_INITIAL_MESSAGE,
+    STORAGE_KEY,
 } from "@/domains/onboarding/prechat";
 import {
-  ACTIVATION_FLOW_COHORT,
-  ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE,
+    ACTIVATION_FLOW_COHORT,
+    ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE,
 } from "@/domains/onboarding/prechat-context";
-import { routes } from "@/utils/routes";
 import type { PlatformSessionStatus } from "@/stores/session-status";
+import { routes } from "@/utils/routes";
 
 let searchParams = new URLSearchParams();
 const navigateMock = mock(() => {});
@@ -122,7 +122,7 @@ mock.module("@/domains/onboarding/components/onboarding-layout", () => ({
   ),
 }));
 
-mock.module("@vellum/design-library/components/button", () => ({
+mock.module("@vellumai/design-library/components/button", () => ({
   Button: ({
     children,
     onClick,
@@ -136,7 +136,7 @@ mock.module("@vellum/design-library/components/button", () => ({
   ),
 }));
 
-mock.module("@vellum/design-library/components/progress-bar", () => ({
+mock.module("@vellumai/design-library/components/progress-bar", () => ({
   ProgressBar: ({ value }: { value: number }) => (
     <div data-testid="progress" data-value={value} />
   ),

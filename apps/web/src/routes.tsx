@@ -163,6 +163,7 @@ export const router = createBrowserRouter(
             { path: "ai", lazy: { Component: () => import("@/domains/settings/ai/ai-page").then((m) => m.AiPage) } },
             { path: "integrations", lazy: { Component: () => import("@/domains/settings/pages/integrations-page").then((m) => m.IntegrationsPage) } },
             { path: "schedules", lazy: { Component: () => import("@/domains/settings/pages/schedules-page").then((m) => m.SchedulesPage) } },
+            { path: "schedules/:scheduleId", lazy: { Component: () => import("@/domains/settings/pages/schedules-page").then((m) => m.SchedulesPage) } },
             { path: "notifications", lazy: { Component: () => import("@/domains/settings/pages/notifications-page").then((m) => m.NotificationsPage) } },
             { path: "sounds", lazy: { Component: () => import("@/domains/settings/pages/sounds-page").then((m) => m.SoundsPage) } },
             { path: "voice", lazy: { Component: () => import("@/domains/settings/pages/voice-page").then((m) => m.VoicePage) } },

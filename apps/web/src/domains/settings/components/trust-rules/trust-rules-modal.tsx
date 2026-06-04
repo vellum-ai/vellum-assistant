@@ -2,13 +2,13 @@ import { Pencil, ShieldCheck, Trash2 } from "lucide-react";
 import { type KeyboardEvent, type MouseEvent, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { Button } from "@vellum/design-library/components/button";
-import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
-import { Toggle } from "@vellum/design-library/components/toggle";
-import { Notice } from "@vellum/design-library/components/notice";
-import { Tag, type TagTone } from "@vellum/design-library/components/tag";
 import { deleteTrustRule, fetchTrustRules } from "@/lib/trust-rules-api";
 import type { TrustRuleItem, TrustRuleRisk } from "@/types/trust-rules";
+import { Button } from "@vellumai/design-library/components/button";
+import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
+import { Notice } from "@vellumai/design-library/components/notice";
+import { Tag, type TagTone } from "@vellumai/design-library/components/tag";
+import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import { TrustRuleFormModal } from "@/domains/settings/components/trust-rules/trust-rule-form-modal";
 

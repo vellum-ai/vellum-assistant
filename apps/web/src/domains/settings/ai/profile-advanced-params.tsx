@@ -1,12 +1,12 @@
-import { Button } from "@vellum/design-library/components/button";
-import { SegmentControl } from "@vellum/design-library/components/segment-control";
-import { Slider } from "@vellum/design-library/components/slider";
-import { Toggle } from "@vellum/design-library/components/toggle";
+import { Button } from "@vellumai/design-library/components/button";
+import { SegmentControl } from "@vellumai/design-library/components/segment-control";
+import { Slider } from "@vellumai/design-library/components/slider";
+import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import { formatCompactTokens } from "@/domains/settings/ai/ai-utils";
 import {
-  geminiThinkingLevels,
-  type ProfileParamVisibility,
+    geminiThinkingLevels,
+    type ProfileParamVisibility,
 } from "@/domains/settings/ai/profile-param-visibility";
 
 // ---------------------------------------------------------------------------
@@ -141,7 +141,7 @@ export function ProfileAdvancedParams({
               onClick={() => onMaxTokensChange(null)}
               disabled={isReadOnly || maxTokens === null}
             >
-              Inherit
+              Reset
             </Button>
           </div>
         </div>
@@ -184,7 +184,7 @@ export function ProfileAdvancedParams({
               onClick={() => onContextWindowChange(null)}
               disabled={isReadOnly || contextWindowMaxInputTokens === null}
             >
-              Inherit
+              Reset
             </Button>
           </div>
         </div>
@@ -241,17 +241,12 @@ export function ProfileAdvancedParams({
       {/* Temperature */}
       {visibility.temperature && (
         <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <label className="block text-body-small-default text-[var(--content-tertiary)]">
-              Temperature
-            </label>
-            <Toggle
-              checked={temperatureEnabled}
-              onChange={(v) => onTemperatureEnabledChange(v)}
-              disabled={isReadOnly}
-              aria-label="Enable temperature override"
-            />
-          </div>
+          <Toggle
+            checked={temperatureEnabled}
+            onChange={(v) => onTemperatureEnabledChange(v)}
+            label="Temperature"
+            disabled={isReadOnly}
+          />
           {temperatureEnabled && (
             <div className="flex items-center justify-between">
               <div className="flex-1">

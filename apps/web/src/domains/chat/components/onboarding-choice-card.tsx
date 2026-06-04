@@ -12,9 +12,9 @@
 import { Check, MessageSquare } from "lucide-react";
 import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 
-import { Button, Card } from "@vellum/design-library";
 import { TASK_ICONS } from "@/components/prechat-task-icons";
 import { PRECHAT_TASKS } from "@/types/prechat-tasks";
+import { Button, Card } from "@vellumai/design-library";
 
 export interface OnboardingChoiceCardProps {
   onSelectSpecific: () => void;

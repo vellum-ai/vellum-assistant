@@ -1,19 +1,19 @@
 import { X } from "lucide-react";
 import {
-  type FormEvent,
-  type KeyboardEvent,
-  type MouseEvent,
-  useCallback,
-  useRef,
-  useState,
+    type FormEvent,
+    type KeyboardEvent,
+    type MouseEvent,
+    useCallback,
+    useRef,
+    useState,
 } from "react";
 import { createPortal } from "react-dom";
 
-import { Dropdown } from "@vellum/design-library/components/dropdown";
-import { Input } from "@vellum/design-library/components/input";
-import { Notice } from "@vellum/design-library/components/notice";
 import { updateTrustRule } from "@/lib/trust-rules-api";
 import type { TrustRuleItem, TrustRuleRisk } from "@/types/trust-rules";
+import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Input } from "@vellumai/design-library/components/input";
+import { Notice } from "@vellumai/design-library/components/notice";
 
 const TOOL_OPTIONS = [
   "bash",

@@ -1,25 +1,25 @@
 import { Loader2 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Dropdown } from "@vellum/design-library/components/dropdown";
-import { Typography } from "@vellum/design-library/components/typography";
-import { toast } from "@vellum/design-library/components/toast";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { Button } from "@vellumai/design-library/components/button";
+import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { toast } from "@vellumai/design-library/components/toast";
+import { Typography } from "@vellumai/design-library/components/typography";
 
 import { ByoServiceCard, SaveButton } from "@/domains/settings/ai/ai-shared-ui";
-import { useDaemonConfigQuery, useDaemonConfigMutation } from "@/domains/settings/ai/use-daemon-config";
-import { useDraftOverride } from "@/domains/settings/ai/use-draft-override";
 import { CallSiteOverridesModal } from "@/domains/settings/ai/call-site-overrides-modal";
 import { ManageProfilesModal } from "@/domains/settings/ai/manage-profiles-modal";
 import { ManageProvidersModal } from "@/domains/settings/ai/manage-providers-modal";
 import {
-  AUTO_PROFILE_NAME,
-  gateAutoProfile,
-  profilePickerLabel,
-  visibleProfilesForPicker,
+    AUTO_PROFILE_NAME,
+    gateAutoProfile,
+    profilePickerLabel,
+    visibleProfilesForPicker,
 } from "@/domains/settings/ai/profile-pickers";
+import { useDaemonConfigMutation, useDaemonConfigQuery } from "@/domains/settings/ai/use-daemon-config";
+import { useDraftOverride } from "@/domains/settings/ai/use-draft-override";
 
 export function LanguageModelCard() {
   const {

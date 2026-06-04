@@ -2,7 +2,7 @@
 import { X } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { Button } from "@vellum/design-library";
+import { Button } from "@vellumai/design-library";
 
 /**
  * Shared in-chat floating banner used by the iOS, macOS, and GitHub

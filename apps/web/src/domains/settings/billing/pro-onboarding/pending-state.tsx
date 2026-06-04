@@ -1,6 +1,6 @@
 import { Loader2 } from "lucide-react";
 
-import { Typography } from "@vellum/design-library/components/typography";
+import { Typography } from "@vellumai/design-library/components/typography";
 
 export function PendingState({ title, body }: { title: string; body: string }) {
   return (

@@ -13,6 +13,7 @@ import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.
 import { HOOKS } from "../plugin-api/constants.js";
 import type { PostToolUseContext, StopContext } from "../plugin-api/types.js";
 import { defaultCompactionTerminal } from "../plugins/defaults/compaction/terminal.js";
+import type { PostCompactionHookInput } from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
 import { DEFAULT_TIMEOUTS, runHook, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
@@ -489,8 +490,13 @@ export interface ResolvedSystemPrompt {
  * for now and is expected to move into the loop in a future change.
  */
 export interface MidLoopCompaction {
-  /** Re-apply runtime injections and return the history to continue from. */
-  reinject: () => Promise<Message[]>;
+  /**
+   * Re-apply runtime injections onto the post-compaction history and return
+   * the history to continue from. The loop supplies its own working state via
+   * {@link PostCompactionHookInput} so the hook re-injects from that rather
+   * than reading it back from orchestrator state.
+   */
+  postCompactionHook: (input: PostCompactionHookInput) => Promise<Message[]>;
 }
 
 export interface AgentLoopRunOptions {
@@ -722,6 +728,11 @@ export class AgentLoop {
    * Returns the history to continue from, or `null` when the compactor timed
    * out or exhausted its retry budget so the caller yields
    * `exitReason = "budget"` and the orchestrator escalates.
+   *
+   * `turnContext` is the per-turn conversation context: it drives the
+   * compaction pipeline call and circuit-breaker accounting, and is forwarded
+   * to the post-compaction hook so re-injection observes/logs against the
+   * conversation turn.
    */
   private async compact(
     history: Message[],
@@ -797,7 +808,13 @@ export class AgentLoop {
     if (compactResult.exhausted ?? false) {
       return null;
     }
-    return compaction.reinject();
+    // Re-inject onto the same base the `compaction_completed` dispatch commits:
+    // the compacted messages when the pipeline compacted, the stripped
+    // pre-compaction history otherwise.
+    return compaction.postCompactionHook({
+      history: compactResult.compacted ? compactResult.messages : rawHistory,
+      turnContext,
+    });
   }
 
   async run(
@@ -1572,7 +1589,7 @@ export class AgentLoop {
               );
               const compacted = await this.compact(
                 history,
-                turnCtx,
+                turnContext ?? turnCtx,
                 compaction,
                 signal,
                 onEvent,

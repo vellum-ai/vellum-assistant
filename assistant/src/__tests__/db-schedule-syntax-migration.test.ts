@@ -4,6 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
+import { migrateScheduleSourceConversation } from "../memory/migrations/270-schedule-source-conversation.js";
 import * as schema from "../memory/schema.js";
 import { scheduleJobs } from "../memory/schema.js";
 
@@ -38,6 +39,7 @@ describe("schedule_syntax column migration", () => {
         retry_count INTEGER NOT NULL DEFAULT 0,
         max_retries INTEGER NOT NULL DEFAULT 3,
         retry_backoff_ms INTEGER NOT NULL DEFAULT 60000,
+        created_from_conversation_id TEXT,
         created_by TEXT NOT NULL,
         mode TEXT NOT NULL DEFAULT 'execute',
         routing_intent TEXT NOT NULL DEFAULT 'all_channels',
@@ -134,6 +136,7 @@ describe("schedule_syntax column migration", () => {
     } catch {
       /* already exists */
     }
+    migrateScheduleSourceConversation(db);
 
     const row = db
       .select()
@@ -197,6 +200,8 @@ describe("schedule_syntax column migration", () => {
     } catch {
       /* ok */
     }
+    migrateScheduleSourceConversation(db);
+    migrateScheduleSourceConversation(db);
 
     const now = Date.now();
     raw.exec(

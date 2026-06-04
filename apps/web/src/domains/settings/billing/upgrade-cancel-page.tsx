@@ -2,17 +2,17 @@ import { useEffect } from "react";
 
 import { Navigate, useNavigate } from "react-router";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Card } from "@vellum/design-library/components/card";
-import { Notice } from "@vellum/design-library/components/notice";
-import { toast } from "@vellum/design-library/components/toast";
-import { Typography } from "@vellum/design-library/components/typography";
 import {
-  useActiveAssistantIsPlatformHosted,
-  useActiveAssistantLifecycleIsLoading,
-  usePlatformGate,
+    useActiveAssistantIsPlatformHosted,
+    useActiveAssistantLifecycleIsLoading,
+    usePlatformGate,
 } from "@/hooks/use-platform-gate";
 import { routes } from "@/utils/routes";
+import { Button } from "@vellumai/design-library/components/button";
+import { Card } from "@vellumai/design-library/components/card";
+import { Notice } from "@vellumai/design-library/components/notice";
+import { toast } from "@vellumai/design-library/components/toast";
+import { Typography } from "@vellumai/design-library/components/typography";
 
 /**
  * Stripe Checkout `cancel_url` landing page.

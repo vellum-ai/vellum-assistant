@@ -1,21 +1,21 @@
 
 import { Loader2, Mic, StopCircle } from "lucide-react";
 import {
-  forwardRef,
-  useCallback,
-  useEffect,
-  useImperativeHandle,
-  useRef,
-  useSyncExternalStore,
+    forwardRef,
+    useCallback,
+    useEffect,
+    useImperativeHandle,
+    useRef,
+    useSyncExternalStore,
 } from "react";
 
-import { Button, cn } from "@vellum/design-library";
 import {
-  postSttTranscribe,
-  type SttFailureReason,
+    postSttTranscribe,
+    type SttFailureReason,
 } from "@/domains/chat/voice/stt-api";
-import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
+import { useIsNativePlatform } from "@/runtime/native-auth";
+import { Button, cn } from "@vellumai/design-library";
 
 // ---------------------------------------------------------------------------
 // MIME type selection

@@ -15,6 +15,7 @@ import {
   assistantDaemonConfigQueryKey,
   assistantIdentityQueryKey,
   assistantIdentityIntroQueryKey,
+  assistantScheduleUsageSummaryQueryKey,
   assistantSchedulesQueryKey,
   assistantSoundsConfigQueryKey,
   avatarQueryKey,
@@ -167,6 +168,7 @@ describe("useAssistantResourceSync", () => {
           assistantDaemonConfigQueryKey("asst-1"),
           assistantSoundsConfigQueryKey("asst-1"),
           assistantSchedulesQueryKey("asst-1"),
+          assistantScheduleUsageSummaryQueryKey("asst-1"),
         ]) as never
       );
     });

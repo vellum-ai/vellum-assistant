@@ -2,7 +2,7 @@
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { PanelItem } from "@vellum/design-library";
+import { PanelItem } from "@vellumai/design-library";
 
 export interface CommandPaletteItemProps {
   icon?: LucideIcon;
