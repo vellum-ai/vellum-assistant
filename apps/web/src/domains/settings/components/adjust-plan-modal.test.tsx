@@ -40,6 +40,8 @@ import type {
 type Captured = { body?: unknown };
 let upgradeCall: Captured | null = null;
 let changeCreditTierCall: Captured | null = null;
+let changeMachineTierCall: Captured | null = null;
+let changeStorageTierCall: Captured | null = null;
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
@@ -53,6 +55,14 @@ mock.module("@/generated/api/sdk.gen", () => ({
       data: { status: "ok", credit_tier: null },
       response: { ok: true },
     });
+  },
+  organizationsBillingSubscriptionChangeMachineTierCreate: (opts: Captured) => {
+    changeMachineTierCall = opts;
+    return Promise.resolve({ data: { status: "ok" }, response: { ok: true } });
+  },
+  organizationsBillingSubscriptionChangeStorageTierCreate: (opts: Captured) => {
+    changeStorageTierCall = opts;
+    return Promise.resolve({ data: { status: "ok" }, response: { ok: true } });
   },
 }));
 
@@ -109,6 +119,13 @@ function proPlansResponse(creditTiers?: CreditTier[]): PlanListResponse {
             cpu: "1",
             memory: "2Gi",
           },
+          {
+            tier: "machine_large",
+            label: "Large",
+            price_cents: 3000,
+            cpu: "4",
+            memory: "8Gi",
+          },
         ],
         storage_tiers: [
           {
@@ -116,6 +133,12 @@ function proPlansResponse(creditTiers?: CreditTier[]): PlanListResponse {
             label: "10 GiB",
             price_cents: 500,
             storage_gib: 10,
+          },
+          {
+            tier: "storage_20",
+            label: "20 GiB",
+            price_cents: 900,
+            storage_gib: 20,
           },
         ],
         included_features: [],
@@ -144,6 +167,7 @@ function subscription(
 function renderModal(
   sub: SubscriptionResponse,
   plans: PlanListResponse,
+  onTierUpgraded?: () => void,
 ): ReturnType<typeof render> {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -161,7 +185,7 @@ function renderModal(
   );
   return render(
     <QueryClientProvider client={client}>
-      <AdjustPlanModal open onClose={() => {}} />
+      <AdjustPlanModal open onClose={() => {}} onTierUpgraded={onTierUpgraded} />
     </QueryClientProvider>,
   );
 }
@@ -172,6 +196,22 @@ function openCreditDropdown(): void {
   );
   if (!trigger) throw new Error("expected a Credit bundle dropdown trigger");
   fireEvent.click(trigger);
+}
+
+function openMachineDropdown(): void {
+  const trigger = document.querySelector<HTMLButtonElement>(
+    'button[role="combobox"][aria-label="Machine tier"]',
+  );
+  if (!trigger) throw new Error("expected a Machine tier dropdown trigger");
+  fireEvent.click(trigger);
+}
+
+function clickOptionStartingWith(prefix: string): void {
+  const option = Array.from(
+    document.querySelectorAll<HTMLElement>('[role="option"]'),
+  ).find((o) => o.textContent?.trim().startsWith(prefix));
+  if (!option) throw new Error(`expected option starting with "${prefix}"`);
+  fireEvent.click(option);
 }
 
 function clickOption(label: string): void {
@@ -185,6 +225,8 @@ function clickOption(label: string): void {
 beforeEach(() => {
   upgradeCall = null;
   changeCreditTierCall = null;
+  changeMachineTierCall = null;
+  changeStorageTierCall = null;
 });
 
 afterEach(() => {
@@ -265,6 +307,58 @@ describe("AdjustPlanModal credit bundle — change mode", () => {
     expect(
       (changeCreditTierCall!.body as Record<string, unknown>).credit_tier,
     ).toBeNull();
+  });
+});
+
+describe("AdjustPlanModal credit bundle — resize flow", () => {
+  test("a credit-only change refreshes without invoking onTierUpgraded", async () => {
+    let upgraded = false;
+    const { getByTestId } = renderModal(
+      subscription("pro", null),
+      proPlansResponse(CREDIT_TIERS),
+      () => {
+        upgraded = true;
+      },
+    );
+
+    openCreditDropdown();
+    clickOption("25 credits — $25/mo");
+
+    fireEvent.click(getByTestId("modal-change-tier-button"));
+
+    await waitFor(() => {
+      if (!changeCreditTierCall) throw new Error("change not called");
+    });
+    // The credit mutation fired (refresh path), but the resize flow must not.
+    expect(upgraded).toBe(false);
+    expect(changeMachineTierCall).toBeNull();
+    expect(changeStorageTierCall).toBeNull();
+  });
+
+  test("a machine tier change still invokes onTierUpgraded", async () => {
+    let upgraded = false;
+    const { getByTestId } = renderModal(
+      subscription("pro", null),
+      proPlansResponse(CREDIT_TIERS),
+      () => {
+        upgraded = true;
+      },
+    );
+
+    openMachineDropdown();
+    // Switching from the current "Small" tier to "Large" is an upgrade, which
+    // fires immediately (no downgrade reconfirm) and opens the resize flow.
+    clickOptionStartingWith("Large");
+
+    fireEvent.click(getByTestId("modal-change-tier-button"));
+
+    await waitFor(() => {
+      if (!changeMachineTierCall) throw new Error("machine change not called");
+    });
+    await waitFor(() => {
+      if (!upgraded) throw new Error("onTierUpgraded not called");
+    });
+    expect(changeCreditTierCall).toBeNull();
   });
 });
 

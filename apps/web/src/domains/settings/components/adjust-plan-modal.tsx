@@ -500,15 +500,14 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
       { body: { credit_tier: selectedCreditTier } },
       {
         onSuccess: () => {
-          // Refresh the subscription (and the rest of billing) so the plan card
-          // and this modal reflect the new bundle.
+          // Refresh billing so the plan card and this modal reflect the new
+          // bundle. A credit change never alters machine/storage resources, so
+          // it must not invoke `onTierUpgraded` (the assistant resize flow) —
+          // that would show an unrelated resize prompt and fire needless
+          // resource queries. `submitTierChanges` still opens the resize flow
+          // when a machine or storage dimension also changed.
           invalidateBillingQueries();
-          if (onTierUpgraded) {
-            onClose();
-            onTierUpgraded();
-          } else {
-            toast.success("Credit bundle updated.", { id: "pro-tier-change" });
-          }
+          toast.success("Credit bundle updated.", { id: "pro-tier-change" });
         },
         onError: (error) => {
           toast.error(
