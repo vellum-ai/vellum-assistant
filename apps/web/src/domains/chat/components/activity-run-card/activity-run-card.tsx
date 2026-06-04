@@ -1,7 +1,7 @@
 import { Brain, X } from "lucide-react";
 import { Fragment, useMemo, useState } from "react";
 
-import { Typography } from "@vellum/design-library";
+import { Typography } from "@vellumai/design-library";
 
 import { ToolCallChip } from "@/domains/chat/components/tool-call-chip/tool-call-chip";
 import {
