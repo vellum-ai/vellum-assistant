@@ -190,6 +190,10 @@ mock.module("../calls/resolve-call-tts-provider.js", () => ({
     useSynthesizedPath: false,
     audioFormat: "mp3" as const,
   })),
+  resolvePlayableCallTtsProvider: jest.fn(async () => ({
+    provider: null,
+    audioFormat: "wav" as const,
+  })),
 }));
 
 // ---------------------------------------------------------------------------

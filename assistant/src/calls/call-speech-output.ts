@@ -21,7 +21,10 @@ import type { TtsProvider, TtsProviderId } from "../tts/types.js";
 import { getLogger } from "../util/logger.js";
 import { createStreamingEntry } from "./audio-store.js";
 import type { CallTransport } from "./call-transport.js";
-import { resolveCallTtsProvider } from "./resolve-call-tts-provider.js";
+import {
+  resolveCallTtsProvider,
+  resolvePlayableCallTtsProvider,
+} from "./resolve-call-tts-provider.js";
 
 const log = getLogger("call-speech-output");
 
@@ -46,13 +49,16 @@ export function speakSystemPrompt(
   relay: CallTransport,
   text: string,
 ): Promise<void> {
-  // When the transport requires WAV (media-stream), request WAV so
-  // the audio store entry contains PCM that audioBufferToFrames can
-  // transcode to mu-law. Without this, compressed formats (mp3, opus)
-  // are fetched by processFetchUrlItem and produce garbled audio.
-  const { provider, useSynthesizedPath, audioFormat } = resolveCallTtsProvider({
-    preferWav: relay.requiresWavAudio,
-  });
+  // Media-stream transport: ALL audio is daemon-synthesized then transcoded
+  // PCM -> mu-law, so the provider MUST be able to emit playable audio. Use
+  // the playability guard, which falls back to a PCM-capable, credentialed
+  // default when the configured provider can't (avoiding a silent call).
+  if (relay.requiresWavAudio) {
+    return speakSystemPromptOverMediaStream(relay, text);
+  }
+
+  const { provider, useSynthesizedPath, audioFormat } =
+    resolveCallTtsProvider();
 
   if (!useSynthesizedPath || !provider) {
     // Native path — send text for Twilio's built-in TTS.
@@ -61,6 +67,31 @@ export function speakSystemPrompt(
   }
 
   // Synthesized path — synthesize audio and send play URL.
+  return synthesizeAndPlay(relay, provider, text, audioFormat);
+}
+
+/**
+ * Speak a deterministic prompt over the media-stream transport.
+ *
+ * Always synthesizes through a playability-guarded provider so the prompt is
+ * audible. There is no "send only an end-of-turn signal" silent path here —
+ * if the configured provider can't emit playable audio, the guard has already
+ * substituted a PCM-capable default.
+ */
+async function speakSystemPromptOverMediaStream(
+  relay: CallTransport,
+  text: string,
+): Promise<void> {
+  const { provider, audioFormat } = await resolvePlayableCallTtsProvider();
+  if (!provider) {
+    // No provider resolvable at all (e.g. registry empty in early startup).
+    // Send the end-of-turn signal so the relay transitions back to listening.
+    log.error(
+      "No playable media-stream TTS provider available for system prompt",
+    );
+    relay.sendTextToken("", true);
+    return;
+  }
   return synthesizeAndPlay(relay, provider, text, audioFormat);
 }
 

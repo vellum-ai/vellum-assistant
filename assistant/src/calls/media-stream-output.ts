@@ -394,14 +394,13 @@ export class MediaStreamOutput implements CallTransport {
     this.activePlaybackAbort = abortController;
 
     try {
-      const { resolveCallTtsProvider } =
+      const { resolvePlayableCallTtsProvider } =
         await import("./resolve-call-tts-provider.js");
-      // Request WAV so audioBufferToFrames gets PCM it can transcode
-      // to mu-law. Compressed formats (mp3, opus) would be sent as raw
-      // bytes and produce garbled audio.
-      const { provider, audioFormat } = resolveCallTtsProvider({
-        preferWav: true,
-      });
+      // Resolve a provider guaranteed to emit transcodable (PCM/WAV) audio.
+      // When the configured provider can't feed the PCM -> mu-law transcoder
+      // (or its credential is missing), the guard falls back to a PCM-capable
+      // default instead of leaving the call silent.
+      const { provider, audioFormat } = await resolvePlayableCallTtsProvider();
       if (!provider) {
         log.warn(
           { streamSid: this.streamSid },

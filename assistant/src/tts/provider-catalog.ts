@@ -56,6 +56,34 @@ interface TtsProviderCatalogCapabilities {
 }
 
 /**
+ * Output format a provider can emit for the **media-stream** telephony path.
+ *
+ * On the media-stream pipeline every byte of telephony audio is synthesized
+ * by the daemon and transcoded PCM/WAV -> mu-law before being sent to the
+ * carrier. A provider that can only emit compressed (mp3/opus) or otherwise
+ * non-linear audio cannot feed that transcoder, so it would produce silence.
+ *
+ * - `"pcm"`  — provider can return raw PCM (e.g. ElevenLabs `pcm_16000`).
+ * - `"wav"`  — provider can return a WAV (linear PCM) container.
+ * - `"none"` — provider cannot emit a transcodable linear format; selecting
+ *               it on media-stream would yield silence and must fall back.
+ */
+export type MediaStreamPlaybackFormat = "pcm" | "wav" | "none";
+
+/**
+ * Declares whether (and how) a provider can feed the media-stream
+ * PCM -> mu-law transcoder. This makes media-stream playability **declared
+ * data** rather than something inferred from adapter internals.
+ */
+interface TtsMediaStreamPlayback {
+  /**
+   * The linear audio format the provider can emit for media-stream synthesis,
+   * or `"none"` when it cannot emit a transcodable format at all.
+   */
+  readonly outputFormat: MediaStreamPlaybackFormat;
+}
+
+/**
  * Link to a provider's API-key management page, shown in settings UI.
  */
 interface TtsCredentialsGuide {
@@ -110,6 +138,13 @@ interface TtsProviderCatalogEntry {
   /** Static provider-level capabilities. */
   readonly capabilities: Readonly<TtsProviderCatalogCapabilities>;
 
+  /**
+   * Whether (and how) this provider can synthesize audio that the
+   * media-stream telephony transcoder can play. See
+   * {@link TtsMediaStreamPlayback}.
+   */
+  readonly mediaStreamPlayback: Readonly<TtsMediaStreamPlayback>;
+
   /** Secrets the provider requires to function. */
   readonly secretRequirements: readonly Readonly<TtsProviderSecretRequirement>[];
 }
@@ -143,6 +178,9 @@ const CATALOG: readonly TtsProviderCatalogEntry[] = [
       supportsStreaming: false,
       supportedFormats: ["mp3"],
     },
+    // ElevenLabs honours `outputFormat: "pcm"` by returning `pcm_16000`
+    // (see resolveOutputFormat in elevenlabs-provider.ts).
+    mediaStreamPlayback: { outputFormat: "pcm" },
     secretRequirements: [
       {
         credentialStoreKey: "credential/elevenlabs/api_key",
@@ -171,6 +209,8 @@ const CATALOG: readonly TtsProviderCatalogEntry[] = [
       supportsStreaming: true,
       supportedFormats: ["mp3", "wav", "opus"],
     },
+    // Fish Audio honours `outputFormat: "pcm"` for raw PCM output.
+    mediaStreamPlayback: { outputFormat: "pcm" },
     secretRequirements: [
       {
         credentialStoreKey: "credential/fish-audio/api_key",
@@ -199,6 +239,8 @@ const CATALOG: readonly TtsProviderCatalogEntry[] = [
       supportsStreaming: false,
       supportedFormats: ["mp3", "wav", "opus"],
     },
+    // Deepgram honours `outputFormat: "pcm"` via linear16/container=none.
+    mediaStreamPlayback: { outputFormat: "pcm" },
     secretRequirements: [
       {
         credentialStoreKey: "credential/deepgram/api_key",
@@ -226,6 +268,8 @@ const CATALOG: readonly TtsProviderCatalogEntry[] = [
       supportsStreaming: false,
       supportedFormats: ["mp3", "wav"],
     },
+    // xAI honours `outputFormat: "pcm"` via codec=pcm.
+    mediaStreamPlayback: { outputFormat: "pcm" },
     secretRequirements: [
       {
         credentialStoreKey: "credential/xai/api_key",
