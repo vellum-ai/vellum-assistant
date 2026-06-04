@@ -30,7 +30,7 @@ export function CreditsCard({ balance, onAddCredits }: CreditsCardProps) {
           aria-hidden
         />
         <span
-          className="text-body-medium-default max-md:text-title-medium text-[color:var(--content-default)]"
+          className="text-body-medium-default font-normal! max-md:text-title-medium text-[color:var(--content-default)]"
           aria-label={`${balance} credits`}
         >
           {balance} c
@@ -48,7 +48,7 @@ export function CreditsCard({ balance, onAddCredits }: CreditsCardProps) {
         variant="ghost"
         size="regular"
         onClick={onAddCredits}
-        className="h-6 gap-1 px-1.5"
+        className="h-6 gap-1 px-1.5 font-normal!"
       >
         <Plus className="h-3.5 w-3.5" aria-hidden />
         Credits
