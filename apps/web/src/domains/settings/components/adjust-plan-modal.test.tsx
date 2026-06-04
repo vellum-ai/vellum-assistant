@@ -18,7 +18,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import * as sdkGen from "@/generated/api/sdk.gen";
@@ -384,6 +384,57 @@ describe("AdjustPlanModal credit bundle — unseeded sentinel", () => {
 
     fireEvent.click(button);
     // Give any (erroneous) mutation a tick to fire.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(changeCreditTierCall).toBeNull();
+  });
+
+  test("preserves a held legacy bundle across a plans refetch when applying an unrelated change", async () => {
+    // A Pro user holds a deprecated tier (`credits_legacy`) absent from the
+    // catalog. The first seed preserves it. A mid-modal plans refetch re-runs
+    // the seeding effect with `prev` = the legacy tier; since it equals the
+    // current bundle it must be KEPT (not coerced to null). Applying an
+    // unrelated machine change must then send only the machine mutation and
+    // never `credit_tier: null` — which would silently drop the paid bundle.
+    const { getByTestId, client } = renderModal(
+      subscription("pro", "credits_legacy"),
+      proPlansResponse(CREDIT_TIERS),
+    );
+
+    await waitFor(() => {
+      const trigger = document.querySelector(
+        'button[role="combobox"][aria-label="Credit bundle"]',
+      );
+      if (!trigger) throw new Error("picker not rendered yet");
+    });
+
+    // Simulate a mid-modal refetch: re-seed by replacing the plans object so the
+    // seeding effect re-runs with `prev` = credits_legacy (held, not in catalog).
+    // React Query's structural sharing keeps the cached object's reference when
+    // the payload is deep-equal, so we mutate an unrelated field (the Pro plan
+    // name) to force a fresh `proPlan` identity that re-triggers the effect.
+    // Tiers (machine/storage/credit) stay identical so only the credit re-seed
+    // is under test. With the bug, `prev` would be coerced to null here, marking
+    // creditChanged and queuing a spurious `credit_tier: null`.
+    const refetched = proPlansResponse(CREDIT_TIERS);
+    refetched.plans[1]!.name = "Pro (refetched)";
+    await act(async () => {
+      client.setQueryData(organizationsBillingPlansRetrieveQueryKey(), refetched);
+      await new Promise((r) => setTimeout(r, 0));
+    });
+
+    // Make an unrelated machine change so the CTA enables via that dimension.
+    openMachineDropdown();
+    clickOptionStartingWith("Large");
+
+    fireEvent.click(getByTestId("modal-change-tier-button"));
+
+    await waitFor(() => {
+      if (!changeMachineTierCall) throw new Error("machine change not called");
+    });
+    expect(
+      (changeMachineTierCall!.body as Record<string, unknown>).machine_tier,
+    ).toBe("machine_large");
+    // The held legacy bundle must survive the refetch: no credit mutation fires.
     await new Promise((r) => setTimeout(r, 0));
     expect(changeCreditTierCall).toBeNull();
   });

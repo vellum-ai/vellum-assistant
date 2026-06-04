@@ -126,9 +126,11 @@ export function resolveTierSelection<T extends string>(
  *     actively changes the selection.
  *   - a non-undefined `prev` (including an explicit `null` for "No bundle") is
  *     the user's standing choice and must be preserved — we keep it, only
- *     revalidating a concrete tier against the catalog so a mid-modal refetch
- *     that removes the selected bundle falls back to "No bundle" rather than
- *     leaving a stale tier the CTA would submit.
+ *     coercing a concrete tier to "No bundle" when it is BOTH absent from the
+ *     catalog AND not the held current bundle. A held-but-delisted tier (equal
+ *     to `current`) survives a mid-modal refetch; only a genuinely stale choice
+ *     (a delisted tier the user actively picked) falls back to "No bundle" so
+ *     the CTA never submits a tier the catalog no longer offers.
  */
 export function resolveCreditTierSelection(
   tiers: CreditTier[],
@@ -141,8 +143,10 @@ export function resolveCreditTierSelection(
     return current;
   }
   // Standing user choice: revalidate a concrete tier against the catalog so a
-  // refetch that drops it falls back to "No bundle".
-  if (prev !== null && tiers.some((t) => t.tier === prev)) {
+  // refetch that drops it falls back to "No bundle" — but keep a tier the user
+  // still holds (equal to `current`) even when the catalog omits it, so a
+  // refetch doesn't coerce a held-but-delisted bundle to a spurious removal.
+  if (prev !== null && (prev === current || tiers.some((t) => t.tier === prev))) {
     return prev;
   }
   return null;
