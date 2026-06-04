@@ -55,7 +55,7 @@ export function IntegrationIcon({
   const initials = name.slice(0, 2).toUpperCase();
   const bgColor = colorForKey(providerKey);
 
-  if (normalizedProviderKey === "google" && !logoUrl) {
+  if (normalizedProviderKey === "google") {
     return (
       <GoogleLogo
         size={size}
