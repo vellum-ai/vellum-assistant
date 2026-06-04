@@ -94,9 +94,12 @@ let mockEstimateTokens = 1000;
 mock.module("../context/token-estimator.js", () => ({
   estimatePromptTokens: () => mockEstimateTokens,
   estimatePromptTokensRaw: () => mockEstimateTokens,
-  // Pass-through: the default plugin computes `toolTokenBudget` via this
-  // helper before delegating to the raw estimator. Return 0 so the mocked
-  // raw estimate is not perturbed.
+  // The preflight overflow gate calls this calibrated wrapper directly, so it
+  // must honor `mockEstimateTokens` too rather than fall through to the real
+  // implementation.
+  estimatePromptTokensWithTools: () => mockEstimateTokens,
+  // Pass-through: `estimatePromptTokensWithTools` computes `toolTokenBudget`
+  // via this helper. Return 0 so the mocked estimate is not perturbed.
   estimateToolsTokens: () => 0,
 }));
 

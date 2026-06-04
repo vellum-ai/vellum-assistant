@@ -128,8 +128,16 @@ mock.module("../context/token-estimator.js", () => ({
     typeof mockEstimateTokens === "function"
       ? mockEstimateTokens(msgs)
       : mockEstimateTokens,
-  // Default plugin multiplies-in tool tokens via this helper; 0 keeps the
-  // stubbed raw value unchanged.
+  // The preflight overflow gate calls this calibrated wrapper directly, so it
+  // must honor `mockEstimateTokens` too — otherwise the real implementation
+  // (which sums tool tokens onto the real calibrated estimate) ignores the
+  // per-test value and the overflow scenarios below never trigger.
+  estimatePromptTokensWithTools: (history: Message[]) =>
+    typeof mockEstimateTokens === "function"
+      ? mockEstimateTokens(history)
+      : mockEstimateTokens,
+  // `estimatePromptTokensWithTools` folds tool tokens in via this helper; 0
+  // keeps the stubbed value unchanged.
   estimateToolsTokens: () => 0,
   // Conversation agent loop now calls this helper to canonicalize the
   // provider key shared with the calibration system. The tests here

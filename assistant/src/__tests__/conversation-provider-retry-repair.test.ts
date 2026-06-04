@@ -90,6 +90,9 @@ mock.module("../config/loader.js", () => ({
 mock.module("../context/token-estimator.js", () => ({
   estimatePromptTokens: () => 1000,
   estimatePromptTokensRaw: () => 1000,
+  // The preflight overflow gate calls this calibrated wrapper directly; stub
+  // it alongside the others so it returns the same small value.
+  estimatePromptTokensWithTools: () => 1000,
   estimateToolsTokens: () => 0,
 }));
 
