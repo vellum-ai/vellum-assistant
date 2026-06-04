@@ -17937,6 +17937,36 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  routes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        assistant_id:
+                          type: string
+                        type:
+                          type: string
+                        callback_path:
+                          type: string
+                        callback_url:
+                          type: string
+                      required:
+                        - id
+                        - assistant_id
+                        - type
+                        - callback_path
+                        - callback_url
+                      additionalProperties: false
+                required:
+                  - routes
+                additionalProperties: false
   /v1/platform/callback-routes/register:
     post:
       operationId: platform_callbackroutes_register_post
@@ -17947,6 +17977,37 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  callbackUrl:
+                    type: string
+                  callbackPath:
+                    type: string
+                  type:
+                    type: string
+                required:
+                  - callbackUrl
+                  - callbackPath
+                  - type
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                type:
+                  type: string
+              required:
+                - path
+                - type
+              additionalProperties: false
   /v1/platform/connect:
     post:
       operationId: platform_connect_post
@@ -17957,6 +18018,18 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  alreadyConnected:
+                    type: boolean
+                  baseUrl:
+                    type: string
+                  showPlatformLogin:
+                    type: boolean
+                additionalProperties: false
   /v1/platform/disconnect:
     post:
       operationId: platform_disconnect_post
@@ -17967,6 +18040,22 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  disconnected:
+                    type: boolean
+                    const: true
+                  previousBaseUrl:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                required:
+                  - disconnected
+                  - previousBaseUrl
+                additionalProperties: false
   /v1/platform/status:
     get:
       operationId: platform_status_get
@@ -17977,6 +18066,57 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  isPlatform:
+                    type: boolean
+                  baseUrl:
+                    type: string
+                  assistantId:
+                    type: string
+                  hasAssistantApiKey:
+                    type: boolean
+                  hasWebhookSecret:
+                    type: boolean
+                  available:
+                    type: boolean
+                  organizationId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  userId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  velayTunnel:
+                    anyOf:
+                      - type: object
+                        properties:
+                          connected:
+                            type: boolean
+                          publicUrl:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                        required:
+                          - connected
+                          - publicUrl
+                        additionalProperties: false
+                      - type: "null"
+                required:
+                  - isPlatform
+                  - baseUrl
+                  - assistantId
+                  - hasAssistantApiKey
+                  - hasWebhookSecret
+                  - available
+                  - organizationId
+                  - userId
+                  - velayTunnel
+                additionalProperties: false
   /v1/playground/seed-conversation:
     post:
       operationId: playground_seedconversation_post

@@ -14,6 +14,8 @@
  *     registered callback routes for this assistant.
  */
 
+import { z } from "zod";
+
 import { isPlatformRemote } from "../../config/env-registry.js";
 import {
   registerCallbackRoute,
@@ -48,12 +50,78 @@ const CREDENTIAL_KEYS = {
 } as const;
 
 // ---------------------------------------------------------------------------
+// Schemas
+// ---------------------------------------------------------------------------
+
+const VelayTunnelStatusSchema = z.object({
+  connected: z.boolean(),
+  publicUrl: z.string().nullable(),
+});
+
+const PlatformStatusResponseSchema = z.object({
+  isPlatform: z.boolean(),
+  baseUrl: z.string(),
+  assistantId: z.string(),
+  hasAssistantApiKey: z.boolean(),
+  hasWebhookSecret: z.boolean(),
+  available: z.boolean(),
+  organizationId: z.string().nullable(),
+  userId: z.string().nullable(),
+  velayTunnel: VelayTunnelStatusSchema.nullable(),
+});
+type PlatformStatusResponse = z.infer<typeof PlatformStatusResponseSchema>;
+
+const PlatformConnectResponseSchema = z.object({
+  alreadyConnected: z.boolean().optional(),
+  baseUrl: z.string().optional(),
+  showPlatformLogin: z.boolean().optional(),
+});
+type PlatformConnectResponse = z.infer<typeof PlatformConnectResponseSchema>;
+
+const PlatformDisconnectResponseSchema = z.object({
+  disconnected: z.literal(true),
+  previousBaseUrl: z.string().nullable(),
+});
+type PlatformDisconnectResponse = z.infer<
+  typeof PlatformDisconnectResponseSchema
+>;
+
+const CallbackRouteRegisterRequestSchema = z.object({
+  path: z.string(),
+  type: z.string(),
+});
+
+const CallbackRouteRegisterResponseSchema = z.object({
+  callbackUrl: z.string(),
+  callbackPath: z.string(),
+  type: z.string(),
+});
+type CallbackRouteRegisterResponse = z.infer<
+  typeof CallbackRouteRegisterResponseSchema
+>;
+
+const CallbackRouteSchema = z.object({
+  id: z.string(),
+  assistant_id: z.string(),
+  type: z.string(),
+  callback_path: z.string(),
+  callback_url: z.string(),
+});
+
+const CallbackRoutesListResponseSchema = z.object({
+  routes: z.array(CallbackRouteSchema),
+});
+type CallbackRoutesListResponse = z.infer<
+  typeof CallbackRoutesListResponseSchema
+>;
+
+// ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
 
 async function handlePlatformStatus(
   _args: RouteHandlerArgs,
-): Promise<unknown> {
+): Promise<PlatformStatusResponse> {
   const [context, velayTunnel] = await Promise.all([
     resolvePlatformCallbackRegistrationContext(),
     ipcGetVelayStatus().catch(() => null),
@@ -94,7 +162,7 @@ async function handlePlatformStatus(
 
 async function handlePlatformConnect(
   _args: RouteHandlerArgs,
-): Promise<unknown> {
+): Promise<PlatformConnectResponse> {
   // Check if already connected
   const [existingUrl, existingApiKey] = await Promise.all([
     getSecureKeyAsync(
@@ -128,7 +196,7 @@ async function handlePlatformConnect(
 
 async function handlePlatformDisconnect(
   _args: RouteHandlerArgs,
-): Promise<unknown> {
+): Promise<PlatformDisconnectResponse> {
   // Reject if running inside a platform host
   if (isPlatformRemote()) {
     throw new UnprocessableEntityError(
@@ -197,7 +265,7 @@ async function handlePlatformDisconnect(
 
 async function handleCallbackRoutesRegister(
   args: RouteHandlerArgs,
-): Promise<unknown> {
+): Promise<CallbackRouteRegisterResponse> {
   const { path, type } = (args.body ?? {}) as {
     path?: string;
     type?: string;
@@ -235,7 +303,7 @@ async function handleCallbackRoutesRegister(
 
 async function handleCallbackRoutesList(
   _args: RouteHandlerArgs,
-): Promise<unknown> {
+): Promise<CallbackRoutesListResponse> {
   const context = await resolvePlatformCallbackRegistrationContext();
 
   if (!context.platformBaseUrl || !context.authHeader) {
@@ -297,6 +365,7 @@ export const ROUTES: RouteDefinition[] = [
       "Aggregates platform context, credentials, assistant ID, webhook secret, and Velay tunnel status.",
     tags: ["platform"],
     handler: handlePlatformStatus,
+    responseBody: PlatformStatusResponseSchema,
   },
   {
     operationId: "platform_connect",
@@ -311,6 +380,7 @@ export const ROUTES: RouteDefinition[] = [
       "Checks existing credentials and emits the show_platform_login signal for connected clients to show a login UI.",
     tags: ["platform"],
     handler: handlePlatformConnect,
+    responseBody: PlatformConnectResponseSchema,
   },
   {
     operationId: "platform_disconnect",
@@ -325,6 +395,7 @@ export const ROUTES: RouteDefinition[] = [
       "Deletes stored platform credentials and emits platform_disconnected signal to connected clients.",
     tags: ["platform"],
     handler: handlePlatformDisconnect,
+    responseBody: PlatformDisconnectResponseSchema,
   },
   {
     operationId: "platform_callback_routes_register",
@@ -339,6 +410,8 @@ export const ROUTES: RouteDefinition[] = [
       "Registers a callback route with the platform gateway for inbound provider webhooks.",
     tags: ["platform"],
     handler: handleCallbackRoutesRegister,
+    requestBody: CallbackRouteRegisterRequestSchema,
+    responseBody: CallbackRouteRegisterResponseSchema,
   },
   {
     operationId: "platform_callback_routes_list",
@@ -353,5 +426,6 @@ export const ROUTES: RouteDefinition[] = [
       "Lists all callback routes registered with the platform for this assistant.",
     tags: ["platform"],
     handler: handleCallbackRoutesList,
+    responseBody: CallbackRoutesListResponseSchema,
   },
 ];
