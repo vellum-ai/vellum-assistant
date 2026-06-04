@@ -18,6 +18,8 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import { z } from "zod";
+
 import { getPageIndex } from "../../memory/v2/page-index.js";
 import { loadCore } from "../../memory/v3/core.js";
 import { computeV3Health, renderV3Health } from "../../memory/v3/health.js";
@@ -88,18 +90,19 @@ async function loadTreeAndSlugs(deps?: MemoryV3Deps): Promise<{
 // health
 // ---------------------------------------------------------------------------
 
-export interface MemoryV3HealthResult {
+const MemoryV3HealthResultSchema = z.object({
   /** Pre-rendered, human-readable report. Empty string when all-green. */
-  rendered: string;
+  rendered: z.string(),
   /** The structural counts, for `--json` consumers. */
-  counts: {
-    unassigned: number;
-    danglingRefs: number;
-    novelClusters: number;
-    oversizedLeaves: number;
-    tinyLeaves: number;
-  };
-}
+  counts: z.object({
+    unassigned: z.number(),
+    danglingRefs: z.number(),
+    novelClusters: z.number(),
+    oversizedLeaves: z.number(),
+    tinyLeaves: z.number(),
+  }),
+});
+export type MemoryV3HealthResult = z.infer<typeof MemoryV3HealthResultSchema>;
 
 export async function handleMemoryV3Health(
   deps?: MemoryV3Deps,
@@ -123,26 +126,28 @@ export async function handleMemoryV3Health(
 // set-core
 // ---------------------------------------------------------------------------
 
-export interface MemoryV3SetCoreBody {
+const MemoryV3SetCoreBodySchema = z.object({
   /** Leaves to add to the always-on core set. */
-  add?: LeafPath[];
+  add: z.array(z.string()).optional(),
   /** Leaves to remove from the always-on core set. */
-  remove?: LeafPath[];
+  remove: z.array(z.string()).optional(),
   /**
    * When true, persist the new core to `core.json` and invalidate the lanes.
    * When false (default), compute the preview WITHOUT writing.
    */
-  write?: boolean;
-}
+  write: z.boolean().optional(),
+});
+export type MemoryV3SetCoreBody = z.infer<typeof MemoryV3SetCoreBodySchema>;
 
-export interface MemoryV3SetCoreResult {
+const MemoryV3SetCoreResultSchema = z.object({
   /** The core leaf set that would result (or did result, when `write`). */
-  nextCore: LeafPath[];
+  nextCore: z.array(z.string()),
   /** Number of unique page slugs the new core set pins always-on. */
-  alwaysOnPageCount: number;
+  alwaysOnPageCount: z.number(),
   /** Whether `core.json` was written. */
-  written: boolean;
-}
+  written: z.boolean(),
+});
+export type MemoryV3SetCoreResult = z.infer<typeof MemoryV3SetCoreResultSchema>;
 
 /** Wire-format error code for a `set-core` add referencing an unknown leaf. */
 export const MEMORY_V3_UNKNOWN_LEAF_CODE = "MEMORY_V3_UNKNOWN_LEAF";
@@ -206,11 +211,20 @@ export async function handleMemoryV3SetCore(
 // reconcile
 // ---------------------------------------------------------------------------
 
-export interface MemoryV3ReconcileResult {
-  renames: Array<{ id?: string; oldPath: LeafPath; newPath: LeafPath }>;
-  deleted: LeafPath[];
-  prunedCore: LeafPath[];
-}
+const MemoryV3ReconcileResultSchema = z.object({
+  renames: z.array(
+    z.object({
+      id: z.string().optional(),
+      oldPath: z.string(),
+      newPath: z.string(),
+    }),
+  ),
+  deleted: z.array(z.string()),
+  prunedCore: z.array(z.string()),
+});
+export type MemoryV3ReconcileResult = z.infer<
+  typeof MemoryV3ReconcileResultSchema
+>;
 
 /**
  * Reconcile page + core references against the live on-disk tree.
@@ -253,9 +267,12 @@ async function loadPrevLeaves(dataDir: string): Promise<LeafRef[]> {
 // rebuild-index
 // ---------------------------------------------------------------------------
 
-export interface MemoryV3RebuildIndexResult {
-  ok: true;
-}
+const MemoryV3RebuildIndexResultSchema = z.object({
+  ok: z.literal(true),
+});
+export type MemoryV3RebuildIndexResult = z.infer<
+  typeof MemoryV3RebuildIndexResultSchema
+>;
 
 /**
  * Invalidate the v3 shadow lanes so the next turn rebuilds the tree/needle
@@ -299,6 +316,7 @@ export const ROUTES: RouteDefinition[] = [
     handler: () => handleMemoryV3Health(),
     summary: "Print the v3 structural health report (read-only)",
     tags: ["memory"],
+    responseBody: MemoryV3HealthResultSchema,
   },
   {
     operationId: "memory_v3_set_core",
@@ -317,6 +335,8 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Add/remove always-on core leaves (validates + previews cost)",
     tags: ["memory"],
+    requestBody: MemoryV3SetCoreBodySchema,
+    responseBody: MemoryV3SetCoreResultSchema,
   },
   {
     operationId: "memory_v3_reconcile",
@@ -327,6 +347,7 @@ export const ROUTES: RouteDefinition[] = [
     summary:
       "v1 convergence/prune pass over page+core refs (no rename detection without a prior snapshot)",
     tags: ["memory"],
+    responseBody: MemoryV3ReconcileResultSchema,
   },
   {
     operationId: "memory_v3_rebuild_index",
@@ -336,5 +357,6 @@ export const ROUTES: RouteDefinition[] = [
     handler: () => handleMemoryV3RebuildIndex(),
     summary: "Invalidate the v3 lanes so the next turn rebuilds",
     tags: ["memory"],
+    responseBody: MemoryV3RebuildIndexResultSchema,
   },
 ];
