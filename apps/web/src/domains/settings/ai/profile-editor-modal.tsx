@@ -12,6 +12,7 @@ import { ChevronRight } from "lucide-react";
 
 import { getModelsForProvider } from "@/assistant/llm-model-catalog";
 import { inferenceProviderconnectionsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 import type { ProfileEntry, ProfileStatus, ProfileWithName } from "@/domains/settings/ai/ai-types";
 import { INFERENCE_PROVIDER_DISPLAY_NAMES, OPENAI_COMPATIBLE_PROVIDER } from "@/domains/settings/ai/ai-types";
@@ -161,6 +162,8 @@ function ProfileEditorModalInner({
   const [effectiveMode, setEffectiveMode] = useState<"create" | "edit" | "view">(mode);
   const isReadOnly = effectiveMode === "view";
   const isAutoProfile = profileName === AUTO_PROFILE_NAME;
+  const providerFirstEnabled =
+    useClientFeatureFlagStore.use.providerFirstProfileCreation();
 
   // Managed profiles open the editor in view mode (mode === "view") so they
   // can't be reshaped (provider, model, advanced params) — those are
@@ -380,7 +383,7 @@ function ProfileEditorModalInner({
     // but only while the user hasn't manually edited either field (dirty
     // tracking lives in useLabelKeySync). Clearing the model leaves the
     // current values untouched.
-    if (effectiveMode === "create" && newModel && !getDirty()) {
+    if (effectiveMode === "create" && providerFirstEnabled && newModel && !getDirty()) {
       const { name, key: derivedKey } = deriveProfileDefaults(
         resolveModelDisplayName(newModel),
         existingNames,
@@ -558,14 +561,17 @@ function ProfileEditorModalInner({
         ? "Edit Profile"
         : (initialValues?.label ?? profileName ?? "Profile");
 
-  const isCreate = effectiveMode === "create";
+  // The provider-first create layout + pre-fill is behind a client flag. When
+  // off, create mode falls back to the legacy edit/view-style layout (legacy
+  // create), which renders the previous field order with an editable Key.
+  const useProviderFirst = effectiveMode === "create" && providerFirstEnabled;
 
   // ---- Reusable field nodes (shared by create + edit/view bodies) ----
 
   const displayNameField = (
     <div className="space-y-1">
       <label className="block text-body-small-default text-[var(--content-tertiary)]">
-        {isCreate ? "Name" : "Display Name"}
+        {useProviderFirst ? "Name" : "Display Name"}
       </label>
       <Input
         type="text"
@@ -804,7 +810,7 @@ function ProfileEditorModalInner({
       </Modal.Header>
 
       <Modal.Body>
-        {isCreate ? (
+        {useProviderFirst ? (
           // Create mode is provider-first: Provider (with inline create) ->
           // Model -> Name -> Key -> Description -> collapsed Advanced.
           <div className="space-y-4">
@@ -832,9 +838,12 @@ function ProfileEditorModalInner({
             {saveErrorNode}
           </div>
         ) : (
-          // Edit / view modes keep the original field order and locking:
+          // Edit / view modes — and flag-off (legacy) create — keep the
+          // original field order and locking:
           // Display Name -> Description -> Key -> Active -> Provider -> Model
-          // -> always-visible Advanced.
+          // -> always-visible Advanced. The Key field stays editable in create
+          // mode and the footer renders Cancel/Save (both keyed off
+          // `effectiveMode`), so this branch is a correct legacy-create layout.
           <div className="space-y-4">
             {displayNameField}
             {descriptionField}
