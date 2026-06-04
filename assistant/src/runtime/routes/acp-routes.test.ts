@@ -888,6 +888,36 @@ describe("DELETE /v1/acp/sessions/:id", () => {
     ).toHaveLength(1);
   });
 
+  test("does not let SQL LIKE wildcards in the id sweep unrelated rows", async () => {
+    // `id` is an arbitrary path param. A malicious/malformed id of `%` must NOT
+    // expand the turn-suffix `LIKE` into `%:%` and delete every other session's
+    // turn rows — the metacharacters are escaped with `ESCAPE '\'`.
+    insertHistoryRow({ id: "%", status: "completed" });
+    insertHistoryRow({ id: "%:1", status: "completed" });
+    insertHistoryRow({ id: "other-sess", status: "completed" });
+    insertHistoryRow({ id: "other-sess:1", status: "completed" });
+
+    const handler = getDeleteSessionHandler();
+    await handler({ pathParams: { id: "%" } });
+
+    // Only the literal `%` session (base + its turn row) is removed.
+    expect(
+      getDb()
+        .select()
+        .from(acpSessionHistory)
+        .where(inArray(acpSessionHistory.id, ["%", "%:1"]))
+        .all(),
+    ).toHaveLength(0);
+    // The unrelated session and its turn row survive.
+    expect(
+      getDb()
+        .select()
+        .from(acpSessionHistory)
+        .where(inArray(acpSessionHistory.id, ["other-sess", "other-sess:1"]))
+        .all(),
+    ).toHaveLength(2);
+  });
+
   test.each([["running" as const], ["initializing" as const]])(
     "returns 409 when the session is still %s in memory",
     async (status) => {

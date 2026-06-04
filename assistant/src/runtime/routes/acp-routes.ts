@@ -4,7 +4,7 @@
  * Exposes spawn, steer, cancel, close, sessions, and permission operations
  * over HTTP and IPC.
  */
-import { desc, eq, inArray, like, or } from "drizzle-orm";
+import { desc, eq, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import {
@@ -385,10 +385,19 @@ function deleteSession({ pathParams }: RouteHandlerArgs) {
   // rows; the bulk delete-by-status already sweeps them, but the single delete
   // must too. `rawChanges()` may now report >1 row — fine; the contract is just
   // `{ deleted }`.
+  //
+  // `id` comes from an arbitrary path parameter, so escape SQLite `LIKE`
+  // metacharacters (`\`, `%`, `_`) before building the `:%` suffix pattern and
+  // pin the escape char with `ESCAPE '\'`. Without this, an id like `%` would
+  // expand to the pattern `%:%` and sweep every turn-suffixed row in the table.
+  const turnSuffixPattern = `${id.replace(/[\\%_]/g, "\\$&")}:%`;
   getDb()
     .delete(acpSessionHistory)
     .where(
-      or(eq(acpSessionHistory.id, id), like(acpSessionHistory.id, `${id}:%`)),
+      or(
+        eq(acpSessionHistory.id, id),
+        sql`${acpSessionHistory.id} LIKE ${turnSuffixPattern} ESCAPE '\\'`,
+      ),
     )
     .run();
   const deleted = rawChanges() > 0;
