@@ -189,6 +189,7 @@ import {
   migrateScheduleReuseConversation,
   migrateScheduleScriptColumn,
   migrateScheduleScriptTimeout,
+  migrateScheduleSourceConversation,
   migrateScheduleWakeConversationId,
   migrateSchemaIndexesAndColumns,
   migrateScrubCorruptedImageAttachments,
@@ -474,6 +475,7 @@ export function initializeDb(): void {
     migrateLlmUsageEventsAddAssistantVersion,
     migrateAddMemoryV3Selections,
     migrateScheduleScriptTimeout,
+    migrateScheduleSourceConversation,
     migrateMessagesRoleCreatedAtIndex,
     createAuthFallbackEventsTable,
   ];

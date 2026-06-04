@@ -18227,6 +18227,16 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        createdFromConversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        createdFromConversationExists:
+                          type: boolean
+                        createdFromConversationArchivedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
                         description:
                           anyOf:
                             - type: string
@@ -18276,6 +18286,9 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - createdFromConversationId
+                        - createdFromConversationExists
+                        - createdFromConversationArchivedAt
                         - description
                         - mode
                         - status
@@ -18363,6 +18376,16 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        createdFromConversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        createdFromConversationExists:
+                          type: boolean
+                        createdFromConversationArchivedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
                         description:
                           anyOf:
                             - type: string
@@ -18412,6 +18435,9 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - createdFromConversationId
+                        - createdFromConversationExists
+                        - createdFromConversationArchivedAt
                         - description
                         - mode
                         - status
@@ -18525,6 +18551,16 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        createdFromConversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        createdFromConversationExists:
+                          type: boolean
+                        createdFromConversationArchivedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
                         description:
                           anyOf:
                             - type: string
@@ -18574,6 +18610,9 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - createdFromConversationId
+                        - createdFromConversationExists
+                        - createdFromConversationArchivedAt
                         - description
                         - mode
                         - status
@@ -18660,6 +18699,16 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        createdFromConversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        createdFromConversationExists:
+                          type: boolean
+                        createdFromConversationArchivedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
                         description:
                           anyOf:
                             - type: string
@@ -18709,6 +18758,9 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - createdFromConversationId
+                        - createdFromConversationExists
+                        - createdFromConversationArchivedAt
                         - description
                         - mode
                         - status
@@ -18838,6 +18890,16 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        createdFromConversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        createdFromConversationExists:
+                          type: boolean
+                        createdFromConversationArchivedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
                         description:
                           anyOf:
                             - type: string
@@ -18887,6 +18949,9 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - createdFromConversationId
+                        - createdFromConversationExists
+                        - createdFromConversationArchivedAt
                         - description
                         - mode
                         - status
@@ -18974,6 +19039,16 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        createdFromConversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        createdFromConversationExists:
+                          type: boolean
+                        createdFromConversationArchivedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
                         description:
                           anyOf:
                             - type: string
@@ -19023,6 +19098,9 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - createdFromConversationId
+                        - createdFromConversationExists
+                        - createdFromConversationArchivedAt
                         - description
                         - mode
                         - status
@@ -19199,6 +19277,16 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        createdFromConversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        createdFromConversationExists:
+                          type: boolean
+                        createdFromConversationArchivedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
                         description:
                           anyOf:
                             - type: string
@@ -19248,6 +19336,9 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - createdFromConversationId
+                        - createdFromConversationExists
+                        - createdFromConversationArchivedAt
                         - description
                         - mode
                         - status
