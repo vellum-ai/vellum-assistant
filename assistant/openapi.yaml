@@ -23110,7 +23110,13 @@ paths:
           required: false
           schema:
             type: string
-          description: "Group by: actor, provider, model, conversation, call_site, inference_profile (required)"
+          description: "Group by: actor, provider, model, conversation, call_site, inference_profile, schedule (required)"
+        - name: scheduleId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional schedule id. When set, usage is attributed by cron run windows for that schedule.
   /v1/usage/daily:
     get:
       operationId: usage_daily_get
@@ -23187,6 +23193,12 @@ paths:
           description:
             IANA timezone identifier (e.g. "America/Los_Angeles"). Bucket boundaries and display labels are computed in
             this timezone. Defaults to "UTC" for backwards compatibility.
+        - name: scheduleId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional schedule id. When set, usage is attributed by cron run windows for that schedule.
   /v1/usage/series:
     get:
       operationId: usage_series_get
@@ -23290,7 +23302,7 @@ paths:
           required: false
           schema:
             type: string
-          description: "Group by: actor, provider, model, call_site, inference_profile (required)"
+          description: "Group by: actor, provider, model, call_site, inference_profile, schedule (required)"
         - name: tz
           in: query
           required: false
@@ -23299,6 +23311,12 @@ paths:
           description:
             IANA timezone identifier (e.g. "America/Los_Angeles"). Bucket boundaries and display labels are computed in
             this timezone. Defaults to "UTC".
+        - name: scheduleId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional schedule id. When set, usage is attributed by cron run windows for that schedule.
   /v1/usage/totals:
     get:
       operationId: usage_totals_get
@@ -23353,6 +23371,12 @@ paths:
           schema:
             type: integer
           description: End epoch millis (required)
+        - name: scheduleId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional schedule id. When set, usage is attributed by cron run windows for that schedule.
   /v1/user-routes/inspect:
     post:
       operationId: userroutes_inspect_post
