@@ -90,6 +90,7 @@ export const routes = {
     ai: r("/assistant/settings/ai"),
     integrations: r("/assistant/settings/integrations"),
     schedules: r("/assistant/settings/schedules"),
+    schedule: (id: string) => dyn(r("/assistant/settings/schedules"), id),
     notifications: r("/assistant/settings/notifications"),
     sounds: r("/assistant/settings/sounds"),
     voice: r("/assistant/settings/voice"),
