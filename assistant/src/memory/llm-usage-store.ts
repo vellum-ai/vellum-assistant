@@ -406,6 +406,30 @@ export function getConversationUsageTotals(conversationId: string): {
   };
 }
 
+export function getUsageCostForConversationWindow({
+  conversationId,
+  from,
+  to,
+}: {
+  conversationId: string;
+  from: number;
+  to: number;
+}): number {
+  const rows = rawAll<{ total_cost: number | null }>(
+    /*sql*/ `
+    SELECT COALESCE(SUM(estimated_cost_usd), 0) AS total_cost
+    FROM llm_usage_events
+    WHERE conversation_id = ?1
+      AND created_at >= ?2
+      AND created_at <= ?3
+    `,
+    conversationId,
+    from,
+    to,
+  );
+  return rows[0]?.total_cost ?? 0;
+}
+
 /**
  * Return aggregate totals for all usage events within the given time range.
  */
