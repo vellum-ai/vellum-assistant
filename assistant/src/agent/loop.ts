@@ -84,32 +84,27 @@ export type ExitReason = "handoff" | "budget";
 
 export type CheckpointDecision = "continue" | ExitReason;
 
-/**
- * Result of {@link AgentLoop.run}.
- *
- * `exitReason` carries the reason the loop paused at a checkpoint so the
- * orchestrator reads the loop's own signal instead of inferring it from
- * callback side-effects. It is `null` whenever the loop reached a terminal
- * stop (completion, error, abort, or a tool-requested yield-to-user).
- *
- * `appendedNewMessages` reports whether the loop produced at least one new
- * assistant message this run. The orchestrator uses it to decide whether the
- * turn made forward progress (the ordering-error retry gate and the overflow
- * convergence fold) instead of diffing the returned history length against a
- * pre-run index, which in-loop compaction can shrink below the start length —
- * masking real progress.
- *
- * `newMessages` is the slice of `history` the loop appended this run, measured
- * from its input (or from the compacted base when the loop compacted in
- * place). The orchestrator persists these directly instead of slicing the
- * returned history at a pre-run index it reconstructs across compaction
- * boundaries — the loop owns its own history mutations, so this slice cannot
- * desync the way an externally-held index can.
- */
+/** Result of {@link AgentLoop.run}. */
 export interface AgentLoopRunResult {
+  /** Full conversation history after the run, including everything appended this run. */
   history: Message[];
+  /**
+   * Reason the loop paused at a checkpoint, or `null` on a terminal stop
+   * (completion, error, abort, or a tool-requested yield-to-user).
+   */
   exitReason: ExitReason | null;
+  /**
+   * Whether the loop produced at least one new assistant message this run —
+   * the forward-progress signal for the ordering-error retry gate and the
+   * overflow convergence fold (immune to in-loop compaction shrinking history
+   * below a pre-run length).
+   */
   appendedNewMessages: boolean;
+  /**
+   * Slice of `history` appended this run, measured from the loop's input or
+   * from the compacted base when it compacts in place. The loop owns this
+   * boundary, so it cannot desync the way an externally-held index can.
+   */
   newMessages: Message[];
 }
 
