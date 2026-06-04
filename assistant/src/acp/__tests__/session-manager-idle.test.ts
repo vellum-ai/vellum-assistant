@@ -530,6 +530,291 @@ describe("AcpSessionManager — idle keep-alive lifecycle", () => {
   });
 });
 
+/**
+ * Controllable fake process whose prompt/cancel behavior the test drives
+ * directly. Unlike `buildIdleSession`'s fake, the test supplies `prompt` and
+ * `cancel` so it can make `prompt()` throw synchronously (dead adapter), reject
+ * asynchronously, or land a cancel mid-`process.cancel()`.
+ */
+interface ControllableFake {
+  prompt: (sessionId: string, text: string) => Promise<{ stopReason: string }>;
+  cancel: (sessionId: string) => Promise<void>;
+  kill: () => void;
+  killed: boolean;
+  promptCalls: string[];
+}
+
+/**
+ * Injects a session entry (matching spawn()'s wiring) wrapped around a
+ * caller-supplied `ControllableFake`, fires its first prompt via
+ * firePromptInBackground, and returns the manager + sent messages. The entry
+ * starts `running` with the first prompt in flight.
+ */
+function injectControllableSession(opts: {
+  id: string;
+  parentConversationId: string;
+  fake: ControllableFake;
+  idleTimeoutMs?: number;
+}): { manager: AcpSessionManager; sent: ServerMessage[] } {
+  const manager = new AcpSessionManager(4, opts.idleTimeoutMs ?? 60_000);
+  const sent: ServerMessage[] = [];
+  const sendToVellum = (msg: ServerMessage) => sent.push(msg);
+
+  const eventBuffers = (
+    manager as unknown as { eventBuffers: Map<string, unknown[]> }
+  ).eventBuffers;
+  eventBuffers.set(opts.id, []);
+
+  const clientHandler = new VellumAcpClientHandler(
+    opts.id,
+    sendToVellum,
+    opts.parentConversationId,
+  );
+
+  const entry = {
+    process: opts.fake,
+    state: {
+      id: opts.id,
+      agentId: "agent-X",
+      acpSessionId: "proto-X",
+      parentConversationId: opts.parentConversationId,
+      status: "running",
+      startedAt: Date.now(),
+    },
+    clientHandler,
+    sendToVellum,
+    currentPrompt: null as Promise<unknown> | null,
+    parentConversationId: opts.parentConversationId,
+    cwd: "/tmp",
+    command: "codex-acp",
+    idleTimer: null,
+    lastActiveAt: Date.now(),
+    historyPersisted: false,
+    turnIndex: 0,
+  };
+  const sessions = (manager as unknown as { sessions: Map<string, unknown> })
+    .sessions;
+  sessions.set(opts.id, entry);
+
+  entry.currentPrompt = (
+    manager as unknown as {
+      firePromptInBackground: (
+        id: string,
+        e: typeof entry,
+        protoId: string,
+        msg: string,
+      ) => Promise<unknown>;
+    }
+  ).firePromptInBackground(opts.id, entry, "proto-X", "do work");
+
+  return { manager, sent };
+}
+
+describe("AcpSessionManager — prompt-fire / cancel / steer state-machine fixes", () => {
+  beforeEach(() => {
+    clearHistory();
+  });
+
+  test("Bug 1: steering a session whose adapter is dead (prompt() throws synchronously) ends FAILED + torn down, not stranded running", async () => {
+    const id = "dead-adapter";
+    let throwOnPrompt = false;
+    const fake: ControllableFake = {
+      promptCalls: [],
+      killed: false,
+      prompt(_sessionId, text) {
+        this.promptCalls.push(text);
+        if (throwOnPrompt) {
+          // Mirror AcpAgentProcess.prompt() throwing SYNCHRONOUSLY when the
+          // adapter connection is null (child died on its own while idle).
+          throw new Error('ACP agent "agent-X" is not spawned');
+        }
+        return new Promise<{ stopReason: string }>(() => {});
+      },
+      cancel: () => Promise.resolve(),
+      kill() {
+        this.killed = true;
+      },
+    };
+
+    const { manager, sent } = injectControllableSession({
+      id,
+      parentConversationId: "conv-dead",
+      // Tiny timeout so a leaked idle timer would be observable.
+      idleTimeoutMs: 10,
+      fake,
+    });
+
+    // Drive turn 0 to completion → idle, so the reuse path runs.
+    // The in-flight prompt is the never-resolving one; flip it to idle by
+    // simulating a completion through a fresh prompt resolution is not needed —
+    // instead drive the session idle by resolving via steer's reuse. Simplest:
+    // mark it idle directly is brittle, so complete turn 0 by having the next
+    // steer cancel it. We instead test the reuse on an idle session: complete
+    // turn 0 first.
+    // Complete turn 0: replace the in-flight prompt with a resolved one.
+    // (The fake's first prompt never resolves; to reach idle we steer once with
+    // a still-alive adapter, but the bug is specifically the sync throw on
+    // reuse. So: make the adapter die, then steer — steer fires prompt() which
+    // throws synchronously.)
+    throwOnPrompt = true;
+
+    // steer() must NOT throw synchronously out to the caller even though
+    // process.prompt() throws synchronously — the throw is funneled into the
+    // rejected-prompt path.
+    await manager.steer(id, "reuse after adapter died");
+    await flush();
+
+    // Session ended FAILED and was torn down: removed from the map, process
+    // killed, no lingering entry.
+    expect(fake.killed).toBe(true);
+    expect(() => manager.getStatus(id)).toThrow();
+
+    // Emitted acp_session_error (NOT left silently running).
+    const errors = sent.filter((m) => m.type === "acp_session_error");
+    expect(errors.length).toBe(1);
+
+    // The turn's terminal row was persisted as failed.
+    const rows = readTurnRows(id);
+    expect(rows.some((r) => r.status === "failed")).toBe(true);
+
+    // No idle timer armed against a dangling entry: nothing fires after the
+    // timeout (no throw, still removed).
+    await new Promise((r) => setTimeout(r, 40));
+    expect(() => manager.getStatus(id)).toThrow();
+  });
+
+  test("Bug 2: cancel() of a running session whose prompt then REJECTS emits acp_session_completed(cancelled), not acp_session_error", async () => {
+    const id = "cancel-reject";
+    let rejectPrompt!: (err: Error) => void;
+    const fake: ControllableFake = {
+      promptCalls: [],
+      killed: false,
+      prompt(_sessionId, text) {
+        this.promptCalls.push(text);
+        return new Promise<{ stopReason: string }>((_res, rej) => {
+          rejectPrompt = rej;
+        });
+      },
+      cancel: () => Promise.resolve(),
+      kill() {
+        this.killed = true;
+      },
+    };
+
+    const { manager, sent } = injectControllableSession({
+      id,
+      parentConversationId: "conv-cancel-reject",
+      idleTimeoutMs: 10,
+      fake,
+    });
+
+    expect((manager.getStatus(id) as { status: string }).status).toBe(
+      "running",
+    );
+
+    // User cancels: flips status to cancelled, defers teardown to the handler.
+    await manager.cancel(id);
+    expect((manager.getStatus(id) as { status: string }).status).toBe(
+      "cancelled",
+    );
+
+    // The adapter responds by REJECTING prompt() (instead of resolving with a
+    // cancelled stopReason). The catch handler must treat this as a clean
+    // cancel, not a failure.
+    rejectPrompt(new Error("aborted by client"));
+    await flush();
+
+    // Emits acp_session_completed(stopReason cancelled), NOT acp_session_error.
+    const completed = sent.filter((m) => m.type === "acp_session_completed");
+    const errors = sent.filter((m) => m.type === "acp_session_error");
+    expect(completed).toContainEqual({
+      type: "acp_session_completed",
+      acpSessionId: id,
+      stopReason: "cancelled",
+    });
+    expect(errors.length).toBe(0);
+
+    // Torn down + persisted as a cancelled row.
+    expect(fake.killed).toBe(true);
+    expect(() => manager.getStatus(id)).toThrow();
+    const rows = readTurnRows(id);
+    expect(rows.map((r) => r.id)).toEqual([id]);
+    expect(rows[0]!.status).toBe("cancelled");
+  });
+
+  test("Bug 3: cancel() arriving during steer()'s cancel-await is honored — session ends cancelled + torn down, no re-fire", async () => {
+    const id = "cancel-races-steer";
+    let cancelGate!: () => void;
+    let cancelCalls = 0;
+    const fake: ControllableFake = {
+      promptCalls: [],
+      killed: false,
+      prompt(_sessionId, text) {
+        this.promptCalls.push(text);
+        return new Promise<{ stopReason: string }>(() => {});
+      },
+      // steer()'s cancel-await (the FIRST call) blocks on a gate the test opens
+      // AFTER landing a concurrent cancel(), reproducing a cancel that races the
+      // steer-await. cancel()'s own process.cancel (the second call) resolves
+      // immediately so the racing cancel can flip the status mid-await.
+      cancel: () => {
+        cancelCalls += 1;
+        if (cancelCalls === 1) {
+          return new Promise<void>((resolve) => {
+            cancelGate = resolve;
+          });
+        }
+        return Promise.resolve();
+      },
+      kill() {
+        this.killed = true;
+      },
+    };
+
+    const { manager } = injectControllableSession({
+      id,
+      parentConversationId: "conv-cancel-race-steer",
+      idleTimeoutMs: 10,
+      fake,
+    });
+
+    // Begin steering the running session. steer() clears currentPrompt then
+    // blocks on `await process.cancel(...)` (cancelGate not yet opened).
+    const steerPromise = manager.steer(id, "follow-up after cancel");
+    await flush();
+
+    // A cancel() lands DURING steer's await: entry is still running with
+    // currentPrompt null, so cancel takes the running branch → status cancelled.
+    await manager.cancel(id);
+    expect((manager.getStatus(id) as { status: string }).status).toBe(
+      "cancelled",
+    );
+
+    // Release steer's cancel-await. steer() must detect the cancel and abort
+    // the re-fire (tear down) instead of overwriting status back to running.
+    cancelGate();
+    await steerPromise;
+    await flush();
+
+    // The follow-up prompt was NEVER fired (no re-run): only the first turn's
+    // prompt was sent.
+    expect(fake.promptCalls).toEqual(["do work"]);
+
+    // Session ended cancelled + torn down: removed from the map, process killed.
+    expect(fake.killed).toBe(true);
+    expect(() => manager.getStatus(id)).toThrow();
+
+    // Persisted as a cancelled row.
+    const rows = readTurnRows(id);
+    expect(rows.map((r) => r.id)).toEqual([id]);
+    expect(rows[0]!.status).toBe("cancelled");
+
+    // No leaked idle timer fires against the dangling entry.
+    await new Promise((r) => setTimeout(r, 40));
+    expect(() => manager.getStatus(id)).toThrow();
+  });
+});
+
 describe("AcpSessionManager — idle sessions don't wedge the spawn limit", () => {
   const noopSend = () => {};
 

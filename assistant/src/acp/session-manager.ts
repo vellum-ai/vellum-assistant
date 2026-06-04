@@ -373,6 +373,29 @@ export class AcpSessionManager {
       }
     }
 
+    // A `cancel(acpSessionId)` can land DURING the `await` above: the entry is
+    // still `running` with `currentPrompt: null`, so cancel() takes its running
+    // branch — flipping the status to `cancelled` (and stamping completedAt) but
+    // deferring teardown to a prompt handler that will never fire for this
+    // already-cleared prompt. If we blindly re-fired here we'd overwrite that
+    // `cancelled` back to `running` and silently drop the user's cancel. Honor
+    // it instead by closing the session (persist the cancelled row + tear down)
+    // rather than re-running.
+    //
+    // `entry.state.status` is statically narrowed to "running" | "idle" here,
+    // but the `await` yields control, so a concurrent cancel() may have mutated
+    // it to "cancelled" at runtime. Read through the full union type to detect
+    // that race (the narrowing doesn't model cross-await mutation).
+    const statusAfterCancel = entry.state.status as AcpSessionState["status"];
+    if (statusAfterCancel === "cancelled") {
+      log.info(
+        { acpSessionId },
+        "Cancel raced steer — aborting re-fire and tearing down",
+      );
+      this.close(acpSessionId);
+      return;
+    }
+
     // Reset per-turn streaming state so this follow-up's events are buffered
     // and (on completion) persisted fresh, not appended to the prior task's
     // already-persisted log.
@@ -767,8 +790,24 @@ export class AcpSessionManager {
     message: string,
   ): Promise<unknown> {
     log.info({ acpSessionId, messageLen: message.length }, "ACP firing prompt");
-    const promptPromise = entry.process
-      .prompt(acpProtocolSessionId, message)
+    // Funnel a SYNCHRONOUS throw from `process.prompt()` (it throws when the
+    // adapter connection is null — e.g. the child died on its own while idle)
+    // into the same rejected-promise path as an async prompt failure. Without
+    // this guard a sync throw would propagate out of the caller (spawn/steer)
+    // and strand the entry as `running` forever (dead process, no idle timer,
+    // never reclaimed). Converting it to a rejected promise routes it through
+    // the `.catch` below, which tears the session down: status → failed,
+    // persist + teardown, emit acp_session_error. The call itself stays
+    // synchronous on the happy path (no extra microtask deferral).
+    let promptCall: ReturnType<AcpAgentProcess["prompt"]>;
+    try {
+      promptCall = entry.process.prompt(acpProtocolSessionId, message);
+    } catch (err) {
+      promptCall = Promise.reject(
+        err instanceof Error ? err : new Error(String(err)),
+      );
+    }
+    const promptPromise = promptCall
       .then((response) => {
         const current = this.sessions.get(acpSessionId);
         // Only act if the session still exists and this is still the current
@@ -869,23 +908,45 @@ export class AcpSessionManager {
       })
       .catch((err: Error) => {
         const current = this.sessions.get(acpSessionId);
-        // Same guards: entry must exist, prompt must be current, and status
-        // must not have been set to "cancelled".
+        // Same guards: entry must exist and prompt must be current.
         if (current && current.currentPrompt === promptPromise) {
-          if (current.state.status !== "cancelled") {
+          // A concurrent cancel() already flipped the status to `cancelled`
+          // (and recorded completedAt) before the adapter REJECTED prompt() —
+          // this is a clean user cancel surfacing as a rejection, not a
+          // failure. Mirror the `.then` cancelled branch: emit
+          // `acp_session_completed` with stopReason `cancelled` (NOT a spurious
+          // `acp_session_error` that would contradict the persisted cancelled
+          // row). Only genuine failures take the `failed`/error path.
+          const wasCancelled = current.state.status === "cancelled";
+          current.currentPrompt = null;
+          if (wasCancelled) {
+            current.state.stopReason = "cancelled";
+            log.info(
+              { acpSessionId },
+              "ACP prompt rejected after cancel — recording cancellation",
+            );
+            current.sendToVellum({
+              type: "acp_session_completed",
+              acpSessionId,
+              stopReason: "cancelled",
+            });
+          } else {
             current.state.status = "failed";
             current.state.completedAt = Date.now();
             current.state.error = err.message;
+            log.error(
+              { acpSessionId, error: err.message },
+              "ACP prompt failed",
+            );
+            current.sendToVellum({
+              type: "acp_session_error",
+              acpSessionId,
+              error: err.message,
+            });
           }
-          current.currentPrompt = null;
-          log.error({ acpSessionId, error: err.message }, "ACP prompt failed");
-          current.sendToVellum({
-            type: "acp_session_error",
-            acpSessionId,
-            error: err.message,
-          });
 
-          // Persist the terminal row before teardown clears the buffer.
+          // Persist the terminal row (cancelled or failed) before teardown
+          // clears the buffer.
           this.persistTerminal(acpSessionId, current);
 
           // Free the session slot and deny any pending permissions.
