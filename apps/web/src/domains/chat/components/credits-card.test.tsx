@@ -30,11 +30,11 @@ describe("CreditsCard", () => {
     expect(onAddCredits).toHaveBeenCalledTimes(1);
   });
 
-  test("hides the credits pill when balance is null and renders without errors", () => {
-    const { queryByText } = render(
+  test("renders nothing when balance is null", () => {
+    const { container } = render(
       <CreditsCard balance={null} onAddCredits={() => {}} />,
     );
 
-    expect(queryByText(/credits$/)).toBeNull();
+    expect(container.firstChild).toBeNull();
   });
 });
