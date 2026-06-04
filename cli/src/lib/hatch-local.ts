@@ -270,10 +270,9 @@ export async function hatchLocal(
         );
         await new Promise((r) => setTimeout(r, delayMs));
       } else {
-        reporter.error(
-          `⚠️  Guardian token lease failed after ${maxLeaseAttempts} attempts: ${err}\n` +
-            `   The assistant is running but guardian-token.json was not written.\n` +
-            `   If the desktop app loses its stored credentials, re-hatch to recover.`,
+        throw new Error(
+          `Guardian token lease failed after ${maxLeaseAttempts} attempts: ${err}\n` +
+            `The assistant started but cannot be authenticated. Re-run \`vellum hatch\` to retry.`,
         );
       }
     }
