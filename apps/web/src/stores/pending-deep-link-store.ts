@@ -6,8 +6,8 @@
  * while the user is on a non-chat route (`/assistant/settings`,
  * `/assistant/logs`, etc.). The global consumer (mounted at
  * `RootLayout`) navigates to the chat AND parks the message here;
- * `ChatPage` then consumes on mount once the composer's state owner
- * (`useDraftInput`) is alive. Without this hand-off, the message
+ * `ChatPage` then consumes on mount once the composer store is alive
+ * (`useDeepLinkConsumer`). Without this hand-off, the message
  * would be dropped — the bus event publishes to no chat-domain
  * subscriber until `ChatPage` mounts.
  *

@@ -25,7 +25,6 @@ import { useComposerStore } from "@/domains/chat/composer-store";
 export function useComposerKeyboard(
   inputRef: MutableRefObject<HTMLTextAreaElement | null>,
 ): void {
-  const setInput = useComposerStore.use.setInput();
   // 1. Electron host focus relay + pending-focus drain.
   useEffect(() => {
     const focusInput = () => inputRef.current?.focus();
@@ -52,7 +51,7 @@ export function useComposerKeyboard(
 
       event.preventDefault();
       inputEl.focus();
-      setInput((current) => {
+      useComposerStore.getState().setInput((current) => {
         const next = insertTextAtSelection({
           value: current,
           text: event.key,
@@ -70,5 +69,5 @@ export function useComposerKeyboard(
     return () => {
       window.removeEventListener("keydown", onKeyDown, { capture: true });
     };
-  }, [inputRef, setInput]);
+  }, [inputRef]);
 }

@@ -247,10 +247,22 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
       outgoingConversationId: outgoingConversationId ?? null,
     });
 
+    // Save outgoing draft, restore incoming draft.
+    useComposerStore.getState().handleConversationSwitch({
+      previousKey: outgoingConversationId ?? null,
+      nextKey: activeConversationId,
+    });
+
     // Reset all per-conversation state atomically.
     useTurnStore.getState().resetTurn();
     useInteractionStore.getState().resetAll();
-    useComposerStore.getState().resetAttachments();
+    if (isAssistantSwitch) {
+      // Assistant changed — old message bubbles leave the DOM, revoke blob URLs.
+      useComposerStore.getState().fullReset();
+    } else {
+      // Same assistant, different conversation — keep blob URLs for sent messages.
+      useComposerStore.getState().resetAttachments();
+    }
 
     const usageByConversation = needsHydration
       ? loadContextWindowUsageMap(assistantId)

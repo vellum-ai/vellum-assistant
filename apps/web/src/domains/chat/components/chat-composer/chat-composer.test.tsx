@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { createRef } from "react";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
-import type { ChatAttachment } from "@/domains/chat/components/chat-attachments/use-chat-attachments";
+import type { ChatAttachment } from "@/domains/chat/composer-store";
 import type { VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button";
 import { INITIAL_TURN_STATE, useTurnStore } from "@/domains/chat/turn-store";
 

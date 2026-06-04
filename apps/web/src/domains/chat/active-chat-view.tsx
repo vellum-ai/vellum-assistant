@@ -182,9 +182,8 @@ export function ActiveChatView() {
   // Composer store — load drafts for the active assistant on mount / switch.
   // -------------------------------------------------------------------------
   // Note: Not a useEffect because loadAssistantDrafts is idempotent (no-ops
-  // if already loaded for this assistant). The original useDraftInput hook
-  // also loaded synchronously during its first render. This maintains the
-  // same timing semantics — drafts are available on first paint.
+  // if already loaded for this assistant). Running during render ensures
+  // drafts are available on first paint without a flash of empty state.
   useMemo(() => {
     if (assistantId) {
       useComposerStore.getState().loadAssistantDrafts(assistantId);

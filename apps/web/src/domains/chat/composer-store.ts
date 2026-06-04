@@ -10,8 +10,10 @@
  * access this store directly — eliminating the 14-prop relay that previously
  * threaded draft + attachment state between them.
  *
- * Conversation-switch reset is triggered by `chat-session-store`'s
- * `switchToConversation` action calling `useComposerStore.getState().resetAttachments()`.
+ * Conversation-switch coordination is triggered by `chat-session-store`'s
+ * `switchToConversation` action, which calls `handleConversationSwitch` (draft
+ * save/restore) and either `resetAttachments` or `fullReset` (attachment
+ * cleanup, with blob URL revocation on assistant switches).
  */
 
 import { create } from "zustand";
@@ -159,20 +161,18 @@ export interface ComposerActions {
   /** Clear the draft for the given key (e.g. after a successful send). */
   clearDraft: (key: string) => void;
 
-  // --- Draft lifecycle (called by conversation-switch logic) ---
+  // --- Draft lifecycle (called by chat-session-store.switchToConversation) ---
   /**
    * Handle a conversation switch: save outgoing draft, restore incoming draft.
-   * Called by `useConversationHistory` on conversation change.
+   * The draft-resolution early-return is handled by the caller before invoking
+   * this action, so it always runs on genuine conversation switches.
    */
   handleConversationSwitch: (params: {
     previousKey: string | null;
     nextKey: string | null;
-    isDraftResolution: boolean;
   }) => void;
   /** Load the drafts map from localStorage for a new assistant. */
   loadAssistantDrafts: (assistantId: string) => void;
-  /** Flush the current assistant's drafts to localStorage and clear state. */
-  flushAndClearDrafts: () => void;
   /** Clear the restored draft notice. */
   clearRestoredDraftNotice: () => void;
 
@@ -238,9 +238,7 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
     }
   },
 
-  handleConversationSwitch: ({ previousKey, nextKey, isDraftResolution }) => {
-    if (isDraftResolution) return;
-
+  handleConversationSwitch: ({ previousKey, nextKey }) => {
     const isSwitch = previousKey !== null && previousKey !== nextKey;
     if (!isSwitch || !previousKey) return;
 
@@ -272,15 +270,6 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
     }
     draftsMap = loadDrafts(assistantId);
     currentAssistantId = assistantId;
-  },
-
-  flushAndClearDrafts: () => {
-    if (currentAssistantId) {
-      persistDrafts(currentAssistantId, draftsMap);
-    }
-    draftsMap = new Map();
-    currentAssistantId = null;
-    set({ input: "", restoredDraftConversationId: null });
   },
 
   clearRestoredDraftNotice: () => {

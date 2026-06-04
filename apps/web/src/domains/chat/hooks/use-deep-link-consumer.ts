@@ -31,7 +31,6 @@ import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
 export function useDeepLinkConsumer(): void {
   const pending = usePendingDeepLinkStore.use.pendingComposerMessage();
   const input = useComposerStore.use.input();
-  const setInput = useComposerStore.use.setInput();
 
   useEffect(() => {
     if (pending === null) return;
@@ -48,6 +47,6 @@ export function useDeepLinkConsumer(): void {
       });
       return;
     }
-    setInput(consumed);
-  }, [pending, input, setInput]);
+    useComposerStore.getState().setInput(consumed);
+  }, [pending, input]);
 }

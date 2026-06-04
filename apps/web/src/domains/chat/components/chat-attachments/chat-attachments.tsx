@@ -8,7 +8,7 @@ import { Button } from "@vellum/design-library";
 import { AttachmentChip } from "@/domains/chat/components/chat-attachments/attachment-chip";
 import { AttachmentLoadingChip } from "@/domains/chat/components/chat-attachments/attachment-loading-chip";
 import { AttachmentPreviewModal } from "@/domains/chat/components/chat-attachments/attachment-preview-modal";
-import type { ChatAttachment, UploadedAttachment } from "@/domains/chat/components/chat-attachments/use-chat-attachments";
+import type { ChatAttachment, UploadedAttachment } from "@/domains/chat/composer-store";
 import { formatAttachmentSize, middleTruncate } from "@/domains/chat/components/chat-attachments/utils";
 
 interface ChatAttachmentsStripProps {
