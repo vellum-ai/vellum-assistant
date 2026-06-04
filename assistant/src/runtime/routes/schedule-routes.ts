@@ -57,6 +57,9 @@ const scheduleSchema = z.object({
   maxRetries: z.number(),
   retryBackoffMs: z.number(),
   timeoutMs: z.number().nullable(),
+  createdFromConversationId: z.string().nullable(),
+  createdFromConversationExists: z.boolean(),
+  createdFromConversationArchivedAt: z.number().nullable(),
   description: z.string().nullable(),
   mode: z.enum(["notify", "execute", "script", "wake"]),
   status: z.enum(["active", "firing", "fired", "cancelled"]),
@@ -83,41 +86,79 @@ const scheduleRunSchema = z.object({
 // Handlers (transport-agnostic)
 // ---------------------------------------------------------------------------
 
+interface CreatedFromConversationState {
+  exists: boolean;
+  archivedAt: number | null;
+}
+
+function getCreatedFromConversationState(
+  conversationId: string | null,
+  cache: Map<string, CreatedFromConversationState>,
+): CreatedFromConversationState {
+  if (!conversationId) {
+    return { exists: false, archivedAt: null };
+  }
+
+  const cached = cache.get(conversationId);
+  if (cached) return cached;
+
+  const conversation = getConversation(conversationId);
+  const state = {
+    exists: conversation !== null,
+    archivedAt: conversation?.archivedAt ?? null,
+  };
+  cache.set(conversationId, state);
+  return state;
+}
+
 function handleListSchedules(queryParams: Record<string, string>) {
   const includeAll = queryParams.include_all === "true";
   const jobs = listSchedules();
   const filtered = includeAll
     ? jobs
     : jobs.filter((j) => j.createdBy !== "defer");
+  const sourceConversationCache = new Map<
+    string,
+    CreatedFromConversationState
+  >();
   return {
-    schedules: filtered.map((j) => ({
-      id: j.id,
-      name: j.name,
-      enabled: j.enabled,
-      syntax: j.syntax,
-      expression: j.expression,
-      cronExpression: j.cronExpression,
-      timezone: j.timezone,
-      message: j.message,
-      script: j.script,
-      nextRunAt: j.nextRunAt,
-      lastRunAt: j.lastRunAt,
-      lastStatus: j.lastStatus,
-      retryCount: j.retryCount,
-      maxRetries: j.maxRetries,
-      retryBackoffMs: j.retryBackoffMs,
-      timeoutMs: j.timeoutMs,
-      description:
-        j.syntax === "cron"
-          ? describeCronExpression(j.cronExpression)
-          : j.expression,
-      mode: j.mode,
-      status: j.status,
-      routingIntent: j.routingIntent,
-      reuseConversation: j.reuseConversation,
-      wakeConversationId: j.wakeConversationId,
-      isOneShot: j.cronExpression == null,
-    })),
+    schedules: filtered.map((j) => {
+      const sourceConversation = getCreatedFromConversationState(
+        j.createdFromConversationId,
+        sourceConversationCache,
+      );
+      return {
+        id: j.id,
+        name: j.name,
+        enabled: j.enabled,
+        syntax: j.syntax,
+        expression: j.expression,
+        cronExpression: j.cronExpression,
+        timezone: j.timezone,
+        message: j.message,
+        script: j.script,
+        nextRunAt: j.nextRunAt,
+        lastRunAt: j.lastRunAt,
+        lastStatus: j.lastStatus,
+        retryCount: j.retryCount,
+        maxRetries: j.maxRetries,
+        retryBackoffMs: j.retryBackoffMs,
+        timeoutMs: j.timeoutMs,
+        createdFromConversationId: j.createdFromConversationId,
+        createdFromConversationExists: sourceConversation.exists,
+        createdFromConversationArchivedAt: sourceConversation.archivedAt,
+        description:
+          j.syntax === "cron"
+            ? describeCronExpression(j.cronExpression)
+            : j.expression,
+        mode: j.mode,
+        status: j.status,
+        routingIntent: j.routingIntent,
+        reuseConversation: j.reuseConversation,
+        wakeConversationId: j.wakeConversationId,
+        isOneShot: j.cronExpression == null,
+      };
+    }),
   };
 }
 

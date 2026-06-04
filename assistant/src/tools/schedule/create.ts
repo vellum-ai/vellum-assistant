@@ -144,6 +144,7 @@ export async function executeScheduleCreate(
         maxRetries,
         retryBackoffMs,
         timeoutMs,
+        createdFromConversationId: context.conversationId,
       });
 
       const fireDate = formatLocalDate(job.nextRunAt);
@@ -225,6 +226,7 @@ export async function executeScheduleCreate(
       maxRetries,
       retryBackoffMs,
       timeoutMs,
+      createdFromConversationId: context.conversationId,
     });
 
     const scheduleDescription =

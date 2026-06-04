@@ -40,6 +40,10 @@ mock.module("../daemon/conversation-store.js", () => ({
 }));
 
 import { SYNC_TAGS } from "../daemon/message-types/sync.js";
+import {
+  archiveConversation,
+  createConversation,
+} from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import type { AssistantEvent } from "../runtime/assistant-event.js";
@@ -204,6 +208,70 @@ describe("GET /schedules — default defer exclusion", () => {
       queryParams: { include_all: "true" },
     }) as { schedules: Array<{ id: string }> };
     expect(result.schedules).toHaveLength(2);
+  });
+
+  test("includes source conversation availability metadata", () => {
+    const activeSource = createConversation("Active schedule source");
+    const archivedSource = createConversation("Archived schedule source");
+    expect(archiveConversation(archivedSource.id)).toBe(true);
+
+    createSchedule({
+      name: "Active source schedule",
+      cronExpression: "* * * * *",
+      message: "active source",
+      syntax: "cron",
+      createdFromConversationId: activeSource.id,
+    });
+    createSchedule({
+      name: "Archived source schedule",
+      cronExpression: "0 9 * * *",
+      message: "archived source",
+      syntax: "cron",
+      createdFromConversationId: archivedSource.id,
+    });
+    createSchedule({
+      name: "Missing source schedule",
+      cronExpression: "0 10 * * *",
+      message: "missing source",
+      syntax: "cron",
+      createdFromConversationId: "conv-missing",
+    });
+    createSchedule({
+      name: "No source schedule",
+      cronExpression: "0 11 * * *",
+      message: "no source",
+      syntax: "cron",
+    });
+
+    const route = findRoute("schedules", "GET");
+    const result = route.handler({}) as {
+      schedules: Array<{
+        name: string;
+        createdFromConversationId: string | null;
+        createdFromConversationExists: boolean;
+        createdFromConversationArchivedAt: number | null;
+      }>;
+    };
+
+    const byName = new Map(result.schedules.map((s) => [s.name, s]));
+    const active = byName.get("Active source schedule")!;
+    expect(active.createdFromConversationId).toBe(activeSource.id);
+    expect(active.createdFromConversationExists).toBe(true);
+    expect(active.createdFromConversationArchivedAt).toBeNull();
+
+    const archived = byName.get("Archived source schedule")!;
+    expect(archived.createdFromConversationExists).toBe(true);
+    expect(archived.createdFromConversationArchivedAt).toBeGreaterThan(0);
+
+    const missing = byName.get("Missing source schedule")!;
+    expect(missing.createdFromConversationId).toBe("conv-missing");
+    expect(missing.createdFromConversationExists).toBe(false);
+    expect(missing.createdFromConversationArchivedAt).toBeNull();
+
+    const noSource = byName.get("No source schedule")!;
+    expect(noSource.createdFromConversationId).toBeNull();
+    expect(noSource.createdFromConversationExists).toBe(false);
+    expect(noSource.createdFromConversationArchivedAt).toBeNull();
   });
 
   test("mutation responses also exclude deferred wakes", () => {
