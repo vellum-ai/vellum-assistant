@@ -44,10 +44,18 @@ mock.module("../config/loader.js", () => ({
 // `user` row apart from the assistant row, and assert it is reserved exactly
 // once per batch. `updateMessageContent` is a spy so tests can inspect the
 // content written into the row on each arrival.
+// Widen the reservation window so concurrent tool-result handlers provably
+// overlap before the first `reserveMessage` resolves; defaults to no delay.
+let reserveMessageDelayMs = 0;
 const reserveMessageMock = mock(
-  async (_conversationId: string, role: string) => ({
-    id: role === "user" ? "tool-result-row" : "assistant-row",
-  }),
+  async (_conversationId: string, role: string) => {
+    if (reserveMessageDelayMs > 0) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, reserveMessageDelayMs),
+      );
+    }
+    return { id: role === "user" ? "tool-result-row" : "assistant-row" };
+  },
 );
 const updateMessageContentMock = mock((_id: string, _content: string) => {});
 
@@ -643,6 +651,53 @@ describe("tool preview lifecycle", () => {
       expect(userReserves).toHaveLength(1);
       const blocks = latestWrittenBlocks();
       expect(blocks.map((b) => b.tool_use_id)).toEqual(["toolu_a", "toolu_b"]);
+    });
+
+    test("concurrent results race but reserve exactly one row", async () => {
+      /**
+       * `agent/loop.ts` dispatches each `tool_result` without awaiting, so two
+       * handlers for one parallel batch can enter reservation before the first
+       * `reserveMessage` resolves. A shared in-flight reservation promise must
+       * collapse them onto a single row rather than reserving one per result.
+       */
+      // GIVEN two started tools AND a reservation slow enough to overlap them
+      const { deps } = makeStampingDeps();
+      state.lastAssistantMessageId = "assistant-msg-1";
+      registerTool("toolu_a");
+      registerTool("toolu_b");
+      reserveMessageDelayMs = 10;
+
+      // WHEN both results are handled concurrently (neither awaited first)
+      try {
+        await Promise.all([
+          handleToolResult(state, deps, {
+            type: "tool_result",
+            toolUseId: "toolu_a",
+            content: "result-a",
+            isError: false,
+          }),
+          handleToolResult(state, deps, {
+            type: "tool_result",
+            toolUseId: "toolu_b",
+            content: "result-b",
+            isError: false,
+          }),
+        ]);
+      } finally {
+        reserveMessageDelayMs = 0;
+      }
+
+      // THEN exactly one user row was reserved and it holds both sibling blocks
+      const userReserves = reserveMessageMock.mock.calls.filter(
+        (call) => call[1] === "user",
+      );
+      expect(userReserves).toHaveLength(1);
+      expect(state.pendingToolResultRowId).toBe("tool-result-row");
+      const blocks = latestWrittenBlocks();
+      expect(blocks.map((b) => b.tool_use_id).sort()).toEqual([
+        "toolu_a",
+        "toolu_b",
+      ]);
     });
 
     test("message_complete finalizes the on-arrival row without a second reserve", async () => {

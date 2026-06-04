@@ -188,10 +188,16 @@ export interface EventHandlerState {
    * Id of the grouped `user` tool-result row for the current batch of results,
    * reserved when the first result of the batch arrives and rewritten in place
    * as sibling parallel results land. `undefined` until the first result of a
-   * batch is persisted and again after the batch is finalized at
-   * `message_complete`.
+   * batch is persisted and again after the batch is finalized.
    */
   pendingToolResultRowId: string | undefined;
+  /**
+   * In-flight reservation of the grouped tool-result row, shared across the
+   * concurrent `handleToolResult` calls of one parallel-tool batch so they
+   * reserve exactly one row. `undefined` until the first result triggers a
+   * reservation and again after the batch is finalized.
+   */
+  pendingToolResultRowReservation: Promise<string> | undefined;
   readonly persistedToolUseIds: Set<string>;
   readonly accumulatedDirectives: DirectiveRequest[];
   readonly accumulatedToolContentBlocks: ContentBlock[];
@@ -346,6 +352,7 @@ export function createEventHandlerState(): EventHandlerState {
     assistantRowAwaitingFinalization: false,
     pendingToolResults: new Map(),
     pendingToolResultRowId: undefined,
+    pendingToolResultRowReservation: undefined,
     persistedToolUseIds: new Set(),
     accumulatedDirectives: [],
     accumulatedToolContentBlocks: [],
@@ -1023,6 +1030,41 @@ function buildToolResultMetadata(
 }
 
 /**
+ * Reserve the grouped `user` tool-result row for the current batch exactly
+ * once. Parallel tool results are dispatched without awaiting (`agent/loop.ts`
+ * emits each `tool_result` synchronously), so concurrent `handleToolResult`
+ * calls can reach this before the first reservation resolves; sharing one
+ * in-flight reservation promise keeps the whole batch in a single row. A
+ * failed reservation resets the promise so the next caller can retry rather
+ * than inheriting a settled rejection.
+ */
+function ensureToolResultRowReserved(
+  state: EventHandlerState,
+  conversationId: string,
+  metadata: Record<string, unknown>,
+): Promise<string> {
+  if (state.pendingToolResultRowId !== undefined) {
+    return Promise.resolve(state.pendingToolResultRowId);
+  }
+  if (state.pendingToolResultRowReservation === undefined) {
+    state.pendingToolResultRowReservation = reserveMessage(
+      conversationId,
+      "user",
+      metadata,
+    )
+      .then((reserved) => {
+        state.pendingToolResultRowId = reserved.id;
+        return reserved.id;
+      })
+      .catch((err) => {
+        state.pendingToolResultRowReservation = undefined;
+        throw err;
+      });
+  }
+  return state.pendingToolResultRowReservation;
+}
+
+/**
  * Persist the buffered tool results into their grouped `user` row as each
  * result arrives, so a long-running tool's output survives a refresh that
  * outlives the SSE replay window. The row is reserved once per batch and
@@ -1030,7 +1072,7 @@ function buildToolResultMetadata(
  * `tool_result` blocks of one turn in a single message. `seq` is the position
  * stamped on the triggering `tool_result` event, captured by the caller before
  * any await so it reflects exactly the content now durable in the row.
- * Indexing and the buffer drain are deferred to `message_complete`.
+ * Indexing and the buffer drain are deferred to `finalizePendingToolResultRow`.
  */
 async function persistPendingToolResultRow(
   state: EventHandlerState,
@@ -1038,27 +1080,108 @@ async function persistPendingToolResultRow(
   seq: number,
 ): Promise<void> {
   if (state.pendingToolResults.size === 0) return;
-  const contentJson = JSON.stringify(
-    buildToolResultBlocks(state.pendingToolResults),
+  const rowId = await ensureToolResultRowReserved(
+    state,
+    deps.ctx.conversationId,
+    buildToolResultMetadata(deps),
   );
-  if (state.pendingToolResultRowId === undefined) {
-    const reserved = await reserveMessage(
-      deps.ctx.conversationId,
-      "user",
-      buildToolResultMetadata(deps),
-    );
-    state.pendingToolResultRowId = reserved.id;
-  }
-  updateMessageContent(state.pendingToolResultRowId, contentJson);
+  // Serialize the content after the reservation resolves so the last of the
+  // concurrent writers reflects the fullest batch.
+  updateMessageContent(
+    rowId,
+    JSON.stringify(buildToolResultBlocks(state.pendingToolResults)),
+  );
   recordPersistedSeq(deps.ctx.conversationId, seq);
   const conv = getConversation(deps.ctx.conversationId);
   if (conv != null) {
-    syncMessageToDisk(
-      deps.ctx.conversationId,
-      state.pendingToolResultRowId,
-      conv.createdAt,
-    );
+    syncMessageToDisk(deps.ctx.conversationId, rowId, conv.createdAt);
   }
+}
+
+/**
+ * Finalize the grouped tool-result row at a turn/loop boundary: ensure the row
+ * is reserved (a fallback for the case where every on-arrival write failed),
+ * rewrite it to the full batch, sync it to disk, index it for memory recall,
+ * and clear the batch state. Shared by `message_complete` and the orchestrator
+ * loop-exit flush so an aborted or yielded turn finalizes the same reserved row
+ * instead of writing a duplicate.
+ */
+export async function finalizePendingToolResultRow(
+  state: EventHandlerState,
+  conversationId: string,
+  metadata: Record<string, unknown>,
+  rlog: pino.Logger,
+): Promise<void> {
+  if (state.pendingToolResults.size === 0) return;
+  const rowId = await ensureToolResultRowReserved(
+    state,
+    conversationId,
+    metadata,
+  );
+  const contentJson = JSON.stringify(
+    buildToolResultBlocks(state.pendingToolResults),
+  );
+  updateMessageContent(rowId, contentJson);
+  // Sync the row to the JSONL disk view so it stays in lockstep with the DB.
+  // `getConversation` returns `ConversationRow | null`, so `!= null` gates on a
+  // real row (skipping the sync when the conversation was not found rather than
+  // asking the disk-view to resolve a missing id).
+  const conv = getConversation(conversationId);
+  if (conv != null) {
+    syncMessageToDisk(conversationId, rowId, conv.createdAt);
+  }
+  // `reserveMessage` + `updateMessageContent` are CRUD-only, so index the
+  // finalized tool-result content explicitly here (mirroring the assistant-row
+  // finalize) once it is durable. Non-fatal: a memory hiccup must not escalate
+  // a successful turn into a throw.
+  const row = getMessageById(rowId, conversationId);
+  if (row) {
+    let provenanceTrustClass:
+      | "guardian"
+      | "trusted_contact"
+      | "unknown"
+      | undefined;
+    let automated: boolean | undefined;
+    if (row.metadata) {
+      try {
+        const parsedMeta = messageMetadataSchema.safeParse(
+          JSON.parse(row.metadata),
+        );
+        if (parsedMeta.success) {
+          provenanceTrustClass = parsedMeta.data.provenanceTrustClass;
+          automated = parsedMeta.data.automated;
+        }
+      } catch {
+        // Malformed metadata JSON — index with undefined provenance fields.
+      }
+    }
+    try {
+      await indexMessageNow(
+        {
+          messageId: rowId,
+          conversationId,
+          role: "user",
+          content: contentJson,
+          createdAt: row.createdAt,
+          scopeId: "default",
+          provenanceTrustClass,
+          automated,
+        },
+        getConfig().memory,
+      );
+    } catch (err) {
+      rlog.warn(
+        { err, conversationId, messageId: rowId },
+        "Failed to index tool-result message for memory (non-fatal)",
+      );
+    }
+  }
+  for (const id of state.pendingToolResults.keys()) {
+    state.persistedToolUseIds.add(id);
+  }
+  state.pendingToolResults.clear();
+  state.pendingToolResultRowId = undefined;
+  state.pendingToolResultRowReservation = undefined;
 }
 
 export async function handleToolResult(
@@ -1525,95 +1648,15 @@ export async function handleMessageComplete(
   }
 
   // Finalize the grouped tool-result row. Each result was persisted into this
-  // row as it arrived (`persistPendingToolResultRow`); rewrite it once more so
-  // it reflects the full batch even if a mid-arrival write failed, then index
-  // it for memory recall and mark the results durable. The row is reserved here
-  // only as a fallback for the case where every on-arrival write failed.
-  if (state.pendingToolResults.size > 0) {
-    const toolResultJson = JSON.stringify(
-      buildToolResultBlocks(state.pendingToolResults),
-    );
-    let toolResultRowId = state.pendingToolResultRowId;
-    if (toolResultRowId === undefined) {
-      const reserved = await reserveMessage(
-        deps.ctx.conversationId,
-        "user",
-        buildToolResultMetadata(deps),
-      );
-      toolResultRowId = reserved.id;
-    }
-    updateMessageContent(toolResultRowId, toolResultJson);
-    // Sync the row to the JSONL disk view so it stays in lockstep with the DB.
-    // `getConversation` returns `ConversationRow | null`, so `!= null` gates on
-    // a real row (skipping the sync when the conversation was not found rather
-    // than asking the disk-view to resolve a missing id).
-    const convForToolResult = getConversation(deps.ctx.conversationId);
-    if (convForToolResult != null) {
-      syncMessageToDisk(
-        deps.ctx.conversationId,
-        toolResultRowId,
-        convForToolResult.createdAt,
-      );
-    }
-    // `reserveMessage` + `updateMessageContent` are CRUD-only, so index the
-    // finalized tool-result content explicitly here (mirroring the
-    // assistant-row finalize) once it is durable. Non-fatal: a memory hiccup
-    // must not escalate a successful turn into a throw.
-    const toolResultRow = getMessageById(
-      toolResultRowId,
-      deps.ctx.conversationId,
-    );
-    if (toolResultRow) {
-      let provenanceTrustClass:
-        | "guardian"
-        | "trusted_contact"
-        | "unknown"
-        | undefined;
-      let automated: boolean | undefined;
-      if (toolResultRow.metadata) {
-        try {
-          const parsedMeta = messageMetadataSchema.safeParse(
-            JSON.parse(toolResultRow.metadata),
-          );
-          if (parsedMeta.success) {
-            provenanceTrustClass = parsedMeta.data.provenanceTrustClass;
-            automated = parsedMeta.data.automated;
-          }
-        } catch {
-          // Malformed metadata JSON — index with undefined provenance fields.
-        }
-      }
-      try {
-        await indexMessageNow(
-          {
-            messageId: toolResultRowId,
-            conversationId: deps.ctx.conversationId,
-            role: "user",
-            content: toolResultJson,
-            createdAt: toolResultRow.createdAt,
-            scopeId: "default",
-            provenanceTrustClass,
-            automated,
-          },
-          getConfig().memory,
-        );
-      } catch (err) {
-        deps.rlog.warn(
-          {
-            err,
-            conversationId: deps.ctx.conversationId,
-            messageId: toolResultRowId,
-          },
-          "Failed to index tool-result message for memory (non-fatal)",
-        );
-      }
-    }
-    for (const id of state.pendingToolResults.keys()) {
-      state.persistedToolUseIds.add(id);
-    }
-    state.pendingToolResults.clear();
-    state.pendingToolResultRowId = undefined;
-  }
+  // row as it arrived (`persistPendingToolResultRow`); this rewrites it to the
+  // full batch (covering the case where a mid-arrival write failed), indexes it
+  // for memory recall, and clears the batch state.
+  await finalizePendingToolResultRow(
+    state,
+    deps.ctx.conversationId,
+    buildToolResultMetadata(deps),
+    deps.rlog,
+  );
 
   // Accumulate directives + warnings from the assistant content for
   // downstream attachment processing. `cleanAssistantContent` is also

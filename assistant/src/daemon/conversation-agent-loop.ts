@@ -119,7 +119,6 @@ import { resolveActorTrust } from "../runtime/actor-trust-resolver.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
-import { redactSecrets } from "../security/secret-scanner.js";
 import { getSubagentManager } from "../subagent/index.js";
 import type { UsageActor } from "../usage/actors.js";
 import { getLogger } from "../util/logger.js";
@@ -142,6 +141,7 @@ import {
   createEventHandlerState,
   dispatchAgentEvent,
   type EventHandlerDeps,
+  finalizePendingToolResultRow,
   markHistoryStrippedBestEffort,
 } from "./conversation-agent-loop-handlers.js";
 import {
@@ -2536,25 +2536,11 @@ export async function runAgentLoopImpl(
       onEvent(buildConversationErrorMessage(ctx.conversationId, classified));
     }
 
-    // Flush remaining tool results
+    // Flush remaining tool results. On a normal turn these drain at the next
+    // `message_complete`; an aborted or yielded loop exits with them still
+    // buffered, so finalize the (possibly already on-arrival-reserved) grouped
+    // row here rather than writing a duplicate.
     if (state.pendingToolResults.size > 0) {
-      const toolResultBlocks = Array.from(
-        state.pendingToolResults.entries(),
-      ).map(([toolUseId, result]) => ({
-        type: "tool_result",
-        tool_use_id: toolUseId,
-        content: redactSecrets(result.content),
-        is_error: result.isError,
-        ...(result.contentBlocks
-          ? {
-              contentBlocks: result.contentBlocks.map((block) =>
-                block.type === "text"
-                  ? { ...block, text: redactSecrets(block.text) }
-                  : block,
-              ),
-            }
-          : {}),
-      }));
       const toolResultMetadata = {
         ...provenanceFromTrustContext(ctx.trustContext),
         userMessageChannel: capturedTurnChannelContext.userMessageChannel,
@@ -2564,15 +2550,12 @@ export async function runAgentLoopImpl(
         assistantMessageInterface:
           capturedTurnInterfaceContext.assistantMessageInterface,
       };
-      await addMessage(
+      await finalizePendingToolResultRow(
+        state,
         ctx.conversationId,
-        "user",
-        JSON.stringify(toolResultBlocks),
-        {
-          metadata: toolResultMetadata,
-        },
+        toolResultMetadata,
+        rlog,
       );
-      state.pendingToolResults.clear();
     }
 
     // Persist the budget_yield_unrecovered notice now that any pending
