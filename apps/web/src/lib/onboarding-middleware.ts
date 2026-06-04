@@ -7,8 +7,9 @@ export const localModeOnlyMiddleware: MiddlewareFunction = async (
   _args,
   next,
 ) => {
+  // Auth has already been verified by the parent auth middleware.
   const decision = resolveNavigation(
-    buildNavigationState(),
+    buildNavigationState({ sessionSettled: true, isAuthenticated: true }),
     { kind: "route-guard", pathname: "/assistant/onboarding/welcome" },
   );
   if (decision.action === "redirect") throw redirect(decision.to);
@@ -20,8 +21,13 @@ export const onboardingCompletedMiddleware: MiddlewareFunction = async (
   next,
 ) => {
   const url = new URL(request.url);
+  // Auth has already been verified by the parent auth middleware.
   const decision = resolveNavigation(
-    buildNavigationState({ isReplay: url.searchParams.has("replay") }),
+    buildNavigationState({
+      sessionSettled: true,
+      isAuthenticated: true,
+      isReplay: url.searchParams.has("replay"),
+    }),
     { kind: "route-guard", pathname: url.pathname },
   );
   if (decision.action === "redirect") throw redirect(decision.to);
