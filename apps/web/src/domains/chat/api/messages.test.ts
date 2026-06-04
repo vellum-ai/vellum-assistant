@@ -10,8 +10,14 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { client as daemonClient } from "@/generated/daemon/client.gen";
-import { getChatHistory, normalizeContentOrder, postChatMessage } from "@/domains/chat/api/messages";
+import {
+  getChatHistory,
+  mapRuntimeToolCalls,
+  normalizeContentOrder,
+  postChatMessage,
+} from "@/domains/chat/api/messages";
 import { messageText } from "@/domains/chat/utils/message-test-helpers";
+import type { ConversationMessageToolCall } from "@vellumai/assistant-api";
 
 // ---------------------------------------------------------------------------
 // Spy setup — replace client.post per-test, restore after
@@ -299,5 +305,39 @@ describe("postChatMessage — daemon error envelope handling", () => {
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("expected failure result");
     expect(result.error.detail).toBe("HTTP 503");
+  });
+});
+
+describe("mapRuntimeToolCalls — confirmationDecision", () => {
+  test("omits confirmationDecision entirely when the wire row lacks it", () => {
+    // GIVEN a history tool call with no confirmationDecision on the wire
+    const wire: ConversationMessageToolCall = {
+      name: "bash",
+      input: { command: "ls" },
+      result: "ok",
+    };
+
+    // WHEN it is projected onto the rendered tool call
+    const [mapped] = mapRuntimeToolCalls([wire], "msg-1");
+
+    // THEN the key is absent — not materialized as `undefined` — so a later
+    // reconcile spread can't clobber a locally-set decision.
+    expect(mapped).not.toHaveProperty("confirmationDecision");
+  });
+
+  test("keeps a known confirmationDecision and narrows it", () => {
+    // GIVEN history rows carrying a known and an unknown decision string
+    const wire: ConversationMessageToolCall[] = [
+      { name: "bash", input: {}, confirmationDecision: "denied" },
+      { name: "bash", input: {}, confirmationDecision: "bogus" },
+    ];
+
+    // WHEN they are projected onto rendered tool calls
+    const [known, unknown] = mapRuntimeToolCalls(wire, "msg-1");
+
+    // THEN the known decision survives
+    expect(known.confirmationDecision).toBe("denied");
+    // AND the unknown one is narrowed away rather than leaking a raw string
+    expect(unknown).not.toHaveProperty("confirmationDecision");
   });
 });
