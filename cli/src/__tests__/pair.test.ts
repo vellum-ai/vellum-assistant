@@ -99,4 +99,50 @@ describe("pair command", () => {
     expect(out.token).toBe("test-access-token");
     expect(out.deviceId).toBe(body.deviceId);
   });
+
+  test("resolves an unquoted multi-word display name", async () => {
+    // Assistant whose display name has a space; passed as separate argv tokens.
+    writeFileSync(
+      join(testDir, ".vellum.lock.json"),
+      JSON.stringify({
+        assistants: [
+          {
+            assistantId: "pair-test",
+            name: "My Assistant",
+            runtimeUrl: RUNTIME_URL,
+            localUrl: LOCAL_URL,
+            cloud: "local",
+          },
+        ],
+        activeAssistant: "pair-test",
+      }),
+    );
+
+    let fetchCalled = false;
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      fetchCalled = true;
+      return new Response(
+        JSON.stringify({
+          token: "t",
+          expiresAt: "2026-06-04T00:00:00.000Z",
+          guardianId: "g",
+          assistantId: "self",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+
+    process.argv = ["bun", "vellum", "pair", "My", "Assistant", "--json"];
+    try {
+      await pair();
+    } finally {
+      logSpy.mockRestore();
+      globalThis.fetch = origFetch;
+    }
+
+    // Resolution succeeded (no exit), so the mint request was made.
+    expect(fetchCalled).toBe(true);
+  });
 });

@@ -13,6 +13,7 @@
 import { nanoid } from "nanoid";
 
 import { extractFlag } from "../lib/arg-utils.js";
+import { parseAssistantTargetArg } from "../lib/assistant-target-args.js";
 import {
   formatAssistantLookupError,
   lookupAssistantByIdentifier,
@@ -72,8 +73,9 @@ export async function pair(): Promise<void> {
 
   // Resolve the target. An explicit argument is matched by display name OR id
   // (with the standard ambiguity error); no argument falls back to the active
-  // assistant.
-  const assistantName = args[0];
+  // assistant. Join positional tokens so multi-word display names work even
+  // unquoted (e.g. `vellum pair My Assistant`).
+  const assistantName = parseAssistantTargetArg(args);
   let entry: AssistantEntry | null;
   if (assistantName) {
     const result = lookupAssistantByIdentifier(assistantName);
