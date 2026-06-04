@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   BarChart3,
@@ -1158,6 +1158,7 @@ function SystemTasksSection({
 
 export function SchedulesPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { scheduleId } = useParams<{ scheduleId?: string }>();
   const tz = useEffectiveTimezone();
   const {
@@ -1292,12 +1293,23 @@ export function SchedulesPage() {
     void refetchConsolidation();
   }, [refetchHeartbeat, refetchConsolidation]);
 
+  const refreshSystemTaskRuns = useCallback(
+    (kind: SystemTaskKind) => {
+      if (!assistantId) return;
+      void queryClient.invalidateQueries({
+        queryKey: ["system-task-runs", assistantId, kind],
+      });
+    },
+    [assistantId, queryClient],
+  );
+
   const handleRunHeartbeatNow = useCallback(async () => {
     if (!assistantId) return;
     setIsHeartbeatRunning(true);
     try {
       const result = await runHeartbeatNow(assistantId);
       void refetchHeartbeat();
+      refreshSystemTaskRuns("heartbeat");
       if (result.ran) {
         toast.success("Heartbeat started.");
       } else {
@@ -1309,7 +1321,7 @@ export function SchedulesPage() {
     } finally {
       setIsHeartbeatRunning(false);
     }
-  }, [assistantId, refetchHeartbeat]);
+  }, [assistantId, refetchHeartbeat, refreshSystemTaskRuns]);
 
   const handleRunConsolidationNow = useCallback(async () => {
     if (!assistantId) return;
@@ -1317,6 +1329,7 @@ export function SchedulesPage() {
     try {
       const result = await runConsolidationNow(assistantId);
       void refetchConsolidation();
+      refreshSystemTaskRuns("consolidation");
       if (result.ran) {
         toast.success("Consolidation queued.");
       } else {
@@ -1328,7 +1341,7 @@ export function SchedulesPage() {
     } finally {
       setIsConsolidationRunning(false);
     }
-  }, [assistantId, refetchConsolidation]);
+  }, [assistantId, refetchConsolidation, refreshSystemTaskRuns]);
 
   const isLoading = isAssistantLoading || isSchedulesLoading;
   const isSelectedSystemTaskLoading =
