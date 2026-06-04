@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import {
+  SessionBusyError,
+  SessionNotFoundError,
+} from "../../acp/session-manager.js";
 import type { AcpSessionState } from "../../acp/types.js";
 import type { ToolContext } from "../types.js";
 
@@ -25,6 +29,54 @@ const liveLookups: string[] = [];
 // real manager. Default status for a seeded entry is `idle`.
 const statesById = new Map<string, AcpSessionState>();
 
+/**
+ * Faithful re-implementation of `AcpSessionManager.continueSession` over the
+ * test doubles (steer/getStatus/getLiveSessionForConversation). The tool now
+ * delegates the resolve + running-session guard to this shared helper, so the
+ * mock exercises the same control flow and throws the same typed errors.
+ */
+async function fakeContinueSession(opts: {
+  acpSessionId?: string;
+  parentConversationId?: string;
+  instruction: string;
+}): Promise<{ acpSessionId: string }> {
+  let acpSessionId = opts.acpSessionId;
+  let status: AcpSessionState["status"] | undefined;
+  if (acpSessionId) {
+    const state = statesById.get(acpSessionId);
+    if (!state) {
+      throw new SessionNotFoundError(
+        `ACP session "${acpSessionId}" not found or not reusable.`,
+      );
+    }
+    status = state.status;
+  } else if (opts.parentConversationId) {
+    liveLookups.push(opts.parentConversationId);
+    if (!liveSession) {
+      throw new SessionNotFoundError(
+        "No live ACP session to continue for this conversation.",
+      );
+    }
+    acpSessionId = liveSession.id;
+    status = liveSession.status;
+  } else {
+    throw new SessionNotFoundError(
+      "No live ACP session to continue for this conversation.",
+    );
+  }
+  if (status === "running" || status === "initializing") {
+    throw new SessionBusyError(acpSessionId!, status);
+  }
+  try {
+    await steerImpl(acpSessionId!, opts.instruction);
+  } catch (err) {
+    throw new SessionNotFoundError(
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+  return { acpSessionId: acpSessionId! };
+}
+
 // Spread the real module's exports so transitive importers that pull other
 // names from `../../acp/index.js` still resolve at parse time. Bun's
 // `mock.module` is process-global and returns *exactly* the factory's keys.
@@ -32,6 +84,7 @@ const realAcpModule = await import("../../acp/index.js");
 mock.module("../../acp/index.js", () => ({
   ...realAcpModule,
   getAcpSessionManager: () => ({
+    continueSession: fakeContinueSession,
     steer: (acpSessionId: string, instruction: string) =>
       steerImpl(acpSessionId, instruction),
     getLiveSessionForConversation: (conversationId: string) => {

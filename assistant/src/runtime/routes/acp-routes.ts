@@ -18,6 +18,10 @@ import {
   prepareAgentEnv,
 } from "../../acp/prepare-agent-env.js";
 import { resolveAcpAgent } from "../../acp/resolve-agent.js";
+import {
+  SessionBusyError,
+  SessionNotFoundError,
+} from "../../acp/session-manager.js";
 import type { AcpSessionState } from "../../acp/types.js";
 import { resolveAcpWorkspaceDir } from "../../acp/workspace-path.js";
 import { getDb } from "../../memory/db-connection.js";
@@ -244,45 +248,34 @@ async function continueSession({ body }: RouteHandlerArgs) {
 
   const manager = getAcpSessionManager();
 
-  let acpSessionId = explicitId;
-  // The resolved target's live status. For the conversation path
-  // `getLiveSessionForConversation` already carries it; for an explicit id we
-  // read it via `getStatus` (which throws for unknown ids — that maps to 404).
-  let status: AcpSessionState["status"] | undefined;
-  if (acpSessionId) {
-    try {
-      const state = manager.getStatus(acpSessionId);
-      if (!Array.isArray(state)) status = state.status;
-    } catch {
-      throw new NotFoundError("ACP session not found or not reusable");
+  // Resolution + the running-session rejection live in the shared
+  // `manager.continueSession` helper (single source of truth, also used by the
+  // `acp_continue` tool). The route only translates the typed outcome into the
+  // wire format: SessionBusyError → 409, SessionNotFoundError → 404.
+  try {
+    const { acpSessionId } = await manager.continueSession({
+      acpSessionId: explicitId,
+      parentConversationId: explicitId ? undefined : conversationId,
+      instruction,
+    });
+    return { acpSessionId, continued: true };
+  } catch (err) {
+    if (err instanceof SessionBusyError) {
+      throw new ConflictError(err.message);
     }
-  } else {
-    const live = manager.getLiveSessionForConversation(conversationId!);
-    if (!live) {
+    if (err instanceof SessionNotFoundError) {
+      // The conversation-resolution miss has its own message ("No live ACP
+      // session …"); the id-resolution / steer-rejection misses collapse to a
+      // single not-found string. Preserve the conversation message; flatten
+      // the rest.
       throw new NotFoundError(
-        "No live ACP session to continue for this conversation",
+        explicitId
+          ? "ACP session not found or not reusable"
+          : err.message,
       );
     }
-    acpSessionId = live.id;
-    status = live.status;
+    throw err;
   }
-
-  // Never steer a session with a prompt in flight: `manager.steer`'s
-  // running-session path CANCELS the in-flight prompt, so a follow-up like
-  // "also do X" would abort in-progress work. Reject cleanly and let the
-  // caller wait for the current task to finish (or cancel it deliberately).
-  if (status === "running" || status === "initializing") {
-    throw new ConflictError(
-      `ACP session "${acpSessionId}" is busy (${status}); wait for the current task to finish before continuing.`,
-    );
-  }
-
-  try {
-    await manager.steer(acpSessionId, instruction);
-  } catch {
-    throw new NotFoundError("ACP session not found or not reusable");
-  }
-  return { acpSessionId, continued: true };
 }
 
 async function cancelSession({ pathParams }: RouteHandlerArgs) {

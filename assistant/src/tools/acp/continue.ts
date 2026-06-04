@@ -1,5 +1,5 @@
 import { getAcpSessionManager } from "../../acp/index.js";
-import type { AcpSessionState } from "../../acp/types.js";
+import { SessionBusyError } from "../../acp/session-manager.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 /**
@@ -38,54 +38,16 @@ export async function executeAcpContinue(
 
   const manager = getAcpSessionManager();
 
-  // Resolve the target session: an explicit id wins; otherwise fall back to
-  // the conversation's most-recent live (running/idle) session. Capture the
-  // resolved session's live status so we can refuse to continue one whose
-  // prompt is still in flight (see the busy guard below).
-  let acpSessionId = input.acp_session_id as string | undefined;
-  let status: AcpSessionState["status"] | undefined;
-  if (acpSessionId) {
-    try {
-      const state = manager.getStatus(acpSessionId);
-      if (!Array.isArray(state)) status = state.status;
-    } catch {
-      // Unknown / closed session id — surface the same clean error the steer
-      // rejection path produces below.
-      return {
-        content:
-          `Could not continue ACP session "${acpSessionId}": ` +
-          "session not found or not reusable.",
-        isError: true,
-      };
-    }
-  } else {
-    const live = manager.getLiveSessionForConversation(context.conversationId);
-    if (!live) {
-      return {
-        content:
-          "No live ACP session to continue for this conversation. " +
-          "Spawn a fresh session with acp_spawn, or pass acp_session_id.",
-        isError: true,
-      };
-    }
-    acpSessionId = live.id;
-    status = live.status;
-  }
-
-  // A prompt is still in flight: `manager.steer`'s running-session path would
-  // CANCEL it, so a follow-up like "also do X" would abort in-progress work.
-  // Refuse cleanly and let the caller wait for the current task to finish.
-  if (status === "running" || status === "initializing") {
-    return {
-      content:
-        `ACP session "${acpSessionId}" is busy (${status}); wait for the ` +
-        "current task to finish before continuing.",
-      isError: true,
-    };
-  }
-
+  // Resolution + the running-session rejection live in the shared
+  // `manager.continueSession` helper (single source of truth, also used by the
+  // HTTP route). The tool only translates the outcome into `{ isError }`.
+  const explicitId = input.acp_session_id as string | undefined;
   try {
-    await manager.steer(acpSessionId, instruction);
+    const { acpSessionId } = await manager.continueSession({
+      acpSessionId: explicitId,
+      parentConversationId: explicitId ? undefined : context.conversationId,
+      instruction,
+    });
 
     return {
       content: JSON.stringify({
@@ -98,9 +60,17 @@ export async function executeAcpContinue(
       isError: false,
     };
   } catch (err) {
+    if (err instanceof SessionBusyError) {
+      return { content: err.message, isError: true };
+    }
     const msg = err instanceof Error ? err.message : String(err);
+    // The explicit-id path wraps the failure with its session label; the
+    // conversation path surfaces the manager's message plus the long-standing
+    // spawn/pass-id remediation hint.
     return {
-      content: `Could not continue ACP session "${acpSessionId}": ${msg}`,
+      content: explicitId
+        ? `Could not continue ACP session "${explicitId}": ${msg}`
+        : `${msg} Spawn a fresh session with acp_spawn, or pass acp_session_id.`,
       isError: true,
     };
   }
