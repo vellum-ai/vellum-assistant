@@ -113,6 +113,19 @@ const installSameOriginNavigationGuard = (win: BrowserWindow): void => {
       return;
     }
     if (isAllowedOrigin(target, allowedOrigin)) return;
+
+    // When the main window is already on an external origin (e.g.
+    // mid-OAuth on accounts.google.com after a server-side redirect
+    // chain), allow further navigations so the provider's own JS
+    // flows can complete. Only intercept navigations that originate
+    // from the app's SPA.
+    try {
+      const current = new URL(win.webContents.getURL());
+      if (!isAllowedOrigin(current, allowedOrigin)) return;
+    } catch {
+      // Unparseable current URL — fall through to the block.
+    }
+
     event.preventDefault();
     // External http(s) top-level navigations (e.g.
     // `window.location.href = "https://billing.stripe.com/..."`) route
