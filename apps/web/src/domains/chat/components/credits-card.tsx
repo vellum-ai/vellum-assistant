@@ -33,13 +33,19 @@ export function CreditsCard({ balance, onAddCredits }: CreditsCardProps) {
           {balance} credits
         </span>
       </div>
+      {/*
+       * size="regular" gives the label `text-body-medium-default`, matching
+       * the balance's line-height so the two are optically centered (the
+       * compact token uses line-height:1, which floats the small label). We
+       * keep the slim height/padding via className.
+       */}
       <Button
         variant="ghost"
-        size="compact"
+        size="regular"
         onClick={onAddCredits}
-        className="max-md:text-body-medium-default"
+        className="h-6 px-1.5"
       >
-        <Plus className="h-3 w-3" aria-hidden />
+        <Plus className="h-3.5 w-3.5" aria-hidden />
         Add
       </Button>
     </div>
