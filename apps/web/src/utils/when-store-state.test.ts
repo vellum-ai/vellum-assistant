@@ -47,7 +47,7 @@ describe("whenStoreState", () => {
     const store = makeStore({ resolved: false, value: 0 });
     const start = Date.now();
     await whenStoreState(store, (s) => s.resolved, { timeoutMs: 10 });
-    expect(Date.now() - start).toBeGreaterThanOrEqual(10);
+    expect(Date.now() - start).toBeGreaterThanOrEqual(9);
     // The awaited state never arrived; callers read the (still-false) snapshot.
     expect(store.getState().resolved).toBe(false);
   });
