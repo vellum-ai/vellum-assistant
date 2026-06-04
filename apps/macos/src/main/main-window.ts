@@ -6,7 +6,24 @@ import { getRendererRootUrl } from "./app-config";
 import { isAllowedOrigin, resolveAllowedOrigin } from "./app-origin";
 import { type VellumCommand } from "./commands";
 import { handle } from "./ipc";
-import { restoreBounds, track as trackWindowState } from "./window-state";
+import {
+  readOnboardingActive,
+  restoreBounds,
+  track as trackWindowState,
+  writeOnboardingActive,
+} from "./window-state";
+
+// Default content-area size of the onboarding flow, mirroring the macOS
+// Swift client's onboarding window (`OnboardingWindow.swift`: `contentRect`
+// 440×630). Applied as the *content* size (`useContentSize`) so the usable
+// area matches the Swift app's `.fullSizeContentView` content rect rather
+// than including the Electron title bar. Unlike the Swift window this is
+// only the *default* — the window stays resizable, so a user who wants more
+// room can drag it larger.
+const ONBOARDING_CONTENT_SIZE = { width: 440, height: 630 } as const;
+
+// Default bounds for the main window once onboarding is done.
+const MAIN_DEFAULT_BOUNDS = { width: 1280, height: 800 } as const;
 
 /**
  * Main BrowserWindow lifecycle owner.
@@ -135,8 +152,19 @@ const createWindow = (): BrowserWindow => {
   // Vite's `base`; see `getRendererRootUrl`.
   const loadTarget = getRendererRootUrl(app.isPackaged);
 
+  // Onboarding opens at the 440×630 default (matching the Swift client);
+  // the post-onboarding app restores the user's saved bounds. Both layouts
+  // are fully resizable — onboarding just starts smaller. The flag is
+  // persisted main-side so this first window is built at the correct size
+  // with no open-large-then-shrink flash; the renderer reconciles via
+  // `setOnboarding` once it knows the live route.
+  const onboardingActive = readOnboardingActive();
+  const sizing = onboardingActive
+    ? { ...ONBOARDING_CONTENT_SIZE, useContentSize: true }
+    : restoreBounds("main", MAIN_DEFAULT_BOUNDS);
+
   const win = new BrowserWindow({
-    ...restoreBounds("main", { width: 1280, height: 800 }),
+    ...sizing,
     show: false,
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"),
@@ -150,7 +178,12 @@ const createWindow = (): BrowserWindow => {
     },
   });
 
-  trackWindowState("main", win);
+  // Persist bounds only when NOT in onboarding mode. Both layouts are
+  // resizable, so resize events fire in either mode — but the small
+  // onboarding default must not be saved as the user's "main" size, or
+  // their next post-onboarding launch would come up tiny. The mode flag
+  // (not resizability, which no longer distinguishes them) is the gate.
+  trackWindowState("main", win, () => !readOnboardingActive());
 
   // Readiness resolves only after BOTH the renderer has loaded AND
   // the window has shown + focused. Per-window state keyed via
@@ -284,6 +317,47 @@ export const dispatchToMain = (command: VellumCommand): void => {
 };
 
 /**
+ * Switch the main window between the onboarding layout (440×630 default)
+ * and the main-app layout. Both are fully resizable; the only difference
+ * is the default/restored size. Persists the mode so the next launch's
+ * window is constructed at the right size, then resizes the current window
+ * if the mode actually changed.
+ *
+ * The mode of record is the persisted flag (read before the write), not
+ * resizability — both layouts are resizable now, so `isResizable()` can no
+ * longer distinguish them. Writing the flag *before* the resize means
+ * `window-state`'s persistence gate (`!readOnboardingActive()`) already
+ * reflects the new mode when the programmatic resize fires its event:
+ * the entry shrink is skipped, the exit restore is captured under "main".
+ * Re-asserting the current mode (the renderer fires this on every
+ * navigation) is a cheap no-op past the early return.
+ */
+export const setOnboarding = (active: boolean): void => {
+  const wasActive = readOnboardingActive();
+  writeOnboardingActive(active);
+
+  const win = mainWindow;
+  if (!win || win.isDestroyed()) return;
+  if (active === wasActive) return;
+
+  if (active) {
+    win.setContentSize(
+      ONBOARDING_CONTENT_SIZE.width,
+      ONBOARDING_CONTENT_SIZE.height,
+    );
+    win.center();
+  } else {
+    const bounds = restoreBounds("main", MAIN_DEFAULT_BOUNDS);
+    win.setBounds({ width: bounds.width, height: bounds.height });
+    if (bounds.x !== undefined && bounds.y !== undefined) {
+      win.setPosition(bounds.x, bounds.y);
+    } else {
+      win.center();
+    }
+  }
+};
+
+/**
  * Create the initial main window. Call once from `whenReady`.
  * Idempotent: if a window is already alive, no-op.
  */
@@ -300,6 +374,17 @@ export const installMainWindow = (): void => {
   handle("vellum:mainWindow:ensureVisible", z.tuple([]), async (): Promise<void> => {
     await ensureVisible();
   });
+
+  // Renderer-driven onboarding-window sizing. The renderer is the only
+  // side that knows whether the current route is an onboarding step, so it
+  // toggles the 440×630 onboarding default on/off as the user navigates.
+  handle(
+    "vellum:mainWindow:setOnboarding",
+    z.tuple([z.boolean()]),
+    async ([active]): Promise<void> => {
+      setOnboarding(active);
+    },
+  );
 
   void ensureVisible();
 };

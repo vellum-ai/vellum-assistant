@@ -21,6 +21,13 @@ interface SavedWindowState extends Rectangle {
 
 interface StoreSchema {
   windows: Record<string, SavedWindowState>;
+  // Whether the main window should open in the onboarding layout (440×630
+  // default; see `main-window.ts`). Persisted here — rather than read from
+  // the renderer's localStorage onboarding store — so the very first
+  // window of a launch is constructed at the right size with no
+  // open-large-then-shrink flash. Defaults to `true`: a fresh install has
+  // not completed onboarding, so the first window is the small one.
+  onboardingActive: boolean;
 }
 
 let instance: Store<StoreSchema> | null = null;
@@ -29,10 +36,28 @@ const store = (): Store<StoreSchema> => {
   if (!instance) {
     instance = new Store<StoreSchema>({
       name: "window-state",
-      defaults: { windows: {} },
+      defaults: { windows: {}, onboardingActive: true },
     });
   }
   return instance;
+};
+
+/**
+ * Whether the main window should open in onboarding (440×630 default)
+ * mode. Defaults to `true` so a first launch — which has not completed
+ * onboarding — opens the small window directly.
+ */
+export const readOnboardingActive = (): boolean =>
+  store().get("onboardingActive", true);
+
+/**
+ * Persist the onboarding-window-mode flag. No-op when unchanged so a
+ * renderer that re-asserts the current mode on every navigation doesn't
+ * churn the store file.
+ */
+export const writeOnboardingActive = (active: boolean): void => {
+  if (store().get("onboardingActive", true) === active) return;
+  store().set("onboardingActive", active);
 };
 
 interface Defaults {
@@ -100,13 +125,24 @@ export const restoreBounds = (
  * Cmd+Q" path. `isFullScreen()` is tracked separately and passed
  * through to the `BrowserWindow` constructor on restore, so the window
  * comes back in the same display mode it was left in.
+ *
+ * `shouldPersist` gates each save. It defaults to always-on, but callers
+ * that reuse one window across multiple layouts (the main window's
+ * onboarding vs. main modes) pass a predicate so a transient layout's
+ * size isn't saved under this key. Evaluated at save time, not bind time,
+ * so it reflects the current mode.
  */
-export const track = (key: string, win: BrowserWindow): void => {
+export const track = (
+  key: string,
+  win: BrowserWindow,
+  shouldPersist: () => boolean = () => true,
+): void => {
   const SAVE_DEBOUNCE_MS = 500;
   let saveTimer: NodeJS.Timeout | null = null;
 
   const persist = (): void => {
     if (win.isDestroyed()) return;
+    if (!shouldPersist()) return;
     const bounds = win.getNormalBounds();
     const existing = store().get("windows", {});
     store().set("windows", {

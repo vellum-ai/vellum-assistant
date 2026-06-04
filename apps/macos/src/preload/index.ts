@@ -197,6 +197,14 @@ export interface VellumBridge {
      * `ensureVisible`.
      */
     ensureVisible(): Promise<void>;
+    /**
+     * Switch the main window between the onboarding layout (440×630
+     * default) and the main-app layout. Both stay resizable. The renderer
+     * calls this as the user navigates into / out of the onboarding
+     * routes; main persists the mode so the next launch opens at the
+     * right size.
+     */
+    setOnboarding(active: boolean): Promise<void>;
   };
   power: {
     /**
@@ -327,6 +335,11 @@ const bridge: VellumBridge = {
   mainWindow: {
     ensureVisible: (): Promise<void> =>
       ipcRenderer.invoke("vellum:mainWindow:ensureVisible") as Promise<void>,
+    setOnboarding: (active: boolean): Promise<void> =>
+      ipcRenderer.invoke(
+        "vellum:mainWindow:setOnboarding",
+        active,
+      ) as Promise<void>,
   },
   power: {
     onEvent: (callback) => {
