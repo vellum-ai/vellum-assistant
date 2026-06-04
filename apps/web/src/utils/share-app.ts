@@ -25,15 +25,14 @@ export async function shareApp(
     throw new Error("Share response missing token.");
   }
 
-  const { response: dlResponse } = await appsSharedByTokenGet({
+  const { data: blob, response: dlResponse } = await appsSharedByTokenGet({
     path: { assistant_id: assistantId, token: data.shareToken },
     throwOnError: false,
-    parseAs: "stream",
+    parseAs: "blob",
   });
-  if (!dlResponse || !dlResponse.ok) {
+  if (!dlResponse || !dlResponse.ok || !blob) {
     throw new Error("Failed to download app bundle.");
   }
-  const blob = await dlResponse.blob();
 
   const safeName = appName.replace(/[/\\:*?"<>|]/g, "_").trim() || "App";
   await saveFile(blob, `${safeName}.vellum`);

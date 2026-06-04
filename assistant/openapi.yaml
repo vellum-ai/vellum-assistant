@@ -1314,6 +1314,11 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
       parameters:
         - name: token
           in: path
