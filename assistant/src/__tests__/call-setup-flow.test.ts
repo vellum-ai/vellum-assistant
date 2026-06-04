@@ -166,12 +166,12 @@ describe("CallSetupFlow", () => {
     ]);
   });
 
-  test("unsupported actions throw UnsupportedSetupFlowError", async () => {
-    const outcome: SetupOutcome = {
-      action: "name_capture",
-      assistantId: "asst_test",
-      fromNumber: "+15550100",
-    };
+  test("unknown actions throw UnsupportedSetupFlowError", async () => {
+    // Every router-emitted action is now implemented; only a synthetic,
+    // off-contract action should hit the loud fallback.
+    const outcome = {
+      action: "totally_unknown_action",
+    } as unknown as SetupOutcome;
 
     await expect(flow.start(outcome, RESOLVED)).rejects.toBeInstanceOf(
       UnsupportedSetupFlowError,
