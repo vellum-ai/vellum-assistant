@@ -14,7 +14,6 @@ import {
   schedulesByIdRunPost,
   schedulesByIdRunsGet,
   schedulesByIdTogglePost,
-  schedulesGet,
   schedulesPost,
 } from "@/generated/daemon/sdk.gen";
 import type {
@@ -28,6 +27,7 @@ import {
   assertHasResponse,
   extractErrorMessage,
 } from "@/utils/api-errors";
+import { fetchSchedules as fetchSharedSchedules } from "@/utils/schedules";
 
 import type { Schedule, ScheduleRun } from "@/domains/settings/types/schedules";
 
@@ -83,18 +83,7 @@ export async function updateSchedule(
 }
 
 export async function fetchSchedules(assistantId: string): Promise<Schedule[]> {
-  const { data, error, response } = await schedulesGet({
-    path: { assistant_id: assistantId },
-    throwOnError: false,
-  });
-  assertHasResponse(response, error, "Failed to load schedules.");
-  if (!response.ok) {
-    throw new ApiError(
-      response.status,
-      extractErrorMessage(error, response, "Failed to load schedules."),
-    );
-  }
-  return data?.schedules ?? [];
+  return fetchSharedSchedules(assistantId);
 }
 
 export async function fetchScheduleRuns(

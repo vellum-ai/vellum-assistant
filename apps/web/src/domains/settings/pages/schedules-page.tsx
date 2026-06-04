@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft,
+  BarChart3,
   Calendar,
   ChevronRight,
   Loader2,
@@ -539,6 +540,16 @@ export function ScheduleDetailView({
             <Tag tone={MODE_TONE[schedule.mode] ?? "neutral"}>
               {schedule.mode}
             </Tag>
+            <Button
+              variant="outlined"
+              size="compact"
+              leftIcon={<BarChart3 className="h-3.5 w-3.5" />}
+              onClick={() =>
+                navigate(routes.logs.usageForSchedule(schedule.id))
+              }
+            >
+              View usage
+            </Button>
             {sourceConversationId ? (
               <Button
                 variant="outlined"
