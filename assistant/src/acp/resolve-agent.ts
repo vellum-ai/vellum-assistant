@@ -67,9 +67,12 @@ function installHintFor(command: string): string {
 
 /**
  * Resolve the binary using the same PATH the spawn will see. `AcpAgentProcess`
- * spawns with `{ ...process.env, ...config.env }`, so a per-agent `env.PATH`
- * override wins over the daemon's PATH. Mirror that here so a config that
- * relies on a custom PATH to locate the binary doesn't fail preflight.
+ * spawns with `buildAgentSpawnEnv(config.env)`, which seeds the env from the
+ * shared safe-env allowlist (carrying the daemon's `PATH`) and then merges the
+ * agent's injected `config.env` on top — so a per-agent `env.PATH` override
+ * wins over the daemon's PATH. Mirror that precedence here (config PATH, else
+ * `process.env.PATH`) so a config that relies on a custom PATH to locate the
+ * binary doesn't fail preflight.
  */
 function findAgentBinary(agent: AcpAgentConfig): string | null {
   const PATH = agent.env?.PATH ?? process.env.PATH;
