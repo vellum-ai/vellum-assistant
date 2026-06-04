@@ -16,8 +16,13 @@ const TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
 export async function handleCreateToken(
   req: Request,
   server: Server<unknown> | undefined,
+  trustProxy = false,
 ): Promise<Response> {
-  if (!server || !isLoopbackPeer(server, req)) {
+  // With a trusted reverse proxy declared, judge loopback-ness by the real
+  // client IP (first X-Forwarded-For entry) rather than the raw socket peer,
+  // which is always 127.0.0.1 behind a same-host proxy/tunnel. Defaults false,
+  // so direct-loopback callers are unaffected.
+  if (!server || !isLoopbackPeer(server, req, { trustProxy })) {
     log.warn("Token create rejected: not a loopback peer");
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
