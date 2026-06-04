@@ -117,6 +117,7 @@ import {
   maybeRebuildMemoryV2Concepts,
   rebuildBm25CorpusStatsAndReseedSkills,
 } from "./memory-v2-startup.js";
+import { startOrphanReaper, stopOrphanReaper } from "./orphan-reaper.js";
 import { processMessage } from "./process-message.js";
 import { runProfilerSweep } from "./profiler-run-store.js";
 import {
@@ -728,6 +729,7 @@ export async function runDaemon(): Promise<void> {
     await server.start();
     log.info("Daemon startup: DaemonServer started");
     startDiskPressureGuardForLifecycle();
+    startOrphanReaper();
 
     // Kick off the update bulletin background job AFTER `server.start()`
     // resolves. The conversation store must be initialized before wake
@@ -1324,6 +1326,7 @@ export async function runDaemon(): Promise<void> {
       cleanupPidFile: () => {
         stopGatewayFlagListener();
         stopDiskPressureGuardForLifecycle();
+        stopOrphanReaper();
         cleanupPidFile();
       },
     });
@@ -1338,6 +1341,7 @@ export async function runDaemon(): Promise<void> {
   } catch (err) {
     log.error({ err }, "Daemon startup failed — cleaning up");
     stopDiskPressureGuardForLifecycle();
+    stopOrphanReaper();
     cleanupPidFileIfOwner(process.pid);
     throw err;
   }
