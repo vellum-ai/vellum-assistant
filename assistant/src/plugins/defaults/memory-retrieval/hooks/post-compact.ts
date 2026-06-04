@@ -28,17 +28,19 @@ import { stripHistoricalWebSearchResults } from "../../../../daemon/web-search-h
 import type { ConversationGraphMemory } from "../../../../memory/graph/conversation-graph-memory.js";
 import type { PluginLogger } from "../../../../plugin-api/types.js";
 import type { Message } from "../../../../providers/types.js";
+import type { TurnContext } from "../../../types.js";
 
 /**
  * The slice of the hook's context the agent loop supplies from its own working
- * state. Today that is just the post-compaction `history` to re-inject onto; as
- * further re-injection inputs migrate loop-ward they are added here, and the
- * loop hands the hook an object of this shape via
+ * state. Re-injection inputs migrate loop-ward by growing this type; the loop
+ * hands the hook an object of this shape via
  * {@link MidLoopCompaction.postCompactionHook}.
  */
 export interface PostCompactionHookInput {
   /** Compacted message history to re-inject onto. */
   history: Message[];
+  /** Per-turn conversation context forwarded to the injector chain. */
+  turnContext?: TurnContext;
 }
 
 /**
