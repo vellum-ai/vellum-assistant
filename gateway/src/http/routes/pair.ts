@@ -331,31 +331,15 @@ export async function handlePair(
       );
     }
 
-    // Device-bound path: mint a recorded, per-device-revocable access token on
-    // the same short pair TTL as the stateless path. No refresh token is
-    // issued — until hot-path revocation is enforced, a long-lived refresh
-    // could silently re-mint long access tokens, so refreshable pairing is
-    // deferred. The recorded token becomes immediately revocable once the
-    // revocation check lands; in the interim the short TTL bounds its reach.
+    // Device-bound path: mint a recorded, per-device-revocable access token.
     if (deviceId) {
-      const platform = bodyPlatform ?? interfaceId;
-      const access = mintAndRecordDeviceBoundAccessToken({
+      return mintDeviceBoundPairResponse({
         guardianPrincipalId,
-        deviceId,
-        platform,
-        ttlSeconds: PAIR_TOKEN_TTL_SECONDS,
-      });
-
-      log.info(
-        { interfaceId, clientId, guardianPrincipalId, platform },
-        "Client paired successfully via loopback (device-bound)",
-      );
-
-      return Response.json({
-        token: access.accessToken,
-        expiresAt: new Date(access.accessTokenExpiresAt).toISOString(),
-        guardianId: guardianPrincipalId,
         assistantId,
+        deviceId,
+        platform: bodyPlatform ?? interfaceId,
+        interfaceId,
+        clientId,
       });
     }
 
@@ -382,10 +366,76 @@ export async function handlePair(
     });
   }
 
+  // CLI pairing (e.g. `vellum pair`): a loopback-local caller mints a
+  // device-bound token for another machine. No extension-origin check applies
+  // (the CLI is not a browser); the loopback / X-Forwarded-For / edge-marker
+  // guards above are the boundary. A deviceId is required — CLI pairing is
+  // always device-scoped (and thus revocable).
+  if (interfaceId === "cli") {
+    if (!deviceId) {
+      return errorResponse(
+        "BAD_REQUEST",
+        "cli interface requires a deviceId",
+        400,
+      );
+    }
+    return mintDeviceBoundPairResponse({
+      guardianPrincipalId,
+      assistantId,
+      deviceId,
+      platform: bodyPlatform ?? "cli",
+      interfaceId,
+      clientId,
+    });
+  }
+
   auditDeny(req, clientIp, "unknown_interface", { interfaceId });
   return errorResponse(
     "BAD_REQUEST",
     `unsupported interface: '${interfaceId}'`,
     400,
   );
+}
+
+/**
+ * Mint a device-bound, recorded, per-device-revocable access token (short pair
+ * TTL, no refresh token) and build the pair response. Shared by the
+ * chrome-extension (deviceId) and cli pairing paths.
+ *
+ * No refresh token is issued: a long-lived refresh could silently re-mint long
+ * access tokens, so refreshable pairing is deferred until that's handled
+ * explicitly. The recorded token is immediately revocable; the short TTL bounds
+ * its reach in the interim.
+ */
+function mintDeviceBoundPairResponse(opts: {
+  guardianPrincipalId: string;
+  assistantId: string;
+  deviceId: string;
+  platform: string;
+  interfaceId: string;
+  clientId: string | null;
+}): Response {
+  const access = mintAndRecordDeviceBoundAccessToken({
+    guardianPrincipalId: opts.guardianPrincipalId,
+    deviceId: opts.deviceId,
+    platform: opts.platform,
+    ttlSeconds: PAIR_TOKEN_TTL_SECONDS,
+  });
+
+  log.info(
+    {
+      interfaceId: opts.interfaceId,
+      clientId: opts.clientId,
+      guardianPrincipalId: opts.guardianPrincipalId,
+      platform: opts.platform,
+    },
+    "Client paired successfully via loopback (device-bound)",
+  );
+
+  return Response.json({
+    token: access.accessToken,
+    expiresAt: new Date(access.accessTokenExpiresAt).toISOString(),
+    guardianId: opts.guardianPrincipalId,
+    assistantId: opts.assistantId,
+  });
 }

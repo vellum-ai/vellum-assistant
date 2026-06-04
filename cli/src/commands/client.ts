@@ -434,11 +434,16 @@ async function handleLocalEndpoints(
     if (req.method !== "POST") return new Response(null, { status: 405 });
 
     let species = "vellum";
+    let remote: string | undefined;
     const contentType = req.headers.get("content-type") ?? "";
     if (contentType.includes("json")) {
       try {
-        const body = (await req.json()) as { species?: string };
+        const body = (await req.json()) as {
+          species?: string;
+          remote?: string;
+        };
         if (body.species) species = body.species;
+        if (body.remote) remote = body.remote;
       } catch {
         return Response.json(
           { ok: false, error: "Invalid JSON body" },
@@ -457,7 +462,11 @@ async function handleLocalEndpoints(
       );
     }
 
-    const result = await runHatch(invocation, species);
+    const result = await runHatch(
+      invocation,
+      species,
+      remote ? { remote } : undefined,
+    );
     if (result.ok) {
       return Response.json({ ok: true, assistantId: result.assistantId });
     }

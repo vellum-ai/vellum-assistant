@@ -3,19 +3,31 @@ import { spawn } from "node:child_process";
 import type { CliInvocation } from "./util";
 
 const HATCH_TIMEOUT_MS = 120_000;
+// Docker hatches pull images and wait up to 5 min for container readiness.
+const DOCKER_HATCH_TIMEOUT_MS = 10 * 60 * 1000;
 
 export type HatchResult =
   | { ok: true; assistantId: string }
   | { ok: false; status: number; error: string };
 
+export interface RunHatchOptions {
+  remote?: string;
+}
+
 export function runHatch(
   invocation: CliInvocation,
   species: string,
+  options?: RunHatchOptions,
 ): Promise<HatchResult> {
   return new Promise((resolve) => {
+    const args = [...invocation.baseArgs, "hatch", species];
+    if (options?.remote) {
+      args.push("--remote", options.remote);
+    }
+
     const child = spawn(
       invocation.command,
-      [...invocation.baseArgs, "hatch", species],
+      args,
       { stdio: ["ignore", "pipe", "pipe"] },
     );
 
@@ -30,10 +42,16 @@ export function runHatch(
       resolve(result);
     };
 
+    const timeoutMs =
+      options?.remote === "docker" ? DOCKER_HATCH_TIMEOUT_MS : HATCH_TIMEOUT_MS;
     const timeout = setTimeout(() => {
       child.kill("SIGTERM");
-      finish({ ok: false, status: 500, error: "Hatch timed out after 120 seconds" });
-    }, HATCH_TIMEOUT_MS);
+      finish({
+        ok: false,
+        status: 500,
+        error: `Hatch timed out after ${timeoutMs / 1000} seconds`,
+      });
+    }, timeoutMs);
 
     child.stdout.on("data", (data: Buffer) => {
       stdout += data.toString();
@@ -53,7 +71,7 @@ export function runHatch(
         return;
       }
       const assistantId = stdout
-        .match(/Hatching local assistant:\s+(.+)/)?.[1]
+        .match(/Hatching (?:local|Docker) assistant:\s+(.+)/)?.[1]
         ?.trim();
       if (!assistantId) {
         finish({

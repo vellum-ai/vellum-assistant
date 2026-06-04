@@ -478,6 +478,17 @@ export async function retireDocker(name: string): Promise<void> {
     }
   }
 
+  // Future: consider stopping Colima VM when no Docker instances remain.
+  // Considerations:
+  // - Use loadAllAssistantsAcrossEnvs() instead of loadAllAssistants() to
+  //   avoid stopping Colima while another VELLUM_ENVIRONMENT still has a
+  //   running Docker instance.
+  // - Track whether Vellum started Colima (vs. the user already had it
+  //   running for non-Vellum workloads) \u2014 e.g. via a dedicated Colima
+  //   profile (`colima start --profile vellum`) or a sentinel file.
+  // - Only stop if both conditions are met: no cross-env Docker instances
+  //   AND Vellum owns the Colima lifecycle.
+
   console.log(`\u2705 Docker instance retired.`);
 }
 
@@ -1137,7 +1148,20 @@ export async function hatchDocker(
           await loadImageViaHost(HOST_IMAGE_LOADER_URL, ref, log);
         } else {
           log(`   ↪ pulling ${ref}`);
-          await exec("docker", ["pull", ref]);
+          const MAX_PULL_RETRIES = 3;
+          for (let attempt = 1; attempt <= MAX_PULL_RETRIES; attempt++) {
+            try {
+              await exec("docker", ["pull", ref]);
+              break;
+            } catch (err) {
+              if (attempt === MAX_PULL_RETRIES) throw err;
+              const delaySec = 2 ** attempt;
+              log(
+                `   ⚠ pull failed (attempt ${attempt}/${MAX_PULL_RETRIES}), retrying in ${delaySec}s...`,
+              );
+              await new Promise((r) => setTimeout(r, delaySec * 1000));
+            }
+          }
         }
       }
       log("✅ Docker images acquired");

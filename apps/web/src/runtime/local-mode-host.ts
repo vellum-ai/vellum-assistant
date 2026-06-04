@@ -99,15 +99,16 @@ export class GuardianTokenError extends Error {
  */
 export async function hatchLocalAssistant(
   species: string = "vellum",
+  remote?: string,
 ): Promise<LocalHatchResult> {
   if (isElectron()) {
-    return window.vellum!.localMode.hatch(species);
+    return window.vellum!.localMode.hatch(species, remote);
   }
 
   const res = await fetch("/assistant/__local/hatch", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ species }),
+    body: JSON.stringify({ species, remote }),
   });
   return res.json() as Promise<LocalHatchResult>;
 }

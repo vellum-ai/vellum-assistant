@@ -533,7 +533,8 @@ export function HatchingScreen() {
                 setError(null);
                 setPlatformHostedDisabled(false);
                 if (useLocalHatch) {
-                  triggerLocalHatch();
+                  const remote = hostingParam === "docker" ? "docker" : undefined;
+                  triggerLocalHatch(undefined, remote);
                 } else {
                   triggerPlatformHatch();
                 }

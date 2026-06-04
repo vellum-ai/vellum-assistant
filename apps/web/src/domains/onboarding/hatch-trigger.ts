@@ -18,9 +18,9 @@ import { readSelectedVersion } from "@/domains/onboarding/prefs";
 let localHatchPromise: Promise<LocalHatchResult> | null = null;
 let platformHatchPromise: Promise<HatchResult> | null = null;
 
-export function triggerLocalHatch(species = "vellum"): Promise<LocalHatchResult> {
+export function triggerLocalHatch(species = "vellum", remote?: string): Promise<LocalHatchResult> {
   if (!localHatchPromise) {
-    localHatchPromise = hatchLocalAssistant(species);
+    localHatchPromise = hatchLocalAssistant(species, remote);
   }
   return localHatchPromise;
 }

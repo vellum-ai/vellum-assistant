@@ -96,14 +96,14 @@ async function resolveCliInvocation(): Promise<CliInvocation> {
  * failures resolve with `{ ok: false, error }` so the renderer renders the
  * same error UI it shows for the web/dev middleware path.
  */
-async function hatch(species: string): Promise<HatchResult> {
+async function hatch(species: string, remote?: string): Promise<HatchResult> {
   let invocation: CliInvocation;
   try {
     invocation = await resolveCliInvocation();
   } catch (err) {
     return { ok: false, error: (err as Error).message };
   }
-  const result = await runHatch(invocation, species);
+  const result = await runHatch(invocation, species, { remote });
   return result.ok
     ? { ok: true, assistantId: result.assistantId }
     : { ok: false, error: result.error };
@@ -166,8 +166,12 @@ export const installLocalMode = (): void => {
   // falls back to the default rather than being rejected.
   handle(
     "vellum:localMode:hatch",
-    z.tuple([z.string().optional()]),
-    ([species]) => hatch(species && species.length > 0 ? species : DEFAULT_SPECIES),
+    z.tuple([z.string().optional(), z.string().optional()]),
+    ([species, remote]) =>
+      hatch(
+        species && species.length > 0 ? species : DEFAULT_SPECIES,
+        remote || undefined,
+      ),
   );
 
   handle("vellum:localMode:readLockfile", z.tuple([]), () => {

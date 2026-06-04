@@ -119,7 +119,8 @@ export function PrivacyScreen() {
     // the in-flight promise instead of triggering its own.
     if (!isReplay) {
       if (useLocalHatch) {
-        triggerLocalHatch();
+        const remote = hostingParam === "docker" ? "docker" : undefined;
+        triggerLocalHatch(undefined, remote);
       } else {
         triggerPlatformHatch();
       }

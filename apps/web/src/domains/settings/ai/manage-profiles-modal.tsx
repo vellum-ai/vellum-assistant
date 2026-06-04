@@ -3,6 +3,7 @@ import { useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@vellum/design-library/components/button";
 import { Modal } from "@vellum/design-library/components/modal";
+import { toast } from "@vellum/design-library/components/toast";
 import { Typography } from "@vellum/design-library/components/typography";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { captureError } from "@/lib/sentry/capture-error";
@@ -46,6 +47,7 @@ export function ManageProfilesModal({
   const configMutation = useDaemonConfigMutation();
 
   const openAICompatibleEndpoints = useAssistantFeatureFlagStore.use.openAICompatibleEndpoints();
+  const chatgptSubscriptionAuth = useAssistantFeatureFlagStore.use.chatgptSubscriptionAuth();
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState<ProfileWithName | null>(null);
 
@@ -119,6 +121,14 @@ export function ManageProfilesModal({
       await configMutation.mutateAsync({ llm: llmPatch });
     }
 
+    // Fire the profile-create success toast from the SETTINGS surface only.
+    // The composer quick-add surface owns its own create toast, so firing
+    // here (rather than inside ProfileEditorModal, which both surfaces share)
+    // keeps exactly one success toast per create with no double-fire.
+    if (isNew) {
+      toast.success(`Profile "${entry.label ?? name}" created`);
+    }
+
     setEditorOpen(false);
     setEditingProfile(null);
   }
@@ -164,6 +174,8 @@ export function ManageProfilesModal({
         existingNames={existingNames}
         connections={connections}
         openAICompatibleEndpointsEnabled={openAICompatibleEndpoints}
+        assistantId={assistantId}
+        chatgptSubscriptionEnabled={chatgptSubscriptionAuth}
         onSave={handleEditorSave}
         onCancel={() => {
           setEditorOpen(false);
