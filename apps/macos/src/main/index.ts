@@ -282,6 +282,11 @@ app.on("second-instance", (_event, argv) => {
 });
 
 app.on("web-contents-created", (_event, contents) => {
+  // Electron internals + our own cleanup listeners (deep-links, power-events)
+  // exceed the default 10-listener cap per WebContents, triggering a spurious
+  // MaxListenersExceededWarning. Bump the limit to silence it.
+  contents.setMaxListeners(20);
+
   contents.setWindowOpenHandler(({ url, disposition }) => {
     // Only http(s) is ever opened — file:, javascript:, custom schemes are
     // denied with no fallback.
