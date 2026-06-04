@@ -675,6 +675,14 @@ export class CallSetupFlow implements SetupFlowInput {
    * Post a lifecycle pointer message to the originating conversation, if one
    * exists. No-op when the session has no originating conversation or the
    * `addPointerMessage` dep is absent.
+   *
+   * Best-effort: the pointer write is wrapped in a try/catch (log + continue)
+   * so a rejection — e.g. the originating desktop conversation was deleted, or
+   * a DB write fails — can never propagate out of the verification handlers and
+   * strand the flow in `collecting_code` after the code was already consumed.
+   * Mirrors relay-server, which `.catch()`es every `addPointerMessage` write
+   * and continues. The verification result (proceed/ended) must be emitted
+   * regardless of the pointer-write outcome.
    */
   private async postPointer(
     event: "verification_succeeded" | "verification_failed" | "failed",
@@ -682,12 +690,24 @@ export class CallSetupFlow implements SetupFlowInput {
   ): Promise<void> {
     const session = this.deps.getSession?.();
     if (!session?.initiatedFromConversationId) return;
-    await this.deps.addPointerMessage?.(
-      session.initiatedFromConversationId,
-      event,
-      session.toNumber,
-      extra,
-    );
+    try {
+      await this.deps.addPointerMessage?.(
+        session.initiatedFromConversationId,
+        event,
+        session.toNumber,
+        extra,
+      );
+    } catch (err) {
+      log.warn(
+        {
+          callSessionId: this.callSessionId,
+          conversationId: session.initiatedFromConversationId,
+          event,
+          err,
+        },
+        "Skipping pointer write — origin conversation may no longer exist",
+      );
+    }
   }
 
   // ── Internal ────────────────────────────────────────────────────────

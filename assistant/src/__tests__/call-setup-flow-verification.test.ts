@@ -565,4 +565,111 @@ describe("CallSetupFlow verification sub-flows", () => {
     releaseCodePost();
     await Promise.resolve();
   });
+
+  // ── Best-effort pointer writes (P1: rejection must not strand flow) ──
+  // A pointer write into the originating conversation can reject (origin
+  // conversation deleted, DB write fails). It must never propagate out of the
+  // verification handlers and leave the flow stuck in `collecting_code` after
+  // the code was already consumed — matching relay-server, which `.catch()`es
+  // every `addPointerMessage` write and continues.
+
+  test("outbound success: pointer-write rejection still resolves proceed + leaves collecting_code", async () => {
+    const transport = makeTransport();
+    const ctx = makeDeps(SESSION, {
+      async addPointerMessage() {
+        throw new Error("origin conversation deleted");
+      },
+    });
+    const flow = new CallSetupFlow("call_1", transport.transport, ctx.deps);
+
+    const started = flow.start(
+      {
+        action: "outbound_verification",
+        assistantId: "asst_test",
+        sessionId: "vs_1",
+        toNumber: "+15550199",
+      },
+      RESOLVED,
+    );
+    verificationOutcomes.push({
+      outcome: "success",
+      verificationType: "guardian",
+      eventName: "outbound_voice_verification_succeeded",
+    });
+    pushDigits(flow, "123456");
+
+    // Despite the rejected pointer write, the flow still finishes with the
+    // verification result and is no longer parked in collecting_code.
+    const result = await started;
+    expect(result.kind).toBe("proceed-post-verification-greeting");
+    expect(flow.getState()).toBe("completed");
+    expect(ctx.completed.at(-1)?.kind).toBe(
+      "proceed-post-verification-greeting",
+    );
+  });
+
+  test("outbound failure: pointer-write rejection still ends the flow", async () => {
+    const transport = makeTransport();
+    const ctx = makeDeps(SESSION, {
+      async addPointerMessage() {
+        throw new Error("db write failed");
+      },
+    });
+    const flow = new CallSetupFlow("call_1", transport.transport, ctx.deps);
+
+    const started = flow.start(
+      {
+        action: "outbound_verification",
+        assistantId: "asst_test",
+        sessionId: "vs_1",
+        toNumber: "+15550199",
+      },
+      RESOLVED,
+    );
+    verificationOutcomes.push({
+      outcome: "failure",
+      eventName: "outbound_voice_verification_failed",
+      ttsMessage: "[voice.failure:6]",
+      attempts: 3,
+    });
+    pushDigits(flow, "000000");
+
+    const result = await started;
+    expect(result.kind).toBe("ended");
+    expect(flow.getState()).toBe("completed");
+    // The terminal speech + deferred hangup still happen despite the rejection.
+    expect(ctx.spoken).toContain("[voice.failure:6]");
+    expect(ctx.scheduled).toHaveLength(1);
+  });
+
+  test("callee failure: pointer-write rejection still ends the flow", async () => {
+    const transport = makeTransport();
+    const ctx = makeDeps(SESSION, {
+      async addPointerMessage() {
+        throw new Error("db write failed");
+      },
+    });
+    const flow = new CallSetupFlow("call_1", transport.transport, ctx.deps);
+
+    const started = flow.start(
+      {
+        action: "callee_verification",
+        verificationConfig: { maxAttempts: 1, codeLength: 4 },
+      },
+      RESOLVED,
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    const correct = ctx.codePosts[0]!.code;
+    const wrong = correct === "9999" ? "0000" : "9999";
+
+    pushDigits(flow, wrong);
+    const result = await started;
+    expect(result.kind).toBe("ended");
+    expect(flow.getState()).toBe("completed");
+    expect(ctx.events.map((e) => e.type)).toContain(
+      "callee_verification_failed",
+    );
+    expect(ctx.scheduled).toHaveLength(1);
+  });
 });
