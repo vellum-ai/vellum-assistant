@@ -126,7 +126,6 @@ mock.module("@/assistant/api", () => ({
 }));
 
 const { useAuthStore } = await import("@/stores/auth-store");
-const { routes } = await import("@/utils/routes");
 
 function resetAuthStore(): void {
   useAuthStore.setState({
