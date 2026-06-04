@@ -169,14 +169,10 @@ function PreferencesMenuContent({
     <>
       <ThemeToggle className="px-2 py-0" />
 
-      {showBillingRows ? (
+      {showBillingRows && effectiveBalance !== null ? (
         <div className="my-2">
           <CreditsCard
-            balance={
-              effectiveBalance !== null
-                ? formatWholeCredits(effectiveBalance)
-                : null
-            }
+            balance={formatWholeCredits(effectiveBalance)}
             onAddCredits={() => {
               onClose();
               navigate(routes.settings.billing);
