@@ -5,6 +5,11 @@ directories:
 extraResources:
   - from: resources/bun
     to: bun
+  # Branded per-environment app icon as a raster, emitted by
+  # scripts/generate-icon.sh. The main process loads it from Resources/ to
+  # reset the Dock icon when the active assistant has no avatar.
+  - from: build/icon.png
+    to: icon.png
 afterPack: ./scripts/afterPack.js
 protocols:
   - name: Vellum Deep Links

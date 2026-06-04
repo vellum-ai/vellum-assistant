@@ -28,6 +28,7 @@ import { useAssistantFeatureFlagSync } from "@/hooks/use-assistant-feature-flag-
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useDynamicFavicon } from "@/hooks/use-dynamic-favicon";
+import { useDockIconSync } from "@/hooks/use-dock-icon-sync";
 import { TimezoneSync } from "@/components/timezone-sync";
 
 /**
@@ -96,6 +97,11 @@ export function RootLayout() {
   // so the favicon persists when navigating between sibling layouts.
   const avatar = useAssistantAvatar(assistantId);
   useDynamicFavicon(avatar.customImageUrl, avatar.components, avatar.traits);
+
+  // Keep the macOS Dock icon in lockstep with the favicon: the active
+  // assistant's avatar, falling back to the bundled branded icon. No-op off
+  // Electron.
+  useDockIconSync(avatar.customImageUrl, avatar.components, avatar.traits);
 
   // Size the Electron main window to the onboarding layout (440×630
   // default) while on an onboarding step, and back to the main-app size

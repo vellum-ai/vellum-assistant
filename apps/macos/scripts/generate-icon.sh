@@ -244,4 +244,11 @@ done
 
 iconutil --convert icns --output "$OUTPUT_DIR/icon.icns" "$ICONSET_DIR"
 
-echo "generate-icon: wrote $OUTPUT_DIR/icon.icns ($VELLUM_ENVIRONMENT)"
+# Also keep the master raster as a PNG. electron-builder ships it to the app's
+# Resources/ (via `extraResources` in electron-builder.yml), where the main
+# process loads it to RESET the Dock icon when the active assistant has no
+# avatar (see src/main/dock.ts). Copied before the EXIT trap removes the
+# temp master.
+cp "$MASTER_PNG" "$OUTPUT_DIR/icon.png"
+
+echo "generate-icon: wrote $OUTPUT_DIR/icon.icns + icon.png ($VELLUM_ENVIRONMENT)"

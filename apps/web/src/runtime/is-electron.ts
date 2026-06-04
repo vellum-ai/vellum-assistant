@@ -58,6 +58,11 @@ declare global {
       dock: {
         setBadge(count: number): Promise<void>;
         setSignedIn(signedIn: boolean): Promise<void>;
+        // Optional: older Electron shells predate the dock-icon channel. The
+        // macOS app and web bundle don't release together, so a newer
+        // renderer can run against an older preload; callers must guard on
+        // its presence.
+        setIcon?(pngDataUrl: string | null): Promise<void>;
       };
       menu: {
         setPlatformSession(has: boolean): Promise<void>;

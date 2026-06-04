@@ -37,3 +37,19 @@ export async function setDockSignedIn(signedIn: boolean): Promise<void> {
   if (!isElectron()) return;
   await window.vellum?.dock.setSignedIn(signedIn);
 }
+
+/**
+ * Set the macOS Dock icon to the active assistant's avatar, supplied as a
+ * PNG data URL, or `null` to reset to the bundled branded (V) icon when the
+ * assistant has no avatar. Keeps the Dock in lockstep with the in-app avatar
+ * and the browser favicon (`use-dynamic-favicon`).
+ *
+ * `setIcon` is optional on the bridge — the web bundle and the macOS shell
+ * don't release together, so an older shell may predate this channel and the
+ * `?.` makes the call a no-op there. Safe to call from any host — no-op off
+ * Electron.
+ */
+export async function setDockIcon(pngDataUrl: string | null): Promise<void> {
+  if (!isElectron()) return;
+  await window.vellum?.dock.setIcon?.(pngDataUrl);
+}

@@ -1,4 +1,5 @@
-import { app } from "electron";
+import { app, nativeImage } from "electron";
+import path from "node:path";
 import { z } from "zod";
 
 import { handle } from "./ipc";
@@ -149,6 +150,44 @@ const applyBadge = (): void => {
   app.dock.setBadge(formatBadge(state.badgeCount));
 };
 
+// Bundled, per-environment branded icon used to RESET the Dock icon when the
+// active assistant has no avatar. `generate-icon.sh` emits `build/icon.png`
+// (the same master raster the `.icns` is cut from) and electron-builder ships
+// it to `Resources/` via `extraResources`. In a dev run that never invoked
+// `generate-icon.sh` the file is absent; `createFromPath` then returns an
+// empty image and we cache `null`, so the reset path becomes a no-op rather
+// than blanking the Dock.
+const resolveDefaultIconPath = (): string =>
+  app.isPackaged
+    ? path.join(process.resourcesPath, "icon.png")
+    : path.join(app.getAppPath(), "build", "icon.png");
+
+let defaultDockIcon: ReturnType<typeof nativeImage.createFromPath> | null | undefined;
+const getDefaultDockIcon = (): ReturnType<
+  typeof nativeImage.createFromPath
+> | null => {
+  if (defaultDockIcon === undefined) {
+    const image = nativeImage.createFromPath(resolveDefaultIconPath());
+    defaultDockIcon = image.isEmpty() ? null : image;
+  }
+  return defaultDockIcon;
+};
+
+// Apply a Dock icon from a renderer-supplied PNG data URL, or reset to the
+// bundled branded icon when `dataUrl` is null. The badge is an independent
+// overlay that survives a `setIcon`, so unread counts aren't disturbed.
+const applyIcon = (dataUrl: string | null): void => {
+  if (!app.dock) return;
+  if (dataUrl) {
+    const image = nativeImage.createFromDataURL(dataUrl);
+    // Ignore a malformed/empty payload rather than blanking the Dock icon.
+    if (!image.isEmpty()) app.dock.setIcon(image);
+    return;
+  }
+  const fallback = getDefaultDockIcon();
+  if (fallback) app.dock.setIcon(fallback);
+};
+
 /**
  * Wire the dock state machine. Call once from `whenReady`. Idempotent
  * — repeated calls are no-ops, so it's safe under hot-reload of the
@@ -184,6 +223,21 @@ export const installDock = (): void => {
     state.signedIn = signedIn;
     scheduleRefresh();
   });
+
+  // Renderer publishes the active assistant's avatar as a PNG data URL so
+  // the Dock icon reflects the assistant — matching the in-app avatar and
+  // the browser favicon (`use-dynamic-favicon`). `null` means "no avatar":
+  // reset to the bundled branded (V) icon. Character avatars are rasterized
+  // SVGs; custom uploads are the user's image — both arrive pre-rendered
+  // because `nativeImage` can't render SVG and the renderer's blob URLs
+  // aren't reachable from main.
+  handle(
+    "vellum:dock:setIcon",
+    z.tuple([z.string().nullable()]),
+    ([dataUrl]) => {
+      applyIcon(dataUrl);
+    },
+  );
 
   // Subscribe to main-window visibility transitions (created, shown,
   // hidden, closed). Auxiliary windows (About, future thread pop-outs,

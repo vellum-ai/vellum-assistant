@@ -120,6 +120,15 @@ export interface VellumBridge {
      * call becomes a no-op and the renderer drops it.
      */
     setSignedIn(signedIn: boolean): Promise<void>;
+    /**
+     * Set the macOS Dock icon to the active assistant's avatar, supplied as
+     * a PNG data URL (the renderer rasterizes the character SVG or custom
+     * image — main can't render SVG and can't reach the renderer's blob
+     * URLs). Pass `null` to reset to the bundled branded icon when the
+     * assistant has no avatar. Keeps the Dock in lockstep with the in-app
+     * avatar and the browser favicon.
+     */
+    setIcon(pngDataUrl: string | null): Promise<void>;
   };
   localMode: {
     /**
@@ -283,6 +292,8 @@ const bridge: VellumBridge = {
       ipcRenderer.invoke("vellum:dock:setBadge", count) as Promise<void>,
     setSignedIn: (signedIn: boolean): Promise<void> =>
       ipcRenderer.invoke("vellum:dock:setSignedIn", signedIn) as Promise<void>,
+    setIcon: (pngDataUrl: string | null): Promise<void> =>
+      ipcRenderer.invoke("vellum:dock:setIcon", pngDataUrl) as Promise<void>,
   },
   localMode: {
     hatch: (species: string, remote?: string) =>
