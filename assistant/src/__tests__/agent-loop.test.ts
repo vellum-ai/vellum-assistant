@@ -12,84 +12,17 @@ import type {
   Message,
   Provider,
   ProviderResponse,
-  SendMessageOptions,
   ToolDefinition,
 } from "../providers/types.js";
+import {
+  createMockProvider,
+  textResponse,
+  toolUseResponse,
+} from "./helpers/mock-provider.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/** A mock provider that returns pre-configured responses in sequence. */
-function createMockProvider(responses: ProviderResponse[]): {
-  provider: Provider;
-  calls: {
-    messages: Message[];
-    tools?: ToolDefinition[];
-    systemPrompt?: string;
-    options?: SendMessageOptions;
-  }[];
-} {
-  const calls: {
-    messages: Message[];
-    tools?: ToolDefinition[];
-    systemPrompt?: string;
-    options?: SendMessageOptions;
-  }[] = [];
-  let callIndex = 0;
-
-  const provider: Provider = {
-    name: "mock",
-    async sendMessage(
-      messages: Message[],
-      options?: SendMessageOptions,
-    ): Promise<ProviderResponse> {
-      calls.push({
-        messages: [...messages],
-        tools: options?.tools,
-        systemPrompt: options?.systemPrompt,
-        options,
-      });
-      const response = responses[callIndex] ?? responses[responses.length - 1];
-      callIndex++;
-
-      // Emit streaming events if the response has text blocks
-      if (options?.onEvent) {
-        for (const block of response.content) {
-          if (block.type === "text") {
-            options.onEvent({ type: "text_delta", text: block.text });
-          }
-        }
-      }
-
-      return response;
-    },
-  };
-
-  return { provider, calls };
-}
-
-function textResponse(text: string): ProviderResponse {
-  return {
-    content: [{ type: "text", text }],
-    model: "mock-model",
-    usage: { inputTokens: 10, outputTokens: 5 },
-    stopReason: "end_turn",
-  };
-}
-
-function toolUseResponse(
-  id: string,
-  name: string,
-  input: Record<string, unknown>,
-): ProviderResponse {
-  return {
-    content: [{ type: "tool_use", id, name, input }],
-    model: "mock-model",
-    usage: { inputTokens: 10, outputTokens: 5 },
-    stopReason: "tool_use",
-  };
-}
 
 const dummyTools: ToolDefinition[] = [
   {
