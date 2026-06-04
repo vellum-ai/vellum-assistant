@@ -9,16 +9,20 @@ type SavedState = {
 };
 
 let savedWindows: Record<string, SavedState> = {};
+let savedOnboardingActive: boolean | undefined = undefined;
 let workArea = { x: 0, y: 0, width: 1920, height: 1080 };
 const storeSetMock = mock((_key: string, _value: unknown) => {});
 
-// Mock `electron-store` so `restoreBounds` reads from `savedWindows`
-// without touching disk. The store wrapper in `window-state.ts` uses the
-// default export, so the mock returns a class.
+// Mock `electron-store` so the wrappers read from the per-key test state
+// without touching disk. Key-aware so `readOnboardingActive` can be
+// exercised independently of the saved-windows map. The store wrapper in
+// `window-state.ts` uses the default export, so the mock returns a class.
 mock.module("electron-store", () => ({
   default: class {
-    get(_key: string, _fallback: { windows: Record<string, SavedState> }) {
-      return savedWindows;
+    get(key: string, fallback?: unknown) {
+      if (key === "onboardingActive") return savedOnboardingActive;
+      if (key === "windows") return savedWindows;
+      return fallback;
     }
     set(key: string, value: unknown) {
       storeSetMock(key, value);
@@ -35,7 +39,8 @@ mock.module("electron", () => ({
   },
 }));
 
-const { restoreBounds, track } = await import("./window-state");
+const { restoreBounds, track, readOnboardingActive, writeOnboardingActive } =
+  await import("./window-state");
 
 const DEFAULTS = { width: 800, height: 600 };
 
@@ -59,6 +64,7 @@ function makeTrackableWindow() {
 
 beforeEach(() => {
   savedWindows = {};
+  savedOnboardingActive = undefined;
   workArea = { x: 0, y: 0, width: 1920, height: 1080 };
   storeSetMock.mockClear();
 });
@@ -203,5 +209,58 @@ describe("track persistence gating", () => {
     onboarding = false;
     win.emit("close");
     expect(storeSetMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("readOnboardingActive default", () => {
+  test("fresh install (no flag, no saved main window) → onboarding", () => {
+    savedOnboardingActive = undefined;
+    savedWindows = {};
+    expect(readOnboardingActive()).toBe(true);
+  });
+
+  test("upgraded install (no flag, but saved main window) → not onboarding", () => {
+    savedOnboardingActive = undefined;
+    savedWindows.main = {
+      x: 0,
+      y: 0,
+      width: 1000,
+      height: 700,
+      isFullScreen: false,
+    };
+    expect(readOnboardingActive()).toBe(false);
+  });
+
+  test("an explicit persisted flag wins over the derived default", () => {
+    savedWindows.main = {
+      x: 0,
+      y: 0,
+      width: 1000,
+      height: 700,
+      isFullScreen: false,
+    };
+    savedOnboardingActive = true;
+    expect(readOnboardingActive()).toBe(true);
+
+    savedOnboardingActive = false;
+    savedWindows = {};
+    expect(readOnboardingActive()).toBe(false);
+  });
+
+  test("writeOnboardingActive skips persisting when the effective value is unchanged", () => {
+    // Upgraded install: derived default is already `false`, so re-asserting
+    // `false` must not write.
+    savedWindows.main = {
+      x: 0,
+      y: 0,
+      width: 1000,
+      height: 700,
+      isFullScreen: false,
+    };
+    writeOnboardingActive(false);
+    expect(storeSetMock).not.toHaveBeenCalled();
+
+    writeOnboardingActive(true);
+    expect(storeSetMock).toHaveBeenCalledWith("onboardingActive", true);
   });
 });

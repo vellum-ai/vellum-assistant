@@ -25,9 +25,10 @@ interface StoreSchema {
   // default; see `main-window.ts`). Persisted here — rather than read from
   // the renderer's localStorage onboarding store — so the very first
   // window of a launch is constructed at the right size with no
-  // open-large-then-shrink flash. Defaults to `true`: a fresh install has
-  // not completed onboarding, so the first window is the small one.
-  onboardingActive: boolean;
+  // open-large-then-shrink flash. Optional: when absent, the default is
+  // derived from saved window state (see `readOnboardingActive`) so an
+  // upgraded install that predates this key isn't forced into onboarding.
+  onboardingActive?: boolean;
 }
 
 let instance: Store<StoreSchema> | null = null;
@@ -36,7 +37,7 @@ const store = (): Store<StoreSchema> => {
   if (!instance) {
     instance = new Store<StoreSchema>({
       name: "window-state",
-      defaults: { windows: {}, onboardingActive: true },
+      defaults: { windows: {} },
     });
   }
   return instance;
@@ -44,19 +45,29 @@ const store = (): Store<StoreSchema> => {
 
 /**
  * Whether the main window should open in onboarding (440×630 default)
- * mode. Defaults to `true` so a first launch — which has not completed
- * onboarding — opens the small window directly.
+ * mode.
+ *
+ * The flag is the source of truth once written. When it's absent, the
+ * default is derived from saved main-window bounds rather than assumed
+ * `true`: a fresh install has no saved `windows.main` and should onboard,
+ * but an install upgraded from a build that predates this key already has
+ * saved bounds and is past onboarding — forcing it small would open at
+ * 440×630 (and stick there on the `/account/*` routes, which render
+ * outside `RootLayout` and never call the reconcile hook).
  */
-export const readOnboardingActive = (): boolean =>
-  store().get("onboardingActive", true);
+export const readOnboardingActive = (): boolean => {
+  const stored = store().get("onboardingActive");
+  if (typeof stored === "boolean") return stored;
+  return store().get("windows", {}).main === undefined;
+};
 
 /**
- * Persist the onboarding-window-mode flag. No-op when unchanged so a
- * renderer that re-asserts the current mode on every navigation doesn't
- * churn the store file.
+ * Persist the onboarding-window-mode flag. No-op when the effective value
+ * is unchanged so a renderer that re-asserts the current mode on every
+ * navigation doesn't churn the store file.
  */
 export const writeOnboardingActive = (active: boolean): void => {
-  if (store().get("onboardingActive", true) === active) return;
+  if (readOnboardingActive() === active) return;
   store().set("onboardingActive", active);
 };
 
