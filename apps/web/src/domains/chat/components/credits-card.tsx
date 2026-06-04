@@ -37,13 +37,15 @@ export function CreditsCard({ balance, onAddCredits }: CreditsCardProps) {
        * size="regular" gives the label `text-body-medium-default`, matching
        * the balance's line-height so the two are optically centered (the
        * compact token uses line-height:1, which floats the small label). We
-       * keep the slim height/padding via className.
+       * keep the slim height/padding via className, and tighten the
+       * icon↔label gap from the base `gap-1.5` to `gap-1` for this button only
+       * (overriding the shared Button default without affecting other buttons).
        */}
       <Button
         variant="ghost"
         size="regular"
         onClick={onAddCredits}
-        className="h-6 px-1.5"
+        className="h-6 gap-1 px-1.5"
       >
         <Plus className="h-3.5 w-3.5" aria-hidden />
         Add
