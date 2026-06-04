@@ -50,7 +50,7 @@ export function WebSearchCard() {
     const mode = wsService?.mode;
     return {
       serverWebSearchMode: (mode === "managed" || mode === "your-own" ? mode : getLocalSetting(LS_WEB_SEARCH_MODE, "your-own")) as ServiceMode,
-      serverWebSearchProvider: wsService?.provider ?? getLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native"),
+      serverWebSearchProvider: wsService?.provider || getLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native"),
     };
   }, [daemonConfig]);
 
