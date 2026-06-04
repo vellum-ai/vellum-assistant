@@ -246,21 +246,21 @@ describe("runPipeline — timeout", () => {
   });
 
   test("null timeout skips the race entirely", async () => {
-    // turn has DEFAULT_TIMEOUTS.turn === null — runner must not arm a
-    // timer. We verify by completing after an artificial 30ms wait and
-    // confirming success without interference.
+    // tokenEstimate has DEFAULT_TIMEOUTS.tokenEstimate === null — runner must
+    // not arm a timer. We verify by completing after an artificial 30ms wait
+    // and confirming success without interference.
     const sleeper: Middleware<Args, Result> = async (args, next) =>
       new Promise<Result>((resolve) => {
         setTimeout(() => resolve(next(args)), 30);
       });
     const terminal = async (_args: Args): Promise<Result> => ({ value: 1 });
     const result = await runPipeline(
-      "turn",
+      "tokenEstimate",
       [sleeper],
       terminal,
       { value: 0 },
       makeCtx(),
-      DEFAULT_TIMEOUTS.turn,
+      DEFAULT_TIMEOUTS.tokenEstimate,
     );
     expect(result).toEqual({ value: 1 });
   });
@@ -481,17 +481,17 @@ describe("runPipeline — structured log record", () => {
       value: args.value,
     });
     await runPipeline(
-      "turn",
+      "tokenEstimate",
       [],
       terminal,
       { value: 5 },
       makeCtx(),
-      DEFAULT_TIMEOUTS.turn,
+      DEFAULT_TIMEOUTS.tokenEstimate,
     );
 
     expect(fakeLogger.calls.length).toBe(1);
     const [record] = fakeLogger.calls[0]!;
-    expect(record.pipeline).toBe("turn");
+    expect(record.pipeline).toBe("tokenEstimate");
     expect(record.outcome).toBe("success");
     expect(record.timeoutMs).toBeUndefined();
   });
@@ -546,7 +546,6 @@ describe("runPipeline — structured log record", () => {
 describe("DEFAULT_TIMEOUTS", () => {
   test("matches the design-doc table exactly", () => {
     expect(DEFAULT_TIMEOUTS).toEqual({
-      turn: null,
       memoryRetrieval: null,
       tokenEstimate: null,
       compaction: null,
