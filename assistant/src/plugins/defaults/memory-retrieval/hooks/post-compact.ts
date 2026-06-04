@@ -24,19 +24,17 @@ import {
   type RuntimeInjectionOptions,
   type RuntimeInjectionResult,
 } from "../../../../daemon/conversation-runtime-assembly.js";
-import {
-  stripHistoricalWebSearchResults,
-  type StripStats,
-} from "../../../../daemon/web-search-history.js";
+import { stripHistoricalWebSearchResults } from "../../../../daemon/web-search-history.js";
 import type { ConversationGraphMemory } from "../../../../memory/graph/conversation-graph-memory.js";
+import type { PluginLogger } from "../../../../plugin-api/types.js";
 import type { Message } from "../../../../providers/types.js";
 
 /**
  * Everything the hook needs in a single context: the resolved
  * {@link RuntimeInjectionOptions} (spread top-level so each field stays
  * individually addressable), the history to re-inject onto, and the
- * conversation-scoped state the options bag cannot carry (graph handle and
- * actor trust).
+ * conversation-scoped state the options bag cannot carry (graph handle,
+ * actor trust, and a turn-scoped logger).
  */
 export interface PostCompactContext extends RuntimeInjectionOptions {
   /** Compacted message history to re-inject onto. */
@@ -45,17 +43,14 @@ export interface PostCompactContext extends RuntimeInjectionOptions {
   graphMemory: ConversationGraphMemory;
   /** True when the actor for this turn is trusted (guardian-class). */
   isTrustedActor: boolean;
-}
-
-export interface PostCompactResult extends RuntimeInjectionResult {
-  /** Stats from converting historical web-search results to text summaries. */
-  webSearchStripStats: StripStats;
+  /** Turn-scoped logger for diagnostics emitted while re-injecting. */
+  logger: PluginLogger;
 }
 
 export default async function postCompactReinject(
   ctx: PostCompactContext,
-): Promise<PostCompactResult> {
-  const { history, graphMemory, isTrustedActor, ...options } = ctx;
+): Promise<RuntimeInjectionResult> {
+  const { history, graphMemory, isTrustedActor, logger, ...options } = ctx;
   const result = await applyRuntimeInjections(history, options);
   // Re-track the nodes the memory graph last injected so they survive against
   // the re-injected history. Untrusted actors and minimal-mode turns never
@@ -64,9 +59,11 @@ export default async function postCompactReinject(
     graphMemory.retrackCachedNodes();
   }
   const strip = stripHistoricalWebSearchResults(result.messages);
-  return {
-    ...result,
-    messages: strip.messages,
-    webSearchStripStats: strip.stats,
-  };
+  if (strip.stats.blocksStripped > 0) {
+    logger.info(
+      { phase: "mid-loop-compact", ...strip.stats },
+      "Converted historical web_search_tool_result blocks to text summaries",
+    );
+  }
+  return { ...result, messages: strip.messages };
 }
