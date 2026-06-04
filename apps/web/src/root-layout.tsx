@@ -16,6 +16,7 @@ import { getOnboardingEntrypoint } from "@/domains/onboarding/gate";
 import { setMenuPlatformSession } from "@/runtime/menu";
 import { useVellumCommands } from "@/runtime/vellum-commands";
 import { routes } from "@/utils/routes";
+import { useCommandPaletteStore } from "@/stores/command-palette-store";
 import { useEnvironmentStore } from "@/stores/environment-store";
 import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
 import { useDocumentEditorSync } from "@/hooks/use-document-editor-sync";
@@ -130,6 +131,9 @@ export function RootLayout() {
       ).then(() => {
         navigate(getOnboardingEntrypoint());
       });
+    },
+    find: () => {
+      useCommandPaletteStore.getState().toggle();
     },
   });
 
