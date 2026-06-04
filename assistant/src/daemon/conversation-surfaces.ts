@@ -1784,6 +1784,7 @@ export async function handleSurfaceAction(
   // been accepted. Deferred until after rejection check so the surface stays
   // active and retryable if the queue was full.
   const ONE_SHOT_SURFACE_TYPES = [
+    "choice",
     "form",
     "confirmation",
     "file_upload",

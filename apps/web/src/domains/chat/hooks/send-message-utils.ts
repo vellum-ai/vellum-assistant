@@ -12,6 +12,18 @@ import { attachConfirmationToToolCall, ERROR_MESSAGES } from "@/domains/chat/uti
 import type { PendingConfirmationState, PendingSecretState } from "@/domains/chat/types";
 import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 
+const OPTIMISTIC_COMPLETION_SURFACE_TYPES = [
+  "choice",
+  "form",
+  "confirmation",
+  "file_upload",
+  "card",
+  "list",
+  "table",
+  "browser_view",
+  "task_preferences",
+];
+
 // ---------------------------------------------------------------------------
 // Pure updater functions — no React state, fully testable
 // ---------------------------------------------------------------------------
@@ -105,6 +117,42 @@ export function dismissInteractiveSurfaces(
     };
   });
   return { updatedMessages, dismissedIds: interactiveIds };
+}
+
+export function completeSubmittedSurface(
+  prev: DisplayMessage[],
+  surfaceId: string,
+  actionId: string,
+): DisplayMessage[] {
+  for (let i = prev.length - 1; i >= 0; i--) {
+    const surface = prev[i]!.surfaces?.find((s) => s.surfaceId === surfaceId);
+    if (!surface) continue;
+    if (!OPTIMISTIC_COMPLETION_SURFACE_TYPES.includes(surface.surfaceType)) {
+      return prev;
+    }
+    const matchedAction = surface.actions?.find((a) => a.id === actionId);
+    const isCancellation =
+      actionId === "cancel" ||
+      actionId === "dismiss" ||
+      matchedAction?.style === "secondary";
+    const updated = [...prev];
+    updated[i] = {
+      ...prev[i]!,
+      surfaces: prev[i]!.surfaces?.map((s) =>
+        s.surfaceId === surfaceId
+          ? {
+              ...s,
+              completed: true,
+              completionSummary: isCancellation
+                ? "Cancelled"
+                : matchedAction?.label ?? undefined,
+            }
+          : s,
+      ),
+    };
+    return updated;
+  }
+  return prev;
 }
 
 /**
