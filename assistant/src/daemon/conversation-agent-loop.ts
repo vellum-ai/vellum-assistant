@@ -2696,25 +2696,6 @@ export async function runAgentLoopImpl(
       onEvent(buildConversationErrorMessage(ctx.conversationId, classified));
     }
 
-    // Reconcile synthesized cancellation tool_results
-    for (let i = preRunHistoryLength; i < updatedHistory.length; i++) {
-      const msg = updatedHistory[i];
-      if (msg.role === "user") {
-        for (const block of msg.content) {
-          if (
-            block.type === "tool_result" &&
-            !state.pendingToolResults.has(block.tool_use_id) &&
-            !state.persistedToolUseIds.has(block.tool_use_id)
-          ) {
-            state.pendingToolResults.set(block.tool_use_id, {
-              content: block.content,
-              isError: block.is_error ?? false,
-            });
-          }
-        }
-      }
-    }
-
     // Flush remaining tool results
     if (state.pendingToolResults.size > 0) {
       const toolResultBlocks = Array.from(

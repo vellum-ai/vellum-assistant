@@ -1093,6 +1093,32 @@ export function handleToolResult(
 }
 
 /**
+ * Capture the loop's synthesized "Cancelled by user" tool_results into
+ * `pendingToolResults` so they persist with the turn. These never fire a
+ * per-tool `tool_result` event, so without this they would be dropped. A real
+ * result already captured for the same `tool_use_id` (or one already persisted
+ * this run) wins — the synthesized cancellation only fills genuine gaps.
+ */
+export function handleToolResultsSynthesized(
+  state: EventHandlerState,
+  _deps: EventHandlerDeps,
+  event: Extract<AgentEvent, { type: "tool_results_synthesized" }>,
+): void {
+  for (const result of event.results) {
+    if (
+      state.pendingToolResults.has(result.toolUseId) ||
+      state.persistedToolUseIds.has(result.toolUseId)
+    ) {
+      continue;
+    }
+    state.pendingToolResults.set(result.toolUseId, {
+      content: result.content,
+      isError: result.isError,
+    });
+  }
+}
+
+/**
  * After all tools for the current turn complete, fetch the persisted assistant
  * message, annotate its tool_use blocks with timing and confirmation metadata,
  * and update the DB. This runs post-tool-execution so the metadata maps are
@@ -1824,6 +1850,9 @@ export async function dispatchAgentEvent(
         break;
       case "tool_result":
         handleToolResult(state, deps, event);
+        break;
+      case "tool_results_synthesized":
+        handleToolResultsSynthesized(state, deps, event);
         break;
       case "server_tool_start": {
         const query =

@@ -199,6 +199,18 @@ export type AgentEvent =
       riskThreshold?: string;
       activityMetadata?: ToolActivityMetadata;
     }
+  | {
+      /**
+       * Emitted when the loop synthesizes "Cancelled by user" tool_results for
+       * in-flight tool_use blocks on abort. Unlike normal results these never
+       * fire a per-tool `tool_result` event, so the daemon's dispatcher
+       * captures them into `pendingToolResults` to persist with the turn. The
+       * handler guards on `tool_use_id` so a real result already captured for
+       * the same tool wins over the synthesized cancellation.
+       */
+      type: "tool_results_synthesized";
+      results: Array<{ toolUseId: string; content: string; isError: boolean }>;
+    }
   | { type: "tool_use_preview_start"; toolUseId: string; toolName: string }
   | {
       type: "input_json_delta";
@@ -1316,6 +1328,14 @@ export class AgentLoop {
             }),
           );
           history.push({ role: "user", content: cancelledBlocks });
+          await onEvent({
+            type: "tool_results_synthesized",
+            results: toolUseBlocks.map((toolUse) => ({
+              toolUseId: toolUse.id,
+              content: "Cancelled by user",
+              isError: true,
+            })),
+          });
           await emitExit("aborted_post_response");
           break;
         }
@@ -1586,6 +1606,14 @@ export class AgentLoop {
               }),
             );
             history.push({ role: "user", content: cancelledBlocks });
+            await onEvent({
+              type: "tool_results_synthesized",
+              results: toolUseBlocks.map((toolUse) => ({
+                toolUseId: toolUse.id,
+                content: "Cancelled by user",
+                isError: true,
+              })),
+            });
           }
           await emitExit("aborted_via_error");
           break;
