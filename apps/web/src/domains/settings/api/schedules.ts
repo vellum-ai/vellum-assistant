@@ -6,6 +6,7 @@
 import {
   consolidationConfigGet,
   consolidationRunnowPost,
+  consolidationRunsGet,
   heartbeatConfigGet,
   heartbeatRunnowPost,
   heartbeatRunsGet,
@@ -215,6 +216,39 @@ export async function fetchHeartbeatRuns(
     output: run.skipReason ? `Skipped: ${run.skipReason}` : null,
     error: run.error,
     conversationId: run.conversationId,
+    createdAt: run.createdAt,
+  }));
+}
+
+export async function fetchConsolidationRuns(
+  assistantId: string,
+  limit = 10,
+): Promise<ScheduleRun[]> {
+  const { data, error, response } = await consolidationRunsGet({
+    path: { assistant_id: assistantId },
+    query: { limit },
+    throwOnError: false,
+  });
+  assertHasResponse(response, error, "Failed to load consolidation runs.");
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      extractErrorMessage(error, response, "Failed to load consolidation runs."),
+    );
+  }
+  return (data?.runs ?? []).map((run) => ({
+    id: run.id,
+    jobId: "consolidation",
+    status: run.status,
+    startedAt: run.startedAt ?? run.scheduledFor,
+    finishedAt: run.finishedAt,
+    durationMs: run.durationMs,
+    output: null,
+    error: run.error,
+    conversationId: run.conversationId,
+    conversationExists: run.conversationExists,
+    conversationArchivedAt: run.conversationArchivedAt,
+    estimatedCostUsd: run.estimatedCostUsd,
     createdAt: run.createdAt,
   }));
 }
