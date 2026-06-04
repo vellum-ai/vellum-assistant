@@ -865,6 +865,14 @@ export function handleToolUse(
     toolUseId: event.id,
     messageId: state.lastAssistantMessageId,
   });
+  // `message_complete` always precedes tool events (see handleMessageComplete),
+  // so this tool_use block is already durable in the assistant row. The
+  // `tool_use_start` emitted just above is therefore the newest stamped event
+  // whose content the `/messages` snapshot already reflects -- advance the
+  // persisted seq to it. Without this the snapshot would advertise a seq below
+  // an event it already incorporates, and a client applying `seq > snapshot.seq`
+  // would replay this tool start.
+  recordPersistedSeq(deps.ctx.conversationId, getCurrentSeq());
 }
 
 export function handleToolUsePreviewStart(
