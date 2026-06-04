@@ -494,10 +494,11 @@ export interface MidLoopCompaction {
    * Re-apply runtime injections onto the post-compaction history the loop
    * passes in and return the history to continue from. The loop supplies the
    * committed base (the compacted messages when the pipeline compacted, the
-   * stripped pre-compaction history otherwise) via {@link PostCompactionHookInput}
-   * so the hook re-injects onto the loop's own working history rather than
-   * reading it back from orchestrator state. The input is an object so further
-   * re-injection inputs can migrate loop-ward by growing that type.
+   * stripped pre-compaction history otherwise) and the per-turn `turnContext`
+   * it ran the turn with via {@link PostCompactionHookInput}, so the hook
+   * re-injects from the loop's own working state rather than reading it back
+   * from orchestrator state. The input is an object so further re-injection
+   * inputs can migrate loop-ward by growing that type.
    */
   postCompactionHook: (input: PostCompactionHookInput) => Promise<Message[]>;
 }
@@ -812,7 +813,10 @@ export class AgentLoop {
     const reinjectBase = compactResult.compacted
       ? compactResult.messages
       : rawHistory;
-    return compaction.postCompactionHook({ history: reinjectBase });
+    return compaction.postCompactionHook({
+      history: reinjectBase,
+      turnContext,
+    });
   }
 
   async run(

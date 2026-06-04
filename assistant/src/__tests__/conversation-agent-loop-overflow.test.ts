@@ -539,7 +539,10 @@ async function simulateInlineCompaction(
   const reinjectBase = compactResult.compacted
     ? compactResult.messages
     : rawHistory;
-  return compaction.postCompactionHook({ history: reinjectBase });
+  return compaction.postCompactionHook({
+    history: reinjectBase,
+    turnContext: turnContext as TurnContext,
+  });
 }
 
 /**
