@@ -18,6 +18,14 @@ type StubWindow = {
   isFocused: () => boolean;
   on: ReturnType<typeof mock>;
   once: (event: string, handler: () => void) => StubWindow;
+  isResizable: () => boolean;
+  setResizable: ReturnType<typeof mock>;
+  setMaximizable: ReturnType<typeof mock>;
+  setFullScreenable: ReturnType<typeof mock>;
+  setContentSize: ReturnType<typeof mock>;
+  setBounds: ReturnType<typeof mock>;
+  setPosition: ReturnType<typeof mock>;
+  center: ReturnType<typeof mock>;
   webContents: StubWebContents;
   // Test seam — emits a `closed` event so the production code's
   // module-scope `mainWindow = null` cleanup runs.
@@ -29,20 +37,46 @@ type WindowState = {
   minimized: boolean;
   visible: boolean;
   focused: boolean;
+  resizable: boolean;
 };
 
-let constructed: Array<{ stub: StubWindow; state: WindowState }> = [];
+let constructed: Array<{
+  stub: StubWindow;
+  state: WindowState;
+  opts: Record<string, unknown>;
+}> = [];
+
+// Controls what the mocked `readOnboardingActive()` returns when the
+// next window is constructed. Toggled by tests that exercise the
+// onboarding (small/fixed) vs. main (resizable) creation branches.
+let onboardingActive = false;
+const writeOnboardingActiveMock = mock((active: boolean) => {
+  onboardingActive = active;
+});
 let listeners: Map<string, Array<() => void>>;
 
-const makeWindow = (): StubWindow => {
+const makeWindow = (opts: Record<string, unknown> = {}): StubWindow => {
   const state: WindowState = {
     destroyed: false,
     minimized: false,
     visible: false,
     focused: false,
+    // Mirrors the BrowserWindow default (resizable) unless the
+    // constructor opts opt out, as the onboarding branch does.
+    resizable: opts.resizable !== false,
   };
   listeners = new Map();
   const stub: StubWindow = {
+    isResizable: () => state.resizable,
+    setResizable: mock((value: boolean) => {
+      state.resizable = value;
+    }),
+    setMaximizable: mock(() => undefined),
+    setFullScreenable: mock(() => undefined),
+    setContentSize: mock(() => undefined),
+    setBounds: mock(() => undefined),
+    setPosition: mock(() => undefined),
+    center: mock(() => undefined),
     show: mock(() => {
       state.visible = true;
     }),
@@ -94,7 +128,7 @@ const makeWindow = (): StubWindow => {
       for (const h of listeners.get(event) ?? []) h();
     },
   };
-  constructed.push({ stub, state });
+  constructed.push({ stub, state, opts });
   return stub;
 };
 
@@ -110,8 +144,8 @@ mock.module("electron", () => ({
     isPackaged: false,
   },
   BrowserWindow: class {
-    constructor(_opts: unknown) {
-      Object.assign(this, makeWindow());
+    constructor(opts: Record<string, unknown>) {
+      Object.assign(this, makeWindow(opts));
     }
   },
   ipcMain: { handle: ipcHandleMock },
@@ -121,9 +155,11 @@ mock.module("electron", () => ({
 mock.module("./window-state", () => ({
   restoreBounds: () => ({ width: 1280, height: 800 }),
   track: () => undefined,
+  readOnboardingActive: () => onboardingActive,
+  writeOnboardingActive: writeOnboardingActiveMock,
 }));
 
-const { __resetForTesting, current, dispatchToMain, ensureVisible, hide, installMainWindow, isVisibleAndFocused, toggleVisibility } =
+const { __resetForTesting, current, dispatchToMain, ensureVisible, hide, installMainWindow, isVisibleAndFocused, setOnboarding, toggleVisibility } =
   await import("./main-window");
 const { resolveAllowedOrigin } = await import("./app-origin");
 
@@ -149,6 +185,8 @@ beforeEach(() => {
   __resetForTesting();
   ipcHandlers.clear();
   ipcHandleMock.mockClear();
+  onboardingActive = false;
+  writeOnboardingActiveMock.mockClear();
 });
 
 afterEach(() => {
@@ -402,6 +440,97 @@ describe("installMainWindow", () => {
 
     expect(win.stub.show.mock.calls.length).toBeGreaterThan(showsBefore);
     expect(win.stub.focus.mock.calls.length).toBeGreaterThan(focusBefore);
+  });
+});
+
+describe("onboarding window sizing", () => {
+  test("creates a 440×630 default-size but still resizable window when onboarding is active", () => {
+    onboardingActive = true;
+    ensureVisible();
+    const win = constructed[0];
+    if (!win) throw new Error("expected a window");
+    expect(win.opts.width).toBe(440);
+    expect(win.opts.height).toBe(630);
+    expect(win.opts.useContentSize).toBe(true);
+    // Onboarding is the default size only — the window stays resizable
+    // (no `resizable: false` opt), so it inherits the Electron default.
+    expect(win.opts.resizable).toBeUndefined();
+    expect(win.stub.isResizable()).toBe(true);
+  });
+
+  test("creates a resizable restored-bounds window when onboarding is inactive", () => {
+    onboardingActive = false;
+    ensureVisible();
+    const win = constructed[0];
+    if (!win) throw new Error("expected a window");
+    expect(win.opts.width).toBe(1280);
+    expect(win.opts.height).toBe(800);
+    expect(win.opts.useContentSize).toBeUndefined();
+    expect(win.opts.resizable).toBeUndefined();
+    expect(win.stub.isResizable()).toBe(true);
+  });
+
+  test("setOnboarding(true) shrinks an existing main window to the default", () => {
+    onboardingActive = false;
+    ensureVisible();
+    const win = constructed[0];
+    if (!win) throw new Error("expected a window");
+
+    setOnboarding(true);
+
+    expect(writeOnboardingActiveMock).toHaveBeenCalledWith(true);
+    expect(win.stub.setContentSize).toHaveBeenCalledWith(440, 630);
+    expect(win.stub.center).toHaveBeenCalled();
+    // The window stays resizable across the transition — never locked.
+    expect(win.stub.setResizable).not.toHaveBeenCalled();
+  });
+
+  test("setOnboarding(false) grows an existing onboarding window to the main bounds", () => {
+    onboardingActive = true;
+    ensureVisible();
+    const win = constructed[0];
+    if (!win) throw new Error("expected a window");
+
+    setOnboarding(false);
+
+    expect(writeOnboardingActiveMock).toHaveBeenCalledWith(false);
+    expect(win.stub.setBounds).toHaveBeenCalledWith({ width: 1280, height: 800 });
+    expect(win.stub.setResizable).not.toHaveBeenCalled();
+  });
+
+  test("re-asserting the current mode persists but does not resize the window", () => {
+    onboardingActive = false;
+    ensureVisible();
+    const win = constructed[0];
+    if (!win) throw new Error("expected a window");
+
+    setOnboarding(false);
+
+    expect(writeOnboardingActiveMock).toHaveBeenCalledWith(false);
+    expect(win.stub.setContentSize).not.toHaveBeenCalled();
+    expect(win.stub.setBounds).not.toHaveBeenCalled();
+  });
+
+  test("persists the mode even when no window exists yet", () => {
+    setOnboarding(true);
+    expect(writeOnboardingActiveMock).toHaveBeenCalledWith(true);
+    expect(constructed).toHaveLength(0);
+  });
+
+  test("installMainWindow registers the setOnboarding IPC handler routing through setOnboarding", async () => {
+    installMainWindow();
+    expect(ipcHandlers.has("vellum:mainWindow:setOnboarding")).toBe(true);
+    const win = constructed[0];
+    if (!win) throw new Error("expected a window");
+
+    const handler = ipcHandlers.get("vellum:mainWindow:setOnboarding");
+    await (handler as (event: unknown, active: boolean) => Promise<void>)(
+      allowedEvent,
+      true,
+    );
+
+    expect(writeOnboardingActiveMock).toHaveBeenCalledWith(true);
+    expect(win.stub.setContentSize).toHaveBeenCalledWith(440, 630);
   });
 });
 
