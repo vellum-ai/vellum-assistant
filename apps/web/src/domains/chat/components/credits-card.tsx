@@ -23,7 +23,7 @@ export function CreditsCard({ balance, onAddCredits }: CreditsCardProps) {
   }
 
   return (
-    <div className="flex items-center justify-between gap-2 rounded-lg border border-[var(--surface-base)] bg-[var(--surface-overlay)] py-2 pl-2.5 pr-1.5 w-full">
+    <div className="flex items-center justify-between gap-2 rounded-lg bg-[var(--surface-base)] py-2 pl-2.5 pr-1.5 w-full">
       <div className="flex items-center gap-2">
         <Coins
           className="h-3.5 w-3.5 text-[color:var(--credits-accent)]"
