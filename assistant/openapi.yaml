@@ -13911,6 +13911,39 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  hasBotToken:
+                    type: boolean
+                  botId:
+                    type: string
+                  botUsername:
+                    type: string
+                  connected:
+                    type: boolean
+                  hasWebhookSecret:
+                    type: boolean
+                  lastError:
+                    type: string
+                  error:
+                    type: string
+                  commandsRegistered:
+                    type: array
+                    items:
+                      type: string
+                  warning:
+                    type: string
+                required:
+                  - success
+                  - hasBotToken
+                  - connected
+                  - hasWebhookSecret
+                additionalProperties: false
   /v1/integrations/telegram/config:
     delete:
       operationId: integrations_telegram_config_delete
@@ -13921,6 +13954,39 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  hasBotToken:
+                    type: boolean
+                  botId:
+                    type: string
+                  botUsername:
+                    type: string
+                  connected:
+                    type: boolean
+                  hasWebhookSecret:
+                    type: boolean
+                  lastError:
+                    type: string
+                  error:
+                    type: string
+                  commandsRegistered:
+                    type: array
+                    items:
+                      type: string
+                  warning:
+                    type: string
+                required:
+                  - success
+                  - hasBotToken
+                  - connected
+                  - hasWebhookSecret
+                additionalProperties: false
     get:
       operationId: integrations_telegram_config_get
       summary: Get Telegram config
@@ -13930,6 +13996,39 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  hasBotToken:
+                    type: boolean
+                  botId:
+                    type: string
+                  botUsername:
+                    type: string
+                  connected:
+                    type: boolean
+                  hasWebhookSecret:
+                    type: boolean
+                  lastError:
+                    type: string
+                  error:
+                    type: string
+                  commandsRegistered:
+                    type: array
+                    items:
+                      type: string
+                  warning:
+                    type: string
+                required:
+                  - success
+                  - hasBotToken
+                  - connected
+                  - hasWebhookSecret
+                additionalProperties: false
     post:
       operationId: integrations_telegram_config_post
       summary: Set Telegram config
@@ -13939,6 +14038,39 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  hasBotToken:
+                    type: boolean
+                  botId:
+                    type: string
+                  botUsername:
+                    type: string
+                  connected:
+                    type: boolean
+                  hasWebhookSecret:
+                    type: boolean
+                  lastError:
+                    type: string
+                  error:
+                    type: string
+                  commandsRegistered:
+                    type: array
+                    items:
+                      type: string
+                  warning:
+                    type: string
+                required:
+                  - success
+                  - hasBotToken
+                  - connected
+                  - hasWebhookSecret
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -13962,6 +14094,39 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  hasBotToken:
+                    type: boolean
+                  botId:
+                    type: string
+                  botUsername:
+                    type: string
+                  connected:
+                    type: boolean
+                  hasWebhookSecret:
+                    type: boolean
+                  lastError:
+                    type: string
+                  error:
+                    type: string
+                  commandsRegistered:
+                    type: array
+                    items:
+                      type: string
+                  warning:
+                    type: string
+                required:
+                  - success
+                  - hasBotToken
+                  - connected
+                  - hasWebhookSecret
+                additionalProperties: false
   /v1/integrations/twilio/config:
     get:
       operationId: integrations_twilio_config_get

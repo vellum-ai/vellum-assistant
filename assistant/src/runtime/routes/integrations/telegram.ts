@@ -16,6 +16,7 @@ import {
   setTelegramCommands,
   setTelegramConfig,
   setupTelegram,
+  TelegramConfigResultSchema,
 } from "../../../daemon/handlers/config-telegram.js";
 import { ACTOR_PRINCIPALS } from "../../auth/route-policy.js";
 import { BadRequestError } from "../errors.js";
@@ -87,6 +88,7 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Get Telegram config",
     description: "Check current Telegram bot configuration status.",
     tags: ["integrations"],
+    responseBody: TelegramConfigResultSchema,
     handler: () => handleGetTelegramConfig(),
   },
   {
@@ -104,6 +106,7 @@ export const ROUTES: RouteDefinition[] = [
     requestBody: z.object({
       botToken: z.string().describe("Telegram bot token"),
     }),
+    responseBody: TelegramConfigResultSchema,
   },
   {
     operationId: "integrations_telegram_config_delete",
@@ -116,6 +119,7 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Clear Telegram config",
     description: "Clear credentials and deregister webhook.",
     tags: ["integrations"],
+    responseBody: TelegramConfigResultSchema,
     handler: () => handleClearTelegramConfig(),
   },
   {
@@ -129,6 +133,7 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Register Telegram commands",
     description: "Register bot commands with the Telegram API.",
     tags: ["integrations"],
+    responseBody: TelegramConfigResultSchema,
     handler: handleSetTelegramCommands,
   },
   {
@@ -142,6 +147,7 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Setup Telegram",
     description: "Composite: set config + register commands.",
     tags: ["integrations"],
+    responseBody: TelegramConfigResultSchema,
     handler: handleSetupTelegram,
   },
 ];
