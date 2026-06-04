@@ -959,6 +959,34 @@ export function handleToolResult(
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "tool_result" }>,
 ): void {
+  // A synthesized cancellation (the tool never executed) is captured for
+  // persistence and forwarded to the client like any result, but skips every
+  // side effect that assumes the tool ran. A real result already captured or
+  // persisted for the same tool wins, so only fill genuine gaps.
+  if (event.cancelled) {
+    if (
+      state.pendingToolResults.has(event.toolUseId) ||
+      state.persistedToolUseIds.has(event.toolUseId)
+    ) {
+      return;
+    }
+    state.pendingToolResults.set(event.toolUseId, {
+      content: event.content,
+      isError: event.isError,
+    });
+    state.currentToolUseId = undefined;
+    deps.onEvent({
+      type: "tool_result",
+      toolName: "",
+      result: event.content,
+      isError: event.isError,
+      conversationId: deps.ctx.conversationId,
+      messageId: state.lastAssistantMessageId,
+      toolUseId: event.toolUseId,
+    });
+    return;
+  }
+
   const imageBlocks = event.contentBlocks?.filter(
     (b): b is ImageContent => b.type === "image",
   );
@@ -1090,32 +1118,6 @@ export function handleToolResult(
     riskThreshold: event.riskThreshold,
     activityMetadata: event.activityMetadata,
   });
-}
-
-/**
- * Capture the loop's synthesized "Cancelled by user" tool_results into
- * `pendingToolResults` so they persist with the turn. These never fire a
- * per-tool `tool_result` event, so without this they would be dropped. A real
- * result already captured for the same `tool_use_id` (or one already persisted
- * this run) wins — the synthesized cancellation only fills genuine gaps.
- */
-export function handleToolResultsSynthesized(
-  state: EventHandlerState,
-  _deps: EventHandlerDeps,
-  event: Extract<AgentEvent, { type: "tool_results_synthesized" }>,
-): void {
-  for (const result of event.results) {
-    if (
-      state.pendingToolResults.has(result.toolUseId) ||
-      state.persistedToolUseIds.has(result.toolUseId)
-    ) {
-      continue;
-    }
-    state.pendingToolResults.set(result.toolUseId, {
-      content: result.content,
-      isError: result.isError,
-    });
-  }
 }
 
 /**
@@ -1850,9 +1852,6 @@ export async function dispatchAgentEvent(
         break;
       case "tool_result":
         handleToolResult(state, deps, event);
-        break;
-      case "tool_results_synthesized":
-        handleToolResultsSynthesized(state, deps, event);
         break;
       case "server_tool_start": {
         const query =

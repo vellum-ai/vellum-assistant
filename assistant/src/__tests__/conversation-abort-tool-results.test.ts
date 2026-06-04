@@ -227,9 +227,10 @@ mock.module("../agent/loop.js", () => ({
       });
 
       // Abort happens before second tool. The real AgentLoop synthesizes
-      // cancelled results into history AND emits `tool_results_synthesized`
-      // so the orchestrator captures them for persistence (tu_1 already
-      // captured via its `tool_result` event wins via the handler guard).
+      // cancelled results into history AND emits a `cancelled` tool_result
+      // event per tool so the orchestrator captures them for persistence and
+      // forwards them to the client. tu_1 (already captured via its real
+      // tool_result event) wins via the handler's gap-fill guard.
       const resultBlocks: ContentBlock[] = [
         {
           type: "tool_result",
@@ -246,11 +247,18 @@ mock.module("../agent/loop.js", () => ({
       ];
       history.push({ role: "user", content: resultBlocks });
       onEvent({
-        type: "tool_results_synthesized",
-        results: [
-          { toolUseId: "tu_1", content: "Cancelled by user", isError: true },
-          { toolUseId: "tu_2", content: "Cancelled by user", isError: true },
-        ],
+        type: "tool_result",
+        toolUseId: "tu_1",
+        content: "Cancelled by user",
+        isError: true,
+        cancelled: true,
+      });
+      onEvent({
+        type: "tool_result",
+        toolUseId: "tu_2",
+        content: "Cancelled by user",
+        isError: true,
+        cancelled: true,
       });
 
       return { history, exitReason: null };
