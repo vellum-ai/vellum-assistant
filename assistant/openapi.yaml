@@ -10129,7 +10129,13 @@ paths:
               schema:
                 type: object
                 properties:
+                  count:
+                    type: number
                   next:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  previous:
                     anyOf:
                       - type: string
                       - type: "null"
@@ -10152,6 +10158,7 @@ paths:
                         - id
                       additionalProperties: false
                 required:
+                  - count
                   - results
                 additionalProperties: false
   /v1/domain/verification-status:

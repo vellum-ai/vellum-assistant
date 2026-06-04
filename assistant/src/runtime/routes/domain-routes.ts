@@ -32,7 +32,9 @@ const DomainEntrySchema = z.object({
 });
 
 const DomainListResponseSchema = z.object({
+  count: z.number(),
   next: z.string().nullable().optional(),
+  previous: z.string().nullable().optional(),
   results: z.array(DomainEntrySchema),
 });
 type DomainListResponse = z.infer<typeof DomainListResponseSchema>;
