@@ -21,6 +21,7 @@ import {
 import { resolveAcpAgent } from "../../acp/resolve-agent.js";
 import {
   SessionBusyError,
+  SessionCancelledError,
   SessionNotFoundError,
 } from "../../acp/session-manager.js";
 import type { AcpSessionState } from "../../acp/types.js";
@@ -230,7 +231,14 @@ async function steerSession({ pathParams, body }: RouteHandlerArgs) {
   const manager = getAcpSessionManager();
   try {
     await manager.steer(id, instruction);
-  } catch {
+  } catch (err) {
+    // A cancel that raced the steer tore the session down before the new
+    // instruction fired — surface a 409 (the session existed and was
+    // cancelled, it was not missing) so the client doesn't read it as a
+    // successful steer or a stale 404.
+    if (err instanceof SessionCancelledError) {
+      throw new ConflictError(err.message);
+    }
     throw new NotFoundError("ACP session not found");
   }
   return { acpSessionId: id, steered: true };
@@ -281,6 +289,11 @@ async function continueSession({ body }: RouteHandlerArgs) {
     return { acpSessionId, continued: true };
   } catch (err) {
     if (err instanceof SessionBusyError) {
+      throw new ConflictError(err.message);
+    }
+    // A cancel raced the steer and tore the session down before the follow-up
+    // turn fired — a 409, not a 404 (the session existed; it was cancelled).
+    if (err instanceof SessionCancelledError) {
       throw new ConflictError(err.message);
     }
     if (err instanceof SessionNotFoundError) {

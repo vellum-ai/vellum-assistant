@@ -1,5 +1,8 @@
 import { getAcpSessionManager } from "../../acp/index.js";
-import { SessionBusyError } from "../../acp/session-manager.js";
+import {
+  SessionBusyError,
+  SessionCancelledError,
+} from "../../acp/session-manager.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 /**
@@ -61,6 +64,11 @@ export async function executeAcpContinue(
     };
   } catch (err) {
     if (err instanceof SessionBusyError) {
+      return { content: err.message, isError: true };
+    }
+    // A cancel raced the steer and tore the session down before the follow-up
+    // turn fired — report the cancellation, not a success or a not-found.
+    if (err instanceof SessionCancelledError) {
       return { content: err.message, isError: true };
     }
     const msg = err instanceof Error ? err.message : String(err);

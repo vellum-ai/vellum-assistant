@@ -1,4 +1,5 @@
 import { getAcpSessionManager } from "../../acp/index.js";
+import { SessionCancelledError } from "../../acp/session-manager.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 export async function executeAcpSteer(
@@ -29,6 +30,18 @@ export async function executeAcpSteer(
       isError: false,
     };
   } catch (err) {
+    // A cancel that raced the steer tore the session down before the new
+    // instruction fired — report the cancellation precisely (not a generic
+    // failure) so the assistant knows the prior task was cancelled and nothing
+    // is now running.
+    if (err instanceof SessionCancelledError) {
+      return {
+        content:
+          `ACP session "${acpSessionId}" was cancelled before the ` +
+          "instruction could run; nothing is running now.",
+        isError: true,
+      };
+    }
     const msg = err instanceof Error ? err.message : String(err);
     return {
       content: `Could not steer ACP session "${acpSessionId}": ${msg}`,

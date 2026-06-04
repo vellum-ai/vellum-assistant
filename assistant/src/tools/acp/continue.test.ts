@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
   SessionBusyError,
+  SessionCancelledError,
   SessionNotFoundError,
 } from "../../acp/session-manager.js";
 import type { AcpSessionState } from "../../acp/types.js";
@@ -70,6 +71,11 @@ async function fakeContinueSession(opts: {
   try {
     await steerImpl(acpSessionId!, opts.instruction);
   } catch (err) {
+    // Mirror the real helper: a cancel that raced the steer surfaces as
+    // cancelled (re-thrown untouched), not collapsed to not-found.
+    if (err instanceof SessionCancelledError) {
+      throw err;
+    }
     throw new SessionNotFoundError(
       err instanceof Error ? err.message : String(err),
     );
@@ -225,6 +231,32 @@ describe("executeAcpContinue", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain('Could not continue ACP session "acp-x"');
     expect(result.content).toContain("not found");
+  });
+
+  test("cancel raced the steer: surfaces as a cancelled isError, NOT a false success", async () => {
+    // Session resolves as idle, but a concurrent cancel() won the steer race
+    // and tore the session down before the follow-up turn fired. The tool must
+    // report failure (isError) with the cancellation message — not the
+    // "continued" success it returns on a normal steer.
+    seedState("acp-cancel-race", "idle");
+    steerImpl = () =>
+      Promise.reject(
+        new SessionCancelledError(
+          "acp-cancel-race",
+          'ACP session "acp-cancel-race" was cancelled before the ' +
+            "instruction could run.",
+        ),
+      );
+
+    const result = await executeAcpContinue(
+      { acp_session_id: "acp-cancel-race", instruction: "continue" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("was cancelled before the instruction");
+    // Not reported as a successful continue.
+    expect(result.content).not.toContain("continued");
   });
 
   test("explicit running session: refuses to steer (would cancel the in-flight prompt)", async () => {

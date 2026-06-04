@@ -56,6 +56,26 @@ export class SessionNotFoundError extends Error {
   }
 }
 
+/**
+ * Thrown by {@link AcpSessionManager.steer} when a `cancel()` lands during the
+ * `await process.cancel(...)` it issues before re-firing — the racing cancel
+ * flips the session to `cancelled`, so `steer()` honors it by tearing the
+ * session down WITHOUT re-firing the new prompt. Because no new instruction
+ * actually runs, callers must report failure (NOT the usual success). Distinct
+ * from {@link SessionNotFoundError} (the session existed; it was cancelled, not
+ * missing) so callers map it to a cancelled/conflict outcome (tool → isError,
+ * route → 409) rather than not-found.
+ */
+export class SessionCancelledError extends Error {
+  readonly acpSessionId: string;
+
+  constructor(acpSessionId: string, message: string) {
+    super(message);
+    this.name = "SessionCancelledError";
+    this.acpSessionId = acpSessionId;
+  }
+}
+
 /** Maximum number of update events kept in a session's ring buffer. */
 const MAX_BUFFER_EVENTS = 200;
 /** Maximum aggregate JSON size of a session's ring buffer, in bytes. */
@@ -393,7 +413,15 @@ export class AcpSessionManager {
         "Cancel raced steer — aborting re-fire and tearing down",
       );
       this.close(acpSessionId);
-      return;
+      // The new instruction was NEVER fired and the session is now torn down.
+      // Returning normally here would make callers report a successful steer
+      // for work that will never run. Signal the not-steered outcome instead
+      // so they surface failure (tool → isError, route → 409).
+      throw new SessionCancelledError(
+        acpSessionId,
+        `ACP session "${acpSessionId}" was cancelled before the instruction ` +
+          "could run.",
+      );
     }
 
     // Reset per-turn streaming state so this follow-up's events are buffered
@@ -444,6 +472,9 @@ export class AcpSessionManager {
    *    between the status read and the steer).
    *  - {@link SessionBusyError}: the resolved session is `running`/
    *    `initializing` — continuing it would abort the in-flight task.
+   *  - {@link SessionCancelledError}: a `cancel()` raced the underlying steer and
+   *    tore the session down before the follow-up turn fired — surfaced as
+   *    cancelled (tool → isError, route → 409), not not-found.
    *
    * Returns the resolved `acpSessionId` on success so callers can echo it.
    */
@@ -491,6 +522,13 @@ export class AcpSessionManager {
     try {
       await this.steer(acpSessionId!, opts.instruction);
     } catch (err) {
+      // A cancel that raced the steer (the session was cancelled mid-steer, not
+      // missing) must surface as cancelled, not not-found, so callers map it to
+      // a conflict/isError rather than 404. Re-throw it untouched; collapse only
+      // genuine resolution/teardown misses to not-found.
+      if (err instanceof SessionCancelledError) {
+        throw err;
+      }
       throw new SessionNotFoundError(
         err instanceof Error ? err.message : String(err),
       );

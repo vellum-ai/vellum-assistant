@@ -742,7 +742,7 @@ describe("AcpSessionManager — prompt-fire / cancel / steer state-machine fixes
     expect(rows[0]!.status).toBe("cancelled");
   });
 
-  test("Bug 3: cancel() arriving during steer()'s cancel-await is honored — session ends cancelled + torn down, no re-fire", async () => {
+  test("Bug 3: cancel() arriving during steer()'s cancel-await is honored — steer() THROWS SessionCancelledError, session ends cancelled + torn down, no re-fire", async () => {
     const id = "cancel-races-steer";
     let cancelGate!: () => void;
     let cancelCalls = 0;
@@ -792,8 +792,14 @@ describe("AcpSessionManager — prompt-fire / cancel / steer state-machine fixes
 
     // Release steer's cancel-await. steer() must detect the cancel and abort
     // the re-fire (tear down) instead of overwriting status back to running.
+    // It must SIGNAL the not-steered outcome by throwing SessionCancelledError
+    // (carrying the session id) — NOT return normally, which callers would read
+    // as a successful steer for work that will never run.
     cancelGate();
-    await steerPromise;
+    await expect(steerPromise).rejects.toMatchObject({
+      name: "SessionCancelledError",
+      acpSessionId: id,
+    });
     await flush();
 
     // The follow-up prompt was NEVER fired (no re-run): only the first turn's

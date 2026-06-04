@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { SessionCancelledError } from "../../acp/session-manager.js";
 import type { ToolContext } from "../types.js";
 
 interface SteerCall {
@@ -96,5 +97,31 @@ describe("executeAcpSteer", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain('Could not steer ACP session "acp-x"');
     expect(result.content).toContain("not found");
+  });
+
+  test("cancel raced the steer: reports a cancelled isError, NOT a false success", async () => {
+    // manager.steer threw SessionCancelledError because a concurrent cancel()
+    // won the race and tore the session down before the new instruction fired.
+    // The tool must report failure with a precise cancellation message — never
+    // the "steered / now running" success it returns on a normal steer.
+    steerImpl = () =>
+      Promise.reject(
+        new SessionCancelledError(
+          "acp-cancel-race",
+          'ACP session "acp-cancel-race" was cancelled before the ' +
+            "instruction could run.",
+        ),
+      );
+
+    const result = await executeAcpSteer(
+      { acp_session_id: "acp-cancel-race", instruction: "redirect" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("was cancelled before the instruction");
+    expect(result.content).toContain("nothing is running now");
+    // Not reported as a successful steer.
+    expect(result.content).not.toContain("steered");
   });
 });
