@@ -21840,6 +21840,37 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  channels:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                        type:
+                          type: string
+                          enum:
+                            - channel
+                            - group
+                            - dm
+                        isPrivate:
+                          type: boolean
+                      required:
+                        - id
+                        - name
+                        - type
+                        - isPrivate
+                      additionalProperties: false
+                required:
+                  - channels
+                additionalProperties: false
   /v1/slack/share:
     post:
       operationId: slack_share_post
@@ -21850,6 +21881,42 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  ts:
+                    type: string
+                  channel:
+                    type: string
+                required:
+                  - ok
+                  - ts
+                  - channel
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                appId:
+                  type: string
+                  description: App to share
+                channelId:
+                  type: string
+                  description: Target Slack channel ID
+                message:
+                  description: Optional accompanying message
+                  type: string
+              required:
+                - appId
+                - channelId
+              additionalProperties: false
   /v1/stt/providers:
     get:
       operationId: stt_providers_get
