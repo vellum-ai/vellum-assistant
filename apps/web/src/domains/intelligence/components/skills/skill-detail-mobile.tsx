@@ -287,7 +287,11 @@ function RightAction({
     );
   }
 
-  // Bundled: not available and not removable.
+  // Bundled: not available and not removable. Keep the mock's destructive
+  // palette (negative-weak circle, negative-strong glyph) even though the
+  // action is unavailable — the disabled state otherwise mutes the icon to
+  // `--content-disabled`. The inline custom property wins over the variant's
+  // `disabled:` override, which a className alone wouldn't reliably do.
   return (
     <Button
       variant="dangerGhost"
@@ -297,6 +301,7 @@ function RightAction({
       title="Bundled skills cannot be removed"
       aria-label="Bundled skill cannot be removed"
       className="max-md:rounded-full max-md:bg-[var(--system-negative-weak)]"
+      style={{ ["--vbtn-fg" as string]: "var(--system-negative-strong)" }}
     />
   );
 }
