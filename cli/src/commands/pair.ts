@@ -122,9 +122,17 @@ export async function pair(): Promise<void> {
   // explicitly passed one. (An explicit --url is trusted as-is.)
   if (!urlOverride && isLoopbackHost(advertisedUrl)) {
     const lan = getLocalLanIPv4();
+    // Use THIS assistant's gateway port (not the global default) — second
+    // local instances listen on a different port.
+    let port = String(GATEWAY_PORT);
+    try {
+      port = new URL(mintUrl).port || port;
+    } catch {
+      /* keep default */
+    }
     const suggestion = lan
-      ? `http://${lan}:${GATEWAY_PORT}`
-      : "http://<this-machine-ip>:" + GATEWAY_PORT;
+      ? `http://${lan}:${port}`
+      : `http://<this-machine-ip>:${port}`;
     console.error(
       "Error: this assistant has no reachable gateway URL — its address is " +
         `loopback (${advertisedUrl}), which the other machine can't connect to.`,

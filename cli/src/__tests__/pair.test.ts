@@ -146,16 +146,17 @@ describe("pair command", () => {
     expect(fetchCalled).toBe(true);
   });
 
-  test("refuses to advertise a loopback URL without --url", async () => {
-    // Local hatch: runtimeUrl is itself loopback.
+  test("refuses to advertise a loopback URL without --url (suggests the assistant's own port)", async () => {
+    // Local hatch on a NON-default gateway port (e.g. a 2nd instance).
+    const LOOPBACK_CUSTOM = "http://127.0.0.1:7842";
     writeFileSync(
       join(testDir, ".vellum.lock.json"),
       JSON.stringify({
         assistants: [
           {
             assistantId: "pair-test",
-            runtimeUrl: LOCAL_URL,
-            localUrl: LOCAL_URL,
+            runtimeUrl: LOOPBACK_CUSTOM,
+            localUrl: LOOPBACK_CUSTOM,
             cloud: "local",
           },
         ],
@@ -169,7 +170,12 @@ describe("pair command", () => {
       fetchCalled = true;
       return new Response("{}", { status: 200 });
     }) as unknown as typeof fetch;
-    const errSpy = spyOn(console, "error").mockImplementation(() => {});
+    const errors: string[] = [];
+    const errSpy = spyOn(console, "error").mockImplementation(
+      (...a: unknown[]) => {
+        errors.push(a.join(" "));
+      },
+    );
     const exitSpy = spyOn(process, "exit").mockImplementation(((
       code?: number,
     ) => {
@@ -187,6 +193,10 @@ describe("pair command", () => {
       exitSpy.mockRestore();
       globalThis.fetch = origFetch;
     }
+
+    // The suggested --url uses the assistant's actual port, not the default.
+    expect(errors.join("\n")).toContain(":7842");
+    expect(errors.join("\n")).not.toContain(":7830");
 
     // Exited with an error before minting — no token created for a dead URL.
     expect(exited).toBe(true);
