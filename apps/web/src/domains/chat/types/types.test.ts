@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import { toolCallStatusWireFields } from "@/domains/chat/utils/message-test-helpers";
 import {
   isSurfaceInteractive,
   isSurfaceToolCallComplete,
@@ -17,14 +18,17 @@ function makeSurface(overrides: Partial<Surface> = {}): Surface {
 }
 
 function makeToolCall(
-  overrides: Partial<ChatMessageToolCall> = {},
+  overrides: Partial<ChatMessageToolCall> & {
+    status?: "running" | "completed" | "error";
+  } = {},
 ): ChatMessageToolCall {
+  const { status = "completed", ...rest } = overrides;
   return {
     id: "tc-1",
     name: "ui_show",
     input: {},
-    status: "completed",
-    ...overrides,
+    ...toolCallStatusWireFields(status),
+    ...rest,
   };
 }
 

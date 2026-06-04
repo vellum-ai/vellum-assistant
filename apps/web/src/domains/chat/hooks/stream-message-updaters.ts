@@ -12,6 +12,7 @@
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import type { Surface } from "@/domains/chat/types/types";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
+import { deriveToolCallStatus } from "@/domains/chat/utils/derive-tool-call-status";
 import { toDisplayAttachments } from "@/utils/display-attachments";
 import type { AllowlistOption, DirectoryScopeOption, RiskScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
@@ -22,14 +23,18 @@ import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-/** Mark all "running" tool calls as "completed" with a timestamp. */
+/**
+ * Force-complete every running tool call by stamping `completedAt`. With no
+ * `result`/`isError`, `deriveToolCallStatus` reads the timestamp as
+ * `"completed"`; reconcile later backfills the real result if it arrives.
+ */
 function finalizeRunningToolCalls(
   toolCalls: ChatMessageToolCall[] | undefined,
 ): ChatMessageToolCall[] | undefined {
   if (!toolCalls) return undefined;
   return toolCalls.map((tc) =>
-    tc.status === "running"
-      ? { ...tc, status: "completed" as const, completedAt: Date.now() }
+    deriveToolCallStatus(tc) === "running"
+      ? { ...tc, completedAt: Date.now() }
       : tc,
   );
 }
@@ -320,7 +325,8 @@ export function finalizeOnIdle(prev: DisplayMessage[]): DisplayMessage[] {
   let changed = false;
   const updated = prev.map((m) => {
     if (m.role !== "assistant") return m;
-    if (!m.toolCalls?.some((tc) => tc.status === "running")) return m;
+    if (!m.toolCalls?.some((tc) => deriveToolCallStatus(tc) === "running"))
+      return m;
     changed = true;
     return { ...m, toolCalls: finalizeRunningToolCalls(m.toolCalls) };
   });
@@ -800,7 +806,9 @@ export function applyToolResult(
     if (msgIdx === -1) return prev;
     const msg = prev[msgIdx];
     if (!msg?.toolCalls) return prev;
-    tcIdx = msg.toolCalls.findLastIndex((tc) => tc.status === "running");
+    tcIdx = msg.toolCalls.findLastIndex(
+      (tc) => deriveToolCallStatus(tc) === "running",
+    );
   }
 
   if (tcIdx === -1) return prev;
@@ -812,7 +820,6 @@ export function applyToolResult(
   const updatedToolCalls = [...msg.toolCalls!];
   updatedToolCalls[tcIdx] = {
     ...existingTc,
-    status: opts.isError ? "error" : "completed",
     result: opts.result,
     isError: opts.isError,
     riskLevel: opts.riskLevel,

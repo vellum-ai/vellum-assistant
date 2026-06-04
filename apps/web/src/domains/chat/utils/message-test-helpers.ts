@@ -1,6 +1,26 @@
 import type { ConversationMessage } from "@vellumai/assistant-api";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
+
+/**
+ * Translate the execution state a test wants into the wire fields
+ * `deriveToolCallStatus` reads. `status` is not stored on the tool call; tests
+ * express intent through this convenience and the tool-call factories
+ * materialize the underlying `isError`/`result`/`completedAt`.
+ */
+export function toolCallStatusWireFields(
+  status: "running" | "completed" | "error",
+): Partial<ChatMessageToolCall> {
+  switch (status) {
+    case "running":
+      return {};
+    case "completed":
+      return { completedAt: 1 };
+    case "error":
+      return { isError: true };
+  }
+}
 
 /**
  * Derive the flat plain text of a message row from its `textSegments`.

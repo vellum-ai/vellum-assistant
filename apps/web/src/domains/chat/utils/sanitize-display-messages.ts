@@ -14,6 +14,7 @@ import { DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC } from "@vellumai/assistant-api";
 
 import { sortedByTimestamp } from "@/domains/chat/utils/message-sorting";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import { deriveToolCallStatus } from "@/domains/chat/utils/derive-tool-call-status";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 
 export function sanitizeDisplayMessages(
@@ -191,11 +192,10 @@ function toolCallsMatch(a: DisplayMessage, b: DisplayMessage): boolean {
 //   - the parent message is NOT the last assistant in the transcript (the
 //     last assistant may still be streaming; its dangling tools could
 //     legitimately resolve via an in-flight `tool_result`),
-//   - `tool_call.status === "running"` (the UI's canonical "no result yet"
-//     signal — see `tool-call-chip.tsx`'s `isRunning`).
-// When all three hold, mutate the tool call to:
-//   - `status: "error"`,
-//   - `isError: true`,
+//   - `deriveToolCallStatus(tool_call) === "running"` (the UI's canonical
+//     "no result yet" signal — see `tool-call-chip.tsx`'s `isRunning`).
+// When all three hold, mutate the tool call to set `isError: true` (so the
+// derived status becomes `"error"`) plus a synthetic result:
 //   - `result: SYNTHETIC_DANGLING_RESULT` (explains the client-side data loss
 //     so a feedback report shows the root cause, not a vague tool failure).
 //
@@ -245,7 +245,11 @@ function findLastAssistantIndex(messages: DisplayMessage[]): number {
 }
 
 function hasDanglingToolCall(message: DisplayMessage): boolean {
-  return message.toolCalls?.some((tc) => tc.status === "running") ?? false;
+  return (
+    message.toolCalls?.some(
+      (tc) => deriveToolCallStatus(tc) === "running",
+    ) ?? false
+  );
 }
 
 function withRepairedToolCalls(message: DisplayMessage): DisplayMessage {
@@ -256,10 +260,11 @@ function withRepairedToolCalls(message: DisplayMessage): DisplayMessage {
 }
 
 function repairIfDangling(tc: ChatMessageToolCall): ChatMessageToolCall {
-  if (tc.status !== "running") return tc;
+  if (deriveToolCallStatus(tc) !== "running") {
+    return tc;
+  }
   return {
     ...tc,
-    status: "error",
     isError: true,
     result: SYNTHETIC_DANGLING_RESULT,
   };
@@ -281,8 +286,8 @@ function repairIfDangling(tc: ChatMessageToolCall): ChatMessageToolCall {
 // daemon-side delivery delay).
 //
 // Predicate (must ALL hold for a tool call to be patched):
-//   - `tool_call.status === "running"` (the UI's canonical "no result yet"
-//     signal — see `tool-call-chip.tsx`'s `isRunning`),
+//   - `deriveToolCallStatus(tool_call) === "running"` (the UI's canonical
+//     "no result yet" signal — see `tool-call-chip.tsx`'s `isRunning`),
 //   - `tool_call.startedAt` is set (else we have no clock to measure
 //     against; typically only happens for tool calls hydrated from a
 //     pre-stamping history boundary),
@@ -300,8 +305,7 @@ function repairIfDangling(tc: ChatMessageToolCall): ChatMessageToolCall {
 // server still considers in-flight.
 //
 // When all four hold, mutate the tool call to:
-//   - `status: "error"`,
-//   - `isError: true`,
+//   - `isError: true` (so the derived status becomes `"error"`),
 //   - `result: SYNTHETIC_STALE_RESULT` (explains the client-side timeout
 //     so a feedback report shows the root cause).
 //
@@ -366,8 +370,12 @@ function withStaleToolCallsFailed(
 }
 
 function isStale(tc: ChatMessageToolCall, nowMs: number): boolean {
-  if (tc.status !== "running") return false;
-  if (tc.pendingConfirmation) return false;
+  if (deriveToolCallStatus(tc) !== "running") {
+    return false;
+  }
+  if (tc.pendingConfirmation) {
+    return false;
+  }
   if (tc.startedAt === undefined) return false;
   const effectiveTimeoutMs = DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC * 1000;
   return nowMs - tc.startedAt > effectiveTimeoutMs + STALE_GRACE_MS;
@@ -376,7 +384,6 @@ function isStale(tc: ChatMessageToolCall, nowMs: number): boolean {
 function markStale(tc: ChatMessageToolCall): ChatMessageToolCall {
   return {
     ...tc,
-    status: "error",
     isError: true,
     result: SYNTHETIC_STALE_RESULT,
   };

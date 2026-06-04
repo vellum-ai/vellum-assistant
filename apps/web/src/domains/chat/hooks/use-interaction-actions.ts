@@ -28,6 +28,7 @@ import {
   completeSubmittedSurface,
 } from "@/domains/chat/hooks/send-message-utils";
 import { deriveCommandText } from "@/domains/chat/utils/chat";
+import { deriveToolCallStatus } from "@/domains/chat/utils/derive-tool-call-status";
 import type { ConfirmationDecision } from "@/types/event-types";
 import type { AllowlistOption, DirectoryScopeOption, RiskScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 import type { TrustRuleItem, TrustRuleSuggestion } from "@/types/trust-rules";
@@ -352,7 +353,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
         if (msgIdx !== -1) {
           const msg = currentMessages[msgIdx];
           const tcIdx = msg?.toolCalls?.findLastIndex(
-            (tc) => (tc.status === "completed" || tc.status === "error") && !tc.riskLevel,
+            (tc) => deriveToolCallStatus(tc) !== "running" && !tc.riskLevel,
           ) ?? -1;
           if (tcIdx !== -1) return msg!.toolCalls![tcIdx]!.id;
         }
@@ -392,7 +393,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
         const msg = prev[msgIdx];
         if (!msg?.toolCalls) return prev;
         const tcIdx = msg.toolCalls.findLastIndex(
-          (tc) => (tc.status === "completed" || tc.status === "error") && !tc.riskLevel,
+          (tc) => deriveToolCallStatus(tc) !== "running" && !tc.riskLevel,
         );
         if (tcIdx === -1) return prev;
         const existingTc = msg.toolCalls[tcIdx];

@@ -35,9 +35,10 @@ export interface PendingToolConfirmation {
  * A tool call as rendered in the transcript. Extends the canonical wire
  * `ConversationMessageToolCall` (carrying `name`, `input`, `result`, the
  * risk/approval fields, and the `risk*Options` rule-editor ladders) with the
- * client-only live state the wire deliberately omits — a derived `status`, the
- * in-flight confirmation prompt, and activity metadata accumulated from SSE
- * events.
+ * client-only live state the wire deliberately omits — the in-flight
+ * confirmation prompt and activity metadata accumulated from SSE events.
+ * Execution state (`running`/`completed`/`error`) is not stored: derive it
+ * on demand from `isError`/`result`/`completedAt` via `deriveToolCallStatus`.
  */
 export interface ChatMessageToolCall extends ConversationMessageToolCall {
   /**
@@ -50,8 +51,6 @@ export interface ChatMessageToolCall extends ConversationMessageToolCall {
    * Drop this narrowing once the wire `id` graduates to non-optional.
    */
   id: string;
-  /** Live execution state derived from SSE events. */
-  status: "running" | "completed" | "error";
   /**
    * Scope ladder offered by the confirmation flow (`{label, scope}`). Sourced
    * from the `confirmation_request` event — distinct from the inherited

@@ -21,6 +21,7 @@ import {
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { getRiskBadgeStyle, getProvenanceText, wasExpected, getEffectiveRiskDisplay } from "@/domains/chat/utils/risk";
+import { deriveToolCallStatus } from "@/domains/chat/utils/derive-tool-call-status";
 import { formatStartTime, useElapsedTime } from "@/domains/chat/hooks/use-elapsed-time";
 
 import type { ConfirmationDecision } from "@/types/event-types";
@@ -262,8 +263,9 @@ export function ToolCallChip({
   embedded = false,
 }: ToolCallChipProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
-  const isRunning = toolCall.status === "running";
-  const isError = toolCall.status === "error" || toolCall.isError;
+  const status = deriveToolCallStatus(toolCall);
+  const isRunning = status === "running";
+  const isError = status === "error";
   const hasPendingConfirmation = !!toolCall.pendingConfirmation;
   const duration = useElapsedTime(toolCall.startedAt, !isRunning, toolCall.completedAt);
   const startTimeLabel = formatStartTime(toolCall.startedAt);
@@ -302,10 +304,10 @@ export function ToolCallChip({
 
   const subItemRow = (
     <div className={`flex min-w-0 items-center gap-2 py-2 ${embedded ? "pl-6 pr-3 text-body-small-default" : ""}`}>
-      <StatusIcon status={toolCall.status} isError={toolCall.isError} />
+      <StatusIcon status={status} isError={toolCall.isError} />
       {!embedded && getIcon(toolCall.name, inputSummary)}
       <span className="min-w-0 truncate text-[var(--content-secondary)]">{label}</span>
-      {toolCall.riskLevel && toolCall.status !== "running" && !(hasPendingConfirmation && isActiveConfirmation) && (() => {
+      {toolCall.riskLevel && !isRunning && !(hasPendingConfirmation && isActiveConfirmation) && (() => {
         const { displayLevel, inherentRisk } = getEffectiveRiskDisplay(toolCall.approvalReason, toolCall.riskLevel);
         const badge = getRiskBadgeStyle(displayLevel);
         const isWorkspace = displayLevel === "workspace";
@@ -510,7 +512,7 @@ export function ToolCallChip({
           expanded ? "rounded-b-none" : ""
         }`}
       >
-        <StatusIcon status={toolCall.status} isError={toolCall.isError} />
+        <StatusIcon status={status} isError={toolCall.isError} />
         <span className={isError ? "text-[var(--system-negative-strong)]" : "text-[var(--content-default)]"}>
           {statusLabel}
         </span>

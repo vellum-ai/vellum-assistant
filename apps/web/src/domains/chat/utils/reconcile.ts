@@ -2,6 +2,7 @@ import { mapServerSurfaces, prepareServerMessage } from "@/domains/chat/utils/ma
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
 import { dedupeDisplayMessages, mergeLatestHistoryMessage, mergeThinkingSegments, messagesEqual } from "@/domains/chat/utils/message-merge";
+import { deriveToolCallStatus } from "@/domains/chat/utils/derive-tool-call-status";
 import { sortByTimestamp, sortedByTimestamp, timestampToMs } from "@/domains/chat/utils/message-sorting";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { ConversationMessage } from "@vellumai/assistant-api";
@@ -333,18 +334,20 @@ export function reconcileMessages(
           const mergedToolCalls = localTcs.map((ltc, idx) => {
             const stc = prepared.toolCalls![idx];
             if (!stc) return ltc;
+            const localStatus = deriveToolCallStatus(ltc);
+            const serverStatus = deriveToolCallStatus(stc);
             const serverIsMoreFinal =
-              (ltc.status === "running" && (stc.status === "completed" || stc.status === "error")) ||
-              (ltc.status === "completed" && stc.status === "error");
+              (localStatus === "running" &&
+                (serverStatus === "completed" || serverStatus === "error")) ||
+              (localStatus === "completed" && serverStatus === "error");
             // Backfill result when message_complete force-completed the
             // tool call without data and the server now has the payload.
             const serverHasMissingResult =
-              ltc.status === stc.status && ltc.result == null && stc.result != null;
+              localStatus === serverStatus && ltc.result == null && stc.result != null;
             if (serverIsMoreFinal || serverHasMissingResult) {
               upgraded = true;
               return {
                 ...ltc,
-                status: stc.status,
                 result: stc.result ?? ltc.result,
                 isError: stc.isError ?? ltc.isError,
                 completedAt: stc.completedAt ?? ltc.completedAt ?? Date.now(),
@@ -385,12 +388,16 @@ export function reconcileMessages(
               const localTc = localMsg.toolCalls.find((ltc) => ltc.id === stc.id);
               if (
                 localTc &&
-                (localTc.status === "completed" || localTc.status === "error") &&
-                stc.status === "running"
+                deriveToolCallStatus(localTc) !== "running" &&
+                deriveToolCallStatus(stc) === "running"
               ) {
-                stc.status = localTc.status;
                 stc.result = localTc.result;
                 stc.isError = localTc.isError;
+                // Carry the terminal timestamp too: a force-completed local
+                // call has no result, so `completedAt` is what keeps the
+                // derived status terminal after the copy.
+                stc.completedAt =
+                  localTc.completedAt ?? stc.completedAt ?? Date.now();
               }
             }
           }
