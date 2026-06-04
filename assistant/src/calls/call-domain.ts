@@ -44,6 +44,7 @@ import { activeRelayConnections } from "./relay-server.js";
 import {
   describeCredentialGaps,
   resolveTelephonyCredentialReadiness,
+  willUseMediaStreamTransport,
 } from "./telephony-credential-preflight.js";
 import { getTwilioConfig } from "./twilio-config.js";
 import { TwilioConversationRelayProvider } from "./twilio-provider.js";
@@ -458,7 +459,21 @@ export async function startCall(
     // or the call connects silent. Fail BEFORE placing the Twilio call —
     // record the failure event, point the user at the missing credential, and
     // do not dial.
-    const credentialReadiness = await resolveTelephonyCredentialReadiness();
+    //
+    // GATE: only run this for calls that will actually use the media-stream
+    // transport (`<Connect><Stream>`). For conversation-relay-native STT
+    // providers (deepgram / google) Twilio CR does STT + native TTS itself and
+    // needs no local credentials, so the preflight would wrongly block default
+    // setups. `willUseMediaStreamTransport()` mirrors the branch
+    // buildVoiceWebhookTwiml takes (routing === "media-stream-custom").
+    //
+    // CROSS-PR NOTE (PR 11): PR 11 flips routing so ALL calls use the
+    // media-stream transport. When that lands, the gate must become always-on
+    // — update willUseMediaStreamTransport() (the shared seam) to return true
+    // unconditionally; this call site then needs no change.
+    const credentialReadiness = willUseMediaStreamTransport()
+      ? await resolveTelephonyCredentialReadiness()
+      : ({ status: "ready" } as const);
     if (credentialReadiness.status === "not-ready") {
       const summary = describeCredentialGaps(credentialReadiness.missing);
       recordCallEvent(session.id, "telephony_credential_preflight_failed", {

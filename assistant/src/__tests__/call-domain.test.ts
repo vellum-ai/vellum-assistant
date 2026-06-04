@@ -114,7 +114,14 @@ let credentialReadiness: Awaited<
   >
 > = { status: "ready" };
 
+// Whether the outbound preflight gate considers the call a media-stream call.
+// Default true so the existing not-ready test exercises the preflight; the gate
+// only skips the preflight for conversation-relay-native routing (PR 11 makes
+// it always-on).
+let usesMediaStreamTransport = true;
+
 mock.module("../calls/telephony-credential-preflight.js", () => ({
+  willUseMediaStreamTransport: () => usesMediaStreamTransport,
   resolveTelephonyCredentialReadiness: async () => credentialReadiness,
   describeCredentialGaps: (
     missing: Array<{ kind: string; providerId: string | null; reason: string }>,
@@ -156,6 +163,7 @@ beforeEach(() => {
   mockIngressEnabled = true;
   mockIngressPublicBaseUrl = "https://test.example.com";
   credentialReadiness = { status: "ready" };
+  usesMediaStreamTransport = true;
 });
 
 let ensuredConvIds = new Set<string>();
@@ -427,6 +435,36 @@ describe("startCall — pointer message regression", () => {
     expect(text).not.toBeNull();
     expect(text!).toContain("+12025550123");
     expect(text!).toContain("openai-whisper");
+  });
+
+  test("conversation-relay-native routing skips the outbound credential preflight and dials", async () => {
+    // PR 10 lands before the routing flip: CR-native STT providers (deepgram /
+    // google) use Twilio ConversationRelay for STT + native TTS, so they need
+    // no local credentials. The gate must skip the preflight even when the
+    // preflight would report not-ready, so default setups still dial.
+    const convId = "conv-domain-cred-preflight-skipped";
+    ensureConversation(convId);
+    usesMediaStreamTransport = false;
+    credentialReadiness = {
+      status: "not-ready",
+      missing: [
+        {
+          kind: "stt",
+          providerId: "openai-whisper",
+          reason: "missing-credentials",
+        },
+      ],
+    };
+
+    const result = await startCall({
+      phoneNumber: "+12025550123",
+      task: "Test call",
+      conversationId: convId,
+    });
+
+    expect(result.ok).toBe(true);
+    // The preflight was skipped, so Twilio dialing proceeded.
+    expect(twilioInitiateCallCount).toBe(1);
   });
 
   test("failed call writes a failed pointer to the initiating conversation", async () => {

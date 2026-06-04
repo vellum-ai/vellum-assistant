@@ -95,8 +95,17 @@ export type TelephonySttRoutingResult =
  * `telephonyRouting` metadata.
  */
 export function resolveTelephonySttRouting(): TelephonySttRoutingResult {
-  const config = getConfig();
-  const providerId = config.services.stt.provider;
+  // Safe access: a partial/edge config (e.g. no `services` block) must resolve
+  // to "unknown-provider" rather than throwing — telephony routing/preflight
+  // must never crash call setup on a malformed config.
+  const providerId = getConfig().services?.stt?.provider;
+  if (!providerId) {
+    return {
+      status: "unknown-provider",
+      providerId: "",
+      reason: "No STT provider configured (services.stt.provider is unset)",
+    };
+  }
 
   // Validate the provider exists in the catalog.
   const entry = getProviderEntry(providerId as SttProviderId);
