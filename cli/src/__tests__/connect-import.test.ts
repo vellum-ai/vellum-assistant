@@ -103,6 +103,33 @@ describe("connect import", () => {
     expect(tok?.refreshAfter).toBe("2026-07-01T00:00:00.000Z");
   });
 
+  test("preserves a numeric (epoch-ms) refreshTokenExpiresAt", async () => {
+    // GuardianTokenData allows refreshTokenExpiresAt to be an epoch-ms number;
+    // a numeric value in the bundle must round-trip, not be dropped to 0.
+    const expiresMs = 1893456000000; // 2030-01-01
+    process.argv = [
+      "bun",
+      "vellum",
+      "connect",
+      "import",
+      bundleFor({
+        deviceId: "dev-num",
+        refreshToken: "refresh-tok",
+        refreshTokenExpiresAt: expiresMs,
+      }),
+    ];
+    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await connectImport();
+    } finally {
+      logSpy.mockRestore();
+    }
+
+    expect(loadGuardianToken("paired-dev-num")?.refreshTokenExpiresAt).toBe(
+      expiresMs,
+    );
+  });
+
   test("two different bundles (both assistantId 'self') do not collide", async () => {
     process.argv = [
       "bun",

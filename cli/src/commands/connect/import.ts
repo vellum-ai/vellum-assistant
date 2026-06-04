@@ -46,11 +46,13 @@ interface PairBundle {
   token: string;
   assistantId?: string;
   deviceId?: string;
-  // Optional refresh credential (ISO-8601 strings). Present when the host's
-  // gateway issued a device-bound token pair; absent for older access-only
-  // bundles (which remain importable, just without auto-renewal).
+  // Optional refresh credential. Present when the host's gateway issued a
+  // device-bound token pair; absent for older access-only bundles (which remain
+  // importable, just without auto-renewal). `refreshTokenExpiresAt` mirrors
+  // GuardianTokenData (ISO string OR epoch-ms number) so a numeric expiry isn't
+  // silently dropped on import.
   refreshToken?: string;
-  refreshTokenExpiresAt?: string;
+  refreshTokenExpiresAt?: string | number;
   refreshAfter?: string;
 }
 
@@ -86,7 +88,8 @@ function decodeBundle(blob: string): PairBundle | null {
     refreshToken:
       typeof b.refreshToken === "string" ? b.refreshToken : undefined,
     refreshTokenExpiresAt:
-      typeof b.refreshTokenExpiresAt === "string"
+      typeof b.refreshTokenExpiresAt === "string" ||
+      typeof b.refreshTokenExpiresAt === "number"
         ? b.refreshTokenExpiresAt
         : undefined,
     refreshAfter:
