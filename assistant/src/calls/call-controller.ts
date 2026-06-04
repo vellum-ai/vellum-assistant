@@ -50,7 +50,10 @@ import type { CallTransport } from "./call-transport.js";
 import { finalizeCall } from "./finalize-call.js";
 import { sendGuardianExpiryNotices } from "./guardian-action-sweep.js";
 import { dispatchGuardianQuestion } from "./guardian-dispatch.js";
-import { resolveCallTtsProvider } from "./resolve-call-tts-provider.js";
+import {
+  resolveCallTtsProvider,
+  resolvePlayableCallTtsProvider,
+} from "./resolve-call-tts-provider.js";
 import type { PromptSpeakerContext } from "./speaker-identification.js";
 import { sanitizeForTts } from "./tts-text-sanitizer.js";
 import {
@@ -588,13 +591,24 @@ export class CallController {
     // audio chunks to Twilio via play-URL. Native-twilio providers
     // stream text tokens to the relay for Twilio's built-in TTS.
     //
-    // When the transport requires WAV (media-stream), request WAV so
-    // the audio store entry and any downstream fetch/transcode receives
-    // PCM that audioBufferToFrames can convert to mu-law.
-    const { provider, useSynthesizedPath, audioFormat } =
-      resolveCallTtsProvider({
-        preferWav: this.transport.requiresWavAudio,
-      });
+    // When the transport requires WAV (media-stream), ALL telephony audio is
+    // daemon-synthesized then transcoded PCM -> mu-law, so we MUST use the
+    // synthesized path with a provider that can actually emit playable audio.
+    // The playability guard falls back to a PCM-capable, credentialed default
+    // when the configured provider can't, avoiding a silent call. Otherwise
+    // (native Twilio relay), use the catalog-driven call-mode resolution.
+    let provider: TtsProvider | null;
+    let useSynthesizedPath: boolean;
+    let audioFormat: "mp3" | "wav" | "opus";
+    if (this.transport.requiresWavAudio) {
+      const playable = await resolvePlayableCallTtsProvider();
+      provider = playable.provider;
+      useSynthesizedPath = provider != null;
+      audioFormat = playable.audioFormat;
+    } else {
+      ({ provider, useSynthesizedPath, audioFormat } =
+        resolveCallTtsProvider());
+    }
 
     // Buffer incoming tokens so we can strip control markers ([ASK_GUARDIAN:...], [END_CALL])
     // before they reach TTS. We hold text whenever an unmatched '[' appears, since it

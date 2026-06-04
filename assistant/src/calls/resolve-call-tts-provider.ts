@@ -12,6 +12,10 @@ import { getTtsProvider } from "../tts/provider-registry.js";
 import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
 import type { TtsProvider } from "../tts/types.js";
 import { getLogger } from "../util/logger.js";
+import {
+  DEFAULT_PLAYABLE_TTS_PROVIDER,
+  resolveTelephonyTtsCapability,
+} from "./telephony-tts-capability.js";
 import { resolveCallStrategy } from "./tts-call-strategy.js";
 
 const log = getLogger("resolve-call-tts-provider");
@@ -37,21 +41,6 @@ export interface ResolvedCallTts {
 }
 
 // ---------------------------------------------------------------------------
-// Options
-// ---------------------------------------------------------------------------
-
-export interface ResolveCallTtsOptions {
-  /**
-   * When true, force `audioFormat` to `"wav"` regardless of the
-   * provider's configured format. The media-stream transport sets this
-   * because its {@link audioBufferToFrames} can only correctly
-   * transcode WAV (PCM) to mu-law -- compressed formats (mp3, opus)
-   * are sent as raw bytes and produce garbled audio.
-   */
-  preferWav?: boolean;
-}
-
-// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -69,10 +58,12 @@ export interface ResolveCallTtsOptions {
  * Falls back to the native path with `mp3` format when the config is
  * missing a `services.tts` block or the provider is not registered
  * (e.g. unit tests or early startup).
+ *
+ * For the media-stream call path (where every byte is transcoded
+ * PCM -> mu-law), use {@link resolvePlayableCallTtsProvider} instead --
+ * it guarantees a provider that can emit playable audio.
  */
-export function resolveCallTtsProvider(
-  options?: ResolveCallTtsOptions,
-): ResolvedCallTts {
+export function resolveCallTtsProvider(): ResolvedCallTts {
   try {
     const config = loadConfig();
     const resolved = resolveTtsConfig(config);
@@ -109,22 +100,15 @@ export function resolveCallTtsProvider(
     // Read the user-configured audio format from the resolved provider
     // config so the streaming store entry's content-type matches the
     // actual audio bytes the provider produces.
-    //
-    // When preferWav is set (media-stream transport), force WAV so
-    // audioBufferToFrames receives PCM it can transcode to mu-law.
-    const audioFormat: "mp3" | "wav" | "opus" = options?.preferWav
-      ? "wav"
-      : (() => {
-          const configuredFormat = (
-            resolved.providerConfig as { format?: string }
-          ).format;
-          return (
-            configuredFormat &&
-            ["mp3", "wav", "opus"].includes(configuredFormat)
-              ? configuredFormat
-              : "mp3"
-          ) as "mp3" | "wav" | "opus";
-        })();
+    const audioFormat: "mp3" | "wav" | "opus" = (() => {
+      const configuredFormat = (resolved.providerConfig as { format?: string })
+        .format;
+      return (
+        configuredFormat && ["mp3", "wav", "opus"].includes(configuredFormat)
+          ? configuredFormat
+          : "mp3"
+      ) as "mp3" | "wav" | "opus";
+    })();
 
     return { provider, useSynthesizedPath, audioFormat };
   } catch {
@@ -132,5 +116,67 @@ export function resolveCallTtsProvider(
     // (e.g. unit tests or early startup) -- fall back to the native
     // path where the provider object is not used.
     return { provider: null, useSynthesizedPath: false, audioFormat: "mp3" };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Media-stream playability guard
+// ---------------------------------------------------------------------------
+
+/** A media-stream TTS provider guaranteed to emit transcodable audio. */
+export interface PlayableCallTts {
+  /** The resolved, PCM/WAV-capable, credentialed provider (or null). */
+  provider: TtsProvider | null;
+
+  /** Audio format to request for synthesized audio (always `"wav"`). */
+  audioFormat: "wav";
+}
+
+/**
+ * Resolve a TTS provider for the **media-stream** call path, guaranteeing
+ * that the returned provider can actually feed the PCM -> mu-law transcoder.
+ *
+ * On media-stream every byte of telephony audio is daemon-synthesized and
+ * transcoded, so a provider that cannot emit PCM/WAV (or whose credential is
+ * missing) would produce a silent call. When the configured provider is
+ * {@link resolveTelephonyTtsCapability not playable}, this falls back to a
+ * known PCM-capable, credentialed default ({@link DEFAULT_PLAYABLE_TTS_PROVIDER})
+ * instead of leaving the call silent, logging a clear warning with the
+ * configured provider id and the reason.
+ *
+ * Returns `{ provider: null }` only when neither the configured provider nor
+ * the fallback can be resolved (e.g. registry empty in tests / early startup),
+ * so callers can degrade without throwing.
+ */
+export async function resolvePlayableCallTtsProvider(): Promise<PlayableCallTts> {
+  try {
+    const capability = await resolveTelephonyTtsCapability();
+
+    if (capability.status === "playable") {
+      return {
+        provider: getTtsProvider(capability.providerId),
+        audioFormat: "wav",
+      };
+    }
+
+    // Configured provider cannot feed the media-stream transcoder. Fall back
+    // to a known PCM-capable, credentialed default rather than emitting a
+    // silent call.
+    log.warn(
+      {
+        configuredProvider: capability.providerId,
+        reason: capability.reason,
+        fallbackProvider: DEFAULT_PLAYABLE_TTS_PROVIDER,
+      },
+      "Configured media-stream TTS provider cannot synthesize playable audio — " +
+        "falling back to a PCM-capable default",
+    );
+    return {
+      provider: getTtsProvider(DEFAULT_PLAYABLE_TTS_PROVIDER),
+      audioFormat: "wav",
+    };
+  } catch {
+    // Config missing / provider not registered (e.g. tests, early startup).
+    return { provider: null, audioFormat: "wav" };
   }
 }

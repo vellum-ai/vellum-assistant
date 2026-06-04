@@ -27,14 +27,23 @@ mock.module("../calls/resolve-call-tts-provider.js", () => ({
     useSynthesizedPath: false,
     audioFormat: "wav" as const,
   })),
+  resolvePlayableCallTtsProvider: jest.fn(async () => ({
+    provider: mockProvider,
+    audioFormat: "wav" as const,
+  })),
 }));
 
 import { MediaStreamOutput } from "../calls/media-stream-output.js";
-import { resolveCallTtsProvider } from "../calls/resolve-call-tts-provider.js";
+import {
+  resolveCallTtsProvider,
+  resolvePlayableCallTtsProvider,
+} from "../calls/resolve-call-tts-provider.js";
 
 const mockResolveCallTtsProvider = resolveCallTtsProvider as ReturnType<
   typeof jest.fn
 >;
+const mockResolvePlayableCallTtsProvider =
+  resolvePlayableCallTtsProvider as ReturnType<typeof jest.fn>;
 
 // ---------------------------------------------------------------------------
 // Mock WebSocket
@@ -117,6 +126,11 @@ afterEach(() => {
   mockResolveCallTtsProvider.mockImplementation(() => ({
     provider: mockProvider,
     useSynthesizedPath: false,
+    audioFormat: "wav" as const,
+  }));
+  // Restore the default media-stream playability-guarded mock
+  mockResolvePlayableCallTtsProvider.mockImplementation(async () => ({
+    provider: mockProvider,
     audioFormat: "wav" as const,
   }));
 });
