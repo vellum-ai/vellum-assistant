@@ -12,7 +12,7 @@
  *    the composer, focusing the textarea first.
  */
 
-import { type Dispatch, type MutableRefObject, type SetStateAction, useEffect } from "react";
+import { type MutableRefObject, useEffect } from "react";
 
 import {
   COMPOSER_FOCUS_EVENT,
@@ -20,11 +20,12 @@ import {
   insertTextAtSelection,
   shouldFocusComposerForTyping,
 } from "@/domains/chat/composer-focus";
+import { useComposerStore } from "@/domains/chat/composer-store";
 
 export function useComposerKeyboard(
   inputRef: MutableRefObject<HTMLTextAreaElement | null>,
-  setInput: Dispatch<SetStateAction<string>>,
 ): void {
+  const setInput = useComposerStore.use.setInput();
   // 1. Electron host focus relay + pending-focus drain.
   useEffect(() => {
     const focusInput = () => inputRef.current?.focus();

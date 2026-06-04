@@ -69,8 +69,6 @@ interface UseConversationLoaderParams {
 
   // Infrastructure refs (not per-conversation state)
   onboardingDraftConversationIdRef: MutableRefObject<string | null>;
-  // Attachment reset (lives outside the session store)
-  resetChatAttachments: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -106,7 +104,6 @@ export function useConversationLoader({
   refreshEpoch,
   reachabilityReadyEpoch,
   onboardingDraftConversationIdRef,
-  resetChatAttachments,
 }: UseConversationLoaderParams) {
   const navigate = useNavigate();
 
@@ -410,7 +407,6 @@ export function useConversationLoader({
     assistantId,
     assistantStateKind,
     activeConversationId,
-    resetChatAttachments,
   });
 
   // -------------------------------------------------------------------------

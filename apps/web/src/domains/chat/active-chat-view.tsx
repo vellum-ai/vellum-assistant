@@ -38,11 +38,11 @@ import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { peekPendingPreChatContext } from "@/domains/onboarding/prechat";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
-import { useChatAttachments } from "@/domains/chat/components/chat-attachments/use-chat-attachments";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useAssistantReachability } from "@/assistant/use-assistant-reachability";
 import { useDiskPressureMonitor } from "@/assistant/use-disk-pressure-monitor";
 import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
+import { useComposerStore } from "@/domains/chat/composer-store";
 
 import { useConversationLoader } from "@/domains/chat/hooks/use-conversation-loader";
 import { useOnboardingOrchestrator } from "@/domains/chat/hooks/use-onboarding-orchestrator";
@@ -52,7 +52,6 @@ import { canUseLlmInspector } from "@/domains/chat/inspector/access";
 import { useSendMessage } from "@/domains/chat/hooks/use-send-message";
 import { useMessageLifecycle } from "@/domains/chat/hooks/use-message-lifecycle";
 import { useActiveAppPinSync } from "@/domains/chat/hooks/use-active-app-pin-sync";
-import { useDraftInput } from "@/domains/chat/components/chat-composer/use-draft-input";
 import { useDeepLinkConsumer } from "@/domains/chat/hooks/use-deep-link-consumer";
 
 import { useChatDebugRegistration } from "@/domains/chat/hooks/use-chat-debug-registration";
@@ -104,7 +103,6 @@ export function ActiveChatView() {
   // -------------------------------------------------------------------------
   const [showAddCreditsModal, setShowAddCreditsModal] = useState(false);
 
-  const [restoredDraftConversationId, setRestoredDraftConversationId] = useState<string | null>(null);
   const [refreshEpoch, setRefreshEpoch] = useState(0);
   const [assetsRefreshKey, setAssetsRefreshKey] = useState(0);
 
@@ -181,38 +179,23 @@ export function ActiveChatView() {
   });
 
   // -------------------------------------------------------------------------
-  // Draft input — owns composer `input` state and per-conversation draft
-  // persistence to localStorage.
+  // Composer store — load drafts for the active assistant on mount / switch.
   // -------------------------------------------------------------------------
-  const { input, setInput, saveDraft, clearDraft } = useDraftInput({
-    assistantId,
-    activeConversationId,
-    onDraftRestored: setRestoredDraftConversationId,
-  });
+  // Note: Not a useEffect because loadAssistantDrafts is idempotent (no-ops
+  // if already loaded for this assistant). The original useDraftInput hook
+  // also loaded synchronously during its first render. This maintains the
+  // same timing semantics — drafts are available on first paint.
+  useMemo(() => {
+    if (assistantId) {
+      useComposerStore.getState().loadAssistantDrafts(assistantId);
+    }
+  }, [assistantId]);
 
   // Keyboard focus: Electron host focus relay + typing auto-focus.
-  useComposerKeyboard(inputRef, setInput);
+  useComposerKeyboard(inputRef);
 
-  // Inbound deep links: pre-fill composer with `deeplink.send` text,
-  // navigate to `/assistant/conversations/<id>` for `deeplink.openThread`,
-  // and ensure the main window is visible first. The hook gates the
-  // composer pre-fill on `input` being empty so it doesn't clobber
-  // in-progress typing. Off Electron the bus events never fire.
-  useDeepLinkConsumer({ composerInput: input, setComposerInput: setInput });
-
-  // -------------------------------------------------------------------------
-  // Attachments
-  // -------------------------------------------------------------------------
-  const {
-    attachments: chatAttachments,
-    uploadingCount: attachmentsUploadingCount,
-    uploadedIds: attachmentUploadedIds,
-    lastError: attachmentLastError,
-    addFiles: addChatAttachmentFiles,
-    removeAttachment: removeChatAttachment,
-    reset: resetChatAttachments,
-    dismissError: dismissChatAttachmentError,
-  } = useChatAttachments(assistantId);
+  // Inbound deep links: pre-fill composer with `deeplink.send` text.
+  useDeepLinkConsumer();
 
   // -------------------------------------------------------------------------
   // Derived state
@@ -253,7 +236,6 @@ export function ActiveChatView() {
     refreshEpoch,
     reachabilityReadyEpoch,
     onboardingDraftConversationIdRef,
-    resetChatAttachments,
   });
 
   // -------------------------------------------------------------------------
@@ -297,7 +279,6 @@ export function ActiveChatView() {
     messages,
     pendingOnboardingContextRef,
     onboardingDraftConversationIdRef,
-    setInput,
     startReconciliationLoop,
     cancelReconciliation,
     refreshConversations,
@@ -406,24 +387,6 @@ export function ActiveChatView() {
 
     // History pagination
     historyPagination: historyResult.pagination,
-
-    // Draft input (shared — keydown handler + deep link consumer here)
-    input,
-    setInput,
-    saveDraft,
-    clearDraft,
-    restoredDraftConversationId,
-    setRestoredDraftConversationId,
-
-    // Attachments (shared — reset called by switchConversation)
-    chatAttachments,
-    attachmentsUploadingCount,
-    attachmentUploadedIds,
-    attachmentLastError,
-    addChatAttachmentFiles,
-    removeChatAttachment,
-    resetChatAttachments,
-    dismissChatAttachmentError,
 
     // Disk pressure (single instance — avoids duplicate polling/subscriptions)
     diskPressure,

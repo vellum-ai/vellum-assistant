@@ -52,8 +52,6 @@ interface UseConversationHistoryParams {
   assistantId: string | null;
   assistantStateKind: AssistantStateKind;
   activeConversationId: string | null;
-  /** Reset callback for attachment state (lives outside the session store). */
-  resetChatAttachments: () => void;
 }
 
 export interface ConversationHistoryResult {
@@ -68,7 +66,6 @@ export function useConversationHistory({
   assistantId,
   assistantStateKind,
   activeConversationId,
-  resetChatAttachments,
 }: UseConversationHistoryParams): ConversationHistoryResult {
   // -------------------------------------------------------------------------
   // TanStack Query for history fetching + caching + pagination
@@ -98,9 +95,8 @@ export function useConversationHistory({
     useChatSessionStore.getState().switchToConversation({
       assistantId,
       activeConversationId,
-      resetChatAttachments,
     });
-  }, [assistantStateKind, assistantId, activeConversationId, resetChatAttachments]);
+  }, [assistantStateKind, assistantId, activeConversationId]);
 
   // -------------------------------------------------------------------------
   // Apply TanStack Query data to messages state

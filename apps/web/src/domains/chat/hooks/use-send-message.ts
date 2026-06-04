@@ -12,9 +12,7 @@
 
 import { captureError } from "@/lib/sentry/capture-error";
 import {
-  type Dispatch,
   type MutableRefObject,
-  type SetStateAction,
   useCallback,
   useRef,
 } from "react";
@@ -64,6 +62,7 @@ import {
   parsePendingSecretState,
   resolvePostError,
 } from "@/domains/chat/hooks/send-message-utils";
+import { useComposerStore } from "@/domains/chat/composer-store";
 import { useMessageQueue } from "@/domains/chat/hooks/use-message-queue";
 import { conversationsByIdCancelPost } from "@/generated/daemon/sdk.gen";
 import type { Conversation } from "@/types/conversation-types";
@@ -115,9 +114,6 @@ interface UseSendMessageParams {
   pendingOnboardingContextRef: MutableRefObject<PreChatOnboardingContext | null>;
   onboardingDraftConversationIdRef: MutableRefObject<string | null>;
 
-  // State setters (non-store)
-  setInput: Dispatch<SetStateAction<string>>;
-
   // Callbacks
   startReconciliationLoop: (epoch: number) => void;
   cancelReconciliation: () => void;
@@ -136,7 +132,6 @@ export function useSendMessage({
   messages,
   pendingOnboardingContextRef,
   onboardingDraftConversationIdRef,
-  setInput,
   startReconciliationLoop,
   cancelReconciliation,
   refreshConversations,
@@ -178,7 +173,6 @@ export function useSendMessage({
     assistantId,
     activeConversationId,
     messages,
-    setInput,
   });
 
   // -------------------------------------------------------------------------
@@ -641,7 +635,7 @@ export function useSendMessage({
               restoreContent: content,
             });
           } else {
-            setInput(content);
+            useComposerStore.getState().setInput(content);
             setError(result.error);
           }
           return;

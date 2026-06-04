@@ -31,7 +31,7 @@ import type { TranscriptHandle, TranscriptProps } from "@/domains/chat/transcrip
 import { useTranscriptScroll } from "@/domains/chat/transcript/use-transcript-scroll";
 import { hasAnyInteractiveSurface, hasPendingAssistantResponse, toolCallToRuleContext } from "@/domains/chat/utils/chat";
 import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone";
-import type { ChatAttachment } from "@/domains/chat/components/chat-attachments/use-chat-attachments";
+import { useComposerStore, selectUploadingCount, selectUploadedIds } from "@/domains/chat/composer-store";
 import type { ChatEmptyStateProps } from "@/domains/chat/components/chat-empty-state";
 import { CreditsExhaustedBanner } from "@/domains/chat/components/credits-exhausted-banner";
 import { DiscordNudgeBanner } from "@/components/nudges/discord-nudge-banner";
@@ -141,23 +141,6 @@ export interface ChatRouteContentProps {
   // History pagination (from useConversationLoader in ActiveChatView)
   historyPagination: HistoryPaginationResult;
 
-  // Draft input (shared — keydown handler + deep link consumer in ActiveChatView)
-  input: string;
-  setInput: Dispatch<SetStateAction<string>>;
-  saveDraft: (key: string, text: string) => void;
-  clearDraft: (key: string) => void;
-  restoredDraftConversationId: string | null;
-  setRestoredDraftConversationId: Dispatch<SetStateAction<string | null>>;
-
-  // Attachments (shared — reset called by switchConversation in orchestration)
-  chatAttachments: ChatAttachment[];
-  attachmentsUploadingCount: number;
-  attachmentUploadedIds: string[];
-  attachmentLastError: string | null;
-  addChatAttachmentFiles: (files: File[] | FileList) => void;
-  removeChatAttachment: (id: string) => void;
-  resetChatAttachments: () => void;
-  dismissChatAttachmentError: () => void;
 
   // Disk pressure (single instance lives in ActiveChatView; passed down to
   // avoid duplicate polling intervals and bus subscriptions)
@@ -195,20 +178,6 @@ export function ChatRouteContent({
   handleForkConversation,
   handleInspectMessage,
   historyPagination,
-  input,
-  setInput,
-  saveDraft,
-  clearDraft,
-  restoredDraftConversationId,
-  setRestoredDraftConversationId,
-  chatAttachments,
-  attachmentsUploadingCount,
-  attachmentUploadedIds,
-  attachmentLastError,
-  addChatAttachmentFiles,
-  removeChatAttachment,
-  resetChatAttachments,
-  dismissChatAttachmentError,
   diskPressure,
   setShowAddCreditsModal,
   setRefreshEpoch,
@@ -221,6 +190,21 @@ export function ChatRouteContent({
   didOnboarding,
   onboardingConversationId,
 }: ChatRouteContentProps) {
+  // --- Composer store (replaces 14 prop-drilled values) ---
+  const input = useComposerStore.use.input();
+  const setInput = useComposerStore.use.setInput();
+  const saveDraft = useComposerStore.use.saveDraft();
+  const clearDraft = useComposerStore.use.clearDraft();
+  const restoredDraftConversationId = useComposerStore.use.restoredDraftConversationId();
+  const clearRestoredDraftNotice = useComposerStore.use.clearRestoredDraftNotice();
+  const chatAttachments = useComposerStore.use.attachments();
+  const attachmentLastError = useComposerStore.use.attachmentLastError();
+  const addFilesRaw = useComposerStore.use.addFiles();
+  const removeChatAttachment = useComposerStore.use.removeAttachment();
+  const resetChatAttachments = useComposerStore.use.resetAttachments();
+  const dismissChatAttachmentError = useComposerStore.use.dismissAttachmentError();
+  const attachmentsUploadingCount = useMemo(() => selectUploadingCount(chatAttachments), [chatAttachments]);
+  const attachmentUploadedIds = useMemo(() => selectUploadedIds(chatAttachments), [chatAttachments]);
   const navigate = useNavigate();
   const isMobile = useIsMobile();
 
@@ -228,6 +212,10 @@ export function ChatRouteContent({
   // Store reads — identity, lifecycle, feature flags
   // -------------------------------------------------------------------------
   const assistantId = useAssistantSelectionStore.use.activeAssistantId();
+  const addChatAttachmentFiles = useCallback(
+    (files: FileList | File[]) => addFilesRaw(files, assistantId),
+    [addFilesRaw, assistantId],
+  );
   const assistantState = useAssistantLifecycleStore.use.assistantState();
   const assistantName = useAssistantIdentityStore.use.name();
   const chatPullToRefreshEnabled = useClientFeatureFlagStore.use.chatPullToRefreshEnabled();
@@ -828,19 +816,19 @@ export function ChatRouteContent({
   useEffect(() => {
     if (!showRestoredDraftNotice) return;
     const id = window.setTimeout(() => {
-      setRestoredDraftConversationId(null);
+      clearRestoredDraftNotice();
     }, 5000);
     return () => window.clearTimeout(id);
-  }, [showRestoredDraftNotice, setRestoredDraftConversationId]);
+  }, [showRestoredDraftNotice, clearRestoredDraftNotice]);
 
   useEffect(() => {
     if (
       restoredDraftConversationId !== null &&
       restoredDraftConversationId !== activeConversationId
     ) {
-      setRestoredDraftConversationId(null);
+      clearRestoredDraftNotice();
     }
-  }, [activeConversationId, restoredDraftConversationId, setRestoredDraftConversationId]);
+  }, [activeConversationId, restoredDraftConversationId, clearRestoredDraftNotice]);
 
   // -------------------------------------------------------------------------
   // Composer submit
@@ -1057,7 +1045,7 @@ export function ChatRouteContent({
         <div className="mb-2">
           <Notice
             tone="info"
-            onDismiss={() => setRestoredDraftConversationId(null)}
+            onDismiss={() => clearRestoredDraftNotice()}
           >
             Draft restored from your previous session.
           </Notice>

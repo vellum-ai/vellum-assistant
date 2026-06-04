@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import * as Sentry from "@sentry/react";
 
+import { useComposerStore } from "@/domains/chat/composer-store";
 import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
 
 /**
@@ -27,19 +28,10 @@ import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
  *   the component when the slice changes.
  */
 
-export interface UseDeepLinkConsumerParams {
-  /** Current composer input — checked before pre-fill so we don't
-   *  clobber the user's in-progress typing. */
-  composerInput: string;
-  /** Setter for the composer input. */
-  setComposerInput: (next: string) => void;
-}
-
-export function useDeepLinkConsumer({
-  composerInput,
-  setComposerInput,
-}: UseDeepLinkConsumerParams): void {
+export function useDeepLinkConsumer(): void {
   const pending = usePendingDeepLinkStore.use.pendingComposerMessage();
+  const input = useComposerStore.use.input();
+  const setInput = useComposerStore.use.setInput();
 
   useEffect(() => {
     if (pending === null) return;
@@ -47,7 +39,7 @@ export function useDeepLinkConsumer({
       .getState()
       .consumePendingComposerMessage();
     if (consumed === null) return;
-    if (composerInput.trim().length > 0) {
+    if (input.trim().length > 0) {
       Sentry.addBreadcrumb({
         category: "deeplink",
         level: "info",
@@ -56,6 +48,6 @@ export function useDeepLinkConsumer({
       });
       return;
     }
-    setComposerInput(consumed);
-  }, [pending, composerInput, setComposerInput]);
+    setInput(consumed);
+  }, [pending, input, setInput]);
 }

@@ -10,8 +10,6 @@
  */
 
 import {
-  type Dispatch,
-  type SetStateAction,
   useCallback,
   useMemo,
 } from "react";
@@ -22,6 +20,7 @@ import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { clearQueueStatus } from "@/domains/chat/hooks/stream-message-updaters";
 import { useTurnStore } from "@/domains/chat/turn-store";
 import { deleteQueuedMessage, steerToMessage } from "@/domains/chat/api/messages";
+import { useComposerStore } from "@/domains/chat/composer-store";
 
 // ---------------------------------------------------------------------------
 // Params
@@ -31,9 +30,6 @@ interface UseMessageQueueParams {
   assistantId: string | null;
   activeConversationId: string | null;
   messages: DisplayMessage[];
-
-  // State setters (non-store)
-  setInput: Dispatch<SetStateAction<string>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -44,7 +40,6 @@ export function useMessageQueue({
   assistantId,
   activeConversationId,
   messages,
-  setInput,
 }: UseMessageQueueParams) {
   const setMessages = useChatSessionStore.use.setMessages();
   /** Remove an optimistically-added queued message and its tracking state. */
@@ -135,7 +130,7 @@ export function useMessageQueue({
     if (!tail) {
       return;
     }
-    setInput(segmentsToPlainText(tail.textSegments));
+    useComposerStore.getState().setInput(segmentsToPlainText(tail.textSegments));
     handleCancelQueuedMessage(tail.id);
   }, [queuedMessages, handleCancelQueuedMessage]);
 
