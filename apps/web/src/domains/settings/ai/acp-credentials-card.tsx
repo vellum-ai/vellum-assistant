@@ -27,9 +27,15 @@ import { captureError } from "@/lib/sentry/capture-error";
 // Linked-state caveat: the link route is write-only — there is no read/list
 // endpoint to recover which credentials are present after a reload. We derive
 // linked state optimistically: a successful link call marks that field linked
-// in component-local state for the session; "Unlink" clears it locally so the
-// user can re-enter a value. (Unlinking here is a UI affordance to re-link; a
-// dedicated server-side delete route is out of scope for D2.)
+// in component-local state for the session.
+//
+// There is intentionally NO "unlink"/delete affordance: the daemon route is
+// write-only by design and exposes no delete/revoke endpoint, so the secret
+// cannot actually be removed from the pod here. The only real mutation is to
+// overwrite the stored value. We therefore offer a "Replace" affordance that
+// lets the user link a NEW value (overwriting the stored secret), which is a
+// genuine way to rotate a leaked or obsolete token. True server-side removal
+// is a documented follow-up (a dedicated revoke route).
 
 type AcpField = AcpCredentialsLinkPostData["body"]["field"];
 
@@ -68,6 +74,12 @@ export function AcpCredentialsCard({ assistantId }: AcpCredentialsCardProps) {
   const [pending, setPending] = useState<Partial<Record<AcpField, boolean>>>({});
   const [errors, setErrors] = useState<Partial<Record<AcpField, string>>>({});
 
+  // Per-field "replacing" state: the credential is linked but the user has
+  // chosen to enter a new value to overwrite (rotate) the stored secret.
+  const [replacing, setReplacing] = useState<
+    Partial<Record<AcpField, boolean>>
+  >({});
+
   const linkField = useCallback(
     async (field: AcpField, value: string) => {
       if (!assistantId) return;
@@ -85,6 +97,8 @@ export function AcpCredentialsCard({ assistantId }: AcpCredentialsCardProps) {
           throwOnError: true,
         });
         setLinked((l) => ({ ...l, [field]: true }));
+        // Close any in-progress "replace" input now that the overwrite landed.
+        setReplacing((r) => ({ ...r, [field]: false }));
         // For Claude, only one of the two fields can be the active credential;
         // clear the other so the UI shows a single linked Claude credential.
         if (field === "claude_oauth_token" || field === "anthropic_api_key") {
@@ -111,10 +125,18 @@ export function AcpCredentialsCard({ assistantId }: AcpCredentialsCardProps) {
     [assistantId],
   );
 
-  const unlinkField = useCallback((field: AcpField, clear: () => void) => {
-    // Write-only route: no server delete in D2, so unlink is a local reset that
-    // lets the user enter and re-link a fresh value.
-    setLinked((l) => ({ ...l, [field]: false }));
+  // Open the "Replace" input for a linked field so the user can enter a new
+  // value to overwrite the stored secret. This does NOT remove the existing
+  // credential — the field stays linked until a new value is successfully
+  // posted (or the user cancels). The route is write-only with no delete.
+  const startReplace = useCallback((field: AcpField, clear: () => void) => {
+    setReplacing((r) => ({ ...r, [field]: true }));
+    setErrors((e) => ({ ...e, [field]: undefined }));
+    clear();
+  }, []);
+
+  const cancelReplace = useCallback((field: AcpField, clear: () => void) => {
+    setReplacing((r) => ({ ...r, [field]: false }));
     setErrors((e) => ({ ...e, [field]: undefined }));
     clear();
   }, []);
@@ -131,7 +153,9 @@ export function AcpCredentialsCard({ assistantId }: AcpCredentialsCardProps) {
         <Notice tone="info" icon={<ShieldCheck className="h-4 w-4" aria-hidden />}>
           These secrets are stored only in your private environment and are
           never sent to our servers. They&apos;re write-only: once linked, the
-          value can&apos;t be read back.
+          value can&apos;t be read back. To rotate a token, use Replace to
+          overwrite the stored value — removing a credential entirely
+          isn&apos;t available here yet.
         </Notice>
 
         {!assistantId ? (
@@ -167,12 +191,22 @@ export function AcpCredentialsCard({ assistantId }: AcpCredentialsCardProps) {
                 pending.anthropic_api_key === true
               }
               error={errors[claudeMode]}
+              replacing={
+                replacing.claude_oauth_token === true ||
+                replacing.anthropic_api_key === true
+              }
               onLink={() => void linkField(claudeMode, claudeValue)}
-              onUnlink={() => {
+              onReplace={() => {
                 const linkedField: AcpField = linked.anthropic_api_key
                   ? "anthropic_api_key"
                   : "claude_oauth_token";
-                unlinkField(linkedField, () => setClaudeValue(""));
+                startReplace(linkedField, () => setClaudeValue(""));
+              }}
+              onCancelReplace={() => {
+                const linkedField: AcpField = linked.anthropic_api_key
+                  ? "anthropic_api_key"
+                  : "claude_oauth_token";
+                cancelReplace(linkedField, () => setClaudeValue(""));
               }}
               extraControl={
                 <Dropdown<ClaudeMode>
@@ -201,9 +235,13 @@ export function AcpCredentialsCard({ assistantId }: AcpCredentialsCardProps) {
               onValueChange={setOpenaiValue}
               pending={pending.openai_api_key === true}
               error={errors.openai_api_key}
+              replacing={replacing.openai_api_key === true}
               onLink={() => void linkField("openai_api_key", openaiValue)}
-              onUnlink={() =>
-                unlinkField("openai_api_key", () => setOpenaiValue(""))
+              onReplace={() =>
+                startReplace("openai_api_key", () => setOpenaiValue(""))
+              }
+              onCancelReplace={() =>
+                cancelReplace("openai_api_key", () => setOpenaiValue(""))
               }
             />
 
@@ -217,8 +255,12 @@ export function AcpCredentialsCard({ assistantId }: AcpCredentialsCardProps) {
               onValueChange={setGitValue}
               pending={pending.git_token === true}
               error={errors.git_token}
+              replacing={replacing.git_token === true}
               onLink={() => void linkField("git_token", gitValue)}
-              onUnlink={() => unlinkField("git_token", () => setGitValue(""))}
+              onReplace={() => startReplace("git_token", () => setGitValue(""))}
+              onCancelReplace={() =>
+                cancelReplace("git_token", () => setGitValue(""))
+              }
             />
           </>
         )}
@@ -228,7 +270,7 @@ export function AcpCredentialsCard({ assistantId }: AcpCredentialsCardProps) {
 }
 
 // ---------------------------------------------------------------------------
-// CredentialRow — single labelled secret input with link/unlink + status
+// CredentialRow — single labelled secret input with link/replace + status
 // ---------------------------------------------------------------------------
 
 interface CredentialRowProps {
@@ -242,8 +284,13 @@ interface CredentialRowProps {
   onValueChange: (value: string) => void;
   pending: boolean;
   error?: string;
+  /** Linked field whose value the user is currently overwriting. */
+  replacing: boolean;
   onLink: () => void;
-  onUnlink: () => void;
+  /** Open the input to overwrite (rotate) the stored secret. */
+  onReplace: () => void;
+  /** Abandon an in-progress replace and return to the linked state. */
+  onCancelReplace: () => void;
   extraControl?: ReactNode;
 }
 
@@ -257,8 +304,10 @@ function CredentialRow({
   onValueChange,
   pending,
   error,
+  replacing,
   onLink,
-  onUnlink,
+  onReplace,
+  onCancelReplace,
   extraControl,
 }: CredentialRowProps) {
   return (
@@ -280,19 +329,30 @@ function CredentialRow({
         </Typography>
       </div>
 
-      {linked ? (
+      {linked && !replacing ? (
         <div className="flex items-center justify-between gap-2">
           <span className="flex items-center gap-2 text-body-small-default text-[var(--system-positive-strong)]">
             <CircleCheck className="h-4 w-4 shrink-0" />
-            {linkedLabel ?? FIELD_LABEL[field]} linked
+            {linkedLabel ?? FIELD_LABEL[field]} linked — stored in your private
+            environment
           </span>
-          <Button variant="dangerGhost" size="compact" onClick={onUnlink}>
-            Unlink
+          <Button variant="outlined" size="compact" onClick={onReplace}>
+            Replace
           </Button>
         </div>
       ) : (
         <div className="space-y-2">
           {extraControl ? <div className="max-w-[280px]">{extraControl}</div> : null}
+          {replacing ? (
+            <Typography
+              variant="body-small-default"
+              as="p"
+              className="text-[var(--content-tertiary)]"
+            >
+              Enter a new value to overwrite the stored credential. This
+              rotates the secret; the previous value is replaced.
+            </Typography>
+          ) : null}
           <div className="flex items-start gap-2">
             <Input
               type="password"
@@ -312,10 +372,22 @@ function CredentialRow({
             >
               {pending ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
+              ) : replacing ? (
+                "Replace"
               ) : (
                 "Link"
               )}
             </Button>
+            {replacing ? (
+              <Button
+                variant="outlined"
+                size="compact"
+                disabled={pending}
+                onClick={onCancelReplace}
+              >
+                Cancel
+              </Button>
+            ) : null}
           </div>
         </div>
       )}
