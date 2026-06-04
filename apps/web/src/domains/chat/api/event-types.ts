@@ -43,11 +43,11 @@ export interface ChatMessageToolCall extends ConversationMessageToolCall {
   /**
    * Stable tool-call id, required for the client's keying (React keys, the
    * `expandedToolCallIds` set, the `liveWebActivity` map, reconcile's
-   * snapshot/stream match). The daemon now guarantees an id on every wire tool
-   * call (the provider tool-use id, or a synthesized positional id), so this
-   * narrows the inherited optional wire `id` to required at the ingest boundary
-   * — `mapRuntimeToolCalls` only re-synthesizes for daemons predating the wire
-   * field. Drop this narrowing once the wire `id` graduates to non-optional.
+   * snapshot/stream match). The daemon guarantees an id on every wire tool call
+   * as of v0.8.8 (the provider tool-use id, or a synthesized positional id), so
+   * this narrows the inherited optional wire `id` to required at the ingest
+   * boundary — `mapRuntimeToolCalls` only re-synthesizes for daemons `< 0.8.8`.
+   * Drop this narrowing once the wire `id` graduates to non-optional.
    */
   id: string;
   /** Live execution state derived from SSE events. */
