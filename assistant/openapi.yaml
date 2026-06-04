@@ -14137,6 +14137,23 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  hasCredentials:
+                    type: boolean
+                  accountSid:
+                    type: string
+                  phoneNumber:
+                    type: string
+                required:
+                  - success
+                  - hasCredentials
+                additionalProperties: false
   /v1/integrations/twilio/credentials:
     delete:
       operationId: integrations_twilio_credentials_delete
@@ -14147,6 +14164,19 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  hasCredentials:
+                    type: boolean
+                required:
+                  - success
+                  - hasCredentials
+                additionalProperties: false
     post:
       operationId: integrations_twilio_credentials_post
       summary: Set Twilio credentials
@@ -14156,6 +14186,19 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  hasCredentials:
+                    type: boolean
+                required:
+                  - success
+                  - hasCredentials
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -14183,6 +14226,42 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  hasCredentials:
+                    type: boolean
+                  numbers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        phoneNumber:
+                          type: string
+                        friendlyName:
+                          type: string
+                        capabilities:
+                          type: object
+                          properties:
+                            voice:
+                              type: boolean
+                          required:
+                            - voice
+                          additionalProperties: false
+                      required:
+                        - phoneNumber
+                        - friendlyName
+                        - capabilities
+                      additionalProperties: false
+                required:
+                  - success
+                  - hasCredentials
+                  - numbers
+                additionalProperties: false
   /v1/integrations/twilio/numbers/assign:
     post:
       operationId: integrations_twilio_numbers_assign_post
@@ -14193,6 +14272,23 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  hasCredentials:
+                    type: boolean
+                  phoneNumber:
+                    type: string
+                  warning:
+                    type: string
+                required:
+                  - success
+                  - hasCredentials
+                additionalProperties: false
   /v1/integrations/twilio/numbers/provision:
     post:
       operationId: integrations_twilio_numbers_provision_post
@@ -14203,6 +14299,23 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  hasCredentials:
+                    type: boolean
+                  phoneNumber:
+                    type: string
+                  warning:
+                    type: string
+                required:
+                  - success
+                  - hasCredentials
+                additionalProperties: false
   /v1/integrations/twilio/numbers/release:
     post:
       operationId: integrations_twilio_numbers_release_post
@@ -14213,6 +14326,23 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  hasCredentials:
+                    type: boolean
+                  phoneNumber:
+                    type: string
+                  warning:
+                    type: string
+                required:
+                  - success
+                  - hasCredentials
+                additionalProperties: false
   /v1/integrations/vercel/config:
     delete:
       operationId: integrations_vercel_config_delete
