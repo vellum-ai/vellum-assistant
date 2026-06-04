@@ -72,12 +72,14 @@ function parsePaginatedResponse(
   const hasMore = body?.hasMore ?? false;
   const oldestTimestamp = body?.oldestTimestamp ?? null;
   const oldestMessageId = body?.oldestMessageId || null;
+  const seq = body?.seq ?? null;
 
   return {
     messages,
     hasMore,
     oldestTimestamp,
     oldestMessageId,
+    seq,
     ...(subagentNotifications.length > 0 ? { subagentNotifications } : {}),
   };
 }
@@ -115,6 +117,7 @@ async function fetchPaginatedHistory(
     hasMore: result.hasMore,
     oldestTimestamp: result.oldestTimestamp,
     oldestMessageId: result.oldestMessageId,
+    seq: result.seq ?? null,
     messages: summarizeDisplayMessages(result.messages),
   });
   return result;
