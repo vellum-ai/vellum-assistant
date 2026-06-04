@@ -57,6 +57,14 @@ const fakeCatalog: Record<
     mediaStreamPlayback: { outputFormat: "none" },
     key: "k/compressed",
   },
+  // Provider whose catalog requirement uses the standard namespaced api_key
+  // store key (credential/{id}/api_key), exercising the getProviderKeyAsync
+  // path: a key configured only under the legacy bare or env form must still
+  // be recognized as available.
+  "legacy-keyed": {
+    mediaStreamPlayback: { outputFormat: "pcm" },
+    key: "credential/legacy-keyed/api_key",
+  },
 };
 
 mock.module("../tts/provider-catalog.js", () => ({
@@ -79,9 +87,18 @@ mock.module("../tts/provider-catalog.js", () => ({
 
 // Stored credentials keyed by credential store key (mutated per test).
 let storedKeys: Record<string, string> = {};
+// Env-var fallback values keyed by provider id (mutated per test).
+let envProviderKeys: Record<string, string> = {};
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (account: string) => storedKeys[account],
+  // Mirror the real getProviderKeyAsync lookup order: namespaced
+  // credential/{provider}/api_key, then the legacy bare {provider} key, then
+  // an env-var fallback. This is the same lookup the TTS adapters use.
+  getProviderKeyAsync: async (provider: string) =>
+    storedKeys[`credential/${provider}/api_key`] ??
+    storedKeys[provider] ??
+    envProviderKeys[provider],
 }));
 
 // Provider registry — returns a trivial provider for any registered id.
@@ -124,6 +141,7 @@ function makeProvider(id: string): TtsProvider {
 beforeEach(() => {
   configuredProvider = "elevenlabs";
   storedKeys = {};
+  envProviderKeys = {};
   for (const key of Object.keys(registeredProviders)) {
     delete registeredProviders[key];
   }
@@ -186,6 +204,39 @@ describe("resolveTelephonyTtsCapability", () => {
       expect(result.reason).toBe("missing-credentials");
     }
   });
+
+  test("playable when key exists only under the legacy bare store key", async () => {
+    configuredProvider = "legacy-keyed";
+    // Namespaced credential/legacy-keyed/api_key is absent; only the legacy
+    // bare key is present — the adapter (getProviderKeyAsync) would find it.
+    storedKeys["legacy-keyed"] = "sk_legacy";
+
+    const result = await resolveTelephonyTtsCapability();
+    expect(result.status).toBe("playable");
+    expect(result.providerId).toBe("legacy-keyed");
+  });
+
+  test("playable when key exists only via the env-var fallback", async () => {
+    configuredProvider = "legacy-keyed";
+    // Neither store key is set; only the provider env-var fallback resolves.
+    envProviderKeys["legacy-keyed"] = "sk_from_env";
+
+    const result = await resolveTelephonyTtsCapability();
+    expect(result.status).toBe("playable");
+    expect(result.providerId).toBe("legacy-keyed");
+  });
+
+  test("missing-credentials when no key resolves under any lookup", async () => {
+    configuredProvider = "legacy-keyed";
+    // No namespaced, bare, or env key present.
+
+    const result = await resolveTelephonyTtsCapability();
+    expect(result.status).toBe("not-playable");
+    if (result.status === "not-playable") {
+      expect(result.reason).toBe("missing-credentials");
+      expect(result.providerId).toBe("legacy-keyed");
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -200,6 +251,16 @@ describe("isTtsProviderCredentialAvailable", () => {
 
   test("false when no credential is stored", async () => {
     expect(await isTtsProviderCredentialAvailable("elevenlabs")).toBe(false);
+  });
+
+  test("true when only the legacy bare key is set", async () => {
+    storedKeys["legacy-keyed"] = "sk_legacy";
+    expect(await isTtsProviderCredentialAvailable("legacy-keyed")).toBe(true);
+  });
+
+  test("true when only the env-var fallback resolves", async () => {
+    envProviderKeys["legacy-keyed"] = "sk_from_env";
+    expect(await isTtsProviderCredentialAvailable("legacy-keyed")).toBe(true);
   });
 });
 

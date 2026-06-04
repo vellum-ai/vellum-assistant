@@ -21,7 +21,11 @@
  */
 
 import { loadConfig } from "../config/loader.js";
-import { getSecureKeyAsync } from "../security/secure-keys.js";
+import { credentialKey } from "../security/credential-key.js";
+import {
+  getProviderKeyAsync,
+  getSecureKeyAsync,
+} from "../security/secure-keys.js";
 import {
   getCatalogProvider,
   type MediaStreamPlaybackFormat,
@@ -70,13 +74,24 @@ export type TelephonyTtsCapability =
 // ---------------------------------------------------------------------------
 
 /**
- * Returns true when the given provider's credential is available in the
- * secure store.
+ * Returns true when the given provider's credential is available under the
+ * SAME lookup semantics the TTS adapters use to read their key.
  *
- * Keys off the provider's `secretRequirements` in the canonical catalog
- * (the `credentialStoreKey`), so the check stays in lockstep with the
- * declared requirements. A provider with no declared secret requirements is
- * treated as always-available (e.g. keyless local providers).
+ * The real adapters (e.g. the Deepgram adapter) resolve their key via
+ * {@link getProviderKeyAsync}, which consults — in order — the namespaced
+ * `credential/{provider}/api_key` store key, the legacy bare `{provider}`
+ * store key, and the provider's env-var fallback. Probing only the catalog's
+ * namespaced `credentialStoreKey` here would report a legacy- or
+ * env-configured key as missing, wrongly triggering the fallback (or silence)
+ * even though synthesis would actually succeed.
+ *
+ * Behavior is preserved for providers that declare a non-standard catalog
+ * `credentialStoreKey` (one that is not `credential/{providerId}/api_key`):
+ * those keys are still probed directly via {@link getSecureKeyAsync}, since
+ * {@link getProviderKeyAsync} would not know to look for them.
+ *
+ * A provider with no declared secret requirements is treated as
+ * always-available (e.g. keyless local providers).
  *
  * Exported for reuse by the call preflight path so the daemon can warn about
  * an unplayable telephony TTS config before a call connects.
@@ -86,7 +101,18 @@ export async function isTtsProviderCredentialAvailable(
 ): Promise<boolean> {
   const entry = getCatalogProvider(providerId);
   if (entry.secretRequirements.length === 0) return true;
+
+  // Primary probe: match the adapter's `getProviderKeyAsync` semantics so
+  // legacy bare keys and env-var fallbacks are recognized.
+  const providerKey = await getProviderKeyAsync(providerId);
+  if (providerKey && providerKey.trim().length > 0) return true;
+
+  // Preserve behavior for any requirement that uses a non-standard catalog
+  // key (i.e. not the provider-namespaced api_key that getProviderKeyAsync
+  // already covered above).
+  const standardKey = credentialKey(providerId, "api_key");
   for (const requirement of entry.secretRequirements) {
+    if (requirement.credentialStoreKey === standardKey) continue;
     const value = await getSecureKeyAsync(requirement.credentialStoreKey);
     if (value && value.trim().length > 0) return true;
   }
