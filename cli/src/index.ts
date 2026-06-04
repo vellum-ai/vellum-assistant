@@ -13,6 +13,7 @@ import { hatch } from "./commands/hatch";
 import { login, logout, whoami } from "./commands/login";
 import { logs } from "./commands/logs";
 import { message } from "./commands/message";
+import { pair } from "./commands/pair";
 import { ps } from "./commands/ps";
 import { recover } from "./commands/recover";
 import { restore } from "./commands/restore";
@@ -46,6 +47,7 @@ const commands = {
   logout,
   logs,
   message,
+  pair,
   ps,
   recover,
   restore,
@@ -83,6 +85,9 @@ function printHelp(): void {
   console.log("  login    Log in to the Vellum platform");
   console.log("  logout   Log out of the Vellum platform");
   console.log("  message  Send a message to a running assistant");
+  console.log(
+    "  pair     Mint a device-scoped token to connect another machine",
+  );
   console.log(
     "  ps       List assistants (or processes for a specific assistant)",
   );

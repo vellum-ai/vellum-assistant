@@ -152,3 +152,53 @@ describe("/v1/pair device-bound minting", () => {
     expect(activeTokens()).toHaveLength(0);
   });
 });
+
+describe("/v1/pair cli interface", () => {
+  // The cli interface (e.g. `vellum pair`) is loopback-gated like the rest of
+  // /v1/pair, but is NOT a browser, so it carries no Origin header.
+  function makeCliRequest(body?: Record<string, unknown>): Request {
+    return new Request("http://localhost:7830/v1/pair", {
+      method: "POST",
+      headers: {
+        host: "localhost:7830",
+        "content-type": "application/json",
+        "x-vellum-interface-id": "cli",
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  }
+
+  test("mints a device-bound access token (no Origin header required, no refresh)", async () => {
+    const res = await handlePair(
+      makeCliRequest({ deviceId: "device-cli" }),
+      LOOPBACK_IP,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+
+    expect(typeof body.token).toBe("string");
+    expect(typeof body.expiresAt).toBe("string");
+    expect(body.guardianId).toBe(GUARDIAN_ID);
+    expect(body.refreshToken).toBeUndefined();
+
+    const tokens = activeTokens();
+    expect(tokens).toHaveLength(1);
+    expect(tokens[0].hashedDeviceId).toBe(hashToken("device-cli"));
+    expect(tokens[0].platform).toBe("cli");
+  });
+
+  test("rejects a cli pair request without a deviceId (400)", async () => {
+    const res = await handlePair(makeCliRequest(), LOOPBACK_IP);
+    expect(res.status).toBe(400);
+    expect(activeTokens()).toHaveLength(0);
+  });
+
+  test("still rejects non-loopback cli callers", async () => {
+    const res = await handlePair(
+      makeCliRequest({ deviceId: "device-cli" }),
+      "8.8.8.8",
+    );
+    expect(res.status).toBe(403);
+    expect(activeTokens()).toHaveLength(0);
+  });
+});
