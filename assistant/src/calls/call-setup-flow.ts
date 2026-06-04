@@ -787,6 +787,12 @@ export class CallSetupFlow implements SetupFlowInput {
         { callSessionId: this.callSessionId },
         "No access request opened after name capture — failing closed",
       );
+      // Stop accepting names before the async timeout/end path so a late final
+      // transcript during those awaits can't re-enter handleNameCaptureResponse
+      // and start a guardian wait for an already-failing call (the success path
+      // clears this in startGuardianWait; the silent-timeout path clears it in
+      // handleNameCaptureTimeout).
+      this.capturingName = null;
       void this.handleAccessRequestTimeoutEnded(this.guardianLabel(), false);
       return;
     }

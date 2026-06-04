@@ -407,6 +407,8 @@ describe("CallSetupFlow name-capture sub-flow", () => {
 
     const started = flow.start(NAME_CAPTURE, RESOLVED);
     flow.pushTranscriptFinal("Robin");
+    // A late transcript during the async fail-closed end path must be ignored.
+    flow.pushTranscriptFinal("Robin Banks");
 
     const result = await started;
     expect(result.kind).toBe("ended");
