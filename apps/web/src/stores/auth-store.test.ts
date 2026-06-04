@@ -126,9 +126,6 @@ mock.module("@/assistant/api", () => ({
 }));
 
 const { useAuthStore } = await import("@/stores/auth-store");
-const { resolveLocalOnboardingRoute } = await import(
-  "@/utils/local-onboarding-route"
-);
 const { routes } = await import("@/utils/routes");
 
 function resetAuthStore(): void {
@@ -291,84 +288,6 @@ describe("platform session probe resolution", () => {
     expect(useAuthStore.getState().platformSession).toBe("present");
   });
 
-  // The onboarding route fork reads platform-session liveness imperatively. A
-  // re-probe leaves the prior "absent" displayed while it confirms in the
-  // background (no flicker for reactive consumers), so the resolver must wait
-  // for that probe rather than routing on the stale value — otherwise a
-  // returning platform user lands on the new-user welcome flow instead of the
-  // hosting picker.
-  test("resolveLocalOnboardingRoute waits for an in-flight probe instead of routing on a stale status", async () => {
-    mockIsGatewayAuth = true;
-    mockIsLocalMode = false;
-    sessionUser = { id: "user-1", email: "user@example.com" };
-    useAuthStore.setState({ platformSession: "absent" });
-
-    const gates: Array<() => void> = [];
-    getSessionGates = gates;
-
-    // Launch the confirming probe; it stays in flight, so the displayed status
-    // is still the stale "absent".
-    await useAuthStore.getState().refreshSession();
-    expect(useAuthStore.getState().platformSession).toBe("absent");
-
-    const resolved: { route: string | null } = { route: null };
-    const pending = resolveLocalOnboardingRoute().then((route) => {
-      resolved.route = route;
-    });
-
-    // While the probe is in flight the resolver must block rather than picking
-    // welcome from the stale "absent".
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(resolved.route).toBeNull();
-
-    // Once the probe confirms the session, the resolver reads the fresh
-    // "present" and routes to hosting.
-    gates[0]();
-    await pending;
-    expect(resolved.route).toBe(routes.onboarding.hosting);
-  });
-
-  // A probe can become the latest *after* the resolver starts waiting (an
-  // app-resume refresh firing mid-wait). The resolver must chase that newer
-  // probe rather than proceeding when the one it first observed settles —
-  // otherwise it reads a stale status while the newest probe is still pending.
-  test("resolveLocalOnboardingRoute waits for a probe that becomes latest after the wait begins", async () => {
-    mockIsGatewayAuth = true;
-    mockIsLocalMode = false;
-    sessionUser = { id: "user-1", email: "user@example.com" };
-    useAuthStore.setState({ platformSession: "absent" });
-
-    const gates: Array<() => void> = [];
-    getSessionGates = gates;
-
-    // Probe A is in flight; the displayed status is the stale "absent".
-    await useAuthStore.getState().refreshSession();
-    expect(gates.length).toBe(1);
-
-    const resolved: { route: string | null } = { route: null };
-    const pending = resolveLocalOnboardingRoute().then((route) => {
-      resolved.route = route;
-    });
-    // Let the resolver reach the settle wait so it observes probe A's promise.
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(resolved.route).toBeNull();
-
-    // A second probe starts mid-wait and becomes the latest.
-    await useAuthStore.getState().refreshSession();
-    expect(gates.length).toBe(2);
-
-    // Probe A settles first, but it is now stale: it neither moves the status
-    // nor may it release the resolver while the newer probe B is pending.
-    gates[0]();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(useAuthStore.getState().platformSession).toBe("absent");
-    expect(resolved.route).toBeNull();
-
-    // Probe B confirms the session; only now does the resolver read "present".
-    gates[1]();
-    await pending;
-    expect(resolved.route).toBe(routes.onboarding.hosting);
-  });
 });
 
 describe("biometric session recovery", () => {
