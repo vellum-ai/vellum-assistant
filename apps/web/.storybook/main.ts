@@ -20,6 +20,9 @@ export default defineMain({
     componentsManifest: true,
   },
   viteFinal(config) {
+    // Set at build time so a Storybook served from a subpath (e.g. /web/main/)
+    // emits correctly-based asset URLs. Unset in local dev.
+    config.base = process.env.STORYBOOK_BASE_PATH ?? config.base;
     config.plugins = [...(config.plugins ?? []), tailwindcss()];
     const existingAlias = config.resolve?.alias;
     const aliasArray = Array.isArray(existingAlias)
