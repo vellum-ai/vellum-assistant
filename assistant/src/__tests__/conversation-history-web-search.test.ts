@@ -441,6 +441,7 @@ describe("regenerate with web_search_tool_result", () => {
 
     const events: Array<{ type: string; message?: string }> = [];
 
+    let processing = false;
     const session: HistoryConversationContext = {
       conversationId,
       traceEmitter: {
@@ -448,7 +449,10 @@ describe("regenerate with web_search_tool_result", () => {
       } as unknown as HistoryConversationContext["traceEmitter"],
       sendToClient: (msg) => events.push(msg),
       messages: [...inMemoryMessages],
-      processing: false,
+      isProcessing: () => processing,
+      setProcessing: (value: boolean) => {
+        processing = value;
+      },
       abortController: null,
       async runAgentLoop(content, userMessageId) {
         agentLoopCalled = true;

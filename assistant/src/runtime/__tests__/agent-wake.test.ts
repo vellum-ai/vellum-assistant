@@ -1077,7 +1077,7 @@ describe("wakeAgentForOpportunity", () => {
     expect(target.drainQueueCalls).toBe(1);
     // Critical ordering invariant: drain runs after processing=false.
     // If drain ran while processing was still true,
-    // `enqueueMessage`'s `if (!ctx.processing) return ...` gate would
+    // `enqueueMessage`'s `if (!ctx.isProcessing()) return ...` gate would
     // see processing=true and the drained item would itself just
     // re-enqueue — no progress. Snapshot the live flag *inside* drain
     // (rather than inferring from toggle order) so a future regression

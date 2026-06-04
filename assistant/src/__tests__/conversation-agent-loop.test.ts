@@ -737,13 +737,17 @@ function makeCtx(
     ]);
 
   const compactionCircuit = new CompactionCircuit("test-conv");
+  let processing = true;
 
   return {
     conversationId: "test-conv",
     messages: [
       { role: "user", content: [{ type: "text", text: "Hello" }] },
     ] as Message[],
-    processing: true,
+    isProcessing: () => processing,
+    setProcessing: (value: boolean) => {
+      processing = value;
+    },
     abortController: new AbortController(),
     currentRequestId: "test-req",
 
@@ -1256,7 +1260,7 @@ describe("session-agent-loop", () => {
       });
 
       expect(applyRuntimeInjectionsMock).not.toHaveBeenCalled();
-      expect(ctx.processing).toBe(false);
+      expect(ctx.isProcessing()).toBe(false);
       expect(ctx.abortController).toBeNull();
       expect(ctx.currentRequestId).toBeUndefined();
       expect(drainQueue).toHaveBeenCalledWith("loop_complete");
@@ -2925,7 +2929,7 @@ describe("session-agent-loop", () => {
 
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
 
-      expect(ctx.processing).toBe(false);
+      expect(ctx.isProcessing()).toBe(false);
       expect(ctx.abortController).toBeNull();
       expect(ctx.currentRequestId).toBeUndefined();
       expect(ctx.commandIntent).toBeUndefined();
@@ -2941,7 +2945,7 @@ describe("session-agent-loop", () => {
 
       await runAgentLoopImpl(ctx, "hi", "msg-1", (msg) => events.push(msg));
 
-      expect(ctx.processing).toBe(false);
+      expect(ctx.isProcessing()).toBe(false);
       expect(ctx.abortController).toBeNull();
       expect(events.find((event) => event.type === "error")).toMatchObject({
         type: "error",
@@ -3116,7 +3120,7 @@ describe("session-agent-loop", () => {
         isUserMessage: true,
       });
 
-      expect(ctx.processing).toBe(false);
+      expect(ctx.isProcessing()).toBe(false);
       expect(ctx.abortController).toBeNull();
       expect(ctx.currentRequestId).toBeUndefined();
     });

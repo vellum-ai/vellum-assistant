@@ -127,7 +127,8 @@ export function isModelSlashCommand(content: string): boolean {
 export interface ProcessConversationContext {
   readonly conversationId: string;
   messages: Message[];
-  processing: boolean;
+  isProcessing(): boolean;
+  setProcessing(value: boolean): void;
   abortController: AbortController | null;
   currentRequestId?: string;
   readonly queue: MessageQueue;
@@ -1018,7 +1019,7 @@ async function drainSingleMessage(
       });
   }
 
-  // Fire-and-forget: persistUserMessage set conversation.processing = true
+  // Fire-and-forget: persistUserMessage set the processing flag to true
   // so subsequent messages will still be enqueued.
   // runAgentLoop's finally block will call drainQueue when this run completes.
   const drainLoopOptions: {
@@ -1211,7 +1212,7 @@ async function drainBatch(
         // which were already shifted out of the queue by
         // buildPassthroughBatch and would otherwise be stranded. Mirrors
         // the head persist-failure recovery below.
-        conversation.processing = false;
+        conversation.setProcessing(false);
         conversation.abortController = null;
         conversation.currentRequestId = undefined;
         conversation.preactivatedSkillIds = undefined;
@@ -1728,7 +1729,7 @@ export async function processMessage(
 
   // /compact — force context compaction, persist exchange, return message ID.
   if (slashResult.kind === "compact") {
-    conversation.processing = true;
+    conversation.setProcessing(true);
     let persistedCompactMessage = false;
     try {
       const pmTurnCtx = conversation.getTurnChannelContext();
@@ -1803,14 +1804,14 @@ export async function processMessage(
       }
       throw err;
     } finally {
-      conversation.processing = false;
+      conversation.setProcessing(false);
       await drainQueue(conversation);
     }
   }
 
   // /clean — strip runtime injections, return message ID. No LLM call.
   if (slashResult.kind === "clean") {
-    conversation.processing = true;
+    conversation.setProcessing(true);
     let persistedCleanMessage = false;
     try {
       const pmTurnCtx = conversation.getTurnChannelContext();
@@ -1882,7 +1883,7 @@ export async function processMessage(
       }
       throw err;
     } finally {
-      conversation.processing = false;
+      conversation.setProcessing(false);
       await drainQueue(conversation);
     }
   }

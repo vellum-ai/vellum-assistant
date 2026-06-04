@@ -342,7 +342,8 @@ export interface AssistantSurface {
 export interface AgentLoopConversationContext {
   readonly conversationId: string;
   messages: Message[];
-  processing: boolean;
+  isProcessing(): boolean;
+  setProcessing(value: boolean): void;
   abortController: AbortController | null;
   currentRequestId?: string;
   /**
@@ -3270,7 +3271,7 @@ export async function runAgentLoopImpl(
     ctx.profiler.emitSummary(ctx.traceEmitter, reqId);
 
     ctx.abortController = null;
-    ctx.processing = false;
+    ctx.setProcessing(false);
     ctx.onConfirmationOutcome = undefined;
     ctx.surfaceActionRequestIds.delete(ctx.currentRequestId ?? "");
     ctx.approvedViaPromptThisTurn = false;

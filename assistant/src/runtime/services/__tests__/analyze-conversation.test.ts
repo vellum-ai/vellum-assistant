@@ -61,6 +61,12 @@ function makeConversation() {
     setSubagentAllowedTools: mock(() => {}),
     updateClient: mock(() => {}),
     processing: false,
+    isProcessing(this: { processing: boolean }) {
+      return this.processing;
+    },
+    setProcessing(this: { processing: boolean }, value: boolean) {
+      this.processing = value;
+    },
     abortController: null as AbortController | null,
     currentRequestId: null as string | null,
     loadedHistoryTrustClass: undefined as string | undefined,

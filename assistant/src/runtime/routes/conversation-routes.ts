@@ -1499,7 +1499,7 @@ export async function handleSendMessage(
   } else if (isWakeUp) {
     const cannedGreeting = getCannedFirstGreeting(body.onboarding ?? undefined);
 
-    conversation.processing = true;
+    conversation.setProcessing(true);
     let cleanupDeferred = false;
     try {
       const rawContent = content ?? "";
@@ -1575,7 +1575,7 @@ export async function handleSendMessage(
           persistedAssistant.id,
         );
         publishConversationMessagesChanged(conversationId, originClientId);
-        conversation.processing = false;
+        conversation.setProcessing(false);
         silentlyWithLog(
           conversation.drainQueue(),
           "canned-greeting queue drain",
@@ -1591,8 +1591,8 @@ export async function handleSendMessage(
       cleanupDeferred = true;
       return response;
     } finally {
-      if (!cleanupDeferred && conversation.processing) {
-        conversation.processing = false;
+      if (!cleanupDeferred && conversation.isProcessing()) {
+        conversation.setProcessing(false);
         silentlyWithLog(conversation.drainQueue(), "error-path queue drain");
       }
     }
@@ -1805,7 +1805,7 @@ export async function handleSendMessage(
   const slashResult = await resolveSlash(rawContent, slashContext);
 
   if (slashResult.kind === "unknown") {
-    conversation.processing = true;
+    conversation.setProcessing(true);
     let cleanupDeferred = false;
     try {
       const slashMeta = {
@@ -1886,7 +1886,7 @@ export async function handleSendMessage(
           persistedAssistant.id,
         );
         publishConversationMessagesChanged(conversationId, originClientId);
-        conversation.processing = false;
+        conversation.setProcessing(false);
         silentlyWithLog(conversation.drainQueue(), "slash-command queue drain");
       }, 0);
 
@@ -1895,15 +1895,15 @@ export async function handleSendMessage(
     } finally {
       // No-op for the slash-command early-return path (handled inside
       // setTimeout above), but still needed for error paths.
-      if (!cleanupDeferred && conversation.processing) {
-        conversation.processing = false;
+      if (!cleanupDeferred && conversation.isProcessing()) {
+        conversation.setProcessing(false);
         silentlyWithLog(conversation.drainQueue(), "error-path queue drain");
       }
     }
   }
 
   if (slashResult.kind === "compact") {
-    conversation.processing = true;
+    conversation.setProcessing(true);
     const slashMeta = {
       userMessageChannel: sourceChannel,
       assistantMessageChannel: sourceChannel,
@@ -1923,12 +1923,12 @@ export async function handleSendMessage(
       // The fire-and-forget compaction below owns clearing `processing`, but a
       // throw from this initial persist never reaches it — reset here so the
       // conversation isn't stranded in queued mode.
-      conversation.processing = false;
+      conversation.setProcessing(false);
       silentlyWithLog(conversation.drainQueue(), "compact-command queue drain");
       throw err;
     }
     if (persisted.deduplicated) {
-      conversation.processing = false;
+      conversation.setProcessing(false);
       silentlyWithLog(conversation.drainQueue(), "compact-dedup queue drain");
       return {
         accepted: true,
@@ -1994,7 +1994,7 @@ export async function handleSendMessage(
           retryable: true,
         });
       } finally {
-        conversation.processing = false;
+        conversation.setProcessing(false);
         silentlyWithLog(
           conversation.drainQueue(),
           "compact-command queue drain",
@@ -2010,7 +2010,7 @@ export async function handleSendMessage(
   }
 
   if (slashResult.kind === "clean") {
-    conversation.processing = true;
+    conversation.setProcessing(true);
     const conversationId = mapping.conversationId;
     // Outer try/finally guarantees the processing flag is cleared (and the
     // queue drained) on every failure path — including a throw from the
@@ -2096,7 +2096,7 @@ export async function handleSendMessage(
         conversationId,
       };
     } finally {
-      conversation.processing = false;
+      conversation.setProcessing(false);
       silentlyWithLog(conversation.drainQueue(), "clean-command queue drain");
     }
   }

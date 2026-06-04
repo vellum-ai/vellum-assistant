@@ -109,10 +109,14 @@ import { runAgentLoopImpl } from "../daemon/conversation-agent-loop.js";
 function makeCtx(
   overrides: Partial<Context> = {},
 ): AgentLoopConversationContext {
+  let processing = true;
   return {
     conversationId: "conv-123",
     messages: [{ role: "user", content: [{ type: "text", text: "hello" }] }],
-    processing: true,
+    isProcessing: () => processing,
+    setProcessing: (value: boolean) => {
+      processing = value;
+    },
     abortController: new AbortController(),
     currentRequestId: "req-123",
     agentLoop: {
@@ -217,7 +221,7 @@ describe("runAgentLoopImpl disk pressure gate", () => {
       "error_terminal",
       { anchor: "global", requestId: "req-123" },
     ]);
-    expect(ctx.processing).toBe(false);
+    expect(ctx.isProcessing()).toBe(false);
     expect(ctx.abortController).toBeNull();
     expect(ctx.currentRequestId).toBeUndefined();
     expect(drainQueue).toHaveBeenCalledWith("loop_complete");

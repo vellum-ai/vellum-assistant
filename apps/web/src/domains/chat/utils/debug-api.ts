@@ -150,6 +150,41 @@ export interface PendingInteractionsSnapshot {
   inlineConfirmationToolCallId: string | null;
 }
 
+/**
+ * Avatar streaming-ring state block — answers "why is the spinning ring
+ * around the avatar showing (or stuck) — or not showing?".
+ *
+ * The ring renders in {@link ChatAvatar} for custom-image avatars iff
+ * `isStreaming || isProcessing` (see `chat-avatar.tsx`, and the props wired
+ * in `chat-route-content.tsx`). This mirrors those two gates so a developer
+ * can tell at a glance which one is keeping it lit — most usefully when the
+ * ring "hangs" after a turn ends, which means one gate is still latched on.
+ *
+ * Distinct from the transcript "thinking…" dots described by the rest of
+ * {@link ChatDebugThinkingIndicator}: the dots gate on the stricter
+ * {@link shouldShowThinkingIndicator} predicate (which tolerates a stale
+ * `activeConversationIsProcessing` snapshot via `hasPendingAssistantResponse`),
+ * whereas the ring trusts the coarse `isStreaming`/`isProcessing` OR directly.
+ */
+export interface ChatDebugStreamingRing {
+  /** Whether the ring would render this frame — `isStreaming || isProcessing`. */
+  visible: boolean;
+  /** The `isStreaming` prop `ChatAvatar` receives — the app's
+   *  `isAssistantStreaming` signal (`showThinking || hasStreamingAssistantMessage`,
+   *  i.e. {@link shouldShowThinkingIndicator} OR an open streaming bubble). */
+  isStreaming: boolean;
+  /** The `isProcessing` prop `ChatAvatar` receives — the OR of the local
+   *  optimistic processing set and the cached `conversation.isProcessing`
+   *  snapshot (`uiContext.activeConversationIsProcessing`). A `true` here
+   *  after the turn is done points at a stale cached snapshot. */
+  isProcessing: boolean;
+  /** Names of the gates currently keeping the ring visible. Empty when
+   *  `visible` is false. */
+  litBy: string[];
+  /** Human-readable summary of why the ring is or isn't showing. */
+  explanation: string;
+}
+
 /** Result of {@link ChatDebugApi.thinkingIndicator}. */
 export interface ChatDebugThinkingIndicator {
   /** Live evaluation of {@link shouldShowThinkingIndicator}. */
@@ -165,6 +200,9 @@ export interface ChatDebugThinkingIndicator {
   failingConditions: string[];
   /** Lifecycle / terminal-state signal — answers "is the assistant done?". */
   done: ChatDebugThinkingDoneSignal;
+  /** Avatar streaming-ring state — answers "why is the ring showing or
+   *  stuck — or not showing?". */
+  streamingRing: ChatDebugStreamingRing;
 }
 
 /**
@@ -273,6 +311,9 @@ export interface ChatDebugApi {
    *   1. Is the assistant done? See `.done` (terminal/phase/lastTerminalReason).
    *   2. Why are the `...` showing — or not showing? See `.visible` and
    *      `.failingConditions` for the AND-clauses that blocked visibility.
+   *   3. Why is the avatar streaming ring showing — or stuck after the turn
+   *      ended? See `.streamingRing` (`.visible`, `.isStreaming`,
+   *      `.isProcessing`, `.litBy`, `.explanation`).
    *
    * Synchronous, side-effect-free; reads the same turn-store + UI-context
    * snapshot the React render path reads, so the result matches what the
@@ -516,6 +557,39 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       });
     }
 
+    // Avatar streaming-ring gates. The ring renders in `ChatAvatar` for
+    // custom-image avatars iff `isStreaming || isProcessing`; mirror both so a
+    // stuck (or missing) ring points straight at the latched gate. `isStreaming`
+    // is the app's `isAssistantStreaming` (`showThinking ||
+    // hasStreamingAssistantMessage`); `isProcessing` is the coarse
+    // `activeConversationIsProcessing` OR-signal.
+    const ringIsStreaming =
+      visible || uiContext.hasStreamingAssistantMessage;
+    const ringIsProcessing =
+      uiContext.activeConversationIsProcessing === true;
+    const ringVisible = ringIsStreaming || ringIsProcessing;
+    const ringLitBy: string[] = [];
+    if (ringIsStreaming) {
+      ringLitBy.push("isStreaming");
+    }
+    if (ringIsProcessing) {
+      ringLitBy.push("isProcessing");
+    }
+
+    let ringExplanation: string;
+    if (!ringVisible) {
+      ringExplanation =
+        "hidden: not streaming AND conversation not processing";
+    } else if (ringIsStreaming && ringIsProcessing) {
+      ringExplanation =
+        "visible: assistant is streaming and the conversation is processing";
+    } else if (ringIsStreaming) {
+      ringExplanation = "visible: assistant is streaming";
+    } else {
+      ringExplanation =
+        "visible: conversation is processing (uiContext.activeConversationIsProcessing === true) — if the turn has ended, the cached conversation.isProcessing snapshot is stale";
+    }
+
     const phase = turnState.phase;
     const terminal =
       (phase === "idle" || phase === "errored") &&
@@ -548,6 +622,13 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
         phase,
         lastTerminalReason,
         explanation,
+      },
+      streamingRing: {
+        visible: ringVisible,
+        isStreaming: ringIsStreaming,
+        isProcessing: ringIsProcessing,
+        litBy: ringLitBy,
+        explanation: ringExplanation,
       },
     };
   }
@@ -677,6 +758,7 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       "  .thinkingIndicator()       live evaluation of the `...` predicate + done signal",
       "                              .visible / .failingConditions tell you why dots are or aren't showing",
       "                              .done.terminal / .done.lastTerminalReason tell you if the turn is finished",
+      "                              .streamingRing.visible / .streamingRing.litBy / .streamingRing.explanation tell you why the avatar ring is showing or stuck",
       "  .forceReconcile()          [experimental] imperatively run /v1/history reconcile",
       "  .serverMessages()          [experimental] fetch /v1/history and return server message list",
       "                              (diff against getClientMessages() manually in the console)",

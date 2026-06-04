@@ -525,6 +525,64 @@ describe("createChatDebugApi.thinkingIndicator", () => {
     expect(snapshot.uiContext.hasUncompletedVisibleSurface).toBe(true);
     expect(snapshot.uiContext.hasPendingSecret).toBe(false);
   });
+
+  test("streamingRing is lit by isStreaming while the assistant is thinking", () => {
+    const refs = makeRefs({
+      turn: {
+        ...INITIAL_TURN_STATE,
+        phase: "thinking",
+        activeTurnId: "turn-1",
+      },
+    });
+    const api = createChatDebugApi(refs);
+
+    const snapshot = api.thinkingIndicator();
+
+    expect(snapshot.streamingRing.visible).toBe(true);
+    expect(snapshot.streamingRing.isStreaming).toBe(true);
+    expect(snapshot.streamingRing.isProcessing).toBe(false);
+    expect(snapshot.streamingRing.litBy).toEqual(["isStreaming"]);
+  });
+
+  test("streamingRing is hidden once the turn is idle and nothing is processing", () => {
+    const refs = makeRefs({
+      turn: {
+        ...INITIAL_TURN_STATE,
+        phase: "idle",
+        lastTerminalReason: "complete",
+      },
+    });
+    const api = createChatDebugApi(refs);
+
+    const snapshot = api.thinkingIndicator();
+
+    expect(snapshot.streamingRing.visible).toBe(false);
+    expect(snapshot.streamingRing.litBy).toEqual([]);
+  });
+
+  test("streamingRing stays lit by isProcessing when the cached snapshot is stale after the turn ends", () => {
+    // The hang case: the local turn is terminal (idle, complete) but the
+    // cached `conversation.isProcessing` snapshot is still true, so the ring's
+    // `isProcessing` gate keeps it visible. `litBy: ["isProcessing"]` plus a
+    // terminal `done` is the signature of a stale-snapshot stuck ring.
+    const refs = makeRefs({
+      turn: {
+        ...INITIAL_TURN_STATE,
+        phase: "idle",
+        lastTerminalReason: "complete",
+      },
+      uiContext: { activeConversationIsProcessing: true },
+    });
+    const api = createChatDebugApi(refs);
+
+    const snapshot = api.thinkingIndicator();
+
+    expect(snapshot.done.terminal).toBe(true);
+    expect(snapshot.streamingRing.visible).toBe(true);
+    expect(snapshot.streamingRing.isStreaming).toBe(false);
+    expect(snapshot.streamingRing.isProcessing).toBe(true);
+    expect(snapshot.streamingRing.litBy).toEqual(["isProcessing"]);
+  });
 });
 
 // ---------------------------------------------------------------------------

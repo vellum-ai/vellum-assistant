@@ -9,7 +9,7 @@
  * intro generation. The response is streamed as SSE events (`btw_text_delta`,
  * `btw_complete`, `btw_error`).
  *
- * No messages are persisted. `conversation.processing` is never set or checked.
+ * No messages are persisted. The conversation's processing flag is never set or checked.
  */
 
 import { existsSync, readFileSync } from "node:fs";
