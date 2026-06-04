@@ -758,15 +758,30 @@ export class CallSetupFlow implements SetupFlowInput {
       callerName,
     });
 
-    const accessRequestId =
-      this.deps.createAccessRequest?.({
-        assistantId: c.assistantId,
-        fromNumber: c.fromNumber,
-        callerName,
-      }) ?? null;
-
     // Fail closed if no access request was opened (no guardian to notify /
-    // poll target) rather than leaving the caller stuck on hold.
+    // poll target) rather than leaving the caller stuck on hold. A throw from
+    // createAccessRequest (storage / guardian-notification failure) is treated
+    // the same as a null return — mirroring the legacy relay path, which caught
+    // notifyGuardianOfAccessRequest failures and fell through to the
+    // timeout/fail-closed path. Without this, an exception would escape
+    // pushTranscriptFinal() and leave start()'s promise unresolved (caller
+    // stuck with no timeout message or hangup).
+    let accessRequestId: string | null;
+    try {
+      accessRequestId =
+        this.deps.createAccessRequest?.({
+          assistantId: c.assistantId,
+          fromNumber: c.fromNumber,
+          callerName,
+        }) ?? null;
+    } catch (err) {
+      log.warn(
+        { callSessionId: this.callSessionId, err },
+        "Access request creation failed after name capture — failing closed",
+      );
+      accessRequestId = null;
+    }
+
     if (!accessRequestId) {
       log.warn(
         { callSessionId: this.callSessionId },

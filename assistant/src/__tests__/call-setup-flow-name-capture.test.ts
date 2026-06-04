@@ -418,6 +418,30 @@ describe("CallSetupFlow name-capture sub-flow", () => {
     ]);
   });
 
+  test("createAccessRequest throws → fails closed (timeout copy + ended), promise resolves", async () => {
+    const transport = makeTransport();
+    const fake = makeFakeController();
+    const ctx = makeDeps(SESSION, fake, {
+      createAccessRequest: () => {
+        throw new Error("guardian-notification failed");
+      },
+    });
+    const flow = new CallSetupFlow("call_1", transport.transport, ctx.deps);
+
+    const started = flow.start(NAME_CAPTURE, RESOLVED);
+    flow.pushTranscriptFinal("Robin");
+
+    // A thrown createAccessRequest must not escape pushTranscriptFinal and
+    // strand start(); it routes to the same fail-closed timeout path as null.
+    const result = await started;
+    expect(result.kind).toBe("ended");
+    expect(result).toMatchObject({ reason: "Access request timed out" });
+    expect(fake.record.started).toHaveLength(0);
+    expect(ctx.finalized).toEqual([
+      "Inbound voice ACL: guardian approval wait timed out",
+    ]);
+  });
+
   test("silent-caller name-capture timeout → ended + finalize", async () => {
     const transport = makeTransport();
     const fake = makeFakeController();
