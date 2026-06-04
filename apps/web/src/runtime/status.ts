@@ -17,5 +17,5 @@ export type { AssistantStatus };
  */
 export function setAssistantStatus(status: AssistantStatus): void {
   if (!isElectron()) return;
-  window.vellum?.status.setConnection(status);
+  window.vellum?.status?.setConnection(status);
 }

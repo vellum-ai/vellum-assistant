@@ -70,10 +70,13 @@ declare global {
       commands: {
         on(callback: (command: VellumCommand) => void): () => void;
       };
-      status: {
+      // Optional: older Electron shells predate the status/icon channels. The
+      // macOS app and web bundle don't release together, so a newer renderer
+      // can run against an older preload; callers must guard on presence.
+      status?: {
         setConnection(status: AssistantStatus): void;
       };
-      icon: {
+      icon?: {
         setAvatar(png: Uint8Array | null): void;
       };
       dock: {

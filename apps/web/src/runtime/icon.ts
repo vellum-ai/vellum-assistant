@@ -16,5 +16,5 @@ import { isElectron } from "@/runtime/is-electron";
  */
 export function setAssistantIcon(png: Uint8Array | null): void {
   if (!isElectron()) return;
-  window.vellum?.icon.setAvatar(png);
+  window.vellum?.icon?.setAvatar(png);
 }
