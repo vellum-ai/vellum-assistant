@@ -238,8 +238,29 @@ function getContinueHandler() {
   return route.handler;
 }
 
+/** Seed an in-memory session state so the continue route's getStatus + the
+ * delete-route status checks resolve it. */
+function seedInMemoryState(
+  id: string,
+  status: AcpSessionState["status"],
+): void {
+  inMemoryStates.set(id, {
+    id,
+    agentId: "claude",
+    acpSessionId: `proto-${id}`,
+    parentConversationId: "conv-1",
+    status,
+    startedAt: 1,
+  });
+}
+
 describe("POST /v1/acp/continue", () => {
+  beforeEach(() => {
+    inMemoryStates.clear();
+  });
+
   test("explicit acpSessionId: follow-up reaches that session via steer", async () => {
+    seedInMemoryState("acp-123", "idle");
     const handler = getContinueHandler();
     const result = (await handler({
       body: { acpSessionId: "acp-123", instruction: "now add tests" },
@@ -293,12 +314,50 @@ describe("POST /v1/acp/continue", () => {
     expect(steerCalls).toEqual([]);
   });
 
-  test("closed/non-existent session: steer rejection maps to 404", async () => {
+  test("explicit unknown session id: getStatus miss maps to 404 without steering", async () => {
+    // Not seeded → getStatus throws → 404, and steer is never reached.
+    const handler = getContinueHandler();
+    await expect(
+      handler({ body: { acpSessionId: "acp-gone", instruction: "go" } }),
+    ).rejects.toThrow("ACP session not found or not reusable");
+    expect(steerCalls).toEqual([]);
+  });
+
+  test("closed/non-reusable session: steer rejection maps to 404", async () => {
+    // Resolves as idle via getStatus, but steer rejects (adapter torn down
+    // between the status read and the steer).
+    seedInMemoryState("acp-gone", "idle");
     steerShouldThrow = true;
     const handler = getContinueHandler();
     await expect(
       handler({ body: { acpSessionId: "acp-gone", instruction: "go" } }),
     ).rejects.toThrow("ACP session not found or not reusable");
+  });
+
+  test("explicit running session: rejects with 409 and does NOT steer", async () => {
+    seedInMemoryState("acp-busy", "running");
+    const handler = getContinueHandler();
+    await expect(
+      handler({ body: { acpSessionId: "acp-busy", instruction: "also do X" } }),
+    ).rejects.toThrow("is busy");
+    // The in-flight prompt is preserved — steer was never called.
+    expect(steerCalls).toEqual([]);
+  });
+
+  test("conversation-resolved running session: rejects with 409 and does NOT steer", async () => {
+    liveByConversation.set("conv-busy", {
+      id: "acp-live-busy",
+      agentId: "claude",
+      acpSessionId: "proto-live-busy",
+      parentConversationId: "conv-busy",
+      status: "running",
+      startedAt: 1,
+    });
+    const handler = getContinueHandler();
+    await expect(
+      handler({ body: { conversationId: "conv-busy", instruction: "go" } }),
+    ).rejects.toThrow("is busy");
+    expect(steerCalls).toEqual([]);
   });
 });
 

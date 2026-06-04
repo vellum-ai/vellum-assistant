@@ -9,6 +9,11 @@ import { z } from "zod";
 
 import { getAcpSessionManager } from "../../acp/index.js";
 import {
+  LINKABLE_ACP_FIELDS,
+  LINKABLE_FIELD_DESCRIPTIONS,
+  type LinkableAcpField,
+} from "../../acp/credential-fields.js";
+import {
   ACP_SPAWN_TOOL,
   prepareAgentEnv,
 } from "../../acp/prepare-agent-env.js";
@@ -48,29 +53,6 @@ const MAX_SESSION_LIMIT = 500;
 
 /** Service namespace under which all linked ACP credentials are stored. */
 const ACP_CREDENTIAL_SERVICE = "acp";
-
-/**
- * The ONLY credential fields a client may link via `acp/credentials/link`.
- * These are the BYO secrets `prepare-agent-env.ts` reads through the broker
- * when spawning a per-user agent on a hosted pod. The route is intentionally
- * locked to this allowlist so the client-reachable surface can never write
- * (or overwrite) an arbitrary `acp/*` secret outside the agent's needs.
- */
-const LINKABLE_ACP_FIELDS = [
-  "claude_oauth_token",
-  "anthropic_api_key",
-  "openai_api_key",
-  "git_token",
-] as const;
-
-type LinkableAcpField = (typeof LINKABLE_ACP_FIELDS)[number];
-
-const LINKABLE_FIELD_DESCRIPTIONS: Record<LinkableAcpField, string> = {
-  claude_oauth_token: "Claude OAuth token for ACP agent authentication",
-  anthropic_api_key: "Anthropic API key for ACP agent authentication",
-  openai_api_key: "OpenAI API key for ACP agent authentication",
-  git_token: "Git access token for ACP agent repository operations",
-};
 
 const sessionEntrySchema = z.object({
   id: z.string(),
@@ -241,6 +223,12 @@ async function steerSession({ pathParams, body }: RouteHandlerArgs) {
  * `acpSessionId` when provided, otherwise from the conversation's most-recent
  * live session via `getLiveSessionForConversation`. A closed / non-existent
  * session errors cleanly with a 404 RouteError — never a crash.
+ *
+ * A session whose prompt is still in flight (`running`/`initializing`) is
+ * rejected with a 409 ConflictError rather than steered: `manager.steer`'s
+ * running-session path CANCELS the in-flight prompt, so continuing a busy
+ * session would abort the in-progress task. Only an idle (or otherwise
+ * non-running live) session is continued.
  */
 async function continueSession({ body }: RouteHandlerArgs) {
   const instruction = body?.instruction as string | undefined;
@@ -257,7 +245,18 @@ async function continueSession({ body }: RouteHandlerArgs) {
   const manager = getAcpSessionManager();
 
   let acpSessionId = explicitId;
-  if (!acpSessionId) {
+  // The resolved target's live status. For the conversation path
+  // `getLiveSessionForConversation` already carries it; for an explicit id we
+  // read it via `getStatus` (which throws for unknown ids — that maps to 404).
+  let status: AcpSessionState["status"] | undefined;
+  if (acpSessionId) {
+    try {
+      const state = manager.getStatus(acpSessionId);
+      if (!Array.isArray(state)) status = state.status;
+    } catch {
+      throw new NotFoundError("ACP session not found or not reusable");
+    }
+  } else {
     const live = manager.getLiveSessionForConversation(conversationId!);
     if (!live) {
       throw new NotFoundError(
@@ -265,6 +264,17 @@ async function continueSession({ body }: RouteHandlerArgs) {
       );
     }
     acpSessionId = live.id;
+    status = live.status;
+  }
+
+  // Never steer a session with a prompt in flight: `manager.steer`'s
+  // running-session path CANCELS the in-flight prompt, so a follow-up like
+  // "also do X" would abort in-progress work. Reject cleanly and let the
+  // caller wait for the current task to finish (or cancel it deliberately).
+  if (status === "running" || status === "initializing") {
+    throw new ConflictError(
+      `ACP session "${acpSessionId}" is busy (${status}); wait for the current task to finish before continuing.`,
+    );
   }
 
   try {
@@ -470,11 +480,12 @@ export const ROUTES: RouteDefinition[] = [
     handler: continueSession,
     summary: "Continue ACP session",
     description:
-      "Send a follow-up turn to an existing live (running/idle) ACP session " +
-      "so the agent builds on the same context and workspace. Resolve the " +
-      "target by explicit acpSessionId, or by the conversation's most-recent " +
-      "live session via conversationId. Errors cleanly (404) for a closed or " +
-      "non-existent session.",
+      "Send a follow-up turn to an existing idle ACP session so the agent " +
+      "builds on the same context and workspace. Resolve the target by " +
+      "explicit acpSessionId, or by the conversation's most-recent live " +
+      "session via conversationId. Errors cleanly (404) for a closed or " +
+      "non-existent session, and (409) when the session is busy with a " +
+      "prompt still in flight.",
     tags: ["acp"],
     requestBody: z.object({
       instruction: z.string().describe("The follow-up task for this turn"),
