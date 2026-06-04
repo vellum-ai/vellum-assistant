@@ -184,6 +184,7 @@ import {
   inboundActorContextFromTrustContext,
   loadSlackActiveThreadFocusBlock,
   loadSlackChronologicalContext,
+  reapplyRuntimeInjections,
   type SlackChronologicalContext,
   stripInjectionsForCompaction,
 } from "./conversation-runtime-assembly.js";
@@ -2059,8 +2060,8 @@ export async function runAgentLoopImpl(
         // stripInjectionsForCompaction() unconditionally removed the existing
         // NOW.md block, so re-inject the current content regardless of whether
         // compaction actually ran.
-        const injection = await applyRuntimeInjections(ctx.messages, {
-          ...injectionOpts,
+        const injection = await reapplyRuntimeInjections(ctx.messages, {
+          baseOptions: injectionOpts,
           pkbContext: currentPkbContent,
           memoryV2Static: currentMemoryV2Static,
           nowScratchpad: currentNowContent,
