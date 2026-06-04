@@ -732,10 +732,18 @@ export class AgentLoop {
    * Returns the history to continue from, or `null` when the compactor timed
    * out or exhausted its retry budget so the caller yields
    * `exitReason = "budget"` and the orchestrator escalates.
+   *
+   * `turnContext` is the loop-scoped pipeline context (its `turnIndex` is the
+   * tool-use iteration) used for the compaction call and circuit-breaker
+   * accounting. `reinjectTurnContext` is the per-turn conversation context the
+   * post-compaction hook forwards to the injector chain — its `turnIndex` is
+   * the conversation turn count, so re-injection observes/logs against the
+   * conversation turn rather than the loop iteration.
    */
   private async compact(
     history: Message[],
     turnContext: TurnContext,
+    reinjectTurnContext: TurnContext | undefined,
     compaction: MidLoopCompaction,
     signal: AbortSignal | undefined,
     onEvent: (event: AgentEvent) => void | Promise<void>,
@@ -815,7 +823,7 @@ export class AgentLoop {
       : rawHistory;
     return compaction.postCompactionHook({
       history: reinjectBase,
-      turnContext,
+      turnContext: reinjectTurnContext,
     });
   }
 
@@ -1592,6 +1600,7 @@ export class AgentLoop {
               const compacted = await this.compact(
                 history,
                 turnCtx,
+                turnContext,
                 compaction,
                 signal,
                 onEvent,

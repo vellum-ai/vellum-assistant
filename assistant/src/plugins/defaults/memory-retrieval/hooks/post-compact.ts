@@ -41,9 +41,11 @@ export interface PostCompactionHookInput {
   /** Compacted message history to re-inject onto. */
   history: Message[];
   /**
-   * Canonical per-turn context forwarded to the injector chain. Optional to
-   * match {@link RuntimeInjectionOptions.turnContext}; the loop always supplies
-   * the same value it runs the turn with.
+   * Canonical per-turn conversation context forwarded to the injector chain;
+   * its `turnIndex` is the conversation turn count (not the loop's tool-use
+   * iteration), so re-injection observes/logs against the conversation turn.
+   * Optional to match {@link RuntimeInjectionOptions.turnContext}; the loop
+   * supplies the same base context the orchestrator threaded into the turn.
    */
   turnContext?: TurnContext;
 }
