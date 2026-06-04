@@ -40,6 +40,7 @@ import {
 import { captureError } from "@/lib/sentry/capture-error";
 import {
   assistantScheduleRunsQueryKey,
+  assistantScheduleUsageSummaryQueryKey,
   assistantSchedulesQueryKey,
 } from "@/lib/sync/query-tags";
 import { routes } from "@/utils/routes";
@@ -693,9 +694,10 @@ export type ScheduleRowUsage =
 export function scheduleUsageSummaryQueryOptions(
   assistantId: string | undefined,
   tz: string,
+  enabled = true,
 ) {
   return {
-    queryKey: ["schedule-usage-summary", assistantId, tz],
+    queryKey: assistantScheduleUsageSummaryQueryKey(assistantId, tz),
     queryFn: () => {
       if (!assistantId) {
         return Promise.resolve<ScheduleUsageSummary[]>([]);
@@ -705,7 +707,7 @@ export function scheduleUsageSummaryQueryOptions(
         resolveScheduleUsageWindow(tz),
       );
     },
-    enabled: !!assistantId,
+    enabled: !!assistantId && enabled,
     staleTime: 10_000,
   };
 }
@@ -1185,7 +1187,9 @@ export function SchedulesPage() {
     data: usageSummaries,
     isLoading: isUsageSummaryLoading,
     isError: isUsageSummaryError,
-  } = useQuery(scheduleUsageSummaryQueryOptions(assistantId, tz));
+  } = useQuery(
+    scheduleUsageSummaryQueryOptions(assistantId, tz, scheduleId == null),
+  );
 
   const {
     data: heartbeatConfig,
@@ -1294,11 +1298,18 @@ export function SchedulesPage() {
   }, [refetchHeartbeat, refetchConsolidation]);
 
   const refreshSystemTaskRuns = useCallback(
-    (kind: SystemTaskKind) => {
+    (kind: SystemTaskKind, delayed = false) => {
       if (!assistantId) return;
-      void queryClient.invalidateQueries({
-        queryKey: ["system-task-runs", assistantId, kind],
-      });
+      const invalidate = () => {
+        void queryClient.invalidateQueries({
+          queryKey: ["system-task-runs", assistantId, kind],
+        });
+      };
+      invalidate();
+      if (delayed) {
+        setTimeout(invalidate, 1_000);
+        setTimeout(invalidate, 5_000);
+      }
     },
     [assistantId, queryClient],
   );
@@ -1329,7 +1340,7 @@ export function SchedulesPage() {
     try {
       const result = await runConsolidationNow(assistantId);
       void refetchConsolidation();
-      refreshSystemTaskRuns("consolidation");
+      refreshSystemTaskRuns("consolidation", result.ran);
       if (result.ran) {
         toast.success("Consolidation queued.");
       } else {

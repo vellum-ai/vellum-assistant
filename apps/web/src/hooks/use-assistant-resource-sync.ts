@@ -27,6 +27,7 @@ import {
   assistantIdentityQueryKey,
   assistantIdentityIntroQueryKey,
   assistantScheduleRunsQueryKey,
+  assistantScheduleUsageSummaryQueryKey,
   assistantSchedulesQueryKey,
   assistantSoundsAvailableQueryKey,
   assistantSoundsConfigQueryKey,
@@ -94,6 +95,9 @@ export function useAssistantResourceSync(
               });
               void queryClient.invalidateQueries({
                 queryKey: assistantScheduleRunsQueryKey(assistantId),
+              });
+              void queryClient.invalidateQueries({
+                queryKey: assistantScheduleUsageSummaryQueryKey(assistantId),
               });
               break;
             case SYNC_TAGS.appsList:

@@ -34,15 +34,32 @@ export function resolveUsageRangeWindow(
   }
 
   const dayOffset = RANGE_START_DAY_OFFSETS[range];
-  // Today's calendar date in `tz`, then step back whole days on a UTC-noon
-  // anchor to avoid DST slips before resolving zone-local midnight.
-  const todayInTz = toTimezoneDateString(new Date(to), tz);
-  const [year, month, day] = todayInTz.split("-").map(Number);
-  const anchor = new Date(Date.UTC(year, month - 1, day, 12));
-  anchor.setUTCDate(anchor.getUTCDate() - dayOffset);
-  const fromDate = toTimezoneDateString(anchor, "UTC");
+  const { fromDate } = resolveLastTimezoneCalendarDays(
+    dayOffset + 1,
+    tz,
+    to,
+  );
   return {
     from: timezoneDayStartEpoch(fromDate, tz),
     to,
   };
+}
+
+export function resolveLastTimezoneCalendarDays(
+  days: number,
+  tz: string,
+  now: Date | number = Date.now(),
+): {
+  fromDate: string;
+  toDate: string;
+} {
+  const to = typeof now === "number" ? now : now.getTime();
+  // Today's calendar date in `tz`, then step back whole days on a UTC-noon
+  // anchor to avoid DST slips before resolving zone-local midnight.
+  const toDate = toTimezoneDateString(new Date(to), tz);
+  const [year, month, day] = toDate.split("-").map(Number);
+  const anchor = new Date(Date.UTC(year, month - 1, day, 12));
+  anchor.setUTCDate(anchor.getUTCDate() - (days - 1));
+  const fromDate = toTimezoneDateString(anchor, "UTC");
+  return { fromDate, toDate };
 }
