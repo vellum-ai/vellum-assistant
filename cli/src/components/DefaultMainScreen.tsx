@@ -65,6 +65,9 @@ const HELP_COMMANDS = [
 ] as const;
 
 const SEND_TIMEOUT_MS = 5000;
+/** Fresh deadline for a request retried after a mid-session token refresh —
+ *  the original caller signal may have already timed out during the refresh. */
+const RETRY_TIMEOUT_MS = 30_000;
 
 // ── Layout constants ──────────────────────────────────────
 const MAX_TOTAL_WIDTH = 72;
@@ -225,9 +228,11 @@ async function runtimeRequest<T>(
   auth?: Record<string, string>,
 ): Promise<T> {
   const url = `${baseUrl}/v1/assistants/${assistantId}${path}`;
-  const doFetch = () =>
+  const doFetch = (signalOverride?: AbortSignal) =>
     fetch(url, {
       ...init,
+      // The retry overrides the caller's signal (see below); otherwise use it.
+      signal: signalOverride ?? init?.signal,
       headers: {
         "Content-Type": "application/json",
         ...auth,
@@ -237,12 +242,15 @@ async function runtimeRequest<T>(
 
   let response = await doFetch();
   // Mid-session token expiry → 401: refresh once and retry (auth headers are
-  // mutated in place by the helper, so the retry carries the new token).
+  // mutated in place by the helper, so the retry carries the new token). The
+  // refresh can take longer than the caller's timeout (lock wait + refresh
+  // fetch), which would already have aborted the original signal — so give the
+  // retry a fresh deadline instead of reusing the (likely-expired) one.
   if (
     response.status === 401 &&
     (await maybeRefreshAuthHeaders(baseUrl, assistantId, auth))
   ) {
-    response = await doFetch();
+    response = await doFetch(AbortSignal.timeout(RETRY_TIMEOUT_MS));
   }
 
   if (!response.ok) {
