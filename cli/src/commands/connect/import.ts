@@ -61,6 +61,17 @@ function decodeBundle(blob: string): PairBundle | null {
   if (typeof b.gatewayUrl !== "string" || typeof b.token !== "string") {
     return null;
   }
+  // The gatewayUrl is persisted as runtimeUrl and used to build fetch URLs, so
+  // require an absolute http(s) URL here rather than letting an invalid string
+  // through (which would crash `new URL(...)` or break later client calls).
+  try {
+    const parsed = new URL(b.gatewayUrl);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+  } catch {
+    return null;
+  }
   return {
     gatewayUrl: b.gatewayUrl,
     token: b.token,
@@ -131,7 +142,19 @@ export async function connectImport(): Promise<void> {
     process.exit(1);
   }
 
-  const existed = findAssistantByName(localId) !== null;
+  // Don't clobber an existing assistant. Only update in place when the prior
+  // entry is itself a paired import (marked `paired: true`); otherwise the id
+  // collides with a real local/remote assistant and overwriting would drop its
+  // resources/runtime metadata. Reject and let the user pick a fresh --name.
+  const existing = findAssistantByName(localId);
+  if (existing && existing.paired !== true) {
+    console.error(
+      `Error: an assistant named '${localId}' already exists locally. ` +
+        "Choose a different --name to avoid overwriting it.",
+    );
+    process.exit(1);
+  }
+  const existed = existing !== null;
 
   saveAssistantEntry({
     assistantId: localId,
@@ -145,6 +168,9 @@ export async function connectImport(): Promise<void> {
     // so ps/wake don't try to manage a remote pairing as a local instance,
     // while keeping bearer auth. Tracked with the devices/unpair work.
     cloud: "local",
+    // Marks this entry as a connect-import so re-imports update in place while
+    // imports never silently overwrite a non-paired assistant (see guard above).
+    paired: true,
     species: "vellum",
   });
 

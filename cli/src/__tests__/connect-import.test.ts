@@ -21,7 +21,10 @@ const ORIGINAL_CONFIG_HOME = process.env.XDG_CONFIG_HOME;
 const ORIGINAL_ARGV = [...process.argv];
 
 import { connectImport } from "../commands/connect/import.js";
-import { findAssistantByName } from "../lib/assistant-config.js";
+import {
+  findAssistantByName,
+  saveAssistantEntry,
+} from "../lib/assistant-config.js";
 import { loadGuardianToken } from "../lib/guardian-token.js";
 
 function bundleFor(overrides: Record<string, unknown> = {}): string {
@@ -146,6 +149,93 @@ describe("connect import", () => {
     expect(id).not.toContain("/");
     expect(id).not.toContain("..");
     expect(loadGuardianToken(id)?.accessToken).toBe("tokX");
+  });
+
+  test("does not overwrite an existing non-paired assistant", async () => {
+    saveAssistantEntry({
+      assistantId: "desk",
+      name: "Desk",
+      runtimeUrl: "http://127.0.0.1:7830",
+      cloud: "local",
+      species: "vellum",
+    });
+    process.argv = [
+      "bun",
+      "vellum",
+      "connect",
+      "import",
+      bundleFor({ deviceId: "dx" }),
+      "--name",
+      "desk",
+    ];
+    const errSpy = spyOn(console, "error").mockImplementation(() => {});
+    const exitSpy = spyOn(process, "exit").mockImplementation(((c?: number) => {
+      throw new Error(`exit:${c}`);
+    }) as never);
+    let exited = false;
+    try {
+      await connectImport();
+    } catch (e) {
+      exited = (e as Error).message === "exit:1";
+    } finally {
+      errSpy.mockRestore();
+      exitSpy.mockRestore();
+    }
+    expect(exited).toBe(true);
+    // The original local assistant is untouched (not overwritten).
+    const e = findAssistantByName("desk");
+    expect(e!.runtimeUrl).toBe("http://127.0.0.1:7830");
+    expect(e!.paired).toBeUndefined();
+  });
+
+  test("re-importing the same pairing updates in place", async () => {
+    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    try {
+      process.argv = [
+        "bun",
+        "vellum",
+        "connect",
+        "import",
+        bundleFor({ deviceId: "dev-re", token: "t1" }),
+      ];
+      await connectImport();
+      process.argv = [
+        "bun",
+        "vellum",
+        "connect",
+        "import",
+        bundleFor({ deviceId: "dev-re", token: "t2" }),
+      ];
+      await connectImport();
+    } finally {
+      logSpy.mockRestore();
+    }
+    expect(loadGuardianToken("paired-dev-re")?.accessToken).toBe("t2");
+  });
+
+  test("rejects a bundle whose gatewayUrl is not http(s)", async () => {
+    process.argv = [
+      "bun",
+      "vellum",
+      "connect",
+      "import",
+      bundleFor({ gatewayUrl: "ftp://nope", deviceId: "dz" }),
+    ];
+    const errSpy = spyOn(console, "error").mockImplementation(() => {});
+    const exitSpy = spyOn(process, "exit").mockImplementation(((c?: number) => {
+      throw new Error(`exit:${c}`);
+    }) as never);
+    let exited = false;
+    try {
+      await connectImport();
+    } catch (e) {
+      exited = (e as Error).message === "exit:1";
+    } finally {
+      errSpy.mockRestore();
+      exitSpy.mockRestore();
+    }
+    expect(exited).toBe(true);
+    expect(findAssistantByName("paired-dz")).toBeNull();
   });
 
   test("a malformed bundle exits 1 and registers nothing", async () => {
