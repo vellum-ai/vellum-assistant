@@ -1,5 +1,5 @@
 import { CheckCircle2, ExternalLink, Loader2, XCircle } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { IntegrationIcon } from "@/components/integrations/integration-icon";
 import {
@@ -14,7 +14,6 @@ interface OAuthConnectSurfaceData {
   displayName?: string;
   description?: string;
   logoUrl?: string | null;
-  requestedScopes?: string[];
   connectLabel?: string;
 }
 
@@ -83,13 +82,6 @@ export function OAuthConnectSurface({
     provider?.description ??
     `Connect ${providerLabel} so I can use it for this task.`;
   const connectLabel = data.connectLabel ?? `Connect ${providerLabel}`;
-  const scopes = useMemo(
-    () =>
-      Array.isArray(data.requestedScopes)
-        ? data.requestedScopes.filter((scope) => typeof scope === "string")
-        : [],
-    [data.requestedScopes],
-  );
 
   const submitCancel = () => {
     onAction(surface.surfaceId, "cancel", {
@@ -108,7 +100,6 @@ export function OAuthConnectSurface({
       assistantId,
       providerKey,
       providerLabel,
-      requestedScopes: scopes,
     });
 
     if (result.status === "connected") {
@@ -160,19 +151,6 @@ export function OAuthConnectSurface({
           <p className="mt-1 text-body-medium-lighter text-[var(--content-quiet)]">
             {description}
           </p>
-
-          {scopes.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {scopes.map((scope) => (
-                <span
-                  key={scope}
-                  className="rounded-full border border-[var(--border-subtle)] bg-[var(--surface-base)] px-2 py-0.5 text-label-small-default text-[var(--content-tertiary)]"
-                >
-                  {scope}
-                </span>
-              ))}
-            </div>
-          )}
 
           {missingConfiguration && (
             <div className="mt-3 flex items-center gap-2 text-body-small-default text-[var(--system-negative-strong)]">

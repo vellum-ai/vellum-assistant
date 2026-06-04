@@ -82,6 +82,10 @@ function makeOAuthConnectSurface(overrides: Partial<Surface> = {}): Surface {
       displayName: "Google",
       description: "Connect Gmail, Calendar, and Drive for this task.",
       connectLabel: "Connect Google",
+      requestedScopes: [
+        "https://www.googleapis.com/auth/gmail.readonly",
+        "https://www.googleapis.com/auth/calendar.readonly",
+      ],
     },
     ...overrides,
   };

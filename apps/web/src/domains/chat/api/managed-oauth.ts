@@ -28,7 +28,6 @@ export interface ManagedOAuthConnectOptions {
   assistantId: string;
   providerKey: string;
   providerLabel: string;
-  requestedScopes?: string[];
 }
 
 export type ManagedOAuthConnectResult =
@@ -166,7 +165,6 @@ export async function fetchManagedOAuthProvider(
 async function startManagedOAuth(
   assistantId: string,
   providerKey: string,
-  requestedScopes: string[] | undefined,
   requestId: string,
   native: boolean,
 ): Promise<string> {
@@ -174,7 +172,7 @@ async function startManagedOAuth(
   const { data, error, response } = await assistantsOauthStartCreate({
     path: { assistant_id: assistantId, provider: providerKey },
     body: {
-      requested_scopes: requestedScopes ?? [],
+      requested_scopes: [],
       redirect_after_connect: redirectAfterConnect,
     },
     throwOnError: false,
@@ -209,7 +207,6 @@ export async function connectManagedOAuthProvider({
   assistantId,
   providerKey,
   providerLabel,
-  requestedScopes,
 }: ManagedOAuthConnectOptions): Promise<ManagedOAuthConnectResult> {
   const requestId = crypto.randomUUID();
   const native = isNativePlatform();
@@ -367,7 +364,6 @@ export async function connectManagedOAuthProvider({
         const connectUrl = await startManagedOAuth(
           assistantId,
           providerKey,
-          requestedScopes,
           requestId,
           native,
         );

@@ -195,7 +195,7 @@ describe("OAuthConnectSurface", () => {
       })),
     };
 
-    const { getByRole } = render(
+    const { getByRole, queryByText } = render(
       <OAuthConnectSurface
         surface={makeSurface({
           surfaceType: "oauth_connect",
@@ -213,6 +213,8 @@ describe("OAuthConnectSurface", () => {
       />,
     );
 
+    expect(queryByText("gmail.readonly")).toBeNull();
+
     fireEvent.click(getByRole("button", { name: /connect google/i }));
 
     await waitFor(() => {
@@ -220,7 +222,6 @@ describe("OAuthConnectSurface", () => {
         assistantId: "assistant-1",
         providerKey: "google",
         providerLabel: "Google",
-        requestedScopes: ["gmail.readonly"],
       });
       expect(onAction).toHaveBeenCalledWith("surface-1", "connect", {
         status: "connected",
