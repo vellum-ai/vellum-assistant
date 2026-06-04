@@ -22,14 +22,53 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+const checkpointStore = new Map<string, string>();
+
+mock.module("../memory/checkpoints.js", () => ({
+  getMemoryCheckpoint: (key: string) => checkpointStore.get(key) ?? null,
+  setMemoryCheckpoint: (key: string, value: string) => {
+    checkpointStore.set(key, value);
+  },
+}));
+
+const getConfiguredProviderCalls: string[] = [];
+const mockProvider = { name: "mock-provider" };
+
+mock.module("../providers/provider-send-message.js", () => ({
+  getConfiguredProvider: mock(async (callSite: string) => {
+    getConfiguredProviderCalls.push(callSite);
+    return mockProvider;
+  }),
+}));
+
+type SidechainCall = {
+  callSite?: string;
+  content: string;
+  maxTokens?: number;
+  systemPrompt?: string;
+  tools: unknown[];
+};
+
+const sidechainCalls: SidechainCall[] = [];
+let sidechainText = "";
+
+mock.module("../runtime/btw-sidechain.js", () => ({
+  runBtwSidechain: mock(async (params: SidechainCall) => {
+    sidechainCalls.push(params);
+    return {
+      text: sidechainText,
+      hadTextDeltas: false,
+      response: { content: [] },
+    };
+  }),
+}));
+
 import {
   handleDetailedHealth,
   handleReadyz,
   ROUTES,
 } from "../runtime/routes/identity-routes.js";
-import {
-  setCesClient,
-} from "../security/secure-keys.js";
+import { setCesClient } from "../security/secure-keys.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import {
   getHatchedSidecarPath,
@@ -133,6 +172,11 @@ beforeEach(() => {
 
   rmSync(getHatchedSidecarPath(), { force: true });
   rmSync(join(getWorkspaceDir(), "IDENTITY.md"), { force: true });
+  rmSync(join(getWorkspaceDir(), "SOUL.md"), { force: true });
+  checkpointStore.clear();
+  getConfiguredProviderCalls.length = 0;
+  sidechainCalls.length = 0;
+  sidechainText = "";
 });
 
 afterEach(() => {
@@ -202,21 +246,30 @@ describe("identity routes — health endpoint", () => {
     });
 
     test("readyz returns 200 when CES is connected and ready", () => {
-      const mockClient = { isReady: () => true, close: () => {} } as unknown as import("../credential-execution/client.js").CesClient;
+      const mockClient = {
+        isReady: () => true,
+        close: () => {},
+      } as unknown as import("../credential-execution/client.js").CesClient;
       setCesClient(mockClient);
       const res = handleReadyz();
       expect(res.status).toBe(200);
     });
 
     test("readyz returns 200 when CES client exists but is not ready", () => {
-      const mockClient = { isReady: () => false, close: () => {} } as unknown as import("../credential-execution/client.js").CesClient;
+      const mockClient = {
+        isReady: () => false,
+        close: () => {},
+      } as unknown as import("../credential-execution/client.js").CesClient;
       setCesClient(mockClient);
       const res = handleReadyz();
       expect(res.status).toBe(200);
     });
 
     test("/v1/health reports ces.connected=true when CES is ready", async () => {
-      const mockClient = { isReady: () => true, close: () => {} } as unknown as import("../credential-execution/client.js").CesClient;
+      const mockClient = {
+        isReady: () => true,
+        close: () => {},
+      } as unknown as import("../credential-execution/client.js").CesClient;
       setCesClient(mockClient);
       const res = handleDetailedHealth();
       const body = (await res.json()) as Record<string, unknown>;
@@ -226,7 +279,10 @@ describe("identity routes — health endpoint", () => {
     });
 
     test("/v1/health reports ces.connected=false when CES is not ready", async () => {
-      const mockClient = { isReady: () => false, close: () => {} } as unknown as import("../credential-execution/client.js").CesClient;
+      const mockClient = {
+        isReady: () => false,
+        close: () => {},
+      } as unknown as import("../credential-execution/client.js").CesClient;
       setCesClient(mockClient);
       const res = handleDetailedHealth();
       const body = (await res.json()) as Record<string, unknown>;
@@ -483,5 +539,81 @@ describe("identity routes — createdAt selection", () => {
     const body = route!.handler({}) as { createdAt?: string };
     expect(Date.parse(body.createdAt ?? "")).toBeGreaterThan(0);
     expect(existsSync(getHatchedSidecarPath())).toBe(false);
+  });
+});
+
+describe("identity routes — intro greetings", () => {
+  test("generates personalized empty-state greetings with the callsite, then reuses the cache", async () => {
+    const workspaceDir = getWorkspaceDir();
+    writeFileSync(
+      join(workspaceDir, "IDENTITY.md"),
+      [
+        "# Identity",
+        "",
+        "- **Name:** Example Assistant",
+        "- **Personality:** enjoys crisp, useful hellos",
+        "",
+        "Identity sentinel: chartreuse compass.",
+      ].join("\n"),
+      "utf-8",
+    );
+    writeFileSync(
+      join(workspaceDir, "SOUL.md"),
+      [
+        "# Soul",
+        "",
+        "Soul sentinel: copper lighthouse.",
+        "",
+        "Keep greetings warm and specific.",
+      ].join("\n"),
+      "utf-8",
+    );
+    sidechainText = JSON.stringify([
+      "Charting the next useful thing?",
+      "I brought the compass. Where to?",
+      "Ready to make this lighter.",
+    ]);
+
+    const route = ROUTES.find(
+      (candidate) => candidate.operationId === "identity_intro",
+    );
+    expect(route).toBeDefined();
+
+    const body = (await route!.handler({})) as {
+      greetings: string[];
+      text: string;
+    };
+
+    expect(getConfiguredProviderCalls).toEqual(["emptyStateGreeting"]);
+    expect(sidechainCalls).toHaveLength(1);
+    expect(sidechainCalls[0]?.callSite).toBe("emptyStateGreeting");
+    expect(sidechainCalls[0]?.tools).toEqual([]);
+    expect(sidechainCalls[0]?.content).toContain("JSON array");
+    expect(sidechainCalls[0]?.systemPrompt).toContain(
+      "Identity sentinel: chartreuse compass.",
+    );
+    expect(sidechainCalls[0]?.systemPrompt).toContain(
+      "Soul sentinel: copper lighthouse.",
+    );
+    expect(body).toEqual({
+      greetings: [
+        "Charting the next useful thing?",
+        "I brought the compass. Where to?",
+        "Ready to make this lighter.",
+      ],
+      text: "Charting the next useful thing?",
+    });
+
+    sidechainCalls.length = 0;
+    getConfiguredProviderCalls.length = 0;
+
+    const cachedBody = (await route!.handler({})) as {
+      greetings: string[];
+      text: string;
+    };
+
+    expect(cachedBody).toEqual(body);
+    expect(getConfiguredProviderCalls).toEqual([]);
+    expect(sidechainCalls).toEqual([]);
   });
 });

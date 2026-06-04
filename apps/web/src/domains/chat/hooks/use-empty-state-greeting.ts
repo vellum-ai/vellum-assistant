@@ -2,8 +2,8 @@
  * React hook that fetches a personalized empty-state greeting from the daemon.
  *
  * Calls `GET /v1/assistants/{assistant_id}/identity/intro` which returns a
- * list of greetings derived from SOUL.md, cached model output, or the
- * assistant's IDENTITY.md name. Falls back to
+ * list of greetings derived from SOUL.md, cached model output, fresh
+ * generation, or generic fallback options. Falls back to
  * {@link DEFAULT_EMPTY_STATE_GREETING} when the assistant ID is missing, the
  * daemon is unreachable, or the response is empty.
  *

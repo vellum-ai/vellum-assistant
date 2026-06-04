@@ -3,8 +3,8 @@
  *
  * Greetings are sourced from (in priority order):
  * 1. A `## Greetings` section in SOUL.md (user-defined bullet list)
- * 2. A cached greetings array (populated by the BTW side-chain LLM call)
- * 3. Fallback: the assistant name from IDENTITY.md
+ * 2. A cached greetings array (populated by the empty-state greeting callsite)
+ * 3. A generic fallback when generation is unavailable
  *
  * Cache uses TTL + content-hash invalidation: when IDENTITY.md, SOUL.md, or
  * the guardian persona change, the cache is busted.

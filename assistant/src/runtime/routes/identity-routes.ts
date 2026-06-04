@@ -8,9 +8,13 @@ import { availableParallelism, cpus, totalmem } from "node:os";
 import { z } from "zod";
 
 import { getCpuLimit, getIsPlatform } from "../../config/env-registry.js";
+import { resolveCallSiteConfig } from "../../config/llm-resolver.js";
+import { getConfig } from "../../config/loader.js";
 import { parseIdentityFields } from "../../daemon/handlers/identity.js";
 import { getProfilerRuntimeStatus } from "../../daemon/profiler-run-store.js";
 import { getMaxMigrationVersion } from "../../memory/migrations/registry.js";
+import { buildSystemPrompt } from "../../prompts/system-prompt.js";
+import { getConfiguredProvider } from "../../providers/provider-send-message.js";
 import { getCesClient } from "../../security/secure-keys.js";
 import {
   getDiskUsageInfo,
@@ -23,10 +27,12 @@ import { resolveHatchedAtReadOnly } from "../../workspace/hatched-date.js";
 import { WORKSPACE_MIGRATIONS } from "../../workspace/migrations/registry.js";
 import { getLastWorkspaceMigrationId } from "../../workspace/migrations/runner.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import { runBtwSidechain } from "../btw-sidechain.js";
 import { NotFoundError } from "./errors.js";
 import {
   getCachedIntro,
   readWorkspaceGreetings,
+  setCachedIntro,
 } from "./identity-intro-cache.js";
 import type { RouteDefinition } from "./types.js";
 
@@ -402,7 +408,11 @@ const FALLBACK_GREETINGS = [
   "Ready when you are.",
 ];
 
-function getIdentityIntro() {
+const GENERATED_GREETING_LIMIT = 4;
+const GREETING_GENERATION_TIMEOUT_MS = 10_000;
+const EMPTY_STATE_GREETING_CALLSITE = "emptyStateGreeting" as const;
+
+async function getIdentityIntro() {
   // 1. User-defined greetings from SOUL.md `## Greetings`
   const workspaceGreetings = readWorkspaceGreetings();
   if (workspaceGreetings) {
@@ -415,18 +425,112 @@ function getIdentityIntro() {
     return { greetings: cached.greetings, text: cached.greetings[0] };
   }
 
-  // 3. Fallback: name-based greeting + static defaults
-  const identityPath = getWorkspacePromptPath("IDENTITY.md");
-  if (existsSync(identityPath)) {
-    const content = readFileSync(identityPath, "utf-8");
-    const fields = parseIdentityFields(content);
-    if (fields.name) {
-      const greetings = [`Hi, I'm ${fields.name}!`, ...FALLBACK_GREETINGS];
-      return { greetings, text: greetings[0] };
-    }
+  // 3. Fresh LLM-generated greetings, cached for subsequent empty states.
+  const generated = await generateEmptyStateGreetings();
+  if (generated) {
+    return { greetings: generated, text: generated[0] };
   }
 
+  // 4. Generic fallback only when generation is unavailable.
   return { greetings: FALLBACK_GREETINGS, text: FALLBACK_GREETINGS[0] };
+}
+
+async function generateEmptyStateGreetings(): Promise<string[] | null> {
+  try {
+    const provider = await getConfiguredProvider(EMPTY_STATE_GREETING_CALLSITE);
+    if (!provider) {
+      return null;
+    }
+
+    const resolved = resolveCallSiteConfig(
+      EMPTY_STATE_GREETING_CALLSITE,
+      getConfig().llm,
+    );
+    const systemPrompt = buildSystemPrompt({
+      excludeBootstrap: true,
+      excludeCustomPrefix: true,
+    });
+    const result = await runBtwSidechain({
+      content:
+        `Generate ${GENERATED_GREETING_LIMIT} short first-person greeting options for the empty new-chat screen. ` +
+        "Use the assistant identity, voice, and relationship guidance from IDENTITY.md and SOUL.md. " +
+        "Each greeting should feel personal and inviting, not like a generic assistant introduction. " +
+        "Return only a JSON array of strings. No markdown, keys, or explanation.",
+      provider,
+      systemPrompt,
+      messages: [],
+      tools: [],
+      callSite: EMPTY_STATE_GREETING_CALLSITE,
+      maxTokens: resolved.maxTokens,
+      timeoutMs: GREETING_GENERATION_TIMEOUT_MS,
+    });
+
+    const greetings = parseGeneratedGreetings(result.text);
+    if (greetings.length === 0) {
+      return null;
+    }
+
+    setCachedIntro(greetings);
+    return greetings;
+  } catch (err) {
+    getLogger("identity").warn(
+      { err },
+      "Failed to generate empty-state greetings",
+    );
+    return null;
+  }
+}
+
+function parseGeneratedGreetings(text: string): string[] {
+  const cleaned = text
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+
+  try {
+    const parsed = JSON.parse(cleaned) as unknown;
+    if (Array.isArray(parsed)) {
+      return normalizeGeneratedGreetings(parsed);
+    }
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      Array.isArray((parsed as { greetings?: unknown }).greetings)
+    ) {
+      return normalizeGeneratedGreetings(
+        (parsed as { greetings: unknown[] }).greetings,
+      );
+    }
+  } catch {
+    // Fall through to line parsing for non-JSON model output.
+  }
+
+  return normalizeGeneratedGreetings(cleaned.split("\n"));
+}
+
+function normalizeGeneratedGreetings(values: unknown[]): string[] {
+  const greetings: string[] = [];
+  const seen = new Set<string>();
+
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const greeting = value
+      .trim()
+      .replace(/^(?:[-*+]\s+|\d+[.)]\s+)/, "")
+      .replace(/^["'`]+|["'`]+$/g, "")
+      .trim();
+    if (!greeting) continue;
+
+    const key = greeting.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    greetings.push(greeting);
+
+    if (greetings.length >= GENERATED_GREETING_LIMIT) break;
+  }
+
+  return greetings;
 }
 
 // ---------------------------------------------------------------------------
@@ -567,7 +671,7 @@ export const ROUTES: RouteDefinition[] = [
     handler: getIdentityIntro,
     summary: "Get identity greetings",
     description:
-      "Returns an array of greetings sourced from SOUL.md, LLM cache, or static fallbacks.",
+      "Returns greetings sourced from SOUL.md, the generated cache, fresh LLM generation, or generic fallbacks.",
     tags: ["identity"],
     responseBody: z.object({
       greetings: z.array(z.string()),

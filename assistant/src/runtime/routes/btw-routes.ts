@@ -12,18 +12,14 @@
  * No messages are persisted. The conversation's processing flag is never set or checked.
  */
 
-import { existsSync, readFileSync } from "node:fs";
-
 import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
 import { readNowScratchpad } from "../../daemon/conversation-runtime-assembly.js";
 import { getOrCreateConversation } from "../../daemon/conversation-store.js";
-import { parseIdentityFields } from "../../daemon/handlers/identity.js";
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
 import { getAllToolDefinitions } from "../../tools/registry.js";
 import { getLogger } from "../../util/logger.js";
-import { getWorkspacePromptPath } from "../../util/platform.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { runBtwSidechain } from "../btw-sidechain.js";
 import { BadRequestError, ServiceUnavailableError } from "./errors.js";
@@ -68,17 +64,9 @@ async function handleBtw({
 
   const trimmedContent = content.trim();
 
-  // ----- Identity intro fast-path -----
+  // ----- Cached identity intro fast-path -----
   if (conversationKey === IDENTITY_INTRO_KEY) {
-    let fastText: string | undefined;
-    const identityPath = getWorkspacePromptPath("IDENTITY.md");
-    if (existsSync(identityPath)) {
-      const fields = parseIdentityFields(readFileSync(identityPath, "utf-8"));
-      if (fields.name) {
-        fastText = `Hi, I'm ${fields.name}!`;
-      }
-    }
-    fastText ??= getCachedIntro()?.greetings[0];
+    const fastText = getCachedIntro()?.greetings[0];
     if (fastText) {
       log.debug("Returning identity intro fast-path");
       return new ReadableStream({
