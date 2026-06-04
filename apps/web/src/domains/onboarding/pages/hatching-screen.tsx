@@ -270,8 +270,8 @@ export function HatchingScreen() {
         }
         try {
           const result = await hatchPromise;
-          clearLocalHatch();
           if (cancelled) return;
+          clearLocalHatch();
           if (!result.ok) {
             setError(result.error ?? "Failed to hatch local assistant.");
             return;
@@ -326,8 +326,8 @@ export function HatchingScreen() {
 
           handleHatchReady();
         } catch {
-          clearLocalHatch();
           if (cancelled) return;
+          clearLocalHatch();
           setError("Failed to hatch local assistant. Check CLI logs for details.");
         }
         return;
@@ -340,8 +340,8 @@ export function HatchingScreen() {
       }
       try {
         const result = await platformPromise;
-        clearPlatformHatch();
         if (cancelled) return;
+        clearPlatformHatch();
         if (!result.ok) {
           Sentry.captureMessage("Onboarding hatch request failed", {
             level: "warning",
@@ -366,9 +366,9 @@ export function HatchingScreen() {
           }
         }
       } catch (err) {
-        clearPlatformHatch();
         captureError(err, { context: "onboarding_hatch_assistant" });
         if (cancelled) return;
+        clearPlatformHatch();
       }
 
       scheduleNextPoll(0);

@@ -18,7 +18,7 @@ import { useAuthStore, type AuthUser } from "@/stores/auth-store";
 import { isAuthenticated, isSessionSettled } from "@/stores/session-status";
 import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
 import { isLocalMode, hasAssistants } from "@/lib/local-mode";
-import { readOnboardingCompleted } from "@/domains/onboarding/prefs";
+import { clearOnboardingCompleted, readOnboardingCompleted } from "@/domains/onboarding/prefs";
 import { resolveLocalOnboardingRoute } from "@/utils/local-onboarding-route";
 import { whenStoreState } from "@/utils/when-store-state";
 import { routes } from "@/utils/routes";
@@ -56,6 +56,12 @@ export const authMiddleware: MiddlewareFunction = async ({ request, context }, n
   }
 
   if (isLocalMode() && !hasAssistants()) {
+    // The lockfile was emptied (assistants retired / disk reset) but
+    // localStorage still has the completion flag from a prior onboarding.
+    // Clear it so onboardingCompletedMiddleware doesn't bounce back here.
+    if (readOnboardingCompleted()) {
+      clearOnboardingCompleted();
+    }
     const url = new URL(request.url);
     if (!url.pathname.startsWith("/assistant/onboarding/") && !url.pathname.includes("/account")) {
       throw redirect(await resolveLocalOnboardingRoute());
