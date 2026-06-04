@@ -20,7 +20,7 @@ import {
   LS_IMAGE_GEN_MODE,
   LS_IMAGE_GEN_MODEL,
 } from "@/domains/settings/ai/ai-types";
-import { reconcileFromDaemonConfig } from "@/domains/settings/ai/ai-utils";
+
 import { ServiceCard, SaveButton, ResetButton } from "@/domains/settings/ai/ai-shared-ui";
 import { useAssistantId, useDaemonConfigQuery, useDaemonConfigMutation, useProvisionProviderKey } from "@/domains/settings/ai/use-daemon-config";
 import { useDraftOverride } from "@/domains/settings/ai/use-draft-override";
@@ -36,8 +36,8 @@ export function ImageGenerationCard() {
   // Updates automatically when the cache refreshes.
   const serverImageGenMode = useMemo<ServiceMode>(() => {
     if (!daemonConfig) return getLocalSetting(LS_IMAGE_GEN_MODE, "your-own") as ServiceMode;
-    const reconciled = reconcileFromDaemonConfig(daemonConfig);
-    return reconciled.imageGenMode ?? (getLocalSetting(LS_IMAGE_GEN_MODE, "your-own") as ServiceMode);
+    const mode = daemonConfig.services?.["image-generation"]?.mode;
+    return (mode === "managed" || mode === "your-own" ? mode : getLocalSetting(LS_IMAGE_GEN_MODE, "your-own")) as ServiceMode;
   }, [daemonConfig]);
 
   const [imageGenMode, setDraftImageGenMode] = useDraftOverride(serverImageGenMode);

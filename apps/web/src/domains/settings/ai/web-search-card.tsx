@@ -21,7 +21,7 @@ import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
 
 import type { ServiceMode } from "@/domains/settings/ai/ai-types";
 import { LS_WEB_SEARCH_MODE, LS_WEB_SEARCH_PROVIDER } from "@/domains/settings/ai/ai-types";
-import { getWebSearchProviderKeyStorage, reconcileFromDaemonConfig } from "@/domains/settings/ai/ai-utils";
+import { getWebSearchProviderKeyStorage } from "@/domains/settings/ai/ai-utils";
 import { ServiceCard, SaveButton, ResetButton } from "@/domains/settings/ai/ai-shared-ui";
 import { useDaemonConfigQuery, useDaemonConfigMutation, useProvisionProviderKey } from "@/domains/settings/ai/use-daemon-config";
 import { useDraftOverride } from "@/domains/settings/ai/use-draft-override";
@@ -46,10 +46,11 @@ export function WebSearchCard() {
         serverWebSearchProvider: getLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native"),
       };
     }
-    const reconciled = reconcileFromDaemonConfig(daemonConfig);
+    const wsService = daemonConfig.services?.["web-search"];
+    const mode = wsService?.mode;
     return {
-      serverWebSearchMode: (reconciled.webSearchMode ?? getLocalSetting(LS_WEB_SEARCH_MODE, "your-own")) as ServiceMode,
-      serverWebSearchProvider: reconciled.webSearchProvider ?? getLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native"),
+      serverWebSearchMode: (mode === "managed" || mode === "your-own" ? mode : getLocalSetting(LS_WEB_SEARCH_MODE, "your-own")) as ServiceMode,
+      serverWebSearchProvider: wsService?.provider || getLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native"),
     };
   }, [daemonConfig]);
 
