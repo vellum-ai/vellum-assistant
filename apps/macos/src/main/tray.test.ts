@@ -82,6 +82,10 @@ mock.module("./settings", () => ({
   readSetting: () => null,
 }));
 
+mock.module("./window-state", () => ({
+  readOnboardingActive: () => false,
+}));
+
 const dispatchToMainMock = mock((_command: unknown) => undefined);
 mock.module("./main-window", () => ({
   dispatchToMain: dispatchToMainMock,
