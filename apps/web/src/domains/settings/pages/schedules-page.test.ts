@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { createElement } from "react";
+import type { ReactElement } from "react";
 
 import * as schedulesApi from "@/domains/settings/api/schedules";
 import { routes } from "@/utils/routes";
@@ -28,10 +36,30 @@ const fetchScheduleUsageSummaryMock = mock(
     _range: ScheduleUsageSummaryRange,
   ): Promise<ScheduleUsageSummary[]> => [],
 );
+const fetchConsolidationRunsMock = mock(
+  async (_assistantId: string): Promise<ScheduleRun[]> => [
+    {
+      id: "consolidation-run-1",
+      jobId: "consolidation",
+      status: "ok",
+      startedAt: 1_761_792_000_000,
+      finishedAt: 1_761_792_003_000,
+      durationMs: 3000,
+      output: null,
+      error: null,
+      conversationId: "conv-consolidation-1",
+      conversationExists: true,
+      conversationArchivedAt: null,
+      estimatedCostUsd: 0.1234,
+      createdAt: 1_761_792_000_000,
+    },
+  ],
+);
 let nowSpy: ReturnType<typeof spyOn> | null = null;
 
 mock.module("@/domains/settings/api/schedules", () => ({
   ...schedulesApi,
+  fetchConsolidationRuns: fetchConsolidationRunsMock,
   fetchScheduleUsageSummary: fetchScheduleUsageSummaryMock,
 }));
 
@@ -42,15 +70,29 @@ const {
   formatScheduleCost,
   RecentRunsCard,
   ScheduleRow,
+  SystemTaskDetailView,
 } = await import("./schedules-page");
 
 afterEach(() => {
   cleanup();
   navigateCalls.length = 0;
+  fetchConsolidationRunsMock.mockClear();
   fetchScheduleUsageSummaryMock.mockClear();
   nowSpy?.mockRestore();
   nowSpy = null;
 });
+
+function renderWithQueryClient(element: ReactElement) {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+    },
+  });
+
+  return render(
+    createElement(QueryClientProvider, { client: queryClient }, element),
+  );
+}
 
 function schedule(
   overrides: Partial<Schedule> = {},
@@ -155,6 +197,42 @@ describe("scheduleUsageSummaryQueryOptions", () => {
           to: secondNow,
         },
       ],
+    ]);
+  });
+});
+
+describe("SystemTaskDetailView", () => {
+  test("loads consolidation runs and renders conversation-backed cost rows", async () => {
+    renderWithQueryClient(
+      createElement(SystemTaskDetailView, {
+        kind: "consolidation",
+        assistantId: "assistant-1",
+        name: "Memory consolidation",
+        subtitle: "Summarizes old context",
+        enabled: true,
+        nextRunAt: null,
+        lastRunAt: null,
+        isRunning: false,
+        onBack: () => {},
+        onRunNow: () => {},
+      }),
+    );
+
+    await waitFor(() =>
+      expect(fetchConsolidationRunsMock.mock.calls).toEqual([["assistant-1"]]),
+    );
+
+    await waitFor(() =>
+      expect(document.body.textContent).toContain("$0.1234"),
+    );
+    expect(document.body.textContent).not.toContain(
+      "Run history is not available",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Run at/i }));
+
+    expect(navigateCalls).toEqual([
+      routes.conversation("conv-consolidation-1"),
     ]);
   });
 });

@@ -24,6 +24,7 @@ import { DetailCard } from "@/components/detail-card";
 import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
 import {
   deleteSchedule,
+  fetchConsolidationRuns,
   fetchConsolidationConfig,
   fetchHeartbeatConfig,
   fetchHeartbeatRuns,
@@ -891,7 +892,7 @@ interface SystemTaskDetailViewProps {
   onRunNow: () => void;
 }
 
-function SystemTaskDetailView({
+export function SystemTaskDetailView({
   kind,
   assistantId,
   name,
@@ -906,8 +907,9 @@ function SystemTaskDetailView({
   const { data: runs, isLoading } = useQuery({
     queryKey: ["system-task-runs", assistantId, kind],
     queryFn: () =>
-      kind === "heartbeat" ? fetchHeartbeatRuns(assistantId) : [],
-    enabled: kind === "heartbeat",
+      kind === "heartbeat"
+        ? fetchHeartbeatRuns(assistantId)
+        : fetchConsolidationRuns(assistantId),
     staleTime: 10_000,
   });
 
@@ -962,15 +964,7 @@ function SystemTaskDetailView({
         </div>
       </DetailCard>
 
-      <RecentRunsCard
-        runs={kind === "heartbeat" ? runs : []}
-        isLoading={kind === "heartbeat" ? isLoading : false}
-        emptyMessage={
-          kind === "heartbeat"
-            ? "No runs yet."
-            : "Run history is not available for this system job yet."
-        }
-      />
+      <RecentRunsCard runs={runs} isLoading={isLoading} />
     </div>
   );
 }
