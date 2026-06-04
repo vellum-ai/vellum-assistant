@@ -34,14 +34,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "experiment-activation-flow-2026-06-03",
-      "scope": "assistant",
-      "key": "experiment-activation-flow-2026-06-03",
-      "label": "Activation Flow Experiment 2026-06-03",
-      "description": "String-variation experiment (control / treatment) that routes users into the model-driven activation rail. The daemon treats variation='treatment' as on; anything else (including default 'control') is off. Assignment is vid-keyed by the web app and flows to the daemon via the onboarding cohort channel — do not evaluate this flag independently in the daemon.",
-      "defaultEnabled": false
-    },
-    {
       "id": "local-docker-enabled",
       "scope": "client",
       "key": "local-docker-enabled",
