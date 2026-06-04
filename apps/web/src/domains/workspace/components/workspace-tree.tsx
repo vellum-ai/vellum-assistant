@@ -5,54 +5,54 @@
  */
 
 import {
-  queryOptions,
-  useMutation,
-  useQuery,
-  useQueryClient,
+    queryOptions,
+    useMutation,
+    useQuery,
+    useQueryClient,
 } from "@tanstack/react-query";
 import {
-  ArrowDownAZ,
-  ArrowDownWideNarrow,
-  ChevronDown,
-  ChevronRight,
-  Eye,
-  EyeOff,
-  FilePlus,
-  FileText,
-  Folder,
-  FolderPlus,
-  Image as ImageIcon,
-  Plus,
-  Search,
-  Video,
-  X,
+    ArrowDownAZ,
+    ArrowDownWideNarrow,
+    ChevronDown,
+    ChevronRight,
+    Eye,
+    EyeOff,
+    FilePlus,
+    FileText,
+    Folder,
+    FolderPlus,
+    Image as ImageIcon,
+    Plus,
+    Search,
+    Video,
+    X,
 } from "lucide-react";
 import {
-  type FormEvent,
-  type KeyboardEvent,
-  useCallback,
-  useMemo,
-  useState,
+    type FormEvent,
+    type KeyboardEvent,
+    useCallback,
+    useMemo,
+    useState,
 } from "react";
 import { createPortal } from "react-dom";
 
-import { BottomSheet } from "@vellum/design-library/components/bottom-sheet";
-import { Button } from "@vellum/design-library/components/button";
-import { Input } from "@vellum/design-library/components/input";
-import { PanelItem } from "@vellum/design-library/components/panel-item";
-import { Popover } from "@vellum/design-library/components/popover";
+import { formatFileSize } from "@/domains/workspace/utils/format-file-size";
 import {
-  workspaceMkdirPost,
-  workspaceTreeGet,
-  workspaceWritePost,
+    sortEntries,
+    type WorkspaceSortMode,
+} from "@/domains/workspace/utils/sort-entries";
+import {
+    workspaceMkdirPost,
+    workspaceTreeGet,
+    workspaceWritePost,
 } from "@/generated/daemon/sdk.gen";
 import type { WorkspaceTreeGetResponse } from "@/generated/daemon/types.gen";
 import { useIsMobile } from "@/hooks/use-is-mobile";
-import { formatFileSize } from "@/domains/workspace/utils/format-file-size";
-import {
-  sortEntries,
-  type WorkspaceSortMode,
-} from "@/domains/workspace/utils/sort-entries";
+import { BottomSheet } from "@vellumai/design-library/components/bottom-sheet";
+import { Button } from "@vellumai/design-library/components/button";
+import { Input } from "@vellumai/design-library/components/input";
+import { PanelItem } from "@vellumai/design-library/components/panel-item";
+import { Popover } from "@vellumai/design-library/components/popover";
 
 export type { WorkspaceSortMode };
 

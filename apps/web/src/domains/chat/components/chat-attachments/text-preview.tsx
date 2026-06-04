@@ -5,7 +5,7 @@ import { Download, Loader2 } from "lucide-react";
 import type { FC, ReactNode } from "react";
 import { useEffect, useState } from "react";
 
-import { Button } from "@vellum/design-library";
+import { Button } from "@vellumai/design-library";
 
 /**
  * Hard cap on the number of text bytes we render inline. Anything beyond this

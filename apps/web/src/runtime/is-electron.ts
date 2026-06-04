@@ -114,6 +114,7 @@ declare global {
       };
       mainWindow: {
         ensureVisible(): Promise<void>;
+        setOnboarding(active: boolean): Promise<void>;
       };
       power: {
         onEvent(

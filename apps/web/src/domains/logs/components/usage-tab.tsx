@@ -1,61 +1,61 @@
-import { AlertTriangle, Sparkles, Wand2, X } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
+import { AlertTriangle, Sparkles, Wand2, X } from "lucide-react";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
-import { Dropdown } from "@vellum/design-library";
+import { Dropdown } from "@vellumai/design-library";
 
-import { storePendingInitialMessage } from "@/utils/initial-message-launch";
-import { routes } from "@/utils/routes";
-import { formatCost, formatTokens } from "@/domains/logs/format";
-import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 import {
-  buildCallSiteMetadataMap,
-  fetchUsageCallSiteCatalog,
+    buildCallSiteMetadataMap,
+    fetchUsageCallSiteCatalog,
 } from "@/domains/logs/call-site-metadata";
+import {
+    UsageTrendChart,
+    UsageTrendSkeleton,
+} from "@/domains/logs/components/usage-trend-chart";
+import { formatCost, formatTokens } from "@/domains/logs/format";
 import { decorateUsageBreakdownGroups } from "@/domains/logs/group-labels";
 import { fetchUsageProfileMetadata } from "@/domains/logs/profile-metadata";
-import { assistantSchedulesQueryKey } from "@/lib/sync/query-tags";
-import { fetchSchedules, type AssistantSchedule } from "@/utils/schedules";
-import type {
-  UsageBreakdownResponse,
-  UsageGroupBreakdown,
-  UsageGroupBy,
-  UsageTimeRange,
-  UsageTotals,
-} from "@/domains/logs/usage-types";
 import {
-  fetchUsageBreakdown,
-  fetchUsageDaily,
-  fetchUsageSeries,
-  fetchUsageTotals,
+    fetchUsageBreakdown,
+    fetchUsageDaily,
+    fetchUsageSeries,
+    fetchUsageTotals,
 } from "@/domains/logs/usage-api";
 import {
-  formatBreakdownTokens,
-  formatBreakdownTokensShort,
+    formatBreakdownTokens,
+    formatBreakdownTokensShort,
 } from "@/domains/logs/usage-breakdown-format";
 import {
-  decorateUsageSeriesGroups,
-  seriesFromDailyBuckets,
+    decorateUsageSeriesGroups,
+    seriesFromDailyBuckets,
 } from "@/domains/logs/usage-series";
 import {
-  buildUsageSearchParams,
-  FALLBACK_USAGE_GROUP_BY,
-  readUsageUrlState,
-  resolveEffectiveUsageGranularity,
-  resolveRangeWindow,
-  resolveUsageGranularity,
-  shouldFallbackUsageGroupBy,
-  shouldFetchUsageSeries,
-  shouldRetryUsageGroupQuery,
-  trendTitle,
-  type UsageSearchParamsUpdate,
-  USAGE_GROUP_BY_OPTIONS,
+    buildUsageSearchParams,
+    FALLBACK_USAGE_GROUP_BY,
+    readUsageUrlState,
+    resolveEffectiveUsageGranularity,
+    resolveRangeWindow,
+    resolveUsageGranularity,
+    shouldFallbackUsageGroupBy,
+    shouldFetchUsageSeries,
+    shouldRetryUsageGroupQuery,
+    trendTitle,
+    USAGE_GROUP_BY_OPTIONS,
+    type UsageSearchParamsUpdate,
 } from "@/domains/logs/usage-tab-state";
-import {
-  UsageTrendChart,
-  UsageTrendSkeleton,
-} from "@/domains/logs/components/usage-trend-chart";
+import type {
+    UsageBreakdownResponse,
+    UsageGroupBreakdown,
+    UsageGroupBy,
+    UsageTimeRange,
+    UsageTotals,
+} from "@/domains/logs/usage-types";
+import { assistantSchedulesQueryKey } from "@/lib/sync/query-tags";
+import { storePendingInitialMessage } from "@/utils/initial-message-launch";
+import { routes } from "@/utils/routes";
+import { fetchSchedules, type AssistantSchedule } from "@/utils/schedules";
+import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 
 interface UsageTabProps {
   assistantId: string;

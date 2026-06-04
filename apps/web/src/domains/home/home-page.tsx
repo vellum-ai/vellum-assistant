@@ -1,19 +1,19 @@
 import { useCallback, useState } from "react";
 
-import { ResizablePanel } from "@vellum/design-library";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import type {
+    FeedItem,
+    FeedItemStatus,
+    SuggestedPrompt,
+} from "@vellumai/assistant-api";
+import { ResizablePanel } from "@vellumai/design-library";
 import { HomeDetailPanel } from "./detail-panel/home-detail-panel";
 import { HomeFeedList } from "./home-feed-list";
 import { HomeGreetingHeader } from "./home-greeting-header";
 import { HomeSuggestionPillBar } from "./home-suggestion-pill-bar";
 import { useHomeFeedQuery } from "./hooks/use-home-feed-query";
 import { useHomeStateQuery } from "./hooks/use-home-state-query";
-import type {
-  FeedItem,
-  FeedItemStatus,
-  SuggestedPrompt,
-} from "@vellumai/assistant-api";
 
 function HomePageSkeleton() {
   return (

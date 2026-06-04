@@ -1,22 +1,22 @@
 import {
-  Bot,
-  CheckCircle,
-  Hash,
-  HelpCircle,
-  Mail,
-  MessageSquare,
-  Phone,
-  Send,
+    Bot,
+    CheckCircle,
+    Hash,
+    HelpCircle,
+    Mail,
+    MessageSquare,
+    Phone,
+    Send,
 } from "lucide-react";
 import type { CSSProperties } from "react";
 import { useState } from "react";
 
-import { Button } from "@vellum/design-library/components/button";
-import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
+import { Button } from "@vellumai/design-library/components/button";
+import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 
 import type {
-  ChannelInfo,
-  ContactChannelPayload,
+    ChannelInfo,
+    ContactChannelPayload,
 } from "@/domains/contacts/types";
 
 const KNOWN_CHANNEL_IDS: ReadonlySet<string> = new Set<ChannelInfo["id"]>([

@@ -122,7 +122,10 @@ describe("/v1/pair device-bound minting", () => {
     );
     const body = (await res.json()) as { token: string; refreshToken: string };
 
-    const rotated = rotateCredentials({ refreshToken: body.refreshToken });
+    const rotated = rotateCredentials({
+      refreshToken: body.refreshToken,
+      hashedDeviceId: hashToken("device-A"),
+    });
     expect(rotated.ok).toBe(true);
     if (rotated.ok) {
       // A new access token (and rotated refresh token) is minted.

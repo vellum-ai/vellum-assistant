@@ -10,11 +10,11 @@
  * Mounted with `@testing-library/react` (happy-dom — see `apps/web/test-setup.ts`).
  */
 
-import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
-import { createElement, useEffect } from "react";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { createElement, useEffect } from "react";
 
 const NEW_PROFILE_NAME = "fast-cheap";
 
@@ -37,7 +37,7 @@ mock.module("@/stores/assistant-feature-flag-store", () => {
 
 // --- toast -------------------------------------------------------------------
 const toastSuccess = mock((_msg: string) => {});
-mock.module("@vellum/design-library/components/toast", () => ({
+mock.module("@vellumai/design-library/components/toast", () => ({
   toast: { success: toastSuccess, error: () => {} },
 }));
 
@@ -88,8 +88,8 @@ mock.module("@/generated/api/client.gen", () => ({
 }));
 
 import {
-  ProfileQuickAddProvider,
-  useProfileQuickAdd,
+    ProfileQuickAddProvider,
+    useProfileQuickAdd,
 } from "@/components/profile-quick-add-provider";
 
 // Test consumer: opens the quick-add on mount and records the onCreated name.

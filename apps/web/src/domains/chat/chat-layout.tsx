@@ -1,69 +1,69 @@
 import { captureError } from "@/lib/sentry/capture-error";
+import { useQueryClient } from "@tanstack/react-query";
 import {
-  lazy,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
+    lazy,
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+    type ReactNode,
 } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router";
-import { useQueryClient } from "@tanstack/react-query";
 
+import { Button } from "@vellumai/design-library";
 import { ChevronDown } from "lucide-react";
-import { Button } from "@vellum/design-library";
 
-import { haptic } from "@/utils/haptics";
-import { getLocalBool, setLocalBool, getLocalNumber, setLocalNumber } from "@/utils/local-settings";
-import { routes } from "@/utils/routes";
-import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import { useAssistantIdentityInit } from "@/hooks/use-assistant-identity-init";
+import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile";
+import { haptic } from "@/utils/haptics";
+import { getLocalBool, getLocalNumber, setLocalBool, setLocalNumber } from "@/utils/local-settings";
+import { routes } from "@/utils/routes";
 
-import { useHomeUnreadBadge } from "@/hooks/use-home-unread-badge";
+import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
 import { useElectronDockSync } from "@/domains/chat/hooks/use-electron-dock-sync";
 import {
-  chooseSidebarOpenAppDestination,
-  useOpenAppFromChat,
+    chooseSidebarOpenAppDestination,
+    useOpenAppFromChat,
 } from "@/domains/chat/hooks/use-open-app-from-chat";
-import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
+import { useHomeUnreadBadge } from "@/hooks/use-home-unread-badge";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 
-import { useVellumCommands } from "@/runtime/vellum-commands";
-import { useConversationStore } from "@/stores/conversation-store";
-import { requestComposerFocus } from "./composer-focus";
-import {
-  useConversationGroupsQuery,
-  useConversationListQuery,
-} from "@/hooks/conversation-queries";
-import { patchConversation } from "@/utils/conversation-cache";
+import { RenameConversationDialog } from "@/domains/chat/components/rename-conversation-dialog";
 import { useAttentionTracking } from "@/domains/chat/hooks/use-attention-tracking";
 import { useConversationActions } from "@/domains/chat/hooks/use-conversation-actions";
 import { useConversationGroupActions } from "@/domains/chat/hooks/use-conversation-group-actions";
-import { RenameConversationDialog } from "@/domains/chat/components/rename-conversation-dialog";
-import { useRenameRequestStore } from "@/domains/chat/rename-request-store";
-import { conversationsByIdNamePatch } from "@/generated/daemon/sdk.gen";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
-import { useViewerStore } from "@/stores/viewer-store";
-import { useSubagentStore } from "@/domains/chat/subagent-store";
-import { useAuthStore } from "@/stores/auth-store";
 import { canUseLlmInspector } from "@/domains/chat/inspector/access";
+import { useRenameRequestStore } from "@/domains/chat/rename-request-store";
+import { useSubagentStore } from "@/domains/chat/subagent-store";
+import { conversationsByIdNamePatch } from "@/generated/daemon/sdk.gen";
+import {
+    useConversationGroupsQuery,
+    useConversationListQuery,
+} from "@/hooks/conversation-queries";
+import { useVellumCommands } from "@/runtime/vellum-commands";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { useAuthStore } from "@/stores/auth-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { useConversationStore } from "@/stores/conversation-store";
+import { useViewerStore } from "@/stores/viewer-store";
 import type { Conversation } from "@/types/conversation-types";
+import { patchConversation } from "@/utils/conversation-cache";
+import { requestComposerFocus } from "./composer-focus";
 
+import { LazyBoundary } from "@/components/lazy-boundary";
 import { OfflineBanner } from "@/components/offline-banner";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
-import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
-import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
-import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { ConversationActionsMenu } from "@/domains/chat/components/conversation-actions-menu";
-import { buildMoveToGroupTargets } from "@/domains/chat/utils/group-conversations";
-import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
-import { ChatLayoutHeader } from "./chat-layout-header";
-import { LazyBoundary } from "@/components/lazy-boundary";
+import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
 import { useCommandPaletteOrchestrator } from "@/domains/chat/hooks/use-command-palette-orchestrator";
+import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
+import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
+import { buildMoveToGroupTargets } from "@/domains/chat/utils/group-conversations";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { ChatLayoutHeader } from "./chat-layout-header";
 
 const CommandPalette = lazy(() =>
   import("@/components/command-palette/command-palette").then((m) => ({

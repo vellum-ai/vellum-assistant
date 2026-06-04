@@ -1,20 +1,20 @@
 import { type ReactNode } from "react";
 
-import { Card } from "@vellum/design-library";
 import {
-  displayProvider,
-  displayText,
-  formatCacheTokens,
-  formatCost,
-  formatCount,
-  formattedCreatedAt,
-  isProviderOnlySummary,
-  summaryFallbackMessage,
+    displayProvider,
+    displayText,
+    formatCacheTokens,
+    formatCost,
+    formatCount,
+    formattedCreatedAt,
+    isProviderOnlySummary,
+    summaryFallbackMessage,
 } from "@/domains/chat/inspector/inspector-formatters";
 import type {
-  LLMCallSummary,
-  LLMRequestLogEntry,
+    LLMCallSummary,
+    LLMRequestLogEntry,
 } from "@vellumai/assistant-api";
+import { Card } from "@vellumai/design-library";
 
 interface OverviewTabProps {
   entry: LLMRequestLogEntry;

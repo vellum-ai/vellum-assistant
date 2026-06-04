@@ -3,10 +3,10 @@
  * Provides entry points to start a conversation or import a .vellum bundle.
  */
 
-import { type ChangeEvent, type RefObject } from "react";
 import { LayoutGrid, Upload } from "lucide-react";
+import { type ChangeEvent, type RefObject } from "react";
 
-import { Button } from "@vellum/design-library";
+import { Button } from "@vellumai/design-library";
 
 interface LibraryEmptyStateProps {
   fileInputRef: RefObject<HTMLInputElement | null>;

@@ -12,11 +12,9 @@
  * ```
  */
 
-import {
-  resolveAssistant,
-} from "./assistant-config.js";
+import { resolveAssistant } from "./assistant-config.js";
 import { GATEWAY_PORT } from "./constants.js";
-import { loadGuardianToken } from "./guardian-token.js";
+import { loadGuardianToken, refreshGuardianToken } from "./guardian-token.js";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const FALLBACK_RUNTIME_URL = `http://127.0.0.1:${GATEWAY_PORT}`;
@@ -45,7 +43,8 @@ export class AssistantClient {
   readonly runtimeUrl: string;
 
   private readonly _assistantId: string;
-  private readonly token: string | undefined;
+  /** Mutable: a 401 on the guardian path refreshes this in place (see request). */
+  private token: string | undefined;
   /** True when token is a platform session token (X-Session-Token), false for guardian JWT (Authorization: Bearer). */
   private readonly isSessionAuth: boolean;
   private readonly orgId: string | undefined;
@@ -176,45 +175,67 @@ export class AssistantClient {
       ? `?${new URLSearchParams(opts.query).toString()}`
       : "";
     const url = `${this.runtimeUrl}/v1/assistants/${this._assistantId}${urlPath}${qs}`;
-
-    const headers: Record<string, string> = { ...opts?.headers };
-    if (this.token) {
-      if (this.isSessionAuth) {
-        headers["X-Session-Token"] ??= this.token;
-      } else {
-        headers["Authorization"] ??= `Bearer ${this.token}`;
-      }
-    }
-    if (this.orgId) {
-      headers["Vellum-Organization-Id"] ??= this.orgId;
-    }
-    if (body !== undefined) {
-      headers["Content-Type"] = "application/json";
-    }
-
     const jsonBody = body !== undefined ? JSON.stringify(body) : undefined;
 
-    if (opts?.signal) {
+    // Headers are built per-attempt so a refreshed token is picked up on retry.
+    const buildHeaders = (): Record<string, string> => {
+      const headers: Record<string, string> = { ...opts?.headers };
+      if (this.token) {
+        if (this.isSessionAuth) {
+          headers["X-Session-Token"] ??= this.token;
+        } else {
+          headers["Authorization"] ??= `Bearer ${this.token}`;
+        }
+      }
+      if (this.orgId) {
+        headers["Vellum-Organization-Id"] ??= this.orgId;
+      }
+      if (body !== undefined) {
+        headers["Content-Type"] = "application/json";
+      }
+      return headers;
+    };
+
+    const doFetch = (): Promise<Response> => {
+      const headers = buildHeaders();
+      if (opts?.signal) {
+        return fetch(url, {
+          method,
+          headers,
+          body: jsonBody,
+          signal: opts.signal,
+        });
+      }
+      const timeout = opts?.timeout ?? DEFAULT_TIMEOUT_MS;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
       return fetch(url, {
         method,
         headers,
         body: jsonBody,
-        signal: opts.signal,
-      });
+        signal: controller.signal,
+      }).finally(() => clearTimeout(timeoutId));
+    };
+
+    const response = await doFetch();
+
+    // Reactive auto-refresh: a paired/local guardian access token that has
+    // expired comes back 401. Refresh it once via the stored refresh credential
+    // and retry. Self-gating — refreshGuardianToken returns null unless a usable
+    // refresh token is stored, so ephemeral (`--token`) and access-only sessions
+    // just see the original 401. The platform session-auth path is never
+    // refreshed here (its token is managed by the Vellum platform).
+    if (response.status === 401 && !this.isSessionAuth) {
+      const refreshed = await refreshGuardianToken(
+        this.runtimeUrl,
+        this._assistantId,
+      );
+      if (refreshed?.accessToken) {
+        this.token = refreshed.accessToken;
+        return doFetch();
+      }
     }
 
-    const timeout = opts?.timeout ?? DEFAULT_TIMEOUT_MS;
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeout);
-    try {
-      return await fetch(url, {
-        method,
-        headers,
-        body: jsonBody,
-        signal: controller.signal,
-      });
-    } finally {
-      clearTimeout(timeoutId);
-    }
+    return response;
   }
 }

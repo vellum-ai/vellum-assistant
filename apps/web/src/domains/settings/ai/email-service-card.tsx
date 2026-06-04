@@ -1,33 +1,33 @@
 import {
-  CircleCheck,
-  ExternalLink,
-  Info,
+    CircleCheck,
+    ExternalLink,
+    Info,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 
-import { Dropdown } from "@vellum/design-library/components/dropdown";
-import { Notice } from "@vellum/design-library/components/notice";
-import { toast } from "@vellum/design-library/components/toast";
+import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import {
-  assistantsListOptions,
+    assistantsListOptions,
 } from "@/generated/api/@tanstack/react-query.gen";
 import { credentialsInspectPost } from "@/generated/daemon/sdk.gen";
+import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useEnvironmentStore } from "@/stores/environment-store";
-import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
 import { shouldRetryDaemonError } from "@/utils/daemon-errors";
-import { useAssistantSelectionStore } from "@/assistant/selection-store";
-import { usePlatformGate } from "@/hooks/use-platform-gate";
+import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
+import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Notice } from "@vellumai/design-library/components/notice";
+import { toast } from "@vellumai/design-library/components/toast";
 
-import type { ServiceMode, EmailByoProvider } from "@/domains/settings/ai/ai-types";
+import { ByoServiceCard, SaveButton, ServiceCard } from "@/domains/settings/ai/ai-shared-ui";
+import type { EmailByoProvider, ServiceMode } from "@/domains/settings/ai/ai-types";
 import {
-  EMAIL_BYO_PROVIDERS,
-  LS_EMAIL_MODE,
-  LS_EMAIL_BYO_PROVIDER,
+    EMAIL_BYO_PROVIDERS,
+    LS_EMAIL_BYO_PROVIDER,
+    LS_EMAIL_MODE,
 } from "@/domains/settings/ai/ai-types";
-import { ByoServiceCard, ServiceCard, SaveButton } from "@/domains/settings/ai/ai-shared-ui";
 import { EmailManagedContent } from "@/domains/settings/ai/email-managed-content";
 
 export function EmailServiceCard() {

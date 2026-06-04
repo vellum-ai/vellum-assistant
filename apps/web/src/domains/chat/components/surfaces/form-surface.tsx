@@ -1,8 +1,8 @@
 import { ChevronLeft, ChevronRight, Loader2, Lock, Send, Shield } from "lucide-react";
 import { type FormEvent, useCallback, useMemo, useState } from "react";
 
-import { Toggle } from "@vellum/design-library";
 import type { Surface } from "@/domains/chat/types/types";
+import { Toggle } from "@vellumai/design-library";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 

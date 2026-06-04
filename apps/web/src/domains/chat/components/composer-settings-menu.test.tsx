@@ -3,7 +3,7 @@
  *
  * Mounted with `@testing-library/react` (happy-dom — see
  * `apps/web/test-setup.ts`). The real Radix `Menu`/`BottomSheet` only mount
- * their content when open, so we mock `@vellum/design-library` surfaces to
+ * their content when open, so we mock `@vellumai/design-library` surfaces to
  * render inline (popover/sheet content is always in the DOM and clickable).
  *
  * The quick-add modal now lives in the top-level `ProfileQuickAddProvider`
@@ -16,10 +16,10 @@
  * and the autoselect per-thread profile PUT are observable.
  */
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { createElement, type ReactNode } from "react";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 // --- use-is-mobile -----------------------------------------------------------
 const isMobileRef = { value: false };
@@ -31,7 +31,7 @@ mock.module("@/hooks/use-is-mobile", () => ({
 // --- toast -------------------------------------------------------------------
 const toastSuccess = mock((_msg: string) => {});
 const toastError = mock((_msg: string) => {});
-mock.module("@vellum/design-library/components/toast", () => ({
+mock.module("@vellumai/design-library/components/toast", () => ({
   toast: { success: toastSuccess, error: toastError },
 }));
 
@@ -83,7 +83,7 @@ mock.module("@/components/profile-quick-add-provider", () => ({
 // --- design-library surfaces (render content inline) -------------------------
 const passthrough = ({ children, ...props }: Record<string, unknown>) =>
   createElement("div", props, children as ReactNode);
-mock.module("@vellum/design-library", () => {
+mock.module("@vellumai/design-library", () => {
   const MenuMock = {
     Root: passthrough,
     Trigger: passthrough,

@@ -1,9 +1,9 @@
 import type { MouseEvent } from "react";
 
-import { Typography } from "@vellum/design-library";
+import { Typography } from "@vellumai/design-library";
 
-import { cn } from "@/utils/misc";
 import { getRiskBadgeWeakStyle } from "@/domains/chat/utils/risk";
+import { cn } from "@/utils/misc";
 
 export interface RiskBadgeProps {
   level?: string;

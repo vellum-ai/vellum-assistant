@@ -8,10 +8,7 @@ import { randomBytes } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 
 import { getGatewayDb } from "../db/connection.js";
-import {
-  actorRefreshTokenRecords,
-  actorTokenRecords,
-} from "../db/schema.js";
+import { actorRefreshTokenRecords, actorTokenRecords } from "../db/schema.js";
 import { getLogger } from "../logger.js";
 
 import {
@@ -35,6 +32,7 @@ export type RefreshErrorCode =
   | "refresh_invalid"
   | "refresh_expired"
   | "refresh_reuse_detected"
+  | "device_binding_mismatch"
   | "revoked";
 
 export interface RotateResult {
@@ -198,9 +196,17 @@ function mintRefreshTokenInFamily(params: {
  * Rotate credentials: validate refresh token, revoke old, mint new pair.
  *
  * All token operations run against the gateway's SQLite database.
+ *
+ * The refresh token is bound to the device it was issued to: the caller must
+ * supply the hashed device id, and it must match the record's stored binding.
+ * This ensures a leaked refresh token cannot be redeemed from a different
+ * device. The binding is checked before any side effects (rotation, family
+ * revocation) so a request from a non-matching device cannot disturb the
+ * legitimate token family.
  */
 export function rotateCredentials(params: {
   refreshToken: string;
+  hashedDeviceId: string;
 }):
   | { ok: true; result: RotateResult }
   | { ok: false; error: RefreshErrorCode } {
@@ -210,6 +216,14 @@ export function rotateCredentials(params: {
 
   if (!record) {
     return { ok: false, error: "refresh_invalid" };
+  }
+
+  if (record.hashedDeviceId !== params.hashedDeviceId) {
+    log.warn(
+      { familyId: record.familyId },
+      "Refresh rejected — device binding mismatch",
+    );
+    return { ok: false, error: "device_binding_mismatch" };
   }
 
   if (record.status === "rotated") {

@@ -8,26 +8,25 @@
  * and don't involve data-fetching composition).
  */
 
-import { type ChangeEvent, useCallback, useRef, useState } from "react";
-import { Search, Upload } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { Search, Upload } from "lucide-react";
+import { type ChangeEvent, useCallback, useRef, useState } from "react";
 
-import type { AppSummary } from "@/types/app-types";
-import { getCachedAppHtml } from "@/utils/app-html-cache";
-import { clearAppHtmlCache } from "@/utils/app-html-cache";
-import { importBundle } from "@/utils/import-bundle";
-import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
-import { useDeployStore } from "@/stores/deploy-store";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
-import { appsByIdDeletePost } from "@/generated/daemon/sdk.gen";
-import { appsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
-import { Button, Input, toast } from "@vellum/design-library";
 import { DeployDialogs } from "@/components/deploy-dialogs";
+import { DeleteAppDialog } from "@/domains/library/components/delete-app-dialog";
 import { LibraryDocumentCard } from "@/domains/library/components/library-document-card";
 import { LibraryEmptyState } from "@/domains/library/components/library-empty-state";
 import { LibraryGridSection } from "@/domains/library/components/library-grid-section";
-import { DeleteAppDialog } from "@/domains/library/components/delete-app-dialog";
 import { useLibraryData } from "@/domains/library/use-library-data";
+import { appsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
+import { appsByIdDeletePost } from "@/generated/daemon/sdk.gen";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { useDeployStore } from "@/stores/deploy-store";
+import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
+import type { AppSummary } from "@/types/app-types";
+import { clearAppHtmlCache, getCachedAppHtml } from "@/utils/app-html-cache";
+import { importBundle } from "@/utils/import-bundle";
+import { Button, Input, toast } from "@vellumai/design-library";
 
 export interface LibraryViewProps {
   assistantId: string;

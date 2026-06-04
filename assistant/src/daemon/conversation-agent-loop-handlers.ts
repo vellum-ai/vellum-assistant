@@ -251,16 +251,23 @@ export interface EventHandlerState {
   pendingPartialFlushTimer: ReturnType<typeof setTimeout> | undefined;
   /** In-flight partial flush write awaited at finalize to avoid overwrite races. */
   pendingPartialFlushPromise: Promise<void> | undefined;
-  /** Running mirror of the in-flight assistant message's content. */
+  /**
+   * Running mirror of the in-flight assistant message's streamed content
+   * (text and thinking), flushed to the assistant row on the partial-persist
+   * debounce so a mid-turn snapshot reflects what the user is watching live.
+   */
   currentMessageContent: ContentBlock[];
   /**
-   * `seq` of the most recent conversation-scoped event whose content has
-   * been mirrored into `currentMessageContent`. Snapshotted at each
-   * persistence flush so the daemon can record how far the durable rows
-   * reflect the live stream (see `recordPersistedSeq`). `undefined` until
-   * the first content delta of the in-flight message.
+   * `seq` of the most recent streamed content delta mirrored into
+   * `currentMessageContent`. Recorded as the conversation's persisted `seq`
+   * after each flush commits (the debounced partial flushes and the
+   * `message_complete` finalize), so the snapshot's advertised `seq` tracks
+   * exactly the streamed content the durable row holds. `undefined` until the
+   * first content delta of the in-flight message. Because every streamed
+   * content type rides the same mirror-and-flush path, this single field
+   * never claims content a flush has not yet written.
    */
-  lastStreamedContentSeq: number | undefined;
+  lastPersistedContentSeq: number | undefined;
   /**
    * Whether the workspace top-level block should be (re)injected on this
    * turn. Compaction's prepare phase strips the workspace / NOW.md / PKB
@@ -354,7 +361,7 @@ export function createEventHandlerState(): EventHandlerState {
     pendingPartialFlushTimer: undefined,
     pendingPartialFlushPromise: undefined,
     currentMessageContent: [],
-    lastStreamedContentSeq: undefined,
+    lastPersistedContentSeq: undefined,
     shouldInjectWorkspace: false,
     reducerCompacted: false,
   };
@@ -406,6 +413,30 @@ function appendTextToCurrentMessage(
   }
 }
 
+/**
+ * Append a streamed thinking chunk to `state.currentMessageContent`, fusing
+ * into the tail thinking block. The streamed delta carries no provider
+ * `signature` (that arrives only when the block closes), so the mirrored block
+ * holds an empty one; `message_complete` overwrites the row with the
+ * authoritative signed content before it is ever sent back to a provider.
+ */
+function appendThinkingToCurrentMessage(
+  state: EventHandlerState,
+  thinking: string,
+): void {
+  if (thinking.length === 0) return;
+  const tail = state.currentMessageContent.at(-1);
+  if (tail && tail.type === "thinking") {
+    tail.thinking = tail.thinking + thinking;
+  } else {
+    state.currentMessageContent.push({
+      type: "thinking",
+      thinking,
+      signature: "",
+    });
+  }
+}
+
 /** Reset partial-persist accumulator and any pending flush state. Idempotent. */
 function resetPartialPersistAccumulator(state: EventHandlerState): void {
   if (state.pendingPartialFlushTimer !== undefined) {
@@ -413,7 +444,7 @@ function resetPartialPersistAccumulator(state: EventHandlerState): void {
     state.pendingPartialFlushTimer = undefined;
   }
   state.currentMessageContent = [];
-  state.lastStreamedContentSeq = undefined;
+  state.lastPersistedContentSeq = undefined;
   state.pendingPartialFlushPromise = undefined;
 }
 
@@ -429,9 +460,9 @@ async function flushAccumulatedContent(
   const built = buildPersistedAssistantContent(state.currentMessageContent, []);
   const contentJson = JSON.stringify(built);
   // Pair the seq with the exact content snapshot taken above: deltas that
-  // arrive while the write is in flight bump `lastStreamedContentSeq`
+  // arrive while the write is in flight bump `lastPersistedContentSeq`
   // again, but they are not part of this write.
-  const flushedSeq = state.lastStreamedContentSeq;
+  const flushedSeq = state.lastPersistedContentSeq;
 
   try {
     updateMessageContent(messageId, contentJson);
@@ -743,7 +774,7 @@ function handleTextDelta(
     // `getCurrentSeq()` here is that delta's seq -- the position the
     // mirrored content now reflects. A partial flush snapshots this to
     // record how far the durable rows track the live stream.
-    state.lastStreamedContentSeq = getCurrentSeq();
+    state.lastPersistedContentSeq = getCurrentSeq();
     schedulePartialFlush(state, deps);
   }
 }
@@ -779,6 +810,14 @@ function handleThinkingDelta(
     conversationId: deps.ctx.conversationId,
     messageId: state.lastAssistantMessageId,
   });
+  // Mirror thinking into the same running view as text so the debounced
+  // partial flush persists it mid-turn -- long reasoning streams survive a
+  // refresh that outlives the SSE replay window, exactly as long answers do.
+  appendThinkingToCurrentMessage(state, event.thinking);
+  // The hub stamps `seq` synchronously on the delta emitted above, so
+  // `getCurrentSeq()` is that delta's position in the mirrored content.
+  state.lastPersistedContentSeq = getCurrentSeq();
+  schedulePartialFlush(state, deps);
 }
 
 export function handleToolUse(
@@ -1473,16 +1512,21 @@ export async function handleMessageComplete(
   const contentJson = JSON.stringify(contentForPersistence);
   updateMessageContent(assistantMessageId, contentJson);
   state.assistantRowAwaitingFinalization = false;
-  // The full message row (text + tool_use blocks from `event.message`) is
-  // now durable. `tool_use_start` SSE events fire after `message_complete`,
-  // so the last stamped event at this point is the final text delta;
-  // recording its seq is honest and never over-claims unpersisted state.
-  if (state.lastStreamedContentSeq != null) {
-    recordPersistedSeq(deps.ctx.conversationId, state.lastStreamedContentSeq);
+  // The assistant row now holds the authoritative content (text + thinking +
+  // tool_use blocks from `event.message`), and any drained tool-result rows
+  // are durable. `lastPersistedContentSeq` is the last streamed text/thinking
+  // delta's seq -- the highest stamped content event this row reflects -- so
+  // recording it is honest. A drained tool result was stamped earlier in the
+  // turn, so this seq already covers it; a call that streams no content (a
+  // pure tool call) advances instead via `tool_use_start`. `recordPersistedSeq`
+  // clamps monotonically, so a lower value here never regresses the seq.
+  if (state.lastPersistedContentSeq != null) {
+    recordPersistedSeq(deps.ctx.conversationId, state.lastPersistedContentSeq);
   }
   // Reset the partial-persist mirror so subsequent calls in this turn
   // start with an empty running view.
   state.currentMessageContent = [];
+  state.lastPersistedContentSeq = undefined;
 
   // ── Indexing + attention projection ──
   // `reserveMessage` + `updateMessageContent` are CRUD-only: they don't run

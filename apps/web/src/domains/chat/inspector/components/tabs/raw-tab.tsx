@@ -1,9 +1,9 @@
 import { AlertCircle, Copy, Download, RefreshCw } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
-import { Button, Card } from "@vellum/design-library";
 import { useLlmLogPayload } from "@/domains/chat/inspector/inspector-payload-api";
 import type { LLMRequestLogEntry } from "@vellumai/assistant-api";
+import { Button, Card } from "@vellumai/design-library";
 
 type RawPane = "request" | "response";
 

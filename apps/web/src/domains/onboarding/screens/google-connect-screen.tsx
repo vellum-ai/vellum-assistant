@@ -2,26 +2,26 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { Button } from "@vellum/design-library/components/button";
+import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import {
-  assistantsOauthConnectionsListOptions,
-  assistantsOauthStartCreateMutation,
+    assistantsOauthConnectionsListOptions,
+    assistantsOauthStartCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { OAuthConnection } from "@/generated/api/types.gen";
 import { useOAuthCompleteDeepLinkListener } from "@/hooks/use-oauth-complete-deep-link-listener";
 import {
-  getOAuthCompleteMessagePayload,
-  getOAuthCompleteStoragePayload,
-  isOAuthCompletePayloadForRequest,
-  oauthCompletionStorageKey,
-  type OAuthCompletePayload,
+    getOAuthCompleteMessagePayload,
+    getOAuthCompleteStoragePayload,
+    isOAuthCompletePayloadForRequest,
+    oauthCompletionStorageKey,
+    type OAuthCompletePayload,
 } from "@/lib/auth/oauth-popup";
-import { publicAsset } from "@/utils/public-asset";
-import type { OAuthCompleteDeepLinkPayload } from "@/runtime/native-deep-link";
-import { useIsNativePlatform } from "@/runtime/native-auth";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
+import { useIsNativePlatform } from "@/runtime/native-auth";
+import type { OAuthCompleteDeepLinkPayload } from "@/runtime/native-deep-link";
+import { publicAsset } from "@/utils/public-asset";
 import { routes } from "@/utils/routes";
-import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
+import { Button } from "@vellumai/design-library/components/button";
 
 const GOOGLE_PROVIDER_KEY = "google";
 const GOOGLE_CONNECT_ITEMS = [

@@ -2,15 +2,15 @@ import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 
-import { toast } from "@vellum/design-library";
+import { toast } from "@vellumai/design-library";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
-import { appsByIdOpenPost } from "@/generated/daemon/sdk.gen";
 import { AppViewerContainer } from "@/components/app-viewer-container";
+import { appsByIdOpenPost } from "@/generated/daemon/sdk.gen";
 import { useEditApp } from "@/hooks/use-edit-app";
 import { primeAppHtmlCache } from "@/utils/app-html-cache";
-import { shareApp } from "@/utils/share-app";
 import { routes } from "@/utils/routes";
+import { shareApp } from "@/utils/share-app";
 
 interface LoadedApp {
   appId: string;

@@ -21,11 +21,11 @@ import type { KeyboardEvent } from "react";
 
 import { Bolt } from "lucide-react";
 
-import { Typography } from "@vellum/design-library";
+import { Typography } from "@vellumai/design-library";
 
 import { RiskBadge } from "@/domains/chat/components/risk-badge";
-import { ICON_MAP } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
 import type { IconName } from "@/domains/chat/components/tool-progress-card/derive-step-label";
+import { ICON_MAP } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
 
 export interface ToolStepPillProps {
   iconName: IconName;

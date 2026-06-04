@@ -1,12 +1,12 @@
-import { Button } from "@vellum/design-library/components/button";
-import { SegmentControl } from "@vellum/design-library/components/segment-control";
-import { Slider } from "@vellum/design-library/components/slider";
-import { Toggle } from "@vellum/design-library/components/toggle";
+import { Button } from "@vellumai/design-library/components/button";
+import { SegmentControl } from "@vellumai/design-library/components/segment-control";
+import { Slider } from "@vellumai/design-library/components/slider";
+import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import { formatCompactTokens } from "@/domains/settings/ai/ai-utils";
 import {
-  geminiThinkingLevels,
-  type ProfileParamVisibility,
+    geminiThinkingLevels,
+    type ProfileParamVisibility,
 } from "@/domains/settings/ai/profile-param-visibility";
 
 // ---------------------------------------------------------------------------

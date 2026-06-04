@@ -1,20 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { Dropdown } from "@vellum/design-library/components/dropdown";
-import { Input } from "@vellum/design-library/components/input";
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
+import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Input } from "@vellumai/design-library/components/input";
 
 import {
-  STT_PROVIDERS,
-  LS_STT_PROVIDER,
-  LS_STT_API_KEY_PREFIX,
-} from "@/domains/settings/ai/ai-types";
-import {
-  ByoServiceCard,
-  CredentialsGuide,
-  SaveButton,
-  ResetButton,
+    ByoServiceCard,
+    CredentialsGuide,
+    ResetButton,
+    SaveButton,
 } from "@/domains/settings/ai/ai-shared-ui";
+import {
+    LS_STT_API_KEY_PREFIX,
+    LS_STT_PROVIDER,
+    STT_PROVIDERS,
+} from "@/domains/settings/ai/ai-types";
 
 export function SpeechToTextCard() {
   const defaultProviderId = STT_PROVIDERS[0]?.id ?? "deepgram";

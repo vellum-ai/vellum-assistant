@@ -1,8 +1,8 @@
 import { Loader2 } from "lucide-react";
 import { useCallback, useState } from "react";
 
-import { Button, Input, Modal, toast, Typography } from "@vellum/design-library";
 import { integrationsVercelConfigPost } from "@/generated/daemon/sdk.gen";
+import { Button, Input, Modal, toast, Typography } from "@vellumai/design-library";
 
 export interface VercelTokenDialogProps {
   open: boolean;

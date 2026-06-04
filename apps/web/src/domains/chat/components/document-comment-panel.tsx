@@ -1,23 +1,23 @@
-import {
-  useCallback,
-  useEffect,
-  useImperativeHandle,
-  useMemo,
-  useRef,
-  useState,
-  type Ref,
-} from "react";
+import { Button, Tag, Typography } from "@vellumai/design-library";
 import { MessageSquareText, Send, X } from "lucide-react";
-import { Button, Tag, Typography } from "@vellum/design-library";
-
-import type { DocumentsByIdCommentsPostResponse } from "@/generated/daemon/types.gen";
 import {
-  createComment,
-  deleteComment,
-  fetchComments,
-  reopenComment,
-  resolveComment,
+    useCallback,
+    useEffect,
+    useImperativeHandle,
+    useMemo,
+    useRef,
+    useState,
+    type Ref,
+} from "react";
+
+import {
+    createComment,
+    deleteComment,
+    fetchComments,
+    reopenComment,
+    resolveComment,
 } from "@/domains/chat/api/document-comments";
+import type { DocumentsByIdCommentsPostResponse } from "@/generated/daemon/types.gen";
 import { DocumentCommentForm } from "./document-comment-form";
 import { DocumentCommentThread } from "./document-comment-thread";
 

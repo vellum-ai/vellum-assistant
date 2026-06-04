@@ -2,13 +2,13 @@
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { useState } from "react";
 
-import { Button } from "@vellum/design-library";
-import { Notice } from "@vellum/design-library/components/notice";
 import { assistantsMaintenanceModeExitCreate } from "@/generated/api/sdk.gen";
 import {
-  useActiveAssistantLifecycleIsLoading,
-  usePlatformGate,
+    useActiveAssistantLifecycleIsLoading,
+    usePlatformGate,
 } from "@/hooks/use-platform-gate";
+import { Button } from "@vellumai/design-library";
+import { Notice } from "@vellumai/design-library/components/notice";
 
 interface MaintenanceModeBannerProps {
   assistantId: string;

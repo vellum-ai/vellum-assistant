@@ -2,9 +2,9 @@
 import { ExternalLink, Pin, PinOff, Puzzle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import { Button } from "@vellum/design-library";
 import { cn } from "@/utils/misc";
 import { preparePreviewHtml } from "@/utils/sandbox-bridge";
+import { Button } from "@vellumai/design-library";
 
 export interface AppCardProps {
   name: string;

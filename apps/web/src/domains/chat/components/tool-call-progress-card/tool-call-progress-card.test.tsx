@@ -22,6 +22,7 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import { toolCallStatusWireFields } from "@/domains/chat/utils/message-test-helpers";
 
 // The viewer store (pulled in transitively for `openToolDetail`) imports the
 // generated daemon SDK, which isn't built in CI/worktree checkouts. Stub the
@@ -50,12 +51,14 @@ function makeToolCall(
   overrides: Partial<ChatMessageToolCall> & {
     id: string;
     name: string;
+    status?: "running" | "completed" | "error";
   },
 ): ChatMessageToolCall {
+  const { status = "completed", ...rest } = overrides;
   return {
     input: {},
-    status: "completed",
-    ...overrides,
+    ...toolCallStatusWireFields(status),
+    ...rest,
   };
 }
 

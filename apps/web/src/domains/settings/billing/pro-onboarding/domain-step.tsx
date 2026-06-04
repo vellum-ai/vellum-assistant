@@ -3,17 +3,17 @@ import { useEffect, useState } from "react";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Modal } from "@vellum/design-library/components/modal";
-import { Notice } from "@vellum/design-library/components/notice";
-import { Typography } from "@vellum/design-library/components/typography";
 import {
-  assistantsActiveRetrieveOptions,
-  assistantsDomainsListOptions,
-  assistantsListQueryKey,
-  organizationsBillingSubscriptionOnboardingDomainCreateMutation,
+    assistantsActiveRetrieveOptions,
+    assistantsDomainsListOptions,
+    assistantsListQueryKey,
+    organizationsBillingSubscriptionOnboardingDomainCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import { useEnvironmentStore } from "@/stores/environment-store";
+import { Button } from "@vellumai/design-library/components/button";
+import { Modal } from "@vellumai/design-library/components/modal";
+import { Notice } from "@vellumai/design-library/components/notice";
+import { Typography } from "@vellumai/design-library/components/typography";
 
 import { DomainField } from "@/domains/settings/components/domain-field";
 import { IconBadge, StepDots } from "./primitives";

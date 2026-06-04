@@ -19,6 +19,7 @@ import { useEnvironmentStore } from "@/stores/environment-store";
 import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
 import { useDocumentEditorSync } from "@/hooks/use-document-editor-sync";
 import { useNotificationIntentSync } from "@/hooks/use-notification-intent-sync";
+import { useOnboardingWindowSize } from "@/hooks/use-onboarding-window-size";
 import { useConversationSync } from "@/hooks/use-conversation-sync";
 import { resolveOnboardingRedirect } from "@/domains/onboarding/gate";
 import { useFeatureFlagBusSync } from "@/hooks/use-feature-flag-bus-sync";
@@ -102,6 +103,12 @@ export function RootLayout() {
   // the live connection status to the menu-bar dot. Both no-op off Electron.
   useElectronIconSync(avatar.customImageUrl, avatar.components, avatar.traits);
   useElectronStatusSync();
+
+  // Size the Electron main window to the onboarding layout (440×630
+  // default) while on an onboarding step, and back to the main-app size
+  // elsewhere. No-op off Electron. Mounted at the app root so it tracks
+  // navigation across the whole onboarding flow.
+  useOnboardingWindowSize();
 
   useEventBusInit({ assistantId, isAssistantActive });
   // Inbound deep-link navigation + window activation. Mounted here

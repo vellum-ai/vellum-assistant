@@ -1,19 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 
-import { Notice } from "@vellum/design-library/components/notice";
-import { Toggle } from "@vellum/design-library/components/toggle";
-import { toast } from "@vellum/design-library/components/toast";
 import {
-  assistantsAccessConsentRetrieveOptions,
-  assistantsAccessConsentRetrieveQueryKey,
+    assistantsAccessConsentRetrieveOptions,
+    assistantsAccessConsentRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
 import { assistantsAccessConsentPartialUpdate } from "@/generated/api/sdk.gen";
 import {
-  useActiveAssistantIsPlatformHosted,
-  useActiveAssistantLifecycleIsLoading,
-  usePlatformGate,
+    useActiveAssistantIsPlatformHosted,
+    useActiveAssistantLifecycleIsLoading,
+    usePlatformGate,
 } from "@/hooks/use-platform-gate";
+import { Notice } from "@vellumai/design-library/components/notice";
+import { toast } from "@vellumai/design-library/components/toast";
+import { Toggle } from "@vellumai/design-library/components/toggle";
 
 export function AccessConsentSetting() {
   // platformHostedOnly: this consent toggle is per-assistant — Vellum

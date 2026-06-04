@@ -4,21 +4,23 @@ import { useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 
-import type { ButtonProps } from "@vellum/design-library/components/button";
-import { Button } from "@vellum/design-library/components/button";
-import { Card } from "@vellum/design-library/components/card";
-import { Notice } from "@vellum/design-library/components/notice";
-import { Typography } from "@vellum/design-library/components/typography";
+import {
+    formatGraceDate,
+    getEffectiveCancelDate,
+} from "@/domains/settings/hooks/use-billing-portal-session";
+import {
+    organizationsBillingPlansRetrieveOptions,
+    organizationsBillingSubscriptionRetrieveOptions,
+} from "@/generated/api/@tanstack/react-query.gen";
+import type { ProPlan } from "@/generated/api/types.gen";
+import type { ButtonProps } from "@vellumai/design-library/components/button";
+import { Button } from "@vellumai/design-library/components/button";
+import { Card } from "@vellumai/design-library/components/card";
+import { Notice } from "@vellumai/design-library/components/notice";
+import { Typography } from "@vellumai/design-library/components/typography";
 import { InvoicesModal } from "./invoices-modal";
 import { PlanFeatureList } from "./plan-feature-list";
-import {
-  organizationsBillingPlansRetrieveOptions,
-  organizationsBillingSubscriptionRetrieveOptions,
-} from "@/generated/api/@tanstack/react-query.gen";
-import {
-  formatGraceDate,
-  getEffectiveCancelDate,
-} from "@/domains/settings/hooks/use-billing-portal-session";
+import { formatMonthly } from "./tier-pricing";
 
 interface PlanDisplay {
   icon: LucideIcon;
@@ -120,6 +122,21 @@ export function PlanCard({ onManage }: PlanCardProps) {
   const showRenewal = display.showsRenewal && !isCancelling && !isCanceled && subscription.current_period_end;
   const showCancellation = display.showsRenewal && isCancelling && !isCanceled && cancelDate;
 
+  // Catalog-gated current credit bundle, shown only for a Pro org with a
+  // non-null selected tier when the catalog advertises `credit_tiers`. Resolve
+  // the label/price from the catalog, falling back to the raw tier key. A null
+  // selection (no bundle / $0) renders nothing.
+  const proPlan = currentPlan.id === "pro" ? (currentPlan as ProPlan) : undefined;
+  const selectedCreditTier = subscription.selected_credit_tier ?? null;
+  const creditTiers =
+    selectedCreditTier != null ? proPlan?.credit_tiers : undefined;
+  const creditTier = creditTiers?.find((t) => t.tier === selectedCreditTier);
+  const creditBundleLabel = creditTier
+    ? `${creditTier.label} (${formatMonthly(creditTier.price_cents)})`
+    : creditTiers?.length
+      ? selectedCreditTier
+      : null;
+
   return (
     <Card padding="lg">
       <div className="flex flex-col gap-4">
@@ -157,6 +174,16 @@ export function PlanCard({ onManage }: PlanCardProps) {
             {display.actionLabel}
           </Button>
         </div>
+        {creditBundleLabel && (
+          <Typography
+            as="p"
+            variant="body-small-default"
+            className="text-[var(--content-tertiary)]"
+            data-testid="plan-card-credit-bundle"
+          >
+            Monthly credits: {creditBundleLabel}
+          </Typography>
+        )}
         {showRenewal && (
           <Typography
             as="p"

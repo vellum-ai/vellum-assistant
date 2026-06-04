@@ -491,13 +491,10 @@ export interface ResolvedSystemPrompt {
  */
 export interface MidLoopCompaction {
   /**
-   * Re-apply runtime injections onto the post-compaction history the loop
-   * passes in and return the history to continue from. The loop supplies the
-   * committed base (the compacted messages when the pipeline compacted, the
-   * stripped pre-compaction history otherwise) via {@link PostCompactionHookInput}
-   * so the hook re-injects onto the loop's own working history rather than
-   * reading it back from orchestrator state. The input is an object so further
-   * re-injection inputs can migrate loop-ward by growing that type.
+   * Re-apply runtime injections onto the post-compaction history and return
+   * the history to continue from. The loop supplies its own working state via
+   * {@link PostCompactionHookInput} so the hook re-injects from that rather
+   * than reading it back from orchestrator state.
    */
   postCompactionHook: (input: PostCompactionHookInput) => Promise<Message[]>;
 }
@@ -731,6 +728,11 @@ export class AgentLoop {
    * Returns the history to continue from, or `null` when the compactor timed
    * out or exhausted its retry budget so the caller yields
    * `exitReason = "budget"` and the orchestrator escalates.
+   *
+   * `turnContext` is the per-turn conversation context: it drives the
+   * compaction pipeline call and circuit-breaker accounting, and is forwarded
+   * to the post-compaction hook so re-injection observes/logs against the
+   * conversation turn.
    */
   private async compact(
     history: Message[],
@@ -809,10 +811,10 @@ export class AgentLoop {
     // Re-inject onto the same base the `compaction_completed` dispatch commits:
     // the compacted messages when the pipeline compacted, the stripped
     // pre-compaction history otherwise.
-    const reinjectBase = compactResult.compacted
-      ? compactResult.messages
-      : rawHistory;
-    return compaction.postCompactionHook({ history: reinjectBase });
+    return compaction.postCompactionHook({
+      history: compactResult.compacted ? compactResult.messages : rawHistory,
+      turnContext,
+    });
   }
 
   async run(
@@ -1587,7 +1589,7 @@ export class AgentLoop {
               );
               const compacted = await this.compact(
                 history,
-                turnCtx,
+                turnContext ?? turnCtx,
                 compaction,
                 signal,
                 onEvent,

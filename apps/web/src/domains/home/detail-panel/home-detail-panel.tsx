@@ -1,24 +1,24 @@
 import {
-  ArrowLeft,
-  CircleX,
-  Mail,
-  MailOpen,
-  MoreVertical,
-  RotateCcw,
-  Trash2,
-  X,
+    ArrowLeft,
+    CircleX,
+    Mail,
+    MailOpen,
+    MoreVertical,
+    RotateCcw,
+    Trash2,
+    X,
 } from "lucide-react";
 
-import { Button, Menu, Tag, Typography } from "@vellum/design-library";
 import { formatFullLocalDate, formatRelativeDate } from "@/utils/format-date";
+import type {
+    FeedItem,
+    FeedItemCategory,
+    FeedItemStatus,
+} from "@vellumai/assistant-api";
+import { Button, Menu, Tag, Typography } from "@vellumai/design-library";
 import { CATEGORY_STYLES } from "../home-feed-filter-bar";
 import { HomeGenericDetail } from "./home-generic-detail";
 import { HomeToolPermissionCard } from "./home-tool-permission-card";
-import type {
-  FeedItem,
-  FeedItemCategory,
-  FeedItemStatus,
-} from "@vellumai/assistant-api";
 
 function resolveCategoryStyle(category?: FeedItemCategory) {
   if (category && CATEGORY_STYLES[category]) {

@@ -6,13 +6,13 @@
 import type { AnchorHTMLAttributes } from "react";
 
 import {
-  MarkdownMessage,
-  type MarkdownMessageProps,
-} from "@vellum/design-library";
-import {
-  openMarkdownOAuthLinkInPopup,
-  shouldOpenMarkdownLinkInOAuthPopup,
+    openMarkdownOAuthLinkInPopup,
+    shouldOpenMarkdownLinkInOAuthPopup,
 } from "@/domains/chat/utils/oauth-popup-links";
+import {
+    MarkdownMessage,
+    type MarkdownMessageProps,
+} from "@vellumai/design-library";
 
 function OAuthAwareLink({
   href,

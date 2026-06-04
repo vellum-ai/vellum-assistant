@@ -1,18 +1,18 @@
 import { Loader2, Wrench } from "lucide-react";
 import { useCallback, useState } from "react";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Notice } from "@vellum/design-library/components/notice";
 import {
-  assistantsMaintenanceModeEnterCreate,
-  assistantsMaintenanceModeExitCreate,
+    assistantsMaintenanceModeEnterCreate,
+    assistantsMaintenanceModeExitCreate,
 } from "@/generated/api/sdk.gen";
 import type { MaintenanceMode } from "@/generated/api/types.gen";
 import {
-  useActiveAssistantLifecycleIsLoading,
-  usePlatformGate,
+    useActiveAssistantLifecycleIsLoading,
+    usePlatformGate,
 } from "@/hooks/use-platform-gate";
 import { captureError } from "@/lib/sentry/capture-error";
+import { Button } from "@vellumai/design-library/components/button";
+import { Notice } from "@vellumai/design-library/components/notice";
 
 interface RecoveryModeControlsProps {
   assistantId: string;

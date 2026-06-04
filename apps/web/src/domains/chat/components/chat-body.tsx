@@ -2,14 +2,14 @@ import { type DragEventHandler, type ReactNode } from "react";
 
 import { Eye, Paperclip, Square } from "lucide-react";
 
-import { ChatScrollArea, type ChatScrollAreaProps } from "@/domains/chat/components/chat-scroll-area";
-import {
-  RefreshFeedbackPill,
-  type RefreshFeedback,
-} from "@/domains/chat/refresh-feedback-pill";
-import { ScrollToLatestButton } from "@/domains/chat/components/scroll-to-latest-button";
 import { ChatComposer, type ChatComposerProps } from "@/domains/chat/components/chat-composer/chat-composer";
-import { Button, Notice } from "@vellum/design-library";
+import { ChatScrollArea, type ChatScrollAreaProps } from "@/domains/chat/components/chat-scroll-area";
+import { ScrollToLatestButton } from "@/domains/chat/components/scroll-to-latest-button";
+import {
+    RefreshFeedbackPill,
+    type RefreshFeedback,
+} from "@/domains/chat/refresh-feedback-pill";
+import { Button, Notice } from "@vellumai/design-library";
 
 /**
  * Single composition of a chat panel: a scrollable messages/empty-state

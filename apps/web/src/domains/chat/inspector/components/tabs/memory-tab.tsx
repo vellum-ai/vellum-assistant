@@ -1,16 +1,16 @@
 import { ChevronDown, ChevronRight, Copy } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
-import { Card } from "@vellum/design-library";
 import type {
-  LlmContextResponse,
-  MemoryCandidate,
-  MemoryRecallLog,
-  MemoryV2ActivationLog,
-  MemoryV2ConceptRow,
-  MemoryV3SelectionLog,
-  MemoryV3SelectionRow,
+    LlmContextResponse,
+    MemoryCandidate,
+    MemoryRecallLog,
+    MemoryV2ActivationLog,
+    MemoryV2ConceptRow,
+    MemoryV3SelectionLog,
+    MemoryV3SelectionRow,
 } from "@vellumai/assistant-api";
+import { Card } from "@vellumai/design-library";
 
 /**
  * Memory tab rendering V1 recall, V2 activation, and/or the V3 selection.

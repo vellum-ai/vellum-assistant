@@ -13,6 +13,10 @@ import {
   type Surface,
 } from "@/domains/chat/types/types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import {
+  isToolCallCompleted,
+  isToolCallRunning,
+} from "@/domains/chat/utils/tool-call-status";
 import type { ConversationMessage } from "@vellumai/assistant-api";
 import {
   makeServerMessage,
@@ -77,7 +81,6 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
           id: "tool-1",
           name: "bash",
           input: {},
-          status: "running",
         },
       ],
     });
@@ -91,14 +94,14 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
           id: "tool-1",
           name: "bash",
           input: {},
-          status: "completed",
+          completedAt: 1,
           result: "ok",
         },
         {
           id: "tool-2",
           name: "slack",
           input: {},
-          status: "completed",
+          completedAt: 1,
           result: "posted",
         },
       ],
@@ -118,9 +121,9 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
     });
     expect(result[1]!.toolCalls).toHaveLength(2);
     expect(result[1]!.toolCalls?.[0]).toMatchObject({
-      status: "completed",
       result: "ok",
     });
+    expect(isToolCallCompleted(result[1]!.toolCalls![0]!)).toBe(true);
   });
 
   test("does not roll back longer live text when history fetch is stale", () => {
@@ -267,7 +270,7 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
         id: "toolu_load_skill",
         name: "bash",
         input: { command: "find geo-writing skill" },
-        status: "completed",
+        completedAt: 1,
         result: "ok",
       },
     ];
@@ -295,7 +298,7 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
           id: "tool-history-assistant-anchor-0",
           name: "bash",
           input: { command: "find geo-writing skill" },
-          status: "completed",
+          completedAt: 1,
           result: "ok",
         },
       ],
@@ -329,7 +332,6 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
           id: "toolu_load_skill",
           name: "bash",
           input: { command: "find geo-writing skill" },
-          status: "running",
         },
       ],
       contentOrder: [{ type: "toolCall", id: "toolu_load_skill" }],
@@ -345,7 +347,7 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
           id: "tool-history-assistant-anchor-0",
           name: "bash",
           input: { command: "find geo-writing skill" },
-          status: "completed",
+          completedAt: 1,
           result: "source copied",
         },
       ],
@@ -363,9 +365,9 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
       id: "toolu_load_skill",
       name: "bash",
       input: { command: "find geo-writing skill" },
-      status: "completed",
       result: "source copied",
     });
+    expect(isToolCallCompleted(result[0]!.toolCalls![0]!)).toBe(true);
     expect(result[0]!.contentOrder).toEqual([
       { type: "toolCall", id: "toolu_load_skill" },
     ]);
@@ -587,7 +589,7 @@ describe("reconcileMessages", () => {
   test("does not duplicate tool calls when unclaimed message is preserved", () => {
     // GIVEN a local assistant message with tool calls whose id differs from server
     const toolCalls: ChatMessageToolCall[] = [
-      { id: "tc1", name: "search", status: "completed", input: {} },
+      { id: "tc1", name: "search", completedAt: 1, input: {} },
     ];
     const local: DisplayMessage[] = [
       makeLocal({ id: "m1", role: "user", ...textBody("Hello") }),
@@ -615,7 +617,7 @@ describe("reconcileMessages", () => {
         id: "toolu_check_workspace",
         name: "bash",
         input: { command: "test -d geo-writing" },
-        status: "completed",
+        completedAt: 1,
         result: "exists",
       },
     ];
@@ -823,7 +825,7 @@ describe("reconcileMessages", () => {
         id: "tool-use-abc",
         name: "bash",
         input: { command: "ls" },
-        status: "completed",
+        completedAt: 1,
       },
     ];
     const local: DisplayMessage[] = [
@@ -904,7 +906,6 @@ describe("reconcileMessages — mid-stream sync-tag bubble-split regression", ()
       {
         id: "toolu_01ABC",
         name: "bash",
-        status: "running",
         input: { command: "echo streaming" },
       },
     ];
@@ -950,8 +951,8 @@ describe("reconcileMessages — mid-stream sync-tag bubble-split regression", ()
     expect(assistant.toolCalls).toHaveLength(1);
     expect(assistant.toolCalls?.[0]).toMatchObject({
       id: "toolu_01ABC",
-      status: "running",
     });
+    expect(isToolCallRunning(assistant.toolCalls![0]!)).toBe(true);
     // Id carries across so the React key doesn't churn.
     expect(assistant.id).toBe("msg_streaming");
   });

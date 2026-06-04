@@ -1,65 +1,65 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ArrowLeft,
-  BarChart3,
-  Calendar,
-  ChevronRight,
-  Loader2,
-  MessageSquare,
-  Play,
-  Plus,
-  Trash2,
+    ArrowLeft,
+    BarChart3,
+    Calendar,
+    ChevronRight,
+    Loader2,
+    MessageSquare,
+    Play,
+    Plus,
+    Trash2,
 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Input } from "@vellum/design-library/components/input";
-import { Notice } from "@vellum/design-library/components/notice";
-import { PanelItem } from "@vellum/design-library/components/panel-item";
-import { Tag } from "@vellum/design-library/components/tag";
-import { Toggle } from "@vellum/design-library/components/toggle";
-import { toast } from "@vellum/design-library/components/toast";
 import { DetailCard } from "@/components/detail-card";
-import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
 import {
-  deleteSchedule,
-  fetchConsolidationRuns,
-  fetchConsolidationConfig,
-  fetchHeartbeatConfig,
-  fetchHeartbeatRuns,
-  fetchScheduleUsageSummary,
-  fetchScheduleRuns,
-  fetchSchedules,
-  runConsolidationNow,
-  runHeartbeatNow,
-  runScheduleNow,
-  toggleSchedule,
-  updateSchedule,
+    deleteSchedule,
+    fetchConsolidationConfig,
+    fetchConsolidationRuns,
+    fetchHeartbeatConfig,
+    fetchHeartbeatRuns,
+    fetchScheduleRuns,
+    fetchScheduleUsageSummary,
+    fetchSchedules,
+    runConsolidationNow,
+    runHeartbeatNow,
+    runScheduleNow,
+    toggleSchedule,
+    updateSchedule,
 } from "@/domains/settings/api/schedules";
+import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
 import { captureError } from "@/lib/sentry/capture-error";
 import {
-  assistantScheduleRunsQueryKey,
-  assistantScheduleUsageSummaryQueryKey,
-  assistantSchedulesQueryKey,
+    assistantScheduleRunsQueryKey,
+    assistantScheduleUsageSummaryQueryKey,
+    assistantSchedulesQueryKey,
 } from "@/lib/sync/query-tags";
 import { routes } from "@/utils/routes";
 import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
+import { Button } from "@vellumai/design-library/components/button";
+import { Input } from "@vellumai/design-library/components/input";
+import { Notice } from "@vellumai/design-library/components/notice";
+import { PanelItem } from "@vellumai/design-library/components/panel-item";
+import { Tag } from "@vellumai/design-library/components/tag";
+import { toast } from "@vellumai/design-library/components/toast";
+import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import { CreateScheduleModal } from "@/domains/settings/components/create-schedule-modal";
 import { resolveScheduleUsageWindow } from "@/domains/settings/utils/schedule-usage-window";
 
 import type {
-  ConsolidationConfigGetResponse,
-  HeartbeatConfigGetResponse,
-} from "@/generated/daemon/types.gen";
-import type {
-  Schedule,
-  ScheduleRun,
-  ScheduleUsageSummary,
-  SystemTaskKind,
+    Schedule,
+    ScheduleRun,
+    ScheduleUsageSummary,
+    SystemTaskKind,
 } from "@/domains/settings/types/schedules";
-import type { TagTone } from "@vellum/design-library/components/tag";
+import type {
+    ConsolidationConfigGetResponse,
+    HeartbeatConfigGetResponse,
+} from "@/generated/daemon/types.gen";
+import type { TagTone } from "@vellumai/design-library/components/tag";
 
 // ---------------------------------------------------------------------------
 // Helpers

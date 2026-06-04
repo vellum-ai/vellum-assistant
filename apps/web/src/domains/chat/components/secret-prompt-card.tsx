@@ -2,7 +2,7 @@
 import { AlertTriangle, CheckCircle, EyeOff, Globe, Info, KeyRound, Loader2, Shield, Wrench } from "lucide-react";
 import { type FormEvent, useState } from "react";
 
-import { Card, Input } from "@vellum/design-library";
+import { Card, Input } from "@vellumai/design-library";
 
 export interface SecretPromptCardProps {
   secret: {

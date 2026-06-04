@@ -1,53 +1,53 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Check,
-  Copy,
-  ExternalLink,
-  Loader2,
-  Plus,
-  Trash2,
-  X,
+    Check,
+    Copy,
+    ExternalLink,
+    Loader2,
+    Plus,
+    Trash2,
+    X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
-import { Card } from "@vellum/design-library/components/card";
-import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
-import { Notice } from "@vellum/design-library/components/notice";
-import { toast } from "@vellum/design-library/components/toast";
-import { Button } from "@vellum/design-library/components/button";
-import { Input } from "@vellum/design-library/components/input";
+import {
+    createOAuthApp,
+    deleteOAuthApp,
+    deleteOAuthAppConnection,
+    formatOAuthTimestamp,
+    listOAuthAppConnections,
+    listOAuthApps,
+    maskClientId,
+    startOAuthAppConnect,
+    type OAuthApp,
+    type OAuthAppConnection,
+} from "@/domains/settings/api/oauth-apps";
+import {
+    assistantsOauthConnectionsListOptions,
+    assistantsOauthConnectionsListQueryKey,
+    assistantsOauthDisconnectByConnectionCreateMutation,
+    assistantsOauthStartCreateMutation,
+} from "@/generated/api/@tanstack/react-query.gen";
+import type { OAuthConnection } from "@/generated/api/types.gen";
+import { useOAuthCompleteDeepLinkListener } from "@/hooks/use-oauth-complete-deep-link-listener";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import type { OAuthCompleteDeepLinkPayload } from "@/runtime/native-deep-link";
-import { useOAuthCompleteDeepLinkListener } from "@/hooks/use-oauth-complete-deep-link-listener";
 import { routes } from "@/utils/routes";
-import {
-  assistantsOauthConnectionsListOptions,
-  assistantsOauthConnectionsListQueryKey,
-  assistantsOauthDisconnectByConnectionCreateMutation,
-  assistantsOauthStartCreateMutation,
-} from "@/generated/api/@tanstack/react-query.gen";
-import type { OAuthConnection } from "@/generated/api/types.gen";
-import {
-  createOAuthApp,
-  deleteOAuthApp,
-  deleteOAuthAppConnection,
-  formatOAuthTimestamp,
-  listOAuthApps,
-  listOAuthAppConnections,
-  maskClientId,
-  startOAuthAppConnect,
-  type OAuthApp,
-  type OAuthAppConnection,
-} from "@/domains/settings/api/oauth-apps";
+import { Button } from "@vellumai/design-library/components/button";
+import { Card } from "@vellumai/design-library/components/card";
+import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
+import { Input } from "@vellumai/design-library/components/input";
+import { Notice } from "@vellumai/design-library/components/notice";
+import { toast } from "@vellumai/design-library/components/toast";
 
-import { fetchOAuthProviderDetail } from "@/domains/settings/api/oauth-providers";
 import { IntegrationIcon } from "@/components/integrations/integration-icon";
+import { fetchOAuthProviderDetail } from "@/domains/settings/api/oauth-providers";
 import {
-  type OAuthCompletePayload,
-  oauthCompletionStorageKey,
-  getOAuthCompleteMessagePayload,
-  getOAuthCompleteStoragePayload,
+    getOAuthCompleteMessagePayload,
+    getOAuthCompleteStoragePayload,
+    oauthCompletionStorageKey,
+    type OAuthCompletePayload,
 } from "@/lib/auth/oauth-popup";
 
 import type { PlatformGateState } from "@/hooks/use-platform-gate";

@@ -3,11 +3,11 @@ import { type ReactNode } from "react";
 import { CompactionCircuitOpenBanner } from "@/domains/chat/components/compaction-circuit-open-banner";
 import { MaintenanceModeBanner } from "@/domains/chat/components/maintenance-mode-banner";
 import { MissingApiKeyBanner } from "@/domains/chat/components/missing-api-key-banner";
-import { Button, Notice } from "@vellum/design-library";
 import {
-  formatVoiceError,
-  isMicPermissionError,
+    formatVoiceError,
+    isMicPermissionError,
 } from "@/domains/chat/utils/chat";
+import { Button, Notice } from "@vellumai/design-library";
 
 /**
  * Banner/notice stack rendered immediately above the chat composer's form

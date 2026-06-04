@@ -1,29 +1,29 @@
 import {
-  ArrowDownToLine,
-  Box,
-  Check,
-  CheckCircle,
-  Filter,
-  Globe,
-  LayoutGrid,
-  Loader2,
-  Search,
-  Terminal,
-  User,
+    ArrowDownToLine,
+    Box,
+    Check,
+    CheckCircle,
+    Filter,
+    Globe,
+    LayoutGrid,
+    Loader2,
+    Search,
+    Terminal,
+    User,
 } from "lucide-react";
 import {
-  type ChangeEvent,
-  type Dispatch,
-  type ReactNode,
-  type SetStateAction,
-  useState,
+    type ChangeEvent,
+    type Dispatch,
+    type ReactNode,
+    type SetStateAction,
+    useState,
 } from "react";
 
-import { BottomSheet, Button, Input, PanelItem, Popover } from "@vellum/design-library";
 import { resolveCategoryIcon } from "@/domains/intelligence/skills/category-icon-map";
 import type { SkillFilter } from "@/domains/intelligence/skills/types";
 import type { CategoryInfo } from "@/domains/intelligence/skills/use-skill-categories";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { BottomSheet, Button, Input, PanelItem, Popover } from "@vellumai/design-library";
 
 interface FilterOption {
   value: SkillFilter;

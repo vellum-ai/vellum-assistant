@@ -3,29 +3,29 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { Card } from "@vellum/design-library/components/card";
-import { Toggle } from "@vellum/design-library/components/toggle";
+import {
+    fetchSoundsConfig,
+    listAvailableSounds,
+    saveSoundsConfig,
+    type AvailableSound,
+} from "@/domains/settings/api/sounds";
+import {
+    defaultSoundsConfig,
+    displayLabelForFilename,
+    SOUND_EVENT_DISPLAY_NAMES,
+    SOUND_EVENT_IDS,
+    type SoundEventConfig,
+    type SoundEventId,
+    type SoundsConfig,
+} from "@/domains/settings/types/sounds";
+import { getSoundManager } from "@/domains/settings/utils/sound-manager";
 import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
 import {
-  fetchSoundsConfig,
-  listAvailableSounds,
-  saveSoundsConfig,
-  type AvailableSound,
-} from "@/domains/settings/api/sounds";
-import { getSoundManager } from "@/domains/settings/utils/sound-manager";
-import {
-  defaultSoundsConfig,
-  displayLabelForFilename,
-  SOUND_EVENT_DISPLAY_NAMES,
-  SOUND_EVENT_IDS,
-  type SoundEventConfig,
-  type SoundEventId,
-  type SoundsConfig,
-} from "@/domains/settings/types/sounds";
-import {
-  assistantSoundsAvailableQueryKey,
-  assistantSoundsConfigQueryKey,
+    assistantSoundsAvailableQueryKey,
+    assistantSoundsConfigQueryKey,
 } from "@/lib/sync/query-tags";
+import { Card } from "@vellumai/design-library/components/card";
+import { Toggle } from "@vellumai/design-library/components/toggle";
 
 function ToggleRow({
   label,

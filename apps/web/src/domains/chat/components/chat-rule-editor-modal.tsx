@@ -14,12 +14,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Modal } from "@vellum/design-library/components/modal";
-import { Typography } from "@vellum/design-library";
+import { Typography } from "@vellumai/design-library";
+import { Button } from "@vellumai/design-library/components/button";
+import { Modal } from "@vellumai/design-library/components/modal";
 
-import type { AllowlistOption } from "@/types/interaction-ui-types";
 import type { RuleEditorContext } from "@/domains/chat/hooks/use-interaction-actions";
+import type { AllowlistOption } from "@/types/interaction-ui-types";
 
 // ---------------------------------------------------------------------------
 // Helpers

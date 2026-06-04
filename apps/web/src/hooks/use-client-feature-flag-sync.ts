@@ -1,7 +1,8 @@
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 
-import { client } from "@/generated/api/client.gen";
+import { featureFlagsClientFlagValuesRetrieve } from "@/generated/api/sdk.gen";
+import type { ClientFeatureFlagsResponse } from "@/generated/api/types.gen";
 import { assertHasResponse } from "@/utils/api-errors";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import {
@@ -11,26 +12,17 @@ import {
 import { useFlagQueryFreshness } from "@/lib/backwards-compat/flag-query-freshness";
 import { CLIENT_FLAG_QUERY_KEY } from "@/lib/sync/query-tags";
 
-interface ClientFlagValuesResponse {
-  flags: Record<string, boolean>;
-}
-
 const VALID_KEYS = new Set(Object.keys(CLIENT_FLAG_DEFAULTS));
 
-async function fetchClientFlagValues(): Promise<ClientFlagValuesResponse> {
-  const { data, error, response } = await client.get<
-    ClientFlagValuesResponse,
-    Record<string, unknown>,
-    false
-  >({
-    url: `/v1/feature-flags/client-flag-values/`,
+async function fetchClientFlagValues(): Promise<ClientFeatureFlagsResponse> {
+  const { data, error, response } = await featureFlagsClientFlagValuesRetrieve({
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to fetch client feature flags");
-  if (!response.ok) {
+  if (!response.ok || !data) {
     throw new Error(`Failed to fetch client feature flags: ${response.status}`);
   }
-  return data as ClientFlagValuesResponse;
+  return data;
 }
 
 function mapFlags(

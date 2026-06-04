@@ -1,20 +1,20 @@
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppWindow, FileText, Layers } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
-  BottomSheet,
-  Button,
-  PanelItem,
-  Popover,
-  Typography,
-} from "@vellum/design-library";
+    BottomSheet,
+    Button,
+    PanelItem,
+    Popover,
+    Typography,
+} from "@vellumai/design-library";
 
 import {
-  appsGetOptions,
-  appsGetQueryKey,
-  documentsGetOptions,
-  documentsGetQueryKey,
+    appsGetOptions,
+    appsGetQueryKey,
+    documentsGetOptions,
+    documentsGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import type { AppSummary } from "@/types/app-types";

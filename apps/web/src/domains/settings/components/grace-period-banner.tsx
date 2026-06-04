@@ -3,15 +3,15 @@ import { useMemo } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Notice } from "@vellum/design-library/components/notice";
-import { organizationsBillingSubscriptionRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
 import {
-  buildPortalReturnSnapshot,
-  formatGraceDate,
-  getEffectiveCancelDate,
-  useBillingPortalSession,
+    buildPortalReturnSnapshot,
+    formatGraceDate,
+    getEffectiveCancelDate,
+    useBillingPortalSession,
 } from "@/domains/settings/hooks/use-billing-portal-session";
+import { organizationsBillingSubscriptionRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
+import { Button } from "@vellumai/design-library/components/button";
+import { Notice } from "@vellumai/design-library/components/notice";
 
 /**
  * In-flow banner shown on the billing settings surface when the org's Pro

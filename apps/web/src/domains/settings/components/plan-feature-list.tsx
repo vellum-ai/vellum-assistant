@@ -1,6 +1,6 @@
 import { CircleCheck } from "lucide-react";
 
-import { Typography } from "@vellum/design-library/components/typography";
+import { Typography } from "@vellumai/design-library/components/typography";
 
 export interface PlanFeatureListProps {
   features: string[];

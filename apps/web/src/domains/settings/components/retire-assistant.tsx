@@ -1,21 +1,21 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
 
-import { Button } from "@vellum/design-library/components/button";
-import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
-import { toast } from "@vellum/design-library/components/toast";
 import { listAssistants, retireAssistantById } from "@/assistant/api";
-import { clearOnboardingFlags } from "@/utils/onboarding-cleanup";
 import {
-  isLocalMode,
-  getSelectedAssistant,
-  isLocalAssistant,
-  retireLocalAssistant,
-  syncPlatformAssistantsToLockfile,
+    getSelectedAssistant,
+    isLocalAssistant,
+    isLocalMode,
+    retireLocalAssistant,
+    syncPlatformAssistantsToLockfile,
 } from "@/lib/local-mode";
 import { isNativePlatform } from "@/runtime/native-auth";
 import { resolveLocalOnboardingRoute } from "@/utils/local-onboarding-route";
+import { clearOnboardingFlags } from "@/utils/onboarding-cleanup";
 import { routes } from "@/utils/routes";
+import { Button } from "@vellumai/design-library/components/button";
+import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
+import { toast } from "@vellumai/design-library/components/toast";
 
 async function getPostRetireRoute(): Promise<string> {
   if (isNativePlatform()) return routes.onboarding.prechat;

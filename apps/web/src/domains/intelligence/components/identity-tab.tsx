@@ -2,25 +2,25 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pencil } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { Button, ConfirmDialog } from "@vellum/design-library";
-import { ConstellationView } from "@/domains/intelligence/components/constellation-view/constellation-view";
-import { SkillDetail } from "@/domains/intelligence/components/skills/skill-detail";
-import { AvatarManagementModal } from "@/components/avatar/avatar-management-modal";
-import { ChatAvatar } from "@/components/avatar/chat-avatar";
-import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
-import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
-import {
-  skillsGetOptions,
-  skillsGetQueryKey,
-  skillsByIdDeleteMutation,
-} from "@/generated/daemon/@tanstack/react-query.gen";
-import { type Options } from "@/generated/daemon/sdk.gen";
-import type { SkillsGetData, IdentityGetResponse } from "@/generated/daemon/types.gen";
-import { installSkill } from "@/domains/intelligence/skills/install";
-import type { SkillInfo } from "@/domains/intelligence/skills/types";
 import { getAssistant } from "@/assistant/api";
 import { fetchAssistantIdentity } from "@/assistant/identity";
+import { AvatarManagementModal } from "@/components/avatar/avatar-management-modal";
+import { ChatAvatar } from "@/components/avatar/chat-avatar";
+import { ConstellationView } from "@/domains/intelligence/components/constellation-view/constellation-view";
+import { SkillDetail } from "@/domains/intelligence/components/skills/skill-detail";
+import { installSkill } from "@/domains/intelligence/skills/install";
+import type { SkillInfo } from "@/domains/intelligence/skills/types";
+import {
+    skillsByIdDeleteMutation,
+    skillsGetOptions,
+    skillsGetQueryKey,
+} from "@/generated/daemon/@tanstack/react-query.gen";
+import { type Options } from "@/generated/daemon/sdk.gen";
+import type { IdentityGetResponse, SkillsGetData } from "@/generated/daemon/types.gen";
+import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { captureError } from "@/lib/sentry/capture-error";
+import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
+import { Button, ConfirmDialog } from "@vellumai/design-library";
 
 export interface IdentityCardProps {
   assistantName: string;

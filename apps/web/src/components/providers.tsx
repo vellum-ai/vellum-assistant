@@ -21,12 +21,12 @@
  * Reference: https://tanstack.com/query/latest/docs/framework/react/guides/important-defaults
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { TooltipProvider } from "@vellum/design-library";
+import { TooltipProvider } from "@vellumai/design-library";
 import { useState, type ReactNode } from "react";
 
+import { ProfileQuickAddProvider } from "@/components/profile-quick-add-provider";
 import { useAuthStore, useIsAuthenticated } from "@/stores/auth-store";
 import { useOrganizationStore } from "@/stores/organization-store";
-import { ProfileQuickAddProvider } from "@/components/profile-quick-add-provider";
 
 function createQueryClient(): QueryClient {
   return new QueryClient({

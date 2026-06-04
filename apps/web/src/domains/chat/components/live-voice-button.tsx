@@ -20,10 +20,10 @@
 import { Loader2, Mic, StopCircle } from "lucide-react";
 import { useCallback } from "react";
 
-import { Button } from "@vellum/design-library";
+import { Button } from "@vellumai/design-library";
 
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useLiveVoice } from "@/domains/chat/voice/live-voice/use-live-voice";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 interface LiveVoiceButtonProps {
   /** Assistant whose live-voice channel the session attaches to. */

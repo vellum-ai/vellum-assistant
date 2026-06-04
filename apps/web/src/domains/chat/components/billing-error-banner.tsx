@@ -1,7 +1,7 @@
 
 import type { ReactNode } from "react";
 
-import { Button } from "@vellum/design-library";
+import { Button } from "@vellumai/design-library";
 
 interface BillingErrorBannerProps {
   ariaLabel: string;

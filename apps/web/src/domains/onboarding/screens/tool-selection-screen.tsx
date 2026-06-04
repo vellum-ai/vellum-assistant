@@ -1,14 +1,14 @@
 import { Check, ChevronLeft, MoreHorizontal, Pencil, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Card } from "@vellum/design-library/components/card";
-import { Input } from "@vellum/design-library/components/input";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import {
-  PRECHAT_TOOLS,
-  type PreChatToolItem,
+    PRECHAT_TOOLS,
+    type PreChatToolItem,
 } from "@/domains/onboarding/prechat-tools";
+import { Button } from "@vellumai/design-library/components/button";
+import { Card } from "@vellumai/design-library/components/card";
+import { Input } from "@vellumai/design-library/components/input";
 
 interface ToolSelectionScreenProps {
   selectedTools: Set<string>;

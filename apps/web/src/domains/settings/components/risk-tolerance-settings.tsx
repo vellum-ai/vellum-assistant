@@ -3,19 +3,19 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { Card } from "@vellum/design-library/components/card";
-import { Dropdown } from "@vellum/design-library/components/dropdown";
 import {
-  assistantsListOptions,
+    assistantsListOptions,
 } from "@/generated/api/@tanstack/react-query.gen";
 import {
-  getGlobalThresholds,
-  setGlobalThresholds,
+    getGlobalThresholds,
+    setGlobalThresholds,
 } from "@/lib/threshold-api";
 import {
-  THRESHOLD_PRESETS,
-  presetFromThreshold,
+    THRESHOLD_PRESETS,
+    presetFromThreshold,
 } from "@/utils/threshold-presets";
+import { Card } from "@vellumai/design-library/components/card";
+import { Dropdown } from "@vellumai/design-library/components/dropdown";
 
 function Divider() {
   return (

@@ -14,8 +14,8 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 
 import type { DaemonConfigPatch, ProfileEntry } from "@/domains/settings/ai/ai-types";
@@ -30,7 +30,7 @@ let toastSuccessCalls: string[] = [];
 let mutatePatches: DaemonConfigPatch[] = [];
 let profilesState: Record<string, ProfileEntry> = {};
 
-mock.module("@vellum/design-library/components/toast", () => ({
+mock.module("@vellumai/design-library/components/toast", () => ({
   toast: {
     success: (message: string) => {
       toastSuccessCalls.push(message);

@@ -2,19 +2,18 @@
 import type { LucideIcon } from "lucide-react";
 import { Loader2, Search, X } from "lucide-react";
 import {
-  useCallback,
-  useEffect,
-  useRef,
-  type FC,
-  type KeyboardEvent,
-  type MouseEvent,
-  type ReactNode,
+    useCallback,
+    useEffect,
+    useRef,
+    type FC,
+    type KeyboardEvent,
+    type MouseEvent,
+    type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
 
-import { Button } from "@vellum/design-library";
-import { Typography } from "@vellum/design-library";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { Button, Typography } from "@vellumai/design-library";
 
 import { CommandPaletteItem } from "@/components/command-palette/command-palette-item";
 

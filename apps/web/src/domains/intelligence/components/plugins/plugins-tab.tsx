@@ -1,26 +1,26 @@
 import { useQuery } from "@tanstack/react-query";
 import { Loader2, Puzzle, Search, TriangleAlert } from "lucide-react";
 import {
-  type ChangeEvent,
-  type Dispatch,
-  type SetStateAction,
-  useMemo,
-  useState,
+    type ChangeEvent,
+    type Dispatch,
+    type SetStateAction,
+    useMemo,
+    useState,
 } from "react";
 
-import { Card, Input } from "@vellum/design-library";
-import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { CatalogRow } from "@/domains/intelligence/components/plugins/catalog-row";
 import { PluginRow } from "@/domains/intelligence/components/plugins/plugin-row";
 import {
-  pluginsGetQueryKey,
-  pluginsSearchGetOptions,
+    pluginsGetQueryKey,
+    pluginsSearchGetOptions,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { pluginsGet } from "@/generated/daemon/sdk.gen";
 import type {
-  PluginsGetResponse,
-  PluginsSearchGetResponse,
+    PluginsGetResponse,
+    PluginsSearchGetResponse,
 } from "@/generated/daemon/types.gen";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { Card, Input } from "@vellumai/design-library";
 
 type PluginInfo = PluginsGetResponse["plugins"][number];
 type PluginCatalogMatch = PluginsSearchGetResponse["matches"][number];
