@@ -43,6 +43,7 @@ import type {
 } from "./call-setup-flow-types.js";
 import type { SetupOutcome, SetupResolved } from "./relay-setup-router.js";
 import {
+  attemptInviteCodeRedemption,
   attemptVerificationCode,
   parseDigitsFromSpeech,
 } from "./relay-verification.js";
@@ -139,6 +140,37 @@ export interface CallSetupFlowDeps {
    */
   composeTrustedContactHandoffText?(): string;
   /**
+   * Compose the invite-redemption entry prompt spoken when the flow starts
+   * collecting the invite code. Mirrors the per-direction copy assembled in
+   * `relay-server.startInviteRedemption` (which reads the resolved
+   * friend/guardian names and the assistant label). Injected so the flow
+   * needn't reach into the persona/label machinery; a plain default is used
+   * when the dep is absent.
+   */
+  composeInviteRedemptionPrompt?(input: {
+    isOutbound: boolean;
+    friendName: string | null;
+    guardianName: string | null;
+  }): string;
+  /**
+   * Compose the deterministic handoff copy spoken on a successful invite
+   * redemption (the relay path's `continueCallAfterTrustedContactActivation`
+   * with `activationReason: "invite_redeemed"`). The flow speaks the returned
+   * text itself and resolves `proceed-handoff-spoken`.
+   */
+  composeInviteHandoffText?(input: {
+    friendName: string | null;
+    guardianName: string | null;
+  }): string;
+  /**
+   * Mark the call session failed and finalize it after a terminal invite
+   * redemption failure, mirroring the `updateCallSession({ status: "failed" })`
+   * + `finalizeCall(...)` writes in
+   * `relay-server.handleInviteCodeRedemptionResult`. Injected so the flow stays
+   * storage-agnostic; best-effort (the flow still ends on rejection).
+   */
+  finalizeFailedCall?(reason: string): void | Promise<void>;
+  /**
    * Re-resolve the caller's actor-trust context after a successful
    * verification, mirroring the relay path's post-validation
    * `resolveActorTrust(...)` call (see `relay-server.handleVerificationCodeResult`
@@ -197,6 +229,14 @@ type CodeCollection = {
       /** Outbound callee verification — compared against this generated code. */
       expectedCode: string;
     }
+  | {
+      kind: "invite";
+      /** Invite redemption — redeemed via the invite service. */
+      assistantId: string;
+      fromNumber: string;
+      friendName: string | null;
+      guardianName: string | null;
+    }
 );
 
 // ── Flow ─────────────────────────────────────────────────────────────
@@ -253,6 +293,9 @@ export class CallSetupFlow implements SetupFlowInput {
 
       case "callee_verification":
         return this.startCalleeVerification(outcome, resolved);
+
+      case "invite_redemption":
+        return this.startInviteRedemption(outcome, resolved);
 
       default:
         throw new UnsupportedSetupFlowError(outcome.action);
@@ -424,6 +467,50 @@ export class CallSetupFlow implements SetupFlowInput {
     }
   }
 
+  /**
+   * Invite redemption: prompt an unknown caller (inbound or outbound) for the
+   * 6-digit invite code their contact shared, then collect digits. Resolution
+   * happens later, in {@link onInviteCode}. Ports
+   * `relay-server.startInviteRedemption`.
+   */
+  private startInviteRedemption(
+    outcome: Extract<SetupOutcome, { action: "invite_redemption" }>,
+    resolved: SetupResolved,
+  ): Promise<SetupFlowResult> {
+    const isOutbound = !resolved.isInbound;
+    this.collecting = {
+      kind: "invite",
+      assistantId: outcome.assistantId,
+      fromNumber: outcome.fromNumber,
+      friendName: outcome.friendName,
+      guardianName: outcome.guardianName,
+      buffer: "",
+      codeLength: 6,
+      // Relay grants a single invite-code attempt before failing the call.
+      maxAttempts: 1,
+      attempts: 0,
+      resolved,
+    };
+    this.state = "collecting_code";
+
+    this.deps.recordCallEvent(this.callSessionId, "invite_redemption_started", {
+      assistantId: outcome.assistantId,
+      codeLength: 6,
+      maxAttempts: 1,
+    });
+
+    const prompt =
+      this.deps.composeInviteRedemptionPrompt?.({
+        isOutbound,
+        friendName: outcome.friendName,
+        guardianName: outcome.guardianName,
+      }) ??
+      `Welcome ${outcome.friendName ?? "there"}. Please enter the 6-digit code that ${
+        outcome.guardianName ?? "your contact"
+      } provided you to verify your identity.`;
+    return this.speakAndWait(prompt);
+  }
+
   /** Resolver for the pending digit-collection promise (set on start). */
   private resolveCollection: ((result: SetupFlowResult) => void) | null = null;
 
@@ -463,6 +550,8 @@ export class CallSetupFlow implements SetupFlowInput {
     if (!c) return;
     if (c.kind === "callee") {
       await this.onCalleeCode(c, enteredCode);
+    } else if (c.kind === "invite") {
+      await this.onInviteCode(c, enteredCode);
     } else {
       await this.onGuardianCode(c, enteredCode);
     }
@@ -596,19 +685,87 @@ export class CallSetupFlow implements SetupFlowInput {
   }
 
   /**
-   * Inbound trusted-contact success: speak the handoff copy, fire the
-   * `assistant_spoke` event + transcript notifier, and resolve
-   * `proceed-handoff-spoken`. Ports
+   * Redeem an entered invite code via the extracted
+   * `attemptInviteCodeRedemption`. On success (newly redeemed or already a
+   * member), re-resolve trust, speak the invite handoff copy, and resolve
+   * `proceed-handoff-spoken`. On failure, finalize the call as failed, speak
+   * the failure copy, and end the session. Ports
+   * `relay-server.handleInviteCodeRedemptionResult`.
+   */
+  private async onInviteCode(
+    c: Extract<CodeCollection, { kind: "invite" }>,
+    enteredCode: string,
+  ): Promise<void> {
+    const result = attemptInviteCodeRedemption({
+      inviteRedemptionAssistantId: c.assistantId,
+      inviteRedemptionFromNumber: c.fromNumber,
+      enteredCode,
+      inviteRedemptionGuardianName: c.guardianName,
+    });
+
+    if (result.outcome === "success") {
+      this.deps.recordCallEvent(
+        this.callSessionId,
+        "invite_redemption_succeeded",
+        {
+          memberId: result.memberId,
+          ...(result.inviteId ? { inviteId: result.inviteId } : {}),
+        },
+      );
+      this.finishCollection(this.completeInviteHandoff(c));
+      return;
+    }
+
+    this.deps.recordCallEvent(this.callSessionId, "invite_redemption_failed", {
+      attempts: 1,
+    });
+    // Best-effort: mirror relay's failed-call finalization, but never let a
+    // storage rejection strand the flow — the session must still end.
+    try {
+      await this.deps.finalizeFailedCall?.(
+        "Voice invite redemption failed — invalid or expired code",
+      );
+    } catch (err) {
+      log.warn(
+        { callSessionId: this.callSessionId, err },
+        "Skipping failed-call finalization — call session may be gone",
+      );
+    }
+    await this.speakThenEnd(result.ttsMessage, "Invite redemption failed");
+  }
+
+  /**
+   * Successful invite redemption: compose the invite handoff copy and complete
+   * via {@link speakHandoffAndComplete}. Ports the
+   * `activationReason: "invite_redeemed"` branch of
    * `relay-server.continueCallAfterTrustedContactActivation`.
    */
-  private completeTrustedContactHandoff(
+  private completeInviteHandoff(
+    c: Extract<CodeCollection, { kind: "invite" }>,
+  ): SetupFlowResult {
+    const handoffText =
+      this.deps.composeInviteHandoffText?.({
+        friendName: c.friendName,
+        guardianName: c.guardianName,
+      }) ??
+      (c.friendName
+        ? `Great, I've verified that you are ${c.friendName}. It's nice to meet you! How can I help?`
+        : "Great, I've verified your identity. It's nice to meet you! How can I help?");
+
+    return this.speakHandoffAndComplete(handoffText, c.resolved, c.fromNumber);
+  }
+
+  /**
+   * Shared "handoff already spoken" completion used by the trusted-contact and
+   * invite success paths: speak the handoff copy, fire the `assistant_spoke`
+   * event + transcript notifier, re-resolve the verified party's trust, and
+   * resolve `proceed-handoff-spoken`.
+   */
+  private speakHandoffAndComplete(
+    handoffText: string,
     resolved: SetupResolved,
     partyNumber: string,
   ): SetupFlowResult {
-    const handoffText =
-      this.deps.composeTrustedContactHandoffText?.() ??
-      "Great! You're verified. How can I help?";
-
     void this.deps.speakSystemPrompt(this.transport, handoffText);
     this.deps.recordCallEvent(this.callSessionId, "assistant_spoke", {
       text: handoffText,
@@ -628,6 +785,23 @@ export class CallSetupFlow implements SetupFlowInput {
       assistantId: resolved.assistantId,
       trustContext: this.recomputedTrustContextFor(resolved, partyNumber),
     });
+  }
+
+  /**
+   * Inbound trusted-contact success: speak the handoff copy, fire the
+   * `assistant_spoke` event + transcript notifier, and resolve
+   * `proceed-handoff-spoken`. Ports
+   * `relay-server.continueCallAfterTrustedContactActivation`.
+   */
+  private completeTrustedContactHandoff(
+    resolved: SetupResolved,
+    partyNumber: string,
+  ): SetupFlowResult {
+    const handoffText =
+      this.deps.composeTrustedContactHandoffText?.() ??
+      "Great! You're verified. How can I help?";
+
+    return this.speakHandoffAndComplete(handoffText, resolved, partyNumber);
   }
 
   /**
