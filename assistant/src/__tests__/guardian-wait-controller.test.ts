@@ -128,6 +128,8 @@ interface Harness {
   approved: Array<{ assistantId: string; fromNumber: string }>;
   denied: Array<{ guardianLabel: string }>;
   timedOut: Array<{ guardianLabel: string; callbackOptIn: boolean }>;
+  /** Count of markWaitingOnUser() invocations. */
+  waitingOnUserMarks: { count: number };
   /** Current canonical request status returned by the injected lookup. */
   setRequestStatus: (status: string | null) => void;
 }
@@ -139,6 +141,7 @@ function makeHarness(): Harness {
   const approved: Harness["approved"] = [];
   const denied: Harness["denied"] = [];
   const timedOut: Harness["timedOut"] = [];
+  const waitingOnUserMarks = { count: 0 };
   let requestStatus: string | null = "pending";
 
   const deps: GuardianWaitControllerDeps = {
@@ -146,6 +149,9 @@ function makeHarness(): Harness {
       spokenPrompts.push(text);
     },
     resolveGuardianLabel: () => "Alex",
+    markWaitingOnUser: () => {
+      waitingOnUserMarks.count++;
+    },
     onApproved: (p) =>
       approved.push({ assistantId: p.assistantId, fromNumber: p.fromNumber }),
     onDenied: (p) => denied.push({ guardianLabel: p.guardianLabel }),
@@ -186,6 +192,7 @@ function makeHarness(): Harness {
     approved,
     denied,
     timedOut,
+    waitingOnUserMarks,
     setRequestStatus: (s) => {
       requestStatus = s;
     },
@@ -221,6 +228,16 @@ describe("GuardianWaitController", () => {
     // poll + timeout + initial heartbeat-delay timers are pending.
     expect(h.clock.pendingIntervals()).toBe(1);
     expect(h.clock.pendingOneShots()).toBe(2);
+  });
+
+  test("persists waiting_on_user when the wait starts", () => {
+    expect(h.waitingOnUserMarks.count).toBe(0);
+
+    controller.start(START);
+
+    // Mirrors relay-server.ts: status is persisted to waiting_on_user exactly
+    // once, at wait start, so recovery/UI observe the call is blocked on the user.
+    expect(h.waitingOnUserMarks.count).toBe(1);
   });
 
   test("approval → onApproved with caller identity", () => {

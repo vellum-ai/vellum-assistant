@@ -90,6 +90,15 @@ export interface GuardianWaitControllerDeps {
   /** Resolve a human-readable label for the guardian (wait copy). */
   resolveGuardianLabel(): string;
   /**
+   * Persist the call session's transition to `waiting_on_user` when the wait
+   * starts. Mirrors `relay-server.ts`'s
+   * `updateCallSession(callSessionId, { status: "waiting_on_user" })` so
+   * recovery/UI paths that key off the persisted status observe that the call
+   * is blocked on the user. Injected (rather than calling the store directly)
+   * to keep the controller transport-agnostic and unit-testable.
+   */
+  markWaitingOnUser(): void;
+  /**
    * Continue the call once the guardian approves. The controller has already
    * cleared its timers when this fires.
    */
@@ -240,6 +249,12 @@ export class GuardianWaitController {
       this.transport,
       `Thank you. I've let ${guardianLabel} know. Please hold while I check if I have permission to speak with you.`,
     );
+
+    // Persist the wait transition so recovery/UI paths that key off the
+    // canonical call-session status observe the call is blocked on the user.
+    // Mirrors relay-server.ts's `startAccessRequestWait`, which persists
+    // `waiting_on_user` here, right after speaking the hold prompt.
+    this.deps.markWaitingOnUser();
 
     // Start the heartbeat timer for periodic progress updates. Delay the first
     // heartbeat by the estimated TTS playback duration so the initial hold
