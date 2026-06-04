@@ -13,7 +13,12 @@
 import { nanoid } from "nanoid";
 
 import { extractFlag } from "../lib/arg-utils.js";
-import { resolveAssistant } from "../lib/assistant-config.js";
+import {
+  formatAssistantLookupError,
+  lookupAssistantByIdentifier,
+  resolveAssistant,
+  type AssistantEntry,
+} from "../lib/assistant-config.js";
 import {
   CLI_INTERFACE_ID,
   getClientRegistrationHeaders,
@@ -30,12 +35,15 @@ ARGUMENTS:
     [assistant]    Instance name (default: active assistant)
 
 OPTIONS:
+    --url <url>      Reachable gateway URL to advertise in the bundle
+                    (default: the assistant's runtime URL, not loopback)
     --label <name>   Human label for this pairing (echoed in the output)
     --json           Output the raw bundle as JSON
 
 EXAMPLES:
     vellum pair
-    vellum pair my-assistant --label "phone"
+    vellum pair "My Assistant" --label "phone"
+    vellum pair --url https://abc123.ngrok.app
     vellum pair --json
 `);
 }
@@ -58,25 +66,43 @@ export async function pair(): Promise<void> {
   const jsonOutput = rawArgs.includes("--json");
   let args = rawArgs.filter((a) => a !== "--json");
 
-  const [label, filteredArgs] = extractFlag(args, "--label");
-  args = filteredArgs;
+  const [label, afterLabel] = extractFlag(args, "--label");
+  const [urlOverride, afterUrl] = extractFlag(afterLabel, "--url");
+  args = afterUrl;
 
+  // Resolve the target. An explicit argument is matched by display name OR id
+  // (with the standard ambiguity error); no argument falls back to the active
+  // assistant.
   const assistantName = args[0];
-  const entry = resolveAssistant(assistantName);
-  if (!entry) {
-    console.error(
-      assistantName
-        ? `No assistant instance found with name '${assistantName}'.`
-        : "No assistant instance found. Run `vellum hatch` first.",
-    );
-    process.exit(1);
+  let entry: AssistantEntry | null;
+  if (assistantName) {
+    const result = lookupAssistantByIdentifier(assistantName);
+    if (result.status !== "found") {
+      console.error(formatAssistantLookupError(assistantName, result));
+      process.exit(1);
+    }
+    entry = result.entry;
+  } else {
+    entry = resolveAssistant();
+    if (!entry) {
+      console.error("No assistant instance found. Run `vellum hatch` first.");
+      process.exit(1);
+    }
   }
 
-  const gatewayUrl = (
+  // Mint over loopback (localUrl avoids mDNS for same-machine calls), but
+  // advertise a REACHABLE url in the bundle — the loopback url would point the
+  // other machine at its own localhost. Prefer an explicit --url, then the
+  // runtime (LAN/tunnel) url.
+  const mintUrl = (
     entry.localUrl ||
     entry.runtimeUrl ||
     `http://127.0.0.1:${GATEWAY_PORT}`
   ).replace(/\/+$/, "");
+  const advertisedUrl = (urlOverride || entry.runtimeUrl || mintUrl).replace(
+    /\/+$/,
+    "",
+  );
 
   // Fresh per-pairing device identity — each `vellum pair` is independently
   // revocable.
@@ -84,7 +110,7 @@ export async function pair(): Promise<void> {
 
   let response: Response;
   try {
-    response = await fetch(`${gatewayUrl}/v1/pair`, {
+    response = await fetch(`${mintUrl}/v1/pair`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -94,7 +120,7 @@ export async function pair(): Promise<void> {
     });
   } catch (err) {
     console.error(
-      `Error: could not reach the gateway at ${gatewayUrl} ` +
+      `Error: could not reach the gateway at ${mintUrl} ` +
         `(${err instanceof Error ? err.message : String(err)}).`,
     );
     console.error("Is the assistant running? Try `vellum wake`.");
@@ -114,7 +140,7 @@ export async function pair(): Promise<void> {
   // Single-line, copy-pasteable blob for the consume side (`vellum connect
   // import <blob>`, forthcoming).
   const bundle = {
-    gatewayUrl,
+    gatewayUrl: advertisedUrl,
     assistantId: result.assistantId,
     token: result.token,
     deviceId,
@@ -131,7 +157,7 @@ export async function pair(): Promise<void> {
   const displayName = entry.name || entry.assistantName || entry.assistantId;
   console.log(`Paired ${label ? `"${label}" ` : ""}with ${displayName}.`);
   console.log("");
-  console.log(`  Gateway:   ${gatewayUrl}`);
+  console.log(`  Gateway:   ${advertisedUrl}`);
   console.log(`  Assistant: ${result.assistantId}`);
   console.log(`  Expires:   ${result.expiresAt}`);
   console.log("");

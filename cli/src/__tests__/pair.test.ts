@@ -9,7 +9,9 @@ process.env.VELLUM_LOCKFILE_DIR = testDir;
 
 import { pair } from "../commands/pair.js";
 
-const GATEWAY_URL = "http://127.0.0.1:7830";
+// Distinct loopback (mint) vs reachable (advertised) URLs to verify the split.
+const LOCAL_URL = "http://127.0.0.1:7830";
+const RUNTIME_URL = "http://192.168.1.50:7830";
 
 function writeLockfile(): void {
   writeFileSync(
@@ -18,8 +20,8 @@ function writeLockfile(): void {
       assistants: [
         {
           assistantId: "pair-test",
-          runtimeUrl: GATEWAY_URL,
-          localUrl: GATEWAY_URL,
+          runtimeUrl: RUNTIME_URL,
+          localUrl: LOCAL_URL,
           cloud: "local",
         },
       ],
@@ -73,10 +75,10 @@ describe("pair command", () => {
       globalThis.fetch = origFetch;
     }
 
-    // Hit /v1/pair with the cli interface + a device-bound body.
+    // Mint over the loopback (localUrl), not the reachable runtime URL.
     expect(calls).toHaveLength(1);
     const [url, init] = calls[0];
-    expect(url).toBe(`${GATEWAY_URL}/v1/pair`);
+    expect(url).toBe(`${LOCAL_URL}/v1/pair`);
     expect(init.method).toBe("POST");
     const headers = Object.fromEntries(
       Object.entries(init.headers as Record<string, string>).map(([k, v]) => [
@@ -90,9 +92,9 @@ describe("pair command", () => {
     expect(body.deviceId.length).toBeGreaterThan(0);
     expect(body.platform).toBe("cli");
 
-    // --json output carries the bundle the consume side will import.
+    // The bundle advertises the REACHABLE runtime URL, not loopback.
     const out = JSON.parse(logs.join("\n"));
-    expect(out.gatewayUrl).toBe(GATEWAY_URL);
+    expect(out.gatewayUrl).toBe(RUNTIME_URL);
     expect(out.assistantId).toBe("self");
     expect(out.token).toBe("test-access-token");
     expect(out.deviceId).toBe(body.deviceId);
