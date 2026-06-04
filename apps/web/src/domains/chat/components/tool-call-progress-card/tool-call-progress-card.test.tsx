@@ -772,24 +772,3 @@ describe("ToolCallProgressCard — mixed group web_search_error rendering", () =
     expect(getByText("Provider returned max_uses_exceeded.")).toBeTruthy();
   });
 });
-
-describe("ToolCallProgressCard — leadingThinkingText", () => {
-  test("prepends a thinking step to the expanded body when supplied", () => {
-    const toolCalls = [
-      makeToolCall({
-        id: "tc-1",
-        name: "bash",
-        status: "running",
-        input: { command: "ls" },
-      }),
-    ];
-    const { getByText, getByText: getByText2 } = renderCard(toolCalls, {
-      leadingThinkingText: "Let me check the directory first.",
-      expandedCardIds: new Map([["tc-1", true]]),
-    });
-    // The thinking text appears as a separate step row in the expanded body.
-    expect(getByText("Let me check the directory first.")).toBeTruthy();
-    // The step count reflects the prepended thinking step.
-    expect(getByText2("2 steps")).toBeTruthy();
-  });
-});

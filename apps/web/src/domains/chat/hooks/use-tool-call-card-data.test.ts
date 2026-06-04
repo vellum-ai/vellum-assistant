@@ -67,7 +67,7 @@ describe("computeToolCallCardData — step kinds", () => {
         input: { command: "echo hello" },
       }),
     ];
-    const data = computeToolCallCardData(toolCalls, {}, null);
+    const data = computeToolCallCardData(toolCalls, {});
     expect(data.steps).toHaveLength(1);
     expect(data.steps[0]).toEqual({
       kind: "tool",
@@ -101,7 +101,7 @@ describe("computeToolCallCardData — step kinds", () => {
         },
       }),
     ];
-    const data = computeToolCallCardData(toolCalls, {}, null);
+    const data = computeToolCallCardData(toolCalls, {});
     expect(data.steps[0]).toMatchObject({
       kind: "tool",
       activity: "Greeting the user from the shell",
@@ -120,7 +120,7 @@ describe("computeToolCallCardData — step kinds", () => {
         input: { command: "echo hello" },
       }),
     ];
-    const data = computeToolCallCardData(toolCalls, {}, null);
+    const data = computeToolCallCardData(toolCalls, {});
     expect(data.steps[0]).toMatchObject({ kind: "tool", activity: "" });
     expect(data.currentStepInfo).toBe("echo hello");
   });
@@ -140,7 +140,7 @@ describe("computeToolCallCardData — step kinds", () => {
         },
       },
     };
-    const data = computeToolCallCardData(toolCalls, liveWebActivity, null);
+    const data = computeToolCallCardData(toolCalls, liveWebActivity);
     expect(data.steps).toHaveLength(1);
     expect(data.steps[0]).toMatchObject({
       kind: "web_search",
@@ -166,7 +166,7 @@ describe("computeToolCallCardData — step kinds", () => {
         },
       },
     };
-    const data = computeToolCallCardData(toolCalls, liveWebActivity, null);
+    const data = computeToolCallCardData(toolCalls, liveWebActivity);
     expect(data.steps[0]).toEqual({
       kind: "web_search_error",
       title: "Web search failed",
@@ -195,7 +195,7 @@ describe("computeToolCallCardData — step kinds", () => {
         },
       },
     };
-    const data = computeToolCallCardData(toolCalls, liveWebActivity, null);
+    const data = computeToolCallCardData(toolCalls, liveWebActivity);
     expect(data.steps[0]).toEqual({
       kind: "thinking",
       durationLabel: "<1s",
@@ -204,57 +204,12 @@ describe("computeToolCallCardData — step kinds", () => {
   });
 });
 
-describe("computeToolCallCardData — leadingThinkingText", () => {
-  test("prepends a `thinking` step when leadingThinkingText is non-null", () => {
-    const toolCalls = [
-      makeToolCall({
-        id: "tc-1",
-        name: "bash",
-        status: "completed",
-        startedAt: 0,
-        completedAt: 1000,
-      }),
-    ];
-    const data = computeToolCallCardData(
-      toolCalls,
-      {},
-      "I'll look at the bash output first.",
-    );
-    expect(data.steps).toHaveLength(2);
-    expect(data.steps[0]).toEqual({
-      kind: "thinking",
-      durationLabel: "",
-      text: "I'll look at the bash output first.",
-    });
-    expect(data.steps[1]!.kind).toBe("tool");
-    expect(data.stepCount).toBe("2 steps");
-  });
-
-  test("does not prepend when leadingThinkingText is null", () => {
-    const toolCalls = [
-      makeToolCall({ id: "tc-1", name: "bash", status: "completed" }),
-    ];
-    const data = computeToolCallCardData(toolCalls, {}, null);
-    expect(data.steps).toHaveLength(1);
-    expect(data.steps[0]!.kind).toBe("tool");
-  });
-
-  test("does not prepend when leadingThinkingText is empty", () => {
-    const toolCalls = [
-      makeToolCall({ id: "tc-1", name: "bash", status: "completed" }),
-    ];
-    const data = computeToolCallCardData(toolCalls, {}, "");
-    expect(data.steps).toHaveLength(1);
-    expect(data.steps[0]!.kind).toBe("tool");
-  });
-});
-
 describe("computeToolCallCardData — state transitions", () => {
   test("state is `loading` while any tool call is still running", () => {
     const toolCalls = [
       makeToolCall({ id: "tc-1", name: "bash", status: "running" }),
     ];
-    const data = computeToolCallCardData(toolCalls, {}, null);
+    const data = computeToolCallCardData(toolCalls, {});
     expect(data.state).toBe("loading");
   });
 
@@ -263,7 +218,7 @@ describe("computeToolCallCardData — state transitions", () => {
       makeToolCall({ id: "tc-1", name: "bash", status: "completed" }),
       makeToolCall({ id: "tc-2", name: "edit_file", status: "running" }),
     ];
-    const data = computeToolCallCardData(toolCalls, {}, null);
+    const data = computeToolCallCardData(toolCalls, {});
     expect(data.state).toBe("loading");
   });
 
@@ -277,7 +232,7 @@ describe("computeToolCallCardData — state transitions", () => {
         input: { command: "view", path: "/tmp/x.txt" },
       }),
     ];
-    const data = computeToolCallCardData(toolCalls, {}, null);
+    const data = computeToolCallCardData(toolCalls, {});
     expect(data.state).toBe("complete");
     expect(data.stepCount).toBe("2 steps");
   });
@@ -291,7 +246,7 @@ describe("computeToolCallCardData — state transitions", () => {
         confirmationDecision: "denied",
       }),
     ];
-    const data = computeToolCallCardData(toolCalls, {}, null);
+    const data = computeToolCallCardData(toolCalls, {});
     expect(data.state).toBe("denied");
     expect((data.steps[0] as { status: string }).status).toBe("denied");
   });
@@ -306,7 +261,7 @@ describe("computeToolCallCardData — state transitions", () => {
       }),
       makeToolCall({ id: "tc-2", name: "edit_file", status: "running" }),
     ];
-    const data = computeToolCallCardData(toolCalls, {}, null);
+    const data = computeToolCallCardData(toolCalls, {});
     expect(data.state).toBe("denied");
   });
 
@@ -314,7 +269,7 @@ describe("computeToolCallCardData — state transitions", () => {
     const toolCalls = [
       makeToolCall({ id: "tc-1", name: "bash", status: "error" }),
     ];
-    const data = computeToolCallCardData(toolCalls, {}, null);
+    const data = computeToolCallCardData(toolCalls, {});
     expect(data.state).toBe("error");
     expect((data.steps[0] as { status: string }).status).toBe("error");
   });
@@ -324,7 +279,7 @@ describe("computeToolCallCardData — state transitions", () => {
       makeToolCall({ id: "tc-1", name: "bash", status: "error" }),
       makeToolCall({ id: "tc-2", name: "edit_file", status: "running" }),
     ];
-    const data = computeToolCallCardData(toolCalls, {}, null);
+    const data = computeToolCallCardData(toolCalls, {});
     expect(data.state).toBe("loading");
   });
 });
@@ -342,7 +297,7 @@ describe("computeToolCallCardData — subagent_spawn filtering", () => {
         input: { label: "Investigate logs" },
       }),
     ];
-    const data = computeToolCallCardData(toolCalls, {}, null);
+    const data = computeToolCallCardData(toolCalls, {});
     expect(data.steps).toHaveLength(0);
     expect(data.stepCount).toBe("0 steps");
   });
@@ -365,7 +320,7 @@ describe("computeToolCallCardData — subagent_spawn filtering", () => {
         input: { label: "Second" },
       }),
     ];
-    const data = computeToolCallCardData(toolCalls, {}, null);
+    const data = computeToolCallCardData(toolCalls, {});
     expect(data.steps).toHaveLength(0);
   });
 
@@ -384,7 +339,7 @@ describe("computeToolCallCardData — subagent_spawn filtering", () => {
         input: { command: "ls" },
       }),
     ];
-    const data = computeToolCallCardData(toolCalls, {}, null);
+    const data = computeToolCallCardData(toolCalls, {});
     expect(data.steps).toHaveLength(1);
     expect(data.steps[0]!.kind).toBe("tool");
     // Header derivation also ignores the filtered spawn so the carousel
@@ -422,7 +377,7 @@ describe("computeToolCallCardData — regression vs. legacy web-search hook", ()
         },
       },
     };
-    const data = computeToolCallCardData(toolCalls, liveWebActivity, null);
+    const data = computeToolCallCardData(toolCalls, liveWebActivity);
     expect(data.steps).toHaveLength(2);
     expect(data.steps[0]).toMatchObject({
       kind: "web_search",
@@ -451,7 +406,7 @@ describe("computeToolCallCardData — regression vs. legacy web-search hook", ()
         input: { query: "tigers" },
       }),
     ];
-    const data = computeToolCallCardData(toolCalls, {}, null);
+    const data = computeToolCallCardData(toolCalls, {});
     expect(data.steps[0]).toEqual({
       kind: "thinking",
       durationLabel: "",
@@ -491,7 +446,7 @@ describe("computeToolCallCardData — mixed web + non-web groups", () => {
         },
       },
     };
-    const data = computeToolCallCardData(toolCalls, liveWebActivity, null);
+    const data = computeToolCallCardData(toolCalls, liveWebActivity);
     expect(data.steps).toHaveLength(2);
     expect(data.steps[0]!.kind).toBe("web_search");
     expect(data.steps[1]!.kind).toBe("tool");
@@ -525,7 +480,7 @@ describe("computeToolCallCardData — web_search backend-failure copy", () => {
         },
       },
     };
-    const data = computeToolCallCardData(toolCalls, liveWebActivity, null);
+    const data = computeToolCallCardData(toolCalls, liveWebActivity);
     expect(data.steps[0]).toEqual({
       kind: "web_search_error",
       title: "Web search failed",
@@ -583,7 +538,7 @@ describe("computeToolCallCardData — web_search backend-failure copy", () => {
         },
       },
     };
-    const data = computeToolCallCardData(toolCalls, liveWebActivity, null);
+    const data = computeToolCallCardData(toolCalls, liveWebActivity);
     // No web_search_error step is produced from a web_fetch failure.
     expect(
       data.steps.some((step) => step.kind === "web_search_error"),
@@ -612,7 +567,7 @@ describe("computeToolCallCardData — web_search backend-failure copy", () => {
         },
       },
     };
-    const data = computeToolCallCardData(toolCalls, liveWebActivity, null);
+    const data = computeToolCallCardData(toolCalls, liveWebActivity);
     expect(data.steps[0]).toEqual({
       kind: "web_search_error",
       title: "Web search failed",
@@ -641,7 +596,7 @@ describe("computeToolCallCardData — web_search backend-failure copy", () => {
         },
       },
     };
-    const data = computeToolCallCardData(toolCalls, liveWebActivity, null);
+    const data = computeToolCallCardData(toolCalls, liveWebActivity);
     expect(
       data.steps.some((step) => step.kind === "web_search_error"),
     ).toBe(false);
@@ -664,7 +619,7 @@ describe("computeToolCallCardData — web_search backend-failure copy", () => {
         },
       },
     };
-    const data = computeToolCallCardData(toolCalls, liveWebActivity, null);
+    const data = computeToolCallCardData(toolCalls, liveWebActivity);
     expect(
       data.steps.some((step) => step.kind === "web_search_error"),
     ).toBe(false);

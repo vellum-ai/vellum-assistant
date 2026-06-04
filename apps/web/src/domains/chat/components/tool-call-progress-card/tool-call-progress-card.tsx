@@ -67,13 +67,6 @@ export interface ToolCallProgressCardProps {
   // Unknown nudge props (pass-through)
   unknownNudgeToolCallIds?: Set<string>;
   onDismissUnknownNudge?: (toolCallId: string) => void;
-  /**
-   * Optional leading "thinking" text segment that immediately preceded this
-   * tool-call group in the message's `contentOrder`. When supplied the
-   * unified card prepends a `thinking` step to the expanded body so the
-   * carousel shows the model's reasoning before the first tool fires.
-   */
-  leadingThinkingText?: string | null;
 }
 
 /**
@@ -95,7 +88,6 @@ export function ToolCallProgressCard(props: ToolCallProgressCardProps) {
   const {
     toolCalls,
     pendingConfirmationToolCallId,
-    leadingThinkingText,
     autoExpand = false,
   } = props;
 
@@ -104,19 +96,13 @@ export function ToolCallProgressCard(props: ToolCallProgressCardProps) {
     toolCalls.some((tc) => tc.id === pendingConfirmationToolCallId);
 
   // Single subscription to the unified hook so the dispatcher and every
-  // downstream branch share the same projection. `leadingThinkingText`
-  // prepends a `thinking` step ahead of the first tool call when supplied;
-  // purely-web groups (which historically didn't have a leading-thinking
-  // slot) typically pass `null` so the prepend is a no-op.
+  // downstream branch share the same projection.
   //
   // `subagent_spawn` calls are filtered out inside `computeToolCallCardData`
   // — they're rendered inline by `SubagentInlineProgressCard` at the
   // transcript level. If a group reduces to zero renderable steps the
   // dispatcher falls through to a no-op below.
-  const cardData = useToolCallCardData(
-    toolCalls,
-    leadingThinkingText ?? null,
-  );
+  const cardData = useToolCallCardData(toolCalls);
   const cardId = toolCalls[0]?.id ?? null;
   const expanded = useCardExpanded(
     cardId,
@@ -228,10 +214,10 @@ function deriveWebShellState(
 /**
  * Render the unified shell for a non-web tool-call group. Wraps
  * `ToolProgressCardShell` with a `PhaseGroupedStepList` body that groups
- * contiguous same-phase steps (`Thinking`, `Working (bash)`, `Using a
- * skill`, etc.) under a single phase header. Mixed groups carry
- * `web_search` / `web_search_error` / `thinking` (from web tools or the
- * `leadingThinkingText` slot) alongside the `tool` variant emitted by
+ * contiguous same-phase steps (`Working (bash)`, `Using a skill`, etc.)
+ * under a single phase header. Mixed groups carry `web_search` /
+ * `web_search_error` / `thinking` (the latter from web tools, e.g.
+ * `web_fetch` "Reading …") alongside the `tool` variant emitted by
  * `useToolCallCardData` for non-web tools.
  */
 function UnifiedToolCallProgressCard({
