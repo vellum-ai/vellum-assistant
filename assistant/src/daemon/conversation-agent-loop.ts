@@ -1909,8 +1909,6 @@ export async function runAgentLoopImpl(
       }
     }
 
-    let preRepairMessages = runMessages;
-
     // Replace historical web_search_tool_result blocks with text summaries.
     // The opaque `encrypted_content` tokens Anthropic attaches to each result
     // expire / are route-scoped; replaying a stale token is rejected with
@@ -2021,7 +2019,6 @@ export async function runAgentLoopImpl(
           logger: rlog,
         });
         runMessages = injection.messages;
-        preRepairMessages = runMessages;
         return runMessages;
       },
     };
@@ -2111,7 +2108,6 @@ export async function runAgentLoopImpl(
       runMessages = retryRepair.messages;
       const retryStrip = stripHistoricalWebSearchResults(runMessages);
       runMessages = retryStrip.messages;
-      preRepairMessages = runMessages;
       state.orderingErrorDetected = false;
       state.deferredOrderingError = null;
 
@@ -2226,7 +2222,6 @@ export async function runAgentLoopImpl(
         ctx.messages = stripInjectionsForCompaction(updatedHistory);
         markHistoryStrippedBestEffort(ctx.conversationId);
         convergenceStripped = true;
-        preRepairMessages = updatedHistory;
       }
       if (!reducerState) {
         reducerState = createInitialReducerState();
@@ -2428,7 +2423,6 @@ export async function runAgentLoopImpl(
           );
           runMessages = convergenceStrip.messages;
         }
-        preRepairMessages = runMessages;
         state.contextTooLargeDetected = false;
         yieldedForBudget = false;
 
@@ -2455,7 +2449,6 @@ export async function runAgentLoopImpl(
             ctx.messages = stripInjectionsForCompaction(updatedHistory);
             markHistoryStrippedBestEffort(ctx.conversationId);
             convergenceStripped = true;
-            preRepairMessages = updatedHistory;
           }
         }
       }
@@ -2570,7 +2563,6 @@ export async function runAgentLoopImpl(
             );
             runMessages = fallbackStrip.messages;
           }
-          preRepairMessages = runMessages;
           state.contextTooLargeDetected = false;
 
           updatedHistory = await runAgentLoop(runMessages);
@@ -2839,7 +2831,16 @@ export async function runAgentLoopImpl(
       // would create a duplicate plain-text bubble below the alert card.
     }
 
-    let restoredHistory = [...preRepairMessages, ...newMessages];
+    // Base persisted into `ctx.messages` is the loop's own returned history
+    // (minus the tail it appended this run), with the cleaned `newMessages`
+    // re-appended on top. Sourcing the base from the loop keeps it in lockstep
+    // with any in-loop compaction without the orchestrator maintaining a
+    // parallel snapshot across re-entry sites.
+    const loopBase = updatedHistory.slice(
+      0,
+      updatedHistory.length - lastRunNewMessages.length,
+    );
+    let restoredHistory = [...loopBase, ...newMessages];
 
     // Post-turn tool result truncation: save large results to disk and
     // replace in-context content with a prefix/suffix stub + file pointer.
