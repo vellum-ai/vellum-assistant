@@ -381,7 +381,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
     let reinjected = false;
     const events: AgentEvent[] = [];
     const compaction: MidLoopCompaction = {
-      reinject: async () => {
+      postCompactionHook: async () => {
         reinjected = true;
         return [userMessage];
       },
@@ -428,8 +428,8 @@ describe("AgentLoop exit-reason instrumentation", () => {
     });
 
     const compaction: MidLoopCompaction = {
-      reinject: async () => {
-        throw new Error("reinject must not run after a timeout");
+      postCompactionHook: async () => {
+        throw new Error("postCompactionHook must not run after a timeout");
       },
     };
     const recordOutcomeSpy = spyOn(loop.compactionCircuit, "recordOutcome");
@@ -464,8 +464,8 @@ describe("AgentLoop exit-reason instrumentation", () => {
     });
 
     const compaction: MidLoopCompaction = {
-      reinject: async () => {
-        throw new Error("reinject must not run when exhausted");
+      postCompactionHook: async () => {
+        throw new Error("postCompactionHook must not run when exhausted");
       },
     };
 

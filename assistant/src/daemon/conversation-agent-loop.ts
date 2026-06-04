@@ -1914,7 +1914,7 @@ export async function runAgentLoopImpl(
     // loop is intentionally blind to. Durable persistence is signalled via
     // events; re-injection stays orchestrator-supplied for now.
     const midLoopCompaction: MidLoopCompaction = {
-      reinject: async (history) => {
+      postCompactionHook: async ({ history }) => {
         // stripInjectionsForCompaction() unconditionally removed the existing
         // NOW.md block, so re-inject the current content regardless of whether
         // compaction actually ran.

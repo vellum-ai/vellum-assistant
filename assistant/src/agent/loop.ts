@@ -13,6 +13,7 @@ import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.
 import { HOOKS } from "../plugin-api/constants.js";
 import type { PostToolUseContext, StopContext } from "../plugin-api/types.js";
 import { defaultCompactionTerminal } from "../plugins/defaults/compaction/terminal.js";
+import type { PostCompactionHookInput } from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
 import { DEFAULT_TIMEOUTS, runHook, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
@@ -490,14 +491,15 @@ export interface ResolvedSystemPrompt {
  */
 export interface MidLoopCompaction {
   /**
-   * Re-apply runtime injections onto the post-compaction `history` the loop
+   * Re-apply runtime injections onto the post-compaction history the loop
    * passes in and return the history to continue from. The loop supplies the
    * committed base (the compacted messages when the pipeline compacted, the
-   * stripped pre-compaction history otherwise) so the hook re-injects onto the
-   * loop's own working history rather than reading it back from orchestrator
-   * state.
+   * stripped pre-compaction history otherwise) via {@link PostCompactionHookInput}
+   * so the hook re-injects onto the loop's own working history rather than
+   * reading it back from orchestrator state. The input is an object so further
+   * re-injection inputs can migrate loop-ward by growing that type.
    */
-  reinject: (history: Message[]) => Promise<Message[]>;
+  postCompactionHook: (input: PostCompactionHookInput) => Promise<Message[]>;
 }
 
 export interface AgentLoopRunOptions {
@@ -810,7 +812,7 @@ export class AgentLoop {
     const reinjectBase = compactResult.compacted
       ? compactResult.messages
       : rawHistory;
-    return compaction.reinject(reinjectBase);
+    return compaction.postCompactionHook({ history: reinjectBase });
   }
 
   async run(

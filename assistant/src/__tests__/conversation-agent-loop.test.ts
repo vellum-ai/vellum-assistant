@@ -647,7 +647,7 @@ async function simulateInlineCompaction(
   const reinjectBase = compactResult.compacted
     ? compactResult.messages
     : rawHistory;
-  return compaction.reinject(reinjectBase);
+  return compaction.postCompactionHook({ history: reinjectBase });
 }
 
 /**

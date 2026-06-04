@@ -30,15 +30,26 @@ import type { PluginLogger } from "../../../../plugin-api/types.js";
 import type { Message } from "../../../../providers/types.js";
 
 /**
- * Everything the hook needs in a single context: the resolved
- * {@link RuntimeInjectionOptions} (spread top-level so each field stays
- * individually addressable), the history to re-inject onto, and the
+ * The slice of the hook's context the agent loop supplies from its own working
+ * state. Today that is just the post-compaction `history` to re-inject onto; as
+ * further re-injection inputs migrate loop-ward they are added here, and the
+ * loop hands the hook an object of this shape via
+ * {@link MidLoopCompaction.postCompactionHook}.
+ */
+export interface PostCompactionHookInput {
+  /** Compacted message history to re-inject onto. */
+  history: Message[];
+}
+
+/**
+ * Everything the hook needs in a single context: the loop-supplied
+ * {@link PostCompactionHookInput}, the resolved {@link RuntimeInjectionOptions}
+ * (spread top-level so each field stays individually addressable), and the
  * conversation-scoped state the options bag cannot carry (graph handle,
  * actor trust, and a turn-scoped logger).
  */
-export interface PostCompactContext extends RuntimeInjectionOptions {
-  /** Compacted message history to re-inject onto. */
-  history: Message[];
+export interface PostCompactContext
+  extends RuntimeInjectionOptions, PostCompactionHookInput {
   /** Per-conversation memory graph handle. */
   graphMemory: ConversationGraphMemory;
   /** True when the actor for this turn is trusted (guardian-class). */
