@@ -387,13 +387,48 @@ describe("tool preview lifecycle", () => {
       return { deps, events };
     }
 
+    test("a streamed thinking delta is mirrored for incremental persistence", async () => {
+      /**
+       * Thinking rides the same mirror-and-flush path as text, so a thinking
+       * delta is appended to the running view and bumps the single persisted
+       * seq field -- the debounced partial flush then writes it to the row,
+       * letting long reasoning streams survive a refresh just like long
+       * answers do.
+       */
+      // GIVEN a turn that streams thinking
+      const { deps, events } = makeStampingDeps({ streamThinking: true });
+      state.lastAssistantMessageId = "assistant-msg-1";
+
+      // WHEN a thinking_delta is dispatched
+      await dispatchAgentEvent(state, deps, {
+        type: "thinking_delta",
+        thinking: "Let me reason about this.",
+      } as Extract<AgentEvent, { type: "thinking_delta" }>);
+
+      // THEN it is mirrored into the running view and the persisted seq field
+      // tracks the emitted delta
+      const thinkingDelta = events.find(
+        (e) => e.type === "assistant_thinking_delta",
+      );
+      expect(thinkingDelta).toBeDefined();
+      expect(state.currentMessageContent).toEqual([
+        {
+          type: "thinking",
+          thinking: "Let me reason about this.",
+          signature: "",
+        },
+      ]);
+      expect(state.lastPersistedContentSeq).toBe(
+        (thinkingDelta as unknown as AssistantEvent).seq ?? undefined,
+      );
+    });
+
     test("a thinking-only turn advances the persisted seq to the thinking delta", async () => {
       /**
-       * Reasoning-model turns can emit thinking with no text delta. The
-       * thinking content is finalized into the assistant row at
-       * message_complete, so the persisted seq must catch up to the streamed
-       * thinking_delta -- otherwise /messages would advertise a seq behind
-       * content the snapshot already reflects.
+       * Reasoning-model turns can emit thinking with no text delta. Because
+       * thinking is now mirrored and flushed like text, the persisted seq
+       * advances to the streamed thinking_delta -- otherwise /messages would
+       * advertise a seq behind content the snapshot already reflects.
        */
       // GIVEN a turn that streams thinking (no text delta)
       const { deps, events } = makeStampingDeps({ streamThinking: true });
@@ -425,46 +460,61 @@ describe("tool preview lifecycle", () => {
       );
     });
 
-    test("a tool-terminated turn advances the persisted seq to the tool result", async () => {
+    test("a deferred tool result is covered by the following finalized content", async () => {
       /**
-       * A turn whose final content is a tool result (no closing assistant
-       * text) persists the tool output as its own row when the pending-results
-       * map drains at message_complete. The persisted seq must advance to the
-       * streamed tool_result so the snapshot's watermark covers it.
+       * A tool result is buffered and written as its own row when the
+       * pending-results map drains at message_complete; it does not advance
+       * the persisted seq on its own. The streamed content of the call that
+       * drains it is stamped later, so recording that content's seq at
+       * message_complete already covers the earlier tool result.
        */
-      // GIVEN a tool that has completed for the current turn
-      const { deps, events } = makeStampingDeps();
+      // GIVEN a completed tool result that has been handled (deferred)
+      const { deps, events } = makeStampingDeps({ streamThinking: true });
       state.lastAssistantMessageId = "assistant-msg-1";
       state.toolUseIdToName.set("toolu_result", "bash");
       state.toolCallTimestamps.set("toolu_result", { startedAt: Date.now() });
       state.currentTurnToolUseIds.push("toolu_result");
-
-      // WHEN the tool result is handled, then the turn completes (draining it)
       handleToolResult(state, deps, {
         type: "tool_result",
         toolUseId: "toolu_result",
         content: "file1.txt\nfile2.txt",
         isError: false,
       });
+      // AND the tool result alone has not advanced the persisted seq
+      expect(getPersistedSeq(conversationId)).toBeNull();
+
+      // WHEN the call's content streams and the turn completes (draining it)
+      await dispatchAgentEvent(state, deps, {
+        type: "thinking_delta",
+        thinking: "The tool returned two files.",
+      } as Extract<AgentEvent, { type: "thinking_delta" }>);
       await handleMessageComplete(state, deps, {
         type: "message_complete",
-        message: { role: "assistant", content: [] },
+        message: {
+          role: "assistant",
+          content: [
+            { type: "thinking", thinking: "The tool returned two files." },
+          ],
+        },
       } as Extract<AgentEvent, { type: "message_complete" }>);
 
-      // THEN the persisted seq equals the streamed tool_result's seq
+      // THEN the persisted seq advances to the finalized content, which is
+      // stamped at or after the tool result, so it covers the drained row
       const toolResult = events.find((e) => e.type === "tool_result");
-      expect(toolResult).toBeDefined();
-      expect(getPersistedSeq(conversationId)).toBe(getCurrentSeq());
-      expect(getPersistedSeq(conversationId)).toBe(
-        (toolResult as unknown as AssistantEvent).seq ?? null,
+      const thinkingDelta = events.find(
+        (e) => e.type === "assistant_thinking_delta",
       );
+      const toolResultSeq = (toolResult as unknown as AssistantEvent).seq ?? 0;
+      const contentSeq = (thinkingDelta as unknown as AssistantEvent).seq ?? 0;
+      expect(getPersistedSeq(conversationId)).toBe(contentSeq);
+      expect(contentSeq).toBeGreaterThanOrEqual(toolResultSeq);
     });
 
     test("thinking that is not streamed leaves the persisted seq unset", async () => {
       /**
        * When streamThinking is off, no thinking_delta SSE event is emitted, so
-       * there is no stamped event to anchor a seq to. The turn must not invent
-       * a watermark from unrelated global stream position.
+       * nothing is mirrored and there is no stamped event to anchor a seq to.
+       * The turn must not invent a seq from unrelated global stream position.
        */
       // GIVEN a turn that does NOT stream thinking
       const { deps, events } = makeStampingDeps({ streamThinking: false });
@@ -487,7 +537,7 @@ describe("tool preview lifecycle", () => {
       expect(
         events.find((e) => e.type === "assistant_thinking_delta"),
       ).toBeUndefined();
-      expect(state.lastContentEventSeq).toBeUndefined();
+      expect(state.lastPersistedContentSeq).toBeUndefined();
       expect(getPersistedSeq(conversationId)).toBeNull();
     });
   });
