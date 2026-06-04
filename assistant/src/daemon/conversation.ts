@@ -819,6 +819,7 @@ export class Conversation {
     this.cesClient = undefined;
     this.activeContextNodeIds = this.graphMemory.tracker.getActiveNodeIds();
     this.graphMemory.persistState();
+    this.graphMemory.dispose();
     disposeConversation(this);
   }
 

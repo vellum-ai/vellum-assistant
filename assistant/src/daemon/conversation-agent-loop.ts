@@ -1935,7 +1935,6 @@ export async function runAgentLoopImpl(
           mode: currentInjectionMode,
           turnContext,
           history,
-          graphMemory: ctx.graphMemory,
           isTrustedActor,
           logger: rlog,
         });

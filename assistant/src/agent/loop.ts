@@ -388,12 +388,11 @@ export function isMaxTokensStopReason(
  * {@link AgentLoop.run}); this helper is the fallback used only by unit
  * tests that construct `AgentLoop` directly without an orchestrator.
  *
- * When the orchestrator-supplied context is present, {@link resolveLoopTurnContext}
- * is used instead of this helper so the pipeline sees the real
- * `conversationId`, trust, and `contextWindowManager`. In the fallback path
- * the returned context is still useful for pipeline logging: `requestId`
- * surfaces in every structured record, and `turnIndex` reflects the
- * current tool-use iteration.
+ * When the orchestrator-supplied context is present it is used directly so the
+ * pipeline sees the real `conversationId`, trust, and `contextWindowManager`.
+ * In the fallback path the returned context is still useful for pipeline
+ * logging: `requestId` surfaces in every structured record, and `turnIndex`
+ * reflects the current tool-use iteration.
  */
 function buildLoopTurnContext(
   requestId: string | undefined,
@@ -411,29 +410,6 @@ function buildLoopTurnContext(
       trustClass: "unknown",
     },
   };
-}
-
-/**
- * Produce a `TurnContext` for a pipeline call inside {@link AgentLoop.run}.
- *
- * When the orchestrator supplied a `turnContext`, clone it and overwrite
- * `requestId` + `turnIndex` with the loop-scoped values so plugin log
- * records correctly attribute the call to the current tool-use iteration
- * while preserving the real `conversationId`, trust context, and
- * `contextWindowManager` the orchestrator assembled for the turn. Without
- * an orchestrator context (unit tests that instantiate `AgentLoop` with no
- * `turnContext`), fall back to {@link buildLoopTurnContext}'s synthesized
- * placeholder.
- */
-function resolveLoopTurnContext(
-  base: TurnContext | undefined,
-  requestId: string | undefined,
-  turnIndex: number,
-): TurnContext {
-  if (base) {
-    return { ...base, requestId: requestId ?? base.requestId, turnIndex };
-  }
-  return buildLoopTurnContext(requestId, turnIndex);
 }
 
 /**
@@ -486,8 +462,9 @@ export interface ResolvedSystemPrompt {
  * bridges the injection state the loop is intentionally blind to. Durable
  * persistence is signalled out-of-band via the `history_stripped` (marker)
  * and `compaction_completed` (basis commit + successful summary) {@link
- * AgentEvent}s; re-injection ({@link reinject}) remains orchestrator-supplied
- * for now and is expected to move into the loop in a future change.
+ * AgentEvent}s; the {@link MidLoopCompaction.postCompactionHook} is
+ * orchestrator-supplied, and its inputs migrate loop-ward as the loop
+ * subsumes the re-injection ceremony.
  */
 export interface MidLoopCompaction {
   /**
@@ -728,11 +705,6 @@ export class AgentLoop {
    * Returns the history to continue from, or `null` when the compactor timed
    * out or exhausted its retry budget so the caller yields
    * `exitReason = "budget"` and the orchestrator escalates.
-   *
-   * `turnContext` is the per-turn conversation context: it drives the
-   * compaction pipeline call and circuit-breaker accounting, and is forwarded
-   * to the post-compaction hook so re-injection observes/logs against the
-   * conversation turn.
    */
   private async compact(
     history: Message[],
@@ -1096,17 +1068,12 @@ export class AgentLoop {
           signal,
         };
 
-        // Per-turn pipeline context. When the orchestrator threaded a full
-        // `turnContext` into `run()`, use it (overwriting `turnIndex` with
-        // the loop-scoped tool-use iteration) so middleware sees the real
-        // conversation identity, trust, and `contextWindowManager`. The
-        // synthesized fallback is only reached by standalone unit-test
-        // instantiations that never plumb a context through.
-        const turnCtx = resolveLoopTurnContext(
-          turnContext,
-          requestId,
-          toolUseTurns,
-        );
+        // Per-turn pipeline context. Real call sites thread a full
+        // `turnContext` into `run()` and it is used directly; standalone
+        // unit-test instantiations that never plumb a context through fall
+        // back to a synthesized placeholder scoped to the tool-use iteration.
+        const turnCtx =
+          turnContext ?? buildLoopTurnContext(requestId, toolUseTurns);
 
         // Announce the LLM-call boundary so downstream handlers (the
         // daemon's persistence pipeline) can reserve an empty assistant row
@@ -1589,7 +1556,7 @@ export class AgentLoop {
               );
               const compacted = await this.compact(
                 history,
-                turnContext ?? turnCtx,
+                turnCtx,
                 compaction,
                 signal,
                 onEvent,

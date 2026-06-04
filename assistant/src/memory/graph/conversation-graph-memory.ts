@@ -63,6 +63,31 @@ const ESTIMATED_IMAGE_TOKENS = 1000;
 // ---------------------------------------------------------------------------
 
 /**
+ * Registry of the live, per-conversation graph handles keyed by conversation
+ * id. A handle registers itself on construction and removes itself on
+ * {@link ConversationGraphMemory.dispose}, so memory-domain code that only
+ * knows a conversation id (e.g. the post-compaction re-injection hook) can
+ * reach the same in-memory handle the turn's retrieval used — its live
+ * `tracker` / cached-node state, which a DB-reconstructed handle would not
+ * carry. Not a general service locator: it holds only the graph handle, and
+ * the daemon's `Conversation` remains the owner of the instance's lifecycle.
+ */
+const liveByConversation = new Map<string, ConversationGraphMemory>();
+
+/**
+ * Look up the live {@link ConversationGraphMemory} for a conversation, or
+ * `undefined` when none is registered (no active conversation, or a context
+ * with no conversation id). Returns the same instance the turn's retrieval
+ * mutated, so cached-node re-tracking operates on real state.
+ */
+export function getLiveGraphMemory(
+  conversationId: string | undefined,
+): ConversationGraphMemory | undefined {
+  if (!conversationId) return undefined;
+  return liveByConversation.get(conversationId);
+}
+
+/**
  * Manages memory graph state for a single conversation.
  * Create one per Conversation instance. Persists across turns.
  */
@@ -78,6 +103,19 @@ export class ConversationGraphMemory {
 
   constructor(conversationId: string) {
     this.conversationId = conversationId;
+    liveByConversation.set(conversationId, this);
+  }
+
+  /**
+   * Remove this handle from the live registry. Called from
+   * `Conversation.dispose`. Guards against clobbering a newer handle for the
+   * same conversation (eviction + recreation) by only deleting the entry when
+   * it still points at this instance.
+   */
+  dispose(): void {
+    if (liveByConversation.get(this.conversationId) === this) {
+      liveByConversation.delete(this.conversationId);
+    }
   }
 
   /**
