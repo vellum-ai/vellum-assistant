@@ -491,6 +491,43 @@ describe("AcpSessionManager — idle keep-alive lifecycle", () => {
     // Completed history row was not clobbered to 'cancelled'.
     expect(readStatus(id)).toBe("completed");
   });
+
+  test("a prompt that resolves with stopReason 'cancelled' while still running is persisted as cancelled and torn down (NOT left idle/reusable)", async () => {
+    const id = "idle-cancel-race";
+    const { manager, fakeProcess, resolvePrompt } = buildIdleSession({
+      id,
+      // Small timeout so a leaked idle timer would fire against a dangling
+      // entry — teardown must clear it.
+      idleTimeoutMs: 10,
+      parentConversationId: "conv-cancel-race",
+    });
+
+    // The session is still `running` (no explicit cancel() flipped the status).
+    expect((manager.getStatus(id) as { status: string }).status).toBe(
+      "running",
+    );
+
+    // The adapter fulfills prompt() with a `cancelled` stop reason BEFORE any
+    // cancel() RPC set state.status — the race the fix closes. This must be
+    // treated as a cancellation, not a clean completion.
+    resolvePrompt({ stopReason: "cancelled" });
+    await flush();
+
+    // Torn down: process killed and removed from the map (NOT kept idle).
+    expect(fakeProcess.killed).toBe(true);
+    expect(() => manager.getStatus(id)).toThrow();
+
+    // Persisted as cancelled (NOT completed), carrying the cancelled stopReason.
+    const rows = readTurnRows(id);
+    expect(rows.map((r) => r.id)).toEqual([id]);
+    expect(rows[0]!.status).toBe("cancelled");
+    expect(rows[0]!.stopReason).toBe("cancelled");
+
+    // The idle timer was never armed (cancellation is not the idle path): even
+    // after the timeout elapses, nothing fires against a dangling entry.
+    await new Promise((r) => setTimeout(r, 40));
+    expect(() => manager.getStatus(id)).toThrow();
+  });
 });
 
 describe("AcpSessionManager — idle sessions don't wedge the spawn limit", () => {

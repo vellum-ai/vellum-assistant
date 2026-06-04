@@ -771,21 +771,22 @@ export class AcpSessionManager {
       .prompt(acpProtocolSessionId, message)
       .then((response) => {
         const current = this.sessions.get(acpSessionId);
-        // Only mutate state if the session still exists, this is still the
-        // current prompt (not stale from a previous steer), and the status
-        // hasn't been set to "cancelled" already.
+        // Only act if the session still exists and this is still the current
+        // prompt (not stale from a previous steer); teardown removes the entry,
+        // so a concurrent abort path won't re-run this handler.
         if (current && current.currentPrompt === promptPromise) {
-          // A concurrent cancel()/close() may have flipped the status to a
-          // terminal state. Only `cancelled` here means the prompt was
-          // explicitly aborted — preserve it and tear down (the abort path
-          // owns persistence). Otherwise the task finished cleanly: persist
-          // a terminal history row but keep the session alive as `idle` so a
-          // follow-up prompt can reuse the same process and context.
-          const wasCancelled = current.state.status === "cancelled";
-          if (!wasCancelled) {
-            current.state.completedAt = Date.now();
-            current.state.stopReason = response.stopReason;
-          }
+          // The prompt counts as cancelled if either a concurrent
+          // cancel()/close() already flipped the status to `cancelled`, or the
+          // adapter resolved with a `cancelled` stop reason — the latter can
+          // win the race before cancel() sets the status, so checking only the
+          // status would mis-persist a cancelled prompt as `completed` and
+          // wrongly keep the session alive as a reusable `idle`. Either way the
+          // prompt was aborted: persist a cancelled row and tear down. A clean
+          // completion instead keeps the session alive as `idle` so a follow-up
+          // prompt can reuse the same process and context.
+          const wasCancelled =
+            current.state.status === "cancelled" ||
+            response.stopReason === "cancelled";
           current.currentPrompt = null;
           log.info(
             { acpSessionId, stopReason: response.stopReason },
@@ -798,11 +799,21 @@ export class AcpSessionManager {
           });
 
           if (wasCancelled) {
+            // Mark the state cancelled (idempotent if cancel() already did) so
+            // the persisted row reflects the cancellation even when the
+            // stopReason-race beat cancel() to it. Match how cancel() records a
+            // cancelled terminal row (status + completedAt), plus the
+            // stopReason the adapter reported.
+            current.state.status = "cancelled";
+            current.state.completedAt ??= Date.now();
+            current.state.stopReason = response.stopReason;
             // Persist the cancelled terminal row + buffered event log, then
             // tear the session down (cancel is not a reuse path).
             this.persistTerminal(acpSessionId, current);
             this.teardownSession(acpSessionId, current);
           } else {
+            current.state.completedAt = Date.now();
+            current.state.stopReason = response.stopReason;
             // Persist the completed task to history (the durable record),
             // then transition to `idle` and arm the reaper. The process and
             // ACP session stay alive for a follow-up `steer()`.
