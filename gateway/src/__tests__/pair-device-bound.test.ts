@@ -201,4 +201,25 @@ describe("/v1/pair cli interface", () => {
     expect(res.status).toBe(403);
     expect(activeTokens()).toHaveLength(0);
   });
+
+  test("rejects a cli request carrying an Origin header (WebView exfiltration vector)", async () => {
+    // A browser/WebView page (e.g. a dynamic surface at *.vellum.local) always
+    // sends an Origin; a real `vellum pair` never does. Such a request would
+    // otherwise pass the loopback guards (it runs on the same machine) and mint
+    // a broadly-scoped token the page could read back via the WebView CORS
+    // allowance — so it must be refused, minting nothing.
+    const req = new Request("http://localhost:7830/v1/pair", {
+      method: "POST",
+      headers: {
+        host: "localhost:7830",
+        "content-type": "application/json",
+        "x-vellum-interface-id": "cli",
+        origin: "https://app.vellum.local",
+      },
+      body: JSON.stringify({ deviceId: "device-cli", platform: "webview" }),
+    });
+    const res = await handlePair(req, LOOPBACK_IP);
+    expect(res.status).toBe(403);
+    expect(activeTokens()).toHaveLength(0);
+  });
 });
