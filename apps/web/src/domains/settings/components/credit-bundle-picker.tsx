@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Typography } from "@vellum/design-library/components/typography";
 import type { CreditTier, CreditTierEnum } from "@/generated/api/types.gen";
+import { formatDelta, formatMonthly } from "./tier-pricing";
 
 /**
  * Sentinel option value for the synthesized "No credit bundle" entry. The
@@ -14,23 +15,6 @@ import type { CreditTier, CreditTierEnum } from "@/generated/api/types.gen";
 const NO_BUNDLE_VALUE = "__none__";
 
 type CreditOptionValue = CreditTierEnum | typeof NO_BUNDLE_VALUE;
-
-/** "$50/mo" for whole-dollar tiers; "$50.50/mo" only when cents are present. */
-function formatMonthly(totalCents: number): string {
-  const dollars = totalCents / 100;
-  return Number.isInteger(dollars)
-    ? `$${dollars}/mo`
-    : `$${dollars.toFixed(2)}/mo`;
-}
-
-function formatDelta(deltaCents: number): string {
-  const prefix = deltaCents > 0 ? "+" : "−";
-  const absDollars = Math.abs(deltaCents) / 100;
-  const formatted = Number.isInteger(absDollars)
-    ? `$${absDollars}`
-    : `$${absDollars.toFixed(2)}`;
-  return `${prefix}${formatted}/mo`;
-}
 
 /** "50 credits — $50/mo" for a catalog tier. */
 export function formatBundleOptionLabel(tier: CreditTier): string {

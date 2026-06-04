@@ -115,21 +115,35 @@ export function resolveTierSelection<T extends string>(
  * `resolveTierSelection` but for credit bundles, which have no disabled state
  * and where both `null` ("No bundle") and a catalog tier are valid selections.
  *
- * `prev` carries the sentinel meaning: `undefined` is un-seeded (the effect has
- * not yet seeded a value), so we seed to `current`. A non-undefined `prev`
- * (including an explicit `null` for "No bundle") is the user's standing choice
- * and must be preserved — we keep it, only revalidating a concrete tier against
- * the catalog so a refetch that removes the selected bundle falls back to
- * "No bundle" rather than leaving a stale tier the CTA would submit.
+ * `prev` carries the sentinel meaning:
+ *   - `undefined` is un-seeded (the effect has not yet seeded a value), so we
+ *     seed to `current`. The seed is preserved verbatim — including a non-null
+ *     current tier that the live catalog does not (yet) advertise (e.g. a
+ *     deprecated tier the user still holds). Coercing such a tier to `null`
+ *     would make `creditChanged` read true purely from opening the modal and
+ *     silently submit `credit_tier: null`, removing a paid bundle the user
+ *     never touched. Preserving it keeps `creditChanged` false until the user
+ *     actively changes the selection.
+ *   - a non-undefined `prev` (including an explicit `null` for "No bundle") is
+ *     the user's standing choice and must be preserved — we keep it, only
+ *     revalidating a concrete tier against the catalog so a mid-modal refetch
+ *     that removes the selected bundle falls back to "No bundle" rather than
+ *     leaving a stale tier the CTA would submit.
  */
 export function resolveCreditTierSelection(
   tiers: CreditTier[],
   prev: CreditTierEnum | null | undefined,
   current: CreditTierEnum | null,
 ): CreditTierEnum | null {
-  const seeded = prev === undefined ? current : prev;
-  if (seeded !== null && tiers.some((t) => t.tier === seeded)) {
-    return seeded;
+  // Seeding (un-seeded `prev`): preserve the current bundle as-is so a tier
+  // absent from the catalog is not coerced into a spurious "remove bundle".
+  if (prev === undefined) {
+    return current;
+  }
+  // Standing user choice: revalidate a concrete tier against the catalog so a
+  // refetch that drops it falls back to "No bundle".
+  if (prev !== null && tiers.some((t) => t.tier === prev)) {
+    return prev;
   }
   return null;
 }

@@ -12,6 +12,7 @@ import { Typography } from "@vellum/design-library/components/typography";
 import type { ProPlan } from "@/generated/api/types.gen";
 import { InvoicesModal } from "./invoices-modal";
 import { PlanFeatureList } from "./plan-feature-list";
+import { formatMonthly } from "./tier-pricing";
 import {
   organizationsBillingPlansRetrieveOptions,
   organizationsBillingSubscriptionRetrieveOptions,
@@ -131,7 +132,7 @@ export function PlanCard({ onManage }: PlanCardProps) {
     selectedCreditTier != null ? proPlan?.credit_tiers : undefined;
   const creditTier = creditTiers?.find((t) => t.tier === selectedCreditTier);
   const creditBundleLabel = creditTier
-    ? `${creditTier.label} ($${Math.round(creditTier.price_cents / 100)}/mo)`
+    ? `${creditTier.label} (${formatMonthly(creditTier.price_cents)})`
     : creditTiers?.length
       ? selectedCreditTier
       : null;

@@ -361,6 +361,33 @@ describe("AdjustPlanModal credit bundle — unseeded sentinel", () => {
     expect(changeCreditTierCall).toBeNull();
   });
 
+  test("a current bundle absent from the catalog does not enable a spurious removal", async () => {
+    // A Pro user holds a deprecated tier (`credits_legacy`) that the live
+    // catalog no longer advertises. Opening the modal must NOT coerce that into
+    // a "remove bundle" pending change: the Update Plan CTA stays disabled and
+    // clicking it submits no credit mutation (which would have sent
+    // `credit_tier: null`, silently dropping the user's paid bundle).
+    const { getByTestId } = renderModal(
+      subscription("pro", "credits_legacy"),
+      proPlansResponse(CREDIT_TIERS),
+    );
+
+    await waitFor(() => {
+      const trigger = document.querySelector(
+        'button[role="combobox"][aria-label="Credit bundle"]',
+      );
+      if (!trigger) throw new Error("picker not rendered yet");
+    });
+
+    const button = getByTestId("modal-change-tier-button") as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+
+    fireEvent.click(button);
+    // Give any (erroneous) mutation a tick to fire.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(changeCreditTierCall).toBeNull();
+  });
+
   test("preserves an explicit 'No bundle' choice across a plans refetch", async () => {
     // Pro user with credits_50 picks "No credit bundle" (selection becomes
     // null). A subsequent plans refetch re-runs the seeding effect; the explicit
