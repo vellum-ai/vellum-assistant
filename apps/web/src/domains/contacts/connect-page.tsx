@@ -3,14 +3,14 @@ import { AlertTriangle, Link2, Loader2 } from "lucide-react";
 import { useCallback, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Card } from "@vellum/design-library/components/card";
-import { toast } from "@vellum/design-library/components/toast";
-import { Typography } from "@vellum/design-library/components/typography";
+import { Button } from "@vellumai/design-library/components/button";
+import { Card } from "@vellumai/design-library/components/card";
+import { toast } from "@vellumai/design-library/components/toast";
+import { Typography } from "@vellumai/design-library/components/typography";
 
+import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { parseA2AInviteParams } from "@/domains/contacts/a2a-invite";
 import { redeemA2AInvite } from "@/domains/contacts/contacts-gateway";
-import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { routes } from "@/utils/routes";
 
 function isContactsGetKey(queryKey: readonly unknown[]): boolean {

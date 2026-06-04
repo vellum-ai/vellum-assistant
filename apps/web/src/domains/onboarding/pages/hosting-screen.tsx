@@ -2,13 +2,13 @@ import { Cloud, Laptop, Package } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { useNavigate } from "react-router";
 
-import { Button } from "@vellum/design-library/components/button";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { setPendingProviderKey } from "@/domains/onboarding/provider-key";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import { useHasPlatformSession } from "@/stores/auth-store";
 import { docsUrl, routes } from "@/utils/routes";
+import { Button } from "@vellumai/design-library/components/button";
 
 type HostingMode = "vellum-cloud" | "local" | "docker";
 

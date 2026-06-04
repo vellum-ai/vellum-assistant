@@ -1,12 +1,12 @@
 import { useEffect, useMemo } from "react";
 
-import { Dropdown } from "@vellum/design-library/components/dropdown";
-import { Typography } from "@vellum/design-library/components/typography";
+import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Typography } from "@vellumai/design-library/components/typography";
 
 import {
-  getModelsForProvider,
-  MODELS_BY_PROVIDER,
-  PROVIDER_DISPLAY_NAMES as INFERENCE_PROVIDER_DISPLAY_NAMES,
+    getModelsForProvider,
+    PROVIDER_DISPLAY_NAMES as INFERENCE_PROVIDER_DISPLAY_NAMES,
+    MODELS_BY_PROVIDER,
 } from "@/assistant/llm-model-catalog";
 
 import { OPENAI_COMPATIBLE_PROVIDER } from "@/domains/settings/ai/ai-types";

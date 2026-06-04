@@ -1,19 +1,19 @@
-import { Tooltip } from "@vellum/design-library";
+import { Tooltip } from "@vellumai/design-library";
 import {
-  CheckCircle2,
-  ExternalLink,
-  Info,
-  Loader2,
-  X,
-  XCircle,
+    CheckCircle2,
+    ExternalLink,
+    Info,
+    Loader2,
+    X,
+    XCircle,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { IntegrationIcon } from "@/components/integrations/integration-icon";
 import {
-  defaultManagedOAuthConnectClient,
-  type ManagedOAuthConnectClient,
-  type ManagedOAuthProviderSummary,
+    defaultManagedOAuthConnectClient,
+    type ManagedOAuthConnectClient,
+    type ManagedOAuthProviderSummary,
 } from "@/domains/chat/api/managed-oauth";
 import type { Surface } from "@/domains/chat/types/types";
 

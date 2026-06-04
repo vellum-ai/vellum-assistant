@@ -16,15 +16,15 @@ import { useCallback, useMemo } from "react";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { toast } from "@vellum/design-library/components/toast";
+import type { CallSiteOverrideDraft, DaemonConfig, DaemonConfigPatch, ProfileEntry } from "@/domains/settings/ai/ai-types";
+import { applyConfigPatch, assertProvisionSuccess, buildOrderedProfiles, snapshotPatchedFields } from "@/domains/settings/ai/ai-utils";
 import {
-  assistantsListOptions,
+    assistantsListOptions,
 } from "@/generated/api/@tanstack/react-query.gen";
 import { configGet, configPatch, secretsPost } from "@/generated/daemon/sdk.gen";
 import { captureError } from "@/lib/sentry/capture-error";
 import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
-import { applyConfigPatch, assertProvisionSuccess, buildOrderedProfiles, snapshotPatchedFields } from "@/domains/settings/ai/ai-utils";
-import type { CallSiteOverrideDraft, DaemonConfig, DaemonConfigPatch, ProfileEntry } from "@/domains/settings/ai/ai-types";
+import { toast } from "@vellumai/design-library/components/toast";
 
 // ---------------------------------------------------------------------------
 // useAssistantId — shared assistant ID + lazy resolver

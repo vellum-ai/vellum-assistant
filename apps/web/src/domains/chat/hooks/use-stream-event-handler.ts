@@ -389,6 +389,11 @@ export function useStreamEventHandler(
         case "document_comment_deleted":
         case "interaction_resolved":
           break;
+        // Diagnostic timeline events. The logs domain fetches these from
+        // the daemon's trace-events endpoint on demand; the chat stream
+        // handler ignores them.
+        case "trace_event":
+          break;
         case "unknown":
           break;
         default: {

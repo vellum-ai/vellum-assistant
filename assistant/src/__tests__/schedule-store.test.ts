@@ -179,6 +179,47 @@ describe("createSchedule (cron)", () => {
     expect(retrieved!.cronExpression).toBe("0 * * * *");
   });
 
+  test("defaults source conversation metadata to null", () => {
+    const job = createSchedule({
+      name: "No source conversation",
+      cronExpression: "0 9 * * *",
+      message: "daily check",
+      syntax: "cron",
+    });
+
+    expect(job.createdFromConversationId).toBeNull();
+    expect(getSchedule(job.id)!.createdFromConversationId).toBeNull();
+
+    const raw = getRawDb()
+      .query("SELECT created_from_conversation_id FROM cron_jobs WHERE id = ?")
+      .get(job.id) as { created_from_conversation_id: string | null };
+    expect(raw.created_from_conversation_id).toBeNull();
+  });
+
+  test("persists source conversation metadata through create, list, and update", () => {
+    const job = createSchedule({
+      name: "With source conversation",
+      cronExpression: "0 9 * * *",
+      message: "daily check",
+      syntax: "cron",
+      createdFromConversationId: "conv-source",
+    });
+
+    expect(job.createdFromConversationId).toBe("conv-source");
+    expect(getSchedule(job.id)!.createdFromConversationId).toBe("conv-source");
+    expect(listSchedules()[0].createdFromConversationId).toBe("conv-source");
+
+    const updated = updateSchedule(job.id, {
+      createdFromConversationId: "conv-updated",
+    });
+    expect(updated!.createdFromConversationId).toBe("conv-updated");
+
+    const cleared = updateSchedule(job.id, {
+      createdFromConversationId: null,
+    });
+    expect(cleared!.createdFromConversationId).toBeNull();
+  });
+
   test("stores schedule_syntax in the DB row", () => {
     const job = createSchedule({
       name: "Syntax check",

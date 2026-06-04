@@ -1,8 +1,8 @@
 import { LayoutGrid } from "lucide-react";
 
-import { Button } from "@vellum/design-library";
 import { resolveCategoryIcon } from "@/domains/intelligence/skills/category-icon-map";
 import type { CategoryInfo } from "@/domains/intelligence/skills/use-skill-categories";
+import { Button } from "@vellumai/design-library";
 
 interface CategorySidebarProps {
   selected: string | null;

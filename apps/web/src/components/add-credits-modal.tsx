@@ -1,18 +1,18 @@
 
 import { AlertCircle, CreditCard, Loader2 } from "lucide-react";
-import { Link, useLocation, useSearchParams } from "react-router";
 import { useEffect, useState } from "react";
+import { Link, useLocation, useSearchParams } from "react-router";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Dropdown } from "@vellum/design-library/components/dropdown";
-import { Modal } from "@vellum/design-library/components/modal";
-import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
 import {
-  organizationsBillingSummaryRetrieveOptions,
-  organizationsBillingTopUpsCheckoutSessionCreateMutation,
+    organizationsBillingSummaryRetrieveOptions,
+    organizationsBillingTopUpsCheckoutSessionCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
+import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
+import { Button } from "@vellumai/design-library/components/button";
+import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Modal } from "@vellumai/design-library/components/modal";
 
 const DEFAULT_TOP_UP_AMOUNTS: [string, ...string[]] = [
   "10.00", "20.00", "30.00", "40.00", "50.00",

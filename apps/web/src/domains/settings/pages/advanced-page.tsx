@@ -1,8 +1,8 @@
-import { Notice } from "@vellum/design-library/components/notice";
 import { DetailCard } from "@/components/detail-card";
-import { UpdateWindowPolicy } from "@/domains/settings/components/update-window-policy";
 import { useAssistantWithHealthz } from "@/domains/settings/components/assistant-status-panel";
+import { UpdateWindowPolicy } from "@/domains/settings/components/update-window-policy";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
+import { Notice } from "@vellumai/design-library/components/notice";
 
 export function AdvancedPage() {
   const { assistant } = useAssistantWithHealthz();

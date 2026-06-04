@@ -3,9 +3,8 @@ import type { FC, KeyboardEvent, MouseEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { Button } from "@vellum/design-library";
-import { Typography } from "@vellum/design-library";
 import { attachmentsByIdContentGet } from "@/generated/daemon/sdk.gen";
+import { Button, Typography } from "@vellumai/design-library";
 
 import { PdfPreview } from "@/domains/chat/components/chat-attachments/pdf-preview";
 import { TextPreview } from "@/domains/chat/components/chat-attachments/text-preview";

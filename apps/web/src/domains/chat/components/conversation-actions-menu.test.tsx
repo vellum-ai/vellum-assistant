@@ -14,7 +14,7 @@
  * surfaces.
  */
 
-import { describe, expect, mock, test, beforeEach } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -53,7 +53,7 @@ const mockSubTrigger = ({ children, leftIcon, ...rest }: Record<string, unknown>
 const mockTrigger = ({ children }: Record<string, unknown>) =>
   createElement("div", { "data-testid": "trigger" }, children as ReactNode);
 
-mock.module("@vellum/design-library", () => {
+mock.module("@vellumai/design-library", () => {
   const MenuMock = {
     Root: passthrough,
     Trigger: mockTrigger,
@@ -93,12 +93,12 @@ mock.module("@vellum/design-library", () => {
   };
 });
 
-import { Menu } from "@vellum/design-library";
 import {
-  ConversationActionsMenu,
-  renderConversationMenuItems,
-  type ConversationMenuPrimitive,
+    ConversationActionsMenu,
+    renderConversationMenuItems,
+    type ConversationMenuPrimitive,
 } from "@/domains/chat/components/conversation-actions-menu";
+import { Menu } from "@vellumai/design-library";
 
 beforeEach(() => {
   mockIsMobile = false;

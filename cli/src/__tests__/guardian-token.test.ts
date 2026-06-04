@@ -1,11 +1,20 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import {
   getOrCreatePersistedDeviceId,
   loadGuardianToken,
+  refreshGuardianToken,
   saveGuardianToken,
   seedGuardianTokenFromSiblingEnv,
   type GuardianTokenData,
@@ -221,5 +230,120 @@ describe("guardian-token paths are env-scoped", () => {
     expect(loadGuardianToken("alpha")!.guardianPrincipalId).toBe(
       "principal-local",
     );
+  });
+});
+
+describe("refreshGuardianToken", () => {
+  let tempHome: string;
+  let savedXdg: string | undefined;
+  let savedEnv: string | undefined;
+  const ORIGINAL_FETCH = globalThis.fetch;
+
+  const future = () => new Date(Date.now() + 60 * 60 * 1000).toISOString();
+
+  function lockPath(id: string): string {
+    return join(tempHome, "vellum", "assistants", id, "refresh.lock");
+  }
+
+  function seed(refreshExpiresAt: string | number): void {
+    saveGuardianToken("px", {
+      guardianPrincipalId: "imported",
+      accessToken: "old-acc",
+      accessTokenExpiresAt: future(),
+      refreshToken: "old-ref",
+      refreshTokenExpiresAt: refreshExpiresAt,
+      refreshAfter: "",
+      isNew: false,
+      deviceId: "dev",
+      leasedAt: new Date().toISOString(),
+    });
+  }
+
+  beforeEach(() => {
+    savedXdg = process.env.XDG_CONFIG_HOME;
+    savedEnv = process.env.VELLUM_ENVIRONMENT;
+    tempHome = mkdtempSync(join(tmpdir(), "cli-refresh-test-"));
+    process.env.XDG_CONFIG_HOME = tempHome;
+    delete process.env.VELLUM_ENVIRONMENT;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = ORIGINAL_FETCH;
+    if (savedXdg === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = savedXdg;
+    if (savedEnv === undefined) delete process.env.VELLUM_ENVIRONMENT;
+    else process.env.VELLUM_ENVIRONMENT = savedEnv;
+    rmSync(tempHome, { recursive: true, force: true });
+  });
+
+  test("refreshes, persists the rotated token, sends an abort signal, releases the lock", async () => {
+    seed(future());
+    let sawSignal = false;
+    globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+      sawSignal = init?.signal instanceof AbortSignal;
+      return new Response(
+        JSON.stringify({
+          accessToken: "new-acc",
+          refreshToken: "new-ref",
+          accessTokenExpiresAt: future(),
+          refreshTokenExpiresAt: future(),
+          refreshAfter: "",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    const result = await refreshGuardianToken("http://10.0.0.9:7830", "px");
+
+    expect(result?.accessToken).toBe("new-acc");
+    expect(loadGuardianToken("px")?.accessToken).toBe("new-acc");
+    expect(sawSignal).toBe(true); // fetch carries a timeout AbortSignal
+    expect(existsSync(lockPath("px"))).toBe(false); // lock released
+  });
+
+  test("returns null without calling the gateway when the refresh token is expired", async () => {
+    seed(new Date(Date.now() - 1000).toISOString());
+    let called = false;
+    globalThis.fetch = (async (_url: unknown, _init?: RequestInit) => {
+      called = true;
+      return new Response("", { status: 200 });
+    }) as typeof fetch;
+
+    expect(await refreshGuardianToken("http://10.0.0.9:7830", "px")).toBeNull();
+    expect(called).toBe(false);
+  });
+
+  test("returns null when there is no stored token", async () => {
+    let called = false;
+    globalThis.fetch = (async (_url: unknown, _init?: RequestInit) => {
+      called = true;
+      return new Response("", { status: 200 });
+    }) as typeof fetch;
+
+    expect(
+      await refreshGuardianToken("http://10.0.0.9:7830", "missing"),
+    ).toBeNull();
+    expect(called).toBe(false);
+  });
+
+  test("steals a stale lock and still refreshes", async () => {
+    seed(future());
+    // Pre-create a stale lock (mtime well in the past) as if a crashed holder
+    // left it behind; the refresh must steal it rather than block.
+    const lp = lockPath("px");
+    mkdirSync(dirname(lp), { recursive: true });
+    writeFileSync(lp, "99999");
+    const old = new Date(Date.now() - 60_000);
+    utimesSync(lp, old, old);
+
+    globalThis.fetch = (async (_url: unknown, _init?: RequestInit) =>
+      new Response(JSON.stringify({ accessToken: "new-acc" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })) as typeof fetch;
+
+    const result = await refreshGuardianToken("http://10.0.0.9:7830", "px");
+    expect(result?.accessToken).toBe("new-acc");
+    expect(existsSync(lp)).toBe(false); // stolen lock cleaned up after release
   });
 });

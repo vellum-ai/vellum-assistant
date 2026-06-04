@@ -1,39 +1,39 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { Button } from "@vellum/design-library/components/button";
-import { Dropdown } from "@vellum/design-library/components/dropdown";
-import { Input } from "@vellum/design-library/components/input";
-import { Modal } from "@vellum/design-library/components/modal";
-import { Typography } from "@vellum/design-library/components/typography";
+import { Button } from "@vellumai/design-library/components/button";
+import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Input } from "@vellumai/design-library/components/input";
+import { Modal } from "@vellumai/design-library/components/modal";
+import { Typography } from "@vellumai/design-library/components/typography";
 
-import {
-  inferenceProviderconnectionsByNamePatch,
-  secretsPost,
-} from "@/generated/daemon/sdk.gen";
 import { useStoredCredentialPresence } from "@/domains/settings/ai/use-stored-credential-presence";
+import {
+    inferenceProviderconnectionsByNamePatch,
+    secretsPost,
+} from "@/generated/daemon/sdk.gen";
 
+import { providerSupportsPlatformAuth } from "@/assistant/llm-model-catalog";
 import { ChatgptOAuthSection } from "@/domains/settings/ai/chatgpt-oauth-section";
-import { ProviderCreateForm } from "@/domains/settings/ai/provider-create-form";
 import {
-  type Auth,
-  type ConnectionProvider,
-  PROVIDER_DISPLAY_NAMES,
-  type ProviderConnection,
-  type UpdateConnectionInput,
+    type Auth,
+    type ConnectionProvider,
+    PROVIDER_DISPLAY_NAMES,
+    type ProviderConnection,
+    type UpdateConnectionInput,
 } from "@/domains/settings/ai/provider-connections-client";
-import {
-  type AuthType,
-  AUTH_TYPE_DISPLAY_NAMES,
-  CONNECTION_PROVIDERS,
-  connectionSaveErrorMessage,
-  parseCredentialRef,
-} from "@/domains/settings/ai/provider-editor-constants";
+import { ProviderCreateForm } from "@/domains/settings/ai/provider-create-form";
 import { ProviderEditorApiKeySection } from "@/domains/settings/ai/provider-editor-api-key-section";
+import {
+    AUTH_TYPE_DISPLAY_NAMES,
+    type AuthType,
+    CONNECTION_PROVIDERS,
+    connectionSaveErrorMessage,
+    parseCredentialRef,
+} from "@/domains/settings/ai/provider-editor-constants";
 import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
 import { useLabelKeySync } from "@/domains/settings/ai/use-label-key-sync";
 import { useProviderCredentialsList } from "@/domains/settings/ai/use-provider-credentials-list";
-import { providerSupportsPlatformAuth } from "@/assistant/llm-model-catalog";
 
 // NOTE: The set of providers that support `platform` auth is sourced from
 // the catalog via `providerSupportsPlatformAuth()` — it's derived from the

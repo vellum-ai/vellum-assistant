@@ -9,6 +9,13 @@ import type {
 import { APP_VERSION } from "../version.js";
 import { getDb } from "./db-connection.js";
 import { rawAll } from "./raw-query.js";
+import {
+  buildScheduleAttributionSubquery,
+  buildScheduleRunWindowExists,
+  normalizeScheduleAttributionFilter,
+  type ScheduleAttributionFilter,
+  type ScheduleAttributionSqlParam,
+} from "./schedule-attribution-sql.js";
 import { conversations, llmUsageEvents } from "./schema.js";
 import {
   bucketEventsByDay,
@@ -282,6 +289,8 @@ export interface UsageTimeRange {
   to: number;
 }
 
+export type UsageAggregationFilter = ScheduleAttributionFilter;
+
 /** Aggregate totals across a time range. */
 export interface UsageTotals {
   /** Direct input tokens only; cache traffic is reported separately below. */
@@ -332,14 +341,15 @@ export interface UsageGroupBreakdown {
   /**
    * Stable identifier for the group. Populated with the conversation id when
    * `groupBy === "conversation"` (and `null` for that mode's "Other" bucket,
-   * which aggregates events with no conversation id). For all other group-bys
-   * this is always `null`.
+   * which aggregates events with no conversation id) or with the schedule id
+   * when `groupBy === "schedule"` (and `null` for "Other"). For all other
+   * group-bys this is always `null`.
    */
   groupId: string | null;
   /**
    * Raw stored grouping value for dimensions whose display label may differ
-   * from storage (`call_site`, `inference_profile`). Omitted for legacy
-   * dimensions where `group` is already the raw value.
+   * from storage (`call_site`, `inference_profile`, `schedule`). Omitted for
+   * legacy dimensions where `group` is already the raw value.
    */
   groupKey?: string | null;
   /** Direct input tokens only; cache traffic is reported separately below. */
@@ -367,12 +377,46 @@ interface TotalsRow {
 interface GroupRow {
   group_key: string | null;
   group_id: string | null;
+  group_label: string | null;
   total_input_tokens: number;
   total_output_tokens: number;
   total_cache_creation_tokens: number;
   total_cache_read_tokens: number;
   total_estimated_cost_usd: number | null;
   event_count: number;
+}
+
+type UsageQueryParam = ScheduleAttributionSqlParam;
+
+function normalizeUsageAggregationFilter(
+  filter?: UsageAggregationFilter,
+): UsageAggregationFilter {
+  return normalizeScheduleAttributionFilter(filter);
+}
+
+function buildUsageAggregationWhere(
+  range: UsageTimeRange,
+  filter?: UsageAggregationFilter,
+  eventAlias?: string,
+  now: number = Date.now(),
+): { sql: string; params: UsageQueryParam[] } {
+  const normalized = normalizeUsageAggregationFilter(filter);
+  const eventTable = eventAlias ?? "llm_usage_events";
+  const createdAt = `${eventTable}.created_at`;
+  const clauses = [`${createdAt} >= ? AND ${createdAt} <= ?`];
+  const params: UsageQueryParam[] = [range.from, range.to];
+
+  if (normalized.scheduleId) {
+    const exists = buildScheduleRunWindowExists({
+      eventAlias: eventTable,
+      filter: normalized,
+      now,
+    });
+    clauses.push(exists.sql);
+    params.push(...exists.params);
+  }
+
+  return { sql: clauses.join(" AND "), params };
 }
 
 /**
@@ -406,10 +450,38 @@ export function getConversationUsageTotals(conversationId: string): {
   };
 }
 
+export function getUsageCostForConversationWindow({
+  conversationId,
+  from,
+  to,
+}: {
+  conversationId: string;
+  from: number;
+  to: number;
+}): number {
+  const rows = rawAll<{ total_cost: number | null }>(
+    /*sql*/ `
+    SELECT COALESCE(SUM(estimated_cost_usd), 0) AS total_cost
+    FROM llm_usage_events
+    WHERE conversation_id = ?1
+      AND created_at >= ?2
+      AND created_at <= ?3
+    `,
+    conversationId,
+    from,
+    to,
+  );
+  return rows[0]?.total_cost ?? 0;
+}
+
 /**
  * Return aggregate totals for all usage events within the given time range.
  */
-export function getUsageTotals(range: UsageTimeRange): UsageTotals {
+export function getUsageTotals(
+  range: UsageTimeRange,
+  filter?: UsageAggregationFilter,
+): UsageTotals {
+  const where = buildUsageAggregationWhere(range, filter);
   const rows = rawAll<TotalsRow>(
     /*sql*/ `
     SELECT
@@ -422,10 +494,9 @@ export function getUsageTotals(range: UsageTimeRange): UsageTotals {
       COUNT(CASE WHEN pricing_status = 'priced' THEN 1 END)       AS priced_event_count,
       COUNT(CASE WHEN pricing_status = 'unpriced' THEN 1 END)     AS unpriced_event_count
     FROM llm_usage_events
-    WHERE created_at >= ?1 AND created_at <= ?2
+    WHERE ${where.sql}
     `,
-    range.from,
-    range.to,
+    ...where.params,
   );
   const row = rows[0];
   return {
@@ -441,7 +512,11 @@ export function getUsageTotals(range: UsageTimeRange): UsageTotals {
 }
 
 /** Fetch raw events in a time range for in-memory bucketing. */
-function fetchRawBucketRows(range: UsageTimeRange): UsageEventBucketRow[] {
+function fetchRawBucketRows(
+  range: UsageTimeRange,
+  filter?: UsageAggregationFilter,
+): UsageEventBucketRow[] {
+  const where = buildUsageAggregationWhere(range, filter);
   return rawAll<UsageEventBucketRow>(
     /*sql*/ `
     SELECT
@@ -451,11 +526,10 @@ function fetchRawBucketRows(range: UsageTimeRange): UsageEventBucketRow[] {
       estimated_cost_usd,
       llm_call_count
     FROM llm_usage_events
-    WHERE created_at >= ?1 AND created_at <= ?2
+    WHERE ${where.sql}
     ORDER BY created_at ASC
     `,
-    range.from,
-    range.to,
+    ...where.params,
   );
 }
 
@@ -482,8 +556,9 @@ export function getUsageDayBuckets(
   range: UsageTimeRange,
   tz: string = "UTC",
   options: UsageBucketOptions = {},
+  filter?: UsageAggregationFilter,
 ): UsageDayBucket[] {
-  const rows = fetchRawBucketRows(range);
+  const rows = fetchRawBucketRows(range, filter);
   return bucketEventsByDay(rows, range, tz, options);
 }
 
@@ -500,8 +575,9 @@ export function getUsageHourBuckets(
   range: UsageTimeRange,
   tz: string = "UTC",
   options: UsageBucketOptions = {},
+  filter?: UsageAggregationFilter,
 ): UsageDayBucket[] {
-  const rows = fetchRawBucketRows(range);
+  const rows = fetchRawBucketRows(range, filter);
   return bucketEventsByHour(rows, range, tz, options);
 }
 
@@ -512,6 +588,7 @@ export const USAGE_GROUP_BY_DIMENSIONS = [
   "conversation",
   "call_site",
   "inference_profile",
+  "schedule",
 ] as const;
 
 export type GroupByDimension = (typeof USAGE_GROUP_BY_DIMENSIONS)[number];
@@ -522,10 +599,11 @@ export const USAGE_SERIES_GROUP_BY_DIMENSIONS = [
   "model",
   "call_site",
   "inference_profile",
+  "schedule",
 ] as const satisfies readonly GroupByDimension[];
 
 const GROUP_BY_COLUMNS: Record<
-  Exclude<GroupByDimension, "conversation">,
+  Exclude<GroupByDimension, "conversation" | "schedule">,
   string
 > = {
   actor: "actor",
@@ -550,9 +628,11 @@ function mapGroupRow(
   groupBy: GroupByDimension,
 ): UsageGroupBreakdown {
   const includeGroupKey =
-    groupBy === "call_site" || groupBy === "inference_profile";
+    groupBy === "call_site" ||
+    groupBy === "inference_profile" ||
+    groupBy === "schedule";
   return {
-    group: displayUsageGroup(groupBy, row.group_key),
+    group: row.group_label ?? displayUsageGroup(groupBy, row.group_key),
     groupId: row.group_id,
     ...(includeGroupKey ? { groupKey: row.group_key } : {}),
     totalInputTokens: row.total_input_tokens,
@@ -571,12 +651,16 @@ function mapGroupRow(
 export function getUsageGroupBreakdown(
   range: UsageTimeRange,
   groupBy: GroupByDimension,
+  filter?: UsageAggregationFilter,
 ): UsageGroupBreakdown[] {
   // Runtime allowlist — defense-in-depth against SQL injection via type assertions.
   assertGroupByDimension(groupBy);
 
+  const normalizedFilter = normalizeUsageAggregationFilter(filter);
+
   // Conversation grouping requires a JOIN with conversations to resolve titles.
   if (groupBy === "conversation") {
+    const where = buildUsageAggregationWhere(range, normalizedFilter, "e");
     const rows = rawAll<GroupRow>(
       /*sql*/ `
       SELECT
@@ -584,6 +668,7 @@ export function getUsageGroupBreakdown(
              ELSE COALESCE(c.title, 'Untitled')
         END AS group_key,
         e.conversation_id                                AS group_id,
+        NULL                                             AS group_label,
         COALESCE(SUM(e.input_tokens), 0)                 AS total_input_tokens,
         COALESCE(SUM(e.output_tokens), 0)                AS total_output_tokens,
         COALESCE(SUM(e.cache_creation_input_tokens), 0)  AS total_cache_creation_tokens,
@@ -592,36 +677,81 @@ export function getUsageGroupBreakdown(
         COALESCE(SUM(COALESCE(e.llm_call_count, 1)), 0)  AS event_count
       FROM llm_usage_events e
       LEFT JOIN conversations c ON e.conversation_id = c.id
-      WHERE e.created_at >= ?1 AND e.created_at <= ?2
+      WHERE ${where.sql}
       GROUP BY e.conversation_id
       ORDER BY total_estimated_cost_usd DESC
       LIMIT 50
       `,
-      range.from,
-      range.to,
+      ...where.params,
+    );
+    return rows.map((row) => mapGroupRow(row, groupBy));
+  }
+
+  if (groupBy === "schedule") {
+    const now = Date.now();
+    const where = buildUsageAggregationWhere(range, normalizedFilter, "e", now);
+    const groupKeySubquery = buildScheduleAttributionSubquery({
+      eventAlias: "e",
+      filter: normalizedFilter,
+      now,
+      selectExpression: "schedule_attr_runs.job_id",
+    });
+    const rows = rawAll<GroupRow>(
+      /*sql*/ `
+      WITH schedule_usage AS (
+        SELECT
+          e.input_tokens,
+          e.output_tokens,
+          e.cache_creation_input_tokens,
+          e.cache_read_input_tokens,
+          e.estimated_cost_usd,
+          e.llm_call_count,
+          ${groupKeySubquery.sql} AS group_key
+        FROM llm_usage_events e
+        WHERE ${where.sql}
+      )
+      SELECT
+        schedule_usage.group_key                                      AS group_key,
+        schedule_usage.group_key                                      AS group_id,
+        MAX(schedule_group_jobs.name)                                 AS group_label,
+        COALESCE(SUM(schedule_usage.input_tokens), 0)                 AS total_input_tokens,
+        COALESCE(SUM(schedule_usage.output_tokens), 0)                AS total_output_tokens,
+        COALESCE(SUM(schedule_usage.cache_creation_input_tokens), 0)  AS total_cache_creation_tokens,
+        COALESCE(SUM(schedule_usage.cache_read_input_tokens), 0)      AS total_cache_read_tokens,
+        COALESCE(SUM(schedule_usage.estimated_cost_usd), 0)           AS total_estimated_cost_usd,
+        COALESCE(SUM(COALESCE(schedule_usage.llm_call_count, 1)), 0)  AS event_count
+      FROM schedule_usage
+      LEFT JOIN cron_jobs schedule_group_jobs
+        ON schedule_group_jobs.id = schedule_usage.group_key
+      GROUP BY schedule_usage.group_key
+      ORDER BY total_estimated_cost_usd DESC
+      `,
+      ...groupKeySubquery.params,
+      ...where.params,
     );
     return rows.map((row) => mapGroupRow(row, groupBy));
   }
 
   const column = GROUP_BY_COLUMNS[groupBy];
+  const where = buildUsageAggregationWhere(range, normalizedFilter, "e");
   const rows = rawAll<GroupRow>(
     /*sql*/ `
     SELECT
-      ${column}                                      AS group_key,
-      NULL                                           AS group_id,
-      COALESCE(SUM(input_tokens), 0)                 AS total_input_tokens,
-      COALESCE(SUM(output_tokens), 0)                AS total_output_tokens,
-      COALESCE(SUM(cache_creation_input_tokens), 0)  AS total_cache_creation_tokens,
-      COALESCE(SUM(cache_read_input_tokens), 0)      AS total_cache_read_tokens,
-      COALESCE(SUM(estimated_cost_usd), 0)           AS total_estimated_cost_usd,
-      COALESCE(SUM(COALESCE(llm_call_count, 1)), 0)  AS event_count
-    FROM llm_usage_events
-    WHERE created_at >= ?1 AND created_at <= ?2
-    GROUP BY ${column}
+      e.${column}                                      AS group_key,
+      NULL                                             AS group_id,
+      NULL                                             AS group_label,
+      COALESCE(SUM(e.input_tokens), 0)                 AS total_input_tokens,
+      COALESCE(SUM(e.output_tokens), 0)                AS total_output_tokens,
+      COALESCE(SUM(e.cache_creation_input_tokens), 0)  AS total_cache_creation_tokens,
+      COALESCE(SUM(e.cache_read_input_tokens), 0)      AS total_cache_read_tokens,
+      COALESCE(SUM(e.estimated_cost_usd), 0)           AS total_estimated_cost_usd,
+      COALESCE(SUM(COALESCE(e.llm_call_count, 1)), 0)  AS event_count
+    FROM llm_usage_events e
+    WHERE ${where.sql}
+    GROUP BY e.${column}
     ORDER BY total_estimated_cost_usd DESC
     `,
-    range.from,
-    range.to,
+    ...where.params,
   );
   return rows.map((row) => mapGroupRow(row, groupBy));
 }
@@ -632,29 +762,73 @@ export function getUsageGroupedSeries(
   granularity: UsageGranularity,
   tz: string = "UTC",
   options: UsageBucketOptions = {},
+  filter?: UsageAggregationFilter,
 ): UsageGroupedSeriesBucket[] {
   assertGroupByDimension(groupBy);
   if (groupBy === "conversation") {
     throw new Error("Grouped usage series does not support conversation");
   }
 
-  const column = GROUP_BY_COLUMNS[groupBy];
-  const rows = rawAll<UsageGroupedBucketRow>(
-    /*sql*/ `
-    SELECT
-      created_at,
-      input_tokens,
-      output_tokens,
-      estimated_cost_usd,
-      llm_call_count,
-      ${column} AS group_key
-    FROM llm_usage_events
-    WHERE created_at >= ?1 AND created_at <= ?2
-    ORDER BY created_at ASC
-    `,
-    range.from,
-    range.to,
-  );
+  const normalizedFilter = normalizeUsageAggregationFilter(filter);
+  let rows: UsageGroupedBucketRow[];
+
+  if (groupBy === "schedule") {
+    const now = Date.now();
+    const where = buildUsageAggregationWhere(range, normalizedFilter, "e", now);
+    const groupKeySubquery = buildScheduleAttributionSubquery({
+      eventAlias: "e",
+      filter: normalizedFilter,
+      now,
+      selectExpression: "schedule_attr_runs.job_id",
+    });
+    rows = rawAll<UsageGroupedBucketRow>(
+      /*sql*/ `
+      WITH schedule_usage AS (
+        SELECT
+          e.created_at,
+          e.input_tokens,
+          e.output_tokens,
+          e.estimated_cost_usd,
+          e.llm_call_count,
+          ${groupKeySubquery.sql} AS group_key
+        FROM llm_usage_events e
+        WHERE ${where.sql}
+      )
+      SELECT
+        schedule_usage.created_at,
+        schedule_usage.input_tokens,
+        schedule_usage.output_tokens,
+        schedule_usage.estimated_cost_usd,
+        schedule_usage.llm_call_count,
+        schedule_usage.group_key,
+        schedule_group_jobs.name AS group_label
+      FROM schedule_usage
+      LEFT JOIN cron_jobs schedule_group_jobs
+        ON schedule_group_jobs.id = schedule_usage.group_key
+      ORDER BY schedule_usage.created_at ASC
+      `,
+      ...groupKeySubquery.params,
+      ...where.params,
+    );
+  } else {
+    const column = GROUP_BY_COLUMNS[groupBy];
+    const where = buildUsageAggregationWhere(range, normalizedFilter, "e");
+    rows = rawAll<UsageGroupedBucketRow>(
+      /*sql*/ `
+      SELECT
+        e.created_at,
+        e.input_tokens,
+        e.output_tokens,
+        e.estimated_cost_usd,
+        e.llm_call_count,
+        e.${column} AS group_key
+      FROM llm_usage_events e
+      WHERE ${where.sql}
+      ORDER BY e.created_at ASC
+      `,
+      ...where.params,
+    );
+  }
 
   return bucketGroupedUsageEvents(rows, range, tz, {
     ...options,

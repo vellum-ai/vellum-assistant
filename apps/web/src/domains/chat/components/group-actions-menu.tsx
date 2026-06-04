@@ -1,20 +1,20 @@
 import {
-  Archive,
-  CircleCheck,
-  MoreHorizontal,
-  Pencil,
-  Trash2,
+    Archive,
+    CircleCheck,
+    MoreHorizontal,
+    Pencil,
+    Trash2,
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 
-import {
-  BottomSheet,
-  ContextMenu,
-  Menu,
-  PanelItem,
-  Popover,
-} from "@vellum/design-library";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import {
+    BottomSheet,
+    ContextMenu,
+    Menu,
+    PanelItem,
+    Popover,
+} from "@vellumai/design-library";
 
 // ---------------------------------------------------------------------------
 // Shared group menu items — used by both the hover popover and the

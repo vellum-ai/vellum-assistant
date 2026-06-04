@@ -9,7 +9,7 @@
  * Notice. This modal is only mounted when `error.displayAs === "modal"`.
  */
 
-import { Button, Modal } from "@vellum/design-library";
+import { Button, Modal } from "@vellumai/design-library";
 
 interface SendErrorModalProps {
   open: boolean;

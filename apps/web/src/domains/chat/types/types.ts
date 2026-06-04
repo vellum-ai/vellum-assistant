@@ -7,6 +7,7 @@ import type {
   ConversationMessageSurface,
 } from "@vellumai/assistant-api";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import { isToolCallCompleted } from "@/domains/chat/utils/tool-call-status";
 import type { DisplayAttachment } from "@/types/attachment-types";
 import type { SlackMessageLink } from "@/utils/slack-message-link";
 
@@ -197,7 +198,7 @@ export function isSurfaceToolCallComplete(
   if (surface.toolCallId) {
     const linked = toolCalls?.find((tc) => tc.id === surface.toolCallId);
     if (linked) {
-      return linked.status === "completed";
+      return isToolCallCompleted(linked);
     }
     return true;
   }
@@ -210,7 +211,7 @@ export function isSurfaceToolCallComplete(
   if (!latestSurfaceToolCall) {
     return true;
   }
-  return latestSurfaceToolCall.status === "completed";
+  return isToolCallCompleted(latestSurfaceToolCall);
 }
 
 /**

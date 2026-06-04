@@ -3,24 +3,24 @@
 // client-feature-flag-store read localStorage at module level.
 import "@/utils/run-storage-migrations";
 
+import * as Sentry from "@sentry/react";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { RouterProvider } from "react-router";
-import * as Sentry from "@sentry/react";
 
-import { initSentry } from "@/lib/sentry/sentry-init";
-import { isLocalMode, loadLockfile } from "@/lib/local-mode";
-import { useAuthStore, setupAuthListeners } from "@/stores/auth-store";
-import { setupOrganizationStore } from "@/stores/organization-store";
 import { AppProviders } from "@/components/providers";
 import { isChunkLoadError } from "@/lib/chunk-errors";
+import { isLocalMode, loadLockfile } from "@/lib/local-mode";
+import { initSentry } from "@/lib/sentry/sentry-init";
+import { setupAuthListeners, useAuthStore } from "@/stores/auth-store";
+import { setupOrganizationStore } from "@/stores/organization-store";
 import { router } from "./routes";
 
 import "@/lib/api-interceptors";
 import "./index.css";
 
 import { initSafeAreaBridge } from "@/runtime/native-safe-area";
-import { initInputModality } from "@vellum/design-library";
+import { initInputModality } from "@vellumai/design-library";
 
 async function boot() {
   initInputModality();

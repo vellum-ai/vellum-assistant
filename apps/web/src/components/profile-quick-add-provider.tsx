@@ -26,26 +26,26 @@
  * `assistantId` and feature flags are read from top-level stores rather than
  * threaded through props, so the provider stays decoupled from any one domain.
  */
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+    createContext,
+    useCallback,
+    useContext,
+    useMemo,
+    useRef,
+    useState,
+    type ReactNode,
+} from "react";
 
-import { toast } from "@vellum/design-library/components/toast";
+import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import type { ProfileEntry } from "@/domains/settings/ai/ai-types";
+import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal";
+import { filterFlaggedConnections } from "@/domains/settings/ai/provider-connections-client";
 import { client } from "@/generated/api/client.gen";
 import { inferenceProviderconnectionsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
-import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal";
-import { filterFlaggedConnections } from "@/domains/settings/ai/provider-connections-client";
-import type { ProfileEntry } from "@/domains/settings/ai/ai-types";
-import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { toast } from "@vellumai/design-library/components/toast";
 
 interface OpenProfileQuickAddArgs {
   /**

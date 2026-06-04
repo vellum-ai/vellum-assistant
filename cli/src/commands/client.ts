@@ -17,7 +17,7 @@ import {
   GATEWAY_PORT,
   type Species,
 } from "../lib/constants";
-import { loadGuardianToken } from "../lib/guardian-token";
+import { loadGuardianToken, refreshGuardianToken } from "../lib/guardian-token";
 import { getLocalLanIPv4 } from "../lib/local";
 import {
   CLI_INTERFACE_ID,
@@ -821,6 +821,42 @@ async function runViteDevServer(webSourceDir: string): Promise<void> {
   });
 }
 
+/**
+ * Return a possibly-refreshed bearer token for the TUI's startup auth.
+ *
+ * Only a STORED guardian token is refreshable: platform session auth
+ * (`cloud === "vellum"`) and ephemeral `--token` overrides (whose token won't
+ * match the store) are left untouched, as is a token that's still fresh. When
+ * the stored token has passed its `refreshAfter` (or expiry) and a refresh
+ * token is available, refresh once via the concurrency-safe refreshGuardianToken
+ * and use the rotated access token. Falls back to the existing token if refresh
+ * isn't possible/fails — the session still starts (same as before).
+ */
+export async function resolveFreshBearerToken(
+  runtimeUrl: string,
+  assistantId: string,
+  bearerToken: string | undefined,
+  cloud: string | undefined,
+): Promise<string | undefined> {
+  if (cloud === "vellum" || !bearerToken || !assistantId) return bearerToken;
+
+  const stored = loadGuardianToken(assistantId);
+  // Refresh only the stored token (an ephemeral --token won't match), and only
+  // when a refresh credential is present.
+  if (!stored || stored.accessToken !== bearerToken || !stored.refreshToken) {
+    return bearerToken;
+  }
+
+  // new Date() handles both ISO strings and epoch-ms numbers; Date.parse of an
+  // epoch-ms string would be NaN.
+  const renewAtRaw = stored.refreshAfter || stored.accessTokenExpiresAt;
+  const renewAt = new Date(renewAtRaw).getTime();
+  if (!Number.isFinite(renewAt) || renewAt > Date.now()) return bearerToken;
+
+  const refreshed = await refreshGuardianToken(runtimeUrl, assistantId);
+  return refreshed?.accessToken ?? bearerToken;
+}
+
 export async function client(): Promise<void> {
   const {
     runtimeUrl,
@@ -868,8 +904,19 @@ export async function client(): Promise<void> {
       ...getClientRegistrationHeaders(interfaceId),
     };
   } else {
+    // Proactively refresh a stale STORED guardian token before opening the TUI,
+    // so launching after the access token expired renews transparently rather
+    // than erroring. (Mid-session expiry — the token dying while the TUI is
+    // already open — is a separate follow-up, since the TUI threads a static
+    // auth object through React.)
+    const token = await resolveFreshBearerToken(
+      runtimeUrl,
+      assistantId,
+      bearerToken,
+      cloud,
+    );
     auth = {
-      ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...getClientRegistrationHeaders(interfaceId),
     };
   }

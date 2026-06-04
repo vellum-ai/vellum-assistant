@@ -1,6 +1,6 @@
 import { Link2 } from "lucide-react";
 
-import { Button } from "@vellum/design-library/components/button";
+import { Button } from "@vellumai/design-library/components/button";
 
 interface ShareConnectionLinkButtonProps {
   onClick: () => void;

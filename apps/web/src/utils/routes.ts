@@ -14,6 +14,7 @@ const r = <const T extends string>(path: T): T => path;
 
 const dyn = (parent: string, id: string): string => `${parent}/${id}`;
 const LOCAL_ADMIN_ORIGIN = "http://localhost:3000";
+const LOGS_USAGE_PATH = r("/assistant/logs/usage");
 
 export const routes = {
   assistant: r("/assistant"),
@@ -40,7 +41,15 @@ export const routes = {
   logs: {
     root: r("/assistant/logs"),
     trace: r("/assistant/logs/trace"),
-    usage: r("/assistant/logs/usage"),
+    usage: LOGS_USAGE_PATH,
+    usageForSchedule: (scheduleId: string) => {
+      const params = new URLSearchParams({
+        range: "7d",
+        groupBy: "schedule",
+        scheduleId,
+      });
+      return `${LOGS_USAGE_PATH}?${params.toString()}`;
+    },
     emails: r("/assistant/logs/emails"),
     systemEvents: r("/assistant/logs/system-events"),
   },
@@ -90,6 +99,7 @@ export const routes = {
     ai: r("/assistant/settings/ai"),
     integrations: r("/assistant/settings/integrations"),
     schedules: r("/assistant/settings/schedules"),
+    schedule: (id: string) => dyn(r("/assistant/settings/schedules"), id),
     notifications: r("/assistant/settings/notifications"),
     sounds: r("/assistant/settings/sounds"),
     voice: r("/assistant/settings/voice"),

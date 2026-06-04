@@ -1,24 +1,24 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 
-import { Button } from "@vellum/design-library";
+import { Button } from "@vellumai/design-library";
 
 import {
-  DarkLoginShell,
-  LoginCard,
-  LoginErrorText,
-  LoginHeading,
+    DarkLoginShell,
+    LoginCard,
+    LoginErrorText,
+    LoginHeading,
 } from "@/domains/account/components/login-shell";
 import { PlatformLoginButtons } from "@/domains/account/components/platform-login-buttons";
 import { PROVIDER_ID, buildProviderCallbackUrl } from "@/domains/account/login-flow";
 import { startLoopbackAuth, useIsPlatformLocal } from "@/lib/auth/loopback-auth";
-import { captureError, normalizeToError } from "@/lib/sentry/capture-error";
 import {
-  getActiveAssistant,
-  isLocalAssistant,
-  isPlatformAssistant,
-  loadLockfile,
+    getActiveAssistant,
+    isLocalAssistant,
+    isPlatformAssistant,
+    loadLockfile,
 } from "@/lib/local-mode";
+import { captureError, normalizeToError } from "@/lib/sentry/capture-error";
 import { startAuthFlow } from "@/runtime/native-auth";
 import { useAuthStore } from "@/stores/auth-store";
 import { useLockfileStore } from "@/stores/lockfile-store";

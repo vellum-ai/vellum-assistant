@@ -9,29 +9,29 @@
  */
 
 import {
-  Bolt,
-  Check,
-  Code,
-  Copy,
-  FileText,
-  Monitor,
-  Pen,
-  Plug,
-  Sparkles,
-  UserPlus,
-  X,
-  type LucideIcon,
+    Bolt,
+    Check,
+    Code,
+    Copy,
+    FileText,
+    Monitor,
+    Pen,
+    Plug,
+    Sparkles,
+    UserPlus,
+    X,
+    type LucideIcon,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import { Button, Typography } from "@vellum/design-library";
+import { Button, Typography } from "@vellumai/design-library";
 
 import { RiskBadge } from "@/domains/chat/components/risk-badge";
-import {
-  type IconName,
-  deriveStepLabelFromName,
-} from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import { titleCaseToolName } from "@/domains/chat/components/tool-call-chip/utils";
+import {
+    deriveStepLabelFromName,
+    type IconName,
+} from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
 /**

@@ -71,7 +71,7 @@ mock.module("@/stores/auth-store", () => {
 // re-exports `Toaster`/`ToastContent` from this module. Missing exports
 // here surface as parse-time "export not found" errors during barrel
 // resolution, not as runtime failures, so stub them with no-op components.
-mock.module("@vellum/design-library/components/toast", () => ({
+mock.module("@vellumai/design-library/components/toast", () => ({
   toast: { success: () => {}, error: () => {} },
   Toaster: () => null,
   ToastContent: () => null,

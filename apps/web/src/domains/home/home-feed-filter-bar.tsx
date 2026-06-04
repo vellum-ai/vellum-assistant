@@ -1,8 +1,8 @@
 import { Bell, Clock, List, Mail, Settings, ShieldCheck } from "lucide-react";
 import { type ComponentType, type SVGProps } from "react";
 
-import { Typography, cn } from "@vellum/design-library";
 import type { FeedItemCategory } from "@vellumai/assistant-api";
+import { Typography, cn } from "@vellumai/design-library";
 
 type LucideIcon = ComponentType<SVGProps<SVGSVGElement>>;
 

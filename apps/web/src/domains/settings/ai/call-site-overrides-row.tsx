@@ -1,15 +1,15 @@
-import { Dropdown } from "@vellum/design-library/components/dropdown";
-import { Toggle } from "@vellum/design-library/components/toggle";
+import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Toggle } from "@vellumai/design-library/components/toggle";
 
+import {
+    getDefaultModelForProvider,
+    getModelsForProvider,
+} from "@/assistant/llm-model-catalog";
 import type { CallSiteOverrideDraft } from "@/domains/settings/ai/ai-types";
 import {
-  INFERENCE_PROVIDERS,
-  INFERENCE_PROVIDER_DISPLAY_NAMES,
+    INFERENCE_PROVIDERS,
+    INFERENCE_PROVIDER_DISPLAY_NAMES,
 } from "@/domains/settings/ai/ai-types";
-import {
-  getDefaultModelForProvider,
-  getModelsForProvider,
-} from "@/assistant/llm-model-catalog";
 import { CUSTOM_SENTINEL, isDraftActive } from "@/domains/settings/ai/call-site-helpers";
 
 // ---------------------------------------------------------------------------

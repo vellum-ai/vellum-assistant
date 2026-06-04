@@ -1,22 +1,22 @@
 import { useEffect, useMemo } from "react";
 import { useNavigate } from "react-router";
 
-import { Typography } from "@vellum/design-library";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
 import { requestComposerFocus } from "@/domains/chat/composer-focus";
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
-import {
-  useBackgroundConversationListQuery,
-  useConversationListQuery,
-  useScheduledConversationListQuery,
-} from "@/hooks/conversation-queries";
-import { mergeConversationLists } from "@/utils/conversation-cache";
-import { useConversationStore } from "@/stores/conversation-store";
 import { HomePage } from "@/domains/home/home-page";
+import {
+    useBackgroundConversationListQuery,
+    useConversationListQuery,
+    useScheduledConversationListQuery,
+} from "@/hooks/conversation-queries";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
+import { mergeConversationLists } from "@/utils/conversation-cache";
 import { routes } from "@/utils/routes";
+import { Typography } from "@vellumai/design-library";
 
 export function HomePageRoute() {
   const navigate = useNavigate();

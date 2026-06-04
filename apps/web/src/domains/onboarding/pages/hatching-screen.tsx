@@ -1,38 +1,38 @@
-import * as Sentry from "@sentry/react";
 import { captureError } from "@/lib/sentry/capture-error";
+import * as Sentry from "@sentry/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
-import { Button } from "@vellum/design-library/components/button";
-import { ProgressBar } from "@vellum/design-library/components/progress-bar";
 import { getAssistant, hatchAssistant } from "@/assistant/api";
-import {
-  isPlatformHostedDisabled,
-  PLATFORM_HOSTED_DISABLED_MESSAGE,
-  resolveAssistantLifecycleState,
-  shouldRecoverFromHatchFailure,
-} from "@/assistant/lifecycle";
 import { fetchCharacterTraits, saveCharacterTraits } from "@/assistant/avatar-api";
+import {
+    isPlatformHostedDisabled,
+    PLATFORM_HOSTED_DISABLED_MESSAGE,
+    resolveAssistantLifecycleState,
+    shouldRecoverFromHatchFailure,
+} from "@/assistant/lifecycle";
+import { lifecycleService } from "@/assistant/lifecycle-service";
+import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
+import {
+    readSelectedVersion,
+    useOnboardingCompleted,
+    writeSelectedVersion,
+} from "@/domains/onboarding/prefs";
+import { applyPendingProviderKey } from "@/domains/onboarding/provider-key";
+import { getLocalGatewayUrl, isLocalMode, loadLockfile, primeLocalGatewayConnection, saveLockfileAssistant, setSelectedAssistantId } from "@/lib/local-mode";
+import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
+import { buildNavigationState } from "@/lib/navigation/build-state";
+import { hatchLocalAssistant } from "@/runtime/local-mode-host";
+import { isNativePlatform } from "@/runtime/native-auth";
+import { useAuthStore } from "@/stores/auth-store";
+import type { CharacterTraits } from "@/types/avatar";
+import { extractErrorMessage } from "@/utils/api-errors";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { randomCharacterTraits } from "@/utils/avatar-random";
 import { composeSvg } from "@/utils/avatar-svg-compositor";
-import type { CharacterTraits } from "@/types/avatar";
-import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
-import { extractErrorMessage } from "@/utils/api-errors";
-import { isLocalMode, loadLockfile, setSelectedAssistantId, saveLockfileAssistant, primeLocalGatewayConnection, getLocalGatewayUrl } from "@/lib/local-mode";
-import { hatchLocalAssistant } from "@/runtime/local-mode-host";
-import { applyPendingProviderKey } from "@/domains/onboarding/provider-key";
-import { lifecycleService } from "@/assistant/lifecycle-service";
-import {
-  readSelectedVersion,
-  useOnboardingCompleted,
-  writeSelectedVersion,
-} from "@/domains/onboarding/prefs";
-import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
-import { buildNavigationState } from "@/lib/navigation/build-state";
-import { isNativePlatform } from "@/runtime/native-auth";
-import { useAuthStore } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
+import { Button } from "@vellumai/design-library/components/button";
+import { ProgressBar } from "@vellumai/design-library/components/progress-bar";
 
 const POLL_INTERVAL_MS = 3000;
 const COMPLETION_NAVIGATE_DELAY_MS = 800;

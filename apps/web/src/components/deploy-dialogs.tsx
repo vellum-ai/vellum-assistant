@@ -11,9 +11,9 @@
  * visible at a time since they're gated by Zustand store booleans.
  */
 
-import { ConfirmDialog } from "@vellum/design-library";
 import { VercelTokenDialog } from "@/components/vercel-token-dialog";
 import { useDeployStore } from "@/stores/deploy-store";
+import { ConfirmDialog } from "@vellumai/design-library";
 
 export interface DeployDialogsProps {
   assistantId: string;

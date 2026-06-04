@@ -35,7 +35,7 @@ pattern (`assistant/docs/`, `docs/` at the repo root).
 - **Client state**: [Zustand](https://zustand.docs.pmnd.rs/) — all shared state uses Zustand stores (see [`docs/STATE_MANAGEMENT.md`](./docs/STATE_MANAGEMENT.md))
 - **Server state**: [TanStack Query](https://tanstack.com/query/latest) with [HeyAPI plugin](https://heyapi.dev/openapi-ts/plugins/tanstack-query)
 - **Styling**: [Tailwind CSS v4](https://tailwindcss.com/) via `@tailwindcss/vite`
-- **Design system**: `@vellum/design-library` at [`packages/design-library/`](../../packages/design-library/)
+- **Design system**: `@vellumai/design-library` at [`packages/design-library/`](../../packages/design-library/)
 - **Platform**: Web + iOS via [Capacitor](https://capacitorjs.com/) — native code paths must be preserved
 
 ## Routing

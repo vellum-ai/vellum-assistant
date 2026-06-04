@@ -9,6 +9,12 @@ import {
   usageSeriesGet,
   usageTotalsGet,
 } from "@/generated/daemon/sdk.gen";
+import type {
+  UsageBreakdownGetData,
+  UsageDailyGetData,
+  UsageSeriesGetData,
+  UsageTotalsGetData,
+} from "@/generated/daemon/types.gen";
 
 import { isLlmUsageDimension, toDaemonGroupBy } from "@/utils/llm-dimension";
 import type {
@@ -45,6 +51,7 @@ const EMPTY_TOTALS: UsageTotals = {
 export interface FetchUsageTotalsParams {
   from: number;
   to: number;
+  scheduleId?: string;
 }
 
 export interface FetchUsageDailyParams {
@@ -52,12 +59,14 @@ export interface FetchUsageDailyParams {
   to: number;
   granularity?: UsageGranularity;
   tz?: string;
+  scheduleId?: string;
 }
 
 export interface FetchUsageBreakdownParams {
   from: number;
   to: number;
   groupBy: UsageGroupBy;
+  scheduleId?: string;
 }
 
 export interface FetchUsageSeriesParams {
@@ -66,10 +75,69 @@ export interface FetchUsageSeriesParams {
   granularity: UsageGranularity;
   groupBy: UsageSeriesGroupBy;
   tz?: string;
+  scheduleId?: string;
 }
+
+export type UsageTotalsQuery = NonNullable<UsageTotalsGetData["query"]>;
+export type UsageDailyQuery = NonNullable<UsageDailyGetData["query"]>;
+export type UsageBreakdownQuery = NonNullable<UsageBreakdownGetData["query"]>;
+export type UsageSeriesQuery = NonNullable<UsageSeriesGetData["query"]>;
 
 function toUsageGroupByQueryValue(groupBy: UsageGroupBy): string {
   return isLlmUsageDimension(groupBy) ? toDaemonGroupBy(groupBy) : groupBy;
+}
+
+export function buildUsageTotalsQuery(
+  params: FetchUsageTotalsParams,
+): UsageTotalsQuery {
+  const query: UsageTotalsQuery = {
+    from: params.from,
+    to: params.to,
+  };
+  return withScheduleId(query, params.scheduleId);
+}
+
+export function buildUsageDailyQuery(
+  params: FetchUsageDailyParams,
+): UsageDailyQuery {
+  const query: UsageDailyQuery = {
+    from: params.from,
+    to: params.to,
+    ...(params.granularity ? { granularity: params.granularity } : {}),
+    ...(params.tz ? { tz: params.tz } : {}),
+  };
+  return withScheduleId(query, params.scheduleId);
+}
+
+export function buildUsageBreakdownQuery(
+  params: FetchUsageBreakdownParams,
+): UsageBreakdownQuery {
+  const query: UsageBreakdownQuery = {
+    from: params.from,
+    to: params.to,
+    groupBy: toUsageGroupByQueryValue(params.groupBy),
+  };
+  return withScheduleId(query, params.scheduleId);
+}
+
+export function buildUsageSeriesQuery(
+  params: FetchUsageSeriesParams,
+): UsageSeriesQuery {
+  const query: UsageSeriesQuery = {
+    from: params.from,
+    to: params.to,
+    granularity: params.granularity,
+    groupBy: toUsageGroupByQueryValue(params.groupBy),
+    ...(params.tz ? { tz: params.tz } : {}),
+  };
+  return withScheduleId(query, params.scheduleId);
+}
+
+function withScheduleId<T extends { scheduleId?: string }>(
+  query: T,
+  scheduleId: string | undefined,
+): T {
+  return scheduleId ? { ...query, scheduleId } : query;
 }
 
 async function throwOnBadResponse(
@@ -92,7 +160,7 @@ export async function fetchUsageTotals(
 ): Promise<UsageTotals> {
   const { data, response } = await usageTotalsGet({
     path: { assistant_id: assistantId },
-    query: { from: params.from, to: params.to },
+    query: buildUsageTotalsQuery(params),
     throwOnError: false,
   });
   if (!response?.ok) {
@@ -107,12 +175,7 @@ export async function fetchUsageDaily(
 ): Promise<UsageDailyResponse> {
   const { data, response } = await usageDailyGet({
     path: { assistant_id: assistantId },
-    query: {
-      from: params.from,
-      to: params.to,
-      granularity: params.granularity,
-      tz: params.tz,
-    },
+    query: buildUsageDailyQuery(params),
     throwOnError: false,
   });
   if (!response?.ok) {
@@ -133,11 +196,7 @@ export async function fetchUsageBreakdown(
 ): Promise<UsageBreakdownResponse> {
   const { data, response } = await usageBreakdownGet({
     path: { assistant_id: assistantId },
-    query: {
-      from: params.from,
-      to: params.to,
-      groupBy: toUsageGroupByQueryValue(params.groupBy),
-    },
+    query: buildUsageBreakdownQuery(params),
     throwOnError: false,
   });
   if (!response?.ok) {
@@ -152,13 +211,7 @@ export async function fetchUsageSeries(
 ): Promise<UsageSeriesResponse> {
   const { data, response } = await usageSeriesGet({
     path: { assistant_id: assistantId },
-    query: {
-      from: params.from,
-      to: params.to,
-      granularity: params.granularity,
-      groupBy: toUsageGroupByQueryValue(params.groupBy),
-      tz: params.tz,
-    },
+    query: buildUsageSeriesQuery(params),
     throwOnError: false,
   });
   if (!response?.ok) {

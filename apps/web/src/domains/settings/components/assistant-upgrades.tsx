@@ -2,29 +2,29 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, RefreshCw } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
-import { Button } from "@vellum/design-library/components/button";
-import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
-import { Dropdown } from "@vellum/design-library/components/dropdown";
-import { toast } from "@vellum/design-library/components/toast";
 import {
-  assistantsRetrieveOptions,
-  assistantsRetrieveQueryKey,
-  releasesListOptions,
+    assistantsRetrieveOptions,
+    assistantsRetrieveQueryKey,
+    releasesListOptions,
 } from "@/generated/api/@tanstack/react-query.gen";
 import {
-  assistantsRollbackDetailCreate,
-  assistantsUpgradeDetailCreate,
+    assistantsRollbackDetailCreate,
+    assistantsUpgradeDetailCreate,
 } from "@/generated/api/sdk.gen";
 import type {
-  ReleaseChannelEnum,
-  ReleaseListItem,
+    ReleaseChannelEnum,
+    ReleaseListItem,
 } from "@/generated/api/types.gen";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import {
-  compareParsed,
-  parseSemver,
+    compareParsed,
+    parseSemver,
 } from "@/utils/semver";
+import { Button } from "@vellumai/design-library/components/button";
+import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
+import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { toast } from "@vellumai/design-library/components/toast";
 
 function releaseLabel(
   release: ReleaseListItem,

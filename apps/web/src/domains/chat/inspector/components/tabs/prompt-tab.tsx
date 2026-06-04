@@ -1,12 +1,12 @@
 import { Copy } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
-import { Button, Card, SegmentControl } from "@vellum/design-library";
-import type {
-  LLMContextSection,
-  LLMRequestLogEntry,
-} from "@vellumai/assistant-api";
 import { FileMarkdown } from "@/components/file-markdown";
+import type {
+    LLMContextSection,
+    LLMRequestLogEntry,
+} from "@vellumai/assistant-api";
+import { Button, Card, SegmentControl } from "@vellumai/design-library";
 
 interface PromptTabProps {
   entry: LLMRequestLogEntry;

@@ -1,14 +1,14 @@
 import { useState } from "react";
 import { useSearchParams } from "react-router";
 
-import { Button } from "@vellum/design-library";
 import { NativeSplash } from "@/components/native-splash";
 import { DarkLoginShell, LoginCard, LoginErrorText } from "@/domains/account/components/login-shell";
 import { PlatformLoginButtons } from "@/domains/account/components/platform-login-buttons";
-import { LocalModeLoginPage } from "@/domains/account/pages/local-mode-login-page";
 import { PROVIDER_ID, buildProviderCallbackUrl } from "@/domains/account/login-flow";
+import { LocalModeLoginPage } from "@/domains/account/pages/local-mode-login-page";
 import { isLocalMode } from "@/lib/local-mode";
 import { startAuthFlow, startNativeLogin, useIsNativePlatform } from "@/runtime/native-auth";
+import { Button } from "@vellumai/design-library";
 
 const AUTH_ERROR_MESSAGES: Record<string, string> = {
   signup_closed:

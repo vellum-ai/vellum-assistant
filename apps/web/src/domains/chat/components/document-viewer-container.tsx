@@ -7,36 +7,36 @@
  */
 
 import {
-  lazy,
-  useCallback,
-  useEffect,
-  useImperativeHandle,
-  useRef,
-  useState,
-  type Ref,
+    lazy,
+    useCallback,
+    useEffect,
+    useImperativeHandle,
+    useRef,
+    useState,
+    type Ref,
 } from "react";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
+import { Button, Typography } from "@vellumai/design-library";
 import {
-  Check,
-  Download,
-  FileText,
-  Loader2,
-  MessageSquareText,
-  X,
+    Check,
+    Download,
+    FileText,
+    Loader2,
+    MessageSquareText,
+    X,
 } from "lucide-react";
-import { Button, Typography } from "@vellum/design-library";
 
+import {
+    createComment,
+    fetchComments,
+} from "@/domains/chat/api/document-comments";
+import type { CommentAnchor } from "@/domains/chat/utils/tiptap-position-map";
+import { documentsPost } from "@/generated/daemon/sdk.gen";
 import type { DocumentsByIdCommentsPostResponse } from "@/generated/daemon/types.gen";
 import {
-  createComment,
-  fetchComments,
-} from "@/domains/chat/api/document-comments";
-import { documentsPost } from "@/generated/daemon/sdk.gen";
-import type { CommentAnchor } from "@/domains/chat/utils/tiptap-position-map";
-import {
-  DocumentCommentPanel,
-  type DocumentCommentPanelHandle,
+    DocumentCommentPanel,
+    type DocumentCommentPanelHandle,
 } from "./document-comment-panel";
 
 // Tiptap + ProseMirror pull in ~600 kB of editor code that's only needed

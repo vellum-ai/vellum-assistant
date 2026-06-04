@@ -582,39 +582,6 @@ export function mintAndRecordDeviceBoundTokenPair(params: {
   };
 }
 
-/**
- * Revoke any existing credentials for a (guardian, device) pair and mint a
- * fresh, DB-recorded access token bound to that device — WITHOUT a refresh
- * token.
- *
- * Used by loopback pairing: the recorded token is revocable per device (once
- * hot-path revocation is enforced), and `ttlSeconds` keeps it short so its
- * blast radius stays bounded in the interim. No refresh token is issued —
- * refreshable pairing is deferred until revocation is enforced on live
- * requests, so a long-lived refresh can't silently re-mint long access tokens.
- * Callers re-pair when the access token expires.
- */
-export function mintAndRecordDeviceBoundAccessToken(params: {
-  guardianPrincipalId: string;
-  deviceId: string;
-  platform: string;
-  ttlSeconds: number;
-}): { accessToken: string; accessTokenExpiresAt: number } {
-  const hashedDeviceId = hashToken(params.deviceId);
-
-  revokeActorTokensByDevice(params.guardianPrincipalId, hashedDeviceId);
-  revokeRefreshTokensByDevice(params.guardianPrincipalId, hashedDeviceId);
-
-  const access = mintAccessToken(
-    params.guardianPrincipalId,
-    hashedDeviceId,
-    params.platform,
-    params.ttlSeconds,
-  );
-
-  return { accessToken: access.token, accessTokenExpiresAt: access.expiresAt };
-}
-
 // ---------------------------------------------------------------------------
 // Public: guardian bootstrap
 // ---------------------------------------------------------------------------

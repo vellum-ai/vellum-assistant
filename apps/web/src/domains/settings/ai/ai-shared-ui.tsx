@@ -1,21 +1,21 @@
 import type { ReactNode } from "react";
 
 import {
-  AlertCircle,
-  Check,
-  Clock,
-  ExternalLink,
-  Info,
-  Loader2,
+    AlertCircle,
+    Check,
+    Clock,
+    ExternalLink,
+    Info,
+    Loader2,
 } from "lucide-react";
 
-import { Button } from "@vellum/design-library/components/button";
-import { SegmentControl } from "@vellum/design-library/components/segment-control";
 import { DetailCard } from "@/components/detail-card";
+import { Button } from "@vellumai/design-library/components/button";
+import { SegmentControl } from "@vellumai/design-library/components/segment-control";
 
 import type {
-  ProviderCredentialsGuide,
-  ServiceMode,
+    ProviderCredentialsGuide,
+    ServiceMode,
 } from "@/domains/settings/ai/ai-types";
 
 interface ModeToggleProps {

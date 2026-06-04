@@ -2,17 +2,17 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { useState } from "react";
 
-import { Button } from "@vellum/design-library/components/button";
-import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
-import { Tag } from "@vellum/design-library/components/tag";
-import { toast } from "@vellum/design-library/components/toast";
+import { hatchAssistant } from "@/assistant/api";
 import { DetailCard } from "@/components/detail-card";
 import {
-  assistantsActiveRetrieveOptions,
-  assistantsListOptions,
+    assistantsActiveRetrieveOptions,
+    assistantsListOptions,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { Assistant } from "@/generated/api/types.gen";
-import { hatchAssistant } from "@/assistant/api";
+import { Button } from "@vellumai/design-library/components/button";
+import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
+import { Tag } from "@vellumai/design-library/components/tag";
+import { toast } from "@vellumai/design-library/components/toast";
 
 export function AssistantLifecyclePanel() {
   const queryClient = useQueryClient();

@@ -13,11 +13,11 @@
 import { AlertCircle } from "lucide-react";
 import { useState } from "react";
 
-import { Popover, Typography } from "@vellum/design-library";
+import { Popover, Typography } from "@vellumai/design-library";
 
+import type { WebSearchResultItem } from "@/assistant/web-activity-types";
 import { FaviconChip } from "@/domains/chat/components/web-search/favicon-chip";
 import type { ToolCallCardStep } from "@/domains/chat/hooks/tool-call-card-utils";
-import type { WebSearchResultItem } from "@/assistant/web-activity-types";
 
 /**
  * First uppercase letter of the result's domain (falling back to its title),

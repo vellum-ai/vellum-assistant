@@ -1,29 +1,29 @@
 import { Loader2 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
-import { useQueryClient } from "@tanstack/react-query";
-import { Dropdown } from "@vellum/design-library/components/dropdown";
-import { Input } from "@vellum/design-library/components/input";
-import { toast } from "@vellum/design-library/components/toast";
 import {
-  WEB_SEARCH_BYOK_PROVIDER_IDS,
-  WEB_SEARCH_PROVIDER_DISPLAY_NAMES,
-  WEB_SEARCH_PROVIDER_IDS,
-  WEB_SEARCH_PROVIDER_KEY_PLACEHOLDERS,
+    WEB_SEARCH_BYOK_PROVIDER_IDS,
+    WEB_SEARCH_PROVIDER_DISPLAY_NAMES,
+    WEB_SEARCH_PROVIDER_IDS,
+    WEB_SEARCH_PROVIDER_KEY_PLACEHOLDERS,
 } from "@/assistant/generated/web-search-provider-catalog.gen";
+import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
 import { captureError } from "@/lib/sentry/capture-error";
 import {
-  getLocalSetting,
-  removeLocalSetting,
-  setLocalSetting,
+    getLocalSetting,
+    removeLocalSetting,
+    setLocalSetting,
 } from "@/utils/local-settings";
-import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
+import { useQueryClient } from "@tanstack/react-query";
+import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Input } from "@vellumai/design-library/components/input";
+import { toast } from "@vellumai/design-library/components/toast";
 
+import { ResetButton, SaveButton, ServiceCard } from "@/domains/settings/ai/ai-shared-ui";
 import type { ServiceMode } from "@/domains/settings/ai/ai-types";
 import { LS_WEB_SEARCH_MODE, LS_WEB_SEARCH_PROVIDER } from "@/domains/settings/ai/ai-types";
 import { getWebSearchProviderKeyStorage } from "@/domains/settings/ai/ai-utils";
-import { ServiceCard, SaveButton, ResetButton } from "@/domains/settings/ai/ai-shared-ui";
-import { useDaemonConfigQuery, useDaemonConfigMutation, useProvisionProviderKey } from "@/domains/settings/ai/use-daemon-config";
+import { useDaemonConfigMutation, useDaemonConfigQuery, useProvisionProviderKey } from "@/domains/settings/ai/use-daemon-config";
 import { useDraftOverride } from "@/domains/settings/ai/use-draft-override";
 import { useStoredCredentialPresence } from "@/domains/settings/ai/use-stored-credential-presence";
 

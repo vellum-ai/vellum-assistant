@@ -41,6 +41,7 @@ import { SubagentStatusChangedEventSchema } from "./events/subagent-status-chang
 import { SyncChangedEventSchema } from "./events/sync-changed.js";
 import { ToolResultEventSchema } from "./events/tool-result.js";
 import { ToolUseStartEventSchema } from "./events/tool-use-start.js";
+import { TraceEventSchema } from "./events/trace-event.js";
 import { TurnProfileAutoRoutedEventSchema } from "./events/turn-profile-auto-routed.js";
 import { UISurfaceCompleteEventSchema } from "./events/ui-surface-complete.js";
 import { UISurfaceDismissEventSchema } from "./events/ui-surface-dismiss.js";
@@ -268,6 +269,14 @@ export {
   ToolUseStartEventSchema,
 } from "./events/tool-use-start.js";
 export {
+  type TraceEvent,
+  type TraceEventKind,
+  TraceEventKindSchema,
+  TraceEventSchema,
+  type TraceEventStatus,
+  TraceEventStatusSchema,
+} from "./events/trace-event.js";
+export {
   type TurnProfileAutoRoutedEvent,
   TurnProfileAutoRoutedEventSchema,
 } from "./events/turn-profile-auto-routed.js";
@@ -456,6 +465,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   SyncChangedEventSchema,
   ToolResultEventSchema,
   ToolUseStartEventSchema,
+  TraceEventSchema,
   TurnProfileAutoRoutedEventSchema,
   UISurfaceCompleteEventSchema,
   UISurfaceDismissEventSchema,

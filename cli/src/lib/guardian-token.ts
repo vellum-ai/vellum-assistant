@@ -2,11 +2,15 @@ import { createHash, randomUUID } from "node:crypto";
 import { execSync } from "node:child_process";
 import {
   chmodSync,
+  closeSync,
   existsSync,
   mkdirSync,
+  openSync,
   readFileSync,
   statSync,
+  unlinkSync,
   writeFileSync,
+  writeSync,
 } from "fs";
 import { platform } from "os";
 import { dirname, join } from "path";
@@ -161,33 +165,121 @@ export function saveGuardianToken(
   chmodSync(tokenPath, 0o600);
 }
 
+/** Abort the refresh POST if the gateway is slow/unreachable (it's now on the
+ *  hot request path, so it must never hang indefinitely). */
+const REFRESH_FETCH_TIMEOUT_MS = 15_000;
+/** Max time to wait for the per-assistant refresh lock before proceeding. */
+const REFRESH_LOCK_WAIT_MS = 10_000;
+/** A lock older than this is treated as stale (holder crashed) and stolen. */
+const REFRESH_LOCK_STALE_MS = 30_000;
+const REFRESH_LOCK_POLL_MS = 100;
+
+function getRefreshLockPath(assistantId: string): string {
+  return join(dirname(getGuardianTokenPath(assistantId)), "refresh.lock");
+}
+
+const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Best-effort exclusive cross-process lock for a per-assistant token refresh.
+ * Created atomically with `wx`; a stale lock (crashed holder) is stolen.
+ * Returns true if acquired, false if it timed out (caller proceeds degraded).
+ */
+async function acquireRefreshLock(lockPath: string): Promise<boolean> {
+  mkdirSync(dirname(lockPath), { recursive: true, mode: 0o700 });
+  const deadline = Date.now() + REFRESH_LOCK_WAIT_MS;
+  for (;;) {
+    try {
+      const fd = openSync(lockPath, "wx", 0o600);
+      writeSync(fd, String(process.pid));
+      closeSync(fd);
+      return true;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST") return false;
+      try {
+        if (Date.now() - statSync(lockPath).mtimeMs > REFRESH_LOCK_STALE_MS) {
+          unlinkSync(lockPath); // steal a stale lock, then retry
+          continue;
+        }
+      } catch {
+        continue; // lock vanished between open and stat — retry
+      }
+      if (Date.now() >= deadline) return false;
+      await delay(REFRESH_LOCK_POLL_MS);
+    }
+  }
+}
+
+function releaseRefreshLock(lockPath: string): void {
+  try {
+    unlinkSync(lockPath);
+  } catch {
+    /* already released/stolen */
+  }
+}
+
 /**
  * Call POST /v1/guardian/refresh on the remote gateway to obtain a new
  * access token using an existing (possibly expired) access token for auth.
  * Returns the refreshed token data (persisted locally), or null if the
  * refresh fails (e.g. no stored token, or refresh token itself is expired).
+ *
+ * Concurrency-safe: the gateway rotates refresh tokens and treats reuse of an
+ * already-rotated token as replay (revoking the whole token family), so two
+ * processes (e.g. `vellum message` + `vellum events`) refreshing the same
+ * stored token at once would self-revoke and force re-pairing. We serialize on
+ * a per-assistant lock and, once held, re-read the stored token: if another
+ * process already rotated it while we waited, we return that fresh token
+ * instead of replaying our now-stale refresh token.
  */
 export async function refreshGuardianToken(
   gatewayUrl: string,
   assistantId: string,
 ): Promise<GuardianTokenData | null> {
-  const tokenData = loadGuardianToken(assistantId);
-  if (!tokenData) return null;
+  const before = loadGuardianToken(assistantId);
+  if (!before) return null;
 
   // Gateway persists expiresAt as epoch-ms numbers; Date.parse("1234567890000")
   // returns NaN. new Date() accepts both ISO strings and epoch-ms numbers.
-  const refreshExpiry = new Date(tokenData.refreshTokenExpiresAt).getTime();
+  const refreshExpiry = new Date(before.refreshTokenExpiresAt).getTime();
   if (!Number.isFinite(refreshExpiry) || refreshExpiry <= Date.now())
     return null;
 
+  const lockPath = getRefreshLockPath(assistantId);
+  const locked = await acquireRefreshLock(lockPath);
   try {
+    // Re-read under the lock: a concurrent process may have rotated the token
+    // while we waited. If the stored refresh token changed, ours is now stale
+    // (replaying it would trip reuse-detection) — use the fresh token instead.
+    const current = loadGuardianToken(assistantId);
+    if (current && current.refreshToken !== before.refreshToken) {
+      return current;
+    }
+
+    // We did NOT acquire the lock (another process is likely mid-refresh) and
+    // the stored token hasn't been rotated yet. Do NOT call the gateway: our
+    // refresh token may be the one the winner is rotating right now, and
+    // replaying a rotated token revokes the whole family (forcing re-pair).
+    // Give up — the caller surfaces the original 401, and the next attempt
+    // picks up the winner's persisted token.
+    if (!locked) return null;
+
+    const tokenData = current ?? before;
+
     const response = await fetch(`${gatewayUrl}/v1/guardian/refresh`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${tokenData.accessToken}`,
       },
-      body: JSON.stringify({ refreshToken: tokenData.refreshToken }),
+      body: JSON.stringify({
+        refreshToken: tokenData.refreshToken,
+        // The refresh token is device-bound; send the device id used at init
+        // (falling back to a fresh computation for tokens persisted before the
+        // field was stored) so the gateway can verify the binding.
+        deviceId: tokenData.deviceId || computeDeviceId(),
+      }),
+      signal: AbortSignal.timeout(REFRESH_FETCH_TIMEOUT_MS),
     });
     if (!response.ok) return null;
 
@@ -212,6 +304,8 @@ export async function refreshGuardianToken(
     return refreshed;
   } catch {
     return null;
+  } finally {
+    if (locked) releaseRefreshLock(lockPath);
   }
 }
 

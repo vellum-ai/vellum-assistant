@@ -1,8 +1,8 @@
 import { SquarePen } from "lucide-react";
 
-import { Button, Typography } from "@vellum/design-library";
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
+import { Button, Typography } from "@vellumai/design-library";
 
 interface HomeGreetingHeaderProps {
   avatarComponents: CharacterComponents | null;

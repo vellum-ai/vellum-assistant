@@ -1,14 +1,16 @@
 import { v4 as uuid } from "uuid";
 
+import type {
+  TraceEvent,
+  TraceEventKind,
+  TraceEventStatus,
+} from "../api/events/trace-event.js";
 import {
   getMaxSequence,
   persistTraceEvent,
 } from "../memory/trace-event-store.js";
 import { getLogger } from "../util/logger.js";
-import type { ServerMessage, TraceEventKind } from "./message-protocol.js";
-import type { TraceEvent } from "./message-types/messages.js";
-
-export type TraceEventStatus = "info" | "success" | "warning" | "error";
+import type { ServerMessage } from "./message-protocol.js";
 
 const log = getLogger("trace-emitter");
 

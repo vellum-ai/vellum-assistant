@@ -2,31 +2,31 @@ import { useMemo, useState } from "react";
 
 import { ArrowLeft, Coins, Loader2, Target } from "lucide-react";
 
-import { Card } from "@vellum/design-library/components/card";
+import { Card } from "@vellumai/design-library/components/card";
 import {
-  SegmentControl,
-  type SegmentControlItem,
-} from "@vellum/design-library/components/segment-control";
-import { StatSquare } from "@vellum/design-library/components/stat-square";
-import { Typography } from "@vellum/design-library/components/typography";
+    SegmentControl,
+    type SegmentControlItem,
+} from "@vellumai/design-library/components/segment-control";
+import { StatSquare } from "@vellumai/design-library/components/stat-square";
+import { Typography } from "@vellumai/design-library/components/typography";
 
 import {
-  DateRangeSelect,
-  DEFAULT_PRESET_DAYS,
-  type DateRange,
-  computeRangeInTimezone,
+    DEFAULT_PRESET_DAYS,
+    type DateRange,
+    DateRangeSelect,
+    computeRangeInTimezone,
 } from "@/components/charts/date-range-select";
 import {
-  DEFAULT_LLM_USAGE_DIMENSION,
-  LLM_USAGE_DIMENSION_ITEMS,
-  type LlmUsageDimension,
+    DEFAULT_LLM_USAGE_DIMENSION,
+    LLM_USAGE_DIMENSION_ITEMS,
+    type LlmUsageDimension,
 } from "@/utils/llm-dimension";
 
 import { BillingUsageChart, type ChartMetric } from "@/domains/settings/components/billing-usage/billing-usage-chart";
 import {
-  type BillingUsageSourceFilter,
-  getDefaultDateRange,
-  useBillingUsageData,
+    type BillingUsageSourceFilter,
+    getDefaultDateRange,
+    useBillingUsageData,
 } from "@/domains/settings/components/billing-usage/use-billing-usage-data";
 import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 

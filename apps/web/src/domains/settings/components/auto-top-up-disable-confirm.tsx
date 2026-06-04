@@ -1,4 +1,4 @@
-import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
+import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 
 export interface AutoTopUpDisableConfirmProps {
   open: boolean;

@@ -2,11 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Minimize2 } from "lucide-react";
 
-import { Button } from "@vellum/design-library";
 import { AppNavBar } from "@/components/app-nav-bar";
 import { useSandboxFetchProxy } from "@/hooks/use-sandbox-fetch-proxy";
-import { injectBridge } from "@/utils/sandbox-bridge";
 import { cn } from "@/utils/misc";
+import { injectBridge } from "@/utils/sandbox-bridge";
+import { Button } from "@vellumai/design-library";
 
 export interface AppViewerContainerProps {
   appId: string;

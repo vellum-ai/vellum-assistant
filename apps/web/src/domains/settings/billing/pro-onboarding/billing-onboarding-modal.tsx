@@ -2,15 +2,15 @@ import { useCallback, useEffect, useState } from "react";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { Modal } from "@vellum/design-library/components/modal";
-import type { MachineTierEnum } from "@/generated/api/types.gen";
 import {
-  assistantsActiveRetrieveOptions,
-  organizationsBillingSubscriptionOnboardingRetrieveOptions,
-  organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
-  organizationsBillingSubscriptionRetrieveOptions,
-  organizationsBillingSubscriptionRetrieveQueryKey,
+    assistantsActiveRetrieveOptions,
+    organizationsBillingSubscriptionOnboardingRetrieveOptions,
+    organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
+    organizationsBillingSubscriptionRetrieveOptions,
+    organizationsBillingSubscriptionRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
+import type { MachineTierEnum } from "@/generated/api/types.gen";
+import { Modal } from "@vellumai/design-library/components/modal";
 
 import { CompleteState } from "./complete-state";
 import { DomainStep } from "./domain-step";

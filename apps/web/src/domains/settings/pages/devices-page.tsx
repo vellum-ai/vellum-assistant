@@ -3,17 +3,17 @@ import { Navigate } from "react-router";
 
 import { useQuery } from "@tanstack/react-query";
 
-import { Notice } from "@vellum/design-library/components/notice";
 import { DetailCard } from "@/components/detail-card";
 import { DeviceRow } from "@/domains/settings/components/device-row";
 import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
 import type { Assistant } from "@/generated/api/types.gen";
 import {
-  useActiveAssistantIsPlatformHosted,
-  useActiveAssistantLifecycleIsLoading,
-  usePlatformGate,
+    useActiveAssistantIsPlatformHosted,
+    useActiveAssistantLifecycleIsLoading,
+    usePlatformGate,
 } from "@/hooks/use-platform-gate";
 import { routes } from "@/utils/routes";
+import { Notice } from "@vellumai/design-library/components/notice";
 
 export function DevicesPage() {
   const platformGate = usePlatformGate({ platformHostedOnly: true });

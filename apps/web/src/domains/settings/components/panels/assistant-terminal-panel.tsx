@@ -1,17 +1,17 @@
 import { Terminal } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { Dropdown } from "@vellum/design-library/components/dropdown";
-import { Notice } from "@vellum/design-library/components/notice";
+import { getAssistant } from "@/assistant/api";
 import { TerminalPanel } from "@/components/terminal-panel";
 import type { MaintenanceMode } from "@/generated/api/types.gen";
-import { getAssistant } from "@/assistant/api";
 import {
-  useActiveAssistantLifecycleIsLoading,
-  usePlatformGate,
+    useActiveAssistantLifecycleIsLoading,
+    usePlatformGate,
 } from "@/hooks/use-platform-gate";
-import { toast } from "@vellum/design-library";
 import { captureError } from "@/lib/sentry/capture-error";
+import { toast } from "@vellumai/design-library";
+import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Notice } from "@vellumai/design-library/components/notice";
 
 type TerminalService = "assistant" | "gateway" | "credential-executor";
 

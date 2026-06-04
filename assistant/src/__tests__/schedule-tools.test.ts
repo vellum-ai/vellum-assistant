@@ -66,6 +66,23 @@ describe("schedule_create tool", () => {
     expect(result.content).toContain("Enabled: true");
   });
 
+  test("persists the creating conversation for recurring schedules", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "Recurring source",
+        expression: "0 9 * * *",
+        message: "remember the source",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    const row = getRawDb()
+      .query("SELECT created_from_conversation_id FROM cron_jobs LIMIT 1")
+      .get() as { created_from_conversation_id: string | null };
+    expect(row.created_from_conversation_id).toBe(ctx.conversationId);
+  });
+
   test("creates a disabled schedule", async () => {
     const result = await executeScheduleCreate(
       {
@@ -190,6 +207,24 @@ describe("schedule_create with fire_at (one-shot)", () => {
     expect(result.content).toContain("Mode: execute");
     expect(result.content).toContain("One-time reminder");
     expect(result.content).toContain("Status: active");
+  });
+
+  test("persists the creating conversation for one-shot schedules", async () => {
+    const futureDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const result = await executeScheduleCreate(
+      {
+        name: "One-shot source",
+        fire_at: futureDate,
+        message: "remember this source too",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    const row = getRawDb()
+      .query("SELECT created_from_conversation_id FROM cron_jobs LIMIT 1")
+      .get() as { created_from_conversation_id: string | null };
+    expect(row.created_from_conversation_id).toBe(ctx.conversationId);
   });
 
   test("rejects fire_at that is not valid ISO 8601", async () => {

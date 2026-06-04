@@ -1,9 +1,9 @@
+import { sentryVitePlugin } from "@sentry/vite-plugin";
+import tailwindcss from "@tailwindcss/vite";
+import react from "@vitejs/plugin-react";
 import type http from "node:http";
 import path from "node:path";
 import { defineConfig, loadEnv } from "vite";
-import react from "@vitejs/plugin-react";
-import tailwindcss from "@tailwindcss/vite";
-import { sentryVitePlugin } from "@sentry/vite-plugin";
 import { localModePlugin } from "./vite-plugin-local-mode";
 
 const DESIGN_LIBRARY_SRC = path.resolve(
@@ -14,7 +14,7 @@ const DESIGN_LIBRARY_SRC = path.resolve(
 // path, not the real source path. We need both to translate watcher events.
 const DESIGN_LIBRARY_SYMLINK = path.resolve(
   import.meta.dirname,
-  "node_modules/@vellum/design-library/src",
+  "node_modules/@vellumai/design-library/src",
 );
 
 // Keep in sync with PLATFORM_MODE_TRUTHY in src/lib/local-mode.ts

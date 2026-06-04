@@ -1,11 +1,10 @@
 
-import { useState } from "react";
 import { AlertTriangle, HardDrive } from "lucide-react";
+import { useState } from "react";
 
-import { Button, Checkbox, Modal } from "@vellum/design-library";
-import { Notice } from "@vellum/design-library";
-import type { DiskPressureStatus } from "@vellumai/assistant-api";
 import { formatDiskPressureUsage } from "@/assistant/disk-pressure";
+import type { DiskPressureStatus } from "@vellumai/assistant-api";
+import { Button, Checkbox, Modal, Notice } from "@vellumai/design-library";
 
 export type DiskPressureBannerMode = "warning" | "acknowledgement-required" | "cleanup";
 

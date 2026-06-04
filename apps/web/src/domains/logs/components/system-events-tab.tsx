@@ -1,21 +1,21 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import {
-  AlertTriangle,
-  CheckCircle,
-  ChevronDown,
-  Clock,
-  Loader2,
-  XCircle,
+    AlertTriangle,
+    CheckCircle,
+    ChevronDown,
+    Clock,
+    Loader2,
+    XCircle,
 } from "lucide-react";
 import { useState } from "react";
 
-import { Tag } from "@vellum/design-library";
+import { Tag } from "@vellumai/design-library";
 
 import { assistantsSystemEventsListInfiniteOptions } from "@/generated/api/@tanstack/react-query.gen";
 import type {
-  AssistantSystemEvent,
-  EventStatusEnum,
-  SystemEventTypeEnum,
+    AssistantSystemEvent,
+    EventStatusEnum,
+    SystemEventTypeEnum,
 } from "@/generated/api/types.gen";
 
 type TagTone = "positive" | "negative" | "warning" | "neutral";

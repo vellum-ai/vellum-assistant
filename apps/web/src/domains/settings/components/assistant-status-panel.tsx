@@ -1,28 +1,28 @@
 import { Loader2 } from "lucide-react";
 import {
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
+    type ReactNode,
+    useCallback,
+    useEffect,
+    useRef,
+    useState,
 } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 
-import { Tag } from "@vellum/design-library/components/tag";
-import { CapacityBar } from "@/domains/settings/components/capacity-bar";
 import {
-  type Assistant,
-  getAssistant,
-  getAssistantHealthz,
+    type Assistant,
+    getAssistant,
+    getAssistantHealthz,
 } from "@/assistant/api";
-import type { HealthzGetResponse } from "@/generated/daemon/types.gen";
-import { useAuthStore } from "@/stores/auth-store";
-import { toast } from "@vellum/design-library";
-import { captureError } from "@/lib/sentry/capture-error";
-import { isTransientNetworkError } from "@/utils/is-transient-network-error";
-import { useEnvironmentStore } from "@/stores/environment-store";
+import { CapacityBar } from "@/domains/settings/components/capacity-bar";
 import { DevModeVersionUnlock } from "@/domains/settings/components/dev-mode-version-unlock";
+import type { HealthzGetResponse } from "@/generated/daemon/types.gen";
+import { captureError } from "@/lib/sentry/capture-error";
+import { useAuthStore } from "@/stores/auth-store";
+import { useEnvironmentStore } from "@/stores/environment-store";
+import { isTransientNetworkError } from "@/utils/is-transient-network-error";
+import { toast } from "@vellumai/design-library";
+import { Tag } from "@vellumai/design-library/components/tag";
 
 const CURRENT_ASSISTANT_QUERY_KEY = ["currentAssistant"] as const;
 

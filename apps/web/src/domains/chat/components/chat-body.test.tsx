@@ -58,7 +58,7 @@ mock.module(
   }),
 );
 
-mock.module("@vellum/design-library", () => ({
+mock.module("@vellumai/design-library", () => ({
   Button: ({
     children,
     iconOnly,

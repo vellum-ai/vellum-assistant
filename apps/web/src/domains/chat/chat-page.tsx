@@ -11,23 +11,23 @@
  * actually usable — not during setup, cleanup, or error states.
  */
 
-import { useCallback, useEffect, useRef } from "react";
 import * as Sentry from "@sentry/react";
+import { useCallback, useEffect, useRef } from "react";
 
-import { useIsSessionInitializing } from "@/stores/auth-store";
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useConversationListQuery } from "@/hooks/conversation-queries";
-import { Button } from "@vellum/design-library";
+import { useIsSessionInitializing } from "@/stores/auth-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { Button } from "@vellumai/design-library";
 
-import { SetupScreen } from "@/domains/chat/components/setup-screen";
+import { ActiveChatView } from "@/domains/chat/active-chat-view";
 import { CleanupScreen } from "@/domains/chat/components/cleanup-screen";
 import { PlatformHostedScreen } from "@/domains/chat/components/platform-hosted-screen";
 import { SelfHostedScreen } from "@/domains/chat/components/self-hosted-screen";
+import { SetupScreen } from "@/domains/chat/components/setup-screen";
 import { VersionSelectionScreen } from "@/domains/chat/components/version-selection-screen";
-import { ActiveChatView } from "@/domains/chat/active-chat-view";
 
 export function ChatPage() {
   const isSessionInitializing = useIsSessionInitializing();

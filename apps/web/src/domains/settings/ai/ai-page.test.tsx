@@ -14,20 +14,20 @@
  * never resolves a pending queryFn) renders the loaded state directly.
  */
 
-import { describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router";
+import { describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import { MemoryRouter } from "react-router";
 
-import type { SubscriptionResponse } from "@/generated/api/types.gen";
 import {
-  assistantsListQueryKey,
-  organizationsBillingSubscriptionRetrieveQueryKey,
+    assistantsListQueryKey,
+    organizationsBillingSubscriptionRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
+import type { SubscriptionResponse } from "@/generated/api/types.gen";
 
 // The settings-card barrel re-exports toast surfaces; stub them so barrel
 // resolution doesn't pull the real toast module during the static render.
-mock.module("@vellum/design-library/components/toast", () => ({
+mock.module("@vellumai/design-library/components/toast", () => ({
   toast: { success: () => {}, error: () => {} },
   Toaster: () => null,
   ToastContent: () => null,
