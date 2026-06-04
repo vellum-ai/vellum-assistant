@@ -196,6 +196,60 @@ for when to use each API.
 
 Reference: [Zustand — Auto Generating Selectors](https://zustand.docs.pmnd.rs/learn/guides/auto-generating-selectors)
 
+## Status as one discriminated union, never parallel booleans
+
+Model an async or multi-phase status as a single
+[discriminated-union](https://www.typescriptlang.org/docs/handbook/2/narrowing.html#discriminated-unions)
+field, not a pair of booleans. A `(isLoading, isLoggedIn)` pair has four
+combinations but only three are legal — `(true, true)` ("loading yet already
+logged in") is meaningless, and every reader has to remember which combination
+means what. A single `sessionStatus: "initializing" | "authenticated" |
+"unauthenticated"` makes the illegal state unrepresentable and names each phase
+once.
+
+```ts
+// Avoid — parallel booleans: 4 states encode 3, (true,true) is illegal
+interface AuthState { isLoading: boolean; isLoggedIn: boolean }
+
+// Prefer — one field, every value legal and named
+type SessionStatus = "initializing" | "authenticated" | "unauthenticated";
+interface AuthState { sessionStatus: SessionStatus }
+```
+
+References:
+- [TypeScript — Discriminated unions](https://www.typescriptlang.org/docs/handbook/2/narrowing.html#discriminated-unions)
+- [Making illegal states unrepresentable](https://fsharpforfunandprofit.com/posts/designing-with-types-making-illegal-states-unrepresentable/)
+
+## Where derivation lives: inline vs shared predicate
+
+Deriving a value from store state (`status === "authenticated"`,
+`user?.id`) belongs **inline in the consumer** when it is a one-off — keep the
+store's surface minimal and the derivation next to where it's used.
+
+Extract a **shared predicate** when the *same* derivation recurs across
+modules. Re-encoding `status === "authenticated"` at six call sites leaks the
+field's encoding to every reader: the question "is the user authenticated?"
+should be answered in one place, so a change to the encoding touches one line.
+Give the owning module two forms:
+
+- a **pure predicate** `isAuthenticated(status)` for imperative readers
+  (middleware, route resolvers, services) that already hold a value, and
+- a **hook** `useIsAuthenticated()` that composes the predicate over an atomic
+  selector, for reactive components.
+
+```ts
+// Pure predicate — owns the encoding, usable anywhere
+export const isAuthenticated = (s: SessionStatus) => s === "authenticated";
+
+// Hook — reactive read for components, composes the predicate
+export const useIsAuthenticated = () =>
+  isAuthenticated(useAuthStore.use.sessionStatus());
+```
+
+Keep pure predicates in a dependency-free module when modules the store
+*depends on* must also read them — `import type` cannot break a cycle through a
+runtime value (a predicate), only through a type.
+
 ## Reading state: `.use.*` vs `.getState()`
 
 Zustand exposes two ways to read store state. Using the wrong one
@@ -218,7 +272,7 @@ const handleClick = useCallback(() => {
 }, []);
 
 // Middleware — outside React
-const { isLoggedIn } = useAuthStore.getState();
+const { sessionStatus } = useAuthStore.getState();
 ```
 
 Zustand's `set()` is synchronous — `.getState()` after an action

@@ -142,7 +142,6 @@ import {
   type AssistantAttachmentDraft,
   cleanAssistantContent,
 } from "./assistant-attachments.js";
-import { cleanupBootstrapAfterTurnThreshold } from "./bootstrap-turn-cleanup.js";
 import { resolveOverflowAction } from "./context-overflow-policy.js";
 import {
   createInitialReducerState,
@@ -2049,24 +2048,13 @@ export async function runAgentLoopImpl(
     // with its own tool-use iteration counter.
     const loopTurnCtx = buildPluginTurnContext(ctx, reqId);
 
-    // Hooks for the loop-owned mid-loop compaction. The agent loop owns the
+    // Hook for the loop-owned mid-loop compaction. The agent loop owns the
     // trigger (its budget gate), the `compaction` pipeline call, the result
     // interpretation (circuit-breaker bookkeeping + the exhaustion decision),
-    // and the inline continue; these callbacks bridge the durable / injection
-    // state the loop is intentionally blind to. Durable persistence and
-    // re-injection stay orchestrator-supplied for now.
+    // and the inline continue; this callback bridges the injection state the
+    // loop is intentionally blind to. Durable persistence is signalled via
+    // events; re-injection stays orchestrator-supplied for now.
     const midLoopCompaction: MidLoopCompaction = {
-      prepare: () => {
-        // The loop strips runtime injections and commits the stripped basis to
-        // durable state via the `compaction_completed` event; this hook only
-        // resolves the pipeline options. The loop sets `actorTrustClass` itself
-        // from the turn context.
-        return {
-          options: {
-            overrideProfile: resolveCurrentOverrideProfile() ?? null,
-          },
-        };
-      },
       reinject: async () => {
         // stripInjectionsForCompaction() unconditionally removed the existing
         // NOW.md block, so re-inject the current content regardless of whether
@@ -3231,8 +3219,6 @@ export async function runAgentLoopImpl(
     }
   } finally {
     if (turnStarted) {
-      cleanupBootstrapAfterTurnThreshold(ctx.conversationId);
-
       ctx.turnCount++;
       const config = getConfig();
       const maxWait = config.workspaceGit?.turnCommitMaxWaitMs ?? 4000;

@@ -206,18 +206,15 @@ describe("nextStep / prevStep", () => {
 
 describe("isPlatformFunnelAvailable", () => {
   test("platform mode is always available, regardless of session state", () => {
-    for (const hasPlatformSession of [false, true]) {
-      for (const platformSessionResolved of [false, true]) {
-        for (const hasCachedPlatformAssistant of [false, true]) {
-          expect(
-            isPlatformFunnelAvailable({
-              localMode: false,
-              hasPlatformSession,
-              platformSessionResolved,
-              hasCachedPlatformAssistant,
-            }),
-          ).toBe(true);
-        }
+    for (const platformSession of ["unknown", "absent", "present"] as const) {
+      for (const hasCachedPlatformAssistant of [false, true]) {
+        expect(
+          isPlatformFunnelAvailable({
+            localMode: false,
+            platformSession,
+            hasCachedPlatformAssistant,
+          }),
+        ).toBe(true);
       }
     }
   });
@@ -226,8 +223,7 @@ describe("isPlatformFunnelAvailable", () => {
     expect(
       isPlatformFunnelAvailable({
         localMode: true,
-        hasPlatformSession: true,
-        platformSessionResolved: true,
+        platformSession: "present",
         hasCachedPlatformAssistant: false,
       }),
     ).toBe(true);
@@ -240,8 +236,7 @@ describe("isPlatformFunnelAvailable", () => {
     expect(
       isPlatformFunnelAvailable({
         localMode: true,
-        hasPlatformSession: false,
-        platformSessionResolved: true,
+        platformSession: "absent",
         hasCachedPlatformAssistant: true,
       }),
     ).toBe(false);
@@ -255,8 +250,7 @@ describe("isPlatformFunnelAvailable", () => {
     expect(
       isPlatformFunnelAvailable({
         localMode: true,
-        hasPlatformSession: false,
-        platformSessionResolved: false,
+        platformSession: "unknown",
         hasCachedPlatformAssistant: true,
       }),
     ).toBe(true);
@@ -269,8 +263,7 @@ describe("isPlatformFunnelAvailable", () => {
     expect(
       isPlatformFunnelAvailable({
         localMode: true,
-        hasPlatformSession: false,
-        platformSessionResolved: false,
+        platformSession: "unknown",
         hasCachedPlatformAssistant: false,
       }),
     ).toBe(false);

@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import * as Sentry from "@sentry/react";
 
-import { useAuthStore } from "@/stores/auth-store";
+import { useIsSessionInitializing } from "@/stores/auth-store";
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
@@ -30,7 +30,7 @@ import { VersionSelectionScreen } from "@/domains/chat/components/version-select
 import { ActiveChatView } from "@/domains/chat/active-chat-view";
 
 export function ChatPage() {
-  const authLoading = useAuthStore.use.isLoading();
+  const isSessionInitializing = useIsSessionInitializing();
   const assistantState = useAssistantLifecycleStore.use.assistantState();
   const assistantId = useAssistantSelectionStore.use.activeAssistantId();
   const selfHostedChatEnabled = useClientFeatureFlagStore.use.selfHostedAssistant();
@@ -58,7 +58,7 @@ export function ChatPage() {
   // -------------------------------------------------------------------------
   // Loading guards — auth / assistant lifecycle not yet resolved
   // -------------------------------------------------------------------------
-  const connectingReason = authLoading
+  const connectingReason = isSessionInitializing
     ? "auth_loading"
     : assistantState.kind === "loading"
       ? "assistant_loading"

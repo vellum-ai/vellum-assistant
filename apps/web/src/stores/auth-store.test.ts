@@ -126,14 +126,16 @@ mock.module("@/assistant/api", () => ({
 }));
 
 const { useAuthStore } = await import("@/stores/auth-store");
+const { resolveLocalOnboardingRoute } = await import(
+  "@/utils/local-onboarding-route"
+);
+const { routes } = await import("@/utils/routes");
 
 function resetAuthStore(): void {
   useAuthStore.setState({
-    isLoggedIn: false,
-    isLoading: true,
+    sessionStatus: "initializing",
     user: null,
-    hasPlatformSession: false,
-    platformSessionResolved: false,
+    platformSession: "unknown",
   });
 }
 
@@ -171,8 +173,7 @@ describe("auth store onboarding flag reconciliation", () => {
     await useAuthStore.getState().initSession();
 
     expect(syncOnboardingUserMock).toHaveBeenCalledWith("user-1");
-    expect(useAuthStore.getState().isLoggedIn).toBe(true);
-    expect(useAuthStore.getState().isLoading).toBe(false);
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
   });
 
   test("refreshSession reconciles onboarding flags for a changed user", async () => {
@@ -189,7 +190,7 @@ describe("auth store onboarding flag reconciliation", () => {
 
     expect(logoutMock).toHaveBeenCalled();
     expect(clearOnboardingFlagsMock).toHaveBeenCalled();
-    expect(useAuthStore.getState().isLoggedIn).toBe(false);
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
   });
 });
 
@@ -212,89 +213,161 @@ describe("session cleanup on logout", () => {
     expect(clearUserScopedStorageMock).toHaveBeenCalled();
   });
 
-  test("logout clears assistant lifecycle synchronously, before flipping isLoggedIn", async () => {
+  test("logout clears assistant lifecycle synchronously, before leaving authenticated", async () => {
     // The lifecycle reset must happen before the auth state flips,
     // otherwise sync hooks like `useAssistantResourceSync` get one
     // re-render with the previous user's assistant id and fire
     // requests that 401. The order is verified by recording the
-    // sequence of side effects vs the `isLoggedIn` flip.
-    let isLoggedInAtResetTime = useAuthStore.getState().isLoggedIn;
+    // session status seen at reset time vs the final transition.
+    let statusAtResetTime = useAuthStore.getState().sessionStatus;
     lifecycleResetForLogoutMock.mockImplementationOnce(() => {
-      isLoggedInAtResetTime = useAuthStore.getState().isLoggedIn;
+      statusAtResetTime = useAuthStore.getState().sessionStatus;
     });
-    useAuthStore.setState({ isLoggedIn: true });
+    useAuthStore.setState({ sessionStatus: "authenticated" });
 
     await useAuthStore.getState().logout();
 
     expect(lifecycleResetForLogoutMock).toHaveBeenCalledTimes(1);
-    expect(isLoggedInAtResetTime).toBe(true);
-    expect(useAuthStore.getState().isLoggedIn).toBe(false);
+    expect(statusAtResetTime).toBe("authenticated");
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
   });
 });
 
 describe("platform session probe resolution", () => {
   // A returning local-gateway user re-runs the platform probe on app resume.
-  // The gate must re-enter the "unknown" state for the probe window instead of
-  // leaving a stale `true` from the previous probe — otherwise a cached
-  // platform assistant stops standing in for the session and the onboarding
-  // funnel can be raced past before the probe settles.
-  test("a re-run gateway probe resets platformSessionResolved until it settles", async () => {
+  // The probe must NOT reopen the "unknown" window: it leaves the last-known
+  // "present"/"absent" in place until the new result lands, so a cached
+  // platform assistant keeps standing in for the session and reactive
+  // consumers don't flicker mid-session.
+  test("a re-run gateway probe retains the last status until it settles", async () => {
     mockIsGatewayAuth = true;
     mockIsLocalMode = false;
     sessionUser = { id: "user-1", email: "user@example.com" };
-    useAuthStore.setState({
-      platformSessionResolved: true,
-      hasPlatformSession: false,
-    });
+    useAuthStore.setState({ platformSession: "absent" });
 
     const gates: Array<() => void> = [];
     getSessionGates = gates;
 
     await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
 
-    // Probe launched but not settled: state is unknown again, not a stale true.
-    expect(useAuthStore.getState().platformSessionResolved).toBe(false);
+    // Probe launched but not settled: the prior status is retained, not reset
+    // to "unknown".
+    expect(useAuthStore.getState().platformSession).toBe("absent");
 
     gates[0]();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(useAuthStore.getState().platformSessionResolved).toBe(true);
-    expect(useAuthStore.getState().hasPlatformSession).toBe(true);
+    expect(useAuthStore.getState().platformSession).toBe("present");
   });
 
   // Two probes can overlap — an app-resume refresh firing while the initial
   // probe is still in flight. If a slower earlier probe settles after a newer
-  // one starts, it must not flip platformSessionResolved back to true while the
-  // newer probe is pending; otherwise isPlatformFunnelAvailable would treat the
-  // not-yet-known session as confirmed-absent and drop the funnel.
-  test("a stale probe completing after a newer one does not settle resolution", async () => {
+  // one starts, its result must be discarded so it can't overwrite the newer
+  // probe's outcome.
+  test("a stale probe completing after a newer one does not change status", async () => {
     mockIsGatewayAuth = true;
     mockIsLocalMode = false;
     sessionUser = { id: "user-1", email: "user@example.com" };
-    useAuthStore.setState({
-      platformSessionResolved: true,
-      hasPlatformSession: false,
-    });
+    useAuthStore.setState({ platformSession: "absent" });
 
     const gates: Array<() => void> = [];
     getSessionGates = gates;
 
-    // Launch two overlapping probes; both reset resolution to unknown.
+    // Launch two overlapping probes; neither has settled, so the prior status
+    // is still retained.
     await useAuthStore.getState().refreshSession();
     await useAuthStore.getState().refreshSession();
     expect(gates.length).toBe(2);
-    expect(useAuthStore.getState().platformSessionResolved).toBe(false);
+    expect(useAuthStore.getState().platformSession).toBe("absent");
 
-    // Settle the older probe first: it is stale, so it must not resolve.
+    // Settle the older probe first: it is stale, so it must not write status.
     gates[0]();
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(useAuthStore.getState().platformSessionResolved).toBe(false);
+    expect(useAuthStore.getState().platformSession).toBe("absent");
 
-    // The newest probe settling is what flips resolution to true.
+    // The newest probe settling is what moves status to "present".
     gates[1]();
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(useAuthStore.getState().platformSessionResolved).toBe(true);
-    expect(useAuthStore.getState().hasPlatformSession).toBe(true);
+    expect(useAuthStore.getState().platformSession).toBe("present");
+  });
+
+  // The onboarding route fork reads platform-session liveness imperatively. A
+  // re-probe leaves the prior "absent" displayed while it confirms in the
+  // background (no flicker for reactive consumers), so the resolver must wait
+  // for that probe rather than routing on the stale value — otherwise a
+  // returning platform user lands on the new-user welcome flow instead of the
+  // hosting picker.
+  test("resolveLocalOnboardingRoute waits for an in-flight probe instead of routing on a stale status", async () => {
+    mockIsGatewayAuth = true;
+    mockIsLocalMode = false;
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    useAuthStore.setState({ platformSession: "absent" });
+
+    const gates: Array<() => void> = [];
+    getSessionGates = gates;
+
+    // Launch the confirming probe; it stays in flight, so the displayed status
+    // is still the stale "absent".
+    await useAuthStore.getState().refreshSession();
+    expect(useAuthStore.getState().platformSession).toBe("absent");
+
+    const resolved: { route: string | null } = { route: null };
+    const pending = resolveLocalOnboardingRoute().then((route) => {
+      resolved.route = route;
+    });
+
+    // While the probe is in flight the resolver must block rather than picking
+    // welcome from the stale "absent".
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(resolved.route).toBeNull();
+
+    // Once the probe confirms the session, the resolver reads the fresh
+    // "present" and routes to hosting.
+    gates[0]();
+    await pending;
+    expect(resolved.route).toBe(routes.onboarding.hosting);
+  });
+
+  // A probe can become the latest *after* the resolver starts waiting (an
+  // app-resume refresh firing mid-wait). The resolver must chase that newer
+  // probe rather than proceeding when the one it first observed settles —
+  // otherwise it reads a stale status while the newest probe is still pending.
+  test("resolveLocalOnboardingRoute waits for a probe that becomes latest after the wait begins", async () => {
+    mockIsGatewayAuth = true;
+    mockIsLocalMode = false;
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    useAuthStore.setState({ platformSession: "absent" });
+
+    const gates: Array<() => void> = [];
+    getSessionGates = gates;
+
+    // Probe A is in flight; the displayed status is the stale "absent".
+    await useAuthStore.getState().refreshSession();
+    expect(gates.length).toBe(1);
+
+    const resolved: { route: string | null } = { route: null };
+    const pending = resolveLocalOnboardingRoute().then((route) => {
+      resolved.route = route;
+    });
+    // Let the resolver reach the settle wait so it observes probe A's promise.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(resolved.route).toBeNull();
+
+    // A second probe starts mid-wait and becomes the latest.
+    await useAuthStore.getState().refreshSession();
+    expect(gates.length).toBe(2);
+
+    // Probe A settles first, but it is now stale: it neither moves the status
+    // nor may it release the resolver while the newer probe B is pending.
+    gates[0]();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(useAuthStore.getState().platformSession).toBe("absent");
+    expect(resolved.route).toBeNull();
+
+    // Probe B confirms the session; only now does the resolver read "present".
+    gates[1]();
+    await pending;
+    expect(resolved.route).toBe(routes.onboarding.hosting);
   });
 });
 
@@ -311,7 +384,7 @@ describe("biometric session recovery", () => {
     expect(installSessionCookiesMock).toHaveBeenCalledWith(
       "recovered-session-token",
     );
-    expect(useAuthStore.getState().isLoggedIn).toBe(true);
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
     expect(useAuthStore.getState().user?.id).toBe("user-1");
   });
 
@@ -322,7 +395,7 @@ describe("biometric session recovery", () => {
     await useAuthStore.getState().initSession();
 
     expect(retrieveBiometricTokenMock).not.toHaveBeenCalled();
-    expect(useAuthStore.getState().isLoggedIn).toBe(false);
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
   });
 
   test("initSession skips biometric recovery when biometrics disabled", async () => {
@@ -333,7 +406,7 @@ describe("biometric session recovery", () => {
     await useAuthStore.getState().initSession();
 
     expect(retrieveBiometricTokenMock).not.toHaveBeenCalled();
-    expect(useAuthStore.getState().isLoggedIn).toBe(false);
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
   });
 
   test("initSession falls through to unauthenticated when biometric token is expired", async () => {
@@ -345,7 +418,7 @@ describe("biometric session recovery", () => {
     await useAuthStore.getState().initSession();
 
     expect(installSessionCookiesMock).toHaveBeenCalledWith("expired-token");
-    expect(useAuthStore.getState().isLoggedIn).toBe(false);
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
     expect(useAuthStore.getState().user).toBeNull();
   });
 });
@@ -359,10 +432,11 @@ describe("connectLocalAssistant", () => {
 
     expect(setSelectedAssistantIdMock).toHaveBeenCalledWith("local-a");
     expect(primeLocalGatewayConnectionWithRepairMock).toHaveBeenCalledTimes(1);
-    expect(useAuthStore.getState().isLoggedIn).toBe(true);
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
     expect(useAuthStore.getState().user?.id).toBe("gateway-local");
-    // No platform assistants — the probe resolves synchronously.
-    expect(useAuthStore.getState().platformSessionResolved).toBe(true);
+    // No platform assistants — nothing to probe, so the status settles
+    // directly to "absent" rather than staying "unknown".
+    expect(useAuthStore.getState().platformSession).toBe("absent");
   });
 
   test("rethrows the prime failure without marking the session logged in", async () => {
@@ -374,6 +448,6 @@ describe("connectLocalAssistant", () => {
     ).rejects.toThrow("Guardian token not found");
 
     expect(setSelectedAssistantIdMock).toHaveBeenCalledWith("local-a");
-    expect(useAuthStore.getState().isLoggedIn).toBe(false);
+    expect(useAuthStore.getState().sessionStatus).not.toBe("authenticated");
   });
 });

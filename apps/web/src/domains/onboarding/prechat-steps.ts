@@ -16,6 +16,7 @@ import {
   ONBOARDING_FUNNEL_STEPS,
   type OnboardingFunnelStep,
 } from "@/domains/onboarding/funnel-events";
+import type { PlatformSessionStatus } from "@/stores/session-status";
 
 export type PreChatStepId =
   | "name"
@@ -55,15 +56,14 @@ export interface WebStepCapabilities {
  * prior-assistants import and the Google connect step both talk to the platform
  * with platform auth, so they require a *live* platform session.
  *
- * The local gateway path sets `isLoading: false` before its `getSession()`
- * probe settles, so `hasPlatformSession === false` is ambiguous until
- * `platformSessionResolved` flips true: it can mean "no session" or "not yet
- * known". While the probe is still in flight, a cached platform assistant is a
- * strong signal a session exists (the lockfile is only populated while
- * authenticated), so the funnel stays available rather than hiding steps a
- * returning user should see.
+ * The local gateway path marks the session authenticated before its
+ * `getSession()` probe settles, so `platformSession` sits at `"unknown"` until
+ * the probe lands: that is distinct from `"absent"` ("no session"). While the
+ * probe is still in flight, a cached platform assistant is a strong signal a
+ * session exists (the lockfile is only populated while authenticated), so the
+ * funnel stays available rather than hiding steps a returning user should see.
  *
- * Once the probe has resolved, a cached id alone is no longer trusted:
+ * Once the probe has settled, a cached id alone is no longer trusted:
  * `cloud === "vellum"` lockfile entries persist in local storage and outlive
  * the session (logout/expiry doesn't prune them), so trusting one post-probe
  * would surface these steps with no authenticated channel to complete them —
@@ -71,13 +71,12 @@ export interface WebStepCapabilities {
  */
 export function isPlatformFunnelAvailable(args: {
   localMode: boolean;
-  hasPlatformSession: boolean;
-  platformSessionResolved: boolean;
+  platformSession: PlatformSessionStatus;
   hasCachedPlatformAssistant: boolean;
 }): boolean {
   if (!args.localMode) return true;
-  if (args.hasPlatformSession) return true;
-  return !args.platformSessionResolved && args.hasCachedPlatformAssistant;
+  if (args.platformSession === "present") return true;
+  return args.platformSession === "unknown" && args.hasCachedPlatformAssistant;
 }
 
 /**

@@ -23,7 +23,7 @@ import {
 } from "@/domains/chat/inspector/inspector-payload-api";
 import type { LLMRequestLogEntry } from "@vellumai/assistant-api";
 import type { LlmContextResponse } from "@vellumai/assistant-api";
-import { useAuthStore } from "@/stores/auth-store";
+import { useAuthStore, useIsSessionInitializing } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 
 import { CallRail } from "./components/call-rail";
@@ -58,7 +58,7 @@ import { ResponseTab } from "./components/tabs/response-tab";
  */
 export function InspectPage(): ReactNode {
   const user = useAuthStore.use.user();
-  const authLoading = useAuthStore.use.isLoading();
+  const authLoading = useIsSessionInitializing();
   // React Router's :conversationId segment is the source of truth; the
   // route definition guarantees it's present, but useParams still types
   // it as optional so we narrow defensively.

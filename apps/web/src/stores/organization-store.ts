@@ -22,6 +22,7 @@ import { organizationsList } from "@/generated/api/sdk.gen";
 import type { OrganizationRead } from "@/generated/api/types.gen";
 import { subscribe } from "@/lib/event-bus";
 import { useAuthStore } from "@/stores/auth-store";
+import { hasLivePlatformSession } from "@/stores/session-status";
 
 const ACTIVE_ORGANIZATION_STORAGE_KEY = "vellum_active_organization_id";
 
@@ -196,9 +197,11 @@ export function setupOrganizationStore(): () => void {
   //    platform concept; skip the fetch when there's no platform session
   //    (e.g. self-hosted/local mode with gateway-only auth).
   const unsubAuth = useAuthStore.subscribe((state, prevState) => {
+    const hasSession = hasLivePlatformSession(state.platformSession);
+    const hadSession = hasLivePlatformSession(prevState.platformSession);
     if (
-      state.hasPlatformSession &&
-      (!prevState.hasPlatformSession || state.user?.id !== prevState.user?.id)
+      hasSession &&
+      (!hadSession || state.user?.id !== prevState.user?.id)
     ) {
       useOrganizationStore.getState().fetchOrganizations();
     }
@@ -206,7 +209,7 @@ export function setupOrganizationStore(): () => void {
 
   // 2. App resume — refetch if stale and platform session is active.
   const refetchIfStale = () => {
-    if (!useAuthStore.getState().hasPlatformSession) return;
+    if (!hasLivePlatformSession(useAuthStore.getState().platformSession)) return;
     const { status } = useOrganizationStore.getState();
     if (
       (status === "ready" || status === "error") &&

@@ -578,16 +578,16 @@ async function simulateInlineCompaction(
   signal: AbortSignal | undefined,
   onEvent: (event: AgentEvent) => void | Promise<void>,
   compactionCircuit: CompactionCircuit,
+  overrideProfile: string | null,
 ): Promise<Message[] | null> {
   await onEvent({ type: "context_compacting" });
   // The agent loop strips runtime injections (identity-stubbed in this suite),
-  // records the history-stripped marker via `history_stripped`, then prepare
-  // returns only the orchestrator options. The loop owns the forced-compaction
-  // decision for its mid-loop budget gate and layers `force` plus the turn
-  // actor's trust class onto the options bag before invoking the pipeline.
+  // records the history-stripped marker via `history_stripped`, then owns the
+  // forced-compaction decision for its mid-loop budget gate: it sets `force`,
+  // the turn actor's trust class, and the resolved inference-profile override
+  // directly on the options bag before invoking the pipeline.
   const rawHistory = stripInjectionsForCompaction(history);
   await onEvent({ type: "history_stripped" });
-  const { options } = compaction.prepare();
   let result: CompactionResult;
   try {
     result = await runPipeline<CompactionArgs, CompactionResult>(
@@ -600,7 +600,7 @@ async function simulateInlineCompaction(
         options: {
           force: true,
           actorTrustClass: turnContext?.trust.trustClass,
-          ...options,
+          overrideProfile,
         },
       },
       turnContext as TurnContext,
@@ -701,6 +701,9 @@ const asAgentLoopRun = (
                     options.signal,
                     onEvent,
                     compactionCircuit,
+                    options.resolveOverrideProfile?.() ??
+                      options.overrideProfile ??
+                      null,
                   )
                 : null;
               if (compacted) {

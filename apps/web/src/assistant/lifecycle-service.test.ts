@@ -97,8 +97,7 @@ function makeQueryClient(): QueryClient {
 }
 
 const baseInputs = {
-  isLoggedIn: true,
-  isLoading: false,
+  sessionStatus: "authenticated" as const,
   isRetired: false,
   isNonProduction: false,
   hasPlatformSession: true,
@@ -193,7 +192,7 @@ describe("lifecycleService — server state projection", () => {
 });
 
 describe("lifecycleService — bootstrap branches", () => {
-  test("respondToInputs with isLoggedIn=false clears both stores (safety-net for token-expiry-style auth flips that don't call logout())", async () => {
+  test("respondToInputs with an unauthenticated session clears both stores (safety-net for token-expiry-style auth flips that don't call logout())", async () => {
     // Drive the service into an `active` state through the
     // legitimate path so its internal state mirrors the store.
     getAssistantMock.mockImplementationOnce(async () => ({
@@ -215,10 +214,10 @@ describe("lifecycleService — bootstrap branches", () => {
       "active",
     );
 
-    // Now flip isLoggedIn false and reconcile.
+    // Now flip the session unauthenticated and reconcile.
     lifecycleService.setInputs({
       ...baseInputs,
-      isLoggedIn: false,
+      sessionStatus: "unauthenticated",
       queryClient: makeQueryClient(),
     });
     await lifecycleService.respondToInputs();

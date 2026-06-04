@@ -257,6 +257,7 @@ export { migrateLlmUsageEventsAddAssistantVersion } from "./267-llm-usage-events
 export { migrateAddMemoryV3Selections } from "./268-add-memory-v3-selections.js";
 export { migrateScheduleScriptTimeout } from "./269-schedule-script-timeout.js";
 export { migrateMessagesRoleCreatedAtIndex } from "./270-messages-role-created-at-index.js";
+export { createAuthFallbackEventsTable } from "./271-create-auth-fallback-events.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
