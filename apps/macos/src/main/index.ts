@@ -30,6 +30,7 @@ import {
 import { installApplicationMenu } from "./menu";
 import { installPowerEvents } from "./power-events";
 import { readSetting, writeSetting } from "./settings";
+import { installStatusIpc } from "./status";
 import { installTray } from "./tray";
 
 // Dev-only: override the workspace `name` (`@vellumai/macos`) so the
@@ -246,6 +247,10 @@ app
     installApplicationMenu();
     installDock();
     installPowerEvents();
+    // Register the status channel before the tray installs so the tray's
+    // initial render reflects any status the renderer publishes during
+    // bootstrap rather than briefly showing the default idle dot.
+    installStatusIpc();
     installTray({
       toggleMainWindow: toggleMainWindowVisibility,
       ensureMainWindow: ensureMainWindowVisible,

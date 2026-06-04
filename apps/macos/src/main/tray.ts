@@ -1,17 +1,24 @@
-import { Menu, Tray, app, nativeImage, type NativeImage } from "electron";
+import { Menu, Tray, app } from "electron";
 
 import { resolveAccelerator } from "./commands";
 import { dispatchToMain } from "./main-window";
+import {
+  getStatus,
+  onStatusChange,
+  PULSE_FRAME_INTERVAL_MS,
+  shouldPulse,
+  statusMenuTitle,
+  type AssistantStatus,
+} from "./status";
+import { statusFrames } from "./status-icon";
 
 /**
  * macOS menu-bar (Tray) status item.
  *
  * Mirrors what the Swift app's `NSStatusItem` does in
- * `AppDelegate+MenuBar.swift`: persistent menu-bar icon, single-click
- * toggles the main window, right-click pops a quick-actions menu. The
- * 5-state pulse status indicator that Swift renders on top of the icon
- * lands in a follow-up — this PR puts the icon + click wiring in place
- * so the rest of the app feels like Swift Vellum.
+ * `AppDelegate+MenuBar.swift`: a persistent menu-bar icon showing the
+ * brand glyph with a live status dot, single-click toggles the main
+ * window, right-click pops a quick-actions menu led by a status line.
  *
  * Implementation notes carried over from `apps/macos/docs/PATTERNS.md`
  * (state ownership) and the Electron tray gotchas:
@@ -24,13 +31,17 @@ import { dispatchToMain } from "./main-window";
  *   - `tray.setIgnoreDoubleClickEvents(true)` so two fast single clicks
  *     are treated as two `click` events instead of being coalesced into
  *     a swallowed double-click on macOS.
- *   - Template images only (PNG with alpha; black-on-transparent).
- *     macOS auto-inverts for dark mode and pressed state; colored icons
- *     look wrong against accent tints
- *     (https://github.com/electron/electron/issues/19006).
+ *   - The icon is a colored, non-template image (brand mark + status
+ *     dot), matching the Swift app. Template images auto-invert for
+ *     dark mode but are masked to one color and can't carry the dot;
+ *     see `status-icon.ts` for the full rationale.
  *   - Hold a module-scope `Tray` reference. Without it Node's GC can
  *     collect the JS handle and the icon disappears from the menu bar
  *     even though the underlying NSStatusItem is still alive.
+ *   - Electron's `Tray` has no animation API, so the `thinking` pulse
+ *     is driven by swapping pre-rendered frames on a `setInterval`; the
+ *     timer is cleared on every state change and on quit so it never
+ *     outlives the pulsing state or leaks across reloads.
  */
 
 export interface TrayHandlers {
@@ -56,50 +67,15 @@ export interface TrayHandlers {
   openAbout(): void;
 }
 
-const ICON_SIZE = 16;
-
-/**
- * Placeholder template icon — a thin outlined circle. The assistant
- * avatar + status-dot rendering lands with the pulse-animation ticket
- * and the assistant-identity bridge; until then, an outlined circle is
- * enough that the menu bar shows *something* and the user can find the
- * app.
- *
- * Generated programmatically so this PR ships no binary assets. The
- * follow-up that introduces real avatar/state-dot artwork will switch
- * to `nativeImage.createFromPath(...)` against shipped PNG resources.
- */
-const buildPlaceholderIcon = (): NativeImage => {
-  const buf = Buffer.alloc(ICON_SIZE * ICON_SIZE * 4);
-  const center = ICON_SIZE / 2 - 0.5;
-  for (let y = 0; y < ICON_SIZE; y++) {
-    for (let x = 0; x < ICON_SIZE; x++) {
-      const dx = x - center;
-      const dy = y - center;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      // Anti-aliased ring at radius ~6 with width ~1.5px. Alpha drops
-      // off at the inner + outer edges so the icon doesn't look pixelated
-      // at standard density.
-      const inner = Math.max(0, Math.min(1, dist - 4.5));
-      const outer = Math.max(0, Math.min(1, 6 - dist));
-      const alpha = Math.round(255 * Math.min(inner, outer));
-      const offset = (y * ICON_SIZE + x) * 4;
-      buf[offset + 0] = 0;
-      buf[offset + 1] = 0;
-      buf[offset + 2] = 0;
-      buf[offset + 3] = alpha;
-    }
-  }
-  const img = nativeImage.createFromBitmap(buf, {
-    width: ICON_SIZE,
-    height: ICON_SIZE,
-  });
-  img.setTemplateImage(true);
-  return img;
-};
-
-const buildTrayMenu = (handlers: TrayHandlers): Menu =>
+const buildTrayMenu = (handlers: TrayHandlers, status: AssistantStatus): Menu =>
   Menu.buildFromTemplate([
+    {
+      // Status line, matching the Swift status menu's header. Disabled so
+      // it reads as a label, not an action.
+      label: statusMenuTitle(status),
+      enabled: false,
+    },
+    { type: "separator" },
     {
       label: "New Conversation",
       accelerator: resolveAccelerator("newConversation"),
@@ -144,6 +120,48 @@ const buildTrayMenu = (handlers: TrayHandlers): Menu =>
 
 let installed = false;
 let trayInstance: Tray | null = null;
+let pulseTimer: ReturnType<typeof setInterval> | null = null;
+
+const stopPulse = (): void => {
+  if (pulseTimer) {
+    clearInterval(pulseTimer);
+    pulseTimer = null;
+  }
+};
+
+/**
+ * Reflect `status` on the tray: swap the icon, refresh the tooltip and the
+ * status-line menu header, and start or stop the pulse. Static states show
+ * their single frame; `thinking` cycles its pre-rendered opacity frames on a
+ * timer. The timer is always cleared first so a state change can't leave two
+ * pulses running or a stale timer driving the wrong icon.
+ */
+const applyStatus = (handlers: TrayHandlers, status: AssistantStatus): void => {
+  const tray = trayInstance;
+  if (!tray) return;
+
+  stopPulse();
+  tray.setToolTip(statusMenuTitle(status));
+  // Rebuild the menu so the status-line header tracks the current state, and
+  // re-bind it to the right-click handler (popUpContextMenu takes the menu by
+  // value at pop time, so the latest reference must be the one captured).
+  const menu = buildTrayMenu(handlers, status);
+  tray.removeAllListeners("right-click");
+  tray.on("right-click", () => {
+    trayInstance?.popUpContextMenu(menu);
+  });
+
+  const frames = statusFrames(status);
+  tray.setImage(frames[0]!);
+
+  if (shouldPulse(status) && frames.length > 1) {
+    let index = 0;
+    pulseTimer = setInterval(() => {
+      index = (index + 1) % frames.length;
+      trayInstance?.setImage(frames[index]!);
+    }, PULSE_FRAME_INTERVAL_MS);
+  }
+};
 
 /**
  * Wire the menu-bar status item. Call once from `whenReady`. Idempotent
@@ -154,30 +172,45 @@ let trayInstance: Tray | null = null;
  * stays decoupled from `index.ts`'s lifecycle state. The main process
  * is the only place that knows what "toggle the main window" means
  * today, and that knowledge stays there.
+ *
+ * The tray subscribes to `onStatusChange` so the renderer-published
+ * connection status drives the icon, tooltip, pulse, and status header
+ * without `index.ts` having to relay each transition.
  */
 export const installTray = (handlers: TrayHandlers): void => {
   if (installed) return;
   installed = true;
 
-  trayInstance = new Tray(buildPlaceholderIcon());
+  const initialStatus = getStatus();
+  trayInstance = new Tray(statusFrames(initialStatus)[0]!);
   trayInstance.setIgnoreDoubleClickEvents(true);
-  trayInstance.setToolTip(app.name);
 
   trayInstance.on("click", () => {
     handlers.toggleMainWindow();
   });
 
-  const menu = buildTrayMenu(handlers);
-  trayInstance.on("right-click", () => {
-    trayInstance?.popUpContextMenu(menu);
+  applyStatus(handlers, initialStatus);
+  const unsubscribe = onStatusChange((status) => {
+    applyStatus(handlers, status);
   });
 
   // Explicit destroy on quit. In production the OS releases the
   // NSStatusItem when the process exits anyway; in dev with main-process
   // hot reload, freeing the JS handle ourselves avoids a ghost menu-bar
-  // icon for a beat between reloads.
+  // icon for a beat between reloads. Stopping the pulse + unsubscribing
+  // keeps the timer and listener from outliving the tray.
   app.on("before-quit", () => {
+    stopPulse();
+    unsubscribe();
     trayInstance?.destroy();
     trayInstance = null;
   });
+};
+
+// Test seam — exported only for unit-test setup. Production code uses
+// `installTray` instead.
+export const __resetForTesting = (): void => {
+  stopPulse();
+  installed = false;
+  trayInstance = null;
 };

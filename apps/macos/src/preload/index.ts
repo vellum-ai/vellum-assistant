@@ -66,6 +66,19 @@ export interface PowerEvent {
   kind: PowerEventKind;
 }
 
+/**
+ * Mirror of `AssistantStatus` in `apps/macos/src/main/status.ts`. Inlined for
+ * the same reason as the other bridge types: preload + main + renderer each
+ * have their own TS project. Drift surfaces as the main-side Zod schema
+ * rejecting an unknown status (the message drops silently), not a crash.
+ */
+export type AssistantStatus =
+  | "idle"
+  | "thinking"
+  | "error"
+  | "disconnected"
+  | "authFailed";
+
 export interface VellumBridge {
   platform: "electron";
   app: {
@@ -103,6 +116,15 @@ export interface VellumBridge {
      * close or hot-reload.
      */
     on(callback: (command: VellumCommand) => void): () => void;
+  };
+  status: {
+    /**
+     * Publish the assistant's connection status so the main process can
+     * drive the menu-bar (Tray) status dot and pulse. The renderer holds
+     * the live gateway/auth connection, so it's the source of truth; main
+     * owns only the presentation. Fire-and-forget — no acknowledgement.
+     */
+    setConnection(status: AssistantStatus): void;
   };
   dock: {
     /**
@@ -264,6 +286,11 @@ const bridge: VellumBridge = {
       return () => {
         ipcRenderer.off("vellum:command", handler);
       };
+    },
+  },
+  status: {
+    setConnection: (status: AssistantStatus): void => {
+      ipcRenderer.send("vellum:status:connection", status);
     },
   },
   dock: {
