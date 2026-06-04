@@ -30,7 +30,7 @@ import type { ConfirmationDecision } from "@/types/event-types";
 import type { AllowlistOption, DirectoryScopeOption, RiskScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import { toolCallToRuleContext } from "@/domains/chat/utils/chat";
-import { deriveToolCallStatus } from "@/domains/chat/utils/derive-tool-call-status";
+import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 
 export interface ToolCallProgressCardProps {
   toolCalls: ChatMessageToolCall[];
@@ -207,7 +207,7 @@ function deriveWebShellState(
   toolCalls: ChatMessageToolCall[],
   unifiedState: ToolCallCardData["state"],
 ): ToolProgressCardState {
-  if (toolCalls.some((tc) => deriveToolCallStatus(tc) === "running")) return "loading";
+  if (toolCalls.some((tc) => isToolCallRunning(tc))) return "loading";
   if (unifiedState === "error" || unifiedState === "denied") return unifiedState;
   return "complete";
 }

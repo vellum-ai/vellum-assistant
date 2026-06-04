@@ -7,7 +7,7 @@ import {
   textBody,
   toolCallStatusWireFields,
 } from "@/domains/chat/utils/message-test-helpers";
-import { deriveToolCallStatus } from "@/domains/chat/utils/derive-tool-call-status";
+import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 
 function makeMessage(
   overrides: Partial<DisplayMessage> & { id?: string },
@@ -432,7 +432,7 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
     });
     const result = sanitizeDisplayMessages([userMsg, last]);
     expect(result[1]).toBe(last);
-    expect(deriveToolCallStatus(result[1]!.toolCalls![0]!)).toBe("running");
+    expect(isToolCallRunning(result[1]!.toolCalls![0]!)).toBe(true);
   });
 
   test("does NOT patch when only a subsequent USER message exists (no assistant proof)", () => {
@@ -452,7 +452,7 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
     });
     const result = sanitizeDisplayMessages([onlyAssistant, trailingUser]);
     expect(result[0]).toBe(onlyAssistant);
-    expect(deriveToolCallStatus(result[0]!.toolCalls![0]!)).toBe("running");
+    expect(isToolCallRunning(result[0]!.toolCalls![0]!)).toBe(true);
   });
 
   test("patches across an intervening user message", () => {
@@ -477,7 +477,7 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
       timestamp: 300,
     });
     const result = sanitizeDisplayMessages([a1, u, a2]);
-    expect(deriveToolCallStatus(result[0]!.toolCalls![0]!)).toBe("error");
+    expect(Boolean((result[0]!.toolCalls![0]!).isError)).toBe(true);
     expect(result[0]!.toolCalls![0]!.result).toBe(SYNTHETIC);
   });
 
@@ -563,7 +563,7 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
     });
     const result = sanitizeDisplayMessages([older, later]);
     expect(result[0]!.toolCalls![0]!.result).toBe("first ok");
-    expect(deriveToolCallStatus(result[0]!.toolCalls![1]!)).toBe("error");
+    expect(Boolean((result[0]!.toolCalls![1]!).isError)).toBe(true);
     expect(result[0]!.toolCalls![1]!.isError).toBe(true);
     expect(result[0]!.toolCalls![1]!.result).toBe(SYNTHETIC);
     expect(result[0]!.toolCalls![2]!.result).toBe("third ok");
@@ -593,8 +593,8 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
       timestamp: 300,
     });
     const result = sanitizeDisplayMessages([a1, a2, a3]);
-    expect(deriveToolCallStatus(result[0]!.toolCalls![0]!)).toBe("error");
-    expect(deriveToolCallStatus(result[1]!.toolCalls![0]!)).toBe("error");
+    expect(Boolean((result[0]!.toolCalls![0]!).isError)).toBe(true);
+    expect(Boolean((result[1]!.toolCalls![0]!).isError)).toBe(true);
     expect(result[2]).toBe(a3);
   });
 
@@ -613,7 +613,7 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
       timestamp: 200,
     });
     sanitizeDisplayMessages([older, later]);
-    expect(deriveToolCallStatus(tc)).toBe("running");
+    expect(isToolCallRunning(tc)).toBe(true);
     expect(tc.result).toBeUndefined();
     expect(older.toolCalls![0]).toBe(tc);
   });
@@ -701,7 +701,7 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
     });
     mockNow(now);
     const [patched] = sanitizeDisplayMessages([m]);
-    expect(deriveToolCallStatus(patched!.toolCalls![0]!)).toBe("error");
+    expect(Boolean((patched!.toolCalls![0]!).isError)).toBe(true);
     expect(patched!.toolCalls![0]!.isError).toBe(true);
     expect(patched!.toolCalls![0]!.result).toContain(STALE_PREFIX);
   });
@@ -726,7 +726,7 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
     mockNow(now);
     const result = sanitizeDisplayMessages([m]);
     expect(result[0]).toBe(m);
-    expect(deriveToolCallStatus(result[0]!.toolCalls![0]!)).toBe("running");
+    expect(isToolCallRunning(result[0]!.toolCalls![0]!)).toBe(true);
   });
 
   test("marks stale after the default execution timeout elapses", () => {
@@ -749,7 +749,7 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
     });
     mockNow(now);
     const [patched] = sanitizeDisplayMessages([m]);
-    expect(deriveToolCallStatus(patched!.toolCalls![0]!)).toBe("error");
+    expect(Boolean((patched!.toolCalls![0]!).isError)).toBe(true);
     expect(patched!.toolCalls![0]!.result).toContain(STALE_PREFIX);
   });
 
@@ -780,7 +780,7 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
     mockNow(now);
     const result = sanitizeDisplayMessages([m]);
     expect(result[0]).toBe(m);
-    expect(deriveToolCallStatus(result[0]!.toolCalls![0]!)).toBe("running");
+    expect(isToolCallRunning(result[0]!.toolCalls![0]!)).toBe(true);
   });
 
   test("does NOT mark stale when startedAt is missing (no clock to measure)", () => {
@@ -800,7 +800,7 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
     mockNow(1_000_000_000);
     const result = sanitizeDisplayMessages([m]);
     expect(result[0]).toBe(m);
-    expect(deriveToolCallStatus(result[0]!.toolCalls![0]!)).toBe("running");
+    expect(isToolCallRunning(result[0]!.toolCalls![0]!)).toBe(true);
   });
 
   test("marks stale tools on the LAST assistant too (no subsequent-assistant requirement)", () => {
@@ -829,7 +829,7 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
     });
     mockNow(now);
     const result = sanitizeDisplayMessages([u, lastAssistant]);
-    expect(deriveToolCallStatus(result[1]!.toolCalls![0]!)).toBe("error");
+    expect(Boolean((result[1]!.toolCalls![0]!).isError)).toBe(true);
     expect(result[1]!.toolCalls![0]!.result).toContain(STALE_PREFIX);
   });
 
@@ -866,7 +866,7 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
     mockNow(now);
     const [patched] = sanitizeDisplayMessages([m]);
     expect(patched!.toolCalls![0]!.result).toBe("first ok");
-    expect(deriveToolCallStatus(patched!.toolCalls![1]!)).toBe("error");
+    expect(Boolean((patched!.toolCalls![1]!).isError)).toBe(true);
     expect(patched!.toolCalls![1]!.isError).toBe(true);
     expect(patched!.toolCalls![1]!.result).toContain(STALE_PREFIX);
     expect(patched!.toolCalls![2]!.result).toBe("third ok");
@@ -889,7 +889,7 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
     });
     mockNow(now);
     sanitizeDisplayMessages([m]);
-    expect(deriveToolCallStatus(tc)).toBe("running");
+    expect(isToolCallRunning(tc)).toBe(true);
     expect(tc.result).toBeUndefined();
     expect(m.toolCalls![0]).toBe(tc);
   });
@@ -997,7 +997,7 @@ describe("sanitizeDisplayMessages · integration", () => {
       "msg-1",
     ]);
     const patchedTool = result[1]!.toolCalls![0]!;
-    expect(deriveToolCallStatus(patchedTool)).toBe("error");
+    expect(Boolean((patchedTool).isError)).toBe(true);
     expect(patchedTool.isError).toBe(true);
     expect(patchedTool.result).toContain("client-side data loss");
   });

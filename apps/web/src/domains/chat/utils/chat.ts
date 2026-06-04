@@ -2,7 +2,7 @@ import { type DisplayMessage, isSurfaceInteractive } from "@/domains/chat/types/
 import type { IdentityGetResponse } from "@/generated/daemon/types.gen";
 import type { Conversation } from "@/types/conversation-types";
 import type { AssistantEvent } from "@/types/event-types";
-import { deriveToolCallStatus } from "@/domains/chat/utils/derive-tool-call-status";
+import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import type {
   AllowlistOption,
   DirectoryScopeOption,
@@ -272,7 +272,7 @@ export function attachConfirmationToToolCall(
 
     for (let ti = msg.toolCalls.length - 1; ti >= 0; ti--) {
       const tc = msg.toolCalls[ti];
-      if (tc && deriveToolCallStatus(tc) === "running") {
+      if (tc && isToolCallRunning(tc)) {
         return applyConfirmationToToolCall(messages, mi, ti, pending);
       }
     }

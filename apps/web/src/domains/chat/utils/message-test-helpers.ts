@@ -4,10 +4,10 @@ import type { DisplayMessage } from "@/domains/chat/types/types";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 
 /**
- * Translate the execution state a test wants into the wire fields
- * `deriveToolCallStatus` reads. `status` is not stored on the tool call; tests
- * express intent through this convenience and the tool-call factories
- * materialize the underlying `isError`/`result`/`completedAt`.
+ * Translate the execution state a test wants into the wire fields the
+ * `tool-call-status.ts` predicates read. `status` is not stored on the tool
+ * call; tests express intent through this convenience and the tool-call
+ * factories materialize the underlying `isError`/`result`/`completedAt`.
  */
 export function toolCallStatusWireFields(
   status: "running" | "completed" | "error",

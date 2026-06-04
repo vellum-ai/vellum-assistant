@@ -13,7 +13,10 @@ import {
   type Surface,
 } from "@/domains/chat/types/types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
-import { deriveToolCallStatus } from "@/domains/chat/utils/derive-tool-call-status";
+import {
+  isToolCallCompleted,
+  isToolCallRunning,
+} from "@/domains/chat/utils/tool-call-status";
 import type { ConversationMessage } from "@vellumai/assistant-api";
 import {
   makeServerMessage,
@@ -120,7 +123,7 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
     expect(result[1]!.toolCalls?.[0]).toMatchObject({
       result: "ok",
     });
-    expect(deriveToolCallStatus(result[1]!.toolCalls![0]!)).toBe("completed");
+    expect(isToolCallCompleted(result[1]!.toolCalls![0]!)).toBe(true);
   });
 
   test("does not roll back longer live text when history fetch is stale", () => {
@@ -364,7 +367,7 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
       input: { command: "find geo-writing skill" },
       result: "source copied",
     });
-    expect(deriveToolCallStatus(result[0]!.toolCalls![0]!)).toBe("completed");
+    expect(isToolCallCompleted(result[0]!.toolCalls![0]!)).toBe(true);
     expect(result[0]!.contentOrder).toEqual([
       { type: "toolCall", id: "toolu_load_skill" },
     ]);
@@ -949,7 +952,7 @@ describe("reconcileMessages — mid-stream sync-tag bubble-split regression", ()
     expect(assistant.toolCalls?.[0]).toMatchObject({
       id: "toolu_01ABC",
     });
-    expect(deriveToolCallStatus(assistant.toolCalls![0]!)).toBe("running");
+    expect(isToolCallRunning(assistant.toolCalls![0]!)).toBe(true);
     // Id carries across so the React key doesn't churn.
     expect(assistant.id).toBe("msg_streaming");
   });

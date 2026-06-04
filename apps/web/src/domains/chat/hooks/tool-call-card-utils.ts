@@ -5,7 +5,7 @@
  *  Zustand turn store; these functions own the data mapping. */
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
-import { deriveToolCallStatus } from "@/domains/chat/utils/derive-tool-call-status";
+import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import type {
   ToolActivityMetadata,
   WebSearchResultItem,
@@ -261,7 +261,7 @@ function resolveMetadata(
 }
 
 function isTerminalStatus(tc: ChatMessageToolCall): boolean {
-  return deriveToolCallStatus(tc) !== "running";
+  return !isToolCallRunning(tc);
 }
 
 /**
@@ -286,7 +286,7 @@ function isFailedEmptyWebSearch(
   tc: ChatMessageToolCall,
 ): boolean {
   if (ws.results.length > 0) return false;
-  return Boolean(ws.errorMessage) || deriveToolCallStatus(tc) === "error";
+  return Boolean(ws.errorMessage) || Boolean(tc.isError);
 }
 
 /**
@@ -304,7 +304,10 @@ function deriveToolStepStatus(
   ) {
     return "denied";
   }
-  return deriveToolCallStatus(tc);
+  if (tc.isError) {
+    return "error";
+  }
+  return isToolCallRunning(tc) ? "running" : "completed";
 }
 
 /**
@@ -480,9 +483,8 @@ function deriveCardState(
     ) {
       anyDenied = true;
     }
-    const status = deriveToolCallStatus(tc);
-    if (status === "running") anyRunning = true;
-    if (status === "error") anyError = true;
+    if (isToolCallRunning(tc)) anyRunning = true;
+    if (tc.isError) anyError = true;
   }
   if (anyDenied) return "denied";
   if (anyRunning) return "loading";

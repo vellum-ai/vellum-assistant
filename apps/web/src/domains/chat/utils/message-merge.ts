@@ -1,6 +1,6 @@
 import type { DisplayMessage, Surface } from "@/domains/chat/types/types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
-import { deriveToolCallStatus } from "@/domains/chat/utils/derive-tool-call-status";
+import { toolCallRank } from "@/domains/chat/utils/tool-call-status";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 
 export function messagesEqual(a: DisplayMessage[], b: DisplayMessage[]): boolean {
@@ -85,12 +85,8 @@ export function mergeToolCall(
   current: ChatMessageToolCall,
   incoming: ChatMessageToolCall,
 ): ChatMessageToolCall {
-  const statusRank = { running: 0, completed: 1, error: 2 } as const;
   const preferred =
-    statusRank[deriveToolCallStatus(incoming)] >=
-    statusRank[deriveToolCallStatus(current)]
-      ? incoming
-      : current;
+    toolCallRank(incoming) >= toolCallRank(current) ? incoming : current;
   const secondary = preferred === incoming ? current : incoming;
   return {
     ...secondary,

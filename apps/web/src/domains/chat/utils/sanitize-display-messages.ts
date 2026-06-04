@@ -14,7 +14,7 @@ import { DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC } from "@vellumai/assistant-api";
 
 import { sortedByTimestamp } from "@/domains/chat/utils/message-sorting";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
-import { deriveToolCallStatus } from "@/domains/chat/utils/derive-tool-call-status";
+import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 
 export function sanitizeDisplayMessages(
@@ -192,8 +192,8 @@ function toolCallsMatch(a: DisplayMessage, b: DisplayMessage): boolean {
 //   - the parent message is NOT the last assistant in the transcript (the
 //     last assistant may still be streaming; its dangling tools could
 //     legitimately resolve via an in-flight `tool_result`),
-//   - `deriveToolCallStatus(tool_call) === "running"` (the UI's canonical
-//     "no result yet" signal — see `tool-call-chip.tsx`'s `isRunning`).
+//   - `isToolCallRunning(tool_call)` (the UI's canonical "no result yet"
+//     signal — see `tool-call-chip.tsx`'s `isRunning`).
 // When all three hold, mutate the tool call to set `isError: true` (so the
 // derived status becomes `"error"`) plus a synthetic result:
 //   - `result: SYNTHETIC_DANGLING_RESULT` (explains the client-side data loss
@@ -246,9 +246,7 @@ function findLastAssistantIndex(messages: DisplayMessage[]): number {
 
 function hasDanglingToolCall(message: DisplayMessage): boolean {
   return (
-    message.toolCalls?.some(
-      (tc) => deriveToolCallStatus(tc) === "running",
-    ) ?? false
+    message.toolCalls?.some((tc) => isToolCallRunning(tc)) ?? false
   );
 }
 
@@ -260,7 +258,7 @@ function withRepairedToolCalls(message: DisplayMessage): DisplayMessage {
 }
 
 function repairIfDangling(tc: ChatMessageToolCall): ChatMessageToolCall {
-  if (deriveToolCallStatus(tc) !== "running") {
+  if (!isToolCallRunning(tc)) {
     return tc;
   }
   return {
@@ -286,8 +284,8 @@ function repairIfDangling(tc: ChatMessageToolCall): ChatMessageToolCall {
 // daemon-side delivery delay).
 //
 // Predicate (must ALL hold for a tool call to be patched):
-//   - `deriveToolCallStatus(tool_call) === "running"` (the UI's canonical
-//     "no result yet" signal — see `tool-call-chip.tsx`'s `isRunning`),
+//   - `isToolCallRunning(tool_call)` (the UI's canonical "no result yet"
+//     signal — see `tool-call-chip.tsx`'s `isRunning`),
 //   - `tool_call.startedAt` is set (else we have no clock to measure
 //     against; typically only happens for tool calls hydrated from a
 //     pre-stamping history boundary),
@@ -370,7 +368,7 @@ function withStaleToolCallsFailed(
 }
 
 function isStale(tc: ChatMessageToolCall, nowMs: number): boolean {
-  if (deriveToolCallStatus(tc) !== "running") {
+  if (!isToolCallRunning(tc)) {
     return false;
   }
   if (tc.pendingConfirmation) {

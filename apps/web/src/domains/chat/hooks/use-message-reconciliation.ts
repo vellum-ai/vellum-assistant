@@ -10,7 +10,7 @@ import {
   summarizeRuntimeMessages,
 } from "@/domains/chat/utils/diagnostics";
 import { type DisplayMessage, reconcileMessages } from "@/domains/chat/utils/reconcile";
-import { deriveToolCallStatus } from "@/domains/chat/utils/derive-tool-call-status";
+import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 import { runtimeMessagePlainText } from "@/domains/chat/utils/map-runtime-message";
 import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
@@ -283,18 +283,18 @@ export function useMessageReconciliation({
       if (wasStuck || !isSending(useTurnStore.getState())) {
         setMessages((prev) => {
           const hasStaleToolCalls = prev.some((m) =>
-            m.toolCalls?.some((tc) => deriveToolCallStatus(tc) === "running"),
+            m.toolCalls?.some((tc) => isToolCallRunning(tc)),
           );
           if (!hasStaleToolCalls) return prev;
           return prev.map((m) => {
             const needsClearToolCalls = m.toolCalls?.some(
-              (tc) => deriveToolCallStatus(tc) === "running",
+              (tc) => isToolCallRunning(tc),
             );
             if (!needsClearToolCalls) return m;
             return {
               ...m,
               toolCalls: m.toolCalls!.map((tc) =>
-                deriveToolCallStatus(tc) === "running"
+                isToolCallRunning(tc)
                   ? {
                       ...tc,
                       completedAt: Date.now(),

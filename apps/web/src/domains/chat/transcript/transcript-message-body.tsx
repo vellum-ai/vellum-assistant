@@ -33,7 +33,7 @@ import {
 import type { ConfirmationDecision } from "@/types/event-types";
 import type { AllowlistOption, DirectoryScopeOption, RiskScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
-import { deriveToolCallStatus } from "@/domains/chat/utils/derive-tool-call-status";
+import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 
 export interface OpenRuleEditorContext {
   toolName: string;
@@ -256,7 +256,7 @@ function shouldAutoExpandToolCallGroup({
     return true;
   }
   return toolCalls.some(
-    (toolCall) => deriveToolCallStatus(toolCall) === "running",
+    (toolCall) => isToolCallRunning(toolCall),
   );
 }
 

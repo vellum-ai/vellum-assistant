@@ -2,7 +2,10 @@ import { mapServerSurfaces, prepareServerMessage } from "@/domains/chat/utils/ma
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
 import { dedupeDisplayMessages, mergeLatestHistoryMessage, mergeThinkingSegments, messagesEqual } from "@/domains/chat/utils/message-merge";
-import { deriveToolCallStatus } from "@/domains/chat/utils/derive-tool-call-status";
+import {
+  isToolCallRunning,
+  toolCallRank,
+} from "@/domains/chat/utils/tool-call-status";
 import { sortByTimestamp, sortedByTimestamp, timestampToMs } from "@/domains/chat/utils/message-sorting";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { ConversationMessage } from "@vellumai/assistant-api";
@@ -334,16 +337,13 @@ export function reconcileMessages(
           const mergedToolCalls = localTcs.map((ltc, idx) => {
             const stc = prepared.toolCalls![idx];
             if (!stc) return ltc;
-            const localStatus = deriveToolCallStatus(ltc);
-            const serverStatus = deriveToolCallStatus(stc);
-            const serverIsMoreFinal =
-              (localStatus === "running" &&
-                (serverStatus === "completed" || serverStatus === "error")) ||
-              (localStatus === "completed" && serverStatus === "error");
+            const localRank = toolCallRank(ltc);
+            const serverRank = toolCallRank(stc);
+            const serverIsMoreFinal = serverRank > localRank;
             // Backfill result when message_complete force-completed the
             // tool call without data and the server now has the payload.
             const serverHasMissingResult =
-              localStatus === serverStatus && ltc.result == null && stc.result != null;
+              localRank === serverRank && ltc.result == null && stc.result != null;
             if (serverIsMoreFinal || serverHasMissingResult) {
               upgraded = true;
               return {
@@ -388,8 +388,8 @@ export function reconcileMessages(
               const localTc = localMsg.toolCalls.find((ltc) => ltc.id === stc.id);
               if (
                 localTc &&
-                deriveToolCallStatus(localTc) !== "running" &&
-                deriveToolCallStatus(stc) === "running"
+                !isToolCallRunning(localTc) &&
+                isToolCallRunning(stc)
               ) {
                 stc.result = localTc.result;
                 stc.isError = localTc.isError;

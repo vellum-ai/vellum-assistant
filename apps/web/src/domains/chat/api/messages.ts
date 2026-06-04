@@ -137,8 +137,8 @@ function narrowConfirmationDecision(
  * `tool_use_start` stream uses, so reconcile matches snapshot and stream tool
  * calls by it. We fall back to a positional synthesized id only for daemons
  * predating the wire `id` field. Execution `status` is not stored; it is
- * derived on demand from `isError`/`result`/`completedAt` via
- * `deriveToolCallStatus`.
+ * derived on demand from `isError`/`result`/`completedAt` via the predicates
+ * in `tool-call-status.ts`.
  */
 export function mapRuntimeToolCalls(
   toolCalls: ConversationMessageToolCall[],

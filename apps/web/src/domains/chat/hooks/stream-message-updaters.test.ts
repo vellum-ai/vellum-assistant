@@ -18,7 +18,10 @@ import {
 import type { Surface } from "@/domains/chat/types/types";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
-import { deriveToolCallStatus } from "@/domains/chat/utils/derive-tool-call-status";
+import {
+  isToolCallCompleted,
+  isToolCallRunning,
+} from "@/domains/chat/utils/tool-call-status";
 import {
   messageText as text,
   textBody as seg,
@@ -313,7 +316,7 @@ describe("finalizeMessageComplete", () => {
       conversationId: "c-1",
       messageId: "row-B",
     });
-    expect(deriveToolCallStatus(result[0]!.toolCalls![0]!)).toBe("completed");
+    expect(isToolCallCompleted(result[0]!.toolCalls![0]!)).toBe(true);
   });
 
   it("appends to a finalized assistant tail without overwriting its id (multi-LLM-call turn)", () => {
@@ -408,7 +411,7 @@ describe("handleConversationError", () => {
     const result = handleConversationError([userMsg, msg]);
 
     expect(result).toHaveLength(2);
-    expect(deriveToolCallStatus(result[1]!.toolCalls![0]!)).toBe("completed");
+    expect(isToolCallCompleted(result[1]!.toolCalls![0]!)).toBe(true);
   });
 
   it("returns prev unchanged if last is not an assistant", () => {
@@ -717,7 +720,7 @@ describe("applyToolResult — activityMetadata", () => {
       activityMetadata: metadata,
     });
     expect(result[0]!.toolCalls![0]!.activityMetadata).toEqual(metadata);
-    expect(deriveToolCallStatus(result[0]!.toolCalls![0]!)).toBe("completed");
+    expect(isToolCallCompleted(result[0]!.toolCalls![0]!)).toBe(true);
   });
 
   it("preserves prior activityMetadata when re-applied without it", () => {
@@ -758,9 +761,9 @@ describe("finalizeOnIdle", () => {
     const result = finalizeOnIdle([userMsg, msg1, msg2]);
 
     expect(result).toHaveLength(3);
-    expect(deriveToolCallStatus(result[1]!.toolCalls![0]!)).toBe("completed");
+    expect(isToolCallCompleted(result[1]!.toolCalls![0]!)).toBe(true);
     expect(result[1]!.toolCalls![0]!.completedAt).toBeDefined();
-    expect(deriveToolCallStatus(result[2]!.toolCalls![0]!)).toBe("completed");
+    expect(isToolCallCompleted(result[2]!.toolCalls![0]!)).toBe(true);
     expect(result[2]!.toolCalls![0]!.completedAt).toBeDefined();
   });
 
@@ -783,7 +786,7 @@ describe("finalizeOnIdle", () => {
     const result = finalizeOnIdle(prev);
 
     expect(result).toBe(prev);
-    expect(deriveToolCallStatus(result[0]!.toolCalls![0]!)).toBe("completed");
+    expect(isToolCallCompleted(result[0]!.toolCalls![0]!)).toBe(true);
   });
 
   it("is a no-op for an assistant row with no tool calls at all", () => {
@@ -812,8 +815,8 @@ describe("finalizeOnIdle", () => {
     });
     const result = finalizeOnIdle([msgA, msgB]);
 
-    expect(deriveToolCallStatus(result[0]!.toolCalls![0]!)).toBe("completed");
-    expect(deriveToolCallStatus(result[1]!.toolCalls![0]!)).toBe("completed");
+    expect(isToolCallCompleted(result[0]!.toolCalls![0]!)).toBe(true);
+    expect(isToolCallCompleted(result[1]!.toolCalls![0]!)).toBe(true);
   });
 });
 
@@ -847,10 +850,10 @@ describe("applyToolResult — cross-message matching", () => {
     });
 
     // msg1's tool call should be completed
-    expect(deriveToolCallStatus(result[1]!.toolCalls![0]!)).toBe("completed");
+    expect(isToolCallCompleted(result[1]!.toolCalls![0]!)).toBe(true);
     expect(result[1]!.toolCalls![0]!.result).toBe("search results");
     // msg2's tool call should remain running
-    expect(deriveToolCallStatus(result[2]!.toolCalls![0]!)).toBe("running");
+    expect(isToolCallRunning(result[2]!.toolCalls![0]!)).toBe(true);
   });
 
   it("falls back to last assistant message when toolUseId is not provided", () => {
@@ -873,8 +876,8 @@ describe("applyToolResult — cross-message matching", () => {
     });
 
     // Without toolUseId, falls back to the last assistant message's last running tool call
-    expect(deriveToolCallStatus(result[1]!.toolCalls![0]!)).toBe("running");
-    expect(deriveToolCallStatus(result[2]!.toolCalls![0]!)).toBe("completed");
+    expect(isToolCallRunning(result[1]!.toolCalls![0]!)).toBe(true);
+    expect(isToolCallCompleted(result[2]!.toolCalls![0]!)).toBe(true);
   });
 
   it("falls back to last running tool call when toolUseId does not match any message", () => {
@@ -889,7 +892,7 @@ describe("applyToolResult — cross-message matching", () => {
     });
 
     // Should fall back and complete the last running tool call
-    expect(deriveToolCallStatus(result[0]!.toolCalls![0]!)).toBe("completed");
+    expect(isToolCallCompleted(result[0]!.toolCalls![0]!)).toBe(true);
   });
 });
 

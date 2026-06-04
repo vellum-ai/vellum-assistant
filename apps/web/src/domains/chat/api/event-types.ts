@@ -38,7 +38,8 @@ export interface PendingToolConfirmation {
  * client-only live state the wire deliberately omits — the in-flight
  * confirmation prompt and activity metadata accumulated from SSE events.
  * Execution state (`running`/`completed`/`error`) is not stored: derive it
- * on demand from `isError`/`result`/`completedAt` via `deriveToolCallStatus`.
+ * on demand from `isError`/`result`/`completedAt` via the predicates in
+ * `tool-call-status.ts` (`isToolCallRunning`/`isToolCallCompleted`).
  */
 export interface ChatMessageToolCall extends ConversationMessageToolCall {
   /**
