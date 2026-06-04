@@ -82,8 +82,6 @@ export interface OAuthConnectSurfaceData {
   description?: string;
   /** Optional provider logo URL. The client falls back to the provider catalog. */
   logoUrl?: string | null;
-  /** Optional button label. */
-  connectLabel?: string;
 }
 
 export interface FormField {

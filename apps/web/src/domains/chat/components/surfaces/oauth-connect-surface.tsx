@@ -1,4 +1,4 @@
-import { CheckCircle2, ExternalLink, Loader2, XCircle } from "lucide-react";
+import { CheckCircle2, ExternalLink, Loader2, X, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { IntegrationIcon } from "@/components/integrations/integration-icon";
@@ -14,7 +14,6 @@ interface OAuthConnectSurfaceData {
   displayName?: string;
   description?: string;
   logoUrl?: string | null;
-  connectLabel?: string;
 }
 
 interface OAuthConnectSurfaceProps {
@@ -81,7 +80,6 @@ export function OAuthConnectSurface({
     data.description ??
     provider?.description ??
     `Connect ${providerLabel} so I can use it for this task.`;
-  const connectLabel = data.connectLabel ?? `Connect ${providerLabel}`;
 
   const submitCancel = () => {
     onAction(surface.surfaceId, "cancel", {
@@ -133,70 +131,74 @@ export function OAuthConnectSurface({
     missingConfiguration || state === "connecting" || state === "connected";
 
   return (
-    <div className="overflow-hidden rounded-lg border border-[var(--border-element)] bg-[var(--surface-lift)]">
-      <div className="flex gap-3 p-4">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-base)]">
-          <IntegrationIcon
-            providerKey={providerKey}
-            displayName={providerLabel}
-            logoUrl={logoUrl}
-            size={28}
-          />
-        </div>
-
-        <div className="min-w-0 flex-1">
-          <div className="text-title-small text-[var(--content-strong)]">
-            {surface.title ?? `Connect ${providerLabel}`}
+    <div className="rounded-lg border border-[var(--border-element)] bg-[var(--surface-lift)] p-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-base)]">
+            <IntegrationIcon
+              providerKey={providerKey}
+              displayName={providerLabel}
+              logoUrl={logoUrl}
+              size={28}
+            />
           </div>
-          <p className="mt-1 text-body-medium-lighter text-[var(--content-quiet)]">
-            {description}
-          </p>
 
-          {missingConfiguration && (
-            <div className="mt-3 flex items-center gap-2 text-body-small-default text-[var(--system-negative-strong)]">
-              <XCircle className="h-4 w-4 shrink-0" />
-              Missing assistant or provider details.
+          <div className="min-w-0 flex-1">
+            <div className="text-title-small text-[var(--content-strong)]">
+              {surface.title ?? `Connect ${providerLabel}`}
             </div>
-          )}
+            <p className="mt-1 text-body-medium-lighter text-[var(--content-quiet)]">
+              {description}
+            </p>
 
-          {state === "error" && errorMessage && (
-            <div className="mt-3 flex items-start gap-2 text-body-small-default text-[var(--system-negative-strong)]">
-              <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>{errorMessage}</span>
-            </div>
-          )}
+            {missingConfiguration && (
+              <div className="mt-3 flex items-center gap-2 text-body-small-default text-[var(--system-negative-strong)]">
+                <XCircle className="h-4 w-4 shrink-0" />
+                Missing assistant or provider details.
+              </div>
+            )}
 
-          {state === "connected" && (
-            <div className="mt-3 flex items-center gap-2 text-body-small-default text-[var(--system-positive-strong)]">
-              <CheckCircle2 className="h-4 w-4 shrink-0" />
-              Connected
-            </div>
-          )}
+            {state === "error" && errorMessage && (
+              <div className="mt-3 flex items-start gap-2 text-body-small-default text-[var(--system-negative-strong)]">
+                <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{errorMessage}</span>
+              </div>
+            )}
+
+            {state === "connected" && (
+              <div className="mt-3 flex items-center gap-2 text-body-small-default text-[var(--system-positive-strong)]">
+                <CheckCircle2 className="h-4 w-4 shrink-0" />
+                Connected
+              </div>
+            )}
+          </div>
         </div>
-      </div>
 
-      <div className="flex items-center justify-end gap-2 border-t border-[var(--border-subtle)] bg-[var(--surface-base)] px-4 py-3">
-        <button
-          type="button"
-          onClick={submitCancel}
-          disabled={state === "connecting"}
-          className="rounded-md px-3 py-2 text-body-medium-default text-[var(--content-secondary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--content-strong)] disabled:opacity-50"
-        >
-          Not now
-        </button>
-        <button
-          type="button"
-          onClick={handleConnect}
-          disabled={connectDisabled}
-          className="inline-flex items-center gap-2 rounded-md bg-[var(--primary-base)] px-3 py-2 text-body-medium-default text-[var(--content-inset)] transition-opacity hover:opacity-90 disabled:opacity-50"
-        >
-          {state === "connecting" ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <ExternalLink className="h-4 w-4" />
-          )}
-          {state === "connecting" ? "Waiting..." : connectLabel}
-        </button>
+        <div className="flex shrink-0 items-center justify-end gap-2">
+          <button
+            type="button"
+            aria-label="Dismiss"
+            title="Dismiss"
+            onClick={submitCancel}
+            disabled={state === "connecting"}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-md text-[var(--content-secondary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--content-strong)] disabled:opacity-50"
+          >
+            <X className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={handleConnect}
+            disabled={connectDisabled}
+            className="inline-flex items-center gap-2 rounded-md bg-[var(--primary-base)] px-3 py-2 text-body-medium-default text-[var(--content-inset)] transition-opacity hover:opacity-90 disabled:opacity-50"
+          >
+            {state === "connecting" ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <ExternalLink className="h-4 w-4" />
+            )}
+            {state === "connecting" ? "Waiting..." : "Connect"}
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -44,6 +44,7 @@ import type {
   DynamicPageSurfaceData,
   FormSurfaceData,
   ListSurfaceData,
+  OAuthConnectSurfaceData,
   ServerMessage,
   SurfaceData,
   SurfaceType,
@@ -454,6 +455,24 @@ function normalizeCopyBlockShowData(
     ...(typeof rawData.label === "string" ? { label: rawData.label } : {}),
     ...(typeof rawData.language === "string"
       ? { language: rawData.language }
+      : {}),
+  };
+}
+
+function normalizeOAuthConnectShowData(
+  rawData: Record<string, unknown>,
+): OAuthConnectSurfaceData {
+  return {
+    providerKey:
+      typeof rawData.providerKey === "string" ? rawData.providerKey.trim() : "",
+    ...(typeof rawData.displayName === "string"
+      ? { displayName: rawData.displayName }
+      : {}),
+    ...(typeof rawData.description === "string"
+      ? { description: rawData.description }
+      : {}),
+    ...(typeof rawData.logoUrl === "string" || rawData.logoUrl === null
+      ? { logoUrl: rawData.logoUrl }
       : {}),
   };
 }
@@ -2385,9 +2404,11 @@ export async function surfaceProxyResolver(
           ? normalizeChoiceShowData(rawData)
           : surfaceType === "copy_block"
             ? normalizeCopyBlockShowData(rawData)
-            : surfaceType === "dynamic_page"
-              ? normalizeDynamicPageShowData(input, rawData)
-              : rawData
+            : surfaceType === "oauth_connect"
+              ? normalizeOAuthConnectShowData(rawData)
+              : surfaceType === "dynamic_page"
+                ? normalizeDynamicPageShowData(input, rawData)
+                : rawData
     ) as SurfaceData;
     const inputActions = input.actions as
       | Array<{
@@ -2410,10 +2431,14 @@ export async function surfaceProxyResolver(
         isError: true,
       };
     }
+    const oauthProviderKey =
+      surfaceType === "oauth_connect"
+        ? (data as unknown as Record<string, unknown>).providerKey
+        : undefined;
     if (
       surfaceType === "oauth_connect" &&
-      typeof (data as unknown as Record<string, unknown>).providerKey !==
-        "string"
+      (typeof oauthProviderKey !== "string" ||
+        oauthProviderKey.trim().length === 0)
     ) {
       return {
         content: "oauth_connect surfaces require data.providerKey.",

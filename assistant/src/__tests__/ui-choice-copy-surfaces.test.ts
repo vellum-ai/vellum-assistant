@@ -194,6 +194,8 @@ describe("choice and copy_block surface proxying", () => {
         providerKey: "google",
         displayName: "Google",
         description: "Connect Gmail for this task.",
+        connectLabel: "Connect Google Account",
+        requestedScopes: ["gmail.readonly"],
       },
     });
 

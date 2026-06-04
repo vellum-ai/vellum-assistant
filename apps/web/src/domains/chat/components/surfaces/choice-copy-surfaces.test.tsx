@@ -204,6 +204,7 @@ describe("OAuthConnectSurface", () => {
             providerKey: "google",
             displayName: "Google",
             description: "Connect Gmail for this task.",
+            connectLabel: "Connect Google Account",
             requestedScopes: ["gmail.readonly"],
           },
         })}
@@ -214,8 +215,9 @@ describe("OAuthConnectSurface", () => {
     );
 
     expect(queryByText("gmail.readonly")).toBeNull();
+    expect(queryByText("Connect Google Account")).toBeNull();
 
-    fireEvent.click(getByRole("button", { name: /connect google/i }));
+    fireEvent.click(getByRole("button", { name: "Connect" }));
 
     await waitFor(() => {
       expect(oauthClient.connect).toHaveBeenCalledWith({
@@ -256,7 +258,7 @@ describe("OAuthConnectSurface", () => {
       />,
     );
 
-    fireEvent.click(getByRole("button", { name: /not now/i }));
+    fireEvent.click(getByRole("button", { name: "Dismiss" }));
 
     expect(oauthClient.connect).not.toHaveBeenCalled();
     expect(onAction).toHaveBeenCalledWith("surface-1", "cancel", {
