@@ -223,14 +223,22 @@ function probePlatformSession(
         // platformSession to "present". The auth middleware unblocks on
         // `platformSession !== "unknown"`, and hasAssistants() must
         // already reflect synced platform assistants at that point.
+        // Bounded to 3s so a hanging list call can't block the probe
+        // from settling — the middleware's 5s timeout would loop
+        // indefinitely otherwise.
         if (isLocalMode()) {
           try {
-            const apiAssistants = await listAssistants();
+            const apiAssistants = await Promise.race([
+              listAssistants(),
+              new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error("sync timeout")), 3_000),
+              ),
+            ]);
             if (!isStale() && apiAssistants.ok) {
               await syncPlatformAssistantsToLockfile(apiAssistants.data);
             }
           } catch {
-            // Sync failed — continue with cached lockfile data
+            // Sync failed or timed out — continue with cached lockfile data
           }
         }
         if (isStale()) return;
