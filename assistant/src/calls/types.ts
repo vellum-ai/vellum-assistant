@@ -47,7 +47,8 @@ export type CallEventType =
   | "voice_guardian_wait_callback_opt_in_declined"
   | "inbound_acl_post_approval_handoff_spoken"
   | "callback_handoff_notified"
-  | "callback_handoff_failed";
+  | "callback_handoff_failed"
+  | "telephony_credential_preflight_failed";
 export type PendingQuestionStatus =
   | "pending"
   | "answered"

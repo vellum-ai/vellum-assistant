@@ -36,10 +36,15 @@ import {
   getCallSession,
   getCallSessionByCallSid,
   getPendingQuestion,
+  recordCallEvent,
   updateCallSession,
 } from "./call-store.js";
 import { activeMediaStreamSessions } from "./media-stream-server.js";
 import { activeRelayConnections } from "./relay-server.js";
+import {
+  describeCredentialGaps,
+  resolveTelephonyCredentialReadiness,
+} from "./telephony-credential-preflight.js";
 import { getTwilioConfig } from "./twilio-config.js";
 import { TwilioConversationRelayProvider } from "./twilio-provider.js";
 import type { CallSession } from "./types.js";
@@ -447,6 +452,32 @@ export async function startCall(
       initiatedFromConversationId: conversationId,
     });
     sessionId = session.id;
+
+    // Credential-compatibility preflight: on the media-stream call path the
+    // daemon does STT + TTS itself, so both providers need usable credentials
+    // or the call connects silent. Fail BEFORE placing the Twilio call —
+    // record the failure event, point the user at the missing credential, and
+    // do not dial.
+    const credentialReadiness = await resolveTelephonyCredentialReadiness();
+    if (credentialReadiness.status === "not-ready") {
+      const summary = describeCredentialGaps(credentialReadiness.missing);
+      recordCallEvent(session.id, "telephony_credential_preflight_failed", {
+        direction: "outbound",
+        missing: credentialReadiness.missing,
+      });
+      updateCallSession(session.id, {
+        status: "failed",
+        endedAt: Date.now(),
+        lastError: `Telephony credential preflight failed: ${summary}`,
+      });
+      const reason = `Call setup is incomplete — configure the missing voice provider credential(s): ${summary}.`;
+      postFailedCallPointer(conversationId, phoneNumber, reason);
+      log.warn(
+        { callSessionId: session.id, missing: credentialReadiness.missing },
+        "Outbound call blocked by telephony credential preflight",
+      );
+      return { ok: false, error: reason, status: 400 };
+    }
 
     // Create a dedicated voice conversation for this call so that voice
     // transcripts live in their own conversation, separate from the chat that

@@ -181,6 +181,37 @@ mock.module("../memory/scoped-approval-grants.js", () => ({
   revokeScopedApprovalGrantsForContext: jest.fn(),
 }));
 
+// Mock the credential-compatibility preflight (PR 10). Default ready so a
+// normal_call still bootstraps a controller; the inbound not-ready test
+// toggles this to assert the spoken-setup-message + end-call behavior.
+let mockCredentialReadiness: {
+  status: "ready" | "not-ready";
+  missing?: Array<{ kind: string; providerId: string | null; reason: string }>;
+} = { status: "ready" };
+
+mock.module("../calls/telephony-credential-preflight.js", () => ({
+  resolveTelephonyCredentialReadiness: jest.fn(
+    async () => mockCredentialReadiness,
+  ),
+  describeCredentialGaps: jest.fn(
+    (
+      missing: Array<{
+        kind: string;
+        providerId: string | null;
+        reason: string;
+      }>,
+    ) =>
+      missing
+        .map(
+          (g) =>
+            `${g.kind === "stt" ? "speech-to-text" : "text-to-speech"} provider ${
+              g.providerId ? `"${g.providerId}"` : "(unconfigured)"
+            } (${g.reason})`,
+        )
+        .join(", "),
+  ),
+}));
+
 // Mock the TTS provider resolution so that the dynamic import inside
 // MediaStreamOutput.processSynthesizeItem() doesn't pull in the real
 // config/provider chain (which would hang or error in a test environment).
@@ -208,6 +239,22 @@ import {
   activeMediaStreamSessions,
   MediaStreamCallSession,
 } from "../calls/media-stream-server.js";
+
+// ---------------------------------------------------------------------------
+// Async helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Flush pending microtasks (promise continuations). Used to let the async
+ * credential preflight kicked off by `handleStart` resolve before asserting on
+ * the controller's initial greeting / not-ready teardown. Works under jest fake
+ * timers because it relies on microtasks, not the timer queue.
+ */
+async function flushMicrotasks(): Promise<void> {
+  for (let i = 0; i < 5; i++) {
+    await Promise.resolve();
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Mock WebSocket factory
@@ -329,6 +376,7 @@ beforeEach(() => {
   (updateCallSession as jest.Mock).mockClear();
   (finalizeCall as jest.Mock).mockClear();
   (speakSystemPrompt as jest.Mock).mockClear();
+  mockCredentialReadiness = { status: "ready" };
   // Reset routeSetup to default normal_call
   mockRouteSetupResult = {
     outcome: { action: "normal_call" as const, isInbound: true },
@@ -363,7 +411,7 @@ describe("MediaStreamCallSession", () => {
   });
 
   describe("start event handling", () => {
-    test("start event registers a controller and records call_connected", () => {
+    test("start event registers a controller and records call_connected", async () => {
       const mock = createMockWs();
       // Set up a call session in the mock store
       mockSessions.set("call-1", {
@@ -378,13 +426,12 @@ describe("MediaStreamCallSession", () => {
       const session = new MediaStreamCallSession(mock.ws, "call-1");
       session.handleMessage(makeStartMessage());
 
-      // Controller should have been registered
+      // Controller registration and the lifecycle event/update happen
+      // synchronously in handleStart.
       expect(registerCallController).toHaveBeenCalledWith(
         "call-1",
         expect.anything(),
       );
-
-      // call_connected event should have been recorded
       expect(recordCallEvent).toHaveBeenCalledWith(
         "call-1",
         "call_connected",
@@ -393,8 +440,6 @@ describe("MediaStreamCallSession", () => {
           transport: "media-stream",
         }),
       );
-
-      // Call session should have been updated
       expect(updateCallSession).toHaveBeenCalledWith(
         "call-1",
         expect.objectContaining({
@@ -403,7 +448,9 @@ describe("MediaStreamCallSession", () => {
         }),
       );
 
-      // Initial greeting should have been fired
+      // The initial greeting fires after the async credential preflight
+      // resolves — flush microtasks before asserting.
+      await flushMicrotasks();
       expect(mockStartInitialGreeting).toHaveBeenCalled();
     });
 
@@ -422,6 +469,62 @@ describe("MediaStreamCallSession", () => {
       session.handleMessage(makeStartMessage({ streamSid: "MZ-custom-sid" }));
 
       expect(session.getOutput().getStreamSid()).toBe("MZ-custom-sid");
+    });
+
+    test("credential preflight not-ready speaks a setup message, records the event, and ends the call without a controller", async () => {
+      const mock = createMockWs();
+      mockSessions.set("call-1", {
+        id: "call-1",
+        conversationId: "conv-1",
+        status: "initiated",
+        task: "Test task",
+        startedAt: null,
+        toNumber: "+12025550123",
+      });
+      mockCredentialReadiness = {
+        status: "not-ready",
+        missing: [
+          {
+            kind: "stt",
+            providerId: "openai-whisper",
+            reason: "missing-credentials",
+          },
+        ],
+      };
+
+      const session = new MediaStreamCallSession(mock.ws, "call-1");
+      session.handleMessage(makeStartMessage());
+
+      // The controller is bootstrapped synchronously, then the async preflight
+      // tears it down when not-ready. Flush microtasks to let it resolve.
+      await flushMicrotasks();
+
+      // Controller was torn down (destroyed + unregistered) and never greeted.
+      expect(mockDestroy).toHaveBeenCalled();
+      expect(mockStartInitialGreeting).not.toHaveBeenCalled();
+
+      // Failure event recorded with direction + missing details.
+      expect(recordCallEvent).toHaveBeenCalledWith(
+        "call-1",
+        "telephony_credential_preflight_failed",
+        expect.objectContaining({
+          direction: "inbound",
+          transport: "media-stream",
+          missing: mockCredentialReadiness.missing,
+        }),
+      );
+
+      // Session marked failed.
+      expect(updateCallSession).toHaveBeenCalledWith(
+        "call-1",
+        expect.objectContaining({ status: "failed" }),
+      );
+
+      // A spoken setup-required message went out over the media-stream TTS path.
+      expect(speakSystemPrompt).toHaveBeenCalledTimes(1);
+
+      // The call was finalized (teardown) rather than left connected silent.
+      expect(finalizeCall).toHaveBeenCalledWith("call-1", "conv-1");
     });
   });
 
@@ -1052,7 +1155,7 @@ describe("media-stream setup outcome scenarios", () => {
       );
     });
 
-    test("normal_call after deny scenario still creates controller", () => {
+    test("normal_call after deny scenario still creates controller", async () => {
       // Verify that after a deny-scenario test, resetting to normal_call
       // properly creates a controller (no cross-test pollution).
       mockRouteSetupResult = {
@@ -1084,7 +1187,8 @@ describe("media-stream setup outcome scenarios", () => {
         expect.anything(),
       );
 
-      // Initial greeting should fire
+      // Initial greeting fires after the async preflight resolves.
+      await flushMicrotasks();
       expect(mockStartInitialGreeting).toHaveBeenCalled();
     });
   });
@@ -1092,7 +1196,7 @@ describe("media-stream setup outcome scenarios", () => {
   // ── Barge-in regression ──────────────────────────────────────────
 
   describe("barge-in gating", () => {
-    test("immediate inbound audio after stream start does not trigger handleInterrupt", () => {
+    test("immediate inbound audio after stream start does not trigger handleInterrupt", async () => {
       const mockWs = createMockWs();
       mockSessions.set("call-bargein-1", {
         id: "call-bargein-1",
@@ -1105,8 +1209,9 @@ describe("media-stream setup outcome scenarios", () => {
 
       const session = new MediaStreamCallSession(mockWs.ws, "call-bargein-1");
 
-      // Stream start bootstraps the controller
+      // Stream start bootstraps the controller; greeting fires post-preflight.
       session.handleMessage(makeStartMessage());
+      await flushMicrotasks();
       expect(mockStartInitialGreeting).toHaveBeenCalled();
 
       // Immediate inbound audio (speech-like payloads) — before the
@@ -1166,7 +1271,7 @@ describe("media-stream setup outcome scenarios", () => {
   // ── E2E regression scenario ──────────────────────────────────────
 
   describe("end-to-end regression: connected call that stays active", () => {
-    test("stream connects, inbound audio starts, call remains active for a turn, controller only destroyed at stop/hangup", () => {
+    test("stream connects, inbound audio starts, call remains active for a turn, controller only destroyed at stop/hangup", async () => {
       const mockWs = createMockWs();
       mockSessions.set("call-e2e-1", {
         id: "call-e2e-1",
@@ -1185,6 +1290,7 @@ describe("media-stream setup outcome scenarios", () => {
         "call-e2e-1",
         expect.anything(),
       );
+      await flushMicrotasks();
       expect(mockStartInitialGreeting).toHaveBeenCalled();
 
       // Verify session was updated to in_progress

@@ -105,6 +105,30 @@ mock.module("../daemon/handlers/config-ingress.js", () => ({
   syncTwilioWebhooks: async () => ({ success: true }),
 }));
 
+// Credential-compatibility preflight (PR 10). Default ready so existing dial
+// tests are unaffected; the not-ready test toggles this to assert the call is
+// blocked before Twilio dialing.
+let credentialReadiness: Awaited<
+  ReturnType<
+    typeof import("../calls/telephony-credential-preflight.js").resolveTelephonyCredentialReadiness
+  >
+> = { status: "ready" };
+
+mock.module("../calls/telephony-credential-preflight.js", () => ({
+  resolveTelephonyCredentialReadiness: async () => credentialReadiness,
+  describeCredentialGaps: (
+    missing: Array<{ kind: string; providerId: string | null; reason: string }>,
+  ) =>
+    missing
+      .map(
+        (g) =>
+          `${g.kind === "stt" ? "speech-to-text" : "text-to-speech"} provider ${
+            g.providerId ? `"${g.providerId}"` : "(unconfigured)"
+          } (${g.reason})`,
+      )
+      .join(", "),
+}));
+
 import {
   clearActiveCallLeases,
   getActiveCallLease,
@@ -131,6 +155,7 @@ beforeEach(() => {
   twilioInitiateCallArgs = [];
   mockIngressEnabled = true;
   mockIngressPublicBaseUrl = "https://test.example.com";
+  credentialReadiness = { status: "ready" };
 });
 
 let ensuredConvIds = new Set<string>();
@@ -308,7 +333,7 @@ describe("startCall — pointer message regression", () => {
     ensureConversation(convId);
 
     const result = await startCall({
-      phoneNumber: "+15559876543",
+      phoneNumber: "+12025550123",
       task: "Test call",
       conversationId: convId,
     });
@@ -318,7 +343,7 @@ describe("startCall — pointer message regression", () => {
     expect(twilioInitiateCallArgs).toEqual([
       {
         from: "+15550001111",
-        to: "+15559876543",
+        to: "+12025550123",
         webhookUrl: "https://test.example.com/webhooks/twilio/voice/test",
         statusCallbackUrl: "https://test.example.com/webhooks/twilio/status",
       },
@@ -337,7 +362,7 @@ describe("startCall — pointer message regression", () => {
 
     const text = getLatestAssistantText(convId);
     expect(text).not.toBeNull();
-    expect(text!).toContain("+15559876543");
+    expect(text!).toContain("+12025550123");
     expect(text!).toContain("started");
   });
 
@@ -347,7 +372,7 @@ describe("startCall — pointer message regression", () => {
     mockIngressEnabled = false;
 
     const result = await startCall({
-      phoneNumber: "+15559876543",
+      phoneNumber: "+12025550123",
       task: "Test call",
       conversationId: convId,
     });
@@ -363,8 +388,45 @@ describe("startCall — pointer message regression", () => {
 
     const text = getLatestAssistantText(convId);
     expect(text).not.toBeNull();
-    expect(text!).toContain("+15559876543");
+    expect(text!).toContain("+12025550123");
     expect(text!).toContain("failed");
+  });
+
+  test("credential preflight not-ready blocks dialing and writes a setup pointer", async () => {
+    const convId = "conv-domain-cred-preflight";
+    ensureConversation(convId);
+    credentialReadiness = {
+      status: "not-ready",
+      missing: [
+        {
+          kind: "stt",
+          providerId: "openai-whisper",
+          reason: "missing-credentials",
+        },
+      ],
+    };
+
+    const result = await startCall({
+      phoneNumber: "+12025550123",
+      task: "Test call",
+      conversationId: convId,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(400);
+      expect(result.error).toContain("openai-whisper");
+    }
+    // Never reached Twilio dialing.
+    expect(twilioInitiateCallCount).toBe(0);
+    expect(listActiveCallLeases()).toHaveLength(0);
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    const text = getLatestAssistantText(convId);
+    expect(text).not.toBeNull();
+    expect(text!).toContain("+12025550123");
+    expect(text!).toContain("openai-whisper");
   });
 
   test("failed call writes a failed pointer to the initiating conversation", async () => {
@@ -373,7 +435,7 @@ describe("startCall — pointer message regression", () => {
     twilioInitiateCallBehavior = "error";
 
     const result = await startCall({
-      phoneNumber: "+15559876543",
+      phoneNumber: "+12025550123",
       task: "Test call",
       conversationId: convId,
     });
@@ -386,7 +448,7 @@ describe("startCall — pointer message regression", () => {
 
     const text = getLatestAssistantText(convId);
     expect(text).not.toBeNull();
-    expect(text!).toContain("+15559876543");
+    expect(text!).toContain("+12025550123");
     expect(text!).toContain("failed");
   });
 
@@ -395,7 +457,7 @@ describe("startCall — pointer message regression", () => {
     ensureConversation(convId);
 
     const startResult = await startCall({
-      phoneNumber: "+15559876543",
+      phoneNumber: "+12025550123",
       task: "Test call",
       conversationId: convId,
     });
