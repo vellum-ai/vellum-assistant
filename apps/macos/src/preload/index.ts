@@ -242,6 +242,14 @@ export interface VellumBridge {
      * right size.
      */
     setOnboarding(active: boolean): Promise<void>;
+    /**
+     * Relax the main window's same-origin navigation guard for the duration
+     * of a sign-in so the OAuth provider chain (WorkOS → Google/Apple → our
+     * callback) runs in-window instead of being ejected to the system
+     * browser. Call right before kicking off the provider redirect; the guard
+     * re-arms automatically when the flow returns to the app.
+     */
+    beginAuthFlow(): Promise<void>;
   };
   power: {
     /**
@@ -387,6 +395,8 @@ const bridge: VellumBridge = {
         "vellum:mainWindow:setOnboarding",
         active,
       ) as Promise<void>,
+    beginAuthFlow: (): Promise<void> =>
+      ipcRenderer.invoke("vellum:mainWindow:beginAuthFlow") as Promise<void>,
   },
   power: {
     onEvent: (callback) => {

@@ -7,6 +7,8 @@ import {
 } from "@/domains/account/social-auth";
 import { sanitizeReturnTo } from "@/domains/account/return-to";
 import { getSession } from "@/lib/auth/allauth-client";
+import { isElectron } from "@/runtime/is-electron";
+import { beginMainWindowAuthFlow } from "@/runtime/main-window";
 import { isBiometricEnabled, storeBiometricToken } from "@/runtime/native-biometric";
 import { routes } from "@/utils/routes";
 
@@ -245,6 +247,14 @@ export async function startAuthFlow(
       throw err;
     }
     return;
+  }
+
+  // Desktop (Electron): run the OAuth flow in the main window like the web,
+  // but first relax the main window's navigation guard so the cross-origin
+  // provider chain isn't ejected to the system browser mid-handshake. The
+  // existing provider callback page completes the flow in-window.
+  if (isElectron()) {
+    await beginMainWindowAuthFlow();
   }
 
   // Web path: `options` carries an extra `returnTo` field that the web
