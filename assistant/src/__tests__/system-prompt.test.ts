@@ -682,8 +682,10 @@ describe("buildSystemPrompt", () => {
       expect(result).toContain(
         "in your private thinking — never in user-facing text",
       );
-      // The section is self-editable, mirroring IDENTITY.md.
-      expect(result).toContain("prompts/system/01-communication.md");
+      // Closes by deferring to the user's established communication preferences.
+      expect(result).toContain(
+        "Always prioritize communication preferences that you've established",
+      );
       const communicationIdx = result.indexOf("## Communication");
       const parallelIdx = result.indexOf("<use_parallel_tool_calls>");
       expect(communicationIdx).toBeGreaterThan(-1);
