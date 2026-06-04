@@ -101,6 +101,92 @@ export function pcm16ToMulaw(pcm: Uint8Array): Buffer {
 }
 
 // ---------------------------------------------------------------------------
+// mu-law to linear PCM conversion (inbound)
+// ---------------------------------------------------------------------------
+
+/**
+ * Decode a single 8-bit mu-law byte to a signed 16-bit linear PCM sample.
+ *
+ * Mirrors {@link linearToMulaw}: Twilio's mu-law bytes are bitwise-inverted,
+ * so we re-invert before extracting the sign (bit 7), exponent (bits 4-6),
+ * and mantissa (bits 0-3), then undo the {@link MULAW_BIAS} offset applied
+ * during encoding to recover the signed linear sample.
+ */
+function mulawToLinear(mulawByte: number): number {
+  // mu-law bytes are bitwise-inverted in Twilio's encoding.
+  const b = ~mulawByte & 0xff;
+  const exponent = (b >> 4) & 0x07;
+  const mantissa = b & 0x0f;
+  const magnitude = (((mantissa << 3) + MULAW_BIAS) << exponent) - MULAW_BIAS;
+  // After re-inversion, bit 7 set means the original sample was negative.
+  return b & 0x80 ? -magnitude : magnitude;
+}
+
+/**
+ * Decode a buffer of 8-bit mu-law bytes to 16-bit signed little-endian PCM.
+ *
+ * This is the inbound counterpart to {@link pcm16ToMulaw}: it turns Twilio
+ * media-stream telephony audio into raw PCM16 suitable for streaming STT.
+ *
+ * @param mulaw - Raw mu-law bytes (one byte per sample).
+ * @returns A Buffer of PCM16 LE samples (twice the length of the input).
+ */
+export function mulawToPcm16(mulaw: Uint8Array): Buffer {
+  const pcm = Buffer.alloc(mulaw.length * 2);
+  for (let i = 0; i < mulaw.length; i++) {
+    pcm.writeInt16LE(mulawToLinear(mulaw[i]!), i * 2);
+  }
+  return pcm;
+}
+
+// ---------------------------------------------------------------------------
+// Resampling
+// ---------------------------------------------------------------------------
+
+/**
+ * Resample a buffer of 16-bit signed little-endian PCM from one sample rate
+ * to another using linear interpolation.
+ *
+ * Supports identity conversions (e.g. 8000→8000) and upsampling needed to
+ * feed 8 kHz telephony audio to streaming transcribers that expect 16 kHz.
+ *
+ * @param pcm - Source PCM16 LE buffer.
+ * @param fromRate - Source sample rate in Hz (must be > 0).
+ * @param toRate - Target sample rate in Hz (must be > 0).
+ * @returns A new PCM16 LE buffer at the target sample rate.
+ */
+export function resamplePcm16(
+  pcm: Buffer,
+  fromRate: number,
+  toRate: number,
+): Buffer {
+  if (fromRate <= 0 || toRate <= 0) {
+    throw new Error(`Invalid sample rate: from=${fromRate} to=${toRate}`);
+  }
+  if (fromRate === toRate) return Buffer.from(pcm);
+
+  const inCount = Math.floor(pcm.length / 2);
+  if (inCount === 0) return Buffer.alloc(0);
+
+  const ratio = toRate / fromRate;
+  const outCount = Math.max(1, Math.round(inCount * ratio));
+  const out = Buffer.alloc(outCount * 2);
+
+  for (let i = 0; i < outCount; i++) {
+    // Position in the source signal that this output sample maps to.
+    const srcPos = i / ratio;
+    const idx = Math.floor(srcPos);
+    const frac = srcPos - idx;
+    const s0 = pcm.readInt16LE(Math.min(idx, inCount - 1) * 2);
+    const s1 = pcm.readInt16LE(Math.min(idx + 1, inCount - 1) * 2);
+    const value = Math.round(s0 + (s1 - s0) * frac);
+    out.writeInt16LE(value, i * 2);
+  }
+
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // Chunking
 // ---------------------------------------------------------------------------
 
