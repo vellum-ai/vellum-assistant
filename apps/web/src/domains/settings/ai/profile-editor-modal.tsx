@@ -776,8 +776,11 @@ function ProfileEditorModalInner({
     </div>
   );
 
+  // Only surface Advanced once a model is chosen — the advanced params are
+  // model-dependent (effort/thinking/token ranges resolve from the selected
+  // model), so showing the disclosure before then is meaningless.
   const createAdvancedDisclosure =
-    !isAutoProfile && advancedParamsNode ? (
+    !isAutoProfile && model !== "" && advancedParamsNode ? (
       <div>
         <button
           type="button"
