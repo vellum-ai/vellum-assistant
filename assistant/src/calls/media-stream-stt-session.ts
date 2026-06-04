@@ -69,6 +69,22 @@ export interface MediaStreamSttSessionConfig {
 const DEFAULT_TRANSCRIPTION_TIMEOUT_MS = 10_000;
 
 /**
+ * Approximate wall-clock duration of a single Twilio media frame, in
+ * milliseconds. Twilio sends 8 kHz mu-law in ~20 ms (160-sample) frames. Used
+ * to convert the turn-detector silence threshold (ms) into a frame count for
+ * the streaming speech-start gate.
+ */
+const TELEPHONY_FRAME_MS = 20;
+
+/**
+ * Default silence threshold (ms) used to reset the streaming speech-start gate
+ * when no explicit turn-detector silence threshold is configured. Mirrors the
+ * batch {@link MediaTurnDetector} default so streaming barge-in turns are
+ * debounced on the same cadence as batch turns.
+ */
+const DEFAULT_STREAMING_SILENCE_THRESHOLD_MS = 800;
+
+/**
  * Sample rate (Hz) of Twilio telephony media-stream audio.
  */
 const TELEPHONY_SAMPLE_RATE = 8_000;
@@ -207,6 +223,28 @@ export class MediaStreamSttSession {
    */
   private streamingStartupFramesDropped = 0;
 
+  // ── Streaming speech-start gate ────────────────────────────────────
+  //
+  // In streaming mode the local VAD classifies EVERY 20 ms media frame, so a
+  // single utterance produces a long run of speech-bearing frames. Firing
+  // onSpeechStart for each one repeatedly clears outbound audio and inflates
+  // turn diagnostics. We gate it to once per speech turn (the silence→speech
+  // rising edge), then arm it again only after an intervening silence gap —
+  // mirroring how the batch MediaTurnDetector debounces turn starts.
+
+  /** Whether a streaming speech turn is currently in progress. */
+  private streamingSpeechActive = false;
+
+  /** Consecutive silence (non-speech) frames seen since the last speech frame. */
+  private streamingSilenceFrames = 0;
+
+  /**
+   * Number of consecutive silence frames that resets the speech-start gate.
+   * Derived from the configured turn-detector silence threshold so streaming
+   * barge-in is debounced on the same cadence as batch turn segmentation.
+   */
+  private readonly streamingSilenceResetFrames: number;
+
   constructor(
     config: MediaStreamSttSessionConfig = {},
     callbacks: MediaStreamSttSessionCallbacks = {},
@@ -215,6 +253,18 @@ export class MediaStreamSttSession {
     this.callbacks = callbacks;
     this.transcriptionTimeoutMs =
       config.transcriptionTimeoutMs ?? DEFAULT_TRANSCRIPTION_TIMEOUT_MS;
+
+    // Convert the configured silence threshold (ms) into a frame count so the
+    // streaming speech-start gate resets after the same amount of silence that
+    // ends a batch turn. At least one frame so a single silent frame can never
+    // be required to be fractional.
+    const silenceThresholdMs =
+      config.turnDetector?.silenceThresholdMs ??
+      DEFAULT_STREAMING_SILENCE_THRESHOLD_MS;
+    this.streamingSilenceResetFrames = Math.max(
+      1,
+      Math.round(silenceThresholdMs / TELEPHONY_FRAME_MS),
+    );
 
     this.turnDetector = new MediaTurnDetector(config.turnDetector, {
       onTurnStart: () => {
@@ -286,7 +336,12 @@ export class MediaStreamSttSession {
       );
     }
 
-    if (this.streamingTranscriber) {
+    // Only tear the transcriber down here when streaming has fully committed
+    // (`mode === "streaming"`). While `"streaming-pending"`, the in-flight
+    // startStreamingMode owns the (local) transcriber: streamingAborted is set
+    // above, so when its `start()` settles it stops and discards the late
+    // transcriber itself — stopping it here too would double-stop it.
+    if (this.mode === "streaming" && this.streamingTranscriber) {
       this.streamingTranscriber.stop();
       this.streamingTranscriber = null;
     }
@@ -492,12 +547,11 @@ export class MediaStreamSttSession {
     switch (this.mode) {
       case "streaming-pending":
         // Streaming resolver still in flight. Drive barge-in immediately from
-        // the local VAD, but buffer the raw payload — it must NOT reach the
-        // batch turn detector, or the first utterance would be split across
-        // both paths. The buffer is replayed into whichever path wins.
-        if (detectSpeechActivity(payload)) {
-          this.callbacks.onSpeechStart?.();
-        }
+        // the local VAD (coalesced to once per speech turn), but buffer the raw
+        // payload — it must NOT reach the batch turn detector, or the first
+        // utterance would be split across both paths. The buffer is replayed
+        // into whichever path wins.
+        this.noteStreamingSpeechActivity(detectSpeechActivity(payload));
         this.bufferStartupFrame(payload);
         return;
 
@@ -519,16 +573,50 @@ export class MediaStreamSttSession {
    * barge-in, and send to the (ready) transcriber.
    */
   private handleStreamingMedia(base64Payload: string): void {
-    // Drive barge-in from the fast local VAD (energy heuristic).
-    if (detectSpeechActivity(base64Payload)) {
-      this.callbacks.onSpeechStart?.();
-    }
+    // Drive barge-in from the fast local VAD (energy heuristic), coalesced to
+    // once per speech turn so a normal utterance does not repeatedly clear
+    // outbound audio or inflate turn diagnostics.
+    this.noteStreamingSpeechActivity(detectSpeechActivity(base64Payload));
 
     const pcm = this.decodeForStreaming(base64Payload);
     if (!pcm) return;
 
     if (this.streamingReady) {
       this.streamingTranscriber?.sendAudio(pcm, STREAMING_PCM_MIME);
+    }
+  }
+
+  /**
+   * Coalesce streaming speech-start callbacks to once per speech turn.
+   *
+   * Fires `onSpeechStart` only on the silence→speech rising edge (immediately,
+   * to keep barge-in responsive), then suppresses further callbacks until an
+   * intervening run of {@link streamingSilenceResetFrames} consecutive silence
+   * frames re-arms the gate. This mirrors how the batch {@link MediaTurnDetector}
+   * debounces `onTurnStart` to once per turn.
+   *
+   * @param hasSpeech - Whether the current 20 ms frame contains speech.
+   */
+  private noteStreamingSpeechActivity(hasSpeech: boolean): void {
+    if (hasSpeech) {
+      this.streamingSilenceFrames = 0;
+      if (!this.streamingSpeechActive) {
+        // Rising edge: start of a new speech turn. Fire once.
+        this.streamingSpeechActive = true;
+        this.callbacks.onSpeechStart?.();
+      }
+      return;
+    }
+
+    // Silence frame: count toward the reset threshold while a turn is active.
+    if (this.streamingSpeechActive) {
+      this.streamingSilenceFrames++;
+      if (this.streamingSilenceFrames >= this.streamingSilenceResetFrames) {
+        // Silence gap long enough to close the turn — re-arm the gate so the
+        // next speech frame fires onSpeechStart again.
+        this.streamingSpeechActive = false;
+        this.streamingSilenceFrames = 0;
+      }
     }
   }
 
@@ -577,20 +665,29 @@ export class MediaStreamSttSession {
   }
 
   private handleStop(): void {
-    if (this.streamingTranscriber) {
+    // Treat the streaming transcriber as live ONLY when the mode has fully
+    // committed to `"streaming"`. While `"streaming-pending"`, the transcriber
+    // object may already be set (resolver returned, but `start()` is still
+    // awaiting the provider handshake) — taking the "live" branch there would
+    // stop()/onStop() and return WITHOUT replaying streamingStartupBuffer to
+    // batch, losing the caller's final utterance on short calls / slow
+    // handshakes.
+    if (this.mode === "streaming") {
       // Streaming mode: signal end-of-audio. The transcriber may emit a
       // final transcript and then a `closed` event (which drives onStop).
-      this.streamingTranscriber.stop();
+      this.streamingTranscriber?.stop();
       this.callbacks.onStop?.();
       return;
     }
 
     if (this.mode === "streaming-pending") {
-      // Stop arrived before the streaming resolver settled. The buffered
+      // Stop arrived before the streaming startup settled (resolver pending,
+      // or resolver returned but `start()` still in flight). The buffered
       // startup frames live only in streamingStartupBuffer and have not
-      // reached the turn detector. Abort the in-flight streaming startup and
-      // replay those frames through the batch path so the caller's final
-      // utterance is transcribed instead of lost.
+      // reached the turn detector. Abort the in-flight streaming startup so a
+      // late-resolved transcriber does not resurrect streaming, and replay
+      // those frames through the batch path so the caller's final utterance is
+      // transcribed instead of lost.
       this.streamingAborted = true;
       this.fallBackToBatch();
     }

@@ -1141,6 +1141,67 @@ describe("MediaStreamSttSession", () => {
       session.dispose();
     });
 
+    test("stop while start() is pending (transcriber resolved, start() unresolved) replays buffered frames through the batch path", async () => {
+      telephonyStreamingFlag = true;
+      sttProvider = "deepgram"; // realtime-ws → streaming path attempted
+      // Resolver resolves a transcriber, but its start() never settles, so the
+      // session lingers in "streaming-pending" with streamingTranscriber set.
+      const fake = makeFakeStreamingTranscriber();
+      (resolveStreamingTranscriber as jest.Mock).mockResolvedValue(fake);
+
+      const mockTranscriber = makeMockTranscriber("buffered during handshake");
+      (resolveBatchTranscriber as jest.Mock).mockResolvedValue(mockTranscriber);
+
+      const onTranscriptFinal = jest.fn();
+      const onStop = jest.fn();
+      const session = new MediaStreamSttSession(
+        { turnDetector: { silenceThresholdMs: 300 } },
+        { onTranscriptFinal, onStop },
+      );
+
+      session.handleMessage(makeStartMessage());
+      // Resolver settles and start() is invoked — but start() is NOT resolved,
+      // so mode is still "streaming-pending" while streamingTranscriber is set.
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      expect(fake.start).toHaveBeenCalledTimes(1);
+
+      // Caller's final utterance arrives during the start() handshake window —
+      // buffered (not sent to the streaming transcriber, which is not ready).
+      const speechPayload = Buffer.alloc(160, 0x00).toString("base64");
+      for (let i = 0; i < 5; i++) {
+        session.handleMessage(makeMediaMessage(speechPayload));
+      }
+      expect(fake.sent.length).toBe(0);
+
+      // Twilio sends stop before start() resolves. This must take the
+      // pending-fallback path (NOT the "transcriber is live" branch), replaying
+      // the buffered utterance through the batch pipeline.
+      session.handleMessage(makeStopMessage());
+      expect(onStop).toHaveBeenCalledTimes(1);
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+
+      // The buffered utterance was transcribed via the batch path — not lost.
+      expect(onTranscriptFinal).toHaveBeenCalledTimes(1);
+      expect(onTranscriptFinal).toHaveBeenCalledWith(
+        "buffered during handshake",
+        expect.any(Number),
+      );
+      const transcribeMock = mockTranscriber.transcribe as jest.Mock;
+      expect(transcribeMock).toHaveBeenCalledTimes(1);
+      const req = transcribeMock.mock.calls[0][0] as SttTranscribeRequest;
+      expect(req.audio.length).toBeGreaterThan(0);
+
+      // When start() finally settles it must NOT resurrect streaming: the late
+      // transcriber is stopped and never receives the buffered frames.
+      fake.resolveStart();
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      expect(fake.sent.length).toBe(0);
+      expect(fake.stop).toHaveBeenCalledTimes(1);
+      expect(onTranscriptFinal).toHaveBeenCalledTimes(1);
+
+      session.dispose();
+    });
+
     test("dispose during streaming-pending stops a late-resolved transcriber and does not leak", async () => {
       telephonyStreamingFlag = true;
       sttProvider = "deepgram";
@@ -1164,6 +1225,103 @@ describe("MediaStreamSttSession", () => {
       for (let i = 0; i < 10; i++) await Promise.resolve();
       expect(fake.start).not.toHaveBeenCalled();
       expect(fake.stop).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ── Streaming speech-start coalescing (Finding 2) ────────────────
+  describe("streaming onSpeechStart coalescing", () => {
+    test("fires once across a run of consecutive speech frames, then again after a silence gap", async () => {
+      telephonyStreamingFlag = true;
+      sttProvider = "deepgram"; // realtime-ws → streaming path
+      const fake = makeFakeStreamingTranscriber();
+      (resolveStreamingTranscriber as jest.Mock).mockResolvedValue(fake);
+
+      const onSpeechStart = jest.fn();
+      // silenceThresholdMs 200 / 20ms frame = 10 silence frames re-arm the gate.
+      const session = new MediaStreamSttSession(
+        { turnDetector: { silenceThresholdMs: 200 } },
+        { onSpeechStart },
+      );
+
+      session.handleMessage(makeStartMessage());
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      fake.resolveStart();
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+
+      const speechPayload = Buffer.alloc(160, 0x00).toString("base64");
+      const silencePayload = Buffer.alloc(160, 0xff).toString("base64");
+
+      // Turn 1: a run of consecutive speech frames fires onSpeechStart once.
+      for (let i = 0; i < 8; i++) {
+        session.handleMessage(makeMediaMessage(speechPayload));
+      }
+      expect(onSpeechStart).toHaveBeenCalledTimes(1);
+
+      // A short silence gap (below the 10-frame reset) does NOT re-arm the gate;
+      // resumed speech must not re-fire.
+      for (let i = 0; i < 3; i++) {
+        session.handleMessage(makeMediaMessage(silencePayload));
+      }
+      session.handleMessage(makeMediaMessage(speechPayload));
+      expect(onSpeechStart).toHaveBeenCalledTimes(1);
+
+      // A long silence gap (>= 10 frames) re-arms the gate.
+      for (let i = 0; i < 12; i++) {
+        session.handleMessage(makeMediaMessage(silencePayload));
+      }
+
+      // Turn 2: the next speech run fires onSpeechStart again, exactly once.
+      for (let i = 0; i < 6; i++) {
+        session.handleMessage(makeMediaMessage(speechPayload));
+      }
+      expect(onSpeechStart).toHaveBeenCalledTimes(2);
+
+      session.dispose();
+    });
+
+    test("coalesces across the pending->streaming boundary", async () => {
+      telephonyStreamingFlag = true;
+      sttProvider = "deepgram";
+      // Keep the resolver pending so the first speech run lands in the
+      // streaming-pending window, then resolve to cross into streaming.
+      let resolveResolver: (t: StreamingTranscriber | null) => void = () => {};
+      (resolveStreamingTranscriber as jest.Mock).mockReturnValue(
+        new Promise<StreamingTranscriber | null>((resolve) => {
+          resolveResolver = resolve;
+        }),
+      );
+
+      const fake = makeFakeStreamingTranscriber();
+      const onSpeechStart = jest.fn();
+      const session = new MediaStreamSttSession(
+        { turnDetector: { silenceThresholdMs: 200 } },
+        { onSpeechStart },
+      );
+
+      session.handleMessage(makeStartMessage());
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+
+      const speechPayload = Buffer.alloc(160, 0x00).toString("base64");
+
+      // Speech during the pending window fires onSpeechStart once.
+      for (let i = 0; i < 5; i++) {
+        session.handleMessage(makeMediaMessage(speechPayload));
+      }
+      expect(onSpeechStart).toHaveBeenCalledTimes(1);
+
+      // Cross into committed streaming mode (no intervening silence gap).
+      resolveResolver(fake);
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      fake.resolveStart();
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+
+      // Continued speech in streaming mode must NOT re-fire — same turn.
+      for (let i = 0; i < 5; i++) {
+        session.handleMessage(makeMediaMessage(speechPayload));
+      }
+      expect(onSpeechStart).toHaveBeenCalledTimes(1);
+
+      session.dispose();
     });
   });
 });
