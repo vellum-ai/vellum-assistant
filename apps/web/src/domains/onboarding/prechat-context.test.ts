@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 
-import { DEFAULT_PRECHAT_INITIAL_MESSAGE } from "@/domains/onboarding/prechat";
 import {
   ACTIVATION_FLOW_COHORT,
   ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE,
@@ -29,32 +28,48 @@ function baseInput(
 }
 
 describe("buildPreChatContext — activation rail", () => {
-  test("selects the activation bootstrap template when the experiment flag is on", () => {
+  test("selects the activation cohort and bootstrap template from the recipe", () => {
+    // Treatment users receive a recipe from the platform (PR 5) whose cohort is
+    // ACTIVATION_FLOW_COHORT and bootstrap_template is ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE.
+    // The context builder propagates them unchanged via the recipe path.
     const context = buildPreChatContext(
-      baseInput({ activationFlowEnabled: true }),
+      baseInput({
+        recipe: {
+          cohort: ACTIVATION_FLOW_COHORT,
+          bootstrapTemplate: ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE,
+          initialMessage: "",
+          tasks: [],
+          tone: "",
+          skills: [],
+          skipPrechat: false,
+        },
+      }),
     );
 
     expect(context.cohort).toBe(ACTIVATION_FLOW_COHORT);
     expect(context.bootstrapTemplate).toBe(ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE);
   });
 
-  test("activation template wins over a marketing recipe template", () => {
+  test("marketing campaign recipe cohort takes precedence over activation when both present", () => {
+    // The platform delivers the campaign recipe when one matches (PR 5 resolution order:
+    // campaign > experiment assignment). The context builder forwards the campaign cohort.
     const context = buildPreChatContext(
       baseInput({
-        activationFlowEnabled: true,
         recipe: {
           cohort: "content-automation",
           bootstrapTemplate: "BOOTSTRAP-CONTENT-AUTOMATION.md",
           initialMessage: "Campaign hello",
+          tasks: ["writing"],
+          tone: "grounded",
           skills: ["geo-writing"],
-        } as BuildPreChatContextInput["recipe"],
+          skipPrechat: true,
+        },
       }),
     );
 
-    expect(context.cohort).toBe(ACTIVATION_FLOW_COHORT);
-    expect(context.bootstrapTemplate).toBe(ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE);
-    expect(context.skills).toEqual(["geo-writing"]);
-    expect(context.initialMessage).toBe(DEFAULT_PRECHAT_INITIAL_MESSAGE);
+    expect(context.cohort).toBe("content-automation");
+    expect(context.bootstrapTemplate).toBe("BOOTSTRAP-CONTENT-AUTOMATION.md");
+    expect(context.initialMessage).toBe("Campaign hello");
   });
 });
 

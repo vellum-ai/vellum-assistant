@@ -41,8 +41,6 @@ export interface BuildPreChatContextInput {
   userName: string;
   assistantName: string;
   selfIntroGreetingEnabled: boolean;
-  /** Selects the activation rail bootstrap template for experiment users. */
-  activationFlowEnabled?: boolean;
   /** Persisted Google connection state from a step the user already passed. */
   googleConnected: boolean;
   googleScopes: string[];
@@ -100,11 +98,6 @@ export function buildPreChatContext(
     context.skills = recipe.skills;
   }
 
-  if (input.activationFlowEnabled) {
-    context.cohort = ACTIVATION_FLOW_COHORT;
-    context.bootstrapTemplate = ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE;
-  }
-
   const trimmedUser = input.userName.trim();
   if (trimmedUser) context.userName = trimmedUser;
   const trimmedAssistant = input.assistantName.trim();
@@ -134,7 +127,7 @@ export function buildPreChatContext(
 
   context.initialMessage = resolveInitialMessage(
     context,
-    input.activationFlowEnabled ? null : recipe,
+    recipe,
     input.selfIntroGreetingEnabled,
   );
   return context;

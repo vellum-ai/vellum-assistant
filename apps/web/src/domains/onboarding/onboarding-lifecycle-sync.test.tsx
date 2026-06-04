@@ -66,7 +66,6 @@ type TestOnboardingRecipe = {
 
 let onboardingCompleted = false;
 let prechatOnboardingCondensedFlow = true;
-let activationFlowExperiment = false;
 let selfIntroGreeting = true;
 let isIOSWeb = false;
 let isMacOSWeb = false;
@@ -200,7 +199,6 @@ mock.module("@/stores/client-feature-flag-store", () => ({
   useClientFeatureFlagStore: {
     use: {
       prechatOnboardingCondensedFlow: () => prechatOnboardingCondensedFlow,
-      experimentActivationFlow20260603: () => activationFlowExperiment,
       selfIntroGreeting: () => selfIntroGreeting,
     },
   },
@@ -349,7 +347,6 @@ beforeEach(() => {
   checkAssistantImpl = async () => {};
   onboardingCompleted = false;
   prechatOnboardingCondensedFlow = true;
-  activationFlowExperiment = false;
   selfIntroGreeting = true;
   isIOSWeb = false;
   isMacOSWeb = false;
@@ -476,8 +473,19 @@ describe("onboarding lifecycle sync", () => {
     });
   });
 
-  test("activation flow flag selects the activation bootstrap after pre-chat", async () => {
-    activationFlowExperiment = true;
+  test("activation flow recipe delivers cohort and bootstrap to the onboarding context", async () => {
+    // The platform delivers cohort + bootstrapTemplate via the recipe endpoint (PR 5)
+    // for treatment users. The context builder forwards them unchanged — no independent
+    // flag evaluation. This is the "no second eval" invariant from JARVIS-1102.
+    fetchOnboardingRecipeImpl = async () => ({
+      cohort: ACTIVATION_FLOW_COHORT,
+      bootstrapTemplate: ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE,
+      initialMessage: "",
+      tasks: [],
+      tone: "grounded",
+      skills: [],
+      skipPrechat: false,
+    });
 
     render(<PreChatFlow />);
 
@@ -494,6 +502,7 @@ describe("onboarding lifecycle sync", () => {
       cohort: ACTIVATION_FLOW_COHORT,
       initialMessage: "Hi, I'm Alice. Nice to meet you.",
       bootstrapTemplate: ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE,
+      skills: [],
     });
   });
 
