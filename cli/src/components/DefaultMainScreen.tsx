@@ -425,24 +425,18 @@ async function* streamEvents(
   const params = new URLSearchParams({ conversationKey });
   const url = `${baseUrl}/v1/assistants/${assistantId}/events?${params.toString()}`;
   tuiLog.info("sse connect", { url, authHeaders: Object.keys(auth ?? {}) });
-  const doFetch = () =>
-    fetch(url, {
-      headers: {
-        Accept: "text/event-stream",
-        ...auth,
-      },
-      signal,
-    });
-
-  let response = await doFetch();
-  // Mid-session token expiry → 401 at connect: refresh once and reconnect with
-  // the new token (auth headers are mutated in place by the helper).
-  if (
-    response.status === 401 &&
-    (await maybeRefreshAuthHeaders(baseUrl, assistantId, auth))
-  ) {
-    response = await doFetch();
-  }
+  // NOTE: the SSE connect deliberately does NOT refresh-on-401 — keeping the
+  // stream path simple. After a mid-session token expiry, the REST path
+  // (runtimeRequest) refreshes the shared `auth` on the next request, and the
+  // existing reconnect (ensureConnected on the next message) re-opens the
+  // stream with the refreshed token.
+  const response = await fetch(url, {
+    headers: {
+      Accept: "text/event-stream",
+      ...auth,
+    },
+    signal,
+  });
 
   tuiLog.info("sse response", {
     status: response.status,
