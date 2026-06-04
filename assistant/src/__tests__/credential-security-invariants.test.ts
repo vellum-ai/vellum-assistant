@@ -235,6 +235,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "tts/providers/elevenlabs-provider.ts", // ElevenLabs TTS API key lookup
       "tts/providers/deepgram-provider.ts", // Deepgram TTS API key lookup
       "tts/providers/xai-provider.ts", // xAI TTS API key lookup
+      "calls/telephony-tts-capability.ts", // telephony TTS playability check reads provider key presence (same risk class as the TTS provider modules above)
       "credential-health/credential-health-service.ts", // credential health check reads access tokens for liveness pings
       "ipc/skill-routes/providers.ts", // skill IPC route exposes provider key lookup to hosted skills
       "runtime/routes/avatar-routes.ts", // avatar generate route reads platform_base_url from credential store
