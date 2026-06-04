@@ -168,7 +168,7 @@ function renderModal(
   sub: SubscriptionResponse,
   plans: PlanListResponse,
   onTierUpgraded?: () => void,
-): ReturnType<typeof render> {
+): ReturnType<typeof render> & { client: QueryClient } {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -183,11 +183,12 @@ function renderModal(
       selected_storage_gib: 10,
     },
   );
-  return render(
+  const result = render(
     <QueryClientProvider client={client}>
       <AdjustPlanModal open onClose={() => {}} onTierUpgraded={onTierUpgraded} />
     </QueryClientProvider>,
   );
+  return { ...result, client };
 }
 
 function openCreditDropdown(): void {
@@ -299,6 +300,89 @@ describe("AdjustPlanModal credit bundle — change mode", () => {
     openCreditDropdown();
     clickOption("No credit bundle — $0/mo");
 
+    fireEvent.click(getByTestId("modal-change-tier-button"));
+
+    await waitFor(() => {
+      if (!changeCreditTierCall) throw new Error("change not called");
+    });
+    expect(
+      (changeCreditTierCall!.body as Record<string, unknown>).credit_tier,
+    ).toBeNull();
+  });
+});
+
+describe("AdjustPlanModal credit bundle — unseeded sentinel", () => {
+  test("does not enable Update Plan from a spurious pre-seed creditChanged", async () => {
+    // A Pro user with an existing bundle and no other pending change. Once the
+    // seed effect lands, selectedCreditTier equals currentCreditTier, so no
+    // dimension changed and the CTA stays disabled. The unseeded `undefined`
+    // sentinel must never read as a credit diff vs. the existing bundle.
+    const { getByTestId } = renderModal(
+      subscription("pro", "credits_50"),
+      proPlansResponse(CREDIT_TIERS),
+    );
+
+    await waitFor(() => {
+      const trigger = document.querySelector(
+        'button[role="combobox"][aria-label="Credit bundle"]',
+      );
+      if (!trigger) throw new Error("picker not rendered yet");
+    });
+
+    const button = getByTestId("modal-change-tier-button") as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+  });
+
+  test("does not send credit_tier: null before the user changes anything", async () => {
+    // Even if the CTA were clicked, no credit mutation should fire because the
+    // seeded selection matches the current bundle. Guards against the pre-seed
+    // `null` removing a paid bundle without intent.
+    const { getByTestId } = renderModal(
+      subscription("pro", "credits_50"),
+      proPlansResponse(CREDIT_TIERS),
+    );
+
+    await waitFor(() => {
+      const trigger = document.querySelector(
+        'button[role="combobox"][aria-label="Credit bundle"]',
+      );
+      if (!trigger) throw new Error("picker not rendered yet");
+    });
+
+    fireEvent.click(getByTestId("modal-change-tier-button"));
+
+    // Give any (erroneous) mutation a tick to fire.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(changeCreditTierCall).toBeNull();
+  });
+
+  test("preserves an explicit 'No bundle' choice across a plans refetch", async () => {
+    // Pro user with credits_50 picks "No credit bundle" (selection becomes
+    // null). A subsequent plans refetch re-runs the seeding effect; the explicit
+    // null must NOT be coalesced back to the existing bundle.
+    const { getByTestId, client } = renderModal(
+      subscription("pro", "credits_50"),
+      proPlansResponse(CREDIT_TIERS),
+    );
+
+    await waitFor(() => {
+      const trigger = document.querySelector(
+        'button[role="combobox"][aria-label="Credit bundle"]',
+      );
+      if (!trigger) throw new Error("picker not rendered yet");
+    });
+
+    openCreditDropdown();
+    clickOption("No credit bundle — $0/mo");
+
+    // Simulate a mid-modal refetch: re-seed by replacing the plans object so the
+    // seeding effect re-runs with a fresh `proPlan` identity.
+    client.setQueryData(
+      organizationsBillingPlansRetrieveQueryKey(),
+      proPlansResponse(CREDIT_TIERS),
+    );
+
+    // The pending removal must survive the re-seed.
     fireEvent.click(getByTestId("modal-change-tier-button"));
 
     await waitFor(() => {
