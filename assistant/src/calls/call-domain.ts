@@ -996,6 +996,34 @@ export async function startVerificationCall(
     });
     sessionId = session.id;
 
+    // Credential-compatibility preflight: every outbound call now routes
+    // through the media-stream transport where the daemon performs STT + TTS,
+    // so both providers need usable credentials or the call connects silent.
+    // Fail BEFORE leasing or dialing — record the failure, point the user at
+    // the missing credential, and do not dial.
+    const credentialReadiness = await resolveTelephonyCredentialReadiness();
+    if (credentialReadiness.status === "not-ready") {
+      const summary = describeCredentialGaps(credentialReadiness.missing);
+      recordCallEvent(session.id, "telephony_credential_preflight_failed", {
+        direction: "outbound",
+        missing: credentialReadiness.missing,
+      });
+      updateCallSession(session.id, {
+        status: "failed",
+        endedAt: Date.now(),
+        lastError: `Telephony credential preflight failed: ${summary}`,
+      });
+      const reason = `Call setup is incomplete — configure the missing voice provider credential(s): ${summary}.`;
+      if (originConversationId) {
+        postFailedCallPointer(originConversationId, phoneNumber, reason);
+      }
+      log.warn(
+        { callSessionId: session.id, missing: credentialReadiness.missing },
+        "Outbound verification call blocked by telephony credential preflight",
+      );
+      return { ok: false, error: reason, status: 400 };
+    }
+
     const webhookUrl = await resolveCallbackUrl(
       () => getTwilioVoiceWebhookUrl(ingressConfig, session.id),
       "webhooks/twilio/voice",
@@ -1129,6 +1157,34 @@ export async function startInviteCall(
       initiatedFromConversationId: conversationId,
     });
     sessionId = session.id;
+
+    // Credential-compatibility preflight: every outbound call now routes
+    // through the media-stream transport where the daemon performs STT + TTS,
+    // so both providers need usable credentials or the call connects silent.
+    // Fail BEFORE leasing or dialing — record the failure, point the user at
+    // the missing credential, and do not dial.
+    const credentialReadiness = await resolveTelephonyCredentialReadiness();
+    if (credentialReadiness.status === "not-ready") {
+      const summary = describeCredentialGaps(credentialReadiness.missing);
+      recordCallEvent(session.id, "telephony_credential_preflight_failed", {
+        direction: "outbound",
+        missing: credentialReadiness.missing,
+      });
+      updateCallSession(session.id, {
+        status: "failed",
+        endedAt: Date.now(),
+        lastError: `Telephony credential preflight failed: ${summary}`,
+      });
+      const reason = `Call setup is incomplete — configure the missing voice provider credential(s): ${summary}.`;
+      if (conversationId) {
+        postFailedCallPointer(conversationId, phoneNumber, reason);
+      }
+      log.warn(
+        { callSessionId: session.id, missing: credentialReadiness.missing },
+        "Outbound invite call blocked by telephony credential preflight",
+      );
+      return { ok: false, error: reason, status: 400 };
+    }
 
     const webhookUrl = await resolveCallbackUrl(
       () => getTwilioVoiceWebhookUrl(ingressConfig, session.id),

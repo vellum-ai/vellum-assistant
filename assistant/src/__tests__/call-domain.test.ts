@@ -9,6 +9,8 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { desc, eq } from "drizzle-orm";
+
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
@@ -138,12 +140,16 @@ import {
   cancelCall,
   resolveCallerIdentity,
   startCall,
+  startInviteCall,
+  startVerificationCall,
 } from "../calls/call-domain.js";
+import { getCallEvents, getCallSession } from "../calls/call-store.js";
 import type { AssistantConfig } from "../config/types.js";
 import { getMessages } from "../memory/conversation-crud.js";
+import { getOrCreateConversation } from "../memory/conversation-key-store.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
-import { conversations } from "../memory/schema.js";
+import { callSessions, conversations } from "../memory/schema.js";
 
 initializeDb();
 
@@ -206,6 +212,29 @@ function getLatestAssistantText(conversationId: string): string | null {
     /* fall through */
   }
   return latest.content;
+}
+
+function latestCallSessionIdForConversation(
+  conversationId: string,
+): string | null {
+  const db = getDb();
+  const row = db
+    .select()
+    .from(callSessions)
+    .where(eq(callSessions.conversationId, conversationId))
+    .orderBy(desc(callSessions.createdAt))
+    .get();
+  return row?.id ?? null;
+}
+
+function latestCallSessionId(): string | null {
+  const db = getDb();
+  const row = db
+    .select()
+    .from(callSessions)
+    .orderBy(desc(callSessions.createdAt))
+    .get();
+  return row?.id ?? null;
 }
 
 function makeConfig(
@@ -476,5 +505,102 @@ describe("startCall — pointer message regression", () => {
 
     expect(cancelResult.ok).toBe(true);
     expect(getActiveCallLease(startResult.session.id)).toBeNull();
+  });
+});
+
+describe("startVerificationCall — credential preflight", () => {
+  test("not-ready blocks dialing, marks the session failed, and records the preflight event", async () => {
+    const convId = "conv-verify-cred-preflight";
+    ensureConversation(convId);
+    credentialReadiness = {
+      status: "not-ready",
+      missing: [
+        {
+          kind: "tts",
+          providerId: "elevenlabs",
+          reason: "missing-credentials",
+        },
+      ],
+    };
+
+    const result = await startVerificationCall({
+      phoneNumber: "+12025550199",
+      verificationSessionId: "verify-session-1",
+      originConversationId: convId,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(400);
+      expect(result.error).toContain("elevenlabs");
+    }
+    // Never reached Twilio dialing and never leased.
+    expect(twilioInitiateCallCount).toBe(0);
+    expect(listActiveCallLeases()).toHaveLength(0);
+
+    // Session was created then marked failed.
+    const verifyConvId = getOrCreateConversation(
+      "guardian-verify:verify-session-1",
+    ).conversationId;
+    const sessionId = latestCallSessionIdForConversation(verifyConvId);
+    expect(sessionId).not.toBeNull();
+    const session = getCallSession(sessionId!);
+    expect(session?.status).toBe("failed");
+
+    const events = getCallEvents(sessionId!);
+    expect(
+      events.some(
+        (e) => e.eventType === "telephony_credential_preflight_failed",
+      ),
+    ).toBe(true);
+
+    // Failure pointer routed to the origin conversation.
+    await new Promise((r) => setTimeout(r, 50));
+    const text = getLatestAssistantText(convId);
+    expect(text).not.toBeNull();
+    expect(text!).toContain("elevenlabs");
+  });
+});
+
+describe("startInviteCall — credential preflight", () => {
+  test("not-ready blocks dialing, marks the session failed, and records the preflight event", async () => {
+    credentialReadiness = {
+      status: "not-ready",
+      missing: [
+        {
+          kind: "stt",
+          providerId: "openai-whisper",
+          reason: "missing-credentials",
+        },
+      ],
+    };
+
+    const result = await startInviteCall({
+      phoneNumber: "+12025550188",
+      friendName: "Sam",
+      guardianName: "Pat",
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(400);
+      expect(result.error).toContain("openai-whisper");
+    }
+    // Never reached Twilio dialing and never leased.
+    expect(twilioInitiateCallCount).toBe(0);
+    expect(listActiveCallLeases()).toHaveLength(0);
+
+    // The single created session was marked failed with the preflight event.
+    const sessionId = latestCallSessionId();
+    expect(sessionId).not.toBeNull();
+    const session = getCallSession(sessionId!);
+    expect(session?.status).toBe("failed");
+
+    const events = getCallEvents(sessionId!);
+    expect(
+      events.some(
+        (e) => e.eventType === "telephony_credential_preflight_failed",
+      ),
+    ).toBe(true);
   });
 });
