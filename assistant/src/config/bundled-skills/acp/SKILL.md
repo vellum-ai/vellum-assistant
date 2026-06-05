@@ -29,7 +29,9 @@ When the user first tries to use ACP and it's not configured, set it up automati
    npm i -g @agentclientprotocol/claude-agent-acp
    ```
 
-2. **Enable ACP in the workspace config** by editing the config file to add the `acp` section. Default profiles for `claude` and `codex` ship out-of-box, so the minimal config is just:
+2. **Enable the `acp` feature flag** (the primary enablement path). Either PATCH it via the gateway feature-flags endpoint or direct the user to toggle "ACP Coding Agents" in the client's feature flags UI. Flag changes are hot-refreshed in the daemon - no restart needed.
+
+   As a supported alternative, edit the workspace config file to add the `acp` section. Default profiles for `claude` and `codex` ship out-of-box, so the minimal config is just:
    ```json
    {
      "acp": {
@@ -38,10 +40,9 @@ When the user first tries to use ACP and it's not configured, set it up automati
      }
    }
    ```
+   If you go the config route, **wait a few seconds** for the config watcher to pick up the change (it hot-reloads automatically - no restart needed).
 
-3. **Wait a few seconds** for the config watcher to pick up the change (it hot-reloads automatically - no restart needed).
-
-4. Then retry the `acp_spawn` call. Do NOT run `vellum sleep && vellum wake` - that kills the conversation.
+3. Then retry the `acp_spawn` call. Do NOT run `vellum sleep && vellum wake` - that kills the conversation.
 
 ## Codex setup
 

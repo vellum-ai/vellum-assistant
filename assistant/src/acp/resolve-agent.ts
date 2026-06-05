@@ -3,7 +3,8 @@
  *
  * `resolveAcpAgent(id)` merges user-provided `config.acp.agents[id]` (wins on
  * overlap) with the bundled `DEFAULT_ACP_AGENT_PROFILES` so common agents like
- * `claude` and `codex` Just Work whenever `acp.enabled: true` — no per-user
+ * `claude` and `codex` Just Work whenever ACP is enabled (the `acp` feature
+ * flag or `acp.enabled: true`; see `feature-gate.ts`), with no per-user
  * config required. The result is a discriminated union covering every reason
  * a spawn might fail before we even start the agent process: ACP disabled,
  * unknown agent id, or binary missing from PATH. Callers (acp_spawn,
@@ -21,6 +22,7 @@ import {
 } from "../config/acp-defaults.js";
 import type { AcpAgentConfig } from "../config/acp-schema.js";
 import { getConfig } from "../config/loader.js";
+import { isAcpEnabled } from "./feature-gate.js";
 
 /**
  * Whether this agent's entry came from user config (wins over default) or
@@ -56,7 +58,7 @@ interface AcpAgentEntry {
  * the same string instead of duplicating near-identical copy.
  */
 export const ACP_DISABLED_HINT =
-  "Set 'acp.enabled': true in ~/.vellum/workspace/config.json (or via the runtime config endpoint).";
+  "Enable the \"ACP Coding Agents\" feature flag in the client's feature flags UI (or set 'acp.enabled': true in ~/.vellum/workspace/config.json).";
 
 function installHintFor(command: string): string {
   const pkg = DEFAULT_AGENT_NPM_PACKAGES[command];
@@ -109,7 +111,7 @@ function mergedAgentIds(userAgents: Record<string, AcpAgentConfig>): string[] {
  * Resolve an ACP agent id to its config + binary preflight result.
  *
  * Order of checks:
- * 1. ACP must be enabled in config.
+ * 1. ACP must be enabled (feature flag or config; see `isAcpEnabled`).
  * 2. The id must resolve to an agent (user config wins; falls back to defaults).
  * 3. The agent's `command` must be discoverable via `Bun.which` (PATH lookup).
  *
@@ -118,7 +120,7 @@ function mergedAgentIds(userAgents: Record<string, AcpAgentConfig>): string[] {
  */
 export function resolveAcpAgent(id: string): ResolveAcpAgentResult {
   const config = getConfig();
-  if (!config.acp.enabled) {
+  if (!isAcpEnabled(config)) {
     return { ok: false, reason: "acp_disabled", hint: ACP_DISABLED_HINT };
   }
 
@@ -160,7 +162,7 @@ export function listAcpAgents(): {
   agents: AcpAgentEntry[];
 } {
   const config = getConfig();
-  if (!config.acp.enabled) {
+  if (!isAcpEnabled(config)) {
     return { enabled: false, agents: [] };
   }
 
