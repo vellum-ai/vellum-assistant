@@ -1,10 +1,17 @@
 /**
- * Search for plugin directories in the canonical GitHub source.
+ * Search the installable plugin catalog in the canonical GitHub source.
  *
- * Lists `vellum-ai/vellum-assistant/experimental/plugins/` at the configured
- * git ref and filters the directory entries by case-insensitive ECMAScript
- * regex. A plain query like `"memory"` matches anywhere in the name; anchors
- * like `"^simple"` work without escaping.
+ * The catalog is the union of two sources, both fetched from the repo at the
+ * configured git ref:
+ *   1. First-party plugins — directories under
+ *      `vellum-ai/vellum-assistant/experimental/plugins/`.
+ *   2. Whitelisted external ecosystem plugins — entries in the curated
+ *      `experimental/plugins/marketplace.json` manifest (see
+ *      {@link ./plugin-marketplace}).
+ *
+ * Entries are filtered by case-insensitive ECMAScript regex against the
+ * plugin name. A plain query like `"memory"` matches anywhere in the name;
+ * anchors like `"^simple"` work without escaping.
  *
  * Designed for direct programmatic use. The CLI command
  * `assistant plugins search <query>` is a thin wrapper that supplies
@@ -15,6 +22,10 @@
 
 import type { FetchLike } from "./install-from-github.js";
 import { DEFAULT_PLUGIN_REF } from "./install-from-github.js";
+import {
+  fetchMarketplaceEntries,
+  type MarketplaceEntry,
+} from "./plugin-marketplace.js";
 
 // Re-export the dep-injection type so callers can grab everything they need
 // from one module rather than reaching into `install-from-github.js`.
@@ -50,12 +61,33 @@ export interface SearchPluginsDeps {
   readonly fetch: FetchLike;
 }
 
-/** One matching plugin directory. */
+/** Where a catalog match comes from. */
+export type PluginMatchSource =
+  | { readonly kind: "first-party" }
+  | {
+      readonly kind: "github";
+      /** `owner/repo` of the external plugin repository. */
+      readonly repo: string;
+      /** Directory within the repo, when the plugin is not at the root. */
+      readonly path?: string;
+      /** Pinned git ref the plugin is fetched from. */
+      readonly ref: string;
+    };
+
+/** One matching catalog entry. */
 export interface PluginSearchMatch {
-  /** Directory name under `experimental/plugins/`. */
+  /** Install name — `assistant plugins install <name>` resolves to it. */
   readonly name: string;
-  /** Path within the repo (e.g. `experimental/plugins/<name>`). */
+  /**
+   * Human-readable origin of the entry: the repo-relative path for
+   * first-party plugins (e.g. `experimental/plugins/<name>`) or a
+   * `github:owner/repo@ref` locator for external ones.
+   */
   readonly path: string;
+  /** Short description, when known (external entries only today). */
+  readonly description?: string;
+  /** Discriminated origin, so callers can render/install accordingly. */
+  readonly source: PluginMatchSource;
 }
 
 /** Search result envelope. */
@@ -92,17 +124,68 @@ export async function searchPlugins(
   // the network — keeps "user typo" cheap to recover from.
   const matcher = buildMatcher(opts.query);
 
-  const entries = await listDir(PLUGIN_SOURCE_PATH_PREFIX, ref, deps.fetch);
+  const [entries, marketplace] = await Promise.all([
+    listDir(PLUGIN_SOURCE_PATH_PREFIX, ref, deps.fetch),
+    fetchMarketplaceSafe(deps.fetch, ref),
+  ]);
 
   const matches: PluginSearchMatch[] = [];
+  const seen = new Set<string>();
   for (const entry of entries) {
     if (entry.type !== "dir") continue;
     if (!matcher(entry.name)) continue;
-    matches.push({ name: entry.name, path: entry.path });
+    matches.push({
+      name: entry.name,
+      path: entry.path,
+      source: { kind: "first-party" },
+    });
+    seen.add(entry.name);
   }
+
+  for (const entry of marketplace) {
+    // First-party plugins win a name collision — the curated manifest is
+    // additive, never an override of what ships in-repo.
+    if (seen.has(entry.name)) continue;
+    if (!matcher(entry.name)) continue;
+    matches.push(marketplaceMatch(entry));
+    seen.add(entry.name);
+  }
+
   matches.sort((a, b) => a.name.localeCompare(b.name));
 
   return { query: opts.query, ref, matches };
+}
+
+/**
+ * Project a marketplace entry onto the catalog match shape, building a
+ * `github:owner/repo[/path]@ref` locator for display.
+ */
+function marketplaceMatch(entry: MarketplaceEntry): PluginSearchMatch {
+  const { repo, path, ref } = entry.source;
+  const locator = `github:${repo}${path ? `/${path}` : ""}@${ref}`;
+  return {
+    name: entry.name,
+    path: locator,
+    description: entry.description,
+    source: { kind: "github", repo, path, ref },
+  };
+}
+
+/**
+ * Fetch the marketplace manifest, degrading to an empty whitelist on any
+ * failure. The manifest is supplementary to the first-party listing, so a
+ * missing or malformed manifest must never break the core catalog — mirroring
+ * the daemon's "never block over a subsystem failure" philosophy.
+ */
+async function fetchMarketplaceSafe(
+  fetchFn: FetchLike,
+  ref: string,
+): Promise<readonly MarketplaceEntry[]> {
+  try {
+    return await fetchMarketplaceEntries({ fetch: fetchFn }, { ref });
+  } catch {
+    return [];
+  }
 }
 
 function buildMatcher(query: string): (name: string) => boolean {
@@ -150,10 +233,7 @@ async function listDir(
  * request. Unauthenticated — the canonical source is a public repo, mirroring
  * `installPlugin` which uses the same envelope.
  */
-async function githubFetch(
-  url: string,
-  fetchFn: FetchLike,
-): Promise<Response> {
+async function githubFetch(url: string, fetchFn: FetchLike): Promise<Response> {
   return fetchFn(url, {
     headers: {
       Accept: "application/vnd.github+json",

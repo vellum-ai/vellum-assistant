@@ -112,9 +112,9 @@ const listHandler = findHandler("plugins_list");
 const searchHandler = findHandler("plugins_search");
 const uninstallHandler = findHandler("plugins_uninstall");
 
-function invoke(
-  args: RouteHandlerArgs = {},
-): { plugins: Array<Record<string, unknown>> } {
+function invoke(args: RouteHandlerArgs = {}): {
+  plugins: Array<Record<string, unknown>>;
+} {
   return listHandler(args) as { plugins: Array<Record<string, unknown>> };
 }
 
@@ -268,7 +268,9 @@ describe("GET /v1/plugins", () => {
 
     // matches multiple
     expect(
-      invoke({ queryParams: { q: "o" } }).plugins.map((p) => p.id).sort(),
+      invoke({ queryParams: { q: "o" } })
+        .plugins.map((p) => p.id)
+        .sort(),
     ).toEqual(["calendar-sync", "todo", "weather"].sort());
 
     // no match
@@ -321,8 +323,21 @@ describe("GET /v1/plugins/search", () => {
       query: opts.query,
       ref: opts.ref ?? "main",
       matches: [
-        { name: "simple-memory", path: "experimental/plugins/simple-memory" },
-        { name: "simple-router", path: "experimental/plugins/simple-router" },
+        {
+          name: "simple-memory",
+          path: "experimental/plugins/simple-memory",
+          source: { kind: "first-party" },
+        },
+        {
+          name: "caveman",
+          path: "github:JuliusBrussee/caveman@v1.8.2",
+          description: "Ultra-compressed communication mode.",
+          source: {
+            kind: "github",
+            repo: "JuliusBrussee/caveman",
+            ref: "v1.8.2",
+          },
+        },
       ],
     }));
 
@@ -336,12 +351,27 @@ describe("GET /v1/plugins/search", () => {
     expect(opts.query).toBe("^simple");
     expect(opts.ref).toBe("my-feature-branch");
 
+    // The route projects each match through, preserving the source
+    // discriminator and external description.
     expect(result).toEqual({
       query: "^simple",
       ref: "my-feature-branch",
       matches: [
-        { name: "simple-memory", path: "experimental/plugins/simple-memory" },
-        { name: "simple-router", path: "experimental/plugins/simple-router" },
+        {
+          name: "simple-memory",
+          path: "experimental/plugins/simple-memory",
+          source: { kind: "first-party" },
+        },
+        {
+          name: "caveman",
+          path: "github:JuliusBrussee/caveman@v1.8.2",
+          description: "Ultra-compressed communication mode.",
+          source: {
+            kind: "github",
+            repo: "JuliusBrussee/caveman",
+            ref: "v1.8.2",
+          },
+        },
       ],
     });
   });
@@ -394,7 +424,11 @@ describe("GET /v1/plugins/search", () => {
 
   test("re-packs readonly match array into a mutable copy", async () => {
     const frozenMatches = Object.freeze([
-      Object.freeze({ name: "a", path: "experimental/plugins/a" }),
+      Object.freeze({
+        name: "a",
+        path: "experimental/plugins/a",
+        source: { kind: "first-party" } as const,
+      }),
     ]) as readonly PluginSearchMatch[];
     searchSpy.mockImplementation(async (opts) => ({
       query: opts.query,
@@ -407,7 +441,13 @@ describe("GET /v1/plugins/search", () => {
     // touching the lib's internal cache. This matters when serializers
     // (or downstream test fixtures) reach in.
     expect(Object.isFrozen(result.matches)).toBe(false);
-    expect(() => result.matches.push({ name: "b", path: "x" })).not.toThrow();
+    expect(() =>
+      result.matches.push({
+        name: "b",
+        path: "x",
+        source: { kind: "first-party" },
+      }),
+    ).not.toThrow();
   });
 });
 

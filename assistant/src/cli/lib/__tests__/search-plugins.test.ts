@@ -238,6 +238,170 @@ describe("searchPlugins", () => {
     ]);
   });
 
+  test("merges whitelisted marketplace entries with first-party dirs", async () => {
+    // GIVEN the canonical repo serves both a first-party plugin listing and a
+    // marketplace manifest whitelisting an external plugin
+    const manifest = {
+      name: "vellum-assistant",
+      plugins: [
+        {
+          name: "caveman",
+          source: {
+            source: "github",
+            repo: "JuliusBrussee/caveman",
+            ref: "v1.8.2",
+          },
+          description: "Ultra-compressed communication mode.",
+        },
+      ],
+    };
+    const fetch: FetchLike = (async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("marketplace.json")) {
+        return new Response(JSON.stringify(manifest), { status: 200 });
+      }
+      return new Response(
+        JSON.stringify([
+          {
+            name: "simple-memory",
+            path: "experimental/plugins/simple-memory",
+            type: "dir",
+            size: 0,
+            download_url: null,
+          },
+        ]),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as FetchLike;
+
+    // WHEN we search the catalog with a match-all query
+    const result = await searchPlugins({ query: "" }, { fetch });
+
+    // THEN both sources appear, sorted by name, each tagged with its origin
+    expect(result.matches).toEqual([
+      {
+        name: "caveman",
+        path: "github:JuliusBrussee/caveman@v1.8.2",
+        description: "Ultra-compressed communication mode.",
+        source: {
+          kind: "github",
+          repo: "JuliusBrussee/caveman",
+          ref: "v1.8.2",
+        },
+      },
+      {
+        name: "simple-memory",
+        path: "experimental/plugins/simple-memory",
+        source: { kind: "first-party" },
+      },
+    ]);
+  });
+
+  test("filters marketplace entries by the query too", async () => {
+    // GIVEN a marketplace whitelisting an external plugin and no first-party dirs
+    const manifest = {
+      name: "vellum-assistant",
+      plugins: [
+        {
+          name: "caveman",
+          source: {
+            source: "github",
+            repo: "JuliusBrussee/caveman",
+            ref: "v1.8.2",
+          },
+        },
+      ],
+    };
+    const fetch: FetchLike = (async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("marketplace.json")) {
+        return new Response(JSON.stringify(manifest), { status: 200 });
+      }
+      return new Response(JSON.stringify([]), { status: 200 });
+    }) as FetchLike;
+
+    // WHEN the query matches no plugin name
+    const result = await searchPlugins({ query: "memory" }, { fetch });
+
+    // THEN the non-matching marketplace entry is excluded
+    expect(result.matches).toEqual([]);
+  });
+
+  test("first-party dirs win a name collision with the marketplace", async () => {
+    // GIVEN both a first-party dir and a marketplace entry named "caveman"
+    const manifest = {
+      name: "vellum-assistant",
+      plugins: [
+        {
+          name: "caveman",
+          source: {
+            source: "github",
+            repo: "JuliusBrussee/caveman",
+            ref: "v1.8.2",
+          },
+        },
+      ],
+    };
+    const fetch: FetchLike = (async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("marketplace.json")) {
+        return new Response(JSON.stringify(manifest), { status: 200 });
+      }
+      return new Response(
+        JSON.stringify([
+          {
+            name: "caveman",
+            path: "experimental/plugins/caveman",
+            type: "dir",
+            size: 0,
+            download_url: null,
+          },
+        ]),
+        { status: 200 },
+      );
+    }) as FetchLike;
+
+    // WHEN we search
+    const result = await searchPlugins({ query: "caveman" }, { fetch });
+
+    // THEN only the first-party entry surfaces — the manifest is additive
+    expect(result.matches).toEqual([
+      {
+        name: "caveman",
+        path: "experimental/plugins/caveman",
+        source: { kind: "first-party" },
+      },
+    ]);
+  });
+
+  test("a broken marketplace manifest degrades to the first-party listing", async () => {
+    // GIVEN the manifest is malformed but the first-party listing is healthy
+    const fetch: FetchLike = (async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("marketplace.json")) {
+        return new Response("{ not json", { status: 200 });
+      }
+      return new Response(
+        JSON.stringify([
+          {
+            name: "simple-memory",
+            path: "experimental/plugins/simple-memory",
+            type: "dir",
+            size: 0,
+            download_url: null,
+          },
+        ]),
+        { status: 200 },
+      );
+    }) as FetchLike;
+
+    // WHEN we search
+    const result = await searchPlugins({ query: "" }, { fetch });
+
+    // THEN the core catalog is unaffected by the broken whitelist
+    expect(result.matches.map((m) => m.name)).toEqual(["simple-memory"]);
+  });
+
   test("sends no Authorization header (canonical source is a public repo)", async () => {
     let seenAuth: string | undefined;
     let seenUserAgent: string | undefined;

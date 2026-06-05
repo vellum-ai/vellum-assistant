@@ -19457,13 +19457,49 @@ paths:
                       properties:
                         name:
                           type: string
-                          description: Directory name under `experimental/plugins/`. Matches `assistant plugins install <name>`.
+                          description: Install name. Matches `assistant plugins install <name>`.
                         path:
                           type: string
-                          description: Repo-relative path of the match (e.g. `experimental/plugins/<name>`).
+                          description:
+                            "Human-readable origin: a repo-relative path (`experimental/plugins/<name>`) for first-party plugins or a
+                            `github:owner/repo@ref` locator for external ones."
+                        description:
+                          description: Short description, when known (external entries only today).
+                          type: string
+                        source:
+                          oneOf:
+                            - type: object
+                              properties:
+                                kind:
+                                  type: string
+                                  const: first-party
+                              required:
+                                - kind
+                              additionalProperties: false
+                            - type: object
+                              properties:
+                                kind:
+                                  type: string
+                                  const: github
+                                repo:
+                                  type: string
+                                  description: "`owner/repo` of the external plugin repository."
+                                path:
+                                  description: Directory within the repo, when the plugin is not at the root.
+                                  type: string
+                                ref:
+                                  type: string
+                                  description: Pinned git ref the plugin is fetched from.
+                              required:
+                                - kind
+                                - repo
+                                - ref
+                              additionalProperties: false
+                          description: "Origin of the match: a first-party in-repo plugin or a whitelisted external one."
                       required:
                         - name
                         - path
+                        - source
                       additionalProperties: false
                     description: Directory matches, sorted alphabetically by name.
                 required:

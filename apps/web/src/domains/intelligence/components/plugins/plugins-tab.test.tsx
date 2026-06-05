@@ -122,6 +122,7 @@ describe("PluginsTab", () => {
           {
             name: "apollo-bot-brain",
             path: "experimental/plugins/apollo-bot-brain",
+            source: { kind: "first-party" },
           },
         ],
       },
@@ -150,10 +151,12 @@ describe("PluginsTab", () => {
           {
             name: "simple-memory",
             path: "experimental/plugins/simple-memory",
+            source: { kind: "first-party" },
           },
           {
             name: "apollo-bot-brain",
             path: "experimental/plugins/apollo-bot-brain",
+            source: { kind: "first-party" },
           },
         ],
       },
