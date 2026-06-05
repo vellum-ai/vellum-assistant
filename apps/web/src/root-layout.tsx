@@ -38,6 +38,9 @@ import { useElectronIconSync } from "@/hooks/use-electron-icon-sync";
 import { useElectronStatusSync } from "@/hooks/use-electron-status-sync";
 import { useElectronFeatureFlagBridge } from "@/runtime/electron-feature-flags";
 import { TimezoneSync } from "@/components/timezone-sync";
+import { retireAssistant } from "@/assistant/retire-service";
+import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
+import { toast } from "@vellumai/design-library/components/toast";
 
 const ShareFeedbackModal = lazy(() =>
   import("@/components/share-feedback-modal").then((m) => ({
@@ -136,6 +139,11 @@ export function RootLayout() {
   useGlobalDeepLinkConsumer();
 
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  // Id of the assistant a tray "Retire <assistant>…" command targets. The tray
+  // dispatches by id; the destructive confirmation lives here in the layout so
+  // the retire can run without first routing the user to settings.
+  const [retireId, setRetireId] = useState<string | null>(null);
+  const [retirePending, setRetirePending] = useState(false);
 
   useVellumCommands({
     openSettings: () => {
@@ -163,10 +171,28 @@ export function RootLayout() {
     createAssistant: () => {
       void navigate(routes.onboarding.prechat);
     },
-    retireAssistant: () => {
-      void navigate(routes.settings.root);
+    retireAssistant: (command) => {
+      if (command.kind === "retireAssistant") {
+        setRetireId(command.assistantId);
+      }
     },
   });
+
+  const handleConfirmRetire = async () => {
+    if (!retireId) return;
+    setRetirePending(true);
+    const outcome = await retireAssistant(retireId);
+    if (outcome.ok) {
+      setRetireId(null);
+      setRetirePending(false);
+      toast.success("Assistant retired.");
+      navigate(outcome.nextRoute, { replace: true });
+      return;
+    }
+    toast.error(outcome.error);
+    setRetirePending(false);
+    setRetireId(null);
+  };
 
   const keyboardOpen =
     isMobile &&
@@ -228,6 +254,20 @@ export function RootLayout() {
           />
         </LazyBoundary>
       ) : null}
+
+      {/* Destructive confirmation for the tray "Retire <assistant>…" command.
+          Mirrors the settings RetireAssistant dialog so a retire triggered from
+          the menu bar carries the same irreversible-action warning. */}
+      <ConfirmDialog
+        open={retireId !== null}
+        title="Retire Assistant"
+        message="This will permanently retire this assistant and all of its data. You will need to go through the onboarding flow again to create a new one. This action cannot be undone."
+        confirmLabel="Retire"
+        destructive
+        isPending={retirePending}
+        onConfirm={handleConfirmRetire}
+        onCancel={() => setRetireId(null)}
+      />
     </div>
   );
 }
