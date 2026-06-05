@@ -1767,7 +1767,6 @@ export async function runAgentLoopImpl(
           mode: currentInjectionMode,
           turnContext,
           history,
-          isTrustedActor,
           logger: rlog,
         });
         return injection.messages;
