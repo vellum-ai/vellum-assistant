@@ -1,5 +1,5 @@
 
-import { AlertCircle, CheckCircle2 } from "lucide-react";
+import { AlertCircle, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useState, type ReactNode } from "react";
 
@@ -13,8 +13,10 @@ import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/
  *
  * - `loading`  → animated `ThreeDotIndicator`
  * - `complete` → green `CheckCircle2`
+ * - `warning`  → amber `AlertTriangle` (a PARTIAL failure — some steps failed
+ *   but not all, so the run still produced useful work)
  * - `denied`   → red `AlertCircle` (a request was blocked / denied)
- * - `error`    → red `AlertCircle` (the tool itself errored)
+ * - `error`    → red `AlertCircle` (the tool itself errored / EVERY step failed)
  *
  * `denied` and `error` render the same icon today and are kept distinct so
  * the two semantics can diverge visually later without a prop break.
@@ -22,6 +24,7 @@ import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/
 export type ToolProgressCardState =
   | "loading"
   | "complete"
+  | "warning"
   | "denied"
   | "error";
 
@@ -144,6 +147,15 @@ function StatusIndicator({
           aria-hidden="true"
           data-state="complete"
           className="h-[14px] w-[14px] shrink-0 text-[var(--system-positive-strong)]"
+        />
+      );
+    case "warning":
+      return (
+        <AlertTriangle
+          data-testid={testId}
+          aria-hidden="true"
+          data-state="warning"
+          className="h-[14px] w-[14px] shrink-0 text-[var(--system-mid-strong)]"
         />
       );
     case "denied":
@@ -353,7 +365,11 @@ export function ToolProgressCardShell({
                   // Button's default `--surface-active` hover so the header
                   // shares the exact same translucent surface-hover as the
                   // inline `InlineActivityLink` (consistent across light/dark).
-                  "h-auto min-w-0 justify-between gap-2 rounded-md px-1.5 py-1.5 -ml-1.5 w-[calc(100%+0.375rem)] hover:bg-[var(--surface-hover)]"
+                  // When expanded, that same surface-hover stays painted so the
+                  // header reads as the active/open summary above the timeline.
+                  `h-auto min-w-0 justify-between gap-2 rounded-md px-1.5 py-1.5 -ml-1.5 w-[calc(100%+0.375rem)] hover:bg-[var(--surface-hover)]${
+                    expanded ? " bg-[var(--surface-hover)]" : ""
+                  }`
                 : `h-auto w-full min-w-0 justify-between gap-2 p-3 ${
                     expanded
                       ? "rounded-t-[var(--radius-lg)] rounded-b-none"

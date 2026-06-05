@@ -74,6 +74,12 @@ export type ToolCallCardStep =
   | {
       kind: "tool";
       durationLabel: string;
+      /**
+       * Epoch-ms start time of the call (`tc.startedAt`), when known. Surfaced
+       * as a tooltip on the phase duration so hovering "3s" reveals when the
+       * work began. Omitted when the daemon didn't stamp a start time.
+       */
+      startedAt?: number;
       title: string;
       info: string;
       /**
@@ -123,6 +129,14 @@ export interface ToolCallCardData {
   currentStepKind?: "thinking" | "tool";
   /** Pre-formatted step count, e.g. `"2 steps"`. */
   stepCount: string;
+  /**
+   * Total active work time across the group's tool calls (sum of per-call
+   * durations), formatted like `"16s"`. Empty when no call carries timing data
+   * or the total is sub-second. Drives the expanded card's "Worked for Xs"
+   * header summary. Optional so other `ToolCallCardData` constructors (e.g. the
+   * subagent card) are unaffected.
+   */
+  totalDurationLabel?: string;
   /** Ordered sub-steps to render when expanded. */
   steps: ToolCallCardStep[];
   /**
@@ -297,17 +311,44 @@ function deriveToolStepStatus(
 }
 
 /**
+ * Raw per-tool duration in ms (start time `startedAt` → completion time
+ * `completedAt`). Returns `null` when either timing is missing so callers can
+ * distinguish "no data" from a genuine `0ms`.
+ */
+function computeToolDurationMs(tc: ChatMessageToolCall): number | null {
+  if (tc.startedAt == null || tc.completedAt == null) return null;
+  return Math.max(0, tc.completedAt - tc.startedAt);
+}
+
+/**
  * Per-tool duration, mirroring the legacy generic card: start time
  * (`startedAt`) → completion time (`completedAt`) → `formatMs`. Returns an
  * empty string when timings are missing so the row chrome can hide the
  * meta cluster rather than render a misleading `<1s`.
  */
 function computeToolDurationLabel(tc: ChatMessageToolCall): string {
-  if (tc.startedAt == null) return "";
-  if (tc.completedAt == null) {
-    return "";
+  const ms = computeToolDurationMs(tc);
+  return ms == null ? "" : formatMs(ms);
+}
+
+/**
+ * Total active work time across a group's tool calls — the sum of each call's
+ * raw duration — formatted via `formatMs` (so a sub-second total reads `<1s`,
+ * matching the per-phase duration chips). Powers the expanded card's "Worked
+ * for Xs" summary. Returns an empty string only when NO call carries timing
+ * data, in which case the header falls back to its outcome label.
+ */
+function computeTotalDurationLabel(toolCalls: ChatMessageToolCall[]): string {
+  let total = 0;
+  let anyTimed = false;
+  for (const tc of toolCalls) {
+    const ms = computeToolDurationMs(tc);
+    if (ms == null) continue;
+    anyTimed = true;
+    total += ms;
   }
-  return formatMs(Math.max(0, tc.completedAt - tc.startedAt));
+  if (!anyTimed) return "";
+  return formatMs(total);
 }
 
 /**
@@ -341,6 +382,7 @@ function buildToolStep(tc: ChatMessageToolCall): ToolCallCardStep {
   return {
     kind: "tool",
     durationLabel: computeToolDurationLabel(tc),
+    startedAt: tc.startedAt ?? undefined,
     title,
     info,
     activity,
@@ -644,12 +686,14 @@ export function computeToolCallCardDataFromItems(
     liveWebActivity,
   );
   const stepCount = `${steps.length} step${steps.length === 1 ? "" : "s"}`;
+  const totalDurationLabel = computeTotalDurationLabel(renderableToolCalls);
 
   return {
     currentStepTitle,
     currentStepInfo,
     currentStepKind,
     stepCount,
+    totalDurationLabel,
     steps,
     state,
     carouselItems,
