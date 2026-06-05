@@ -32,6 +32,8 @@ import { useAssistantFeatureFlagSync } from "@/hooks/use-assistant-feature-flag-
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useConversationStore } from "@/stores/conversation-store";
+import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
+import { useViewerStore } from "@/stores/viewer-store";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useDynamicFavicon } from "@/hooks/use-dynamic-favicon";
 import { useElectronIconSync } from "@/hooks/use-electron-icon-sync";
@@ -165,6 +167,17 @@ export function RootLayout() {
     },
     retireAssistant: () => {
       void navigate(routes.settings.root);
+    },
+    quickInputSubmit: (command) => {
+      if (command.kind !== "quickInputSubmit") {
+        return;
+      }
+      const draftId = createDraftConversationId();
+      useConversationStore.getState().setActiveConversationId(draftId);
+      useViewerStore.getState().setMainView("chat");
+      void navigate(
+        `${routes.conversation(draftId)}?prompt=${encodeURIComponent(command.message)}`,
+      );
     },
   });
 
