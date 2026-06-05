@@ -24,6 +24,7 @@ import {
 } from "./deep-links";
 import { installAvatarIpc } from "./avatar";
 import { installDock } from "./dock";
+import { installFeedbackIpc } from "./feedback";
 import { installLocalMode } from "./local-mode";
 import log from "./logger";
 import {
@@ -315,6 +316,7 @@ app
     installSettingsIpc();
     installLocalMode();
     installAbout();
+    installFeedbackIpc();
     installApplicationMenu();
     // Register the avatar channel before the Dock and Tray install so their
     // initial render reflects any avatar the renderer publishes during
