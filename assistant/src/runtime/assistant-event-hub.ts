@@ -70,7 +70,7 @@ export interface AssistantEventSubscription {
    * one that replaced it on reconnect) so subscribe / dispose / shed log
    * lines can be attributed to a specific connection.
    */
-  readonly nonce: string;
+  readonly connectionId: string;
 }
 
 // ── Subscriber entries (discriminated union) ─────────────────────────────────
@@ -85,9 +85,10 @@ interface BaseSubscriberEntry {
   /**
    * Per-connection identifier, unique within the hub instance. Two entries
    * with the same `clientId` (old vs reconnected connection) get distinct
-   * nonces, making them traceable across subscribe / dispose / shed logs.
+   * connection ids, making them traceable across subscribe / dispose / shed
+   * logs.
    */
-  nonce: string;
+  connectionId: string;
 }
 
 interface ClientEntry extends BaseSubscriberEntry {
@@ -119,10 +120,15 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
   ? Omit<T, K>
   : never;
 
-/** Input shape for `subscribe()` — hub fills `active`, `connectedAt`, `lastActiveAt`, `nonce` and defaults `filter`/`onEvict`. */
+/** Input shape for `subscribe()` — hub fills `active`, `connectedAt`, `lastActiveAt`, `connectionId` and defaults `filter`/`onEvict`. */
 type SubscriberInput = DistributiveOmit<
   SubscriberEntry,
-  "active" | "connectedAt" | "lastActiveAt" | "filter" | "onEvict" | "nonce"
+  | "active"
+  | "connectedAt"
+  | "lastActiveAt"
+  | "filter"
+  | "onEvict"
+  | "connectionId"
 > & {
   filter?: AssistantEventFilter;
   onEvict?: () => void;
@@ -145,8 +151,8 @@ type SubscriberInput = DistributiveOmit<
 export class AssistantEventHub {
   private readonly subscribers = new Set<SubscriberEntry>();
   private readonly maxSubscribers: number;
-  /** Monotonic source for per-connection nonces, scoped to this hub. */
-  private nonceCounter = 0;
+  /** Monotonic source for per-connection ids, scoped to this hub. */
+  private connectionCounter = 0;
 
   constructor(options?: { maxSubscribers?: number }) {
     this.maxSubscribers = options?.maxSubscribers ?? Infinity;
@@ -191,7 +197,7 @@ export class AssistantEventHub {
           {
             clientId: subscriber.clientId,
             count: stale.length,
-            disposedNonces: stale.map((entry) => entry.nonce),
+            disposedConnectionIds: stale.map((entry) => entry.connectionId),
           },
           "disposed stale subscribers for reconnecting client",
         );
@@ -215,7 +221,7 @@ export class AssistantEventHub {
     }
 
     const now = new Date();
-    const nonce = `conn-${++this.nonceCounter}`;
+    const connectionId = `conn-${++this.connectionCounter}`;
     const entry: SubscriberEntry = {
       ...subscriber,
       filter: subscriber.filter ?? {},
@@ -223,7 +229,7 @@ export class AssistantEventHub {
       active: true,
       connectedAt: now,
       lastActiveAt: now,
-      nonce,
+      connectionId,
     } as SubscriberEntry;
 
     if (entry.type === "client") {
@@ -232,12 +238,12 @@ export class AssistantEventHub {
           clientId: entry.clientId,
           interfaceId: entry.interfaceId,
           capabilities: entry.capabilities,
-          nonce,
+          connectionId,
         },
         "subscriber registered (client)",
       );
     } else {
-      log.info({ nonce }, "subscriber registered (process)");
+      log.info({ connectionId }, "subscriber registered (process)");
     }
 
     this.subscribers.add(entry);
@@ -252,19 +258,19 @@ export class AssistantEventHub {
               {
                 clientId: entry.clientId,
                 interfaceId: entry.interfaceId,
-                nonce,
+                connectionId,
               },
               "subscriber unregistered (client)",
             );
           } else {
-            log.info({ nonce }, "subscriber unregistered (process)");
+            log.info({ connectionId }, "subscriber unregistered (process)");
           }
         }
       },
       get active() {
         return entry.active;
       },
-      nonce,
+      connectionId,
     };
   }
 
