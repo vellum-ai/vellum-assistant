@@ -598,3 +598,21 @@ describe("AdjustPlanModal credit bundle — catalog gate", () => {
     ).toBeNull();
   });
 });
+
+describe("AdjustPlanModal credit bundle — '*Credits not included' note", () => {
+  test("omits the note on the Pro card when credit_tiers are available", () => {
+    const { queryByTestId } = renderModal(
+      subscription("base", null),
+      proPlansResponse(CREDIT_TIERS),
+    );
+    expect(queryByTestId("modal-credits-not-included")).toBeNull();
+  });
+
+  test("shows the note on the Pro card when no credit_tiers are available", () => {
+    const { queryByTestId } = renderModal(
+      subscription("base", null),
+      proPlansResponse(undefined),
+    );
+    expect(queryByTestId("modal-credits-not-included")).not.toBeNull();
+  });
+});
