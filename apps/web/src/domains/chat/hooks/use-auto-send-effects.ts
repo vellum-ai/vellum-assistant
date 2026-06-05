@@ -47,11 +47,15 @@ export function useAutoSendEffects({
     getPendingInitialMessageRef.current = getPendingInitialMessage;
   });
   // 1. URL ?prompt= auto-send.
+  // Keyed by conversationId + prompt so the same text sent to different
+  // draft conversations (e.g. repeated quick-input submissions) isn't deduped.
   const promptConsumedRef = useRef<string | null>(null);
   useEffect(() => {
     const prompt = searchParams.get("prompt");
-    if (!prompt || !activeConversationId || promptConsumedRef.current === prompt) return;
-    promptConsumedRef.current = prompt;
+    if (!prompt || !activeConversationId) return;
+    const key = `${activeConversationId}:${prompt}`;
+    if (promptConsumedRef.current === key) return;
+    promptConsumedRef.current = key;
     void sendMessage(prompt);
   }, [searchParams, activeConversationId, sendMessage]);
 
