@@ -1960,6 +1960,15 @@ export function refreshSurfacesForApp(
   return refreshed;
 }
 
+/**
+ * Strip a leading "Connect "/"Connected " verb from an OAuth provider label so
+ * a supplied displayName like "Connect Gmail" doesn't double the verb when
+ * prefixed (e.g. avoids "Connected Connect Gmail").
+ */
+function stripConnectVerb(label: string): string {
+  return label.replace(/^connect(?:ed)?\s+/i, "");
+}
+
 export function buildCompletionSummary(
   surfaceType: string | undefined,
   actionId: string,
@@ -2029,9 +2038,10 @@ export function buildCompletionSummary(
     const accountLabel =
       typeof data?.accountLabel === "string" ? data.accountLabel : undefined;
     if (actionId === "connect" || data?.status === "connected") {
+      const connectedLabel = stripConnectVerb(providerLabel);
       return accountLabel
-        ? `Connected ${providerLabel}: ${accountLabel}`
-        : `Connected ${providerLabel}`;
+        ? `Connected ${connectedLabel}: ${accountLabel}`
+        : `Connected ${connectedLabel}`;
     }
     if (actionId === "cancel" || data?.status === "cancelled") {
       return `Cancelled ${providerLabel} connection`;
@@ -2123,9 +2133,10 @@ function buildUserFacingLabel(
     const accountLabel =
       typeof data?.accountLabel === "string" ? data.accountLabel : undefined;
     if (actionId === "connect" || data?.status === "connected") {
+      const connectedLabel = stripConnectVerb(providerLabel);
       return accountLabel
-        ? `Connected ${providerLabel}: ${accountLabel}`
-        : `Connected ${providerLabel}`;
+        ? `Connected ${connectedLabel}: ${accountLabel}`
+        : `Connected ${connectedLabel}`;
     }
     if (actionId === "cancel" || data?.status === "cancelled") {
       return "Cancelled";

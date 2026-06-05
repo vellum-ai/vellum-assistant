@@ -56,6 +56,15 @@ function getProviderLabel(
   return "this account";
 }
 
+/**
+ * Strip a leading "Connect "/"Connected " verb from a provider label so a
+ * caller-supplied `displayName` like "Connect Gmail" doesn't double the verb
+ * when prefixed (e.g. avoids "Connect Connect Gmail").
+ */
+function stripConnectVerb(label: string): string {
+  return label.replace(/^connect(?:ed)?\s+/i, "");
+}
+
 function OAuthApprovalInfo({
   assistantDisplayName,
 }: {
@@ -178,7 +187,7 @@ export function OAuthConnectSurface({
 
           <div className="min-w-0 flex-1">
             <div className="text-title-small text-[var(--content-strong)]">
-              {surface.title ?? `Connect ${providerLabel}`}
+              {surface.title ?? `Connect ${stripConnectVerb(providerLabel)}`}
             </div>
             <p className="mt-1 text-body-medium-lighter text-[var(--content-quiet)]">
               <span>{description}</span>
