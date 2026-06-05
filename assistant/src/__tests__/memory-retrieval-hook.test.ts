@@ -67,8 +67,8 @@ function makeMetrics() {
 
 /**
  * Fake graph-memory whose `prepareMemory` returns a canonical result. The hook
- * unpacks this return value onto `ctx.runMessages` and the PKB query vectors,
- * so tests can assert those outputs by comparing object identity.
+ * unpacks this return value onto `ctx.latestMessages` and the PKB query
+ * vectors, so tests can assert those outputs by comparing object identity.
  */
 function makeFakeGraphMemory(overrides?: {
   messages?: Message[];
@@ -110,7 +110,6 @@ function makeHookCtx(
 ): MemoryRetrievalHookContext {
   const { memory } = makeFakeGraphMemory();
   return {
-    messages: [],
     graphMemory: memory,
     config: {} as AssistantConfig,
     onEvent: () => {},
@@ -123,7 +122,7 @@ function makeHookCtx(
     signal: new AbortController().signal,
     pkbContent: null,
     nowContent: null,
-    runMessages: [],
+    latestMessages: [],
     ...overrides,
   };
 }
@@ -154,7 +153,7 @@ describe("user-prompt-submit-temp hook (memory retrieval)", () => {
     expect(prepareMemoryMock).toHaveBeenCalledTimes(1);
     // The hook adopts the retriever's injected message array verbatim —
     // consumers in the agent loop rely on that identity.
-    expect(ctx.runMessages).toBe(injected);
+    expect(ctx.latestMessages).toBe(injected);
   });
 
   test("selects the user-query dense/sparse pair when present, else the summary pair", async () => {
@@ -187,14 +186,21 @@ describe("user-prompt-submit-temp hook (memory retrieval)", () => {
 
   test("skips graph retrieval and side effects for untrusted actors", async () => {
     const { memory, prepareMemoryMock } = makeFakeGraphMemory();
-    const ctx = makeHookCtx({ graphMemory: memory, isTrustedActor: false });
+    const seeded: Message[] = [
+      { role: "user", content: [{ type: "text", text: "seeded" }] },
+    ];
+    const ctx = makeHookCtx({
+      graphMemory: memory,
+      isTrustedActor: false,
+      latestMessages: seeded,
+    });
 
     await userPromptSubmitMemoryRetrieval(ctx);
 
     expect(prepareMemoryMock).not.toHaveBeenCalled();
-    // No graph retrieval ran: run messages stay the input array and the PKB
-    // query vectors are left unset.
-    expect(ctx.runMessages).toBe(ctx.messages);
+    // No graph retrieval ran: the working array stays the seeded input and the
+    // PKB query vectors are left unset.
+    expect(ctx.latestMessages).toBe(seeded);
     expect(ctx.pkbQueryVector).toBeUndefined();
     expect(ctx.pkbSparseVector).toBeUndefined();
     expect(ctx.pkbContent).toBe("pkb-default");
