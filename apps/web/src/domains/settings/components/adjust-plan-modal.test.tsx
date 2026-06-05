@@ -539,7 +539,7 @@ describe("AdjustPlanModal credit bundle — headline total", () => {
     );
 
     await waitFor(() => {
-      if (getByTestId("tier-picker-total").textContent?.includes("$35/mo"))
+      if (getByTestId("modal-pro-price").textContent?.includes("$35/mo"))
         return;
       throw new Error("base total not rendered yet");
     });
@@ -548,7 +548,7 @@ describe("AdjustPlanModal credit bundle — headline total", () => {
     clickOption("50 credits — $50/mo");
 
     await waitFor(() => {
-      if (getByTestId("tier-picker-total").textContent?.includes("$85/mo"))
+      if (getByTestId("modal-pro-price").textContent?.includes("$85/mo"))
         return;
       throw new Error("total did not include the selected bundle");
     });
@@ -563,7 +563,7 @@ describe("AdjustPlanModal credit bundle — headline total", () => {
     );
 
     await waitFor(() => {
-      if (getByTestId("tier-picker-total").textContent?.includes("$35/mo"))
+      if (getByTestId("modal-pro-price").textContent?.includes("$35/mo"))
         return;
       throw new Error("current total not rendered yet");
     });
@@ -572,7 +572,7 @@ describe("AdjustPlanModal credit bundle — headline total", () => {
     clickOption("25 credits — $25/mo");
 
     await waitFor(() => {
-      const text = getByTestId("tier-picker-total").textContent ?? "";
+      const text = getByTestId("modal-pro-price").textContent ?? "";
       if (text.includes("$60/mo") && text.includes("+$25/mo")) return;
       throw new Error("total/delta did not reflect the swapped bundle");
     });

@@ -1,4 +1,11 @@
-import { AlertTriangle, ArrowLeft, Crown, Loader2, Palmtree } from "lucide-react";
+import {
+    AlertTriangle,
+    ArrowLeft,
+    Crown,
+    Info,
+    Loader2,
+    Palmtree,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -43,6 +50,7 @@ import { CreditBundlePicker } from "./credit-bundle-picker";
 import { DowngradeReconfirmModal } from "./downgrade-reconfirm-modal";
 import { PlanFeatureList } from "./plan-feature-list";
 import { TierPicker, isTierDisabled } from "./tier-picker";
+import { formatDelta, formatMonthly } from "./tier-pricing";
 
 
 /**
@@ -482,6 +490,7 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
   // A machine downgrade (cheaper than current) routes through the reconfirm
   // modal first; an upgrade fires immediately.
   const nextMachinePrice = priceForMachine(selectedMachineTier);
+  const nextStoragePrice = priceForStorage(selectedStorageTier);
   const currentMachinePrice = priceForMachine(currentMachineTier);
   const currentStoragePrice = priceForStorage(currentStorageTier);
   const isMachineDowngrade =
@@ -704,6 +713,32 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                     // that path shows only reactivation).
                     const showProTierChange =
                       isProCard && isCurrent && proTierChangeMode;
+                    // Live running total for the Pro card header: base + the
+                    // selected machine/storage/credit prices. Updates as the
+                    // user changes any dimension. In change mode it also carries
+                    // a delta vs. the current subscription.
+                    const proLiveTotalCents =
+                      isProCard &&
+                      nextMachinePrice != null &&
+                      nextStoragePrice != null
+                        ? plan.base_price_cents +
+                          nextMachinePrice +
+                          nextStoragePrice +
+                          selectedCreditPriceCents
+                        : null;
+                    const proCurrentTotalCents =
+                      isProCard &&
+                      currentMachinePrice != null &&
+                      currentStoragePrice != null
+                        ? plan.base_price_cents +
+                          currentMachinePrice +
+                          currentStoragePrice +
+                          currentCreditPriceCents
+                        : null;
+                    const proTotalDelta =
+                      proLiveTotalCents != null && proCurrentTotalCents != null
+                        ? proLiveTotalCents - proCurrentTotalCents
+                        : null;
                     return (
                       <Card
                         key={plan.id}
@@ -761,39 +796,43 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                                   Forever
                                 </Typography>
                               </>
-                            ) : proTierChangeMode &&
-                              currentMachinePrice != null &&
-                              currentStoragePrice != null ? (
-                              <>
-                                <Typography as="p" variant="title-medium">
-                                  Currently $
-                                  {Math.round(
-                                    (plan.base_price_cents +
-                                      currentMachinePrice +
-                                      currentStoragePrice +
-                                      currentCreditPriceCents) /
-                                      100,
-                                  )}
-                                </Typography>
-                                <Typography
-                                  as="p"
-                                  variant="body-small-default"
-                                  className="text-[var(--content-tertiary)]"
-                                >
-                                  Billed monthly
-                                </Typography>
-                              </>
                             ) : (
                               <>
-                                <Typography as="p" variant="title-medium">
-                                  From $
-                                  {Math.round(
-                                    (plan.base_price_cents +
-                                      minTierPriceCents(plan.machine_tiers) +
-                                      minTierPriceCents(plan.storage_tiers)) /
-                                      100,
-                                  )}
-                                </Typography>
+                                <div className="flex items-center gap-1">
+                                  <Typography
+                                    as="p"
+                                    variant="title-medium"
+                                    data-testid="modal-pro-price"
+                                  >
+                                    {proLiveTotalCents != null ? (
+                                      <>
+                                        {formatMonthly(proLiveTotalCents)}
+                                        {proTotalDelta != null &&
+                                          proTotalDelta !== 0 && (
+                                            <span className="ml-1 text-[var(--content-tertiary)]">
+                                              ({formatDelta(proTotalDelta)})
+                                            </span>
+                                          )}
+                                      </>
+                                    ) : (
+                                      `From ${formatMonthly(
+                                        plan.base_price_cents +
+                                          minTierPriceCents(plan.machine_tiers) +
+                                          minTierPriceCents(plan.storage_tiers),
+                                      )}`
+                                    )}
+                                  </Typography>
+                                  <span
+                                    title={
+                                      proTotalDelta != null &&
+                                      proTotalDelta !== 0
+                                        ? `Your Pro Plan subscription will change from ${formatMonthly(proCurrentTotalCents!)} to ${formatMonthly(proLiveTotalCents!)}. Includes a $10/month flat fee for Pro Features.`
+                                        : "Includes a $10/month flat fee for Pro Features."
+                                    }
+                                  >
+                                    <Info className="h-3 w-3 text-[var(--content-tertiary)]" />
+                                  </span>
+                                </div>
                                 <Typography
                                   as="p"
                                   variant="body-small-default"
@@ -825,12 +864,10 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                               <TierPicker
                                 machineTiers={plan.machine_tiers}
                                 storageTiers={plan.storage_tiers}
-                                basePriceCents={plan.base_price_cents}
                                 selectedMachineTier={selectedMachineTier}
                                 selectedStorageTier={selectedStorageTier}
                                 onMachineTierChange={setSelectedMachineTier}
                                 onStorageTierChange={setSelectedStorageTier}
-                                creditPriceCents={selectedCreditPriceCents}
                               />
                               {creditTiersEnabled && (
                                 <CreditBundlePicker
@@ -872,17 +909,12 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                                 <TierPicker
                                   machineTiers={machineTiersForPicker}
                                   storageTiers={storageTiersForPicker}
-                                  basePriceCents={plan.base_price_cents}
                                   selectedMachineTier={selectedMachineTier}
                                   selectedStorageTier={selectedStorageTier}
                                   onMachineTierChange={setSelectedMachineTier}
                                   onStorageTierChange={setSelectedStorageTier}
                                   currentMachinePriceCents={currentMachinePrice}
                                   currentStoragePriceCents={currentStoragePrice}
-                                  creditPriceCents={selectedCreditPriceCents}
-                                  currentCreditPriceCents={
-                                    currentCreditPriceCents
-                                  }
                                 />
                                 {creditTiersEnabled && (
                                   <CreditBundlePicker
