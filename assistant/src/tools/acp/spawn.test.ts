@@ -495,7 +495,7 @@ describe("executeAcpSpawn — per-agent resume hint", () => {
     const [payloadJson] = result.content.split("\n\n");
     const payload = JSON.parse(payloadJson);
     expect(payload.message).toContain("claude --resume");
-    expect(payload.message).toContain("To resume this session later");
+    expect(payload.message).toContain("To resume:");
   });
 
   test("non-claude payload omits the `claude --resume` hint", async () => {
@@ -513,7 +513,7 @@ describe("executeAcpSpawn — per-agent resume hint", () => {
     const [payloadJson] = result.content.split("\n\n");
     const payload = JSON.parse(payloadJson);
     expect(payload.message).not.toContain("claude --resume");
-    expect(payload.message).not.toContain("To resume this session later");
+    expect(payload.message).not.toContain("To resume:");
   });
 });
 

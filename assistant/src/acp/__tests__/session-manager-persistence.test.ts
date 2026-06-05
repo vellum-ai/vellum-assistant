@@ -23,35 +23,12 @@ import type { ServerMessage } from "../../daemon/message-protocol.js";
 import type { AcpSessionUpdate } from "../../daemon/message-types/acp.js";
 import { getSqlite } from "../../memory/db-connection.js";
 import { initializeDb } from "../../memory/db-init.js";
+import {
+  clearHistory,
+  insertHistoryRow,
+  readHistoryRow,
+} from "./helpers/acp-history-db.js";
 initializeDb();
-
-function clearHistory() {
-  getSqlite().run("DELETE FROM acp_session_history");
-}
-
-interface HistoryRow {
-  id: string;
-  agent_id: string;
-  acp_session_id: string;
-  parent_conversation_id: string;
-  started_at: number;
-  completed_at: number | null;
-  status: string;
-  stop_reason: string | null;
-  error: string | null;
-  event_log_json: string;
-  cwd: string | null;
-}
-
-function readHistoryRow(id: string): HistoryRow | null {
-  return getSqlite()
-    .query(
-      `SELECT id, agent_id, acp_session_id, parent_conversation_id,
-              started_at, completed_at, status, stop_reason, error, event_log_json, cwd
-       FROM acp_session_history WHERE id = ?`,
-    )
-    .get(id) as HistoryRow | null;
-}
 
 /**
  * Builds a manager with a fake session pre-injected and returns the handles
@@ -367,12 +344,17 @@ describe("AcpSessionManager — terminal persistence", () => {
   });
 
   test("legacy rows without a cwd read back as null", () => {
-    getSqlite().run(
-      `INSERT INTO acp_session_history (
-         id, agent_id, acp_session_id, parent_conversation_id,
-         started_at, status
-       ) VALUES ('legacy-row-1', 'agent-legacy', 'proto-legacy', 'conv-legacy', 1000, 'completed')`,
-    );
+    insertHistoryRow({
+      id: "legacy-row-1",
+      agentId: "agent-legacy",
+      acpSessionId: "proto-legacy",
+      parentConversationId: "conv-legacy",
+      startedAt: 1000,
+      completedAt: null,
+      status: "completed",
+      stopReason: null,
+      cwd: null,
+    });
 
     const row = readHistoryRow("legacy-row-1");
     expect(row).not.toBeNull();
@@ -383,13 +365,18 @@ describe("AcpSessionManager — terminal persistence", () => {
     const id = "session-upsert-1";
     // Simulate the row left behind by the original run that a resumed run
     // reuses the id of.
-    getSqlite().run(
-      `INSERT INTO acp_session_history (
-         id, agent_id, acp_session_id, parent_conversation_id,
-         started_at, completed_at, status, stop_reason, event_log_json, cwd
-       ) VALUES ('${id}', 'agent-up', 'proto-up', 'conv-up',
-                 1000, 2000, 'cancelled', 'daemon_restarted', '[{"old":true}]', '/old/cwd')`,
-    );
+    insertHistoryRow({
+      id,
+      agentId: "agent-up",
+      acpSessionId: "proto-up",
+      parentConversationId: "conv-up",
+      startedAt: 1000,
+      completedAt: 2000,
+      status: "cancelled",
+      stopReason: "daemon_restarted",
+      eventLogJson: '[{"old":true}]',
+      cwd: "/old/cwd",
+    });
 
     const handles = buildSessionWithFakeProcess({
       id,

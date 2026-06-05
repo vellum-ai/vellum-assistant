@@ -7,6 +7,7 @@ interface SteerCall {
   instruction: string;
 }
 
+// Direct steer (no connected client -> no resume fallback).
 const steerCalls: SteerCall[] = [];
 const defaultSteer = (acpSessionId: string, instruction: string) => {
   steerCalls.push({ acpSessionId, instruction });
@@ -15,9 +16,12 @@ const defaultSteer = (acpSessionId: string, instruction: string) => {
 let steerImpl: (acpSessionId: string, instruction: string) => Promise<void> =
   defaultSteer;
 
-const resumeCalls: Array<{ acpSessionId: string; send: unknown }> = [];
-let resumeImpl: (acpSessionId: string) => Promise<void> = () =>
-  Promise.resolve();
+// steerOrResume (connected client path).
+const steerOrResumeCalls: Array<SteerCall & { send: unknown }> = [];
+let steerOrResumeImpl: (
+  acpSessionId: string,
+  instruction: string,
+) => Promise<{ resumed: boolean }> = async () => ({ resumed: false });
 
 // Spread the real module's exports so transitive importers that pull other
 // names from `../../acp/index.js` still resolve at parse time. Bun's `mock.module` is
@@ -28,9 +32,13 @@ mock.module("../../acp/index.js", () => ({
   getAcpSessionManager: () => ({
     steer: (acpSessionId: string, instruction: string) =>
       steerImpl(acpSessionId, instruction),
-    resumeFromHistory: (acpSessionId: string, send: unknown) => {
-      resumeCalls.push({ acpSessionId, send });
-      return resumeImpl(acpSessionId);
+    steerOrResume: (
+      acpSessionId: string,
+      instruction: string,
+      send: unknown,
+    ) => {
+      steerOrResumeCalls.push({ acpSessionId, instruction, send });
+      return steerOrResumeImpl(acpSessionId, instruction);
     },
   }),
 }));
@@ -48,23 +56,26 @@ function makeContext(opts?: { withClient?: boolean }): ToolContext {
 
 beforeEach(() => {
   steerCalls.length = 0;
-  resumeCalls.length = 0;
+  steerOrResumeCalls.length = 0;
   steerImpl = defaultSteer;
-  resumeImpl = () => Promise.resolve();
+  steerOrResumeImpl = async () => ({ resumed: false });
 });
 
 describe("executeAcpSteer", () => {
-  test("happy path: returns steered status and forwards args to manager", async () => {
+  test("happy path: returns steered status and forwards args to steerOrResume", async () => {
     const result = await executeAcpSteer(
       { acp_session_id: "acp-123", instruction: "stop, do X instead" },
-      makeContext(),
+      makeContext({ withClient: true }),
     );
 
     expect(result.isError).toBe(false);
-    expect(steerCalls).toEqual([
-      { acpSessionId: "acp-123", instruction: "stop, do X instead" },
-    ]);
-    expect(resumeCalls).toEqual([]);
+    expect(steerOrResumeCalls).toHaveLength(1);
+    expect(steerOrResumeCalls[0]).toMatchObject({
+      acpSessionId: "acp-123",
+      instruction: "stop, do X instead",
+    });
+    expect(typeof steerOrResumeCalls[0]!.send).toBe("function");
+    expect(steerCalls).toEqual([]);
 
     const parsed = JSON.parse(result.content as string);
     expect(parsed).toEqual({
@@ -83,6 +94,7 @@ describe("executeAcpSteer", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain('"instruction" is required');
     expect(steerCalls).toEqual([]);
+    expect(steerOrResumeCalls).toEqual([]);
   });
 
   test("missing acp_session_id returns isError", async () => {
@@ -94,6 +106,20 @@ describe("executeAcpSteer", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain('"acp_session_id" is required');
     expect(steerCalls).toEqual([]);
+    expect(steerOrResumeCalls).toEqual([]);
+  });
+
+  test("no connected client: steers directly and never resumes", async () => {
+    const result = await executeAcpSteer(
+      { acp_session_id: "acp-direct", instruction: "redirect" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(steerCalls).toEqual([
+      { acpSessionId: "acp-direct", instruction: "redirect" },
+    ]);
+    expect(steerOrResumeCalls).toEqual([]);
   });
 
   test("'session not found' without a connected client surfaces the error", async () => {
@@ -108,18 +134,11 @@ describe("executeAcpSteer", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain('Could not steer ACP session "acp-x"');
     expect(result.content).toContain("not found");
-    expect(resumeCalls).toEqual([]);
+    expect(steerOrResumeCalls).toEqual([]);
   });
 
-  test("'session not found' with a client: resumes from history and retries the steer", async () => {
-    let firstCall = true;
-    steerImpl = (acpSessionId, instruction) => {
-      if (firstCall) {
-        firstCall = false;
-        return Promise.reject(new Error('ACP session "acp-gone" not found'));
-      }
-      return defaultSteer(acpSessionId, instruction);
-    };
+  test("resumed session reports the resumed flag and message", async () => {
+    steerOrResumeImpl = async () => ({ resumed: true });
 
     const result = await executeAcpSteer(
       { acp_session_id: "acp-gone", instruction: "keep going" },
@@ -127,13 +146,7 @@ describe("executeAcpSteer", () => {
     );
 
     expect(result.isError).toBe(false);
-    expect(resumeCalls).toHaveLength(1);
-    expect(resumeCalls[0]!.acpSessionId).toBe("acp-gone");
-    expect(typeof resumeCalls[0]!.send).toBe("function");
-    // The retry went through after the resume.
-    expect(steerCalls).toEqual([
-      { acpSessionId: "acp-gone", instruction: "keep going" },
-    ]);
+    expect(steerOrResumeCalls).toHaveLength(1);
 
     const parsed = JSON.parse(result.content as string);
     expect(parsed).toEqual({
@@ -146,9 +159,7 @@ describe("executeAcpSteer", () => {
   });
 
   test("resume failure returns its actionable error message", async () => {
-    steerImpl = () =>
-      Promise.reject(new Error('ACP session "acp-legacy" not found'));
-    resumeImpl = () =>
+    steerOrResumeImpl = () =>
       Promise.reject(
         new Error(
           'ACP session "acp-legacy" was recorded before resume support (no working directory persisted) and cannot be resumed. Spawn a new session instead.',
@@ -165,11 +176,10 @@ describe("executeAcpSteer", () => {
       'Could not steer ACP session "acp-legacy"',
     );
     expect(result.content).toContain("recorded before resume support");
-    expect(steerCalls).toEqual([]);
   });
 
-  test("non-not-found steer errors never trigger a resume", async () => {
-    steerImpl = () =>
+  test("plain steer errors surface unchanged", async () => {
+    steerOrResumeImpl = () =>
       Promise.reject(
         new Error(
           'ACP session "acp-init" is not running (status: initializing)',
@@ -183,6 +193,5 @@ describe("executeAcpSteer", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("is not running");
-    expect(resumeCalls).toEqual([]);
   });
 });

@@ -141,7 +141,9 @@ paths:
     delete:
       operationId: acp_sessions_delete
       summary: Bulk-clear terminal ACP sessions
-      description: Remove every terminal-state row (completed/failed/cancelled) from the persisted acp_session_history table.
+      description:
+        Remove every terminal-state row (completed/failed/cancelled) from the persisted acp_session_history table.
+        Rows whose session is currently active in memory (e.g. resumed) are excluded.
       tags:
         - acp
       responses:

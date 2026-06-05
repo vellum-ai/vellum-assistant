@@ -1,13 +1,15 @@
 import {
-  ensureAdapterInstalled,
   execFileWithTimeout,
+  resolveAgentWithAutoInstall,
 } from "../../acp/auto-install.js";
 import { getAcpSessionManager } from "../../acp/index.js";
 import { prepareAgentEnv } from "../../acp/prepare-agent-env.js";
-import { resolveAcpAgent } from "../../acp/resolve-agent.js";
+import { formatResolveFailure } from "../../acp/resolve-agent.js";
+import { claudeResumeHint } from "../../acp/resume-hint.js";
 import { DEFAULT_AGENT_NPM_PACKAGES } from "../../config/acp-defaults.js";
 import { getLogger } from "../../util/logger.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
+import { getSendToClient } from "./context.js";
 
 const log = getLogger("acp:spawn");
 
@@ -111,9 +113,7 @@ export async function executeAcpSpawn(
   // Pure precondition: check for a connected client BEFORE any side effects
   // (auto-install mutates the host via `npm i -g` and can block for up to
   // the install timeout). Without a client the spawn cannot succeed anyway.
-  const sendToClient = context.sendToClient as
-    | ((msg: { type: string; [key: string]: unknown }) => void)
-    | undefined;
+  const sendToClient = getSendToClient(context);
   if (!sendToClient) {
     return {
       content: "No client connected - cannot spawn ACP agent.",
@@ -121,53 +121,15 @@ export async function executeAcpSpawn(
     };
   }
 
-  let resolved = resolveAcpAgent(agent);
-
-  // Missing adapter binary: silently try a global npm install of the mapped
-  // package (allowlisted commands only; see acp/auto-install.ts), then
-  // re-resolve and continue. Failures degrade to the existing install hint
-  // augmented with the failure reason.
-  let autoInstalledPackage: string | null = null;
-  if (!resolved.ok && resolved.reason === "binary_not_found") {
-    const { command, hint } = resolved;
-    const install = await ensureAdapterInstalled(command);
-    if (install.installed) {
-      const retried = resolveAcpAgent(agent);
-      if (retried.ok) {
-        autoInstalledPackage = DEFAULT_AGENT_NPM_PACKAGES[command] ?? null;
-        resolved = retried;
-      }
-    } else if (install.error) {
-      return {
-        content: `${command} is not on PATH. ${hint} (auto-install failed: ${install.error})`,
-        isError: true,
-      };
-    }
+  // Resolve the agent, silently auto-installing a missing allowlisted
+  // adapter binary (see acp/auto-install.ts). Shared with the HTTP route.
+  const { resolved, autoInstalledPackage, failureMessage } =
+    await resolveAgentWithAutoInstall(agent);
+  if (failureMessage) {
+    return { content: failureMessage, isError: true };
   }
-
   if (!resolved.ok) {
-    switch (resolved.reason) {
-      case "acp_disabled":
-        return { content: resolved.hint, isError: true };
-      case "unknown_agent":
-        return {
-          content: `Unknown agent "${agent}". Available: ${resolved.available.join(
-            ", ",
-          )}.`,
-          isError: true,
-        };
-      case "binary_not_found":
-        return {
-          content: `${resolved.command} is not on PATH. ${resolved.hint}`,
-          isError: true,
-        };
-      default: {
-        const _exhaustive: never = resolved;
-        throw new Error(
-          `Unexpected acp resolver reason: ${(_exhaustive as { reason: string }).reason}`,
-        );
-      }
-    }
+    return { content: formatResolveFailure(agent, resolved), isError: true };
   }
 
   // Inject required env vars and preflight via the shared helper. Mirrors
@@ -197,17 +159,13 @@ export async function executeAcpSpawn(
       task,
       cwd,
       context.conversationId,
-      sendToClient as (msg: unknown) => void,
+      sendToClient,
     );
 
-    // `claude --resume <id>` is Claude Code-specific (the claude-agent-acp
-    // adapter binary). Other adapters resume differently or not at all,
-    // so the hint is gated by the resolved binary, not the agent id —
-    // this stays correct when a user aliases an id to a different binary.
-    const resumeHint =
-      agentConfig.command === "claude-agent-acp"
-        ? ` To resume this session later, run: cd ${cwd} && claude --resume ${protocolSessionId}`
-        : "";
+    // Claude Code-only resume hint; empty for other adapters. See
+    // acp/resume-hint.ts for the gating rationale.
+    const hint = claudeResumeHint(agentConfig.command, cwd, protocolSessionId);
+    const resumeHint = hint ? ` ${hint}` : "";
     const installNote = autoInstalledPackage
       ? ` Installed ${autoInstalledPackage} automatically.`
       : "";
