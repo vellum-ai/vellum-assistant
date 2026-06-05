@@ -152,6 +152,41 @@ export class AcpAgentProcess {
   }
 
   /**
+   * Loads a previously persisted ACP session via `session/load`.
+   *
+   * Per the ACP spec, the agent replays the session's conversation history
+   * as `session/update` notifications before the load response resolves;
+   * callers should suppress forwarding of those replayed updates (see
+   * VellumAcpClientHandler.beginReplaySuppression).
+   */
+  async loadSession(sessionId: string, cwd: string): Promise<void> {
+    if (!this.connection) {
+      throw new Error(`ACP agent "${this.agentId}" is not spawned`);
+    }
+
+    log.info({ agentId: this.agentId, sessionId, cwd }, "Loading ACP session");
+
+    await this.connection.loadSession({ sessionId, cwd, mcpServers: [] });
+  }
+
+  /**
+   * Resumes a previously persisted ACP session via `session/resume`.
+   *
+   * Unlike `session/load`, resume performs no history replay, so it is
+   * preferred when the agent advertises the capability
+   * (see supportsSessionResume).
+   */
+  async resumeSession(sessionId: string, cwd: string): Promise<void> {
+    if (!this.connection) {
+      throw new Error(`ACP agent "${this.agentId}" is not spawned`);
+    }
+
+    log.info({ agentId: this.agentId, sessionId, cwd }, "Resuming ACP session");
+
+    await this.connection.resumeSession({ sessionId, cwd, mcpServers: [] });
+  }
+
+  /**
    * Sends a prompt to an existing ACP session.
    * Returns the prompt response (includes stopReason).
    */
