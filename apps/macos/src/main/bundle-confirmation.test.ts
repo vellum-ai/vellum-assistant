@@ -110,7 +110,8 @@ const SAMPLE_DATA: BundleScanData = {
   },
   scanResult: {
     passed: true,
-    findings: [],
+    blocked: [],
+    warnings: [],
   },
   signatureResult: {
     trustTier: "signed",

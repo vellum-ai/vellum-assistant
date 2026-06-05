@@ -68,9 +68,8 @@ export async function handleBundleFile(filePath: string): Promise<void> {
   }
 
   if (!scanData.scanResult.passed) {
-    const blocked = scanData.scanResult.findings
-      .filter((f) => f.level === "block")
-      .map((f) => `• ${f.message}`)
+    const blocked = scanData.scanResult.blocked
+      .map((msg) => `• ${msg}`)
       .join("\n");
     dialog.showErrorBox(
       "Bundle blocked",
