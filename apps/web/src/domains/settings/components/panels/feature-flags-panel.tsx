@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Search } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { DetailCard } from "@/components/detail-card";
 import { assistantsActiveRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
@@ -24,14 +24,25 @@ const SCOPE_TONE: Record<SingleScope, TagTone> = {
   assistant: "positive",
 };
 
-interface FlagDisplayEntry {
-  storeKey: string;
-  scope: FlagScope;
-  label: string;
-  description: string;
-  value: boolean;
-  defaultValue: boolean;
-}
+type FlagDisplayEntry =
+  | {
+      kind: "boolean";
+      storeKey: string;
+      scope: FlagScope;
+      label: string;
+      description: string;
+      value: boolean;
+      defaultValue: boolean;
+    }
+  | {
+      kind: "string";
+      storeKey: string;
+      scope: FlagScope;
+      label: string;
+      description: string;
+      value: string;
+      defaultValue: string;
+    };
 
 export function FeatureFlagsPanel() {
   const { data: activeAssistant } = useQuery(assistantsActiveRetrieveOptions());
@@ -58,24 +69,43 @@ export function FeatureFlagsPanel() {
     const entries: FlagDisplayEntry[] = [];
     for (const flag of ALL_FLAGS) {
       const storeKey = flagKeyToStoreKey(flag.key);
-      const clientVal = clientState[storeKey];
-      const assistantVal = assistantState[storeKey];
-      const value =
-        flag.scope === "both"
-          ? clientVal === true || assistantVal === true
-          : flag.scope === "assistant"
-            ? assistantVal
-            : clientVal;
-      if (typeof value !== "boolean") continue;
-      if (typeof flag.defaultEnabled !== "boolean") continue;
-      entries.push({
-        storeKey,
-        scope: flag.scope as FlagScope,
-        label: flag.label,
-        description: flag.description,
-        value,
-        defaultValue: flag.defaultEnabled,
-      });
+
+      if (typeof flag.defaultEnabled === "boolean") {
+        const clientVal = clientState[storeKey];
+        const assistantVal = assistantState[storeKey];
+        const value =
+          flag.scope === "both"
+            ? clientVal === true || assistantVal === true
+            : flag.scope === "assistant"
+              ? assistantVal
+              : clientVal;
+        if (typeof value !== "boolean") continue;
+        entries.push({
+          kind: "boolean",
+          storeKey,
+          scope: flag.scope as FlagScope,
+          label: flag.label,
+          description: flag.description,
+          value,
+          defaultValue: flag.defaultEnabled,
+        });
+      } else if (typeof flag.defaultEnabled === "string") {
+        const clientStr = clientState.stringFlags?.[storeKey];
+        const assistantStr = assistantState.stringFlags?.[storeKey];
+        const value =
+          flag.scope === "assistant"
+            ? (assistantStr ?? flag.defaultEnabled)
+            : (clientStr ?? flag.defaultEnabled);
+        entries.push({
+          kind: "string",
+          storeKey,
+          scope: flag.scope as FlagScope,
+          label: flag.label,
+          description: flag.description,
+          value,
+          defaultValue: flag.defaultEnabled,
+        });
+      }
     }
     return entries.sort((a, b) =>
       a.label.localeCompare(b.label, undefined, { sensitivity: "base" }),
@@ -159,7 +189,13 @@ function ScopeChips({ scope }: { scope: FlagScope }) {
   return <Tag tone={SCOPE_TONE[scope]}>{scope}</Tag>;
 }
 
-function FeatureFlagRow({ flag, assistantId }: FeatureFlagRowProps) {
+function BooleanFlagRow({
+  flag,
+  assistantId,
+}: {
+  flag: Extract<FlagDisplayEntry, { kind: "boolean" }>;
+  assistantId: string | null;
+}) {
   const clientSetFlag = useClientFeatureFlagStore.use.setFlag();
   const assistantSetFlag = useAssistantFeatureFlagStore.use.setFlag();
 
@@ -200,4 +236,74 @@ function FeatureFlagRow({ flag, assistantId }: FeatureFlagRowProps) {
       </div>
     </div>
   );
+}
+
+function StringFlagRow({
+  flag,
+  assistantId,
+}: {
+  flag: Extract<FlagDisplayEntry, { kind: "string" }>;
+  assistantId: string | null;
+}) {
+  const clientSetStringFlag = useClientFeatureFlagStore.use.setStringFlag();
+  const assistantSetStringFlag = useAssistantFeatureFlagStore.use.setStringFlag();
+  const [localValue, setLocalValue] = useState(flag.value);
+
+  useEffect(() => {
+    setLocalValue(flag.value);
+  }, [flag.value]);
+
+  const handleBlur = () => {
+    if (localValue === flag.value) return;
+    if (scopeIncludes(flag.scope, "client")) {
+      clientSetStringFlag(flag.storeKey, localValue);
+    }
+    if (scopeIncludes(flag.scope, "assistant")) {
+      assistantSetStringFlag(flag.storeKey, localValue, assistantId);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.currentTarget.blur();
+    }
+  };
+
+  return (
+    <div className="flex items-start gap-3 py-3">
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <div className="flex items-center gap-2">
+          <span className="text-body-medium-default text-[var(--content-default)]">
+            {flag.label}
+          </span>
+          <ScopeChips scope={flag.scope} />
+        </div>
+        <span className="block text-body-small-default text-[var(--content-tertiary)]">
+          {flag.description}
+        </span>
+        <input
+          type="text"
+          value={localValue}
+          onChange={(e) => setLocalValue(e.target.value)}
+          onBlur={handleBlur}
+          onKeyDown={handleKeyDown}
+          className="w-full rounded-lg border border-[var(--border-base)] bg-[var(--surface-default)] px-3 py-1.5 text-body-small-default text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] focus:border-[var(--border-focus)] focus:outline-none"
+          placeholder={flag.defaultValue || "Enter value..."}
+        />
+        <div className="flex items-center gap-1">
+          <span className="text-body-small-default text-[var(--content-tertiary)]">
+            Default:
+          </span>
+          <Tag tone="neutral">{flag.defaultValue || "(empty)"}</Tag>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FeatureFlagRow({ flag, assistantId }: FeatureFlagRowProps) {
+  if (flag.kind === "string") {
+    return <StringFlagRow flag={flag} assistantId={assistantId} />;
+  }
+  return <BooleanFlagRow flag={flag} assistantId={assistantId} />;
 }
