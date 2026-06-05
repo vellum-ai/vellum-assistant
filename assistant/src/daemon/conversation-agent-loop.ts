@@ -56,7 +56,6 @@ import {
   setSentryConversationContext,
 } from "../instrument.js";
 import { commitAppTurnChanges } from "../memory/app-git-service.js";
-import { getApp, listAppFiles, resolveAppDir } from "../memory/app-store.js";
 import { enqueueAutoAnalysisOnCompaction } from "../memory/auto-analysis-enqueue.js";
 import {
   addMessage,
@@ -151,13 +150,13 @@ import { raceWithTimeout } from "./conversation-media-retry.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
 import type { QueueDrainReason } from "./conversation-queue-manager.js";
 import type {
-  ActiveSurfaceContext,
   ChannelCapabilities,
   InboundActorContext,
   InjectionMode,
 } from "./conversation-runtime-assembly.js";
 import {
   applyRuntimeInjections,
+  buildActiveSurfaceContext,
   buildSubagentStatusBlock,
   buildUnifiedTurnContextBlock,
   findLastInjectedNowContent,
@@ -181,7 +180,6 @@ import {
 import { getDiskPressureStatus } from "./disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "./disk-pressure-policy.js";
 import type {
-  DynamicPageSurfaceData,
   ServerMessage,
   SurfaceData,
   SurfaceType,
@@ -1177,32 +1175,11 @@ export async function runAgentLoopImpl(
     const pkbQueryVector = memoryCtx.pkbQueryVector;
     const pkbSparseVector = memoryCtx.pkbSparseVector;
 
-    // Build active surface context
-    let activeSurface: ActiveSurfaceContext | null = null;
-    if (ctx.currentActiveSurfaceId) {
-      const stored = ctx.surfaceState.get(ctx.currentActiveSurfaceId);
-      if (stored && stored.surfaceType === "dynamic_page") {
-        const data = stored.data as DynamicPageSurfaceData;
-        activeSurface = {
-          surfaceId: ctx.currentActiveSurfaceId,
-          html: data.html,
-          currentPage: ctx.currentPage,
-        };
-        if (data.appId) {
-          const app = getApp(data.appId);
-          if (app) {
-            activeSurface.appId = app.id;
-            activeSurface.appName = app.name;
-            activeSurface.appDirName = resolveAppDir(app.id).dirName;
-            activeSurface.appSchemaJson = app.schemaJson;
-            activeSurface.appFiles = listAppFiles(app.id);
-            if (app.pages && Object.keys(app.pages).length > 0) {
-              activeSurface.appPages = app.pages;
-            }
-          }
-        }
-      }
-    }
+    const activeSurface = buildActiveSurfaceContext({
+      currentActiveSurfaceId: ctx.currentActiveSurfaceId,
+      currentPage: ctx.currentPage,
+      surfaceState: ctx.surfaceState,
+    });
 
     // Query active documents for this conversation so the injector chain
     // can surface them to the assistant (prevents duplicate document_create

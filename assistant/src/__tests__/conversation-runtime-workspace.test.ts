@@ -86,7 +86,6 @@ describe("applyRuntimeInjections — workspace top-level context", () => {
         html: "<div>test</div>",
         appId: "app-1",
         appName: "Example App",
-        appFiles: [],
       },
       workspaceTopLevelContext: null,
     });
