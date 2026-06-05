@@ -384,7 +384,6 @@ app.on("second-instance", (_event, argv) => {
   for (const arg of argv) {
     if (/\.vellum$/i.test(arg)) {
       handleFileOpen(arg);
-      break;
     }
   }
 });
