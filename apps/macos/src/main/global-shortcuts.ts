@@ -3,6 +3,7 @@ import { app, globalShortcut } from "electron";
 import { GLOBAL_SHORTCUT_DEFAULTS } from "./commands";
 import log from "./logger";
 import { ensureVisible } from "./main-window";
+import { toggleQuickInput } from "./quick-input-window";
 import { onSettingChange, readSetting } from "./settings";
 
 /**
@@ -71,9 +72,7 @@ const HANDLERS: Record<string, () => void> = {
     void ensureVisible();
   },
   quickInput: () => {
-    // Quick input overlay is not yet implemented in Electron; this
-    // placeholder ensures the shortcut is reserved and ready.
-    void ensureVisible();
+    toggleQuickInput();
   },
 };
 

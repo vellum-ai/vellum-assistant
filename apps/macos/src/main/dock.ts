@@ -6,7 +6,7 @@ import { z } from "zod";
 import { onAvatarChange } from "./avatar";
 import { avatarBitmap } from "./avatar-image";
 import { applyAlphaMask, compositeCentered, roundedRectCoverage } from "./image-mask";
-import { handle } from "./ipc";
+import { on } from "./ipc";
 import {
   current as currentMainWindow,
   onMainWindowVisibilityChange,
@@ -266,7 +266,7 @@ export const installDock = (): void => {
   // Renderer publishes the unread count whenever it changes. The schema
   // guarantees a finite number (`z.number()` rejects NaN/Infinity), so
   // the only remaining clamp is to a non-negative integer for display.
-  handle("vellum:dock:setBadge", z.tuple([z.number()]), ([count]) => {
+  on("vellum:dock:setBadge", z.tuple([z.number()]), ([count]) => {
     state.badgeCount = Math.max(0, Math.floor(count));
     applyBadge();
   });
@@ -280,7 +280,7 @@ export const installDock = (): void => {
   // that destroys the renderer's JS context (hard navigate) can leave
   // a stale count on the Dock — the renderer never gets to publish
   // `setDockBadge(0)` because the layout unmounts first.
-  handle("vellum:dock:setSignedIn", z.tuple([z.boolean()]), ([signedIn]) => {
+  on("vellum:dock:setSignedIn", z.tuple([z.boolean()]), ([signedIn]) => {
     if (state.signedIn && !signedIn) {
       state.badgeCount = 0;
       applyBadge();

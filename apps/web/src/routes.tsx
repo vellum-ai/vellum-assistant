@@ -110,6 +110,12 @@ export const routeTree = [
     // be opened before the user logs in. Same sibling pattern as About.
     { path: "/assistant/bundle/confirm", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/pages/BundleConfirmPage").then((m) => m.BundleConfirmPage) } },
 
+    // Quick Input — lightweight input panel rendered inside the Electron
+    // quick input BrowserWindow (a frameless, always-on-top panel invoked
+    // via Cmd+Shift+/). Same pattern as About: sibling of `/assistant`,
+    // outside auth middleware and RootLayout for fast load.
+    { path: "/assistant/quick-input", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/components/quick-input-page").then((m) => m.QuickInputPage) } },
+
     // Assistant routes — auth-protected app with layout
     {
       path: "/assistant",

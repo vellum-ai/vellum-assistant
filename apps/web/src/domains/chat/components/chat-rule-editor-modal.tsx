@@ -18,7 +18,7 @@ import { Typography } from "@vellumai/design-library";
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
 
-import type { RuleEditorContext } from "@/domains/chat/hooks/use-interaction-actions";
+import type { RuleEditorContext } from "@/domains/chat/rule-editor-store";
 import type { AllowlistOption } from "@/types/interaction-ui-types";
 
 // ---------------------------------------------------------------------------

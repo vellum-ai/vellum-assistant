@@ -3,6 +3,7 @@ import { type DragEventHandler, type ReactNode } from "react";
 import { Eye, Paperclip, Square } from "lucide-react";
 
 import { ChatComposer, type ChatComposerProps } from "@/domains/chat/components/chat-composer/chat-composer";
+import { QuestionPromptSlot } from "@/domains/chat/components/question-prompt-slot";
 import { ChatScrollArea, type ChatScrollAreaProps } from "@/domains/chat/components/chat-scroll-area";
 import { ScrollToLatestButton } from "@/domains/chat/components/scroll-to-latest-button";
 import {
@@ -108,13 +109,6 @@ export interface ChatBodyProps {
   queuedDrawerSlot?: ReactNode;
 
   /**
-   * Optional pre-rendered question-prompt card rendered inside the
-   * max-width wrapper directly above the composer. Used when an agent
-   * question is pending and the user has not yet responded.
-   */
-  questionPromptSlot?: ReactNode;
-
-  /**
    * Optional pre-rendered footer rendered inside the max-width wrapper
    * immediately above the composer or read-only banner.
    */
@@ -184,7 +178,6 @@ export function ChatBody({
   canStopGenerating,
   bannerSlot,
   queuedDrawerSlot,
-  questionPromptSlot,
   channelFooterSlot,
   readonlyBannerSlot,
   startersSlot,
@@ -260,7 +253,7 @@ export function ChatBody({
             </div>
           )}
           {queuedDrawerSlot}
-          {questionPromptSlot}
+          <QuestionPromptSlot />
           {channelFooterSlot}
           {isChannelReadonly ? (
             readonlyBannerSlot ? (

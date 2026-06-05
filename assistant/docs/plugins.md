@@ -1,7 +1,7 @@
 # Plugins
 
 > **Note:** This guide documents the **legacy** plugin architecture — the
-> in-tree `register.ts` + middleware-pipeline system. We are converging on
+> in-tree `register.ts` registration system. We are converging on
 > the schema at
 > [`experimental/plugins/README.md`](../../experimental/plugins/README.md)
 > (file-based discovery, a `package.json` manifest, the
@@ -26,10 +26,7 @@ wired surface.
 - [Where plugins live](#where-plugins-live)
 - [Manifest](#manifest)
 - [Registration](#registration)
-- [Middleware patterns](#middleware-patterns)
 - [Hooks](#hooks)
-- [Pipeline reference](#pipeline-reference)
-- [Timeouts](#timeouts)
 - [Strict-fail semantics](#strict-fail-semantics)
 - [Credentials and config](#credentials-and-config)
 - [Tool, route, and skill contributions](#tool-route-and-skill-contributions)
@@ -43,25 +40,22 @@ wired surface.
 
 1. Create a directory `<workspaceDir>/plugins/my-plugin/`.
 2. Drop a `package.json` with a `name` and a `peerDependencies["@vellumai/plugin-api"]` semver range.
-3. Add `middlewares/<name>.ts` files (default export = middleware function).
+3. Add `hooks/<name>.ts` files (default export = hook function).
 4. Add `tools/<name>.ts` files (default export = tool definition).
 5. Restart the assistant — the loader scans `<workspaceDir>/plugins/*` and
    registers the plugin on startup.
 
 ## What a plugin can contribute today
 
-| Surface                    | Where               | Discovery                                         |
-| -------------------------- | ------------------- | ------------------------------------------------- |
-| Pipeline middleware        | `plugin.middleware` | keyed by pipeline name in `PipelineMiddlewareMap` |
-| Model-visible tools        | `plugin.tools`      | each `PluginToolRegistration`                     |
-| HTTP routes                | `plugin.routes`     | each `PluginRouteRegistration`                    |
-| Skills                     | `plugin.skills`     | each `PluginSkillRegistration`                    |
-| System-prompt injectors    | `plugin.injectors`  | each `Injector`                                   |
-| Lifecycle & per-turn hooks | `plugin.hooks`      | keyed by hook name (`init`, `shutdown`, …)        |
+| Surface                    | Where           | Discovery                                  |
+| -------------------------- | --------------- | ------------------------------------------ |
+| Model-visible tools        | `plugin.tools`  | each `PluginToolRegistration`              |
+| HTTP routes                | `plugin.routes` | each `PluginRouteRegistration`             |
+| Skills                     | `plugin.skills` | each `PluginSkillRegistration`             |
+| Lifecycle & per-turn hooks | `plugin.hooks`  | keyed by hook name (`init`, `shutdown`, …) |
 
-The modern schema wires only **hooks** and **tools**; the middleware
-pipelines, routes, skills, and injectors above are the surfaces that still
-have no modern equivalent.
+The modern schema wires only **hooks** and **tools**; routes and skills
+above are the surfaces that still have no modern equivalent.
 
 ---
 
@@ -70,8 +64,8 @@ have no modern equivalent.
 A plugin is a directory that exports a single `register.ts` (or compiled
 `register.js`) entry point. That file builds a `Plugin` object and passes
 it to `registerPlugin()` as an import-time side effect. Everything else —
-pipeline middleware, lifecycle hooks, model-visible capabilities — hangs
-off that one `Plugin` object.
+lifecycle hooks, model-visible capabilities — hangs off that one `Plugin`
+object.
 
 ```
 my-plugin/
@@ -90,8 +84,6 @@ export interface Plugin {
   tools?: Tool[];
   routes?: PluginRouteRegistration[];
   skills?: PluginSkillRegistration[];
-  injectors?: Injector[];
-  middleware?: Partial<PipelineMiddlewareMap>;
 }
 ```
 
@@ -256,7 +248,7 @@ const myPlugin: Plugin = {
     name: "my-plugin",
     version: "0.1.0",
   },
-  middleware: {
+  hooks: {
     /* ... */
   },
 };
@@ -292,121 +284,6 @@ and they have no module-identity effect at runtime.
 - The bridge is installed by the daemon before `loadUserPlugins()` runs, so
   the global is always present when a plugin's module body executes.
 
-## Middleware patterns
-
-Middleware is the heart of the plugin system. Every pipeline slot uses the
-same onion-style signature:
-
-```typescript
-export type Middleware<A, R> = (
-  args: A,
-  next: (args: A) => Promise<R>,
-  ctx: TurnContext,
-) => Promise<R>;
-```
-
-The runner composes an array of middleware around a terminal handler. The
-first middleware sees the request first and the response last; the
-terminal runs at the innermost layer. See
-[`assistant/src/plugins/pipeline.ts`](../src/plugins/pipeline.ts) for the
-composition algorithm.
-
-Five common patterns emerge from that signature:
-
-### Observe-only
-
-Record something without changing the call. Call `next(args)` unchanged,
-return the result unchanged. Wrap the call in `try`/`finally` so your
-observer runs on both success and failure paths.
-
-```typescript
-const observer: Middleware<MemoryArgs, MemoryResult> =
-  async function observeRetrieval(args, next, ctx) {
-    const start = performance.now();
-    let outcome: "success" | "error" = "success";
-    try {
-      return await next(args);
-    } catch (err) {
-      outcome = "error";
-      throw err;
-    } finally {
-      const ms = Math.round(performance.now() - start);
-      console.error(
-        JSON.stringify({ conversationId: args.conversationId, ms, outcome }),
-      );
-    }
-  };
-```
-
-### Transform input
-
-Rewrite `args` before calling downstream. Useful for reshaping the inputs
-(forcing an untrusted read, narrowing the turn the retriever sees).
-
-```typescript
-const untrustedRead: Middleware<MemoryArgs, MemoryResult> =
-  async function untrustedRead(args, next, ctx) {
-    return next({ ...args, trustContext: undefined });
-  };
-```
-
-### Transform output
-
-Call `next(args)` first, then modify the result before returning.
-
-```typescript
-const dropNow: Middleware<MemoryArgs, MemoryResult> = async function dropNow(
-  args,
-  next,
-  ctx,
-) {
-  const result = await next(args);
-  return { ...result, nowContent: null };
-};
-```
-
-### Short-circuit
-
-Do not call `next(args)` — return a synthetic result directly. The
-terminal and any inner middleware are skipped. Use this to stub, cache,
-or mock a pipeline.
-
-```typescript
-const skipUntrusted: Middleware<MemoryArgs, MemoryResult> =
-  async function skipUntrusted(args, next, ctx) {
-    if (!isTrusted(ctx.trust)) {
-      return { pkbContent: null, nowContent: null, graphResult: null };
-    }
-    return next(args);
-  };
-```
-
-### Veto (throw)
-
-Throwing from middleware aborts the pipeline. The error propagates out
-through any outer middleware unchanged — there is no internal
-`try`/`catch` around user middleware.
-
-```typescript
-const denyIfUntrusted: Middleware<CompactionArgs, CompactionResult> =
-  async function denyIfUntrusted(args, next, ctx) {
-    if (!isTrusted(ctx.trust)) {
-      throw new Error(`compaction denied by policy`);
-    }
-    return next(args);
-  };
-```
-
-### Naming middleware
-
-Give middleware a stable `name` (via `async function <name>(…)`). The
-pipeline runner pulls `Function.name` into its `chain` log field so
-operators can see the registered chain at a glance:
-
-```
-plugin.pipeline pipeline=compaction chain=["observeCompaction","defaultCompaction"] durationMs=1840 outcome=success
-```
-
 ## Hooks
 
 Hooks are the **modern** lifecycle surface: a plugin contributes one
@@ -428,35 +305,10 @@ first.
 | `post-tool-use`      | Once per tool result, before it joins the provider-bound history. | `PostToolUseContext`      |
 | `stop`               | Once per run when the model yields a turn with no tool calls.     | `StopContext`             |
 
-## Pipeline reference
-
-Every pipeline slot and its purpose. Type details live in
-[`types.ts`](../src/plugins/types.ts).
-
-| Pipeline     | Purpose                                                                      |
-| ------------ | ---------------------------------------------------------------------------- |
-| `compaction` | The conversation-compaction step. Wraps `ContextWindowManager.maybeCompact`. |
-
-## Timeouts
-
-Each pipeline has a default timeout budget in milliseconds. When the
-budget is exceeded the runner throws `PluginTimeoutError` carrying the
-pipeline name, the offending plugin's name (if known), and the elapsed
-duration. See
-[`assistant/src/plugins/pipeline.ts`](../src/plugins/pipeline.ts) for the
-current values.
-
-| Pipeline     | Timeout  | Rationale                                                                                            |
-| ------------ | -------- | ---------------------------------------------------------------------------------------------------- |
-| `compaction` | 30000 ms | Summarization involves a provider call; mirrors the pipeline-level budget for LLM-backed operations. |
-
-`null` timeouts skip the timer entirely. Finite timeouts arm a
-`setTimeout` that races the pipeline via `Promise.race`.
-
 ## Strict-fail semantics
 
-**Plugin errors and timeouts fail the turn loudly. There is no silent
-fallback to the default behavior.**
+**Plugin errors fail the turn loudly. There is no silent fallback to the
+default behavior.**
 
 This is a deliberate design decision. The old inline behavior silently
 absorbed many edge cases (a memory retrieval failure became an empty
@@ -466,20 +318,15 @@ logs nobody checked.
 
 With strict-fail:
 
-- Any error thrown from middleware propagates up to the caller. The
-  pipeline runner does not catch it.
-- Any `PluginTimeoutError` from a budget breach propagates identically.
+- Any error thrown from a hook propagates up to the caller. The hook
+  runner does not catch it.
 - The caller (agent loop, memory subsystem, whoever) decides how to
-  degrade. The pipeline itself does not paper over the failure.
-- Exactly one structured log line is emitted per pipeline invocation, in
-  a `finally` block, regardless of outcome. It carries `outcome`
-  (`"success" | "error" | "timeout"`), `durationMs`, `chain`, plugin
-  attribution, and error details when applicable.
+  degrade. The runner itself does not paper over the failure.
 
-If you're writing middleware that wants to "try, fall back to default on
-failure," express that at the call site instead — wrap the pipeline
+If you're writing a hook that wants to "try, fall back to default on
+failure," express that at the call site instead — wrap the hook
 invocation in your own try/catch. Do not swallow the error inside your
-middleware's `try`/`catch` and silently return a degraded result.
+hook's `try`/`catch` and silently return a degraded result.
 
 ## Credentials and config
 
@@ -569,7 +416,7 @@ assistant restart. The bootstrap creates it on demand.
 ## Tool, route, and skill contributions
 
 Plugins can contribute model-visible capabilities alongside their
-middleware. Each is optional.
+hooks. Each is optional.
 
 ### Tools (`plugin.tools`)
 
@@ -659,37 +506,6 @@ See
 [`plugin-skill-contributions.ts`](../src/plugins/plugin-skill-contributions.ts)
 for the in-memory registry details and ref-counted lifecycle.
 
-### Injectors (`plugin.injectors`)
-
-An array of `Injector` objects that emit system-prompt-time content.
-Each has a stable `name`, an ascending `order` used to position it in the
-injection chain, and a `produce(ctx)` method that returns an
-`InjectionBlock` or `null`.
-
-The default injectors use `order` 10 through 70 with gaps of 10, so
-plugin-contributed injectors can slot at `25`, `35`, etc. without
-renumbering.
-
-```typescript
-const myPlugin: Plugin = {
-  manifest: {
-    /* ... */
-  },
-  injectors: [
-    {
-      name: "my-plugin/status",
-      order: 25,
-      async produce(ctx) {
-        return {
-          id: "my-plugin/status",
-          text: `<my_plugin_status>ok</my_plugin_status>`,
-        };
-      },
-    },
-  ],
-};
-```
-
 ## Cross-plugin communication
 
 Plugins should not call each other directly. There is no cross-plugin
@@ -769,50 +585,6 @@ vellum credentials set Y
 The config block under `config.plugins.<name>` failed the manifest's
 parser. Check your config against the plugin's schema — the error
 message carries the validator's diagnostic.
-
-### `PluginTimeoutError: Plugin pipeline '<name>' timed out after N ms`
-
-A plugin's middleware exceeded the pipeline's budget. The offending
-plugin is named in `ctx.pluginName` when available. Tighten the
-middleware (it's probably blocking on I/O it shouldn't) or, if the
-work is genuinely heavy, move it out of the critical path into a
-background job that publishes results through `assistantEventHub`.
-
-### Reading pipeline log records
-
-Every pipeline invocation emits one structured line tagged
-`event=plugin.pipeline`. The fields:
-
-| Field                                      | Meaning                                                                 |
-| ------------------------------------------ | ----------------------------------------------------------------------- |
-| `pipeline`                                 | Pipeline name (`compaction`).                                           |
-| `chain`                                    | Ordered list of middleware function names, outermost first.             |
-| `durationMs`                               | Total time spent in the composed chain.                                 |
-| `outcome`                                  | `"success"`, `"error"`, or `"timeout"`.                                 |
-| `pluginName`                               | The specific plugin's name when the runner could attribute the frame.   |
-| `timeoutMs`                                | The configured budget (only when one was set).                          |
-| `errorName`, `errorMessage`, `errorStack`  | Present on failure outcomes.                                            |
-| `requestId`, `conversationId`, `turnIndex` | Per-turn context for correlating with the rest of the assistant's logs. |
-
-Pipe the assistant's stderr through `jq` to filter and inspect:
-
-```bash
-tail -f ~/.vellum/daemon.log | jq 'select(.event == "plugin.pipeline")'
-```
-
-To isolate slow pipelines:
-
-```bash
-tail -f ~/.vellum/daemon.log \
-  | jq 'select(.event == "plugin.pipeline" and .durationMs > 1000)'
-```
-
-To isolate errors and timeouts:
-
-```bash
-tail -f ~/.vellum/daemon.log \
-  | jq 'select(.event == "plugin.pipeline" and .outcome != "success")'
-```
 
 ### Plugin not loading at all
 

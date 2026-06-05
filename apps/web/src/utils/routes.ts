@@ -38,6 +38,7 @@ export const routes = {
    * dedicated BrowserWindow.
    */
   bundleConfirm: r("/assistant/bundle/confirm"),
+  quickInput: r("/assistant/quick-input"),
   conversation: (key: string) => dyn(r("/assistant/conversations"), key),
   /**
    * LLM-context inspector for a single conversation. The conversation id

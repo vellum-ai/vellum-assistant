@@ -122,6 +122,7 @@ function seedActiveSurfaceConversation(
   surfaceId: string,
   data: SurfaceData,
   channelCapabilities?: ChannelCapabilities,
+  commandIntent?: { type: string; payload?: string; languageCode?: string },
 ): void {
   setConversation(conversationId, {
     conversationId,
@@ -134,6 +135,7 @@ function seedActiveSurfaceConversation(
       { surfaceType: SurfaceType; data: SurfaceData }
     >([[surfaceId, { surfaceType: "dynamic_page", data }]]),
     channelCapabilities: channelCapabilities ?? undefined,
+    commandIntent,
   } as never);
 }
 
@@ -819,7 +821,6 @@ describe("applyRuntimeInjections — injection mode", () => {
   };
 
   const fullOptions = {
-    channelCommandContext: { type: "start" } as const,
     unifiedTurnContext:
       "<turn_context>\ncurrent_time: 2026-03-04 (Tuesday) 12:00:00 +00:00 (UTC)\ninterface: telegram\n</turn_context>",
     isNonInteractive: true,
@@ -849,6 +850,7 @@ describe("applyRuntimeInjections — injection mode", () => {
       "sf_1",
       { html: "<div>test</div>" },
       channelCapabilities,
+      { type: "start" },
     );
   });
   afterEach(() => {

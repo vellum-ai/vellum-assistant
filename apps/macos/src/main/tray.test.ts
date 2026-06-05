@@ -97,6 +97,10 @@ mock.module("./menu-icon", () => ({
   menuIcon: () => ({ __kind: "template-icon" }),
 }));
 
+mock.module("./lockfile-watcher", () => ({
+  getWatchedLockfile: () => ({ assistants: [], activeAssistant: null }),
+}));
+
 mock.module("./settings", () => ({
   readSetting: () => null,
 }));

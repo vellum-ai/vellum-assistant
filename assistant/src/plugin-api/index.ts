@@ -34,11 +34,6 @@
  *   for both plugin tool files and workspace tool files)
  * - {@link ToolContext} — passed to a plugin tool's `execute` method
  * - {@link ToolExecutionResult} — return shape of a plugin tool's `execute`
- *
- * Pipeline-argument types (`MemoryArgs`, `CompactionArgs`, etc.) currently
- * live in `assistant/src/plugins/types.ts` and have not yet migrated into
- * this package. A follow-up PR will move them into this surface as the
- * per-pipeline schemas stabilize.
  */
 
 export type { HookName } from "./constants.js";

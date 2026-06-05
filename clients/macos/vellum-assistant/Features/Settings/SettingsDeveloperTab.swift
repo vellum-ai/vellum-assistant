@@ -917,11 +917,12 @@ struct SettingsDeveloperTab: View {
             // Fall back to the bundled registry + cached gateway flags
             if let registry = loadFeatureFlagRegistry() {
                 let resolved = AssistantFeatureFlagResolver.resolvedFlags(registry: registry)
-                assistantFlags = registry.assistantScopeFlags().map { def in
-                    AssistantFeatureFlag(
+                assistantFlags = registry.assistantScopeFlags().compactMap { def in
+                    guard let defaultBool = def.defaultEnabled.boolValue else { return nil }
+                    return AssistantFeatureFlag(
                         key: def.key,
-                        enabled: resolved[def.key] ?? def.defaultEnabled,
-                        defaultEnabled: def.defaultEnabled,
+                        enabled: resolved[def.key] ?? defaultBool,
+                        defaultEnabled: defaultBool,
                         description: def.description,
                         label: def.label
                     )

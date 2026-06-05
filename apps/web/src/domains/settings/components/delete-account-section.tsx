@@ -67,8 +67,9 @@ export function DeleteAccountSection() {
   }, [isResolving, confirmOpen]);
 
   // User accounts are a platform concept — there is no account to delete on
-  // a self-hosted assistant. All hooks must be called before this point so
-  // gate transitions never skip a hook and trigger a hook-order violation.
+  // a self-hosted assistant. Early return must follow every hook above so
+  // gate transitions (e.g. lifecycle flipping to `self_hosted` after the
+  // API resolves) never skip a hook and trigger a hook-order violation.
   if (platformGate === "gated") return null;
 
   return (

@@ -261,9 +261,8 @@ export async function bootstrapPlugins(): Promise<void> {
   // Tear down a plugin's contributions AND remove it from the registry. The
   // two steps always move together on the bootstrap failure path: the former
   // clears tools/routes/skills (so they stop appearing to the model/HTTP
-  // server), the latter drops the plugin's entry from the Map (so
-  // `getMiddlewaresFor` doesn't re-enter an uninitialized plugin on the next
-  // pipeline invocation).
+  // server), the latter drops the plugin's entry from the Map (so the registry
+  // doesn't expose an uninitialized plugin's hooks).
   // Shutdown context is identical for every plugin in this boot — construct
   // once and reuse across the bootstrap-failure rollback and the normal
   // shutdown hook below. Only `assistantVersion` is exposed today; future

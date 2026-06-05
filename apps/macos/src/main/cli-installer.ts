@@ -26,22 +26,6 @@ export function getBundledBunPath(): string {
   return path.join(process.resourcesPath, "bun");
 }
 
-/** Absolute path to the installed `@vellumai/web` dist directory. */
-export function getWebDistPath(): string {
-  return path.join(
-    getCliInstallDir(),
-    "node_modules",
-    "@vellumai",
-    "web",
-    "dist",
-  );
-}
-
-/** Whether the web renderer package is installed. */
-export function isWebInstalled(): boolean {
-  return existsSync(path.join(getWebDistPath(), "index.html"));
-}
-
 /** Whether the pinned CLI version is already installed on disk. */
 export function isCliInstalled(): boolean {
   return existsSync(getCliBinPath());
@@ -92,33 +76,12 @@ function bunAdd(pkg: string): Promise<void> {
   });
 }
 
-// Singleton promises prevent concurrent installs from corrupting node_modules.
-let webInstallPromise: Promise<void> | null = null;
+// Singleton promise prevents concurrent installs from corrupting node_modules.
 let cliInstallPromise: Promise<void> | null = null;
 
-/** Reset the install locks. Exposed for testing only. */
+/** Reset the install lock. Exposed for testing only. */
 export function _resetInstallLock(): void {
-  webInstallPromise = null;
   cliInstallPromise = null;
-}
-
-/** Install just the web renderer package — fast path to unblock the UI. */
-export async function ensureWebInstalled(): Promise<void> {
-  if (isWebInstalled()) return;
-
-  if (webInstallPromise) return webInstallPromise;
-
-  webInstallPromise = (async () => {
-    await bunAdd("@vellumai/web");
-    cleanupOldVersions();
-  })();
-
-  try {
-    await webInstallPromise;
-  } catch (err) {
-    webInstallPromise = null;
-    throw err;
-  }
 }
 
 /**

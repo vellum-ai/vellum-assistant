@@ -12,7 +12,6 @@
  * orchestration (SSE, reconciliation, send message, conversation loading).
  */
 
-import { captureError } from "@/lib/sentry/capture-error";
 import { type Dispatch, type FormEvent, type MutableRefObject, type ReactNode, type RefObject, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
@@ -28,16 +27,15 @@ import type { ChatEmptyStateProps } from "@/domains/chat/components/chat-empty-s
 import { ChatRuleEditorModal } from "@/domains/chat/components/chat-rule-editor-modal";
 import { ComposerNotices } from "@/domains/chat/components/composer-notices";
 import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";
-import { ConfirmationPromptCard } from "@/domains/chat/components/confirmation-prompt-card";
-import { ContactPromptCard } from "@/domains/chat/components/contact-prompt-card";
+
 import { ContextWindowIndicator } from "@/domains/chat/components/context-window-indicator";
 import { ConversationStarterGrid } from "@/domains/chat/components/conversation-starter-grid";
 import { CreditsExhaustedBanner } from "@/domains/chat/components/credits-exhausted-banner";
 import { OnboardingChoiceCard } from "@/domains/chat/components/onboarding-choice-card";
 import { ProviderBillingBanner } from "@/domains/chat/components/provider-billing-banner";
-import { QuestionPromptCard } from "@/domains/chat/components/question-prompt-card";
+
 import { QueuedMessagesDrawer } from "@/domains/chat/components/queued-messages-drawer";
-import { SecretPromptCard } from "@/domains/chat/components/secret-prompt-card";
+
 import { SendErrorModal } from "@/domains/chat/components/send-error-modal";
 import { SlackChannelFooter } from "@/domains/chat/components/slack-channel-footer";
 import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
@@ -79,9 +77,9 @@ import { getSlackConversationDisplay } from "@/domains/chat/utils/slack-conversa
 
 import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
 import { DiskPressureBanner, type DiskPressureBannerMode } from "@/components/disk-pressure-banner";
-import { submitQuestionResponse } from "@/domains/chat/api/interactions";
+
 import { useActiveProfileModel } from "@/domains/chat/hooks/use-active-profile-model";
-import { useStreamStore } from "@/domains/chat/stream-store";
+
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { type TurnState, useTurnStore } from "@/domains/chat/turn-store";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
@@ -98,6 +96,7 @@ import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversat
 import { useAppNudges } from "@/domains/chat/hooks/use-app-nudges";
 import { useGhostTextSuggestion } from "@/domains/chat/hooks/use-ghost-text-suggestion";
 import { useInteractionActions } from "@/domains/chat/hooks/use-interaction-actions";
+import { useRuleEditorStore } from "@/domains/chat/rule-editor-store";
 import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
 import { useVoiceInput } from "@/domains/chat/hooks/use-voice-input";
 import { useConversationListQuery } from "@/hooks/conversation-queries";
@@ -253,24 +252,18 @@ export function ChatRouteContent({
   } = useVoiceInput({ assistantId, inputRef, setInput });
 
   const {
-    handleSecretSubmit,
-    handleSecretCancel,
-    handleContactPromptSubmit,
-    handleContactPromptCancel,
     handleConfirmationSubmit,
     handleAllowAndCreateRule,
     handleOpenRuleEditorForToolCall,
     handleSaveRule,
     handleSaveAsNewRule,
-    showRuleEditor,
-    ruleEditorContext,
-    dismissRuleEditor,
-    isSavingRule,
-    handleQuestionResponse,
     handleSurfaceAction,
-    unknownNudgeToolCallIds,
-    setUnknownNudgeToolCallIds,
   } = useInteractionActions();
+
+  const showRuleEditor = useRuleEditorStore.use.showRuleEditor();
+  const ruleEditorContext = useRuleEditorStore.use.ruleEditorContext();
+  const isSavingRule = useRuleEditorStore.use.isSavingRule();
+  const unknownNudgeToolCallIds = useInteractionStore.use.unknownNudgeToolCallIds();
 
   const handleOpenApp = useOpenAppFromChat();
 
@@ -346,19 +339,20 @@ export function ChatRouteContent({
   const queueSteering = useAssistantFeatureFlagStore.use.queueSteering();
 
   // -------------------------------------------------------------------------
-  // Interaction state (from Zustand store)
+  // Interaction state — transcript-row interaction cards (secret,
+  // confirmation, contact-request) now read interaction-store directly via
+  // focused row components; see domains/chat/transcript/pending-*-row.tsx.
+  // Inline confirmations render per tool-call chip from tc.pendingConfirmation.
+  //
+  // The reads below are still needed for:
+  //  - uiContext booleans (drives isSendDisabled / shouldShowThinkingIndicator)
+  //  - buildTranscriptItems (inserts placeholder items into the transcript)
   // -------------------------------------------------------------------------
 
   const pendingSecret = useInteractionStore.use.pendingSecret();
   const pendingConfirmation = useInteractionStore.use.pendingConfirmation();
   const pendingContactRequest = useInteractionStore.use.pendingContactRequest();
   const pendingQuestion = useInteractionStore.use.pendingQuestion();
-  const isSubmittingSecret = useInteractionStore.use.isSubmittingSecret();
-  const isSubmittingConfirmation = useInteractionStore.use.isSubmittingConfirmation();
-  const isSubmittingContactRequest = useInteractionStore.use.isSubmittingContactRequest();
-  const isSubmittingQuestion = useInteractionStore.use.isSubmittingQuestion();
-  const contactRequestAccepted = useInteractionStore.use.contactRequestAccepted();
-  const secretSaved = useInteractionStore.use.secretSaved();
 
   // -------------------------------------------------------------------------
   // Onboarding choice card
@@ -548,7 +542,7 @@ export function ChatRouteContent({
         isSaving={isSavingRule}
         onSave={handleSaveRule}
         onSaveAsNew={handleSaveAsNewRule}
-        onDismiss={dismissRuleEditor}
+        onDismiss={useRuleEditorStore.getState().dismissRuleEditor}
       />
     ) : null;
 
@@ -827,35 +821,6 @@ export function ChatRouteContent({
   }, [setInput, handleSubmit]);
 
   // -------------------------------------------------------------------------
-  // Dismiss pending question
-  // -------------------------------------------------------------------------
-
-  const handleDismissPendingQuestion = useCallback(() => {
-    const snapshot = useInteractionStore.getState().pendingQuestion;
-    useInteractionStore.getState().dismissQuestion();
-    if (!snapshot) return;
-    const ctx = useStreamStore.getState().streamContext;
-    if (!ctx) return;
-    submitQuestionResponse(ctx.assistantId, snapshot.requestId, {
-      kind: "close",
-    })
-      .then((result) => {
-        if (!result.ok) {
-          captureError(
-            new Error(`question-response close failed: ${result.error}`),
-            {
-              context: "submit_question_response_close",
-              extra: { status: result.status },
-            },
-          );
-        }
-      })
-      .catch((err) => {
-        captureError(err, { context: "submit_question_response_close" });
-      });
-  }, []);
-
-  // -------------------------------------------------------------------------
   // Empty state placeholder (stable per mount)
   // -------------------------------------------------------------------------
 
@@ -1075,11 +1040,7 @@ export function ChatRouteContent({
     assistantId,
     unknownNudgeToolCallIds,
     onDismissUnknownNudge: (toolCallId) =>
-      setUnknownNudgeToolCallIds((ids) => {
-        const next = new Set(ids);
-        next.delete(toolCallId);
-        return next;
-      }),
+      useInteractionStore.getState().removeUnknownNudgeToolCallId(toolCallId),
     onSurfaceAction: (surfaceId, action, input) => {
       void handleSurfaceAction(
         surfaceId,
@@ -1087,8 +1048,6 @@ export function ChatRouteContent({
         input as Record<string, unknown> | undefined,
       );
     },
-    onSecretSubmit: () => {},
-    onConfirmationDecision: () => {},
     onConfirmationSubmit: handleConfirmationSubmit,
     onAllowAndCreateRule: handleAllowAndCreateRule,
     onRetryError: () => setError(null),
@@ -1096,41 +1055,6 @@ export function ChatRouteContent({
       void handleForkConversation(messageId);
     },
     onInspectMessage: handleInspectMessage,
-    renderPendingSecret: () =>
-      pendingSecret ? (
-        <SecretPromptCard
-          secret={pendingSecret}
-          isSubmitting={isSubmittingSecret}
-          saved={secretSaved}
-          onSave={(val) => handleSecretSubmit(val, "store")}
-          onSendOnce={(val) => handleSecretSubmit(val, "transient_send")}
-          onCancel={handleSecretCancel}
-        />
-      ) : null,
-    renderPendingConfirmation: () =>
-      pendingConfirmation ? (
-        <ConfirmationPromptCard
-          confirmation={pendingConfirmation}
-          isSubmitting={isSubmittingConfirmation}
-          onSubmit={handleConfirmationSubmit}
-          onAllowAndCreateRule={
-            pendingConfirmation.persistentDecisionsAllowed !== false &&
-            (pendingConfirmation.allowlistOptions?.length ?? 0) > 0
-              ? handleAllowAndCreateRule
-              : undefined
-          }
-        />
-      ) : null,
-    renderPendingContactRequest: () =>
-      pendingContactRequest ? (
-        <ContactPromptCard
-          contactRequest={pendingContactRequest}
-          isSubmitting={isSubmittingContactRequest}
-          accepted={contactRequestAccepted}
-          onSubmit={handleContactPromptSubmit}
-          onCancel={handleContactPromptCancel}
-        />
-      ) : null,
     renderAvatar,
     onPullRefresh: handlePullRefresh,
     pullRefreshEnabled: chatPullToRefreshEnabled && touchSupported,
@@ -1284,19 +1208,6 @@ export function ChatRouteContent({
     />
   );
 
-  const questionPromptSlot = pendingQuestion ? (
-    <div className="mb-2">
-      <QuestionPromptCard
-        key={pendingQuestion.requestId}
-        requestId={pendingQuestion.requestId}
-        entries={pendingQuestion.entries}
-        isSubmitting={isSubmittingQuestion}
-        onSubmitAll={handleQuestionResponse}
-        onClose={handleDismissPendingQuestion}
-      />
-    </div>
-  ) : null;
-
   const slackReadonlyBannerDisplay =
     activeConversation?.originChannel === "slack"
       ? getSlackConversationDisplay({
@@ -1347,7 +1258,6 @@ export function ChatRouteContent({
         canStopGenerating={canStopGenerating}
         bannerSlot={isSidePanel ? undefined : mainBannerSlot}
         queuedDrawerSlot={isSidePanel ? undefined : mainQueuedDrawerSlot}
-        questionPromptSlot={questionPromptSlot}
         readonlyBannerSlot={slackReadonlyBannerSlot}
         startersSlot={startersSlot}
       />

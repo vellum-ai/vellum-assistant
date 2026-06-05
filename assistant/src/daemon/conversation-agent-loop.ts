@@ -1303,7 +1303,6 @@ export async function runAgentLoopImpl(
 
     // Shared injection options — reused whenever we need to re-inject after reduction.
     const injectionOpts = {
-      channelCommandContext: ctx.commandIntent ?? null,
       unifiedTurnContext: unifiedTurnContextStr,
       voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
       transportHints: ctx.transportHints ?? null,

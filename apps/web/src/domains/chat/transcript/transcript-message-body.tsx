@@ -44,7 +44,7 @@ import {
   type SubagentEntry,
 } from "@/domains/chat/subagent-store";
 import type { ConfirmationDecision } from "@/types/event-types";
-import type { AllowlistOption, DirectoryScopeOption, RiskScopeOption, ScopeOption } from "@/types/interaction-ui-types";
+import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 
@@ -55,17 +55,14 @@ export interface OpenRuleEditorContext {
   input?: Record<string, unknown>;
   allowlistOptions: AllowlistOption[];
   scopeOptions: ScopeOption[];
-  riskScopeOptions: RiskScopeOption[];
   directoryScopeOptions: DirectoryScopeOption[];
 }
 
 /**
- * Renders a single chat message bubble — a careful copy of the per-message
- * branch of the `messages.map(...)` loop in `AssistantPageClient.tsx`. The
- * grouping rules for tool calls / text / inline surfaces are duplicated
- * verbatim so the virtualized transcript produces byte-identical markup to
- * the legacy rendering path. Do NOT change the grouping rules in this file
- * without updating the legacy path in lockstep.
+ * Renders a single chat message bubble. Groups contiguous tool calls,
+ * text chunks, and inline surfaces into distinct visual sections so each
+ * message row contains the correct mix of activity cards, markdown, and
+ * embedded surface views.
  */
 export interface TranscriptMessageBodyProps {
   message: DisplayMessage;

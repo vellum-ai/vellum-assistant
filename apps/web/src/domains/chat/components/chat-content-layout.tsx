@@ -14,6 +14,7 @@ import { lazy, useCallback } from "react";
 import { useNavigate } from "react-router";
 import { Loader2 } from "lucide-react";
 import { ResizablePanel } from "@vellumai/design-library";
+import { AnimatedRightDrawer } from "@/domains/chat/components/animated-right-drawer";
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { AppViewerContainer } from "@/components/app-viewer-container";
 import { DocumentViewerContainer } from "@/domains/chat/components/document-viewer-container";
@@ -227,15 +228,16 @@ export function ChatContentLayout(props: ChatRouteContentProps) {
     }
   }
 
-  // Tool detail side panel
+  // Tool detail side panel — opens by animating the drawer width so the chat
+  // reflows in sync (no early layout snap) and the panel grows in instead of
+  // popping in at full size. Drag-to-resize + width persistence preserved.
   if (mainView === "tool-detail" && activeToolDetail && !isMobile) {
     return (
-      <ResizablePanel
-        storageKey="toolDetailPanelWidth"
-        defaultRightWidth={400}
+      <AnimatedRightDrawer
+        storageKey="toolDetailDrawerWidth"
+        defaultWidth={400}
+        minWidth={400}
         minLeftWidth={300}
-        minRightWidth={400}
-        hideDivider
         left={chatContent}
         right={
           <LazyBoundary>

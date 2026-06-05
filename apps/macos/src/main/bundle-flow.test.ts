@@ -8,13 +8,14 @@ import type { BundleScanData, BundleMetadata } from "./bundle-manager";
 
 const showErrorBoxMock = mock((_title: string, _content: string) => undefined);
 const getPathMock = mock((_name: string) => "/fake/user-data");
+const getAppPathMock = mock(() => "/fake/app");
 const netFetchMock = mock(
   async (_url: string, _opts?: RequestInit) =>
     new Response(null, { status: 500 }),
 );
 
 mock.module("electron", () => ({
-  app: { getPath: getPathMock },
+  app: { getPath: getPathMock, getAppPath: getAppPathMock, isPackaged: true },
   dialog: { showErrorBox: showErrorBoxMock },
   net: { fetch: netFetchMock },
   ipcMain: {
@@ -33,10 +34,23 @@ const getLockfileDataMock = mock(
 const resolveLockfilePathsMock = mock((_env: NodeJS.ProcessEnv) => [
   "/fake/lockfile",
 ]);
+const resolveConfigDirMock = mock((_env: NodeJS.ProcessEnv) => "/fake/config");
+const getGuardianAccessTokenMock = mock(
+  async () => ({ ok: true as const, accessToken: "fake-token" }),
+);
 
 mock.module("@vellumai/local-mode", () => ({
   getLockfileData: getLockfileDataMock,
   resolveLockfilePaths: resolveLockfilePathsMock,
+  resolveConfigDir: resolveConfigDirMock,
+  getGuardianAccessToken: getGuardianAccessTokenMock,
+}));
+
+mock.module("./cli-installer", () => ({
+  isCliInstalled: () => true,
+  getBundledBunPath: () => "/fake/bun",
+  getCliBinPath: () => "/fake/cli",
+  ensureCliInstalled: async () => {},
 }));
 
 const openBundleConfirmationMock = mock(
@@ -81,7 +95,7 @@ mock.module("./app-config", () => ({
   BUNDLES_DIR_NAME: "bundles",
 }));
 
-const { handleBundleFile, resolveDaemonPort, installBundleFlow } =
+const { handleBundleFile, resolveActiveGateway, installBundleFlow } =
   await import("./bundle-flow");
 
 // ---------------------------------------------------------------------------
@@ -120,6 +134,7 @@ beforeEach(() => {
   showErrorBoxMock.mockClear();
   netFetchMock.mockClear();
   getLockfileDataMock.mockClear();
+  getGuardianAccessTokenMock.mockClear();
   openBundleConfirmationMock.mockClear();
   installBundleConfirmationMock.mockClear();
   unpackBundleMock.mockClear();
@@ -127,6 +142,10 @@ beforeEach(() => {
 
   getLockfileDataMock.mockReturnValue({ ok: false, status: 500 });
   openBundleConfirmationMock.mockResolvedValue(true);
+  getGuardianAccessTokenMock.mockResolvedValue({
+    ok: true as const,
+    accessToken: "fake-token",
+  });
   netFetchMock.mockResolvedValue(
     new Response(JSON.stringify(SAMPLE_SCAN), {
       status: 200,
@@ -149,29 +168,47 @@ afterEach(() => {
   netFetchMock.mockReset();
   openBundleConfirmationMock.mockReset();
   unpackBundleMock.mockReset();
+  getGuardianAccessTokenMock.mockReset();
 });
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("resolveDaemonPort", () => {
+describe("resolveActiveGateway", () => {
   test("returns null when lockfile read fails", () => {
     getLockfileDataMock.mockReturnValue({ ok: false, status: 500 });
-    expect(resolveDaemonPort()).toBeNull();
+    expect(resolveActiveGateway()).toBeNull();
   });
 
-  test("returns null when no assistants have a gateway port", () => {
+  test("returns null when no active assistant", () => {
     getLockfileDataMock.mockReturnValue({
       ok: true,
-      data: { assistants: [{ assistantId: "a1" }], activeAssistant: "a1" },
+      data: {
+        assistants: [{ assistantId: "a1", resources: { gatewayPort: 9000 } }],
+        activeAssistant: null,
+      },
     });
-    expect(resolveDaemonPort()).toBeNull();
+    expect(resolveActiveGateway()).toBeNull();
   });
 
-  test("returns the first assistant gateway port", () => {
+  test("returns null when active assistant has no gateway port", () => {
+    getLockfileDataMock.mockReturnValue({
+      ok: true,
+      data: {
+        assistants: [{ assistantId: "a1" }],
+        activeAssistant: "a1",
+      },
+    });
+    expect(resolveActiveGateway()).toBeNull();
+  });
+
+  test("returns the active assistant gateway port", () => {
     getLockfileDataMock.mockReturnValue(makeLockfileWithPort(9000));
-    expect(resolveDaemonPort()).toBe(9000);
+    expect(resolveActiveGateway()).toEqual({
+      assistantId: "a1",
+      port: 9000,
+    });
   });
 });
 
@@ -242,6 +279,17 @@ describe("handleBundleFile", () => {
     expect(showErrorBoxMock).toHaveBeenCalledTimes(1);
     expect(showErrorBoxMock.mock.calls[0]?.[1]).toContain("disk full");
     expect(openBundleWindowMock).not.toHaveBeenCalled();
+  });
+
+  test("sends auth token in scan request", async () => {
+    getLockfileDataMock.mockReturnValue(makeLockfileWithPort(9000));
+
+    await handleBundleFile("/tmp/test.vellum");
+
+    const fetchCall = netFetchMock.mock.calls[0];
+    const opts = fetchCall?.[1] as RequestInit | undefined;
+    const headers = opts?.headers as Record<string, string> | undefined;
+    expect(headers?.["Authorization"]).toBe("Bearer fake-token");
   });
 
   test("success flow: scans, confirms, unpacks, opens window", async () => {

@@ -15,7 +15,7 @@ final class AssistantFeatureFlagResolverTests: XCTestCase {
                     key: conversationStartersKey,
                     label: "Recommended Starts",
                     description: "Show conversation starter chips",
-                    defaultEnabled: defaultEnabled
+                    defaultEnabled: .bool(defaultEnabled)
                 )
             ]
         )

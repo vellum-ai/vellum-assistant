@@ -1,6 +1,6 @@
 /**
- * Echo plugin — observes every assistant pipeline and logs one structured
- * line per invocation to stderr.
+ * Echo plugin — observes the assistant's turn-lifecycle hooks and logs one
+ * structured line per hook invocation to stderr.
  *
  * Bundled in the repository as an authoring reference. To try it locally,
  * symlink (or copy) this directory into `<workspaceDir>/plugins/echo/` and
@@ -25,27 +25,25 @@
  *
  * ## Design
  *
- * - Registers an observer middleware on every slot of `PipelineMiddlewareMap`.
- * - Each middleware records a start timestamp, calls `next(args)`, and on
- *   return — whether successful or not — emits one JSON line on `stderr` with
- *   `{ plugin, pipeline, durationMs, outcome }`. A `try { return await next(); }
- *   catch { outcome = "error"; rethrow; } finally { log(); }` pattern keeps the
- *   observation strictly non-interfering: the plugin never swallows errors
- *   and never rewrites arguments or results.
- * - Middleware is declared as async functions with stable names so the
- *   pipeline runner's `chain` log field attributes them correctly.
+ * - Registers an observer hook for each turn-lifecycle event
+ *   (`user-prompt-submit`, `post-tool-use`, `stop`).
+ * - Each hook emits one JSON line on `stderr` with `{ plugin, hook,
+ *   conversationId }` and returns `void`, leaving the threaded context
+ *   untouched. The plugin is purely observational — it never mutates the
+ *   turn's messages, tool results, or stop decision.
  *
  * The file exports no named symbols at module level — it only runs
  * `registerPlugin(echoPlugin)` as an import-time side effect, matching the
  * user-plugin-loader contract (see `assistant/src/plugins/user-loader.ts`).
  */
 
-import type { VellumPluginRuntime } from "../../../src/plugins/external-api.js";
 import type {
-  CompactionArgs,
-  CompactionResult,
-  Plugin,
-} from "../../../src/plugins/types.js";
+  PostToolUseContext,
+  StopContext,
+  UserPromptSubmitContext,
+} from "../../../src/plugin-api/types.js";
+import type { VellumPluginRuntime } from "../../../src/plugins/external-api.js";
+import type { Plugin } from "../../../src/plugins/types.js";
 
 const runtime = (globalThis as { __vellumPluginRuntime?: VellumPluginRuntime })
   .__vellumPluginRuntime;
@@ -59,56 +57,18 @@ const { registerPlugin } = runtime;
 const PLUGIN_NAME = "echo";
 
 /**
- * One line written to stderr per pipeline invocation. Kept intentionally
- * compact — pino-style JSON so operators can pipe the assistant's stderr
- * through `jq` without reshaping.
+ * One line written to stderr per hook invocation. Kept intentionally compact —
+ * pino-style JSON so operators can pipe the assistant's stderr through `jq`
+ * without reshaping.
  */
-function emit(
-  pipelineName: string,
-  startMs: number,
-  outcome: "success" | "error",
-): void {
-  const durationMs = Math.round(performance.now() - startMs);
-  const record = {
-    plugin: PLUGIN_NAME,
-    pipeline: pipelineName,
-    durationMs,
-    outcome,
-  };
+function emit(hook: string, conversationId: string): void {
+  const record = { plugin: PLUGIN_NAME, hook, conversationId };
   process.stderr.write(`${JSON.stringify(record)}\n`);
 }
 
 /**
- * Factory for a pipeline-agnostic observer middleware. The returned function
- * carries a `name` so `runPipeline`'s `chain` log field attributes this
- * plugin's frame correctly. Error paths rethrow — the plugin is purely
- * observational and must never change the turn's outcome.
- */
-function makeObserver<A, R>(
-  pipelineName: string,
-): (args: A, next: (args: A) => Promise<R>, _ctx: unknown) => Promise<R> {
-  const fn = async function echoObserver(
-    args: A,
-    next: (args: A) => Promise<R>,
-    _ctx: unknown,
-  ): Promise<R> {
-    const start = performance.now();
-    let outcome: "success" | "error" = "success";
-    try {
-      return await next(args);
-    } catch (err) {
-      outcome = "error";
-      throw err;
-    } finally {
-      emit(pipelineName, start, outcome);
-    }
-  };
-  return fn;
-}
-
-/**
- * The echo plugin. Declares one middleware per slot in
- * `PipelineMiddlewareMap` — all thin observers produced by `makeObserver`.
+ * The echo plugin. Declares one observer hook per turn-lifecycle event — each
+ * logs and returns `void`, so the threaded context flows through unchanged.
  *
  * Manifest:
  * - Host-compat range lives in `package.json` under
@@ -123,8 +83,20 @@ const echoPlugin: Plugin = {
     name: PLUGIN_NAME,
     version: "0.1.0",
   },
-  middleware: {
-    compaction: makeObserver<CompactionArgs, CompactionResult>("compaction"),
+  // Hook names are inlined as string literals rather than imported from the
+  // `HOOKS` constant: a value import would be a runtime repo-relative import,
+  // which breaks the documented standalone-copy install (the copied directory
+  // can't resolve `../../../src/...`). Only `import type` survives a copy.
+  hooks: {
+    "user-prompt-submit": async (ctx: UserPromptSubmitContext) => {
+      emit("user-prompt-submit", ctx.conversationId);
+    },
+    "post-tool-use": async (ctx: PostToolUseContext) => {
+      emit("post-tool-use", ctx.conversationId);
+    },
+    stop: async (ctx: StopContext) => {
+      emit("stop", ctx.conversationId);
+    },
   },
 };
 
