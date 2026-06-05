@@ -75,7 +75,6 @@ import {
 import type { Message } from "../providers/types.js";
 import { wrapUntrustedContent } from "../security/untrusted-content.js";
 import type { SubagentState } from "../subagent/types.js";
-import { getWorkspaceDir } from "../util/platform.js";
 
 // `applyRuntimeInjections` is now driven by the default injector chain
 // (PR G2.1). The default-injectors plugin must be registered for the chain
@@ -2038,7 +2037,6 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
   // The pkb-reminder injector sources the PKB root itself via `getPkbRoot()`,
   // so the in-context file paths these tests build must resolve against the
   // same per-test workspace the injector sees.
-  const pkbWorkingDir = getWorkspaceDir();
   const pkbRoot = getPkbRoot();
 
   // The pkb-reminder injector reads the dense/sparse PKB query pair off the
@@ -2058,8 +2056,6 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
   function makePkbOptions(overrides: Record<string, unknown> = {}) {
     return {
       pkbActive: true,
-      pkbConversation: { messages: baseMessages },
-      pkbWorkingDir,
       ...overrides,
     };
   }
@@ -2148,27 +2144,26 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
     ];
     pkbSearchThrows = null;
 
-    // Build a conversation that has already read topics/beta.md via file_read.
-    const conversationWithRead: { messages: Message[] } = {
-      messages: [
-        ...baseMessages,
-        {
-          role: "assistant",
-          content: [
-            {
-              type: "tool_use",
-              id: "tu_1",
-              name: "file_read",
-              input: { path: `${pkbRoot}/topics/beta.md` },
-            },
-          ],
-        },
-      ],
-    };
+    // Working messages where topics/beta.md was already read via file_read on
+    // an earlier turn, followed by the current user prompt as the tail.
+    const conversationWithRead: Message[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "tu_1",
+            name: "file_read",
+            input: { path: `${pkbRoot}/topics/beta.md` },
+          },
+        ],
+      },
+      ...baseMessages,
+    ];
 
     const { messages: result } = await applyRuntimeInjections(
-      baseMessages,
-      makePkbOptions({ pkbConversation: conversationWithRead }),
+      conversationWithRead,
+      makePkbOptions(),
     );
     const texts = extractTexts(result);
     const reminder = texts.find((t) => t.startsWith("<system_reminder>"));
@@ -2326,33 +2321,28 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
     ];
     pkbSearchThrows = null;
 
-    // Pre-compaction conversation: beta was already read.
-    const preCompactionConversation: { messages: Message[] } = {
-      messages: [
-        ...baseMessages,
-        {
-          role: "assistant",
-          content: [
-            {
-              type: "tool_use",
-              id: "tu_pre",
-              name: "file_read",
-              input: { path: `${pkbRoot}/topics/beta.md` },
-            },
-          ],
-        },
-      ],
-    };
+    // Pre-compaction working messages: beta was already read on an earlier
+    // turn, followed by the current user prompt as the tail.
+    const preCompactionMessages: Message[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "tu_pre",
+            name: "file_read",
+            input: { path: `${pkbRoot}/topics/beta.md` },
+          },
+        ],
+      },
+      ...baseMessages,
+    ];
 
     // 1. Initial injection sees the pre-compaction state — beta should be
     // filtered out.
     const { messages: initialResult } = await applyRuntimeInjections(
-      baseMessages,
-      {
-        pkbActive: true,
-        pkbConversation: preCompactionConversation,
-        pkbWorkingDir,
-      },
+      preCompactionMessages,
+      { pkbActive: true },
     );
     // Unwrap the injected reminder from the last user message.
     const initialTexts = extractTexts(initialResult);
@@ -2364,37 +2354,29 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
     expect(initialReminder).toBeDefined();
     expect(initialReminder).not.toContain("- topics/beta.md");
 
-    // 2. Simulate compaction: strip all runtime injections, rebuild
-    // conversation to reflect the post-compaction state (tool_use blocks
-    // are serialized into summary text, so the only live file_read is the
-    // newly-read gamma).
-    const postCompactionConversation: { messages: Message[] } = {
-      messages: [
-        ...baseMessages,
-        {
-          role: "assistant",
-          content: [
-            {
-              type: "tool_use",
-              id: "tu_post",
-              name: "file_read",
-              input: { path: `${pkbRoot}/topics/gamma.md` },
-            },
-          ],
-        },
-      ],
-    };
-    const postCompactionMessages = stripInjectionsForCompaction(initialResult);
+    // 2. After compaction the working messages reflect the post-compaction
+    // state: beta's tool_use was serialized into summary text and dropped,
+    // so the only live file_read is the newly-read gamma.
+    const postCompactionMessages: Message[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "tu_post",
+            name: "file_read",
+            input: { path: `${pkbRoot}/topics/gamma.md` },
+          },
+        ],
+      },
+      ...baseMessages,
+    ];
 
-    // 3. Re-inject with the new conversation — gamma (now in context)
+    // 3. Re-inject over the post-compaction messages — gamma (now in context)
     // should be filtered, and beta (no longer "in context") should appear.
     const { messages: rebuiltResult } = await applyRuntimeInjections(
       postCompactionMessages,
-      {
-        pkbActive: true,
-        pkbConversation: postCompactionConversation,
-        pkbWorkingDir,
-      },
+      { pkbActive: true },
     );
     const rebuiltTexts = extractTexts(rebuiltResult);
     const rebuiltReminder = rebuiltTexts.find(

@@ -31,7 +31,6 @@ import type {
   ChannelCommandContext,
   InjectionMode,
 } from "../daemon/conversation-runtime-assembly.js";
-import type { PkbContextConversation } from "../daemon/pkb-context-tracker.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import type { PluginHookFn } from "../plugin-api/types.js";
@@ -380,17 +379,6 @@ export interface TurnInjectionInputs {
    */
   readonly pkbActive?: boolean;
   /**
-   * Live conversation (or a minimal shape containing `messages`) used to
-   * compute which PKB paths are already "in context" and therefore suppressed
-   * from hint suggestions.
-   */
-  readonly pkbConversation?: PkbContextConversation;
-  /**
-   * Working directory against which relative `file_read` paths resolve.
-   * Falls back to the PKB root when omitted.
-   */
-  readonly pkbWorkingDir?: string;
-  /**
    * Pre-rendered v2 static memory content (essentials/threads/recent/buffer
    * concatenated, header-wrapped) or null to skip. The agent loop only
    * passes this on full-mode turns; the injector wraps it in `<memory>` for
@@ -509,6 +497,15 @@ export interface TurnContext {
    * a context without `injectionInputs` produces an empty injection chain.
    */
   injectionInputs?: TurnInjectionInputs;
+  /**
+   * The turn's working message array — the same `runMessages` the injector
+   * chain is assembling onto. Attached during runtime injection so injectors
+   * that need the current prompt contents (e.g. the PKB reminder, which scans
+   * for already-loaded `file_read` paths) read them off the context instead
+   * of receiving a separately-threaded copy. Omitted by call sites that don't
+   * drive runtime injection.
+   */
+  runMessages?: Message[];
   /**
    * The {@link LLMCallSite} this turn's pipeline work belongs to —
    * `"mainAgent"` for the user-facing conversational reply, or the specific

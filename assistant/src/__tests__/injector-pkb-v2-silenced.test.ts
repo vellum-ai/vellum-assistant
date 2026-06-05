@@ -73,7 +73,6 @@ describe("PKB injector v2 cutover behavior", () => {
       turnContext: makeTurnContext(),
       pkbContext: PKB_CONTEXT,
       pkbActive: true,
-      pkbConversation: { messages: [] },
       nowScratchpad: NOW_CONTENT,
     });
 
@@ -89,7 +88,6 @@ describe("PKB injector v2 cutover behavior", () => {
       turnContext: makeTurnContext(),
       pkbContext: PKB_CONTEXT,
       pkbActive: true,
-      pkbConversation: { messages: [] },
       nowScratchpad: NOW_CONTENT,
     });
 

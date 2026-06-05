@@ -67,7 +67,6 @@ import type {
   SurfaceType,
 } from "./message-protocol.js";
 import { filterMessagesForUntrustedActor } from "./message-provenance.js";
-import { type PkbContextConversation } from "./pkb-context-tracker.js";
 import type { TrustContext } from "./trust-context.js";
 
 // The compaction strip lives in the compaction layer (`context/`) so the agent
@@ -1916,18 +1915,6 @@ export interface RuntimeInjectionOptions {
   pkbContext?: string | null;
   pkbActive?: boolean;
   /**
-   * The live conversation (or a minimal shape containing `messages`) used
-   * to compute which PKB paths are already "in context" and therefore
-   * suppressed from hint suggestions.
-   */
-  pkbConversation?: PkbContextConversation;
-  /**
-   * Working directory against which relative `file_read` tool paths
-   * resolve, used to detect workspace-relative reads like
-   * `pkb/threads.md`. Falls back to the PKB root when omitted.
-   */
-  pkbWorkingDir?: string;
-  /**
    * Pre-rendered v2 static memory content (essentials/threads/recent/buffer
    * concatenated, header-wrapped). When non-null on full-mode turns the
    * `memory-v2-static` injector wraps it in `<info>` and splices it onto
@@ -2030,8 +2017,6 @@ function buildTurnInjectionInputs(
     unifiedTurnContext: options.unifiedTurnContext,
     pkbContext: options.pkbContext,
     pkbActive: options.pkbActive,
-    pkbConversation: options.pkbConversation,
-    pkbWorkingDir: options.pkbWorkingDir,
     memoryV2Static: options.memoryV2Static,
     nowScratchpad: options.nowScratchpad,
     subagentStatusBlock: options.subagentStatusBlock,
@@ -2051,6 +2036,7 @@ function buildTurnInjectionInputs(
 /** Minimal synthetic TurnContext used when the caller omits one. */
 function synthesizeFallbackTurnContext(
   inputs: TurnInjectionInputs,
+  runMessages: Message[],
 ): TurnContext {
   return {
     requestId: "runtime-assembly-fallback",
@@ -2063,6 +2049,7 @@ function synthesizeFallbackTurnContext(
       trustClass: "unknown",
     },
     injectionInputs: inputs,
+    runMessages,
   };
 }
 
@@ -2118,8 +2105,8 @@ export async function applyRuntimeInjections(
   // continue to work.
   const injectionInputs = buildTurnInjectionInputs(options);
   const turnCtx: TurnContext = options.turnContext
-    ? { ...options.turnContext, injectionInputs }
-    : synthesizeFallbackTurnContext(injectionInputs);
+    ? { ...options.turnContext, injectionInputs, runMessages }
+    : synthesizeFallbackTurnContext(injectionInputs, runMessages);
 
   const chainBlocks = await collectInjectorBlocks(turnCtx);
 
