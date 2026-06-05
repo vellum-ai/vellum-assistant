@@ -413,11 +413,11 @@ import { getProviderEntry, listProviderIds } from "../provider-catalog.js";
 
 describe("telephony routing catalog alignment", () => {
   /**
-   * These tests verify that the assumptions made by the telephony STT
-   * routing resolver (telephony-stt-routing.ts) remain consistent with
-   * the provider catalog entries. If a catalog entry changes its
-   * telephonyMode, routing metadata, or a new provider is added, these
-   * tests will catch misalignment early.
+   * These tests verify the telephony routing invariants the media-stream
+   * transport relies on remain consistent with the provider catalog entries:
+   * every provider participates in telephony via the media-stream-custom path.
+   * If a catalog entry changes its telephonyMode, routing metadata, or a new
+   * provider is added, these tests will catch misalignment early.
    */
 
   test("deepgram catalog entry has realtime-ws telephonyMode (Twilio-native eligible)", () => {
@@ -454,10 +454,9 @@ describe("telephony routing catalog alignment", () => {
   });
 
   test("every catalog provider has a non-none telephonyMode", () => {
-    // The telephony routing resolver assumes all known providers
-    // participate in some telephony path (native or media-stream).
-    // If a provider with telephonyMode: "none" is added, the routing
-    // resolver would need to handle it explicitly.
+    // The media-stream transport assumes all known providers participate in
+    // some telephony path. If a provider with telephonyMode: "none" is added,
+    // the telephony path would need to handle it explicitly.
     for (const id of listProviderIds()) {
       const entry = getProviderEntry(id);
       expect(entry).toBeDefined();

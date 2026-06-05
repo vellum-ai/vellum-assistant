@@ -112,7 +112,7 @@ export function pcm16ToMulaw(pcm: Uint8Array): Buffer {
  * and mantissa (bits 0-3), then undo the {@link MULAW_BIAS} offset applied
  * during encoding to recover the signed linear sample.
  */
-function mulawToLinear(mulawByte: number): number {
+export function mulawToLinear(mulawByte: number): number {
   // mu-law bytes are bitwise-inverted in Twilio's encoding.
   const b = ~mulawByte & 0xff;
   const exponent = (b >> 4) & 0x07;

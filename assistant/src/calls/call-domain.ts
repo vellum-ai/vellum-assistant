@@ -46,7 +46,6 @@ import {
 } from "./telephony-credential-preflight.js";
 import { getTwilioConfig } from "./twilio-config.js";
 import { TwilioVoiceProvider } from "./twilio-provider.js";
-import { outboundWillUseMediaStream } from "./twilio-routes.js";
 import type { CallSession } from "./types.js";
 import { preflightVoiceIngress } from "./voice-ingress-preflight.js";
 
@@ -459,14 +458,10 @@ export async function startCall(
     // record the failure event, point the user at the missing credential, and
     // do not dial.
     //
-    // GATE: every call now routes through the media-stream transport
+    // Every call now routes through the media-stream transport
     // (`<Connect><Stream>`), where the daemon performs both STT and TTS, so the
-    // preflight is always relevant. `outboundWillUseMediaStream` is the shared
-    // seam with buildVoiceWebhookTwiml's transport decision and is now
-    // effectively always-true, so the credential check runs for EVERY call.
-    const credentialReadiness = outboundWillUseMediaStream(session)
-      ? await resolveTelephonyCredentialReadiness()
-      : ({ status: "ready" } as const);
+    // preflight is always relevant and runs for EVERY outbound call.
+    const credentialReadiness = await resolveTelephonyCredentialReadiness();
     if (credentialReadiness.status === "not-ready") {
       const summary = describeCredentialGaps(credentialReadiness.missing);
       recordCallEvent(session.id, "telephony_credential_preflight_failed", {

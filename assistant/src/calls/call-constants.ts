@@ -37,8 +37,19 @@ export function getMaxCallDurationMs(): number {
   return getConfig().calls.maxDurationSeconds * 1000;
 }
 
+// Mirrors the `calls.userConsultTimeoutSeconds` schema default
+// (assistant/src/config/schemas/calls.ts). Used when the config field is
+// missing/NaN so `setTimeout` always gets a finite delay — a NaN here makes
+// the guardian-wait timeout silently never fire.
+const DEFAULT_USER_CONSULT_TIMEOUT_SECONDS = 120;
+
 export function getUserConsultationTimeoutMs(): number {
-  return getConfig().calls.userConsultTimeoutSeconds * 1000;
+  const seconds = getConfig().calls?.userConsultTimeoutSeconds;
+  const resolved =
+    typeof seconds === "number" && Number.isFinite(seconds)
+      ? seconds
+      : DEFAULT_USER_CONSULT_TIMEOUT_SECONDS;
+  return resolved * 1000;
 }
 
 export function getTtsPlaybackDelayMs(): number {

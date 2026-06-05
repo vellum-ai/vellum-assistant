@@ -129,22 +129,6 @@ mock.module("../calls/telephony-credential-preflight.js", () => ({
       .join(", "),
 }));
 
-// Whether the outbound preflight gate considers the call a media-stream call.
-// The gate (`outboundWillUseMediaStream`, in twilio-routes.js) mirrors the FULL
-// transport decision: media-stream only when STT routing is media-stream-custom
-// AND routeSetup's outcome is normal_call/deny. It returns false for CR-native
-// STT AND for interactive outbound flows (e.g. verification) that CR-fall-back,
-// in which case the preflight is skipped. Default true so the existing
-// not-ready test exercises the preflight; the skip tests toggle it false.
-let usesMediaStreamTransport = true;
-
-mock.module("../calls/twilio-routes.js", () => ({
-  outboundWillUseMediaStream: () => usesMediaStreamTransport,
-  // call-domain.ts only consumes `outboundWillUseMediaStream` from this module;
-  // the remaining exports are unused on the startCall/cancelCall paths exercised
-  // by these tests.
-}));
-
 import {
   clearActiveCallLeases,
   getActiveCallLease,
@@ -172,7 +156,6 @@ beforeEach(() => {
   mockIngressEnabled = true;
   mockIngressPublicBaseUrl = "https://test.example.com";
   credentialReadiness = { status: "ready" };
-  usesMediaStreamTransport = true;
 });
 
 let ensuredConvIds = new Set<string>();
@@ -444,37 +427,6 @@ describe("startCall — pointer message regression", () => {
     expect(text).not.toBeNull();
     expect(text!).toContain("+12025550123");
     expect(text!).toContain("openai-whisper");
-  });
-
-  test("non-media-stream transport (CR-native or interactive CR-fallback) skips the outbound credential preflight and dials", async () => {
-    // Defensive: when the transport gate `outboundWillUseMediaStream` reports
-    // the call will NOT use the media-stream transport, call-domain must skip
-    // the STT/TTS credential preflight (those credentials are only needed for
-    // media-stream calls) — otherwise the call would be wrongly blocked. Here
-    // the gate is mocked to false to exercise that skip branch directly.
-    const convId = "conv-domain-cred-preflight-skipped";
-    ensureConversation(convId);
-    usesMediaStreamTransport = false;
-    credentialReadiness = {
-      status: "not-ready",
-      missing: [
-        {
-          kind: "stt",
-          providerId: "openai-whisper",
-          reason: "missing-credentials",
-        },
-      ],
-    };
-
-    const result = await startCall({
-      phoneNumber: "+12025550123",
-      task: "Test call",
-      conversationId: convId,
-    });
-
-    expect(result.ok).toBe(true);
-    // The preflight was skipped, so Twilio dialing proceeded.
-    expect(twilioInitiateCallCount).toBe(1);
   });
 
   test("failed call writes a failed pointer to the initiating conversation", async () => {
