@@ -11,10 +11,11 @@ import {
 } from "@vellumai/local-mode";
 
 import { installAbout, openAboutWindow } from "./about";
-import { APP_HOST, APP_PROTOCOL } from "./app-config";
+import { APP_HOST, APP_PROTOCOL, BUNDLES_DIR_NAME, VELLUMAPP_PROTOCOL } from "./app-config";
 import { installCsp } from "./csp";
 import { handle, handleSync } from "./ipc";
 import { resolveAppProtocolPath } from "./app-protocol";
+import { registerVellumAppProtocol } from "./vellumapp-protocol";
 import { planGatewayForward } from "./gateway-forward";
 import { planPlatformForward } from "./platform-forward";
 import {
@@ -22,6 +23,8 @@ import {
   handleDeepLink,
   installDeepLinks,
 } from "./deep-links";
+import { handleBundleFile, installBundleFlow } from "./bundle-flow";
+import { handleFileOpen, installFileOpen, onFileOpen } from "./file-open";
 import { installAvatarIpc } from "./avatar";
 import { installDock } from "./dock";
 import { installFeedbackIpc } from "./feedback";
@@ -94,6 +97,16 @@ protocol.registerSchemesAsPrivileged([
       corsEnabled: true,
     },
   },
+  {
+    scheme: VELLUMAPP_PROTOCOL,
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+      corsEnabled: true,
+    },
+  },
 ]);
 
 // Deep-link plumbing — register at module top-level so the
@@ -102,6 +115,7 @@ protocol.registerSchemesAsPrivileged([
 // can fire before `whenReady`). Registering in `whenReady` misses
 // the launching URL — the #1 deep-link bug in Electron apps.
 installDeepLinks();
+installFileOpen();
 
 // Serve apps/web/dist/ as static files via `app://vellum.ai/...`. Route-like
 // paths (no file extension, or `.html`) fall back to index.html so React
@@ -304,6 +318,11 @@ app
     if (!isDev) {
       registerAppProtocol();
     }
+    registerVellumAppProtocol(
+      path.join(app.getPath("userData"), BUNDLES_DIR_NAME),
+    );
+    installBundleFlow();
+    onFileOpen(handleBundleFile);
     installPermissionHandler();
     installCsp();
     installSettingsIpc();
@@ -365,6 +384,13 @@ app.on("second-instance", (_event, argv) => {
   // / broadcast pipeline is platform-agnostic.
   const deepLink = extractDeepLinkFromArgv(argv);
   if (deepLink) handleDeepLink(deepLink);
+  // Forward .vellum file paths from second-instance argv so the
+  // buffer/broadcast pipeline handles them identically to open-file.
+  for (const arg of argv) {
+    if (/\.vellum$/i.test(arg)) {
+      handleFileOpen(arg);
+    }
+  }
 });
 
 app.on("web-contents-created", (_event, contents) => {

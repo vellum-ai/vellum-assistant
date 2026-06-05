@@ -119,6 +119,38 @@ export interface ElectronNotificationActionEvent {
   deepLinkMetadata?: Record<string, unknown>;
 }
 
+/**
+ * Renderer-side mirror of `BundleScanData` in
+ * `apps/macos/src/main/bundle-manager.ts`. Inline for the same reason
+ * as `VellumCommand` — main, preload, and renderer each have their
+ * own TS project.
+ */
+export interface BundleScanData {
+  manifest: {
+    format_version: number;
+    name: string;
+    description?: string;
+    icon?: string;
+    entry: string;
+    capabilities: string[];
+    created_by: string;
+    created_at: string;
+  };
+  scanResult: {
+    passed: boolean;
+    blocked: string[];
+    warnings: string[];
+  };
+  signatureResult: {
+    trustTier: "verified" | "signed" | "unsigned" | "tampered";
+    signerKeyId?: string;
+    signerDisplayName?: string;
+    signerAccount?: string;
+    message?: string;
+  };
+  bundleSizeBytes: number;
+}
+
 declare global {
   interface Window {
     vellum?: {
@@ -246,6 +278,11 @@ declare global {
         onAction(
           callback: (event: ElectronNotificationActionEvent) => void,
         ): () => void;
+      };
+      // Optional: older Electron shells predate the bundleConfirm channel.
+      bundleConfirm?: {
+        getData(): Promise<BundleScanData | null>;
+        respond(accepted: boolean): void;
       };
     };
   }
