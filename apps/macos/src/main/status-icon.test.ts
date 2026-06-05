@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // `./status` transitively imports `./ipc` (→ `ipcMain`) at module load; stub
 // it so this test only needs the `nativeImage` surface, mocked below.
-mock.module("./ipc", () => ({ on: () => undefined }));
+mock.module("./ipc", () => ({ on: () => undefined, handle: () => undefined }));
 
 const setTemplateImageMock = mock((_flag: boolean) => undefined);
 const createFromBitmapMock = mock((_buf: unknown, _opts: unknown) => ({
