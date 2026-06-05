@@ -14,7 +14,6 @@ export type TranscriptItemKind =
   | "pendingConfirmation"
   | "pendingContactRequest"
   | "surface"
-  | "error"
   | "onboardingChoice";
 
 export interface TranscriptItemBase {
@@ -60,11 +59,6 @@ export interface SurfaceItem extends TranscriptItemBase {
   surface: Surface;
 }
 
-export interface ErrorItem extends TranscriptItemBase {
-  kind: "error";
-  message: string;
-}
-
 export interface ProfileAutoRoutedItem extends TranscriptItemBase {
   kind: "profileAutoRouted";
   profileLabel: string;
@@ -82,7 +76,6 @@ export type TranscriptItem =
   | PendingConfirmationItem
   | PendingContactRequestItem
   | SurfaceItem
-  | ErrorItem
   | OnboardingChoiceItem;
 
 /** Result of splitting the transcript into stable history and the

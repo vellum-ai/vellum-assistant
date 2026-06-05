@@ -3,7 +3,6 @@ import { describe, expect, test } from "bun:test";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import { partitionLatestTurn } from "@/domains/chat/transcript/partition-latest-turn";
 import type {
-  ErrorItem,
   MessageItem,
   ThinkingItem,
   TranscriptItem,
@@ -26,10 +25,6 @@ function messageItem(message: DisplayMessage): MessageItem {
 
 function thinkingItem(): ThinkingItem {
   return { kind: "thinking", key: "thinking" };
-}
-
-function errorItem(message: string): ErrorItem {
-  return { kind: "error", key: "error-notice", message };
 }
 
 describe("partitionLatestTurn", () => {
@@ -77,14 +72,13 @@ describe("partitionLatestTurn", () => {
     const u2Item = messageItem(u2);
     const a2Item = messageItem(a2);
     const think = thinkingItem();
-    const err = errorItem("oops");
 
-    const items: TranscriptItem[] = [u1Item, a1Item, u2Item, a2Item, think, err];
+    const items: TranscriptItem[] = [u1Item, a1Item, u2Item, a2Item, think];
 
     const partition = partitionLatestTurn(items);
     expect(partition.anchorMessage).toBe(u2Item);
     expect(partition.historyItems).toEqual([u1Item, a1Item]);
-    expect(partition.responseItems).toEqual([a2Item, think, err]);
+    expect(partition.responseItems).toEqual([a2Item, think]);
   });
 
   test("picks the LAST user message when multiple user messages exist", () => {
@@ -102,7 +96,7 @@ describe("partitionLatestTurn", () => {
   test("does not treat a non-message item as an anchor", () => {
     // Trailers alone must not become the anchor even though they come
     // after all messages.
-    const items: TranscriptItem[] = [thinkingItem(), errorItem("oops")];
+    const items: TranscriptItem[] = [thinkingItem()];
     const partition = partitionLatestTurn(items);
     expect(partition.anchorMessage).toBeNull();
     expect(partition.historyItems).toEqual(items);

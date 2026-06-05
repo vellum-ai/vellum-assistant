@@ -36,7 +36,6 @@ function emptyInput() {
     pendingSecret: null,
     pendingConfirmation: null,
     isThinking: false,
-    errorNotice: null,
   };
 }
 
@@ -120,14 +119,12 @@ describe("buildTranscriptItems", () => {
       ...emptyInput(),
       messages: [user],
       isThinking: true,
-      errorNotice: "oh no",
     });
 
-    // message, thinking, error — thinking is the FIRST trailer.
+    // message, thinking — thinking is the FIRST trailer.
     expect(items.map((i) => i.kind)).toEqual([
       "message",
       "thinking",
-      "error",
     ]);
     expect(items[1]).toEqual({ kind: "thinking", key: "thinking" });
   });
@@ -190,7 +187,7 @@ describe("buildTranscriptItems", () => {
     expectDistinctNonEmptyKeys(items);
   });
 
-  test("errorNotice is always the last item", () => {
+  test("full trailer order: thinking → pendingSecret → pendingConfirmation", () => {
     const user = makeMessage({ id: "m1", role: "user", ...textBody("Hi"),  });
 
     const items = buildTranscriptItems({
@@ -199,31 +196,15 @@ describe("buildTranscriptItems", () => {
       isThinking: true,
       pendingSecret: { requestId: "req-s" },
       pendingConfirmation: { requestId: "req-c" },
-      errorNotice: "boom",
     });
 
-    expect(items[items.length - 1]).toEqual({
-      kind: "error",
-      key: "error-notice",
-      message: "boom",
-    });
-    // The full trailer order is thinking -> pendingSecret -> pendingConfirmation -> error.
     expect(items.map((i) => i.kind)).toEqual([
       "message",
       "thinking",
       "pendingSecret",
       "pendingConfirmation",
-      "error",
     ]);
     expectDistinctNonEmptyKeys(items);
-  });
-
-  test("empty-string errorNotice does NOT produce an ErrorItem", () => {
-    const items = buildTranscriptItems({
-      ...emptyInput(),
-      errorNotice: "",
-    });
-    expect(items).toEqual([]);
   });
 
   test("every item has a non-empty, distinct key in a mixed transcript", () => {
@@ -245,7 +226,6 @@ describe("buildTranscriptItems", () => {
       pendingSecret: { requestId: "req-s" },
       pendingConfirmation: { requestId: "req-c" },
       isThinking: true,
-      errorNotice: "oops",
     });
 
     expectDistinctNonEmptyKeys(items);
