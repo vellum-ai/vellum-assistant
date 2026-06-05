@@ -237,6 +237,35 @@ jobs:
         run: bun run test
         working-directory: credential-executor
 
+  ci-cli:
+    needs: [check-for-new-commits]
+    if: ${{ needs.check-for-new-commits.outputs.has_new_commits == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.3.11'
+
+      - name: Install shared packages
+        uses: ./.github/actions/install-shared-packages
+        with:
+          packages: packages/environments packages/local-mode
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+        working-directory: cli
+
+      - name: Lint
+        run: bun run lint
+        working-directory: cli
+
+      - name: Typecheck
+        run: bun run typecheck
+        working-directory: cli
+
   # ── Docker Images ──────────────────────────────────────────────────────
 
   push-assistant-image:
@@ -1954,7 +1983,7 @@ jobs:
   # ── Dev npm publishing ─────────────────────────────────────────────────
 
   publish-npm-dev:
-    needs: [compute-version, ci-assistant, ci-gateway, ci-credential-executor]
+    needs: [compute-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -1986,7 +2015,7 @@ jobs:
           npm publish --tag dev --access public --no-provenance
 
   publish-web-dev:
-    needs: [compute-version, ci-assistant, ci-gateway, ci-credential-executor]
+    needs: [compute-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
