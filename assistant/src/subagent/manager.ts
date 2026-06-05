@@ -13,7 +13,11 @@ import { v4 as uuid } from "uuid";
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import { Conversation } from "../daemon/conversation.js";
-import { findConversation } from "../daemon/conversation-store.js";
+import {
+  findConversation,
+  removeSubagentConversation,
+  setSubagentConversation,
+} from "../daemon/conversation-registry.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { wrapWithCallSiteRouting } from "../providers/call-site-routing.js";
@@ -334,6 +338,10 @@ export class SubagentManager {
 
     managed.conversation = conversation;
     this.subagents.set(subagentId, managed);
+    // Index the live conversation so the per-conversation injectors (workspace
+    // context, disk-pressure warning) can resolve it by id; subagents are not
+    // in the eviction-managed conversation store.
+    setSubagentConversation(conversationRecord.id, conversation);
     const labelKey = `${config.parentConversationId}:${config.label.toLowerCase().trim()}`;
     if (this.labelIndex.has(labelKey)) {
       log.warn(
@@ -695,7 +703,9 @@ export class SubagentManager {
    */
   private releaseConversation(managed: ManagedSubagent): void {
     if (!managed.conversation) return;
-    managed.conversation.dispose();
+    const conversation = managed.conversation;
+    removeSubagentConversation(conversation.conversationId, conversation);
+    conversation.dispose();
     managed.conversation = null;
     managed.retainedUntil = Date.now() + TERMINAL_RETENTION_MS;
     this.ensureSweepRunning();
@@ -716,16 +726,18 @@ export class SubagentManager {
     if (!managed) return;
 
     if (managed.conversation) {
+      const conversation = managed.conversation;
       if (!TERMINAL_STATUSES.has(managed.state.status)) {
-        managed.conversation.abort(
+        conversation.abort(
           createAbortReason(
             "subagent_aborted",
             "SubagentManager.dispose",
-            managed.conversation.conversationId,
+            conversation.conversationId,
           ),
         );
       }
-      managed.conversation.dispose();
+      removeSubagentConversation(conversation.conversationId, conversation);
+      conversation.dispose();
       managed.conversation = null;
     }
     this.subagents.delete(subagentId);

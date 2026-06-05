@@ -47,7 +47,7 @@ import { resolve } from "node:path";
 
 import { getConfig } from "../../../config/loader.js";
 import type { InjectionMatcher } from "../../../context/strip-injections.js";
-import { findConversation } from "../../../daemon/conversation-registry.js";
+import { findConversationOrSubagent } from "../../../daemon/conversation-registry.js";
 import { resolveWorkspaceTopLevelContext } from "../../../daemon/conversation-workspace.js";
 import { readNowScratchpad } from "../../../daemon/now-scratchpad.js";
 import { getInContextPkbPaths } from "../../../daemon/pkb-context-tracker.js";
@@ -141,9 +141,7 @@ const diskPressureWarningInjector: Injector = {
   name: "disk-pressure-warning",
   order: DEFAULT_INJECTOR_ORDER.diskPressureWarning,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
-    const conversation = ctx.conversationId
-      ? findConversation(ctx.conversationId)
-      : undefined;
+    const conversation = findConversationOrSubagent(ctx.conversationId);
     if (!conversation?.diskPressureCleanupModeActive) return null;
     return {
       id: "disk-pressure-warning",

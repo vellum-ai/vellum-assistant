@@ -32,9 +32,9 @@ let mockSurfaceResult: InteractiveUiResult = {
 let mockSurfaceThrows: Error | null = null;
 
 // Re-export the real module and override only findConversation.
-const realStore = await import("../../daemon/conversation-store.js");
-mock.module("../../daemon/conversation-store.js", () => ({
-  ...realStore,
+const realRegistry = await import("../../daemon/conversation-registry.js");
+mock.module("../../daemon/conversation-registry.js", () => ({
+  ...realRegistry,
   findConversation: (_conversationId: string) => mockConversation ?? undefined,
 }));
 
