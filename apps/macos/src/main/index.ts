@@ -24,7 +24,8 @@ import {
   handleDeepLink,
   installDeepLinks,
 } from "./deep-links";
-import { handleFileOpen, installFileOpen } from "./file-open";
+import { handleBundleFile, installBundleFlow } from "./bundle-flow";
+import { handleFileOpen, installFileOpen, onFileOpen } from "./file-open";
 import { installAvatarIpc } from "./avatar";
 import { installDock } from "./dock";
 import { installFeedbackIpc } from "./feedback";
@@ -321,6 +322,8 @@ app
         path.join(app.getPath("userData"), BUNDLES_DIR_NAME),
       );
     }
+    installBundleFlow();
+    onFileOpen(handleBundleFile);
     installPermissionHandler();
     installCsp();
     installSettingsIpc();

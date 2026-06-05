@@ -33,6 +33,8 @@ const pending: string[] = [];
 
 const subscribers = new Set<WebContents>();
 
+const fileOpenCallbacks = new Set<(path: string) => void>();
+
 const broadcast = (filePath: string): void => {
   for (const win of BrowserWindow.getAllWindows()) {
     if (win.isDestroyed()) continue;
@@ -40,13 +42,30 @@ const broadcast = (filePath: string): void => {
   }
 };
 
+const notifyCallbacks = (filePath: string): void => {
+  for (const cb of fileOpenCallbacks) cb(filePath);
+};
+
 export const handleFileOpen = (filePath: string): void => {
   if (!VELLUM_EXT_RE.test(filePath)) return;
   if (subscribers.size === 0) pending.push(filePath);
   broadcast(filePath);
+  notifyCallbacks(filePath);
   if (app.isReady()) {
     void ensureMainWindowVisible();
   }
+};
+
+/**
+ * Register a main-process callback invoked for every `.vellum` file-open event.
+ * Returns an unsubscribe function. When files are drained by the renderer, the
+ * callback is also invoked for each drained path.
+ */
+export const onFileOpen = (callback: (path: string) => void): (() => void) => {
+  fileOpenCallbacks.add(callback);
+  return () => {
+    fileOpenCallbacks.delete(callback);
+  };
 };
 
 let installed = false;
@@ -88,5 +107,6 @@ export const installFileOpen = (): void => {
 export const __resetForTesting = (): void => {
   installed = false;
   subscribers.clear();
+  fileOpenCallbacks.clear();
   pending.length = 0;
 };
