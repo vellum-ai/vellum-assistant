@@ -13,7 +13,6 @@ import {
 import { installAbout, openAboutWindow } from "./about";
 import { APP_HOST, APP_PROTOCOL } from "./app-config";
 import { installCsp } from "./csp";
-import { ensureWebInstalled, getWebDistPath } from "./cli-installer";
 import { handle, handleSync } from "./ipc";
 import { resolveAppProtocolPath } from "./app-protocol";
 import { planGatewayForward } from "./gateway-forward";
@@ -116,7 +115,7 @@ const RENDERER_MOUNT = "/assistant";
 
 const resolveRendererRoot = (): string => {
   if (app.isPackaged) {
-    return getWebDistPath();
+    return path.join(process.resourcesPath, "web-dist");
   }
   // Dev source tree: apps/web/dist — requires `bun run build` in apps/web/.
   const repoRoot = path.resolve(app.getAppPath(), "..", "..");
@@ -300,9 +299,6 @@ app
   .whenReady()
   .then(async () => {
     if (!isDev) {
-      // TODO(LUM-2214): a deep-link or second-instance activation during
-      // this await can create a window before the protocol handler exists.
-      await ensureWebInstalled();
       registerAppProtocol();
     }
     installPermissionHandler();
