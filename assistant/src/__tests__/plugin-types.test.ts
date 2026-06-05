@@ -16,8 +16,6 @@ import {
   type CompactionArgs,
   type CompactionResult,
   type Middleware,
-  type OverflowReduceArgs,
-  type OverflowReduceResult,
   type Plugin,
   PluginExecutionError,
   type PluginInitContext,
@@ -50,30 +48,9 @@ describe("plugin core types", () => {
       config: { parse: (input: unknown) => input },
     };
 
-    // `overflowReduce` has a concrete arg/result shape (PR 23). Uses a
-    // dedicated passthrough that returns a structurally-correct result so
-    // `satisfies Plugin` keeps verifying the signature.
-    const overflowReducePassthrough: Middleware<
-      OverflowReduceArgs,
-      OverflowReduceResult
-    > = async (args, _next, _ctx) => ({
-      messages: args.messages,
-      runMessages: args.runMessages,
-      injectionMode: "full",
-      reducerState: {
-        appliedTiers: [],
-        injectionMode: "full",
-        exhausted: true,
-      },
-      reducerCompacted: false,
-      attempts: 0,
-    });
-
-    // Slot-specific passthrough for the `compaction` pipeline — PR 25
-    // narrowed its args/result away from the generic `{ input: unknown }`
-    // placeholder, so the generic `passthrough` no longer satisfies its
-    // middleware signature. This dedicated middleware keeps the shape-only
-    // assertion for the slot without forcing every other slot to narrow.
+    // The `compaction` slot has a concrete arg/result shape, so it needs a
+    // dedicated passthrough whose middleware signature matches — keeping the
+    // shape-only `satisfies Plugin` assertion meaningful for the slot.
     const compactionPassthrough: Middleware<
       CompactionArgs,
       CompactionResult
@@ -124,7 +101,6 @@ describe("plugin core types", () => {
       ],
       middleware: {
         compaction: compactionPassthrough,
-        overflowReduce: overflowReducePassthrough,
       },
     } satisfies Plugin;
 
@@ -146,7 +122,7 @@ describe("plugin core types", () => {
   });
 
   test("PluginTimeoutError omits plugin suffix when unknown", () => {
-    const err = new PluginTimeoutError("overflowReduce", undefined, 1234);
+    const err = new PluginTimeoutError("compaction", undefined, 1234);
     expect(err.pluginName).toBeUndefined();
     expect(err.message).not.toContain("offending plugin");
   });

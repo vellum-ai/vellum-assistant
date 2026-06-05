@@ -648,10 +648,9 @@ beforeEach(() => {
   recordUsageMock.mockClear();
   setAgentLoopExitReasonOnLatestLogMock.mockClear();
   addMessageMock.mockClear();
-  // Reset the plugin registry and re-register every default so the
-  // orchestrator's pipelines (`overflowReduce`, `persistence`, …) dispatch to
-  // the default middleware, which in turn hits the mocked collaborators
-  // (`reduceContextOverflow`, `syncMessageToDisk`, …) these tests install.
+  // Reset the plugin registry and re-register every default so the compaction
+  // pipeline dispatches to the default middleware, which in turn hits the
+  // mocked collaborators (`syncMessageToDisk`, …) these tests install.
   resetPluginRegistryAndRegisterDefaults();
 });
 

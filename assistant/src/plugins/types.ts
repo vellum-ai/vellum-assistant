@@ -7,7 +7,7 @@
  * placeholders) and add the pipeline runner, registry, and bootstrap.
  *
  * The assistant composes behavior around a small set of named pipelines
- * (`compaction`, `overflowReduce`, ...). Each plugin may contribute one
+ * (`compaction`). Each plugin may contribute one
  * {@link Middleware} per pipeline; the registry composes them in onion
  * order at runtime. Plugins may also contribute {@link Injector}s that emit
  * system-prompt-time content, as well as model-visible capabilities
@@ -18,13 +18,8 @@
 
 import type { CompactionCircuitClosedEvent } from "../api/events/compaction-circuit-closed.js";
 import type { CompactionCircuitOpenEvent } from "../api/events/compaction-circuit-open.js";
-import type { ContextWindowConfig } from "../config/schemas/inference.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import type {
-  ContextWindowManager,
-  ContextWindowResult,
-} from "../context/window-manager.js";
-import type { ReducerState } from "../daemon/context-overflow-reducer.js";
+import type { ContextWindowManager } from "../context/window-manager.js";
 import type {
   ActiveSurfaceContext,
   ChannelCapabilities,
@@ -108,7 +103,7 @@ export type Middleware<A, R> = (
  * Exhaustive list of pipeline slot names. New pipelines must be added here
  * and in `DEFAULT_TIMEOUTS` (PR 12). The registry only understands these.
  */
-export type PipelineName = "compaction" | "overflowReduce";
+export type PipelineName = "compaction";
 
 // ─── Per-pipeline args / results (placeholder shapes) ────────────────────────
 // Concrete field-level types land in M2/M3 PRs as each pipeline is wrapped.
@@ -153,120 +148,6 @@ export type CompactionArgs = {
 export type CompactionResult = unknown;
 
 /**
- * Input to the `overflowReduce` pipeline. Captures everything the reducer
- * tier loop needs, including the message history, reducer configuration,
- * and side-effect callbacks that bridge the pipeline back to the orchestrator's
- * mutable per-turn state (context-window manager, activity emitter, runtime
- * injection reassembly, memory reinjection).
- *
- * The callbacks are supplied by the orchestrator because the reducer loop
- * needs to coordinate with state that lives on the `AgentLoopConversationContext`
- * (message mutation, compaction event emission, circuit breaker tracking,
- * injection block reassembly). Keeping them as explicit callbacks — rather
- * than pulling the whole context into the pipeline — preserves the rule that
- * `TurnContext` stays minimal and pipeline-agnostic.
- */
-export interface OverflowReduceArgs {
-  /** Bare persisted message history (mutable copy — the default middleware
-   *  applies reducer results in-place via the `applyMessages` callback). */
-  readonly messages: Message[];
-  /** Current run-time message array with runtime injections applied. */
-  readonly runMessages: Message[];
-  /** System prompt used for post-step token estimation. */
-  readonly systemPrompt: string;
-  /** Provider name used for token estimation (calibration provider key). */
-  readonly providerName: string;
-  /** Context window config (drives compaction behavior). */
-  readonly contextWindow: ContextWindowConfig;
-  /** Token budget the reducer must get below (preflight budget). */
-  readonly preflightBudget: number;
-  /** Tool-token overhead included in every estimation call. */
-  readonly toolTokenBudget?: number;
-  /** Maximum reducer iterations before the loop exits unconditionally. */
-  readonly maxAttempts: number;
-  /** Abort signal threaded through compaction calls. */
-  readonly abortSignal?: AbortSignal;
-  /**
-   * Compaction callback — the reducer never owns the ContextWindowManager
-   * instance. The orchestrator supplies this closure so the default plugin
-   * can delegate the forced-compaction tier without crossing the
-   * pipeline/infra boundary on its own.
-   */
-  readonly compactFn: (
-    messages: Message[],
-    signal: AbortSignal | undefined,
-    options: unknown,
-  ) => Promise<ContextWindowResult>;
-  /**
-   * Invoked before each reducer iteration to emit the `context_compacting`
-   * activity state. The orchestrator owns activity emission because the
-   * signal is trust/channel aware.
-   */
-  readonly emitActivityState: () => void;
-  /**
-   * Invoked after each reducer step that produced a successful compaction.
-   * Handles circuit-breaker tracking, event emission, and context mutation.
-   * The pipeline passes back `didCompact` so the orchestrator can flip its
-   * `reducerCompacted` flag and the next re-injection uses the fresh messages.
-   */
-  readonly onCompactionResult: (
-    result: ContextWindowResult,
-    compactedBasis?: Message[],
-  ) => void | Promise<void>;
-  /**
-   * Invoked after each step to rebuild `runMessages` from the step's
-   * reduced history with the requested injection mode. The orchestrator
-   * owns this helper so the full per-turn injection options object doesn't
-   * leak into the pipeline surface. The plugin passes the current reduced
-   * messages array explicitly so the orchestrator doesn't need to read
-   * mutable shared state. Returns the new `runMessages`.
-   *
-   * Two distinct "did compact" signals are passed so the orchestrator can
-   * apply the correct per-iteration vs sticky gating:
-   * - `stepCompacted` — whether THIS iteration's reducer step produced a
-   *   fresh compaction. Gates PKB / NOW re-injection: compaction strips the
-   *   existing blocks, so only iterations that just compacted need the
-   *   content re-threaded. Iterations that only truncated tool results or
-   *   downgraded injections must NOT force a re-injection or the token
-   *   count grows each round.
-   * - `accumulatedCompacted` — whether ANY iteration in this pipeline
-   *   invocation has compacted. Gates `slackChronologicalMessages`
-   *   suppression: once compaction has run, the captured Slack transcript
-   *   snapshot would overwrite the compacted history, so it must stay
-   *   suppressed for every subsequent iteration even if that iteration
-   *   didn't re-compact.
-   */
-  readonly reinjectForMode: (
-    messages: Message[],
-    mode: InjectionMode,
-    stepCompacted: boolean,
-    accumulatedCompacted: boolean,
-  ) => Promise<Message[]>;
-  /**
-   * Invoked after each step to post-estimate the rebuilt `runMessages`.
-   * Pulled out so the orchestrator controls how estimation is performed
-   * (and which fields feed it) without the pipeline reimplementing it.
-   */
-  readonly estimatePostInjection: (runMessages: Message[]) => number;
-}
-
-/** Output of the `overflowReduce` pipeline. */
-export interface OverflowReduceResult {
-  /** Final reduced `ctx.messages` value (mutated in place by the reducer). */
-  readonly messages: Message[];
-  /** Final `runMessages` with re-applied runtime injections. */
-  readonly runMessages: Message[];
-  /** Final injection mode (may be `"minimal"` if the downgrade tier fired). */
-  readonly injectionMode: InjectionMode;
-  /** Accumulated reducer state at exit. */
-  readonly reducerState: ReducerState;
-  /** True if any step successfully compacted history. */
-  readonly reducerCompacted: boolean;
-  /** How many iterations of the tier loop executed. */
-  readonly attempts: number;
-}
-
-/**
  * The complete set of compaction circuit-breaker transition events:
  * `compaction_circuit_open` when the breaker trips and `compaction_circuit_closed`
  * on the open→closed transition. Both are a subset of `ServerMessage`, so any
@@ -284,7 +165,6 @@ export type CompactionCircuitEvent =
  */
 export interface PipelineMiddlewareMap {
   compaction: Middleware<CompactionArgs, CompactionResult>;
-  overflowReduce: Middleware<OverflowReduceArgs, OverflowReduceResult>;
 }
 
 // ─── TurnContext ─────────────────────────────────────────────────────────────

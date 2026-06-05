@@ -94,11 +94,9 @@ import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
   CompactionArgs,
   CompactionResult,
-  OverflowReduceArgs,
-  OverflowReduceResult,
   TurnContext as PluginTurnContext,
 } from "../plugins/types.js";
-import { PluginExecutionError, PluginTimeoutError } from "../plugins/types.js";
+import { PluginTimeoutError } from "../plugins/types.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import { resolveActorTrust } from "../runtime/actor-trust-resolver.js";
@@ -177,6 +175,10 @@ import type {
   UsageStats,
 } from "./message-protocol.js";
 import type { ConfirmationStateChanged } from "./message-types/messages.js";
+import {
+  type OverflowReduceArgs,
+  runOverflowReductionLoop,
+} from "./overflow-reduction-loop.js";
 import { parseActualTokensFromError } from "./parse-actual-tokens-from-error.js";
 import {
   persistUnsendableImageDowngrades,
@@ -1455,16 +1457,12 @@ export async function runAgentLoopImpl(
         "Preflight budget exceeded — running overflow reducer before provider call",
       );
 
-      // Overflow reduction runs through the plugin pipeline. The default
-      // middleware (`default-overflow-reduce`, registered at bootstrap)
-      // contains the historical tier loop — forced compaction → tool-result
-      // truncation → media stubbing → injection downgrade — plus the
-      // re-inject/re-estimate convergence check. The callbacks below are
-      // the orchestrator-specific side effects that the plugin coordinates
-      // per iteration (activity emission, compaction application, runtime
-      // injection reassembly, token re-estimation). Registered plugins that
-      // wrap the `overflowReduce` slot see each iteration through their own
-      // middleware `next` callback.
+      // `runOverflowReductionLoop` drives the tier loop — forced compaction →
+      // tool-result truncation → media stubbing → injection downgrade — plus
+      // the re-inject/re-estimate convergence check. The callbacks below are
+      // the orchestrator-specific side effects it coordinates per iteration
+      // (activity emission, compaction application, runtime injection
+      // reassembly, token re-estimation).
       const messagesForPreflightOverflowReduction =
         slackChronologicalContext?.messages ?? ctx.messages;
       const overflowArgs: OverflowReduceArgs = {
@@ -1621,29 +1619,7 @@ export async function runAgentLoopImpl(
           }),
       };
 
-      const overflowResult = await runPipeline<
-        OverflowReduceArgs,
-        OverflowReduceResult
-      >(
-        "overflowReduce",
-        getMiddlewaresFor("overflowReduce"),
-        // Terminal — only reached when every registered middleware calls
-        // `next` and delegates past the innermost layer. The default plugin
-        // is a terminal itself (it doesn't call `next`), so in practice
-        // this fallback fires only when the default has been explicitly
-        // deregistered (tests) and no user plugin replaces it. Strict-fail
-        // semantics: throw so the missing terminal surfaces as a visible
-        // error instead of silently returning the history untouched.
-        async () => {
-          throw new PluginExecutionError(
-            "overflowReduce pipeline has no terminal handler — every reducer middleware called next() without providing a replacement",
-            "overflowReduce",
-          );
-        },
-        overflowArgs,
-        buildPluginTurnContext(ctx, reqId),
-        DEFAULT_TIMEOUTS.overflowReduce,
-      );
+      const overflowResult = await runOverflowReductionLoop(overflowArgs);
 
       ctx.messages = overflowResult.messages;
       runMessages = overflowResult.runMessages;

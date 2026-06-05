@@ -759,11 +759,10 @@ beforeEach(() => {
   projectAssistantMessageMock.mockClear();
   publishSyncInvalidationMock.mockClear();
   mockMessageById = null;
-  // Orchestrator pipelines (overflowReduce, persistence, …) run through the
-  // plugin registry; reset and re-register every default so the pipelines
-  // dispatch to middleware backed by the mocked collaborators these tests
-  // install (`reduceContextOverflow`, `syncMessageToDisk`, etc.) instead of
-  // hitting the bare terminals.
+  // The compaction pipeline runs through the plugin registry; reset and
+  // re-register every default so it dispatches to middleware backed by the
+  // mocked collaborators these tests install (`syncMessageToDisk`, etc.)
+  // instead of hitting the bare terminal.
   resetPluginRegistryAndRegisterDefaults();
 });
 

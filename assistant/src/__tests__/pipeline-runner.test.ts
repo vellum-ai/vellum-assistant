@@ -170,12 +170,12 @@ describe("runPipeline — error propagation", () => {
 
     await expect(
       runPipeline(
-        "overflowReduce",
+        "compaction",
         [thrower],
         terminal,
         { value: 1 },
         makeCtx(),
-        DEFAULT_TIMEOUTS.overflowReduce,
+        DEFAULT_TIMEOUTS.compaction,
       ),
     ).rejects.toBeInstanceOf(Boom);
   });
@@ -187,12 +187,12 @@ describe("runPipeline — error propagation", () => {
 
     await expect(
       runPipeline(
-        "overflowReduce",
+        "compaction",
         [],
         terminal,
         { value: 1 },
         makeCtx(),
-        DEFAULT_TIMEOUTS.overflowReduce,
+        DEFAULT_TIMEOUTS.compaction,
       ),
     ).rejects.toBeInstanceOf(TypeError);
   });
@@ -366,12 +366,12 @@ describe("runPipeline — timeout aborts linked signal", () => {
       return { value: innerArgs.value };
     };
     await runPipeline(
-      "overflowReduce",
+      "compaction",
       [],
       terminal,
       args,
       makeCtx(),
-      DEFAULT_TIMEOUTS.overflowReduce,
+      DEFAULT_TIMEOUTS.compaction,
     );
     expect(seen).toBe(args);
   });
@@ -429,19 +429,19 @@ describe("runPipeline — structured log record", () => {
 
     await expect(
       runPipeline(
-        "overflowReduce",
+        "compaction",
         [thrower],
         terminal,
         { value: 1 },
         makeCtx({ pluginName: "noisy-plugin" }),
-        DEFAULT_TIMEOUTS.overflowReduce,
+        DEFAULT_TIMEOUTS.compaction,
       ),
     ).rejects.toBeInstanceOf(Boom);
 
     expect(fakeLogger.calls.length).toBe(1);
     const [record] = fakeLogger.calls[0]!;
     expect(record.outcome).toBe("error");
-    expect(record.pipeline).toBe("overflowReduce");
+    expect(record.pipeline).toBe("compaction");
     expect(record.errorName).toBe("BoomError");
     expect(record.errorMessage).toBe("kaboom");
     expect(typeof record.errorStack).toBe("string");
@@ -457,7 +457,7 @@ describe("runPipeline — structured log record", () => {
 
     await expect(
       runPipeline(
-        "overflowReduce",
+        "compaction",
         [sleeper],
         terminal,
         { value: 1 },
@@ -469,9 +469,9 @@ describe("runPipeline — structured log record", () => {
     expect(fakeLogger.calls.length).toBe(1);
     const [record] = fakeLogger.calls[0]!;
     expect(record.outcome).toBe("timeout");
-    expect(record.pipeline).toBe("overflowReduce");
+    expect(record.pipeline).toBe("compaction");
     expect(record.errorName).toBe("PluginTimeoutError");
-    expect(String(record.errorMessage)).toContain("overflowReduce");
+    expect(String(record.errorMessage)).toContain("compaction");
     expect(String(record.errorMessage)).toContain("slow-plugin");
     expect(record.timeoutMs).toBe(15);
     expect(record.pluginName).toBe("slow-plugin");
@@ -507,7 +507,7 @@ describe("runPipeline — structured log record", () => {
       logger: fakeLogger,
     } as TurnContext;
     await runPipeline(
-      "overflowReduce",
+      "compaction",
       [],
       terminal,
       { value: 0 },
@@ -548,7 +548,6 @@ describe("DEFAULT_TIMEOUTS", () => {
   test("matches the design-doc table exactly", () => {
     expect(DEFAULT_TIMEOUTS).toEqual({
       compaction: null,
-      overflowReduce: null,
     });
   });
 });

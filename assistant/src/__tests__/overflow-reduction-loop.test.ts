@@ -1,24 +1,17 @@
 /**
- * Unit tests for the default `overflowReduce` plugin (PR 23).
+ * Unit tests for `runOverflowReductionLoop` — the direct-call overflow
+ * reducer driver.
  *
- * Two goals:
- *   1. The default middleware produces results **identical** to the historical
- *      inline tier loop for a golden set of over-budget histories. We exercise
- *      this by running the same inputs through two paths — the pipeline and a
- *      faithful re-implementation of the pre-PR-23 inline loop — and asserting
- *      the final `(messages, runMessages, injectionMode, reducerState,
- *      reducerCompacted, attempts)` tuple matches byte-for-byte.
- *   2. A user-registered spy middleware observes **every** reduction attempt
- *      when wrapped around the default. This covers the onion-composition
- *      contract: the spy sees each call from the outside and can count
- *      iterations without changing reducer behavior.
- *
- * The test creates its own plugin registry via
- * `resetPluginRegistryForTests()` and re-registers the default before each
- * case so the registry is deterministic across runs.
+ * The default loop produces results **identical** to the historical inline
+ * tier loop for a golden set of over-budget histories. We exercise this by
+ * running the same inputs through two paths — `runOverflowReductionLoop` and
+ * a faithful re-implementation of the original inline loop — and asserting
+ * the final `(messages, runMessages, injectionMode, reducerState,
+ * reducerCompacted, attempts)` tuple matches byte-for-byte. Additional cases
+ * cover the two abort gates and the `reinjectForMode` two-flag semantics.
  */
 
-import { beforeEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
 import { estimatePromptTokens } from "../context/token-estimator.js";
 import type {
@@ -32,22 +25,10 @@ import {
   type ReducerState,
 } from "../daemon/context-overflow-reducer.js";
 import type { InjectionMode } from "../daemon/conversation-runtime-assembly.js";
-import type { TrustContext } from "../daemon/trust-context.js";
-import defaultOverflowReduceMiddleware from "../plugins/defaults/overflow-reduce/middlewares/overflowReduce.js";
-import { defaultOverflowReducePlugin } from "../plugins/defaults/overflow-reduce/register.js";
-import { runPipeline } from "../plugins/pipeline.js";
 import {
-  getMiddlewaresFor,
-  registerPlugin,
-  resetPluginRegistryForTests,
-} from "../plugins/registry.js";
-import type {
-  Middleware,
-  OverflowReduceArgs,
-  OverflowReduceResult,
-  Plugin,
-  TurnContext,
-} from "../plugins/types.js";
+  type OverflowReduceArgs,
+  runOverflowReductionLoop,
+} from "../daemon/overflow-reduction-loop.js";
 import type { Message } from "../providers/types.js";
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
@@ -86,21 +67,6 @@ const CONTEXT_WINDOW = {
     nonInteractiveLatestTurnCompression: "truncate" as const,
   },
 };
-
-const TRUST: TrustContext = {
-  sourceChannel: "vellum",
-  trustClass: "guardian",
-};
-
-function makeTurnContext(overrides: Partial<TurnContext> = {}): TurnContext {
-  return {
-    requestId: "req-overflow-test",
-    conversationId: "conv-overflow-test",
-    turnIndex: 0,
-    trust: TRUST,
-    ...overrides,
-  };
-}
 
 /**
  * Minimal compaction stub — always compacts to a one-message summary so the
@@ -146,9 +112,9 @@ function makeCompactFn(
 }
 
 /**
- * Faithful re-implementation of the pre-PR-23 inline tier loop — lives in
+ * Faithful re-implementation of the original inline tier loop — lives in
  * this test file rather than the production module so we have an immutable
- * baseline the default middleware can be diffed against. If either
+ * baseline `runOverflowReductionLoop` can be diffed against. If either
  * implementation drifts, the golden-output cases below fail.
  *
  * The function intentionally avoids any side effects on external state — no
@@ -267,9 +233,9 @@ function buildArgs(messages: Message[]): {
 
   // Identity reinject: the test harness does not exercise the full
   // `applyRuntimeInjections` pipeline; it simply tracks how many times the
-  // orchestrator would have been asked to rebuild `runMessages` so the spy
-  // middleware can attribute each iteration. Returns the reducer's latest
-  // `messages` untouched — real orchestrator code re-injects runtime blocks.
+  // orchestrator would have been asked to rebuild `runMessages`. Returns the
+  // reducer's latest `messages` untouched — real orchestrator code re-injects
+  // runtime blocks.
   const reinjectForMode = async (
     reducedMessages: Message[],
     mode: InjectionMode,
@@ -295,7 +261,7 @@ function buildArgs(messages: Message[]): {
     toolTokenBudget: 0,
     maxAttempts: CONTEXT_WINDOW.overflowRecovery.maxAttempts,
     // `OverflowReduceArgs.compactFn` types `options` as `unknown` to avoid
-    // leaking the `ContextWindowCompactOptions` shape into the plugin
+    // leaking the `ContextWindowCompactOptions` shape into the loop's args
     // surface. The test helper produces a real `ContextWindowCompactOptions`
     // signature, so we trampoline through a widened wrapper.
     compactFn: (msgs, signal, opts) =>
@@ -315,14 +281,10 @@ function buildArgs(messages: Message[]): {
 
 // ── Test suite ──────────────────────────────────────────────────────────────
 
-describe("overflow-reduce pipeline", () => {
-  beforeEach(() => {
-    resetPluginRegistryForTests();
-    registerPlugin(defaultOverflowReducePlugin);
-  });
-
-  describe("default middleware matches historical inline loop", () => {
+describe("runOverflowReductionLoop", () => {
+  describe("matches historical inline loop", () => {
     test("large tool-result history — identical reduced output", async () => {
+      // GIVEN an over-budget history dominated by a large tool result.
       const longToolResult = "r".repeat(8000);
       const goldenHistory: Message[] = [
         msg("user", "Start"),
@@ -332,27 +294,13 @@ describe("overflow-reduce pipeline", () => {
         msg("user", "Next"),
       ];
 
-      const pipelineBuild = buildArgs(goldenHistory);
+      // AND two independently-built arg sets over the SAME fixture so the
+      // direct call and the inline baseline never share a `compactFn`.
+      const directBuild = buildArgs(goldenHistory);
       const inlineBuild = buildArgs(goldenHistory);
 
-      // Run both paths against the SAME fixture. `buildArgs` gives each
-      // call its own `compactFn` instance so nothing leaks between runs.
-      const pipelineResult = await runPipeline<
-        OverflowReduceArgs,
-        OverflowReduceResult
-      >(
-        "overflowReduce",
-        getMiddlewaresFor("overflowReduce"),
-        // Sentinel terminal — the default middleware doesn't call next,
-        // so this must never fire. Assert that invariant here.
-        async () => {
-          throw new Error("terminal unexpectedly reached");
-        },
-        pipelineBuild.args,
-        makeTurnContext(),
-        30000,
-      );
-
+      // WHEN we reduce via the direct loop and the inline baseline.
+      const directResult = await runOverflowReductionLoop(directBuild.args);
       const inlineResult = await runInlineBaseline({
         messages: goldenHistory,
         runMessages: goldenHistory,
@@ -367,41 +315,27 @@ describe("overflow-reduce pipeline", () => {
         estimatePostInjection: inlineBuild.args.estimatePostInjection,
       });
 
-      // Byte-for-byte match across every field the orchestrator relies on.
-      expect(pipelineResult.messages).toEqual(inlineResult.messages);
-      expect(pipelineResult.runMessages).toEqual(inlineResult.runMessages);
-      expect(pipelineResult.injectionMode).toBe(inlineResult.injectionMode);
-      expect(pipelineResult.reducerState).toEqual(inlineResult.reducerState);
-      expect(pipelineResult.reducerCompacted).toBe(
-        inlineResult.reducerCompacted,
-      );
-      expect(pipelineResult.attempts).toBe(inlineResult.attempts);
+      // THEN every field the orchestrator relies on matches byte-for-byte.
+      expect(directResult.messages).toEqual(inlineResult.messages);
+      expect(directResult.runMessages).toEqual(inlineResult.runMessages);
+      expect(directResult.injectionMode).toBe(inlineResult.injectionMode);
+      expect(directResult.reducerState).toEqual(inlineResult.reducerState);
+      expect(directResult.reducerCompacted).toBe(inlineResult.reducerCompacted);
+      expect(directResult.attempts).toBe(inlineResult.attempts);
     });
 
     test("small conversation that fits after first reduction — single attempt", async () => {
-      // A history that's already within budget so the first `applyForcedCompaction`
-      // brings us under — the loop must exit without iterating further.
+      // GIVEN a history that the first forced compaction brings under budget.
       const smallHistory: Message[] = [
         msg("user", "Hello"),
         msg("assistant", "Hi there — how can I help?"),
       ];
 
-      const pipelineBuild = buildArgs(smallHistory);
+      const directBuild = buildArgs(smallHistory);
       const inlineBuild = buildArgs(smallHistory);
 
-      const pipelineResult = await runPipeline<
-        OverflowReduceArgs,
-        OverflowReduceResult
-      >(
-        "overflowReduce",
-        getMiddlewaresFor("overflowReduce"),
-        async () => {
-          throw new Error("terminal unexpectedly reached");
-        },
-        pipelineBuild.args,
-        makeTurnContext(),
-        30000,
-      );
+      // WHEN we reduce via the direct loop and the inline baseline.
+      const directResult = await runOverflowReductionLoop(directBuild.args);
       const inlineResult = await runInlineBaseline({
         messages: smallHistory,
         runMessages: smallHistory,
@@ -416,149 +350,17 @@ describe("overflow-reduce pipeline", () => {
         estimatePostInjection: inlineBuild.args.estimatePostInjection,
       });
 
-      expect(pipelineResult.attempts).toBe(inlineResult.attempts);
-      expect(pipelineResult.attempts).toBeGreaterThanOrEqual(1);
-      expect(pipelineResult.messages).toEqual(inlineResult.messages);
-      expect(pipelineResult.reducerCompacted).toBe(
-        inlineResult.reducerCompacted,
-      );
-    });
-  });
-
-  describe("spy middleware observes each reduction attempt", () => {
-    test("spy sees one invocation when the default converges in one step", async () => {
-      const history: Message[] = [msg("user", "Hello"), msg("assistant", "Hi")];
-
-      // Spy tracks the args passed into its layer. It must forward via
-      // `next` so the default still fires.
-      const spyCalls: Array<{
-        hadMessages: number;
-        budget: number;
-        attempts: number;
-      }> = [];
-      const spy: Middleware<OverflowReduceArgs, OverflowReduceResult> =
-        async function spyMiddleware(args, next, _ctx) {
-          spyCalls.push({
-            hadMessages: args.messages.length,
-            budget: args.preflightBudget,
-            attempts: 0, // populated after next() from the result
-          });
-          const result = await next(args);
-          spyCalls[spyCalls.length - 1]!.attempts = result.attempts;
-          return result;
-        };
-      const spyPlugin: Plugin = {
-        manifest: {
-          name: "spy-overflow",
-          version: "0.0.1",
-        },
-        middleware: { overflowReduce: spy },
-      };
-      // Register spy first so it wraps the default (registration order =
-      // outer→inner). The default therefore runs as the spy's downstream.
-      resetPluginRegistryForTests();
-      registerPlugin(spyPlugin);
-      registerPlugin(defaultOverflowReducePlugin);
-
-      const { args } = buildArgs(history);
-      const result = await runPipeline<
-        OverflowReduceArgs,
-        OverflowReduceResult
-      >(
-        "overflowReduce",
-        getMiddlewaresFor("overflowReduce"),
-        async () => {
-          throw new Error("terminal unexpectedly reached");
-        },
-        args,
-        makeTurnContext(),
-        30000,
-      );
-
-      // Spy was called exactly once — the pipeline invokes each middleware
-      // once per pipeline call, not once per reducer iteration. Iteration
-      // count shows up in the result.attempts field.
-      expect(spyCalls).toHaveLength(1);
-      expect(spyCalls[0]?.hadMessages).toBe(2);
-      expect(spyCalls[0]?.budget).toBe(1000);
-      expect(spyCalls[0]?.attempts).toBe(result.attempts);
-      expect(result.attempts).toBeGreaterThanOrEqual(1);
-    });
-
-    test("spy can short-circuit the default by not calling next", async () => {
-      const history: Message[] = [msg("user", "Hi")];
-
-      const shortCircuit: Middleware<OverflowReduceArgs, OverflowReduceResult> =
-        async function shortCircuitMiddleware(args, _next, _ctx) {
-          // Returns a synthetic "no-op" result — the default is never invoked.
-          return {
-            messages: args.messages,
-            runMessages: args.runMessages,
-            injectionMode: "minimal",
-            reducerState: {
-              appliedTiers: ["injection_downgrade"],
-              injectionMode: "minimal",
-              exhausted: true,
-            },
-            reducerCompacted: false,
-            attempts: 0,
-          };
-        };
-      resetPluginRegistryForTests();
-      registerPlugin({
-        manifest: {
-          name: "short-circuit-overflow",
-          version: "0.0.1",
-        },
-        middleware: { overflowReduce: shortCircuit },
-      });
-      registerPlugin(defaultOverflowReducePlugin);
-
-      const { args, compactionResults, reinjectCalls } = buildArgs(history);
-      const result = await runPipeline<
-        OverflowReduceArgs,
-        OverflowReduceResult
-      >(
-        "overflowReduce",
-        getMiddlewaresFor("overflowReduce"),
-        async () => {
-          throw new Error("terminal unexpectedly reached");
-        },
-        args,
-        makeTurnContext(),
-        30000,
-      );
-
-      // Because the outer middleware short-circuited, the default never
-      // ran — no compactFn invocations, no reinject callbacks.
-      expect(result.injectionMode).toBe("minimal");
-      expect(result.attempts).toBe(0);
-      expect(compactionResults).toHaveLength(0);
-      expect(reinjectCalls).toHaveLength(0);
-    });
-  });
-
-  describe("direct middleware invocation", () => {
-    test("default middleware without the pipeline runner still executes the tier loop", async () => {
-      const history: Message[] = [msg("user", "Hi")];
-      const { args } = buildArgs(history);
-
-      const result = await defaultOverflowReduceMiddleware(
-        args,
-        async () => {
-          throw new Error("next should not be invoked by the default");
-        },
-        makeTurnContext(),
-      );
-
-      expect(result.attempts).toBeGreaterThanOrEqual(1);
-      expect(result.reducerState.appliedTiers.length).toBeGreaterThanOrEqual(1);
+      // THEN both paths converge in the same single attempt with equal output.
+      expect(directResult.attempts).toBe(inlineResult.attempts);
+      expect(directResult.attempts).toBeGreaterThanOrEqual(1);
+      expect(directResult.messages).toEqual(inlineResult.messages);
+      expect(directResult.reducerCompacted).toBe(inlineResult.reducerCompacted);
     });
   });
 
   describe("abort signal propagation", () => {
-    test("middleware bails between iterations when abortSignal fires", async () => {
-      // History that won't converge in one step — multiple iterations.
+    test("bails between iterations when abortSignal fires", async () => {
+      // GIVEN a history that won't converge in one step (multiple iterations).
       const longToolResult = "r".repeat(8000);
       const history: Message[] = [
         msg("user", "Start"),
@@ -569,9 +371,8 @@ describe("overflow-reduce pipeline", () => {
 
       const controller = new AbortController();
       const build = buildArgs(history);
-      // Abort on the first `estimatePostInjection` — simulates the
-      // pipeline-level timeout firing mid-turn. The next loop iteration
-      // must see the signal and throw rather than starting another round.
+      // AND an estimator that aborts on its first call while reporting
+      // over-budget — so without the abort gate another iteration would run.
       let estimateCalls = 0;
       const aborting: OverflowReduceArgs = {
         ...build.args,
@@ -579,26 +380,18 @@ describe("overflow-reduce pipeline", () => {
         estimatePostInjection: () => {
           estimateCalls++;
           if (estimateCalls === 1) controller.abort();
-          // Return a value that guarantees another iteration would fire
-          // without the abort gate.
           return build.args.preflightBudget + 1_000_000;
         },
       };
 
-      await expect(
-        defaultOverflowReduceMiddleware(
-          aborting,
-          async () => {
-            throw new Error("next should not be invoked");
-          },
-          makeTurnContext(),
-        ),
-      ).rejects.toThrow();
-      // Exactly one iteration ran; the abort gate stopped the next round.
+      // WHEN the loop runs THEN it throws on the post-side-effect abort gate.
+      await expect(runOverflowReductionLoop(aborting)).rejects.toThrow();
+      // AND exactly one iteration ran; the gate stopped the next round.
       expect(estimateCalls).toBe(1);
     });
 
-    test("middleware refuses to start when abortSignal is already aborted", async () => {
+    test("refuses to start when abortSignal is already aborted", async () => {
+      // GIVEN an already-aborted signal.
       const history: Message[] = [msg("user", "Hi")];
       const controller = new AbortController();
       controller.abort();
@@ -608,16 +401,9 @@ describe("overflow-reduce pipeline", () => {
         abortSignal: controller.signal,
       };
 
-      await expect(
-        defaultOverflowReduceMiddleware(
-          args,
-          async () => {
-            throw new Error("next should not be invoked");
-          },
-          makeTurnContext(),
-        ),
-      ).rejects.toThrow();
-      // Reducer never ran — zero compaction and reinject callbacks observed.
+      // WHEN the loop runs THEN it throws before the reducer ever runs.
+      await expect(runOverflowReductionLoop(args)).rejects.toThrow();
+      // AND no compaction or reinject callbacks were observed.
       expect(build.compactionResults).toHaveLength(0);
       expect(build.reinjectCalls).toHaveLength(0);
     });
@@ -625,10 +411,10 @@ describe("overflow-reduce pipeline", () => {
 
   describe("reinjectForMode two-flag semantics", () => {
     test("stepCompacted reflects current iteration; accumulatedCompacted stays sticky", async () => {
-      // Force multiple iterations by returning over-budget until the loop
-      // exits on maxAttempts. First iteration compacts (stepCompacted=true);
-      // subsequent iterations run other tiers (stepCompacted=false), but
-      // accumulatedCompacted must remain true for slack suppression.
+      // GIVEN a history that stays over-budget so the loop runs every tier:
+      // the first iteration compacts (stepCompacted=true), later iterations
+      // run other tiers (stepCompacted=false), but accumulatedCompacted must
+      // remain true for slack suppression.
       const longToolResult = "r".repeat(8000);
       const history: Message[] = [
         msg("user", "Start"),
@@ -642,19 +428,13 @@ describe("overflow-reduce pipeline", () => {
         estimatePostInjection: () => build.args.preflightBudget + 1_000_000,
       };
 
-      await defaultOverflowReduceMiddleware(
-        overBudget,
-        async () => {
-          throw new Error("next should not be invoked");
-        },
-        makeTurnContext(),
-      );
+      // WHEN the loop runs to exhaustion / maxAttempts.
+      await runOverflowReductionLoop(overBudget);
 
-      // At least one compaction attempt happened.
+      // THEN at least one compaction iteration happened.
       expect(build.reinjectCalls.length).toBeGreaterThanOrEqual(1);
-      // The first iteration that compacted set accumulatedCompacted=true,
-      // and every subsequent call continues to see it true — even when
-      // that iteration's own step did NOT compact.
+      // AND once an iteration compacted, accumulatedCompacted stays true for
+      // every subsequent iteration even when that step did not compact.
       const firstCompactedAt = build.reinjectCalls.findIndex(
         (c) => c.stepCompacted,
       );
