@@ -12,6 +12,7 @@ export type HatchResult =
 
 export interface RunHatchOptions {
   remote?: string;
+  platformConnected?: boolean;
 }
 
 export function runHatch(
@@ -23,6 +24,9 @@ export function runHatch(
     const args = [...invocation.baseArgs, "hatch", species];
     if (options?.remote) {
       args.push("--remote", options.remote);
+    }
+    if (options?.platformConnected) {
+      args.push("--platform-connected");
     }
 
     const child = spawn(

@@ -971,6 +971,7 @@ export interface HatchDockerOptions {
    */
   sourcePath?: string | null;
   analyze?: boolean;
+  platformConnected?: boolean;
 }
 
 export async function hatchDocker(
@@ -982,8 +983,10 @@ export async function hatchDocker(
   options: HatchDockerOptions = {},
 ): Promise<void> {
   resetLogFile("hatch.log");
-  const provider =
-    options.setupProviderCredentials === false
+  const platformConnected = options.platformConnected ?? false;
+  const provider = platformConnected
+    ? undefined
+    : options.setupProviderCredentials === false
       ? undefined
       : resolveHatchProvider(configValues);
 
@@ -1219,7 +1222,9 @@ export async function hatchDocker(
     //   2. Move inference-profile seeds out of workspace config and into
     //      Assistant code, eliminating the overlay entirely.
     // See `cli/src/lib/config-utils.ts` JSDoc for context.
-    const hatchConfigValues = buildHatchConfigValues(configValues, provider);
+    const hatchConfigValues = platformConnected
+      ? { ...configValues, "llm.activeProfile": "balanced" }
+      : buildHatchConfigValues(configValues, provider);
     const hostOverlayPath = writeInitialConfig(hatchConfigValues);
     const stagedOverlayInContainer = "/workspace/.default-config-overlay.json";
     const extraAssistantEnv: Record<string, string> = {};

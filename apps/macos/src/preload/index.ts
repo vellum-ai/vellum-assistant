@@ -231,7 +231,7 @@ export interface VellumBridge {
      * (rather than rejecting) so the renderer renders the same error UI it
      * shows for the web/dev middleware path.
      */
-    hatch(species: string, remote?: string): Promise<{
+    hatch(species: string, remote?: string, platformConnected?: boolean): Promise<{
       ok: boolean;
       assistantId?: string;
       error?: string;
@@ -442,8 +442,8 @@ const bridge: VellumBridge = {
       ipcRenderer.invoke("vellum:dock:setSignedIn", signedIn) as Promise<void>,
   },
   localMode: {
-    hatch: (species: string, remote?: string) =>
-      ipcRenderer.invoke("vellum:localMode:hatch", species, remote) as Promise<{
+    hatch: (species: string, remote?: string, platformConnected?: boolean) =>
+      ipcRenderer.invoke("vellum:localMode:hatch", species, remote, platformConnected) as Promise<{
         ok: boolean;
         assistantId?: string;
         error?: string;

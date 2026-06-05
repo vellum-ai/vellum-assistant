@@ -137,6 +137,7 @@ function installCLISymlink(): void {
 
 export interface HatchLocalOptions {
   setupProviderCredentials?: boolean;
+  platformConnected?: boolean;
   /**
    * Sink for progress and log output. Defaults to the console reporter so CLI
    * callers keep their existing terminal output; in-process callers can inject
@@ -167,8 +168,10 @@ export async function hatchLocal(
   options: HatchLocalOptions = {},
 ): Promise<HatchLocalResult> {
   const reporter = options.reporter ?? consoleLifecycleReporter;
-  const provider =
-    options.setupProviderCredentials === false
+  const platformConnected = options.platformConnected ?? false;
+  const provider = platformConnected
+    ? undefined
+    : options.setupProviderCredentials === false
       ? undefined
       : resolveHatchProvider(configValues);
   const instanceName = generateInstanceName(
@@ -202,14 +205,16 @@ export async function hatchLocal(
   reporter.log(`   Species: ${species}`);
   reporter.log("");
 
-  const apiKeyCheck = checkProviderApiKey();
-  if (!apiKeyCheck.hasKey) {
-    reporter.warn(
-      "Warning: No LLM provider API key is configured. The assistant will fail when you try to send a message.",
-    );
-    reporter.warn("  To fix, export your key before running vellum hatch:");
-    reporter.warn("  export ANTHROPIC_API_KEY=<your-key>");
-    reporter.warn("");
+  if (!platformConnected) {
+    const apiKeyCheck = checkProviderApiKey();
+    if (!apiKeyCheck.hasKey) {
+      reporter.warn(
+        "Warning: No LLM provider API key is configured. The assistant will fail when you try to send a message.",
+      );
+      reporter.warn("  To fix, export your key before running vellum hatch:");
+      reporter.warn("  export ANTHROPIC_API_KEY=<your-key>");
+      reporter.warn("");
+    }
   }
 
   if (!process.env.APP_VERSION) {
@@ -217,7 +222,9 @@ export async function hatchLocal(
   }
 
   reporter.progress(2, 6, "Writing configuration...");
-  const hatchConfigValues = buildHatchConfigValues(configValues, provider);
+  const hatchConfigValues = platformConnected
+    ? { ...configValues, "llm.activeProfile": "balanced" }
+    : buildHatchConfigValues(configValues, provider);
   const defaultWorkspaceConfigPath = writeInitialConfig(hatchConfigValues);
 
   reporter.progress(3, 6, "Starting assistant...");

@@ -25,7 +25,7 @@ import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
 import { buildNavigationState } from "@/lib/navigation/build-state";
 import { hatchLocalAssistant } from "@/runtime/local-mode-host";
 import { isNativePlatform } from "@/runtime/native-auth";
-import { useAuthStore } from "@/stores/auth-store";
+import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
 import type { CharacterTraits } from "@/types/avatar";
 import { extractErrorMessage } from "@/utils/api-errors";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
@@ -96,6 +96,7 @@ export function HatchingScreen() {
   const isReplay = searchParams.get("replay") === "1";
   const hostingParam = searchParams.get("hosting");
   const useLocalHatch = isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud";
+  const hasPlatformSession = useHasPlatformSession();
   const sessionStatus = useAuthStore.use.sessionStatus();
   const [, setOnboardingCompleted] = useOnboardingCompleted();
   const [hatchTraits] = useState<CharacterTraits>(() =>
@@ -209,7 +210,7 @@ export function HatchingScreen() {
         try {
           if (!localHatchPromise) {
             const remote = hostingParam === "docker" ? "docker" : undefined;
-            localHatchPromise = hatchLocalAssistant(undefined, remote);
+            localHatchPromise = hatchLocalAssistant(undefined, remote, hasPlatformSession);
           }
           const result = await localHatchPromise;
           localHatchPromise = null;

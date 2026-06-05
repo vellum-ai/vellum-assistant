@@ -179,6 +179,7 @@ interface HatchArgs {
   sourcePath: string | null;
   configValues: Record<string, string>;
   analyze: boolean;
+  platformConnected: boolean;
 }
 
 function parseArgs(): HatchArgs {
@@ -192,6 +193,7 @@ function parseArgs(): HatchArgs {
   let sourcePath: string | null = null;
   const configValues: Record<string, string> = {};
   let analyze = false;
+  let platformConnected = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -225,6 +227,9 @@ function parseArgs(): HatchArgs {
       console.log(
         "  --analyze                 Emit a structured hatch-timing log line on stdout",
       );
+      console.log(
+        "  --platform-connected      User has a Vellum platform session (use managed profiles)",
+      );
       process.exit(0);
     } else if (arg === "-d") {
       detached = true;
@@ -232,6 +237,8 @@ function parseArgs(): HatchArgs {
       watch = true;
     } else if (arg === "--analyze") {
       analyze = true;
+    } else if (arg === "--platform-connected") {
+      platformConnected = true;
     } else if (arg === "--source") {
       const next = args[i + 1];
       if (!next || next.startsWith("-")) {
@@ -289,7 +296,7 @@ function parseArgs(): HatchArgs {
       species = arg as Species;
     } else {
       console.error(
-        `Error: Unknown argument '${arg}'. Valid options: ${VALID_SPECIES.join(", ")}, -d, --watch, --source <path>, --keep-alive, --name <name>, --remote <${VALID_REMOTE_HOSTS.join("|")}>, --config <key=value>, --analyze`,
+        `Error: Unknown argument '${arg}'. Valid options: ${VALID_SPECIES.join(", ")}, -d, --watch, --source <path>, --keep-alive, --name <name>, --remote <${VALID_REMOTE_HOSTS.join("|")}>, --config <key=value>, --analyze, --platform-connected`,
       );
       process.exit(1);
     }
@@ -305,6 +312,7 @@ function parseArgs(): HatchArgs {
     sourcePath,
     configValues,
     analyze,
+    platformConnected,
   };
 }
 
@@ -539,6 +547,7 @@ export async function hatch(): Promise<void> {
     sourcePath,
     configValues,
     analyze,
+    platformConnected,
   } = parseArgs();
 
   if (watch && remote !== "local" && remote !== "docker") {
@@ -566,7 +575,9 @@ export async function hatch(): Promise<void> {
   }
 
   if (remote === "local") {
-    await hatchLocal(species, name, watch, keepAlive, configValues);
+    await hatchLocal(species, name, watch, keepAlive, configValues, {
+      platformConnected,
+    });
     return;
   }
 
@@ -574,6 +585,7 @@ export async function hatch(): Promise<void> {
     await hatchDocker(species, detached, name, watch, configValues, {
       sourcePath,
       analyze,
+      platformConnected,
     });
     return;
   }
