@@ -45,6 +45,9 @@ const ALLOWLIST = new Set([
   // --- Shared client packages (transport helpers that proxy to the runtime by design) ---
   "packages/assistant-client/src/proxy-forward.ts",
   "packages/assistant-client/src/websocket-upstream.ts",
+
+  // --- macOS Electron bundle-open flow (talks to gateway port, not runtime) ---
+  "apps/macos/src/main/bundle-flow.ts",
 ]);
 
 /** Patterns that indicate a direct runtime URL reference via hardcoded port. */
