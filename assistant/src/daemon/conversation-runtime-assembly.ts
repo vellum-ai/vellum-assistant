@@ -22,6 +22,7 @@ import {
   extractMemoryPrefixBlocks,
   stripAllMemoryInjections,
 } from "../memory/graph/conversation-graph-memory.js";
+import { getPkbAutoInjectList } from "../memory/pkb/autoinject.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
 import { MEMORY_V3_BLOCK_ID } from "../memory/v3/types.js";
 import {
@@ -556,56 +557,8 @@ export function stripNowScratchpad(messages: Message[]): Message[] {
 // PKB (Personal Knowledge Base) injection
 // ---------------------------------------------------------------------------
 
-const PKB_DEFAULT_FILES = [
-  "INDEX.md",
-  "essentials.md",
-  "threads.md",
-  "buffer.md",
-];
-
-const AUTOINJECT_FILENAME = "_autoinject.md";
-
 /** Max buffer.md lines injected into prompts — keeps context bounded even when filing is off. */
 const MAX_BUFFER_LINES = 50;
-
-/**
- * Read `_autoinject.md` from the PKB directory and return the list of
- * filenames to inject.
- *
- * - Returns `null` when the file is missing or unreadable — callers
- *   should fall back to the hardcoded defaults.
- * - Returns `[]` when the file exists but has no entries (empty or
- *   comments only) — an explicit opt-out meaning "inject nothing."
- */
-export function readAutoinjectList(pkbDir: string): string[] | null {
-  const filePath = join(pkbDir, AUTOINJECT_FILENAME);
-  if (!existsSync(filePath)) return null;
-  try {
-    const raw = stripCommentLines(readFileSync(filePath, "utf-8"));
-    const files = raw
-      .split("\n")
-      .map((l) => l.trim())
-      .filter((l) => l.length > 0);
-    return files.length > 0 ? files : [];
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Resolve the effective list of auto-inject filenames for a PKB directory.
- *
- * This is the single source of truth used both by `readPkbContext` (which
- * actually injects the files) and by the PKB reminder-hint tracker in
- * `conversation-agent-loop.ts` (which needs to know what's already in
- * context so it doesn't redundantly recommend those files).
- *
- * Returns `PKB_DEFAULT_FILES` when `_autoinject.md` is missing/unreadable,
- * or the parsed list (possibly empty) when it is present.
- */
-export function getPkbAutoInjectList(pkbRoot: string): string[] {
-  return readAutoinjectList(pkbRoot) ?? PKB_DEFAULT_FILES;
-}
 
 /**
  * Read the always-loaded PKB files and append a nudge encouraging the
@@ -1927,8 +1880,6 @@ export interface RuntimeInjectionOptions {
    * suppressed from hint suggestions.
    */
   pkbConversation?: PkbContextConversation;
-  /** Auto-injected PKB filenames (resolved relative to the PKB root). */
-  pkbAutoInjectList?: string[];
   /**
    * Working directory against which relative `file_read` tool paths
    * resolve, used to detect workspace-relative reads like
@@ -2041,7 +1992,6 @@ function buildTurnInjectionInputs(
     pkbQueryVector: options.pkbQueryVector,
     pkbSparseVector: options.pkbSparseVector,
     pkbConversation: options.pkbConversation,
-    pkbAutoInjectList: options.pkbAutoInjectList,
     pkbWorkingDir: options.pkbWorkingDir,
     memoryV2Static: options.memoryV2Static,
     nowScratchpad: options.nowScratchpad,

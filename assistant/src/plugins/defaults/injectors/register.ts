@@ -51,6 +51,7 @@ import { getConfig } from "../../../config/loader.js";
 import { getInContextPkbPaths } from "../../../daemon/pkb-context-tracker.js";
 import { buildPkbReminder } from "../../../daemon/pkb-reminder-builder.js";
 import { listComments } from "../../../documents/document-comments-store.js";
+import { getPkbAutoInjectList } from "../../../memory/pkb/autoinject.js";
 import { searchPkbFiles } from "../../../memory/pkb/pkb-search.js";
 import { getPkbRoot, PKB_WORKSPACE_SCOPE } from "../../../memory/pkb/types.js";
 import { getLogger } from "../../../util/logger.js";
@@ -328,7 +329,7 @@ async function buildPkbReminderWithHints(
       const workingDir = inputs.pkbWorkingDir ?? pkbRoot;
       const inContext = getInContextPkbPaths(
         inputs.pkbConversation,
-        inputs.pkbAutoInjectList ?? [],
+        getPkbAutoInjectList(pkbRoot),
         pkbRoot,
         workingDir,
       );

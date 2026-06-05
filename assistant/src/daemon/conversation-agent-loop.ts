@@ -83,7 +83,6 @@ import {
   recordSyntheticAgentErrorMessageLog,
 } from "../memory/llm-request-log-store.js";
 import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrospective-enqueue.js";
-import { getPkbRoot } from "../memory/pkb/types.js";
 import {
   readMemoryV2StaticContent,
   shouldExposePersonalMemory,
@@ -161,7 +160,6 @@ import {
   buildSubagentStatusBlock,
   buildUnifiedTurnContextBlock,
   findLastInjectedNowContent,
-  getPkbAutoInjectList,
   getSlackCompactionWatermarkForPrefix,
   inboundActorContextFromTrust,
   inboundActorContextFromTrustContext,
@@ -1368,16 +1366,10 @@ export async function runAgentLoopImpl(
       : null;
     const memoryV2Static = shouldInjectNowAndPkb ? currentMemoryV2Static : null;
 
-    // PKB relevance-hint inputs. Resolved once per turn and reused across
-    // re-injections so post-compaction rebuilds pick up fresh hints against
-    // the updated conversation history.
-    const pkbRoot = pkbActive ? getPkbRoot() : undefined;
-    const pkbAutoInjectList = pkbRoot
-      ? getPkbAutoInjectList(pkbRoot)
-      : undefined;
-    // Pass `ctx` directly — `PkbContextConversation` is structural and
-    // `getInContextPkbPaths` re-reads `conversation.messages` on each call,
-    // so post-compaction re-injects see the updated history.
+    // PKB relevance-hint input. Pass `ctx` directly —
+    // `PkbContextConversation` is structural and `getInContextPkbPaths`
+    // re-reads `conversation.messages` on each call, so post-compaction
+    // re-injects see the updated history.
     const pkbConversation = pkbActive ? ctx : undefined;
 
     // Subagent status injection — gives the parent LLM visibility into active/completed children.
@@ -1465,7 +1457,6 @@ export async function runAgentLoopImpl(
       pkbQueryVector,
       pkbSparseVector,
       pkbConversation,
-      pkbAutoInjectList,
       pkbWorkingDir: pkbActive ? ctx.workingDir : undefined,
       memoryV2Static,
       nowScratchpad,
