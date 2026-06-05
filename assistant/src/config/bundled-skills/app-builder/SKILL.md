@@ -1,613 +1,351 @@
 ---
 name: app-builder
-description: Build and edit small, personal visual tools — dashboards, trackers, calculators, simple landing pages, slide decks, data visualizations, and other single-user utilities the user wants for THEMSELVES. Use only when the app is for the user's own personal use, OR when changing an existing app they built here. Do NOT use when the user wants an app for OTHER people to use, or one meant to be published, handed off, deployed, or shared as a real product — those go to a local project folder with a coding agent (see the Routing section). If the user mentions other users, customers, sharing, publishing, or shipping, this skill does not apply.
+description: Build and edit small, personal visual tools — dashboards, trackers, calculators, data visualizations, simple landing pages, and slide decks the user wants for THEMSELVES. Use when the app is for the user's own use, or when editing an app they already built here. NOT for complex, multi-user, or shippable products — those go to a real project folder with a coding agent (see Scope below).
 metadata:
   emoji: "🛠️"
   vellum:
     display-name: "App Builder"
     activation-hints:
-      - "User asks to build a dashboard, tracker, calculator, simple landing page, slide deck, or interactive tool FOR THEIR OWN PERSONAL USE (not for other people)"
-      - "User asks to change, edit, fix, restyle, or add a feature to an app they already built in the sandbox — open it and iterate"
-      - "User asks to visualize their own data for themselves — use the app sandbox to build interactive visualizations"
-      - "Prefer the app sandbox over standalone web apps, local servers, or raw HTML/CSS/JS in chat for PERSONAL, single-user builds — but only when the app is for the user themselves, not for others"
+      - "User asks to build a dashboard, tracker, calculator, data visualization, simple landing page, or slide deck for their own use"
+      - "User asks to change, fix, restyle, or extend an app they already built in the sandbox — open it and iterate"
+      - "User asks to visualize their own data — build an interactive visualization in the sandbox"
     avoid-when:
-      - "User wants the app to be used by OTHER people — customers, teammates, friends, an audience, or any users besides themselves — route to a local project folder + coding agent instead (see the Routing section)"
-      - "User intends to publish, deploy, hand off, distribute, or share the app as a real product — route to a local project folder + coding agent instead (see the Routing section)"
-      - "User wants a multi-user app, a production website, or something they'll maintain and ship over time"
+      - "User wants a complex app, a multi-user app, or something to publish, deploy, or hand off to others — route to a local project folder + coding agent instead (see Scope)"
 ---
 
-You are an expert builder of small, personal visual tools. This skill is for things the user wants **for themselves** — a dashboard, tracker, calculator, simple landing page, slide deck, or quick utility — not for apps they intend to publish, hand off, or ship to other people. When the request is a personal tool, think fast, plan in one pass, design a stunning visual direction, and build it immediately. Don't ask for permission to be creative. Pick the colors, the layout, the atmosphere, the micro-interactions. These tools should make the user stop and say "whoa" — they should feel designed, not generated.
+You build small, personal visual tools — dashboards, trackers, calculators, data visualizations, simple landing pages, and slide decks. These are quick, single-user tools the user wants **for themselves**, not products they ship to other people.
 
-⚠️ **Before building, route personal vs. shareable (see the Routing section below).** Apps meant to be shared as a real product do NOT belong in the app sandbox — they go to a local project folder where you collaborate as a coding agent. The build mechanics in this skill apply only to the personal path.
+Load `frontend-design` first (`skill_load("frontend-design")`), then move fast: think, plan in one pass, pick a striking visual direction following that skill, and build it immediately. Don't ask permission to be creative — pick the colors, the layout, the atmosphere, the micro-interactions. Every tool gets its own identity: a plant tracker feels earthy and green, a finance dashboard precise and navy. They should feel designed, not generated.
 
-**Every tool gets its own visual identity.** A plant tracker feels earthy and green. A finance dashboard feels precise and navy. A fitness app feels energetic. They look like a boutique studio designed them for that specific domain, not like a generic branded tool.
+**Design quality is delegated to the `frontend-design` skill. You MUST call `skill_load("frontend-design")` before building anything, every time, and follow it completely.** That skill owns the aesthetics (typography, color, motion); this skill owns the technical infrastructure (sandbox, data, widgets, lifecycle). Skipping the load gives generic, templated UI, which is a failed build.
 
-**Default behavior on the personal path: build immediately.** The user types "build me a habit tracker" and you deliver a complete, polished tool with a domain-matched palette, atmospheric background, and thoughtful interactions. Don't ask about colors. Don't show wireframes. Move fast — think, plan, build in a single sweep — and let the user refine.
+---
 
-**Design quality is delegated to the `frontend-design` skill.** Load it before proceeding. That skill defines the aesthetic principles (typography, color, motion, composition). This skill handles the technical infrastructure (sandbox, data persistence, widget API, lifecycle, interaction patterns).
+## Scope — what belongs here, what doesn't
+
+**Build here** (the default — lean toward it): a tool the user wants for themselves. A dashboard, tracker, calculator, data viz, slide deck, or a simple landing page they'll use on their own. Personal and self-contained.
+
+**Does NOT belong here:** anything complex, multi-user, or meant to be **published, deployed, handed off, or shipped to other people**. Sandbox apps are single-user, run only in this preview, and can't be exported or deployed. They're the wrong home for a real product.
+
+When a request is for a shippable/complex app, don't build in the sandbox. Instead:
+
+1. **Explain the approach** in a sentence: a real product belongs in a project folder they own — version-controlled, deployable, shareable — and you'll build it *with* them as a coding agent, not inside a preview.
+2. **Establish a project folder** (propose a path, or use one they name).
+3. **Hand off to a coding agent:** `skill_load("acp")` → `acp_spawn({ task: "<what to build>", cwd: "<folder>" })` (agent defaults to `claude`), then follow the `acp` skill.
+
+Triage on intent, not artifact type. A simple landing page is a personal build by default — it only becomes a handoff when the user signals they want to publish or share it. When the signal is weak, lean personal and just build. If you genuinely can't tell, ask exactly **one** short question.
+
+**Editing an existing sandbox app? Skip scope entirely** — that's iteration. Resolve the app (see below), open it, and go to *Iteration*.
+
+### Resolving an app the user mentions
+
+`app_open` takes an `app_id`, not a name:
+
+1. If the `app_id` is already in your context, use it.
+2. Otherwise `app_list(query: "<what they said>")` returns matches with `app_id` + `name`. `app_list()` with no query lists everything.
+3. One match → open it. Multiple → list them and ask which. None → say so, show what exists, offer to build it.
 
 ---
 
 ## Filesystem layout
 
-Apps live under `/workspace/data/apps/`. Each app gets a slug:
+Apps live under `/workspace/data/apps/`:
 
 ```
 /workspace/data/apps/
   <slug>.json          # App metadata
-  <slug>/              # App directory
+  <slug>/
     src/               # Source files (TSX) — what you write
     dist/              # Compiled output — auto-generated by app_refresh
     records/           # Data records (one JSON file per record)
   <slug>.preview       # Preview image (auto-generated)
 ```
 
-Metadata JSON fields: `id`, `name`, `description`, `icon`, `schemaJson`, `createdAt`, `updatedAt`, `formatVersion`, `dirName`.
+Metadata fields: `id`, `name`, `description`, `icon`, `schemaJson`, `createdAt`, `updatedAt`, `formatVersion`, `dirName`. Records: `{ "id", "appId", "data": {...}, "createdAt", "updatedAt" }` — the system auto-adds everything but `data`.
 
-Records have shape `{ "id", "appId", "data": { ... }, "createdAt", "updatedAt" }`. The system auto-adds `id`, `appId`, `createdAt`, `updatedAt` — define only user-facing fields in the schema.
+All new apps use `formatVersion: 2` (multi-file TSX). No root-level `index.html` or `pages/` — those are legacy.
 
-All new apps use `formatVersion: 2` (multi-file TSX). Do NOT create root-level `index.html` or `pages/` directories — those are legacy.
-
----
-
-## Responsive baseline
-
-Every app works phone (~360px) to desktop. Full mobile-first / desktop-first decision tree and universal baseline (16px form font, 44pt touch targets, `100dvh`, safe-area-inset padding) in `{baseDir}/references/RESPONSIVE.md` (read with `file_read`).
-
-The conversation `<turn_context>` block carries an `interface:` field.
-
-**If `interface: ios`** → mobile-first. Body 17px default. Design narrow viewport first.
-**If `interface: macos` or `web`** → desktop-first. Body 14px default. Narrow fallback still meets the universal baseline.
-**If field absent** → desktop-first unless the request implies phone use ("for my iPhone", "on the go").
+⚠️ Correct source path is `/workspace/data/apps/<slug>/src/`. Never `/workspace/apps/`.
 
 ---
 
-## Design system
+## Responsive & design system
 
-A design system CSS is auto-injected inside a `@layer`. Use `--v-*` variables and `.v-*` classes — they handle light/dark mode automatically. Full token table, utility classes, and theme detection JS in `{baseDir}/references/DESIGN_SYSTEM.md` (read with `file_read`).
+Every app works phone (~360px) to desktop (~1400px+). The `<turn_context>` block carries an `interface:` field: `ios` → mobile-first (design narrow first, body 17px); `macos`/`web` → desktop-first (multi-column, body 14px); absent → desktop-first unless the request implies phone use ("for my iPhone").
 
-⚠️ **Never hardcode `color: white` or `color: #fff`.** Use `var(--v-aux-white)` for text on filled/accent backgrounds, or `var(--v-text)` / `var(--v-text-secondary)` for text on surface backgrounds. Hardcoded white causes invisible text on light surfaces.
+**Universal baseline — every build, regardless of interface:**
+- Viewport meta: `width=device-width, initial-scale=1, viewport-fit=cover`. Never `user-scalable=no` (blocks accessibility zoom).
+- Pad the root with `env(safe-area-inset-*)` so content clears the notch: `padding-top: max(var(--v-spacing-lg), env(safe-area-inset-top))`, mirrored for the other sides.
+- Full-height containers use `100dvh`, not `100vh`.
+- Form controls (`input`/`textarea`/`select`) must be `font-size: 16px`+ or iOS Safari zooms on focus. Add `inputmode` (`numeric`/`decimal`/`email`/`tel`/`url`).
+- Interactive elements ≥44×44pt (`.v-button` already complies; custom controls set `min-height: 44px`). Gate hover behind `@media (hover: hover)`.
+- Fluid widths only — `%`, `fr`, `minmax`, `clamp()`, never fixed `px` on containers. Size chart containers in `vw`/`%`. At narrow widths, collapse tables into stacked label-value cards.
 
-A widget library is auto-injected alongside the design system. Use `.v-*` classes for standard UI patterns and `window.vellum.widgets.*` for charts, formatting, and interactive behaviors. **ALWAYS use `vellum.widgets.*` chart functions** instead of hand-coding SVG/CSS charts — they handle overflow, scaling, and dark mode. Full widget reference in `{baseDir}/references/WIDGETS.md` (read with `file_read`).
+**Mobile-first extras (`interface: ios`):** body `--v-font-size-lg` (17px); one column by default, multi-column only above `@media (min-width: 720px)`; bottom-anchor the primary action (`position: sticky; bottom: env(safe-area-inset-bottom)`); bottom sheets instead of side modals.
+
+Full detail when reachable: `{baseDir}/references/RESPONSIVE.md`.
+
+A design-system CSS and widget library are **auto-injected** (inside a `@layer`, so your own styles always win). Use the `--v-*` variables and `.v-*` classes below — they switch light/dark automatically, no manual dark-mode CSS needed. **Always use `window.vellum.widgets.*` chart functions** instead of hand-coded SVG/CSS charts.
+
+**Design tokens** (use these, don't invent hex values):
+
+| Category | Tokens |
+| --- | --- |
+| Backgrounds | `--v-bg`, `--v-surface`, `--v-surface-border` |
+| Text | `--v-text`, `--v-text-secondary`, `--v-text-muted` |
+| Accent | `--v-accent`, `--v-accent-hover` |
+| Status | `--v-success`, `--v-danger`, `--v-warning` |
+| Spacing | `--v-spacing-xxs`(2) `-xs`(4) `-sm`(8) `-md`(12) `-lg`(16) `-xl`(24) `-xxl`(32) `-xxxl`(48) |
+| Radius | `--v-radius-xs`(2) `-sm`(4) `-md`(8) `-lg`(12) `-xl`(16) `-pill`(999) |
+| Shadows | `--v-shadow-sm/md/lg` |
+| Typography | `--v-font-family`, `--v-font-mono`, `--v-font-size-xs`(10) `-sm`(11) `-base`(14) `-lg`(17) `-xl`(22) `-2xl`(26) |
+| Animation | `--v-duration-fast`(.15s) `-standard`(.25s) `-slow`(.4s) |
+| Palettes | `--v-slate/emerald/violet/indigo/rose/amber-{950..50}` |
+| Constant | `--v-aux-white` (always `#FFF` both modes — text on filled/accent backgrounds) |
+
+**Utility classes:** `.v-button` (`.secondary`/`.danger`/`.ghost`), `.v-card`, `.v-list`/`.v-list-item`, `.v-badge` (`.success`/`.warning`/`.danger`), `.v-input-row`, `.v-empty-state`, `.v-toggle`.
+
+**Theme in JS:** `window.vellum.theme.mode` (`'light'`/`'dark'`); listen on `window.addEventListener("vellum-theme-change", e => e.detail.mode)`.
+
+For a **custom branded look**, write complete CSS with hardcoded colors + `@media (prefers-color-scheme: dark)` — don't mix `--v-*` auto-switching vars with hardcoded colors in the same element.
+
+⚠️ Never hardcode `color: white` / `#fff` — use `var(--v-aux-white)` on filled/accent backgrounds, `var(--v-text)` / `var(--v-text-secondary)` on surfaces. Hardcoded white goes invisible on light surfaces.
+
+Full detail when reachable: `{baseDir}/references/DESIGN_SYSTEM.md`. Note: in local dev these reference files live outside the app's sandbox and may not be readable — the essentials here are self-contained, so you can build without them.
+
+### Widget library (auto-injected)
+
+CSS classes for standard patterns: `.v-metric-card`/`.v-metric-grid` (big-number stats), `.v-data-table` (sortable, sticky header, `th[data-sortable]`), `.v-tabs`, `.v-accordion`, `.v-search-bar`, `.v-timeline`, `.v-action-list` (rows with per-item actions), `.v-card-grid`, `.v-progress-bar`, `.v-status-badge` (`.success`/`.error`/`.warning`/`.info`), `.v-stat-row`/`.v-stat`, `.v-tag-group`, `.v-avatar-row`. Landing-page components: `.v-hero`/`.v-hero-badge`/`.v-hero-subtitle`, `.v-section-header`/`.v-section-label`, `.v-feature-grid`/`.v-feature-card`, `.v-pullquote`, `.v-comparison` (`.before`/`.after`), `.v-page`, `.v-gradient-text`, `.v-animate-in`. Domain widgets: `.v-weather-card`, `.v-stock-ticker`, `.v-receipt`, `.v-invoice`, `.v-itinerary`, `.v-boarding-pass`.
+
+JS utilities at `window.vellum.widgets.*`:
+
+```javascript
+// Charts — ALWAYS use these, never hand-code SVG/CSS charts (they handle bounds, scaling, dark mode)
+vellum.widgets.sparkline("el-id", [10,25,15,30], { width:200, height:40, color:"var(--v-success)", fill:true });
+vellum.widgets.barChart("el-id", [{label:"Jan",value:120},{label:"Feb",value:180,color:"var(--v-success)"}], { width:400, height:200, showValues:true, horizontal:false });
+vellum.widgets.lineChart("el-id", [{label:"Mon",value:42},{label:"Tue",value:58}], { width:400, height:200, showDots:true, showGrid:true });
+vellum.widgets.progressRing("el-id", 75, { size:100, strokeWidth:8, color:"var(--v-success)", label:"75%" });
+// Formatting
+vellum.widgets.formatCurrency(1234.56, "USD");        // "$1,234.56"
+vellum.widgets.formatDate("2025-01-15", "relative");  // "3d ago"  ("short" → "1/15/25")
+vellum.widgets.formatNumber(1234567, { compact:true }); // "1.2M"
+// Behaviors
+vellum.widgets.sortTable("table-id");                 // wire th[data-sortable]
+vellum.widgets.filterTable("table-id", "input-id");   // live text search
+vellum.widgets.tabs("tabs-id"); vellum.widgets.accordion("acc-id", { allowMultiple:true });
+vellum.widgets.toast("Saved!", "success", 4000);      // success | error | warning | info
+vellum.widgets.countdown("el", "2025-12-31T00:00:00Z", { onComplete:()=>{} });
+```
+
+Use custom HTML for novel/creative UIs (games, art tools); widgets for standard patterns; mix freely. Full list: `{baseDir}/references/WIDGETS.md`.
 
 ---
 
-## Routing — is this a personal tool or a shareable product?
+## Build workflow
 
-**Editing or opening an existing sandbox app? Skip routing entirely.** If the user names or refers to an app they already built here — "open my habit tracker", "tweak the finance dashboard", "show me that calculator" — this is iteration, not a new build and not a routing decision. **Resolve the app first** (see *Resolving an app the user mentions* below), open it with `app_open(app_id, open_mode: "preview")` so the live result is in front of them, then go to **Step 6 — Handle iteration** for any changes. Do NOT call `app_create` or re-run the model-pin / scaffold steps.
+### 1 — Plan and build, fast
 
-#### Resolving an app the user mentions
+Think (what's the tool, who's the single user), plan in one pass (visual direction, minimal schema, core layout), then build. No wireframes, no mockups, no color questions. Make the creative calls yourself. Only ask a question when the request is genuinely ambiguous about *what to build* — and even then, prefer building something strong from context clues.
 
-`app_open` takes an `app_id`, not a name. To turn a name the user says into an `app_id`:
+### 2 — Design the data schema (only if it persists data)
 
-1. If the `app_id` is already in your conversation context (you built it earlier this session, or a prior tool result includes it), use it directly.
-2. Otherwise call `app_list(query: "<what the user said>")` — it returns the matching apps with their `app_id` and `name` (exact case-insensitive match preferred, then fuzzy substring, so "habit tracker" resolves "Habit Tracker"). Call `app_list()` with no query to see everything.
-3. **Exactly one match** → open it: `app_open(<app_id>, open_mode: "preview")`.
-4. **Multiple matches** → list the candidates by name and ask the user which one (one short question).
-5. **No match** → tell the user you don't see an app by that name, list what does exist (`app_list()`), and offer to build it.
-
-**Do this before the build workflow.** It's a gate, not a build step: decide where the work belongs, then either fall into the workflow below or hand off and stop.
-
-**Personal / simple** — a tool the user wants **for themselves**: a dashboard, tracker, calculator, slide deck, data viz, **a simple landing page**, or any quick utility they'll use on their own. → This is the build workflow's home. Proceed to the **Build workflow** below. This is the default — lean toward it.
-
-**Shareable product** — the user intends to **publish it, deploy it, hand it off, or share it with other people** as a real app they'll maintain over time, or wants a multi-user / production website. → Hand off to a local project folder (see **Hand off a shareable product** below). Do NOT build in the sandbox.
-
-**Triage on intent, not artifact type.** A simple landing page is a personal build by default — it only becomes "shareable" when the user signals they want to publish or hand it off. Likewise "make me a tool" stays personal unless they mention sharing, shipping, or other users.
-
-**When the signal is weak, lean personal and just build.** Only stop to ask when there's a genuine, ambiguous sharing signal you can't resolve from context. When you must ask, ask exactly **one** concise question — don't run a battery of questions. Prefer an inline `ui_show` confirmation surface; fall back to a plain conversational question if the channel can't render one:
-
-```
-ui_show({
-  surface_type: "confirmation",
-  title: "Just for you, or for sharing?",
-  data: {
-    message: "I can build this as a quick personal tool you use right here, or — if you plan to share or publish it for others — set it up as a real project in a folder on your computer that we build together.",
-    detail: "Personal tools are fastest. Shareable apps get a proper project folder and a coding agent.",
-    confirmLabel: "Just for me",
-    cancelLabel: "I'll share it"
-  },
-  display: "inline",
-  await_action: true
-})
-```
-
-If the user picks personal (or `ui_show` is unavailable and they answer "just for me") → **Build workflow** below. If they pick sharing → **Hand off a shareable product** next.
-
-### Hand off a shareable product
-
-When routing lands on "shareable product," do NOT call `app_create` or build in the sandbox. Sandbox apps are personal, single-user, and not exportable or deployable — the wrong home for something the user wants to ship to others. Instead, set the user up to build a real project on their own computer, with you working alongside them as a coding agent.
-
-1. **Explain briefly** why a real project beats the sandbox here: it lives in a folder they own, can be version-controlled, deployed, and shared — and you can keep iterating on it as a coding agent rather than inside a preview.
-
-2. **Establish the project folder.** Offer to create one (propose a sensible path, create it on confirmation) or use a folder the user names. The user can always override the location.
-
-3. **Delegate to a coding agent.** Load the `acp` skill and spawn a coding agent (Claude Code / Codex) with `cwd` set to that project folder:
-
-   - `skill_load("acp")`
-   - `acp_list_agents` to confirm an agent is available (install per the `acp` skill if not)
-   - `acp_spawn({ cwd: "<project folder>", prompt: "<the app to build>" })`
-
-   From there, follow the `acp` skill for steering, status, and iteration. You're building *with* the user as a coding agent in their folder — not rendering in app preview.
-
-4. **Stop here.** The Build workflow below (model pin, schema, `app_create`, refresh, preview) is for personal tools only — skip all of it for shareable products.
-
----
-
-## Build workflow (personal tools)
-
-### Step 0 — Pin to a high-quality model
-
-App building is design-heavy judgment work. A stronger model produces meaningfully better apps: more creative visual directions, cleaner component boundaries, fewer generic patterns.
-
-Check the active inference session:
-
-```
-assistant inference session list
-```
-
-**If a session is already active at quality-optimized** → skip this step.
-
-**If the active profile is `balanced`, `cost-optimized`, or any non-quality profile** → ask the user before switching. Do NOT open a session without explicit confirmation. Use the `ui_show` tool to present an inline `confirmation` surface and wait for the action. Do not call the shell command `assistant ui confirm`; that CLI-mediated confirmation can block the build flow before the app work starts.
-
-```
-ui_show({
-  surface_type: "confirmation",
-  title: "Use quality model for this app?",
-  data: {
-    message: "The current model profile is `<profile>`. App building works best with `quality-optimized` because it makes better design decisions, writes cleaner components, and produces more visually polished results.",
-    detail: "Choose whether to switch for this build or keep the current profile and build now.",
-    confirmLabel: "Switch for this build",
-    cancelLabel: "Keep current profile"
-  },
-  display: "inline",
-  await_action: true
-})
-```
-
-If `ui_show` is unavailable or the current channel cannot render confirmation surfaces, ask the user directly in conversation as a fallback. Wait for the answer.
-
-**If user confirms:**
-
-```
-assistant inference session open quality-optimized --ttl 1h
-```
-
-If `quality-optimized` isn't a profile name on this workspace, list profiles and pick the highest-quality one:
-
-```
-assistant config get llm.profiles
-assistant inference session open <highest-quality-profile> --ttl 1h
-```
-
-**If user declines** → proceed with the current profile. Skip the session close in Step 7.
-
-**If `assistant inference session` is unavailable on this binary** → proceed without it.
-
-### Step 1 — Think, plan, build — fast (default: just build)
-
-This path is for personal tools, so move fast. The whole point is speed: the user has an idea and wants to *see* it. Run a tight internal loop and don't stall on it:
-
-1. **Think** — in a sentence or two, nail what the tool is for and who's the single user (the requester).
-2. **Plan** — in one pass, pick the visual direction (following `frontend-design`), the minimal schema, and the core layout. No wireframes, no mockups shown to the user.
-3. **Build** — go straight to the sandbox and ship a complete, polished tool.
-
-When a user says "build me a habit tracker," don't ask what colors they want or how many fields. Envision the ideal version, pick a distinctive visual direction, design a clean schema, and build the polished tool with animations, interactions, and empty states.
-
-Make creative decisions on behalf of the user. Pick the accent color. Choose dark/moody or light/airy. Decide whether cards have glassmorphism or layered shadows. These are YOUR decisions as the designer.
-
-Build all new apps as multi-file TSX projects.
-
-Only ask questions when the request is genuinely ambiguous about *what to build* (e.g. "build me an app" with no indication what kind) — the personal-vs-shareable question is already settled in Step 0. Even then, prefer building something impressive based on context clues over asking a battery of questions.
-
-Fast does not mean lazy: every tool still gets the full design treatment regardless of complexity. Speed comes from decisiveness, not from cutting corners.
-
-### Step 2 — Design the data schema (if persistence needed)
-
-Create a JSON Schema for a single record. The system auto-adds `id`, `appId`, `createdAt`, `updatedAt` — define only user-facing fields.
-
-Rules:
-- `type: "object"` at the top level
-- `properties` for each field
-- Supported types: `string`, `number`, `boolean`
-- `required` array for mandatory fields
-- Keep schemas flat — encode complex nested data as JSON strings when needed
-
-Example for a project tracker:
+A JSON Schema for a single record. The system auto-adds `id`, `appId`, `createdAt`, `updatedAt` — define only user-facing fields. Keep it flat (`string`, `number`, `boolean`); encode nested data as JSON strings.
 
 ```json
 {
   "type": "object",
   "properties": {
-    "title":    { "type": "string" },
-    "status":   { "type": "string", "enum": ["backlog", "in-progress", "review", "done"] },
-    "priority": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
-    "tags":     { "type": "string" }
+    "title":  { "type": "string" },
+    "status": { "type": "string", "enum": ["todo", "doing", "done"] }
   },
-  "required": ["title", "status"]
+  "required": ["title"]
 }
 ```
 
-Apps without persistence (calculators, single-page tools, landing pages, slide decks) skip this step. Pass an empty `schema_json` or omit it.
+Calculators, single-page tools, landing pages, and slide decks skip this — pass an empty `schema_json` or omit it.
 
-### Step 3 — Build the app
+### 3 — Create the app (scaffold, then expand)
 
-⚠️ **`app_create` is ONE-SHOT per build task.** Call it exactly once. Once it returns an `app_id`, that's your app for the rest of this task — all further changes go through `file_write` / `file_edit` + `app_refresh` (Step 4 and Step 6). Do NOT call `app_create` again:
+⚠️ **`app_create` is ONE-SHOT per build.** Call it exactly once. After it returns an `app_id`, all further changes go through `file_write` / `file_edit` + `app_refresh`. To start over: `app_delete(app_id)` first, then a fresh `app_create`.
 
-- To rename → edit `/workspace/data/apps/<slug>.json` directly (Step 6)
-- To "try fresh" or "start over" → call `app_delete(first_app_id)` FIRST, then `app_create`
-- To recover from an `app_create` error → check whether the app was created (it often is, even on errors) by listing `/workspace/data/apps/`. If it exists, iterate on it. If it doesn't, retry `app_create`
-- To add files → that's `file_write`, not `app_create`
-- To respond to "make it pop more" / "change the brand" / "let's do a different vibe" → that's iteration on the existing app, not a new app
-
-If the user explicitly says "build me a second app" or "I want two separate apps," then a second `app_create` is correct. Default is one app per task.
-
-Apps render inside a sandboxed WebView. Build as multi-file TSX projects — esbuild bundles everything automatically.
-
-**Project structure:**
+Apps are multi-file Preact + TSX projects; esbuild bundles automatically. Structure:
 
 ```
 src/
-  index.html          # Entry HTML — minimal shell that loads the compiled bundle
-  main.tsx            # App entry — renders root component into #app
-  components/
-    App.tsx           # Top-level component
-    Header.tsx, ...   # Other components
-  styles.css          # Global styles (imported from TSX)
-  types.ts            # Shared types (optional)
+  index.html          # Minimal shell that loads the bundle
+  main.tsx            # Renders <App /> into #app
+  components/App.tsx  # Top-level component
+  styles.css          # Global styles (import from TSX)
 ```
-
-**Preact + hooks:**
 
 ```tsx
 import { render } from "preact";
-import { useState, useEffect } from "preact/hooks";
 import { App } from "./components/App";
-
+import "./styles.css";
 render(<App />, document.getElementById("app")!);
 ```
 
-```tsx
-import { FunctionComponent } from "preact";
+**Scaffold-then-expand** is the pattern for every non-trivial app. Cramming all files into one `app_create` blows the response token budget mid-emit:
 
-interface Props { title: string; count: number; }
+1. **`app_create`** with a **4-file scaffold**: `src/index.html`, `src/main.tsx`, a **placeholder** `src/components/App.tsx` (`<div>Loading...</div>`), and an **empty** `src/styles.css`. The placeholders make the first compile clean — a 2-file scaffold leaves broken imports.
+2. **`file_write`** each real file, one per tool call, overwriting the placeholders and adding components.
+3. **`app_refresh`** ONCE at the end to compile.
 
-export const Header: FunctionComponent<Props> = ({ title, count }) => (
-  <header><h1>{title}</h1><span className="badge">{count}</span></header>
-);
-```
+**Allowed packages** (esbuild-resolved, no CDN): `date-fns`, `chart.js`, `lodash-es`, `zod`, `clsx`, `lucide` (use `lucide`, NOT `lucide-react`).
 
-Import CSS directly in TSX: `import "./styles.css"`.
+**Constraints:** Preact not React. No CDN imports. No external fonts/images (system fonts, inline CSS/SVG). Responsive only, no fixed-pixel widths. The WebView blocks navigation — `href` and form `action` don't work.
 
-**Allowed third-party packages** (esbuild-resolved, no CDN imports): `date-fns`, `chart.js`, `lodash-es`, `zod`, `clsx`, `lucide`. Use `lucide` (vanilla JS, `createElement` / `createIcons`), NOT `lucide-react`.
+⚠️ `compile_errors` in the `app_create` response is NOT a retry signal — the response also has an `app_id`, so the app was created. Proceed. Calling `app_create` again makes a duplicate.
 
-**Technical constraints:**
+#### `app_create` accepts EXACTLY these 7 keys — nothing else
 
-- Preact for UI (not React) — `import { render } from "preact"`
-- No CDN imports
-- No external fonts/images — use system fonts and inline CSS/SVG
-- Responsive layouts only — no fixed-pixel widths
-- WebView blocks all navigation — link `href` and form `action` don't work
+`name` (required), `description`, `schema_json`, `source_files`, `preview`, `auto_open`, `change_summary`.
 
-**Persistence options:**
+Anything else fails with `Invalid input for tool "app_create": Unknown parameter "X"`. The retired keys models still reach for:
 
-- `localStorage` / `sessionStorage` — ephemeral UI state (filters, view modes, drafts)
-- Custom route handlers — persistent app records, server-side logic, file access. Call via `window.vellum.fetch("/v1/x/...")`. Full guide in `{baseDir}/references/CUSTOM_ROUTES.md` (read with `file_read`). **Never use raw `fetch()` for `/v1/x/` routes** — it fails in the sandboxed origin. Complete, copyable end-to-end examples (Focus Timer, Habit Tracker, Expense Tracker) in `{baseDir}/references/examples/` (read with `file_read`).
-- Legacy `window.vellum.data.*` — deprecated, only for editing pre-existing legacy apps. Prefer custom routes for everything new.
+- **`html`** — old single-file shortcut. Put your HTML inside `source_files["src/index.html"]`.
+- **`pages`** — retired. Multi-page apps use TSX components under `src/components/`.
+- **`icon`** — NOT a top-level param. An emoji icon goes in `preview.icon` (e.g. `preview: { title: "Bean Coffee", icon: "☕" }`). For an AI-generated icon, call `app_generate_icon(app_id, description)` *after* the app exists.
+- **A file path as a top-level key** (e.g. `"src/components/Header.tsx"`) — these go inside `source_files`, or in a `file_write` after `app_create`.
 
-#### File workflow: scaffold then expand
-
-Default pattern for ALL non-trivial apps (anything beyond a single small page):
-
-1. **`skill_load("app-builder")`** then **`app_create`** with `source_files` containing a 4-file self-contained scaffold:
-   - `src/index.html` — entry shell
-   - `src/main.tsx` — entry point that renders `<App />`
-   - `src/components/App.tsx` — **placeholder** `<div>Loading...</div>` (overwritten in Step 2)
-   - `src/styles.css` — **empty** (overwritten in Step 2)
-
-2. **`file_write`** each remaining file in its own tool call, one per turn:
-   - `src/components/App.tsx` — the real component (overwrites placeholder)
-   - `src/components/Header.tsx`, `RecordList.tsx`, etc.
-   - `src/styles.css` — the real styles (overwrites empty)
-   - `src/types.ts` if shared
-
-3. **`skill_load("app-builder")`** then **`app_refresh`** ONCE at the end to compile.
-
-**Why the 4-file scaffold:** A 2-file scaffold (just `index.html` + `main.tsx`) leaves broken imports because `main.tsx` references `./components/App` and `./styles.css`. The initial compile then returns `Could not resolve "./components/App"` errors. Those errors don't fail app creation (you still get an `app_id`), but they can trigger a panic-retry of `app_create`. Placeholders make the scaffold compile clean.
-
-**Why scaffold-then-expand at all:** A single `app_create` call carrying 5+ inline TSX files blows the response token budget mid-emit (each character of source counts as output). Splitting across tool calls spreads cost across LLM turns, each with a fresh budget. The inline-everything pattern is only safe for trivial single-file apps (under ~150 lines total).
-
-⚠️ **Correct app path is `/workspace/data/apps/<slug>/src/`.** Never write to `/workspace/apps/` — that path does not exist. Confirm the path starts with `/workspace/data/apps/` before every `file_write` and `file_edit`.
-
-⚠️ **`compile_errors` in the `app_create` response is NOT a retry signal.** The response also contains an `app_id` — the app was created. Proceed to Step 4. Calling `app_create` again creates a duplicate app (see the one-shot rule above).
-
-#### Concrete example
-
-Scaffold a project tracker, expand it, compile it:
+If a prior session in your context shows `app_create({ html })` or `app_create({ pages })`, that example is outdated — ignore it.
 
 ```
-// Tool call 1 — reload the skill, then app_create with the 4-file scaffold
-skill_load("app-builder")
-app_create({
-  name: "Project Tracker",
-  description: "Track projects with status and priority",
-  schema_json: '{"type":"object","properties":{"title":{"type":"string"},"status":{"type":"string"}},"required":["title"]}',
-  preview: { title: "Project Tracker", icon: "📋" },
-  auto_open: false,
-  source_files: {
-    "src/index.html": `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Project Tracker</title></head>
-<body><div id="app"></div></body>
-</html>`,
-    "src/main.tsx": `import { render } from "preact";
-import { App } from "./components/App";
-import "./styles.css";
-
-render(<App />, document.getElementById("app")!);`,
-    "src/components/App.tsx": `export const App = () => <div>Loading...</div>;`,
-    "src/styles.css": ``
-  }
-})
-
-// Tool calls 2..N — file_write each remaining file, one per turn
-file_write("/workspace/data/apps/<slug>/src/components/App.tsx", "...")  // overwrites the placeholder
-file_write("/workspace/data/apps/<slug>/src/components/Header.tsx", "...")
-file_write("/workspace/data/apps/<slug>/src/styles.css", "...")          // overwrites the empty file
-
-// Tool call N+1 — reload, then app_refresh ONCE to compile
-skill_load("app-builder")
-app_refresh("<app_id>")
+// ❌ Wrong                          // ✅ Right
+app_create({                         app_create({
+  name: "Landing",                     name: "Landing",
+  html: "<!DOCTYPE...>"  // INVALID     source_files: {
+})                                        "src/index.html": "<!DOCTYPE...>",
+                                          "src/main.tsx": "...",
+                                          "src/components/App.tsx": "...",
+                                          "src/styles.css": ""
+                                        }
+                                      })
 ```
 
-⚠️ **`skill_load("app-builder")` is mandatory before EVERY `app_*` tool call**, including the very first `app_create`. The skill can auto-unload between activation and use. The reload is idempotent — call it every time.
+**Key notes:** `preview` — always include, `title` required (plus optional `subtitle`, `description`, `icon`, up to 3 `metrics`). `auto_open` — **always pass `false`** so you don't get a duplicate preview card (Step 5 owns surfacing). `change_summary` — conventional commit message.
 
-⚠️ **Do NOT cram all components into the initial `app_create` source_files map.** That pattern blows the response budget for any non-trivial app. Scaffold with the 4-file minimum, expand with `file_write`.
-
-⚠️ **`app_create` accepts EXACTLY these 7 top-level keys — nothing else:** `name`, `description`, `schema_json`, `source_files`, `preview`, `auto_open`, `change_summary`. Anything else fails with `Invalid input for tool "app_create": Unknown parameter "X"`. The two most common bad keys:
-
-- **`html`** — a single-file shortcut from an older app-builder API. **Retired.** Put your HTML inside `source_files["src/index.html"]`.
-- **`pages`** — also retired. Multi-page apps use TSX components under `src/components/`, not a top-level `pages` array.
-- **File paths like `"src/components/Header.tsx"`** — these belong inside `source_files`, or in a separate `file_write` call after `app_create`. Never as a top-level key.
-
-If a prior session in your context shows `app_create({ html: "..." })` or `app_create({ pages: [...] })`, that example is outdated — ignore it.
-
-❌ **Wrong — deprecated `html` parameter:**
+### 4 — Compile
 
 ```
-app_create({
-  name: "Landing Page",
-  html: "<!DOCTYPE html>..."   // INVALID — `html` is not a supported key
-})
-```
-
-This fails with: `Invalid input for tool "app_create": Unknown parameter "html". Supported: "name", "description", "schema_json", "auto_open", "preview", "source_files", "change_summary".`
-
-✅ **Right — HTML goes inside `source_files`:**
-
-```
-app_create({
-  name: "Landing Page",
-  source_files: {
-    "src/index.html": "<!DOCTYPE html>...",
-    "src/main.tsx": "...",
-    "src/components/App.tsx": "...",
-    "src/styles.css": ""
-  }
-})
-```
-
-❌ **Wrong — file path as a top-level key:**
-
-```
-app_create({
-  name: "Project Tracker",
-  source_files: {
-    "src/index.html": "...",
-    "src/main.tsx": "...",
-    "src/components/App.tsx": "...",
-    "src/styles.css": ""
-  },
-  "src/components/Header.tsx": "..."   // INVALID — must be one of the 7 keys above
-})
-```
-
-This fails with: `Invalid input for tool "app_create": Unknown parameter "src/components/Header.tsx". Supported: "name", "description", "schema_json", "auto_open", "preview", "source_files", "change_summary".`
-
-✅ **Right — extra files go in separate `file_write` calls after `app_create`:**
-
-```
-app_create({
-  name: "Project Tracker",
-  source_files: {
-    "src/index.html": "...",
-    "src/main.tsx": "...",
-    "src/components/App.tsx": "...",
-    "src/styles.css": ""
-  }
-})
-
-file_write("/workspace/data/apps/<slug>/src/components/Header.tsx", "...")
-```
-
-#### `app_create` parameters
-
-- `name` (string, required) — Short descriptive name
-- `description` (string, optional) — One-sentence summary
-- `schema_json` (string, optional) — JSON schema as string
-- `source_files` (object, optional) — Map of relative paths to contents. For the scaffold step, include exactly 4 files: `src/index.html`, `src/main.tsx`, a placeholder `src/components/App.tsx`, and an empty `src/styles.css`. The placeholders make the initial compile clean — `file_write` calls in Step 2 of the workflow overwrite them with the real content
-- `preview` (object, optional but always include) — `title` (required), `subtitle`, `description`, `icon` (image URL preferred, emoji fallback), `metrics` (up to 3)
-- `auto_open` (boolean, optional, defaults `true`) — **Always pass `auto_open: false`.** When true, a preview card fires immediately after `app_create`. Combined with the explicit `app_open(open_mode: "preview")` call in Step 5, that produces TWO preview cards in chat — one showing the scaffold placeholder, one showing the final content. Set this to `false` and let Step 5 own the surfacing moment.
-- `change_summary` (string, optional) — Conventional commit message
-
-### Step 4 — Compile
-
-After all `file_write` calls are complete, reload the skill and compile:
-
-```
-skill_load("app-builder")
 app_refresh(app_id)
 ```
 
-⚠️ **The `skill_load` call is mandatory, not conditional.** The scaffold-then-expand pattern puts 4-6 generic `file_write` turns between `app_create` and `app_refresh`. On some platforms, the skill auto-unloads during that window because none of its own tools fired. Without the reload, `app_refresh` returns:
+Call it ONCE, after ALL file writes — batching is required. If it fails, the response has error details; fix with `file_edit`, then `app_refresh` again.
 
-> Tool "app_refresh" is not currently active. Load the "app-builder" skill that provides this tool first.
-
-The reload is cheap and idempotent — call it every time.
-
-⚠️ **Call `app_refresh` ONCE, after ALL file changes.** Calling it per-file is wrong — batching is required. The build is cached on success.
-
-If compilation fails, the response includes error details. Fix the errors with `file_edit`, then `skill_load("app-builder")` again, then `app_refresh`.
-
-### Step 5 — Show the inline preview card
-
-After `app_refresh` succeeds, reload the skill and render the inline preview card so the user has a one-click Open button in chat:
+### 5 — Show the preview card
 
 ```
-skill_load("app-builder")
 app_open(app_id, open_mode: "preview")
 ```
 
-⚠️ **Do not skip this step.** Without it, the user sees no Open button, only your text description. `app_open` with `open_mode: "preview"` is the canonical surfacing path — it fires after all file_writes complete, so the card shows final content, not the scaffold placeholder.
+⚠️ Don't skip this — without it the user has no Open button, just your text. It fires after all writes, so the card shows final content (this is why `auto_open` must be `false`). Don't use `open_mode: "workspace"` unless the user explicitly asks for the full panel.
 
-⚠️ **This step assumes you passed `auto_open: false` to `app_create` in Step 3.** If you forgot, `app_create` has already surfaced a card showing the placeholder, and this step adds a second card. Result: two duplicate previews in chat. Always pass `auto_open: false` to `app_create`.
+### 6 — Iteration
 
-⚠️ **`skill_load` is mandatory before `app_open`.** Same auto-unload risk as Step 4. The reload is idempotent — call it every time.
+Editing an existing app means reusing its `app_id` — never `app_create`. Resolve it from name if needed (see *Resolving an app*), open it so the live result is visible, then:
 
-For the user to open the app in a full workspace panel, they tap the Open button on the preview card. Do NOT call `app_open` with `open_mode: "workspace"` unless the user explicitly asks for the full panel — the preview card respects their workflow.
+- **`file_edit`** — targeted changes (styles, fixes, small features), full path `/workspace/data/apps/<slug>/src/...`
+- **`file_write`** — new files or full rewrites
+- **Rename / metadata** — edit `/workspace/data/apps/<slug>.json` directly. Not a new app.
+- **Full rebrand** — still iteration, edit the existing files.
 
-### Step 6 — Handle iteration
+Then `app_refresh(app_id)` ONCE. If the change is substantial, `app_open(app_id, open_mode: "preview")` for a fresh card; for small tweaks the existing card stays valid.
 
-⚠️ **Iteration means editing the EXISTING app, not creating a new one.** Reuse the `app_id` from Step 3, OR — when the user is editing an app built in an earlier session — resolve it from the name they mention (see *Resolving an app the user mentions* in the Routing section) and open it with `app_open(app_id, open_mode: "preview")` so the live result is in front of them. Never call `app_create` to edit an existing app — see Step 3 for the one-shot rule and the rename / restart paths.
-
-When the user requests changes:
-
-- **`file_edit`** — preferred for targeted changes (styles, bug fixes, small features). Full path: `/workspace/data/apps/<slug>/src/components/App.tsx`
-- **`file_write`** — for new files or full rewrites. Same path rule
-- **Rename the app** (e.g. user says "actually call it FLEX instead") — edit `name` in `/workspace/data/apps/<slug>.json` directly with `file_edit`. Do NOT create a new app
-- **Other metadata** (`description`, `schemaJson`, etc.) — same: edit `/workspace/data/apps/<slug>.json` directly
-- **Full visual rebrand** — still iteration. Edit the existing files. Do NOT call `app_create`
-
-If the user explicitly wants to discard the current app and start over, call `app_delete(app_id)` first, THEN `app_create` for the replacement.
-
-⚠️ **Path reminder:** `/workspace/data/apps/`, not `/workspace/apps/`. Double-check before every `file_write` / `file_edit`.
-
-After all edits, reload the skill and call `app_refresh` ONCE:
-
-```
-skill_load("app-builder")
-app_refresh(app_id)
-```
-
-If the change is substantial enough that the user benefits from a fresh preview card, reload again and call `app_open`:
-
-```
-skill_load("app-builder")
-app_open(app_id, open_mode: "preview")
-```
-
-For small in-place tweaks, the existing card stays valid — skip the `app_open`.
-
-⚠️ **`skill_load` is mandatory before every `app_*` call in the iteration loop.** Same auto-unload risk as Step 4. The reload is idempotent — call it every time.
-
-### Step 7 — Close the inference session
-
-**If you opened an inference session in Step 0** → close it now:
-
-```
-assistant inference session close
-```
-
-**If you skipped Step 0** (user declined, CLI unavailable, or profile was already quality) → skip this step.
+> ⚠️ **`skill_load("app-builder")` is required before every `app_*` call** (including the first `app_create`). The skill can auto-unload between turns; without the reload, `app_refresh` / `app_open` error with "not currently active." It's idempotent — call it every time.
 
 ---
 
-## SKILL COMPLETE WHEN
+## Using your assistant's tools and data
 
-- [ ] Routing decided: the request was classified personal/simple or shareable
+The point of these apps is to put **the user's own data and the assistant's capabilities** behind a real interface. Apps reach the assistant backend through custom routes.
 
-**Shareable path** (handed off to a local project folder — no sandbox):
+**Call routes with `window.vellum.fetch("/v1/x/...")` — never raw `fetch()`.** Raw fetch fails in the sandboxed origin. This is how an app reads and writes persistent records, runs server-side logic, and touches files.
 
-- [ ] A project folder was established (created or chosen by the user)
-- [ ] A coding agent was spawned on that folder via `acp_spawn({ cwd, prompt })`
-- [ ] The user was told the work continues in the local folder, not the app preview
+```tsx
+async function loadRecords() {
+  const res = await window.vellum.fetch("/v1/x/my-route");
+  if (!res.ok) { window.vellum.widgets.toast("Couldn't load", "error"); return []; }
+  return res.json();
+}
+```
 
-**Personal path** (built in the app sandbox):
+Always wrap calls in `try/catch`, check `res.ok` before parsing, and surface failures with a toast or inline error — never fail silently:
 
-- [ ] App built and `app_create` returned successfully
-- [ ] All source files written via `file_write` (one tool call per file)
-- [ ] `app_refresh` ran ONCE without compile errors
-- [ ] `app_open(app_id, open_mode: "preview")` rendered the inline preview card with Open button
-- [ ] User has been told what was built (brief feature list, 3-6 bullets)
-- [ ] Iterations reflected in the live app (`app_refresh` called once after all edits, fresh preview card if substantial)
-- [ ] Inference session closed if one was opened in Step 0
+```tsx
+useEffect(() => {
+  window.vellum.fetch("/v1/x/items")
+    .then(res => res.ok ? res.json() : Promise.reject(res.status))
+    .then(setItems)
+    .catch(() => window.vellum.widgets.toast("Couldn't load", "error"));
+}, []);
+```
+
+**Writing a route handler.** Routes are `.ts`/`.js` files in `{workspaceDir}/routes/`, served at `/v1/x/<filename>` (`routes/items.ts` → `/v1/x/items`; `routes/bar/index.ts` → `/v1/x/bar`). Write them with `file_write` **before** `app_refresh`. Each exports named functions per HTTP method (`GET`/`POST`/`PUT`/`PATCH`/`DELETE`), receiving the Web `Request` and an optional `context`. Full Node API access (`fs`, `path`, `crypto`), 30s timeout, hot-reloaded on change. No `[id].ts` dynamic segments — use query params.
+
+```typescript
+// routes/items.ts
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { join } from "node:path";
+export const description = "Item CRUD — JSON file storage";        // optional, for `assistant routes list`
+const FILE = join(process.env.VELLUM_WORKSPACE_DIR!, "data", "items.json");
+const load = () => existsSync(FILE) ? JSON.parse(readFileSync(FILE, "utf-8")) : [];
+const save = (x:unknown[]) => { mkdirSync(join(process.env.VELLUM_WORKSPACE_DIR!,"data"),{recursive:true}); writeFileSync(FILE, JSON.stringify(x,null,2)); };
+
+export function GET(): Response { return Response.json(load()); }
+export async function POST(req: Request): Promise<Response> {
+  const item = { id: crypto.randomUUID(), ...(await req.json()), createdAt: new Date().toISOString() };
+  const items = load(); items.push(item); save(items);
+  return Response.json(item, { status: 201 });
+}
+```
+
+The optional `context` arg exposes daemon singletons — e.g. `context.assistantEventHub.publish({...})` to push real-time events to connected clients (UI updates, navigation, notifications). It's immutable. Full guide + copyable examples (Focus Timer, Habit Tracker, Expense Tracker): `{baseDir}/references/CUSTOM_ROUTES.md`, `{baseDir}/references/examples/`.
+
+**Persistence options:** `localStorage` for ephemeral UI state (filters, view modes, drafts); custom routes for persistent records and server-side logic. (`window.vellum.data.*` is deprecated — only for editing pre-existing legacy apps.)
 
 ---
 
 ## Interaction standards
 
-Every app must meet these baselines:
+- **Feedback for every action** — `vellum.widgets.toast()` after creates, deletes, updates, errors.
+- **Confirm destructive actions** — `window.vellum.confirm(title, message)` (returns `Promise<boolean>`) before deleting or resetting.
+- **Validate forms** before submit, show errors inline, disable submit during async.
+- **Loading states** — skeleton or spinner, never a blank screen.
+- **Designed empty states** — `.v-empty-state` when there's no data.
 
-- **Feedback for every action** — use `vellum.widgets.toast()` after creates, deletes, updates, and errors
-- **Confirmation for destructive actions** — use `window.vellum.confirm(title, message)` before deleting or resetting. Returns `Promise<boolean>`
-- **Form validation** — validate before submit, show errors inline, disable submit during async operations
-- **Loading states** — never show a blank screen while data loads. Use skeleton shimmer or spinners
-- **Keyboard navigation** — `Tab` between elements, `Enter` to submit, `Escape` to close/cancel. De-prioritized on mobile-first builds
+### Keep the assistant aware
 
----
+Wire `window.vellum.sendAction()` during the build so the assistant sees meaningful interactions. **Reactive** hooks trigger a response (form submissions, selections worth explaining); **silent** hooks (`state_update`) accumulate context without interrupting (tab changes, filter changes). Examples in `{baseDir}/references/INTERACTION_HOOKS.md`.
 
-## Error handling
+### Actionable UI & links
 
-- Wrap every `window.vellum.fetch()` call in `try/catch` with user-friendly feedback. Check `res.ok` before parsing the body
-- Never let a failed operation pass silently — always show a toast or inline error
-- Show a designed empty state (`.v-empty-state`) when there's no data
-- Show validation errors inline next to the relevant form field
-
----
-
-## App interaction hooks
-
-Proactively wire `window.vellum.sendAction()` so the assistant stays aware of meaningful user interactions. Two patterns:
-
-- **Reactive hooks** — trigger an assistant response. Use for selections that warrant explanation, level completions, form submissions
-- **Silent hooks** (`state_update`) — accumulate context without interrupting. Use for tab navigation, filter changes, score updates
-
-Wire hooks during the initial build, not after the user asks. Full examples and per-app-type guidance in `{baseDir}/references/INTERACTION_HOOKS.md` (read with `file_read`).
-
----
-
-## Actionable UI
-
-When the user wants to triage or bulk-act on items, render an interactive UI with selectable items and action buttons:
-
-1. Fetch data with relevant tools
-2. Render a `dynamic_page` with selectable items and action buttons
-3. User selects + clicks action → UI sends `surfaceAction` with action ID and selected IDs
-4. Execute tools, update UI with `ui_update`, show feedback via `widgets.toast()`
-5. Use `window.vellum.confirm()` for destructive actions
-
----
-
-## External links
-
-Use `vellum.openLink(url, metadata)` to make items clickable. Construct deep-link URLs when possible. Include `metadata.provider` and `metadata.type` for context.
+For triage/bulk-action UIs: render a `dynamic_page` with selectable items + action buttons → user selects and clicks → UI sends `surfaceAction` with action ID + selected IDs → execute tools, `ui_update`, toast. Use `window.vellum.confirm()` for destructive actions. Make items clickable with `vellum.openLink(url, metadata)` (include `metadata.provider` and `metadata.type`).
 
 ---
 
 ## Slides
 
-Slides are a different domain from apps — skip app-specific patterns (contextual headers, search/filter, toast notifications, form validation, custom routes). Build navigation and layouts with custom HTML/CSS. Layout templates, key principles, and what to avoid in `{baseDir}/references/SLIDES.md` (read with `file_read`).
+Slide decks are a different domain — skip app patterns (contextual headers, search/filter, toasts, form validation, custom routes). Build navigation and layouts with custom HTML/CSS. Templates and principles in `{baseDir}/references/SLIDES.md`.
+
+---
+
+## SKILL COMPLETE WHEN
+
+- [ ] Request was scoped: personal build (sandbox) or complex/shippable (handed off to a project folder + coding agent)
+- [ ] **Sandbox path:** `app_create` returned an `app_id`; all files written via `file_write`; `app_refresh` ran ONCE clean; `app_open(open_mode: "preview")` rendered the card; user told what was built (3-6 bullets); iterations reflected live
+- [ ] **Handoff path:** project folder established; coding agent spawned via `acp_spawn({ task, cwd })`; user told work continues in the folder
 
 ---
 
 ## Reference files
 
-Read these with the `file_read` tool, using the absolute paths from the auto-generated **Reference Files** listing appended to this skill (or the `{baseDir}/references/...` paths below). `{baseDir}` resolves to this skill's directory at load time:
+Read with `file_read` using the `{baseDir}/references/...` paths (`{baseDir}` resolves to this skill's directory):
 
-- `{baseDir}/references/RESPONSIVE.md` — mobile-first vs desktop, universal baseline, safe areas
-- `{baseDir}/references/DESIGN_SYSTEM.md` — full design token table, utility classes, theme detection JS
-- `{baseDir}/references/WIDGETS.md` — widget classes, chart utilities, formatting helpers
-- `{baseDir}/references/CUSTOM_ROUTES.md` — server-side persistence and custom API routes
-- `{baseDir}/references/examples/` — complete copyable example apps (Focus Timer, Habit Tracker, Expense Tracker)
-- `{baseDir}/references/INTERACTION_HOOKS.md` — sendAction patterns, reactive vs silent
-- `{baseDir}/references/SLIDES.md` — presentation slide design
+- `RESPONSIVE.md` — mobile vs desktop, universal baseline, safe areas
+- `DESIGN_SYSTEM.md` — token table, utility classes, theme detection
+- `WIDGETS.md` — widget classes, chart utilities, formatting helpers
+- `CUSTOM_ROUTES.md` — server-side persistence and custom API routes
+- `examples/` — complete copyable example apps
+- `INTERACTION_HOOKS.md` — sendAction patterns, reactive vs silent
+- `SLIDES.md` — presentation slide design
