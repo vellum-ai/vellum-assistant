@@ -1,17 +1,10 @@
 /**
  * Plugin core types.
  *
- * This file is scaffolding only — it defines the shape of the plugin system
- * without wiring any behavior. Later PRs in the `agent-plugin-system` plan
- * refine per-pipeline argument/result types (currently `unknown`-based
- * placeholders) and add the pipeline runner, registry, and bootstrap.
- *
- * The assistant composes behavior around a small set of named pipelines
- * (`compaction`). Each plugin may contribute one
- * {@link Middleware} per pipeline; the registry composes them in onion
- * order at runtime. Plugins may also contribute {@link Injector}s that emit
- * system-prompt-time content, as well as model-visible capabilities
- * (`tools`, `routes`, `skills`).
+ * A plugin may contribute lifecycle hooks ({@link PluginHooks}) that the
+ * runtime invokes at named events, and model-visible capabilities (`tools`,
+ * `routes`, `skills`). The registry tracks every registered plugin in
+ * registration order.
  *
  * Design doc: `.private/plans/agent-plugin-system.md`.
  */
@@ -81,32 +74,7 @@ export type {
   PluginShutdownContext,
 } from "../plugin-api/types.js";
 
-// ─── Middleware ──────────────────────────────────────────────────────────────
-
-/**
- * Generic onion-style middleware. Each middleware may observe/modify the
- * arguments, decide whether to call `next` (short-circuit) or return a
- * synthetic result, and observe/modify the downstream result. `ctx` is the
- * immutable per-turn {@link TurnContext}.
- */
-export type Middleware<A, R> = (
-  args: A,
-  next: (args: A) => Promise<R>,
-  ctx: TurnContext,
-) => Promise<R>;
-
-// ─── Pipeline names ──────────────────────────────────────────────────────────
-
-/**
- * Exhaustive list of pipeline slot names. New pipelines must be added here
- * and in `DEFAULT_TIMEOUTS` (PR 12). The registry only understands these.
- */
-export type PipelineName = "compaction";
-
-// ─── Per-pipeline args / results (placeholder shapes) ────────────────────────
-// Concrete field-level types land in M2/M3 PRs as each pipeline is wrapped.
-// Until then we expose `unknown`-tagged aliases so downstream code can name
-// the types without depending on unstable internal shapes.
+// ─── Memory-graph result ─────────────────────────────────────────────────────
 
 /**
  * Full output of a single memory-graph retrieval — the object returned by
@@ -119,33 +87,6 @@ export type GraphMemoryResult = Awaited<
 >;
 
 /**
- * Pipeline inputs for the `compaction` slot — the arguments the assistant
- * would otherwise have passed to {@link ContextWindowManager.maybeCompact}.
- *
- * Typed via `unknown`-forwarded aliases to keep this module free of runtime
- * imports from `context/window-manager.ts` (which would pull the full
- * compaction machinery into anything that merely imports plugin types).
- * The default compaction plugin re-casts back to the concrete types before
- * delegating to the manager.
- */
-export type CompactionArgs = {
-  /** The message history to consider for compaction. */
-  readonly messages: unknown;
-  /** Abort signal forwarded to the compaction summary call. */
-  readonly signal?: AbortSignal;
-  /** `ContextWindowCompactOptions` — options block forwarded verbatim. */
-  readonly options?: unknown;
-};
-/**
- * Pipeline result for the `compaction` slot — the full
- * {@link import("../context/window-manager.js").ContextWindowResult}
- * object returned by `maybeCompact()`. Kept as `unknown` here for the
- * same decoupling reason as {@link CompactionArgs}; consumers in
- * `daemon/conversation-agent-loop.ts` cast back to the concrete shape.
- */
-export type CompactionResult = unknown;
-
-/**
  * The complete set of compaction circuit-breaker transition events:
  * `compaction_circuit_open` when the breaker trips and `compaction_circuit_closed`
  * on the open→closed transition. Both are a subset of `ServerMessage`, so any
@@ -155,15 +96,6 @@ export type CompactionResult = unknown;
 export type CompactionCircuitEvent =
   | CompactionCircuitOpenEvent
   | CompactionCircuitClosedEvent;
-
-/**
- * Mapping from {@link PipelineName} to the middleware signature the registry
- * expects for that slot. Used both to shape `Plugin.middleware` and to drive
- * `getMiddlewaresFor<P>()` type narrowing in PR 13.
- */
-export interface PipelineMiddlewareMap {
-  compaction: Middleware<CompactionArgs, CompactionResult>;
-}
 
 // ─── TurnContext ─────────────────────────────────────────────────────────────
 
@@ -238,12 +170,11 @@ export interface TurnInjectionInputs {
 }
 
 /**
- * Per-turn execution context threaded through every middleware invocation.
+ * Per-turn execution context threaded to the injector chain and to hook
+ * consumers that need turn-level identity.
  *
  * Combines turn-level identifiers (`requestId`, `conversationId`,
- * `turnIndex`), the optionally-bound `pluginName` (set by the pipeline
- * runner when invoking a specific plugin's middleware, for error
- * attribution), and the canonical {@link TrustContext} that carries trust
+ * `turnIndex`) with the canonical {@link TrustContext} that carries trust
  * class and channel identity for the inbound actor.
  *
  * `TrustContext` is re-exposed here (rather than redefined) so the plugin
@@ -256,51 +187,42 @@ export interface TurnContext {
   conversationId: string;
   /** 0-based turn index within the conversation. */
   turnIndex: number;
-  /**
-   * When the pipeline runner is executing a specific plugin's middleware,
-   * this is set to that plugin's name so downstream code (error wrapping,
-   * telemetry) can attribute work accurately.
-   */
-  pluginName?: string;
   /** Trust classification and channel identity for the inbound actor. */
   trust: TrustContext;
   /**
    * Optional handle to the conversation's {@link ContextWindowManager}.
    *
-   * Attached by the orchestrator when building the per-turn context for
-   * pipeline invocations that need to defer to the real compaction machinery
-   * (notably the default `compaction` plugin). Pipelines that never touch
-   * compaction can ignore this field; the default compaction plugin throws
-   * a {@link PluginExecutionError} if it is missing, which keeps the failure
-   * attributed to the plugin rather than surfacing as a late NPE downstream.
+   * Attached by the orchestrator so the default compaction implementation can
+   * defer to the real compaction machinery via `context.manager`. Call sites
+   * that never touch compaction may omit it.
    *
    * Declared as an optional typed field so plugin code can read it without a
-   * lenient cast. The optional shape is load-bearing: pipeline runner tests,
-   * synthesized handler contexts, and other non-compaction call sites still
-   * construct valid `TurnContext` literals without attaching a manager.
+   * lenient cast. The optional shape is load-bearing: synthesized handler
+   * contexts and other non-compaction call sites still construct valid
+   * `TurnContext` literals without attaching a manager.
    */
   contextWindowManager?: ContextWindowManager;
   /**
    * Per-turn injection inputs consumed by the default injector chain.
    *
-   * Omitted for call sites that don't drive runtime injection (pipeline-runner
-   * tests, synthesized handler contexts, some background jobs). Each default
-   * injector treats missing/absent fields as "no injection on this turn", so
-   * a context without `injectionInputs` produces an empty injection chain.
+   * Omitted for call sites that don't drive runtime injection (synthesized
+   * handler contexts, some background jobs). Each default injector treats
+   * missing/absent fields as "no injection on this turn", so a context
+   * without `injectionInputs` produces an empty injection chain.
    */
   injectionInputs?: TurnInjectionInputs;
   /**
-   * The {@link LLMCallSite} this turn's pipeline work belongs to —
-   * `"mainAgent"` for the user-facing conversational reply, or the specific
-   * background/utility site (`"compactionAgent"`, `"subagentSpawn"`,
-   * `"memoryConsolidation"`, `"conversationTitle"`, …) when the agent loop is
-   * driving non-main work that happens to share the same `conversationId`.
+   * The {@link LLMCallSite} this turn belongs to — `"mainAgent"` for the
+   * user-facing conversational reply, or the specific background/utility site
+   * (`"compactionAgent"`, `"subagentSpawn"`, `"memoryConsolidation"`,
+   * `"conversationTitle"`, …) when the agent loop is driving non-main work
+   * that happens to share the same `conversationId`.
    *
-   * Lets {@link Injector}s and pipeline middleware scope their behaviour to
-   * the main reply and stay out of background turns, which `onEvent` presence
-   * alone cannot distinguish (compaction and subagent loops also stream).
-   * Omitted by call sites that don't tag a site (synthesized test contexts);
-   * consumers should treat absence conservatively.
+   * Lets {@link Injector}s scope their behaviour to the main reply and stay
+   * out of background turns, which `onEvent` presence alone cannot distinguish
+   * (compaction and subagent loops also stream). Omitted by call sites that
+   * don't tag a site (synthesized test contexts); consumers should treat
+   * absence conservatively.
    */
   callSite?: LLMCallSite;
 }
@@ -483,7 +405,7 @@ export type PluginHooks = Record<string, PluginHookFn<any>>;
 
 /**
  * A registered plugin. Every field besides `manifest` is optional — a plugin
- * may contribute any combination of middleware and model-visible
+ * may contribute any combination of lifecycle hooks and model-visible
  * capabilities. Lifecycle hooks live under `hooks`.
  */
 export interface Plugin {
@@ -505,43 +427,13 @@ export interface Plugin {
   routes?: PluginRouteRegistration[];
   /** Skill registrations loaded at startup. */
   skills?: PluginSkillRegistration[];
-  /**
-   * Named middleware slots. At most one middleware per slot per plugin.
-   * The registry composes multiple plugins' middleware for a slot in
-   * registration order (outermost first).
-   */
-  middleware?: Partial<PipelineMiddlewareMap>;
 }
 
 // ─── Errors ──────────────────────────────────────────────────────────────────
 
 /**
- * Thrown by the pipeline runner when a plugin's middleware exceeds the
- * pipeline's configured timeout. Carries the pipeline name, the offending
- * plugin (if known), and the elapsed-milliseconds budget that was breached.
- */
-export class PluginTimeoutError extends AssistantError {
-  constructor(
-    public readonly pipeline: PipelineName,
-    public readonly pluginName: string | undefined,
-    public readonly elapsedMs: number,
-    options?: { cause?: unknown },
-  ) {
-    super(
-      `Plugin pipeline '${pipeline}' timed out after ${elapsedMs}ms${
-        pluginName ? ` (offending plugin: ${pluginName})` : ""
-      }`,
-      ErrorCode.INTERNAL_ERROR,
-      options,
-    );
-    this.name = "PluginTimeoutError";
-  }
-}
-
-/**
  * Thrown by registry and bootstrap for plugin lifecycle errors — registration
- * validation failures, API-version mismatches, init throw-outs. Distinct from
- * {@link PluginTimeoutError} so callers can discriminate.
+ * validation failures, API-version mismatches, init throw-outs.
  */
 export class PluginExecutionError extends AssistantError {
   constructor(

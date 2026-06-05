@@ -40,7 +40,8 @@ const INTERNAL_CONTEXT_SUMMARY_MESSAGES = new WeakSet<Message>();
 
 // ---------------------------------------------------------------------------
 // Public types — preserved for downstream consumers (agent loop, conversation,
-// plugin pipeline, applyCompactionResult, routes/playground/force-compact).
+// default compaction plugin, applyCompactionResult,
+// routes/playground/force-compact).
 // ---------------------------------------------------------------------------
 
 export interface ContextWindowResult {

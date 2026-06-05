@@ -1,33 +1,30 @@
 # Echo plugin
 
-Minimal example plugin. Observes every assistant pipeline and logs one JSON
-line per invocation to `stderr`:
+Minimal example plugin. Observes the assistant's turn-lifecycle hooks and logs
+one JSON line per hook invocation to `stderr`:
 
 ```json
 {
   "plugin": "echo",
-  "pipeline": "compaction",
-  "durationMs": 1590,
-  "outcome": "success"
+  "hook": "post-tool-use",
+  "conversationId": "conv_abc123"
 }
 ```
 
 Use this as a starting point for writing your own plugin, or as a quick way
-to eyeball which pipelines fire during a conversation and how long they
-take.
+to eyeball which hooks fire during a conversation.
 
 For the full plugin authoring guide, see
 [`assistant/docs/plugins.md`](../../../docs/plugins.md).
 
 ## What it does
 
-- Registers one observer middleware per slot in
-  `PipelineMiddlewareMap` — `compaction`.
-- Each middleware calls `next(args)` to pass the request through unchanged,
-  measures wall-clock duration, and emits one line to `stderr` whether the
-  downstream succeeded or threw.
-- Never modifies arguments, never rewrites results, never swallows errors.
-  It is purely observational — safe to stack alongside any other plugin.
+- Registers one observer hook per turn-lifecycle event:
+  `user-prompt-submit`, `post-tool-use`, and `stop`.
+- Each hook emits one line to `stderr` and returns `void`, so the threaded
+  context flows through unchanged.
+- Never modifies the turn's messages, tool results, or stop decision. It is
+  purely observational — safe to stack alongside any other plugin.
 
 ## Install locally
 
@@ -87,27 +84,22 @@ vellum restart
 ## Verify it works
 
 With the plugin installed and the assistant restarted, send any message
-that exercises a pipeline — a conversation turn, a tool call, a title
-generation — and tail the assistant's stderr log:
+that exercises a turn — a conversation reply, a tool call — and tail the
+assistant's stderr log:
 
 ```bash
 tail -f ~/.vellum/daemon.log
 ```
 
-You should see one line per pipeline invocation, similar to:
+You should see one line per hook invocation, similar to:
 
 ```json
 {
   "plugin": "echo",
-  "pipeline": "compaction",
-  "durationMs": 1590,
-  "outcome": "success"
+  "hook": "post-tool-use",
+  "conversationId": "conv_abc123"
 }
 ```
-
-If a pipeline throws (for example, a tool that errors out), you'll see a
-line with `"outcome":"error"` — the plugin rethrows after logging so the
-original error still propagates.
 
 ## Uninstall
 
@@ -121,13 +113,11 @@ vellum restart
 ## Next steps
 
 - Read [`assistant/docs/plugins.md`](../../../docs/plugins.md) for the full
-  plugin authoring guide: manifest shape, middleware patterns
-  (observe / transform / short-circuit / veto), strict-fail semantics, the
-  per-pipeline timeout table, credential and config access, and
-  troubleshooting.
+  plugin authoring guide: manifest shape, hook patterns
+  (observe / transform), credential and config access, and troubleshooting.
 - Look at the first-party default plugins under
-  `assistant/src/plugins/defaults/` for examples of non-observational
-  middleware.
+  `assistant/src/plugins/defaults/` for examples of hooks that transform a
+  turn rather than just observing it.
 - Build your own plugin by copying this directory, renaming the manifest
-  `name`, and replacing the observer with a middleware that does whatever
-  you need.
+  `name`, and replacing the observer hooks with ones that do whatever you
+  need.
