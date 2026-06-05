@@ -2343,7 +2343,8 @@ jobs:
   # DMG, and uploads it as a release asset. Non-blocking (continue-on-error)
   # while the Electron client is WIP.
   build-electron:
-    needs: [extract-version]
+    needs: [extract-version, publish-meta-prod, publish-meta-staging]
+    if: ${{ always() && !cancelled() && (needs.publish-meta-prod.result == 'success' || needs.publish-meta-staging.result == 'success') }}
     runs-on: macos-26
     timeout-minutes: 30
     continue-on-error: true
