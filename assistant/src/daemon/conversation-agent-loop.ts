@@ -1223,10 +1223,7 @@ export async function runAgentLoopImpl(
       // context, signalled by the first `message_complete`. Persisting inline
       // would mark the profile notified even if the turn is cancelled or fails
       // before the model ever sees the notice.
-      state.pendingProfileNotification = {
-        conversationId: ctx.conversationId,
-        profileKey: effectiveProfileKey,
-      };
+      state.pendingNotifiedInferenceProfile = effectiveProfileKey;
     }
 
     // Memory retrieval — fetches PKB, NOW.md, and memory-graph outputs and

@@ -118,10 +118,7 @@ describe("inference-profile-change notification persistence", () => {
   test("persists on the first message_complete and clears the pending slot", async () => {
     setLastNotifiedInferenceProfile.mockClear();
     const state = readyState();
-    state.pendingProfileNotification = {
-      conversationId: CONVERSATION_ID,
-      profileKey: PROFILE_KEY,
-    };
+    state.pendingNotifiedInferenceProfile = PROFILE_KEY;
 
     await dispatchAgentEvent(state, makeDeps(), messageCompleteEvent());
 
@@ -130,7 +127,7 @@ describe("inference-profile-change notification persistence", () => {
       CONVERSATION_ID,
       PROFILE_KEY,
     );
-    expect(state.pendingProfileNotification).toBeNull();
+    expect(state.pendingNotifiedInferenceProfile).toBeNull();
   });
 
   test("does not persist when the turn carries no profile-change notice", async () => {
@@ -145,10 +142,7 @@ describe("inference-profile-change notification persistence", () => {
   test("persists exactly once across a multi-call turn", async () => {
     setLastNotifiedInferenceProfile.mockClear();
     const state = readyState();
-    state.pendingProfileNotification = {
-      conversationId: CONVERSATION_ID,
-      profileKey: PROFILE_KEY,
-    };
+    state.pendingNotifiedInferenceProfile = PROFILE_KEY;
     const deps = makeDeps();
 
     await dispatchAgentEvent(state, deps, messageCompleteEvent());
