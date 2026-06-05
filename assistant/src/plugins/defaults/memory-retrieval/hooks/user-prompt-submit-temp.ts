@@ -14,7 +14,7 @@
  * block onto the user message's metadata, writing the recall log, and emitting
  * the `memory_recalled` event — so the loop only consumes the turn-scoped
  * outputs written back onto the context (`pkbContent`, `nowContent`,
- * `graphResult`).
+ * `runMessages`, and the PKB query vectors).
  *
  * This fires at the early "prompt submitted, before context assembly" moment,
  * distinct from the canonical late `user-prompt-submit` hook (history repair,
@@ -37,6 +37,7 @@ import type { MemoryRecalled } from "../../../../daemon/message-types/memory.js"
 import { updateMessageMetadata } from "../../../../memory/conversation-crud.js";
 import type { ConversationGraphMemory } from "../../../../memory/graph/conversation-graph-memory.js";
 import { recordMemoryRecallLog } from "../../../../memory/memory-recall-log-store.js";
+import type { QdrantSparseVector } from "../../../../memory/qdrant-client.js";
 import type { Message } from "../../../../providers/types.js";
 import type { GraphMemoryResult } from "../../../types.js";
 
@@ -79,10 +80,23 @@ export interface MemoryRetrievalHookContext {
    */
   nowContent: string | null;
   /**
-   * The memory-graph retrieval, or `null` when the actor is not trusted (the
-   * graph call is skipped entirely in that case). Written by the hook.
+   * Working message list for the turn: the input messages with the
+   * memory-graph block injected, or the unchanged input messages when no
+   * graph retrieval ran (untrusted actor, or a no-op retrieval). Written by
+   * the hook.
    */
-  graphResult: GraphMemoryResult | null;
+  runMessages: Message[];
+  /**
+   * Dense query vector for downstream PKB hybrid search, selected as a matched
+   * pair with `pkbSparseVector`. `undefined` when no graph retrieval ran.
+   * Written by the hook.
+   */
+  pkbQueryVector?: number[];
+  /**
+   * Sparse (TF-IDF) query vector paired with `pkbQueryVector` for PKB hybrid
+   * search. `undefined` when no graph retrieval ran. Written by the hook.
+   */
+  pkbSparseVector?: QdrantSparseVector;
 }
 
 /**
@@ -174,8 +188,9 @@ function recordRecallSideEffects(
 
 /**
  * Run the default retrieval, writing `pkbContent` / `nowContent` /
- * `graphResult` back onto the context. Skips the memory-graph call entirely
- * (leaving `graphResult` `null`) when the actor is not trusted.
+ * `runMessages` and the PKB query vectors back onto the context. Skips the
+ * memory-graph call entirely (leaving `runMessages` as the input messages and
+ * the query vectors `undefined`) when the actor is not trusted.
  *
  * Memory retrieval blocks the turn — there is no soft timeout here. Memory is
  * critical context, and silently dropping it produces a worse outcome than a
@@ -189,10 +204,10 @@ const userPromptSubmitMemoryRetrieval: PluginHookFn<
   // to inject them based on first-turn / post-compaction gating.
   ctx.pkbContent = readPkbContext();
   ctx.nowContent = readNowScratchpad();
+  ctx.runMessages = ctx.messages;
 
   if (!ctx.isTrustedActor) {
     // Untrusted actors skip memory-graph retrieval entirely.
-    ctx.graphResult = null;
     return;
   }
 
@@ -205,7 +220,23 @@ const userPromptSubmitMemoryRetrieval: PluginHookFn<
 
   recordRecallSideEffects(graphResult, ctx);
 
-  ctx.graphResult = graphResult;
+  ctx.runMessages = graphResult.runMessages;
+  // Select dense+sparse as a matched pair so RRF fusion combines two signals
+  // aligned to the same query text:
+  //   1. Context-load with a user query: user-query dense + user-query sparse
+  //      — the cleanest pairing.
+  //   2. Otherwise (context-load without a user query, or per-turn): whatever
+  //      `queryVector` / `sparseVector` the retriever produced, which are
+  //      themselves co-aligned (both summary-derived in context-load, both
+  //      user-last-message-derived in per-turn).
+  // Never pair a user-query dense with a summary-aligned sparse.
+  if (graphResult.userQueryVector) {
+    ctx.pkbQueryVector = graphResult.userQueryVector;
+    ctx.pkbSparseVector = graphResult.userQuerySparseVector;
+  } else {
+    ctx.pkbQueryVector = graphResult.queryVector;
+    ctx.pkbSparseVector = graphResult.sparseVector;
+  }
 };
 
 export default userPromptSubmitMemoryRetrieval;

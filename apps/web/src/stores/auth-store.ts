@@ -213,17 +213,36 @@ function probePlatformSession(
   const probeId = ++latestPlatformProbe;
   const isStale = (): boolean => probeId !== latestPlatformProbe;
   platformProbeSettled = getSession()
-    .then((result) => {
+    .then(async (result) => {
       if (isStale()) return;
       if (result.ok && result.data.user) {
-        set(
-          options.setUserOnSuccess
-            ? {
-                platformSession: "present",
-                user: toAuthUser(result.data.user),
-              }
-            : { platformSession: "present" },
-        );
+        const userUpdate = options.setUserOnSuccess
+          ? { user: toAuthUser(result.data.user) }
+          : {};
+        // Sync platform assistants to the lockfile BEFORE setting
+        // platformSession to "present". The auth middleware unblocks on
+        // `platformSession !== "unknown"`, and hasAssistants() must
+        // already reflect synced platform assistants at that point.
+        // Bounded to 3s so a hanging list call can't block the probe
+        // from settling — the middleware's 5s timeout would loop
+        // indefinitely otherwise.
+        if (isLocalMode()) {
+          try {
+            const apiAssistants = await Promise.race([
+              listAssistants(),
+              new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error("sync timeout")), 3_000),
+              ),
+            ]);
+            if (!isStale() && apiAssistants.ok) {
+              await syncPlatformAssistantsToLockfile(apiAssistants.data);
+            }
+          } catch {
+            // Sync failed or timed out — continue with cached lockfile data
+          }
+        }
+        if (isStale()) return;
+        set({ platformSession: "present", ...userUpdate });
       } else if (options.clearOnFailure) {
         set({ platformSession: "absent" });
       }
@@ -236,10 +255,6 @@ function probePlatformSession(
     })
     .finally(() => {
       if (isStale()) return;
-      // Settle the initial boot probe: when neither branch above confirmed or
-      // cleared a session (init paths don't clear on failure), the first
-      // `"unknown"` resolves to `"absent"`. A probe that already settled
-      // `"present"`/`"absent"` is left untouched.
       set((state) =>
         state.platformSession === "unknown"
           ? { platformSession: "absent" }

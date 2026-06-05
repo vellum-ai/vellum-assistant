@@ -31,7 +31,8 @@ export type IconName =
   | "plug"
   | "sparkle"
   | "user-plus"
-  | "bolt";
+  | "bolt"
+  | "brain";
 
 /** Result of mapping a tool call to its carousel-header label. */
 export interface StepLabel {

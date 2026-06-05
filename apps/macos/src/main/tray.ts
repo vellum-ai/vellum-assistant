@@ -12,6 +12,7 @@ import {
   type AssistantStatus,
 } from "./status";
 import { invalidateIconCache, statusFrames } from "./status-icon";
+import { readOnboardingActive } from "./window-state";
 
 /**
  * macOS menu-bar (Tray) status item.
@@ -104,6 +105,14 @@ const buildTrayMenu = (handlers: TrayHandlers, status: AssistantStatus): Menu =>
       click: handlers.toggleMainWindow,
     },
     { type: "separator" },
+    {
+      label: "Settings\u2026",
+      enabled: !readOnboardingActive(),
+      click: async () => {
+        await handlers.ensureMainWindow();
+        dispatchToMain({ kind: "openSettings" });
+      },
+    },
     {
       label: `About ${app.name}`,
       click: handlers.openAbout,

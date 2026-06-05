@@ -16,8 +16,21 @@ import { MessageHoverActions } from "@/domains/chat/components/message-hover-act
 import { SubagentInlineProgressCard } from "@/domains/chat/components/subagent-inline-progress-card/subagent-inline-progress-card";
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router";
 import { ThinkingBlock } from "@/domains/chat/components/thinking-block";
-import { ToolCallProgressCard } from "@/domains/chat/components/tool-call-progress-card/tool-call-progress-card";
+import { ThoughtProcessLink } from "@/domains/chat/components/thought-process-link/thought-process-link";
+import { InlineToolLink } from "@/domains/chat/components/inline-activity-link/inline-tool-link";
+import { ActivityRunCard } from "@/domains/chat/components/activity-run-card/activity-run-card";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import {
+  WEB_TOOL_NAMES,
+  type ToolCallCardItem,
+} from "@/domains/chat/hooks/tool-call-card-utils";
+import {
+  groupMessageActivityRuns,
+  isSubagentSpawnCall,
+  isSuppressedUiTool,
+  resolveThinkingContent,
+  resolveToolCall,
+} from "@/domains/chat/transcript/message-content";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 import {
@@ -117,24 +130,6 @@ export interface TranscriptMessageBodyProps {
 }
 
 /**
- * Detect whether a tool call is a `subagent_spawn` invocation. The daemon
- * exposes `subagent_spawn` as a bundled-skill tool, which means the LLM
- * actually emits a `skill_execute` call with `input.tool === "subagent_spawn"`
- * — the daemon's `skill_execute` interceptor (see
- * `assistant/src/daemon/conversation-tool-setup.ts`) re-dispatches to the
- * real executor, but the `tool_use_start` event the frontend receives still
- * carries `toolName: "skill_execute"`. Matching on the raw `toolName` would
- * miss every spawn and leave inline subagent cards unrendered.
- */
-export function isSubagentSpawnCall(toolCall: ChatMessageToolCall): boolean {
-  if (toolCall.name === "subagent_spawn") return true;
-  if (toolCall.name !== "skill_execute") return false;
-  const input = toolCall.input;
-  if (input == null || typeof input !== "object") return false;
-  return (input as Record<string, unknown>).tool === "subagent_spawn";
-}
-
-/**
  * Extract the spawned `subagentId` from a `subagent_spawn` tool call's result.
  * The daemon's spawn tool returns `JSON.stringify({ subagentId, label, ... })`
  * (see `assistant/src/tools/subagent/spawn.ts`). Returns `undefined` when the
@@ -197,7 +192,7 @@ function lookupSubagentEntriesForMessage(
  * Positional fallback: the caller owns the `claimed` Set so it persists
  * across every invocation within a single message — that's what stops two
  * non-consecutive spawn tool-call groups (each producing a separate
- * `ToolCallProgressCard` mount) from both pulling the same first unclaimed
+ * `ActivityRunCard` mount) from both pulling the same first unclaimed
  * entry and rendering duplicate cards. The by-id matches also feed `claimed`
  * so a later positional match can't re-pick an already-anchored entry.
  */
@@ -357,18 +352,6 @@ export function TranscriptMessageBody({
   // groups (e.g. a tool_use lands before the first assistant_text_delta).
   const messageText = segmentsToPlainText(message.textSegments);
 
-  // Join the reasoning segments referenced by a run of `thinking`
-  // content-order ids into a single markdown string (mirrors macOS, which
-  // joins adjacent reasoning indices with newlines).
-  const resolveThinkingContent = (ids: string[]): string =>
-    ids
-      .map((id) => {
-        const idx = parseInt(id, 10);
-        return !isNaN(idx) ? message.thinkingSegments?.[idx] : undefined;
-      })
-      .filter((s): s is string => Boolean(s))
-      .join("\n");
-
   // `textBubbleClass` applies only to the assistant text path: it carries the
   // text bubble per segment inside `segmentClass`'s assistant branch. User
   // messages get their bubble once at the wrapper via `userBubbleClass`, so the
@@ -457,14 +440,6 @@ export function TranscriptMessageBody({
     }
     return undefined;
   };
-
-  // UI surface tools are rendered by the inline surface widget, not as
-  // tool call chips — unless they have a pending confirmation attached,
-  // in which case the chip must render so the inline confirmation card
-  // is visible.
-  const isSuppressedUiTool = (tc: ChatMessageToolCall) =>
-    !tc.pendingConfirmation &&
-    (tc.name === "ui_show" || tc.name === "ui_update" || tc.name === "ui_dismiss");
 
   // Hard line breaks are enabled for every transcript message regardless of
   // role: single `\n`s in assistant output (not just user Shift+Enter input)
@@ -634,177 +609,148 @@ export function TranscriptMessageBody({
     );
   };
 
-  if (hasInterleavedToolCalls && message.contentOrder) {
-    // Group consecutive entries: merge adjacent toolCall/tool entries into a
-    // single group (mirrors macOS `groupContentBlocks`).
-    type ContentGroup =
-      | { type: "text"; id: string }
-      | { type: "toolCalls"; ids: string[] }
-      | { type: "thinking"; ids: string[] }
-      | { type: "surface"; id: string };
-
-    const groups: ContentGroup[] = [];
-    for (const entry of message.contentOrder) {
-      if (entry.type === "toolCall" || entry.type === "tool") {
-        const lastGroup = groups[groups.length - 1];
-        if (lastGroup?.type === "toolCalls") {
-          lastGroup.ids.push(entry.id);
-        } else {
-          groups.push({ type: "toolCalls", ids: [entry.id] });
-        }
-      } else if (entry.type === "thinking") {
-        // Merge consecutive thinking entries into one block (mirrors macOS
-        // `groupContentBlocks`, which joins adjacent reasoning indices).
-        const lastGroup = groups[groups.length - 1];
-        if (lastGroup?.type === "thinking") {
-          lastGroup.ids.push(entry.id);
-        } else {
-          groups.push({ type: "thinking", ids: [entry.id] });
-        }
-      } else if (entry.type === "text") {
-        groups.push({ type: "text", id: entry.id });
-      } else if (entry.type === "surface") {
-        groups.push({ type: "surface", id: entry.id });
-      }
+  // Render a single contentOrder surface (shared by both interleaved render
+  // paths). Surfaces — including task-progress surfaces — always render inline
+  // in their natural position (no hoist, no suppression).
+  const renderSurfaceNode = (id: string, key: string): ReactNode => {
+    const surface = resolveSurface(id);
+    if (!surface) {
+      return null;
     }
+    return (
+      <div key={key} className="w-full">
+        <SurfaceRouter
+          surface={surface}
+          onAction={onSurfaceAction}
+          onOpenApp={onOpenApp}
+          onOpenDocument={onOpenDocument}
+          assistantId={assistantId}
+          toolCalls={message.toolCalls}
+        />
+      </div>
+    );
+  };
 
-    const resolveToolCall = (id: string): ChatMessageToolCall | undefined => {
-      const tc = message.toolCalls?.find((t) => t.id === id);
-      if (tc) {
-        return tc;
-      }
-      const idx = parseInt(id, 10);
-      if (!isNaN(idx) && message.toolCalls && idx < message.toolCalls.length) {
-        return message.toolCalls[idx];
-      }
-      return undefined;
-    };
+  // Resolve a `text` contentOrder id against `textSegments`.
+  const resolveTextSegment = (id: string): string | undefined => {
+    const textSegments = message.textSegments ?? [];
+    const numericIdx = parseInt(id, 10);
+    return !isNaN(numericIdx) ? textSegments[numericIdx] : undefined;
+  };
 
-    // Each entry carries its group `type` alongside the rendered node so the
-    // user branch can place text inside the bubble and tool-call/surface
-    // elements outside it (only text/markdown belongs in the user bubble). For
-    // assistants the order is preserved by rendering all nodes in sequence.
-    const interleavedGroupEntries = groups.map((group, gi): {
-      type: ContentGroup["type"];
-      node: ReactNode;
-    } => {
-      const node = ((): ReactNode => {
-            if (group.type === "toolCalls") {
-              const toolCalls = group.ids
-                .map(resolveToolCall)
-                .filter((tc): tc is ChatMessageToolCall => tc != null && !isSuppressedUiTool(tc));
-              if (toolCalls.length === 0) {
-                return null;
-              }
-              // A group whose only tool calls are subagent spawns renders
-              // exclusively through the inline subagent cards below. The
-              // unified progress card would have no renderable steps (spawns
-              // are filtered out of its body) and would surface just the
-              // leading-thinking preamble — redundant noise, since that text
-              // already renders as its own message text group.
-              const hasRenderableToolCall = toolCalls.some(
-                (tc) => !isSubagentSpawnCall(tc),
-              );
-              return (
-                <Fragment key={`tc-${gi}`}>
-                  {hasRenderableToolCall && (
-                    <ToolCallProgressCard
-                      toolCalls={toolCalls}
-                      expandedToolCallIds={expandedToolCallIds}
-                      onExpandChange={handleExpandChange}
-                      expandedCardIds={expandedCardIds}
-                      autoExpand={shouldAutoExpandToolCallGroup({
-                        isCurrentGroup: gi === groups.length - 1,
-                        isStreaming,
-                        toolCalls,
-                      })}
-                      onOpenRuleEditor={onOpenRuleEditor}
-                      isSubmittingConfirmation={isSubmittingConfirmation}
-                      onConfirmationSubmit={onConfirmationSubmit}
-                      onAllowAndCreateRule={onAllowAndCreateRule}
-                      pendingConfirmationToolCallId={pendingConfirmationToolCallId}
-                      unknownNudgeToolCallIds={unknownNudgeToolCallIds}
-                      onDismissUnknownNudge={onDismissUnknownNudge}
-                    />
-                  )}
-                  {renderInlineSubagentCards(toolCalls)}
-                </Fragment>
-              );
-            }
-            if (group.type === "thinking") {
-              const thinkingContent = resolveThinkingContent(group.ids);
-              if (!thinkingContent) {
-                return null;
-              }
-              return (
-                <ThinkingBlock
-                  key={`thinking-${gi}`}
-                  content={thinkingContent}
-                  isStreaming={isStreaming && gi === groups.length - 1}
-                  expansionKey={`${message.id}-th${group.ids[0] ?? "0"}`}
-                  expandedThinkingKeys={expandedThinkingKeys}
-                />
-              );
-            }
-            if (group.type === "text") {
-              const textSegments = message.textSegments ?? [];
-              const numericIdx = parseInt(group.id, 10);
-              const text = !isNaN(numericIdx)
-                ? textSegments[numericIdx]
-                : undefined;
-              if (!text) {
-                return null;
-              }
-              return renderTextWithInlineSurfaces(text, `text-${gi}`);
-            }
-            if (group.type === "surface") {
-              const surface = resolveSurface(group.id);
-              if (!surface) {
-                return null;
-              }
-              return (
-                <div key={`surface-${gi}`} className="w-full">
-                  <SurfaceRouter
-                    surface={surface}
-                    onAction={onSurfaceAction}
-                    onOpenApp={onOpenApp}
-                    onOpenDocument={onOpenDocument}
-                    assistantId={assistantId}
-                    assistantDisplayName={assistantDisplayName}
-                    toolCalls={message.toolCalls}
-                  />
-                </div>
-              );
-            }
-            return null;
-      })();
-      return { type: group.type, node };
+  // ---- Merged activity runs ----
+  if (hasInterleavedToolCalls && message.contentOrder) {
+    // This branch is assistant-only: `hasInterleavedToolCalls` is true only
+    // when `contentOrder` carries `toolCall`/`tool` entries, and tool calls
+    // only ever come from the assistant — user messages have no tool calls.
+    //
+    // Contiguous thinking + tool-call entries merge into one combined
+    // `ActivityRunCard` (or a compact inline link for lone thinking / lone
+    // simple tools). Task-progress and other surfaces render inline in
+    // position.
+    const mergedGroups = groupMessageActivityRuns(message);
+    const mergedGroupElements: ReactNode[] = mergedGroups.map((group, gi) => {
+      const isLastGroup = gi === mergedGroups.length - 1;
+      if (group.type === "text") {
+        const text = resolveTextSegment(group.id);
+        if (!text) return null;
+        return renderTextWithInlineSurfaces(text, `m-text-${gi}`);
+      }
+      if (group.type === "surface") {
+        return renderSurfaceNode(group.id, `m-surface-${gi}`);
+      }
+      // group.type === "activity"
+      const cardItems: ToolCallCardItem[] = [];
+      const groupToolCalls: ChatMessageToolCall[] = [];
+      const thinkingContents: string[] = [];
+      for (const item of group.items) {
+        if (item.kind === "thinking") {
+          const text = resolveThinkingContent(message, item.ids);
+          if (text) {
+            thinkingContents.push(text);
+            cardItems.push({ kind: "thinking", text });
+          }
+        } else {
+          const tc = resolveToolCall(message, item.id);
+          if (!tc || isSuppressedUiTool(tc)) continue;
+          groupToolCalls.push(tc);
+          cardItems.push({ kind: "toolCall", toolCall: tc });
+        }
+      }
+      const renderableToolCalls = groupToolCalls.filter(
+        (tc) => !isSubagentSpawnCall(tc),
+      );
+      // Single-tool-inline: a lone run that resolves to exactly ONE simple
+      // renderable tool — no thinking, no web rich-rendering, no inline
+      // confirmation UI. Render the compact inline chip instead of the boxed
+      // card (mirrors the lone `ThoughtProcessLink`).
+      const loneTool =
+        cardItems.length === 1 &&
+        cardItems[0]?.kind === "toolCall" &&
+        renderableToolCalls.length === 1 &&
+        !WEB_TOOL_NAMES.has(renderableToolCalls[0]!.name) &&
+        !renderableToolCalls[0]!.pendingConfirmation
+          ? renderableToolCalls[0]!
+          : null;
+      if (loneTool) {
+        return (
+          <Fragment key={`m-activity-${gi}`}>
+            <InlineToolLink toolCall={loneTool} />
+            {renderInlineSubagentCards(groupToolCalls)}
+          </Fragment>
+        );
+      }
+      if (renderableToolCalls.length > 0) {
+        return (
+          <Fragment key={`m-activity-${gi}`}>
+            <div className="w-full">
+              <ActivityRunCard
+                toolCalls={groupToolCalls}
+                items={cardItems}
+                expandedToolCallIds={expandedToolCallIds}
+                onExpandChange={handleExpandChange}
+                expandedCardIds={expandedCardIds}
+                autoExpand={shouldAutoExpandToolCallGroup({
+                  isCurrentGroup: isLastGroup,
+                  isStreaming,
+                  toolCalls: renderableToolCalls,
+                })}
+                onOpenRuleEditor={onOpenRuleEditor}
+                isSubmittingConfirmation={isSubmittingConfirmation}
+                onConfirmationSubmit={onConfirmationSubmit}
+                onAllowAndCreateRule={onAllowAndCreateRule}
+                pendingConfirmationToolCallId={pendingConfirmationToolCallId}
+                unknownNudgeToolCallIds={unknownNudgeToolCallIds}
+                onDismissUnknownNudge={onDismissUnknownNudge}
+              />
+            </div>
+            {renderInlineSubagentCards(groupToolCalls)}
+          </Fragment>
+        );
+      }
+      // No renderable tool call — render the combined thinking as a minimal
+      // inline `ThoughtProcessLink` that opens the full reasoning in the side
+      // drawer, plus any spawn cards.
+      const combinedThinking = thinkingContents.join("\n");
+      return (
+        <Fragment key={`m-activity-${gi}`}>
+          {combinedThinking && (
+            <ThoughtProcessLink
+              content={combinedThinking}
+              isStreaming={isStreaming && isLastGroup}
+            />
+          )}
+          {renderInlineSubagentCards(groupToolCalls)}
+        </Fragment>
+      );
     });
-
-    // Order-preserving flat list for the assistant branch.
-    const interleavedGroupElements = interleavedGroupEntries.map((e) => e.node);
 
     // Fallback: if derived text exists but no text groups rendered
     // (e.g. tool_use_start before any assistant_text_delta), show the text.
     const interleavedFallback =
-      !groups.some((g) => g.type === "text") && messageText
+      !mergedGroups.some((g) => g.type === "text") && messageText
         ? renderTextWithInlineSurfaces(messageText, "fallback")
         : null;
-
-    // For the user branch: walk the entries in canonical order, tagging text
-    // (and the fallback) as bubble content and tool-call/surface groups as
-    // non-text so `renderUserContent` can split the bubble around them while
-    // preserving `contentOrder`.
-    const interleavedUserItems: Array<{
-      kind: "text" | "nonText";
-      node: ReactNode;
-    }> = interleavedGroupEntries.map((e) => ({
-      kind: e.type === "text" ? "text" : "nonText",
-      node: e.node,
-    }));
-    if (interleavedFallback) {
-      interleavedUserItems.push({ kind: "text", node: interleavedFallback });
-    }
 
     return (
       <div
@@ -816,23 +762,16 @@ export function TranscriptMessageBody({
         <div
           className={`flex w-full flex-col gap-2 ${message.role === "user" ? "items-end" : "items-start"}`}
         >
-          {isUser ? (
-            // Text runs render inside surface-lift bubbles; tool-call/surface
-            // groups render outside any bubble in their canonical position so
-            // `contentOrder` is preserved (see `renderUserContent`).
-            renderUserContent(interleavedUserItems)
-          ) : (
-            <>
-              {interleavedGroupElements}
-              {interleavedFallback}
-              {hasAttachments && (
-                <MessageAttachments
-                  attachments={message.attachments ?? []}
-                  assistantId={assistantId}
-                />
-              )}
-            </>
-          )}
+          <>
+            {mergedGroupElements}
+            {interleavedFallback}
+            {hasAttachments && (
+              <MessageAttachments
+                attachments={message.attachments ?? []}
+                assistantId={assistantId}
+              />
+            )}
+          </>
           <SlackMessageAttribution
             message={message}
             assistantDisplayName={assistantDisplayName}
@@ -873,20 +812,21 @@ export function TranscriptMessageBody({
       }
       const ids = pendingThinkingIds;
       pendingThinkingIds = [];
-      const thinkingContent = resolveThinkingContent(ids);
+      const thinkingContent = resolveThinkingContent(message, ids);
       if (!thinkingContent) {
         return;
       }
       contentEntries.push({
         type: "thinking",
         node: (
-          <ThinkingBlock
-            key={`thinking-${ids[0]}`}
-            content={thinkingContent}
-            isStreaming={isStreaming}
-            expansionKey={`${message.id}-th${ids[0]}`}
-            expandedThinkingKeys={expandedThinkingKeys}
-          />
+          <div key={`thinking-${ids[0]}`} className="w-full">
+            <ThinkingBlock
+              content={thinkingContent}
+              isStreaming={isStreaming}
+              expansionKey={`${message.id}-th${ids[0]}`}
+              expandedThinkingKeys={expandedThinkingKeys}
+            />
+          </div>
         ),
       });
     };
@@ -905,24 +845,9 @@ export function TranscriptMessageBody({
           node: renderTextWithInlineSurfaces(segText, `text-${entry.id}`),
         });
       } else if (entry.type === "surface") {
-        const surface = resolveSurface(entry.id);
-        if (surface) {
-          contentEntries.push({
-            type: "surface",
-            node: (
-              <div key={`surface-${entry.id}`} className="w-full">
-                <SurfaceRouter
-                  surface={surface}
-                  onAction={onSurfaceAction}
-                  onOpenApp={onOpenApp}
-                  onOpenDocument={onOpenDocument}
-                  assistantId={assistantId}
-                  assistantDisplayName={assistantDisplayName}
-                  toolCalls={message.toolCalls}
-                />
-              </div>
-            ),
-          });
+        const node = renderSurfaceNode(entry.id, `surface-${entry.id}`);
+        if (node) {
+          contentEntries.push({ type: "surface", node });
         }
       }
     }
@@ -956,6 +881,14 @@ export function TranscriptMessageBody({
   }));
   const legacyToolCalls =
     message.toolCalls?.filter((tc) => !isSuppressedUiTool(tc)) ?? [];
+  // Render the legacy tool card only when a renderable (non-spawn) tool call
+  // exists. A spawn-only legacy turn has no renderable step —
+  // `ActivityRunCard` filters the spawns out and renders nothing — so
+  // wrapping it in the flex child would emit a stray empty `gap-2` gap before
+  // the inline subagent cards.
+  const hasRenderableLegacyToolCall = legacyToolCalls.some(
+    (tc) => !isSubagentSpawnCall(tc),
+  );
   const hasVisibleLegacyContent = contentElements.some((el) => !!el);
 
   return (
@@ -970,24 +903,28 @@ export function TranscriptMessageBody({
       >
         {legacyToolCalls.length > 0 && (
           <>
-            <ToolCallProgressCard
-              toolCalls={legacyToolCalls}
-              expandedToolCallIds={expandedToolCallIds}
-              onExpandChange={handleExpandChange}
-              expandedCardIds={expandedCardIds}
-              autoExpand={shouldAutoExpandToolCallGroup({
-                isCurrentGroup: !hasVisibleLegacyContent,
-                isStreaming,
-                toolCalls: legacyToolCalls,
-              })}
-              onOpenRuleEditor={onOpenRuleEditor}
-              isSubmittingConfirmation={isSubmittingConfirmation}
-              onConfirmationSubmit={onConfirmationSubmit}
-              onAllowAndCreateRule={onAllowAndCreateRule}
-              pendingConfirmationToolCallId={pendingConfirmationToolCallId}
-              unknownNudgeToolCallIds={unknownNudgeToolCallIds}
-              onDismissUnknownNudge={onDismissUnknownNudge}
-            />
+            {hasRenderableLegacyToolCall && (
+              <div className="w-full">
+                <ActivityRunCard
+                  toolCalls={legacyToolCalls}
+                  expandedToolCallIds={expandedToolCallIds}
+                  onExpandChange={handleExpandChange}
+                  expandedCardIds={expandedCardIds}
+                  autoExpand={shouldAutoExpandToolCallGroup({
+                    isCurrentGroup: !hasVisibleLegacyContent,
+                    isStreaming,
+                    toolCalls: legacyToolCalls,
+                  })}
+                  onOpenRuleEditor={onOpenRuleEditor}
+                  isSubmittingConfirmation={isSubmittingConfirmation}
+                  onConfirmationSubmit={onConfirmationSubmit}
+                  onAllowAndCreateRule={onAllowAndCreateRule}
+                  pendingConfirmationToolCallId={pendingConfirmationToolCallId}
+                  unknownNudgeToolCallIds={unknownNudgeToolCallIds}
+                  onDismissUnknownNudge={onDismissUnknownNudge}
+                />
+              </div>
+            )}
             {renderInlineSubagentCards(legacyToolCalls)}
           </>
         )}

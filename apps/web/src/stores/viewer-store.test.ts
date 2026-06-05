@@ -272,6 +272,67 @@ describe("openToolDetail", () => {
   });
 });
 
+describe("toggleToolDetail", () => {
+  it("opens the drawer when closed", () => {
+    getState().toggleToolDetail(SAMPLE_TOOL);
+    const state = getState();
+    expect(state.mainView).toBe("tool-detail");
+    expect(state.activeToolDetail).toBe(SAMPLE_TOOL);
+  });
+
+  it("closes the drawer when toggled with the SAME tool target", () => {
+    getState().openToolDetail(SAMPLE_TOOL);
+    getState().toggleToolDetail(SAMPLE_TOOL);
+    const state = getState();
+    expect(state.mainView).toBe("chat");
+    expect(state.activeToolDetail).toBeNull();
+  });
+
+  it("switches to a DIFFERENT tool target instead of closing", () => {
+    getState().openToolDetail(SAMPLE_TOOL);
+    getState().toggleToolDetail({ ...SAMPLE_TOOL, toolCallId: "tc-2" });
+    const state = getState();
+    expect(state.mainView).toBe("tool-detail");
+    expect(state.activeToolDetail?.toolCallId).toBe("tc-2");
+  });
+
+  it("closes the drawer when toggled with the SAME thinking target", () => {
+    const thinking: ToolDetailPayload = {
+      kind: "thinking",
+      toolCallId: "",
+      toolName: "",
+      title: "Thought process",
+      activity: "",
+      input: {},
+      status: "completed",
+      thinkingText: "reasoning",
+    };
+    getState().openToolDetail(thinking);
+    getState().toggleToolDetail(thinking);
+    const state = getState();
+    expect(state.mainView).toBe("chat");
+    expect(state.activeToolDetail).toBeNull();
+  });
+
+  it("switches to a DIFFERENT thinking target instead of closing", () => {
+    const thinking: ToolDetailPayload = {
+      kind: "thinking",
+      toolCallId: "",
+      toolName: "",
+      title: "Thought process",
+      activity: "",
+      input: {},
+      status: "completed",
+      thinkingText: "reasoning A",
+    };
+    getState().openToolDetail(thinking);
+    getState().toggleToolDetail({ ...thinking, thinkingText: "reasoning B" });
+    const state = getState();
+    expect(state.mainView).toBe("tool-detail");
+    expect(state.activeToolDetail?.thinkingText).toBe("reasoning B");
+  });
+});
+
 describe("closeToolDetail", () => {
   it("restores the prior view and clears the payload", () => {
     useViewerStore.setState({

@@ -55,6 +55,19 @@ export interface ToolProgressCardShellProps {
   stepCount: string;
   /** Whether the card starts expanded. Uncontrolled by default. */
   defaultExpanded?: boolean;
+  /**
+   * Opt-in "bare" variant. When `true`, the shell drops its boxed card chrome
+   * (rounded surface, border, base background) and the inner divider so the
+   * header + expanded body render INLINE on the chat background — matching the
+   * `InlineActivityLink` (`ThoughtProcessLink` / `InlineToolLink`) language
+   * with a subtle ghost hover on the header row instead of a container.
+   *
+   * Only the default (no-`headerActionSlot`) header layout participates in
+   * bare mode — the action-slot branch (subagent inline card) never passes
+   * `bare` and keeps its container. Defaults to `false` so the web-search and
+   * subagent cards are unaffected.
+   */
+  bare?: boolean;
   /** Controlled expanded value. Pairs with `onExpandChange`. */
   expanded?: boolean;
   /** Notified when the user toggles the expand/collapse button. */
@@ -172,6 +185,7 @@ export function ToolProgressCardShell({
   expanded: controlledExpanded,
   onExpandChange,
   disableExpand = false,
+  bare = false,
   children,
   "data-testid": dataTestId = "tool-progress-card-shell",
   statusIndicatorTestId = "tool-progress-card-status-indicator",
@@ -217,7 +231,11 @@ export function ToolProgressCardShell({
     //     the divider + body section flow flush below.
     <div
       data-testid={dataTestId}
-      className="flex w-full flex-col rounded-[var(--radius-lg)] border-b border-[var(--border-base)] bg-[var(--surface-overlay)]"
+      className={
+        bare
+          ? "flex w-full flex-col"
+          : "flex w-full flex-col rounded-[var(--radius-lg)] border-b border-[var(--border-base)] bg-[var(--surface-overlay)]"
+      }
     >
       {/* The label cluster (dots, leading icon, carousel) is the toggle —
           clicking it expands / collapses (or fires `onHeaderClick`). The
@@ -259,7 +277,7 @@ export function ToolProgressCardShell({
           !stepCount.startsWith("1 ") ? (
             <span
               data-testid="tool-progress-card-step-count-pill"
-              className="flex shrink-0 items-center rounded-[var(--radius-pill)] bg-[var(--surface-base)] px-[6px] py-[4px]"
+              className="flex shrink-0 items-center rounded-[var(--radius-pill)] bg-[var(--surface-overlay)] px-[6px] py-[4px]"
             >
               <Typography
                 variant="body-small-default"
@@ -314,15 +332,34 @@ export function ToolProgressCardShell({
         }
 
         // Default layout (web search, skills): the whole row is the toggle,
-        // with the pill rendered inside it at the right end. Unchanged.
+        // with the pill rendered inside it at the right end.
+        //
+        // - Default (boxed): card padding `p-3` and conditional card rounding
+        //   so the ghost hover paints into the right corners.
+        // - Bare: a lighter inline style (`rounded-md px-2 py-1.5`) — the
+        //   `variant="ghost"` Button still provides the `--ghost-hover`
+        //   background on hover, matching the inline links.
         return (
           <Button
             {...toggleProps}
-            className={`h-auto w-full min-w-0 justify-between gap-2 p-3 ${
-              expanded
-                ? "rounded-t-[var(--radius-lg)] rounded-b-none"
-                : "rounded-[var(--radius-lg)]"
-            }`}
+            className={
+              bare
+                ? // Flush-left to match the inline `ThoughtProcessLink` /
+                  // `InlineToolLink` (which use `-mx-1.5 px-1.5`): pull the
+                  // header 6px left and add 6px back to the width so the
+                  // status icon lines up exactly with the inline links'
+                  // glyph while the right-edge step pill stays put.
+                  // `hover:bg-[var(--surface-hover)]` overrides the ghost
+                  // Button's default `--surface-active` hover so the header
+                  // shares the exact same translucent surface-hover as the
+                  // inline `InlineActivityLink` (consistent across light/dark).
+                  "h-auto min-w-0 justify-between gap-2 rounded-md px-1.5 py-1.5 -ml-1.5 w-[calc(100%+0.375rem)] hover:bg-[var(--surface-hover)]"
+                : `h-auto w-full min-w-0 justify-between gap-2 p-3 ${
+                    expanded
+                      ? "rounded-t-[var(--radius-lg)] rounded-b-none"
+                      : "rounded-[var(--radius-lg)]"
+                  }`
+            }
           >
             {titleCluster}
             {stepCountPill}
@@ -343,7 +380,11 @@ export function ToolProgressCardShell({
             className="overflow-hidden"
           >
             <div className="flex flex-col gap-2">
-              <div className="h-px w-full bg-[var(--surface-base)]" />
+              {/* Boxed mode draws a separator between the header and the body;
+                  bare mode flows inline with no divider line. */}
+              {bare ? null : (
+                <div className="h-px w-full bg-[var(--surface-base)]" />
+              )}
               {children}
             </div>
           </motion.div>

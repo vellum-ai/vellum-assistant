@@ -53,7 +53,7 @@ body {
 
 /* BusyIndicator — mirrors macOS VBusyIndicator. A filled circle pulsing in
  * opacity (1→0.3) and scale (1→0.85) over 1s easeInOut. Used in
- * ToolCallProgressCard for active/thinking phases. */
+ * ActivityRunCard for active/thinking phases. */
 @keyframes busy-pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.3; transform: scale(0.85); }

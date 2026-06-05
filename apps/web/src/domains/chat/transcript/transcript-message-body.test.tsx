@@ -30,25 +30,61 @@ mock.module("@/domains/chat/components/surfaces/surface-router", () => ({
 }));
 
 mock.module(
-  "@/domains/chat/components/tool-call-progress-card/tool-call-progress-card",
+  "@/domains/chat/components/activity-run-card/activity-run-card",
   () => ({
-    ToolCallProgressCard: ({
+    ActivityRunCard: ({
       autoExpand,
       toolCalls,
+      items,
     }: {
       autoExpand?: boolean;
       toolCalls: Array<{ id: string }>;
+      items?: Array<
+        | { kind: "thinking"; text: string }
+        | { kind: "toolCall"; toolCall: { id: string } }
+      >;
     }) => (
       <div
         data-testid="tool-progress-card"
         data-auto-expand={autoExpand ? "true" : "false"}
         data-tool-call-ids={toolCalls.map((tc) => tc.id).join(",")}
+        // Surface the ordered items so the merged-card tests can assert the
+        // interleaved thinking + tool steps the card would render in its body.
+        data-item-kinds={items?.map((i) => i.kind).join(",") ?? ""}
+        data-item-thinking={
+          items
+            ?.filter(
+              (i): i is { kind: "thinking"; text: string } =>
+                i.kind === "thinking",
+            )
+            .map((i) => i.text)
+            .join("|") ?? ""
+        }
+        data-item-tool-ids={
+          items
+            ?.filter(
+              (i): i is { kind: "toolCall"; toolCall: { id: string } } =>
+                i.kind === "toolCall",
+            )
+            .map((i) => i.toolCall.id)
+            .join(",") ?? ""
+        }
       />
     ),
   }),
 );
 
+mock.module(
+  "@/domains/chat/components/inline-activity-link/inline-tool-link",
+  () => ({
+    InlineToolLink: ({ toolCall }: { toolCall: { id: string } }) => (
+      <div data-testid="inline-tool-link" data-tool-call-id={toolCall.id} />
+    ),
+  }),
+);
+
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { Surface } from "@/domains/chat/types/types";
 
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
 
@@ -305,7 +341,11 @@ describe("TranscriptMessageBody", () => {
         message={{
           id: "m1",
           role: "assistant",
-          contentOrder: [{ type: "tool", id: "tc-1" }],
+          thinkingSegments: ["reasoning"],
+          contentOrder: [
+            { type: "thinking", id: "0" },
+            { type: "tool", id: "tc-1" },
+          ],
           toolCalls: [
             {
               id: "tc-1",
@@ -333,7 +373,11 @@ describe("TranscriptMessageBody", () => {
           id: "m1",
           role: "assistant",
           ...textBody(""),
-          contentOrder: [{ type: "tool", id: "tc-1" }],
+          thinkingSegments: ["reasoning"],
+          contentOrder: [
+            { type: "thinking", id: "0" },
+            { type: "tool", id: "tc-1" },
+          ],
           toolCalls: [
             {
               id: "tc-1",
@@ -361,7 +405,11 @@ describe("TranscriptMessageBody", () => {
         message={{
           id: "m1",
           role: "assistant",
-          contentOrder: [{ type: "tool", id: "tc-1" }],
+          thinkingSegments: ["reasoning"],
+          contentOrder: [
+            { type: "thinking", id: "0" },
+            { type: "tool", id: "tc-1" },
+          ],
           toolCalls: [
             {
               id: "tc-1",
@@ -391,11 +439,14 @@ describe("TranscriptMessageBody", () => {
           id: "m1",
           role: "assistant",
           contentOrder: [
+            { type: "thinking", id: "0" },
             { type: "tool", id: "tc-1" },
             { type: "text", id: "0" },
+            { type: "thinking", id: "1" },
             { type: "tool", id: "tc-2" },
           ],
           textSegments: ["Next I will check logs."],
+          thinkingSegments: ["reason A", "reason B"],
           toolCalls: [
             {
               id: "tc-1",
@@ -433,10 +484,12 @@ describe("TranscriptMessageBody", () => {
           id: "m1",
           role: "assistant",
           contentOrder: [
+            { type: "thinking", id: "0" },
             { type: "tool", id: "tc-1" },
             { type: "text", id: "0" },
           ],
           textSegments: ["Here is what I found."],
+          thinkingSegments: ["reasoning"],
           toolCalls: [
             {
               id: "tc-1",
@@ -466,10 +519,12 @@ describe("TranscriptMessageBody", () => {
           id: "m1",
           role: "assistant",
           contentOrder: [
+            { type: "thinking", id: "0" },
             { type: "tool", id: "tc-1" },
             { type: "text", id: "0" },
           ],
           textSegments: ["Done."],
+          thinkingSegments: ["reasoning"],
           toolCalls: [
             {
               id: "tc-1",
@@ -498,11 +553,14 @@ describe("TranscriptMessageBody", () => {
           id: "m1",
           role: "assistant",
           contentOrder: [
+            { type: "thinking", id: "0" },
             { type: "tool", id: "tc-1" },
             { type: "text", id: "0" },
+            { type: "thinking", id: "1" },
             { type: "tool", id: "tc-2" },
           ],
           textSegments: ["Next I will check logs."],
+          thinkingSegments: ["reason A", "reason B"],
           toolCalls: [
             {
               id: "tc-1",
@@ -722,7 +780,7 @@ describe("TranscriptMessageBody", () => {
           role: "user",
           contentOrder: [
             { type: "text", id: "0" },
-            { type: "tool", id: "tc-1" },
+            { type: "toolCall", id: "tc-1" },
             { type: "text", id: "1" },
           ],
           textSegments: [
@@ -746,32 +804,34 @@ describe("TranscriptMessageBody", () => {
     );
 
     const markdowns = container.querySelectorAll("[data-testid='markdown']");
-    const toolCard = container.querySelector(
-      "[data-testid='tool-progress-card']",
+    // A lone non-web tool renders as the compact inline chip in the redesign,
+    // not a boxed card.
+    const toolChip = container.querySelector(
+      "[data-testid='inline-tool-link']",
     );
     expect(markdowns.length).toBe(2);
     expect(markdowns[0]!.textContent).toBe("before tool");
     expect(markdowns[1]!.textContent).toBe("after tool");
-    expect(toolCard).not.toBeNull();
+    expect(toolChip).not.toBeNull();
 
     // DOM order matches contentOrder: text → tool → text.
     expect(
-      markdowns[0]!.compareDocumentPosition(toolCard!) &
+      markdowns[0]!.compareDocumentPosition(toolChip!) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(
-      toolCard!.compareDocumentPosition(markdowns[1]!) &
+      toolChip!.compareDocumentPosition(markdowns[1]!) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
 
-    // Two separate surface-lift bubbles wrap the two text runs; the tool card
-    // is outside both.
+    // The tool chip is never wrapped inside a surface-lift text bubble — in the
+    // interleaved branch the text runs render inline and the chip sits between
+    // them rather than inside any bubble.
     const bubbles = container.querySelectorAll(
       "[class*='bg-[var(--surface-lift)]']",
     );
-    expect(bubbles.length).toBe(2);
     for (const bubble of bubbles) {
-      expect(bubble.contains(toolCard)).toBe(false);
+      expect(bubble.contains(toolChip)).toBe(false);
     }
   });
 
@@ -782,7 +842,7 @@ describe("TranscriptMessageBody", () => {
           id: "u4",
           role: "user",
           ...textBody(""),
-          contentOrder: [{ type: "tool", id: "tc-1" }],
+          contentOrder: [{ type: "toolCall", id: "tc-1" }],
           toolCalls: [
             {
               id: "tc-1",
@@ -804,9 +864,9 @@ describe("TranscriptMessageBody", () => {
     expect(
       container.querySelector("[class*='bg-[var(--surface-lift)]']"),
     ).toBeNull();
-    // Non-text elements (the tool-call card) still render.
+    // The lone tool still renders as the inline chip.
     expect(
-      container.querySelector("[data-testid='tool-progress-card']"),
+      container.querySelector("[data-testid='inline-tool-link']"),
     ).not.toBeNull();
   });
 
@@ -921,27 +981,287 @@ describe("TranscriptMessageBody", () => {
     expect(html).not.toContain("Thinking…");
   });
 
-  test("renders a thinking block interleaved with tool calls", () => {
+  test("merges interleaved thinking + tool into one activity card", () => {
     // GIVEN an assistant message that reasons, calls a tool, then answers
     // WHEN it is rendered (interleaved path — contentOrder carries a tool)
-    const html = renderMessage({
-      id: "m-think-interleaved",
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m-think-interleaved",
+          role: "assistant",
+          textSegments: ["done"],
+          thinkingSegments: ["why I called the tool"],
+          contentOrder: [
+            { type: "thinking", id: "0" },
+            { type: "toolCall", id: "0" },
+            { type: "text", id: "0" },
+          ],
+          toolCalls: [
+            { id: "tc-1", name: "bash", input: {}, completedAt: 1 },
+          ],
+          timestamp: 1_000,
+        }}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    // THEN the thinking + tool merge into a single boxed activity card whose
+    // ordered body carries both the reasoning and the tool step.
+    const card = container.querySelector("[data-testid='tool-progress-card']");
+    expect(card).not.toBeNull();
+    expect(card!.getAttribute("data-item-kinds")).toBe("thinking,toolCall");
+    expect(card!.getAttribute("data-item-thinking")).toBe(
+      "why I called the tool",
+    );
+  });
+
+
+  // ---------------------------------------------------------------------------
+  // Merged activity-run rendering (always-on)
+  // ---------------------------------------------------------------------------
+
+  /** A task-progress surface fixture, as produced by a `task_progress` card. */
+  function taskProgressSurface(surfaceId: string): Surface {
+    return {
+      surfaceId,
+      surfaceType: "card",
+      data: {
+        template: "task_progress",
+        templateData: {
+          steps: [{ id: "s1", label: "Do the thing", status: "completed" }],
+        },
+      },
+    };
+  }
+
+  test("merges contiguous thinking + tool runs into one card per run", () => {
+    // contentOrder [thinking, tool, thinking, text, tool, thinking] →
+    // two activity runs (before/after the text), each one merged card, plus
+    // the text between them.
+    const message: DisplayMessage = {
+      id: "m-merged",
       role: "assistant",
-      textSegments: ["done"],
-      thinkingSegments: ["why I called the tool"],
+      textSegments: ["the middle answer"],
+      thinkingSegments: ["reason A", "reason B", "reason C"],
       contentOrder: [
         { type: "thinking", id: "0" },
         { type: "toolCall", id: "0" },
+        { type: "thinking", id: "1" },
+        { type: "text", id: "0" },
+        { type: "toolCall", id: "1" },
+        { type: "thinking", id: "2" },
+      ],
+      toolCalls: [
+        { id: "tc-a", name: "bash", input: {}, completedAt: 1 },
+        { id: "tc-b", name: "bash", input: {}, completedAt: 1 },
+      ],
+      timestamp: 1_000,
+    };
+
+    const { container } = render(
+      <TranscriptMessageBody
+        message={message}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    // Exactly two merged tool cards (one per run).
+    const cards = container.querySelectorAll(
+      "[data-testid='tool-progress-card']",
+    );
+    expect(cards.length).toBe(2);
+
+    // The first card's ordered body is thinking → tool → thinking, carrying
+    // both reasoning texts and the tool step.
+    const first = cards[0]!;
+    expect(first.getAttribute("data-item-kinds")).toBe(
+      "thinking,toolCall,thinking",
+    );
+    expect(first.getAttribute("data-item-thinking")).toBe("reason A|reason B");
+    expect(first.getAttribute("data-item-tool-ids")).toBe("tc-a");
+
+    // The second card carries the trailing tool + thinking run.
+    const second = cards[1]!;
+    expect(second.getAttribute("data-item-kinds")).toBe("toolCall,thinking");
+    expect(second.getAttribute("data-item-tool-ids")).toBe("tc-b");
+
+    // The text between the two runs renders.
+    const markdowns = container.querySelectorAll("[data-testid='markdown']");
+    expect(
+      Array.from(markdowns).some((m) => m.textContent === "the middle answer"),
+    ).toBe(true);
+
+    // No legacy summary card and no scroll anchors remain.
+    expect(
+      container.querySelector("[data-testid='turn-activity-header']"),
+    ).toBeNull();
+    expect(container.querySelector("[data-activity-anchor]")).toBeNull();
+  });
+
+  test("a pure-thinking run renders an inline ThoughtProcessLink, not a tool card", () => {
+    // contentOrder carries a tool elsewhere so the interleaved branch is taken,
+    // but the FIRST run before the text is pure thinking.
+    const message: DisplayMessage = {
+      id: "m-pure-thinking",
+      role: "assistant",
+      textSegments: ["answer"],
+      thinkingSegments: ["just reasoning"],
+      contentOrder: [
+        { type: "thinking", id: "0" },
+        { type: "text", id: "0" },
+        { type: "toolCall", id: "0" },
+      ],
+      toolCalls: [
+        { id: "tc-a", name: "bash", input: {}, completedAt: 1 },
+      ],
+      timestamp: 1_000,
+    };
+
+    const { container } = render(
+      <TranscriptMessageBody
+        message={message}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    // The pure-thinking run renders as the inline `ThoughtProcessLink`
+    // ("Thought process"). The trailing lone bash tool run renders as the
+    // compact inline chip, NOT a boxed tool card.
+    expect(
+      container.querySelector("[data-testid='thought-process-link']"),
+    ).not.toBeNull();
+    expect(container.textContent).toContain("Thought process");
+    expect(
+      container.querySelectorAll("[data-testid='tool-progress-card']").length,
+    ).toBe(0);
+    expect(
+      container.querySelectorAll("[data-testid='inline-tool-link']").length,
+    ).toBe(1);
+  });
+
+  test("a task-progress surface renders inline (not hoisted, not suppressed)", () => {
+    const message: DisplayMessage = {
+      id: "m-activity-inline",
+      role: "assistant",
+      textSegments: ["all done"],
+      thinkingSegments: ["reasoning"],
+      contentOrder: [
+        { type: "thinking", id: "0" },
+        { type: "toolCall", id: "0" },
+        { type: "surface", id: "tps-1" },
         { type: "text", id: "0" },
       ],
       toolCalls: [
         { id: "tc-1", name: "bash", input: {}, completedAt: 1 },
       ],
+      surfaces: [taskProgressSurface("tps-1")],
       timestamp: 1_000,
-    });
+    };
 
-    // THEN both the thinking block and the tool-call card render
-    expect(html).toContain("Thought process");
-    expect(html).toContain('data-testid="tool-progress-card"');
+    const { container } = render(
+      <TranscriptMessageBody
+        message={message}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    // No summary card.
+    expect(
+      container.querySelector("[data-testid='turn-activity-header']"),
+    ).toBeNull();
+    // The task-progress surface renders exactly once, in its inline position
+    // AFTER the merged activity card.
+    const surfaces = container.querySelectorAll(
+      "[data-testid='surface'][data-surface-id='tps-1']",
+    );
+    expect(surfaces.length).toBe(1);
+    const card = container.querySelector("[data-testid='tool-progress-card']");
+    expect(card).not.toBeNull();
+    expect(
+      card!.compareDocumentPosition(surfaces[0]!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  test("a lone single bash tool run renders the inline chip, not a card", () => {
+    const message: DisplayMessage = {
+      id: "m-lone-tool",
+      role: "assistant",
+      textSegments: ["done"],
+      contentOrder: [
+        { type: "toolCall", id: "0" },
+        { type: "text", id: "0" },
+      ],
+      toolCalls: [
+        { id: "tc-lone", name: "bash", input: {}, completedAt: 1 },
+      ],
+      timestamp: 1_000,
+    };
+
+    const { container } = render(
+      <TranscriptMessageBody
+        message={message}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    const chip = container.querySelector("[data-testid='inline-tool-link']");
+    expect(chip).not.toBeNull();
+    expect(chip!.getAttribute("data-tool-call-id")).toBe("tc-lone");
+    expect(
+      container.querySelector("[data-testid='tool-progress-card']"),
+    ).toBeNull();
+  });
+
+  test("a tool + thinking run still renders the boxed activity card", () => {
+    const message: DisplayMessage = {
+      id: "m-tool-thinking",
+      role: "assistant",
+      textSegments: ["done"],
+      thinkingSegments: ["reasoning about the tool"],
+      contentOrder: [
+        { type: "toolCall", id: "0" },
+        { type: "thinking", id: "0" },
+        { type: "text", id: "0" },
+      ],
+      toolCalls: [
+        { id: "tc-mix", name: "bash", input: {}, completedAt: 1 },
+      ],
+      timestamp: 1_000,
+    };
+
+    const { container } = render(
+      <TranscriptMessageBody
+        message={message}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    // A run with more than one card item (tool + thinking) is NOT a lone tool,
+    // so it stays the boxed card.
+    expect(
+      container.querySelector("[data-testid='tool-progress-card']"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[data-testid='inline-tool-link']"),
+    ).toBeNull();
   });
 });

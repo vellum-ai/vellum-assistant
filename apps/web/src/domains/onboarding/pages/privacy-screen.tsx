@@ -19,7 +19,6 @@ import {
     useShareDiagnostics,
     useTosAccepted,
 } from "@/domains/onboarding/prefs";
-import { markPrivacyConsent } from "@/domains/onboarding/signals";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useAuthStore } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
@@ -102,7 +101,6 @@ export function PrivacyScreen() {
     } catch (err) {
       captureError(err, { context: "onboarding_persist_share_prefs" });
     }
-    markPrivacyConsent(userId);
     if (!isNative && !isReplay) {
       const variant = resolveOnboardingFunnelVariant(preferredFunnelVariant);
       emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {

@@ -51,8 +51,6 @@ const fetchCharacterTraitsMock = mock(async () => null);
 const saveCharacterTraitsMock = mock(async () => undefined);
 const setOnboardingCompletedMock = mock(() => {});
 const writeSelectedVersionMock = mock(() => {});
-const markPrivacyConsentMock = mock(() => {});
-const clearPrivacyConsentMock = mock(() => {});
 
 type TestOnboardingRecipe = {
   cohort: string;
@@ -165,14 +163,29 @@ mock.module("@/domains/onboarding/prefs", () => ({
   writeSelectedVersion: writeSelectedVersionMock,
 }));
 
-mock.module("@/domains/onboarding/signals", () => ({
-  clearPrivacyConsent: clearPrivacyConsentMock,
-  hasRecentPrivacyConsent: () => true,
-  markPrivacyConsent: markPrivacyConsentMock,
-}));
 
 mock.module("@/domains/onboarding/recipe-client.js", () => ({
   fetchOnboardingRecipe: fetchOnboardingRecipeMock,
+}));
+
+mock.module("@/lib/navigation/navigation-resolver", () => ({
+  resolveNavigation: () => ({ action: "allow" }),
+}));
+
+mock.module("@/lib/navigation/build-state", () => ({
+  buildNavigationState: (overrides: Record<string, unknown> = {}) => ({
+    isLocalMode: isLocalModeValue,
+    isGatewayAuth: false,
+    hasAssistants: false,
+    sessionSettled: true,
+    isAuthenticated: true,
+    platformSession: platformSessionValue,
+    onboardingCompleted: onboardingCompleted,
+    tosAccepted: true,
+    aiDataConsent: true,
+    isReplay: false,
+    ...overrides,
+  }),
 }));
 
 mock.module("@/runtime/native-auth", () => ({
@@ -369,8 +382,6 @@ beforeEach(() => {
   saveCharacterTraitsMock.mockClear();
   setOnboardingCompletedMock.mockClear();
   writeSelectedVersionMock.mockClear();
-  markPrivacyConsentMock.mockClear();
-  clearPrivacyConsentMock.mockClear();
   fetchOnboardingRecipeMock.mockClear();
 });
 
@@ -580,7 +591,6 @@ describe("onboarding lifecycle sync", () => {
     );
 
     expect(setOnboardingCompletedMock).toHaveBeenCalledWith(true);
-    expect(clearPrivacyConsentMock).toHaveBeenCalled();
     expect(JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? "null")).toEqual({
       tools: [],
       tasks: recipe.tasks,

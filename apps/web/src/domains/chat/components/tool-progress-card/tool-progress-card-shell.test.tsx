@@ -261,6 +261,52 @@ describe("ToolProgressCardShell — headerActionSlot", () => {
   });
 });
 
+describe("ToolProgressCardShell — bare variant", () => {
+  test("drops the boxed card chrome on the outer wrapper", () => {
+    const { getByTestId } = renderShell({ bare: true });
+    const wrapper = getByTestId("tool-progress-card-shell");
+    // The bare wrapper keeps only the flex column — no rounded surface,
+    // border, or overlay background.
+    expect(wrapper.className).toContain("flex");
+    expect(wrapper.className).toContain("flex-col");
+    expect(wrapper.className).not.toContain("rounded-[var(--radius-lg)]");
+    expect(wrapper.className).not.toContain("border");
+    expect(wrapper.className).not.toContain("bg-[var(--surface-overlay)]");
+  });
+
+  test("renders the header toggle flush-left inline style (rounded-md, -ml-1.5 px-1.5)", () => {
+    const { getByRole } = renderShell({ bare: true });
+    const toggle = getByRole("button", { name: /expand steps/i });
+    expect(toggle.className).toContain("rounded-md");
+    // Flush-left to match the inline links (-mx-1.5 px-1.5), adapted for the
+    // full-width header so the status icon lines up with the inline glyphs.
+    expect(toggle.className).toContain("-ml-1.5");
+    expect(toggle.className).toContain("px-1.5");
+    expect(toggle.className).toContain("py-1.5");
+    // Shares the inline links' translucent surface-hover.
+    expect(toggle.className).toContain("hover:bg-[var(--surface-hover)]");
+    // The boxed `p-3` / card rounding is gone.
+    expect(toggle.className).not.toContain("p-3");
+    expect(toggle.className).not.toContain("rounded-[var(--radius-lg)]");
+  });
+
+  test("does not render the divider above the body when expanded", () => {
+    const { container } = renderShell({ bare: true, defaultExpanded: true });
+    // The `h-px` separator line is suppressed in bare mode.
+    expect(container.querySelector(".h-px")).toBeNull();
+  });
+
+  test("default (non-bare) mode keeps the boxed chrome and divider", () => {
+    const { getByTestId, container } = renderShell({ defaultExpanded: true });
+    const wrapper = getByTestId("tool-progress-card-shell");
+    expect(wrapper.className).toContain("rounded-[var(--radius-lg)]");
+    expect(wrapper.className).toContain("border-b");
+    expect(wrapper.className).toContain("bg-[var(--surface-overlay)]");
+    // The divider is present in the default expanded body.
+    expect(container.querySelector(".h-px")).not.toBeNull();
+  });
+});
+
 describe("ToolProgressCardShell — props interface export", () => {
   test("ToolProgressCardState union enumerates the four supported states", () => {
     // Compile-time check: the union is `loading | complete | denied | error`.

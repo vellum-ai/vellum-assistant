@@ -58,6 +58,33 @@ const bashDetail: ToolDetailPayload = {
   riskLevel: "medium",
 };
 
+const thinkingDetail: ToolDetailPayload = {
+  toolCallId: "",
+  toolName: "",
+  title: "Thinking",
+  activity: "",
+  input: {},
+  status: "completed",
+  kind: "thinking",
+  thinkingText: [
+    "Tirman wants me to test a UI thing. Let me reason through it.",
+    "",
+    "First, I'll check the current state file to understand where things stand. Then I can decide whether a second tool call is warranted before responding.",
+    "",
+    "- The workspace currently has **17 files**.",
+    "- The clock reads `17:33 UTC`.",
+    "",
+    "Given that, the plan is to run one more `bash` command and then summarise.",
+  ].join("\n"),
+};
+
+export const Thinking: Story = {
+  args: {
+    detail: thinkingDetail,
+    onClose: () => {},
+  },
+};
+
 export const SubagentSpawn: Story = {
   args: {
     detail: subagentDetail,

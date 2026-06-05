@@ -20,6 +20,8 @@ import { describe, expect, test } from "bun:test";
 import {
   buildWebSearchErrorStep,
   computeToolCallCardData,
+  computeToolCallCardDataFromItems,
+  type ToolCallCardItem,
   WEB_SEARCH_BACKEND_FAILURE_MESSAGE,
 } from "@/domains/chat/hooks/tool-call-card-utils";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
@@ -348,6 +350,107 @@ describe("computeToolCallCardData — subagent_spawn filtering", () => {
     // Header derivation also ignores the filtered spawn so the carousel
     // reflects only the bash call.
     expect(data.currentStepTitle).toBe("Working (bash)");
+  });
+});
+
+describe("computeToolCallCardDataFromItems — interleaved ordering", () => {
+  test("interleaves thinking between tool steps in the given order", () => {
+    const items: ToolCallCardItem[] = [
+      { kind: "thinking", text: "first I reason" },
+      {
+        kind: "toolCall",
+        toolCall: makeToolCall({
+          id: "tc-1",
+          name: "bash",
+          status: "completed",
+          input: { command: "ls" },
+        }),
+      },
+      { kind: "thinking", text: "then I reason again" },
+    ];
+    const data = computeToolCallCardDataFromItems(items, {});
+    expect(data.steps).toHaveLength(3);
+    expect(data.steps[0]).toEqual({
+      kind: "thinking",
+      durationLabel: "",
+      text: "first I reason",
+    });
+    expect(data.steps[1]!.kind).toBe("tool");
+    expect(data.steps[2]).toEqual({
+      kind: "thinking",
+      durationLabel: "",
+      text: "then I reason again",
+    });
+    expect(data.stepCount).toBe("3 steps");
+  });
+
+  test("skips empty thinking items and subagent_spawn tool items", () => {
+    const items: ToolCallCardItem[] = [
+      { kind: "thinking", text: "" },
+      {
+        kind: "toolCall",
+        toolCall: makeToolCall({
+          id: "tc-spawn",
+          name: "subagent_spawn",
+          status: "running",
+          input: { label: "Investigate" },
+        }),
+      },
+      {
+        kind: "toolCall",
+        toolCall: makeToolCall({
+          id: "tc-2",
+          name: "bash",
+          status: "running",
+          input: { command: "ls" },
+        }),
+      },
+    ];
+    const data = computeToolCallCardDataFromItems(items, {});
+    expect(data.steps).toHaveLength(1);
+    expect(data.steps[0]!.kind).toBe("tool");
+  });
+});
+
+describe("computeToolCallCardDataFromItems — header reflects the latest step", () => {
+  test("a run ending in a thinking step surfaces it in the header", () => {
+    const items: ToolCallCardItem[] = [
+      {
+        kind: "toolCall",
+        toolCall: makeToolCall({
+          id: "tc-1",
+          name: "read_file",
+          status: "completed",
+          input: { path: "/tmp/state.txt" },
+        }),
+      },
+      { kind: "thinking", text: "Now I understand the current state." },
+    ];
+    const data = computeToolCallCardDataFromItems(items, {});
+    // Latest step is thinking → "Thinking" title + the thinking text (the
+    // brain glyph is added by the card component, not the projection).
+    expect(data.currentStepKind).toBe("thinking");
+    expect(data.currentStepTitle).toBe("Thinking");
+    expect(data.currentStepInfo).toBe("Now I understand the current state.");
+  });
+
+  test("a run ending in a tool step keeps the tool-derived header", () => {
+    const items: ToolCallCardItem[] = [
+      { kind: "thinking", text: "Let me read the file first." },
+      {
+        kind: "toolCall",
+        toolCall: makeToolCall({
+          id: "tc-1",
+          name: "bash",
+          status: "completed",
+          input: { command: "echo hi" },
+        }),
+      },
+    ];
+    const data = computeToolCallCardDataFromItems(items, {});
+    expect(data.currentStepKind).toBe("tool");
+    expect(data.currentStepTitle).toBe("Working (bash)");
+    expect(data.currentStepInfo).toBe("echo hi");
   });
 });
 

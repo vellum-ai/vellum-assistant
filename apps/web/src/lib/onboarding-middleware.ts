@@ -1,16 +1,18 @@
 import { redirect, type MiddlewareFunction } from "react-router";
 
-import { isLocalMode } from "@/lib/local-mode";
-import { readOnboardingCompleted } from "@/domains/onboarding/prefs";
-import { routes } from "@/utils/routes";
+import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
+import { buildNavigationState } from "@/lib/navigation/build-state";
 
 export const localModeOnlyMiddleware: MiddlewareFunction = async (
   _args,
   next,
 ) => {
-  if (!isLocalMode()) {
-    throw redirect(routes.assistant);
-  }
+  // Auth has already been verified by the parent auth middleware.
+  const decision = resolveNavigation(
+    buildNavigationState({ sessionSettled: true, isAuthenticated: true }),
+    { kind: "route-guard", pathname: "/assistant/onboarding/welcome" },
+  );
+  if (decision.action === "redirect") throw redirect(decision.to);
   return next();
 };
 
@@ -19,13 +21,15 @@ export const onboardingCompletedMiddleware: MiddlewareFunction = async (
   next,
 ) => {
   const url = new URL(request.url);
-  if (url.searchParams.has("replay")) {
-    return next();
-  }
-
-  if (readOnboardingCompleted()) {
-    throw redirect(routes.assistant);
-  }
-
+  // Auth has already been verified by the parent auth middleware.
+  const decision = resolveNavigation(
+    buildNavigationState({
+      sessionSettled: true,
+      isAuthenticated: true,
+      isReplay: url.searchParams.has("replay"),
+    }),
+    { kind: "route-guard", pathname: url.pathname },
+  );
+  if (decision.action === "redirect") throw redirect(decision.to);
   return next();
 };

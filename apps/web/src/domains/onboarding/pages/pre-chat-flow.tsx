@@ -50,14 +50,11 @@ import {
 } from "@/domains/onboarding/prechat-names";
 import { GOOGLE_TOOL_IDS } from "@/domains/onboarding/prechat-tools";
 import {
+  readAiDataConsent,
   readOnboardingCompleted,
   readTosAccepted,
   useOnboardingCompleted,
 } from "@/domains/onboarding/prefs";
-import {
-  clearPrivacyConsent,
-  hasRecentPrivacyConsent,
-} from "@/domains/onboarding/signals.js";
 import {
   getPlatformAssistants,
   getSelectedAssistant,
@@ -237,7 +234,7 @@ export function PreChatFlow() {
     return {
       userId,
       decision:
-        readTosAccepted() || hasRecentPrivacyConsent(userId) ? "ok" : "missing",
+        readTosAccepted() && readAiDataConsent() ? "ok" : "missing",
     };
   });
   const consentDecision = consent.decision;
@@ -247,7 +244,7 @@ export function PreChatFlow() {
     setConsent({
       userId,
       decision:
-        readTosAccepted() || hasRecentPrivacyConsent(userId) ? "ok" : "missing",
+        readTosAccepted() && readAiDataConsent() ? "ok" : "missing",
     });
   }, [consent, isAuthInitializing, isAuthenticated, userId]);
 
@@ -344,7 +341,6 @@ export function PreChatFlow() {
     } catch (err) {
       captureError(err, { context: "prechat_mark_onboarding_completed" });
     }
-    clearPrivacyConsent();
     // User finished pre-chat; the post-hatch greeting is forthcoming.
     // Mark before navigating so the destination chat mount shows the
     // loading gate until the greeting arrives.

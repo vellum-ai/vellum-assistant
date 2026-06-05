@@ -1,13 +1,3 @@
-/**
- * React Router v7 auth middleware.
- *
- * Runs before any protected route component renders. Unauthenticated
- * users are redirected to `/account/login` with a `returnTo` parameter.
- *
- * References:
- * - https://reactrouter.com/how-to/middleware
- * - https://reactrouter.com/upgrading/future#futurev8_middleware
- */
 import {
   redirect,
   createContext as createRouterContext,
@@ -15,38 +5,53 @@ import {
 } from "react-router";
 
 import { useAuthStore, type AuthUser } from "@/stores/auth-store";
-import { isAuthenticated, isSessionSettled } from "@/stores/session-status";
-import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
+import { isSessionSettled } from "@/stores/session-status";
 import { isLocalMode, hasAssistants } from "@/lib/local-mode";
-import { resolveLocalOnboardingRoute } from "@/utils/local-onboarding-route";
+import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
+import { buildNavigationState } from "@/lib/navigation/build-state";
+import {
+  clearOnboardingCompleted,
+  readOnboardingCompleted,
+} from "@/domains/onboarding/prefs";
 import { whenStoreState } from "@/utils/when-store-state";
 
 export const authUserContext = createRouterContext<AuthUser | null>(null);
 
-export const authMiddleware: MiddlewareFunction = async ({ request, context }, next) => {
-  const { sessionStatus, user } = useAuthStore.getState();
+const PLATFORM_SESSION_PROBE_TIMEOUT_MS = 5_000;
 
-  if (!isSessionSettled(sessionStatus)) {
-    await whenStoreState(useAuthStore, (state) => isSessionSettled(state.sessionStatus));
+export const authMiddleware: MiddlewareFunction = async ({ request, context }, next) => {
+  const url = new URL(request.url);
+
+  const state = buildNavigationState({
+    isReplay: url.searchParams.has("replay"),
+  });
+
+  const decision = resolveNavigation(state, {
+    kind: "route-guard",
+    pathname: url.pathname + url.search,
+  });
+
+  if (decision.action === "wait") {
+    await whenStoreState(useAuthStore, (s) => isSessionSettled(s.sessionStatus));
+    if (isLocalMode() && !hasAssistants()) {
+      await whenStoreState(
+        useAuthStore,
+        (s) => s.platformSession !== "unknown",
+        { timeoutMs: PLATFORM_SESSION_PROBE_TIMEOUT_MS },
+      );
+    }
     return authMiddleware({ request, context } as Parameters<MiddlewareFunction>[0], next);
   }
 
-  if (!isAuthenticated(sessionStatus) || !user) {
-    if (isGatewayAuthMode()) {
-      return next();
+  if (decision.action === "redirect") {
+    // Best-effort cleanup: clear stale onboarding flag when the lockfile
+    // has no assistants but localStorage still remembers a prior completion.
+    if (isLocalMode() && !hasAssistants() && readOnboardingCompleted()) {
+      clearOnboardingCompleted();
     }
-    const url = new URL(request.url);
-    const returnTo = encodeURIComponent(url.pathname + url.search);
-    throw redirect(`/account/login?returnTo=${returnTo}`);
+    throw redirect(decision.to);
   }
 
-  if (isLocalMode() && !hasAssistants()) {
-    const url = new URL(request.url);
-    if (!url.pathname.includes("/onboarding/") && !url.pathname.includes("/account")) {
-      throw redirect(await resolveLocalOnboardingRoute());
-    }
-  }
-
-  context.set(authUserContext, user);
+  context.set(authUserContext, useAuthStore.getState().user);
   return next();
 };

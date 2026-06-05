@@ -9,8 +9,9 @@ import {
     retireLocalAssistant,
     syncPlatformAssistantsToLockfile,
 } from "@/lib/local-mode";
+import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
+import { buildNavigationState } from "@/lib/navigation/build-state";
 import { isNativePlatform } from "@/runtime/native-auth";
-import { resolveLocalOnboardingRoute } from "@/utils/local-onboarding-route";
 import { clearOnboardingFlags } from "@/utils/onboarding-cleanup";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
@@ -19,8 +20,11 @@ import { toast } from "@vellumai/design-library/components/toast";
 
 async function getPostRetireRoute(): Promise<string> {
   if (isNativePlatform()) return routes.onboarding.prechat;
-  if (isLocalMode()) return resolveLocalOnboardingRoute();
-  return routes.onboarding.privacy;
+  const decision = resolveNavigation(
+    buildNavigationState(),
+    { kind: "route-guard", pathname: routes.assistant },
+  );
+  return decision.action === "redirect" ? decision.to : routes.onboarding.privacy;
 }
 
 interface RetireAssistantProps {

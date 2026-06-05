@@ -8,6 +8,7 @@ import {
   type VellumCommand,
 } from "./commands";
 import { handle } from "./ipc";
+import { readOnboardingActive } from "./window-state";
 
 interface MenuState {
   hasPlatformSession: boolean;
@@ -38,6 +39,13 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
           click: () => {
             openAboutWindow();
           },
+        },
+        { type: "separator" },
+        {
+          label: "Settings\u2026",
+          accelerator: resolveAccelerator("openSettings"),
+          enabled: !readOnboardingActive(),
+          click: () => dispatchToFocused({ kind: "openSettings" }),
         },
         { type: "separator" },
         { role: "services" },

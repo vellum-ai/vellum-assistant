@@ -32,6 +32,7 @@ export type VellumCommand =
   | { kind: "newConversation" }
   | { kind: "currentConversation" }
   | { kind: "markCurrentUnread" }
+  | { kind: "openSettings" }
   | { kind: "logout" };
 
 /**
@@ -115,6 +116,7 @@ declare global {
       mainWindow: {
         ensureVisible(): Promise<void>;
         setOnboarding(active: boolean): Promise<void>;
+        beginAuthFlow(): Promise<void>;
       };
       power: {
         onEvent(

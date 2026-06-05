@@ -132,6 +132,14 @@ export interface ToolDetailPayload {
   riskLevel?: string;
   riskReason?: string;
   durationLabel?: string;
+  /**
+   * Variant discriminator. Absent or `"tool"` → the standard tool-call detail
+   * view (technical details + output). `"thinking"` → the reasoning view that
+   * renders `thinkingText` as markdown with no input/output sections.
+   */
+  kind?: "tool" | "thinking";
+  /** Full reasoning markdown rendered when `kind === "thinking"`. */
+  thinkingText?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -183,6 +191,13 @@ export interface ViewerActions {
 
   // --- Tool detail ---
   openToolDetail: (payload: ToolDetailPayload) => void;
+  /**
+   * Open the tool-detail drawer for `payload`, or close it when the drawer is
+   * already open showing the SAME target. Powers the inline activity links
+   * (thought-process + single-tool chip) where clicking an already-active chip
+   * dismisses the drawer.
+   */
+  toggleToolDetail: (payload: ToolDetailPayload) => void;
   closeToolDetail: () => void;
   requestRuleEditorForActiveTool: () => void;
 
@@ -354,6 +369,24 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
       activeToolDetail: payload,
       viewBeforeToolDetail: resolveViewBefore(get(), "viewBeforeToolDetail"),
     });
+  },
+
+  toggleToolDetail: (payload) => {
+    const state = get();
+    const active = state.activeToolDetail;
+    const isSameTarget =
+      state.mainView === "tool-detail" &&
+      active != null &&
+      (payload.kind === "thinking"
+        ? active.kind === "thinking" &&
+          active.thinkingText === payload.thinkingText
+        : active.kind !== "thinking" &&
+          active.toolCallId === payload.toolCallId);
+    if (isSameTarget) {
+      get().closeToolDetail();
+    } else {
+      get().openToolDetail(payload);
+    }
   },
 
   closeToolDetail: () => {

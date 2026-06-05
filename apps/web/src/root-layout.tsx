@@ -15,6 +15,7 @@ import {
 import { getOnboardingEntrypoint } from "@/domains/onboarding/gate";
 import { setMenuPlatformSession } from "@/runtime/menu";
 import { useVellumCommands } from "@/runtime/vellum-commands";
+import { routes } from "@/utils/routes";
 import { useEnvironmentStore } from "@/stores/environment-store";
 import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
 import { useDocumentEditorSync } from "@/hooks/use-document-editor-sync";
@@ -120,6 +121,9 @@ export function RootLayout() {
   useGlobalDeepLinkConsumer();
 
   useVellumCommands({
+    openSettings: () => {
+      void navigate(routes.settings.root);
+    },
     logout: () => {
       void setMenuPlatformSession(false).then(() =>
         useAuthStore.getState().logout(),
