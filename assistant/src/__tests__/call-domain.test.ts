@@ -32,7 +32,7 @@ mock.module("../calls/twilio-config.js", () => ({
 }));
 
 mock.module("../calls/twilio-provider.js", () => ({
-  TwilioConversationRelayProvider: class {
+  TwilioVoiceProvider: class {
     async checkCallerIdEligibility(number: string) {
       if (number === "+15550002222") return { eligible: true };
       return {

@@ -6,7 +6,7 @@ import { refreshBackgroundWakeIntent } from "../background-wake/publisher.js";
 import { registerBackgroundWakeRuntime } from "../background-wake/runtime-registry.js";
 import { setPointerMessageProcessor } from "../calls/call-pointer-messages.js";
 import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
-import { TwilioConversationRelayProvider } from "../calls/twilio-provider.js";
+import { TwilioVoiceProvider } from "../calls/twilio-provider.js";
 import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
 import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
 import {
@@ -536,7 +536,7 @@ export async function runDaemon(): Promise<void> {
       }
 
       try {
-        const twilioProvider = new TwilioConversationRelayProvider();
+        const twilioProvider = new TwilioVoiceProvider();
         await reconcileCallsOnStartup(twilioProvider, log);
       } catch (err) {
         log.warn({ err }, "Call recovery failed — continuing startup");
