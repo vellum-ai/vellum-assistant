@@ -18,6 +18,7 @@ import {
 import { assistantFlagValuesQueryKey } from "@/lib/sync/query-tags";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { cn } from "@vellumai/design-library";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Tag, type TagTone } from "@vellumai/design-library/components/tag";
 import { Toggle } from "@vellumai/design-library/components/toggle";
@@ -144,7 +145,7 @@ export function FeatureFlagsPanel() {
           description: flag.description,
           value,
           defaultValue: flag.defaultEnabled,
-          values: valuesMap.get(flag.key),
+          values: valuesMap.get(flag.key) ?? flag.values,
         });
       }
     }
@@ -304,7 +305,13 @@ function StringFlagRow({
     }
   };
 
-  const handleBlur = () => commitValue(localValue);
+  const isDirty = localValue !== flag.value;
+  const knownValues = flag.values && flag.values.length > 0 ? flag.values : null;
+  const isInvalid = isDirty && knownValues != null && !knownValues.includes(localValue);
+
+  const handleBlur = () => {
+    if (!isInvalid) commitValue(localValue);
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
@@ -312,8 +319,7 @@ function StringFlagRow({
     }
   };
 
-  const hasDropdown =
-    flag.values && flag.values.length > 0 && flag.values.includes(flag.value);
+  const hasDropdown = knownValues != null && knownValues.includes(flag.value);
 
   return (
     <div className="flex items-start gap-3 py-3">
@@ -334,19 +340,32 @@ function StringFlagRow({
               setLocalValue(next);
               commitValue(next);
             }}
-            options={flag.values!.map((v) => ({ value: v, label: v }))}
+            options={knownValues.map((v) => ({ value: v, label: v }))}
+            className="w-48"
             aria-label={`${flag.label} value`}
           />
         ) : (
-          <input
-            type="text"
-            value={localValue}
-            onChange={(e) => setLocalValue(e.target.value)}
-            onBlur={handleBlur}
-            onKeyDown={handleKeyDown}
-            className="w-full rounded-lg border border-[var(--border-base)] bg-[var(--surface-default)] px-3 py-1.5 text-body-small-default text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] focus:border-[var(--border-focus)] focus:outline-none"
-            placeholder={flag.defaultValue || "Enter value..."}
-          />
+          <div className="space-y-1">
+            <input
+              type="text"
+              value={localValue}
+              onChange={(e) => setLocalValue(e.target.value)}
+              onBlur={handleBlur}
+              onKeyDown={handleKeyDown}
+              className={cn(
+                "w-full rounded-lg border bg-[var(--surface-default)] px-3 py-1.5 text-body-small-default text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] focus:outline-none",
+                isInvalid
+                  ? "border-[var(--system-negative-strong)]"
+                  : "border-[var(--border-base)] focus:border-[var(--border-focus)]",
+              )}
+              placeholder={flag.defaultValue || "Enter value..."}
+            />
+            {isInvalid && (
+              <span className="block text-body-small-default text-[var(--system-negative-strong)]">
+                Expected one of: {knownValues!.join(", ")}
+              </span>
+            )}
+          </div>
         )}
         <div className="flex items-center gap-1">
           <span className="text-body-small-default text-[var(--content-tertiary)]">
