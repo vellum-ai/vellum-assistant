@@ -595,7 +595,7 @@ describe("createChatDebugApi.serverMessages", () => {
     );
   });
 
-  test("returns raw ConversationMessage[] from injected historyFetcher", async () => {
+  test("narrows ConversationMessage[] from injected historyFetcher", async () => {
     useConversationStore.setState({ activeConversationId: "conv-1" });
     const serverList = [
       fakeRuntimeMessage({ id: "srv-1" }),
@@ -604,7 +604,7 @@ describe("createChatDebugApi.serverMessages", () => {
     const historyFetcher = async () => ({ messages: serverList, seq: null });
     const api = createChatDebugApi(makeRefs({ historyFetcher }));
     const result = await api.serverMessages();
-    expect(result).toBe(serverList);
+    expect(result).toEqual(serverList);
     expect(result).toHaveLength(2);
     expect(result[0]!.id).toBe("srv-1");
   });

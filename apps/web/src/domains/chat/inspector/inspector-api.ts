@@ -5,7 +5,10 @@ import {
   messagesByIdLlmcontextGet,
 } from "@/generated/daemon/sdk.gen";
 import { assertHasResponse, extractErrorMessage } from "@/utils/api-errors";
-import { fetchConversationMessages } from "@/domains/chat/api/messages";
+import {
+  extractRuntimeMessages,
+  fetchConversationMessages,
+} from "@/domains/chat/api/messages";
 
 import type {
   ConversationMessage,
@@ -125,7 +128,7 @@ export function useConversationMessageList(
         assistantId,
         conversationId,
       );
-      return snapshot.messages;
+      return extractRuntimeMessages(snapshot);
     },
     enabled,
     staleTime: 30_000,
@@ -235,9 +238,8 @@ async function fetchConversationLlmContextFromPerMessage(
   conversationId: string,
   signal: AbortSignal | undefined,
 ): Promise<LlmContextResponse> {
-  const { messages } = await fetchConversationMessages(
-    assistantId,
-    conversationId,
+  const messages = extractRuntimeMessages(
+    await fetchConversationMessages(assistantId, conversationId),
   );
 
   const messageIds: string[] = [];

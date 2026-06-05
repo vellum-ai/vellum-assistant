@@ -59,7 +59,7 @@ export interface RuntimeSubagentNotification extends ConversationSubagentNotific
  * `unknown` on the wire, so consumers narrow defensively here rather than
  * trusting the element type.
  */
-function extractRuntimeMessages(
+export function extractRuntimeMessages(
   data: MessagesGetResponse | undefined,
 ): ConversationMessage[] {
   const raw = Array.isArray(data?.messages) ? data.messages : [];
@@ -243,28 +243,20 @@ export async function getChatHistory(
 }
 
 /**
- * A `/messages` snapshot: the authoritative rows plus the watermark `seq`
- * they were persisted at. `seq` is `null` on daemons that predate the
- * seq-on-snapshot contract; the seq-aware reconcile treats a null watermark
- * as "unknown" and falls back to taking the snapshot as authoritative.
- */
-export interface ConversationMessagesSnapshot {
-  messages: ConversationMessage[];
-  seq: number | null;
-}
-
-/**
- * Fetch the server's authoritative message list for a conversation.
+ * Fetch the server's authoritative `/messages` snapshot for a conversation.
  * Used for post-stream reconciliation to ensure local state matches the
  * backend even if events were dropped or the stream was interrupted.
  *
- * Returns the snapshot watermark alongside the rows so the seq-aware
- * reconcile can compare it against the live applied frontier.
+ * Returns the raw daemon response, which carries the persisted rows alongside
+ * the snapshot watermark `seq`. Callers narrow the rows with
+ * {@link extractRuntimeMessages} and read `seq` for the seq-aware reconcile,
+ * which compares it against the live applied frontier. `seq` is absent on
+ * daemons that predate the seq-on-snapshot contract.
  */
 export async function fetchConversationMessages(
   assistantId: string,
   conversationId: string,
-): Promise<ConversationMessagesSnapshot> {
+): Promise<MessagesGetResponse | undefined> {
   const { data, error, response } = await messagesGet({
     path: { assistant_id: assistantId },
     query: { conversationId },
@@ -276,7 +268,7 @@ export async function fetchConversationMessages(
       `Failed to fetch conversation messages (HTTP ${response.status})`,
     );
   }
-  return { messages: extractRuntimeMessages(data), seq: data?.seq ?? null };
+  return data;
 }
 
 export type PostMessageResult =

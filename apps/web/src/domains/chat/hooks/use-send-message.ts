@@ -70,7 +70,12 @@ import { useMessageQueue } from "@/domains/chat/hooks/use-message-queue";
 import { conversationsByIdCancelPost } from "@/generated/daemon/sdk.gen";
 import type { Conversation } from "@/types/conversation-types";
 import { getPendingInteractions } from "@/domains/chat/api/interactions";
-import { fetchConversationMessages, postChatMessage, pollForResponse } from "@/domains/chat/api/messages";
+import {
+  extractRuntimeMessages,
+  fetchConversationMessages,
+  postChatMessage,
+  pollForResponse,
+} from "@/domains/chat/api/messages";
 import type { ConversationMessage } from "@vellumai/assistant-api";
 import { supportsServerMintedConversation } from "@/lib/backwards-compat/server-minted-conversation";
 
@@ -389,8 +394,8 @@ export function useSendMessage({
               postResult.assistantId,
               effectiveConversationId,
             );
-            serverMessages = snapshot.messages;
-            snapshotSeq = snapshot.seq;
+            serverMessages = extractRuntimeMessages(snapshot);
+            snapshotSeq = snapshot?.seq ?? null;
           } catch {
             // Reconciliation is best-effort
           }

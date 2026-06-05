@@ -19,7 +19,10 @@ import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text
 import { runtimeMessagePlainText } from "@/domains/chat/utils/map-runtime-message";
 import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
-import { fetchConversationMessages } from "@/domains/chat/api/messages";
+import {
+  extractRuntimeMessages,
+  fetchConversationMessages,
+} from "@/domains/chat/api/messages";
 import type { ConversationMessage } from "@vellumai/assistant-api";
 import { useConversationStore } from "@/stores/conversation-store";
 import { endTurn } from "@/domains/chat/turn-coordinator";
@@ -371,8 +374,10 @@ export function useMessageReconciliation({
         const snapshotTurnId = useTurnStore.getState().activeTurnId;
 
         fetchConversationMessages(ctx.assistantId, ctx.conversationId)
-          .then(({ messages: serverMessages, seq: snapshotSeq }) => {
+          .then((snapshot) => {
             if (epoch !== useStreamStore.getState().streamEpoch) return;
+            const serverMessages = extractRuntimeMessages(snapshot);
+            const snapshotSeq = snapshot?.seq ?? null;
             recordDiagnostic("reconciliation_fetch", {
               assistantId: ctx.assistantId,
               conversationId: ctx.conversationId,
@@ -460,8 +465,12 @@ export function useMessageReconciliation({
       const snapshotEpoch = streamState.streamEpoch;
 
       try {
-        const { messages: serverMessages, seq: snapshotSeq } =
-          await fetchConversationMessages(ctx.assistantId, ctx.conversationId);
+        const snapshot = await fetchConversationMessages(
+          ctx.assistantId,
+          ctx.conversationId,
+        );
+        const serverMessages = extractRuntimeMessages(snapshot);
+        const snapshotSeq = snapshot?.seq ?? null;
         if (useConversationStore.getState().activeConversationId !== ctx.conversationId) return empty;
         // If the epoch changed during the fetch (e.g. page went hidden
         // and back), this reconciliation is stale — bail out.

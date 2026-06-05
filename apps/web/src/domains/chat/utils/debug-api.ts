@@ -26,12 +26,13 @@ import type { MutableRefObject } from "react";
 
 import * as assistantApi from "@vellumai/assistant-api";
 import type { ConversationMessage } from "@vellumai/assistant-api";
+import type { MessagesGetResponse } from "@/generated/daemon/types.gen";
 import {
   type ChatDebugEventsApi,
   eventsDebugApi,
 } from "@/domains/chat/api/debug-api";
 import {
-  type ConversationMessagesSnapshot,
+  extractRuntimeMessages,
   fetchConversationMessages as defaultFetchConversationMessages,
 } from "@/domains/chat/api/messages";
 import { useStreamStore } from "@/domains/chat/stream-store";
@@ -454,7 +455,7 @@ export interface ChatDebugRefs {
   historyFetcher?: (
     assistantId: string,
     conversationId: string,
-  ) => Promise<ConversationMessagesSnapshot>;
+  ) => Promise<MessagesGetResponse | undefined>;
 }
 
 /**
@@ -641,8 +642,8 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     }
     const historyFetcher =
       refs.historyFetcher ?? defaultFetchConversationMessages;
-    const { messages } = await historyFetcher(assistantId, conversationId);
-    return messages;
+    const snapshot = await historyFetcher(assistantId, conversationId);
+    return extractRuntimeMessages(snapshot);
   }
 
   function listPendingInteractions(): PendingInteractionsSnapshot {
