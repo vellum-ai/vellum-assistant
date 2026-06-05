@@ -13,7 +13,7 @@
  * Sites not exercised here (`aborted_via_error`) require deeper provider
  * fakery and are best covered by integration tests.
  */
-import { describe, expect, spyOn, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
 import type {
   AgentEvent,
@@ -23,7 +23,6 @@ import type {
 } from "../agent/loop.js";
 import { AgentLoop, isMaxTokensStopReason } from "../agent/loop.js";
 import type { TurnContext } from "../plugins/types.js";
-import { PluginTimeoutError } from "../plugins/types.js";
 import type {
   Message,
   Provider,
@@ -102,8 +101,8 @@ const userMessage: Message = {
 };
 
 // A turn context whose `contextWindowManager.maybeCompact` returns a canned
-// result, so the loop's native compaction pipeline runs without the real
-// orchestrator machinery.
+// result, so the loop's compaction call runs without the real orchestrator
+// machinery.
 function fakeCompactionTurnContext(result: {
   compacted: boolean;
   exhausted: boolean;
@@ -115,22 +114,6 @@ function fakeCompactionTurnContext(result: {
     trust: { sourceChannel: "vellum", trustClass: "unknown" },
     contextWindowManager: {
       maybeCompact: async () => result,
-    },
-  } as unknown as TurnContext;
-}
-
-// A turn context whose compaction call times out, exercising the loop's
-// PluginTimeoutError handling.
-function timeoutCompactionTurnContext(): TurnContext {
-  return {
-    requestId: "req-compact",
-    conversationId: "conv-compact",
-    turnIndex: 0,
-    trust: { sourceChannel: "vellum", trustClass: "unknown" },
-    contextWindowManager: {
-      maybeCompact: async () => {
-        throw new PluginTimeoutError("compaction", "default-compaction", 1);
-      },
     },
   } as unknown as TurnContext;
 }
@@ -414,42 +397,6 @@ describe("AgentLoop exit-reason instrumentation", () => {
     );
     expect(reinjected).toBe(true);
     expect(result.exitReason).not.toBe("budget");
-  });
-
-  test("yields 'budget' when inline compaction times out", async () => {
-    const { provider } = createMockProvider([
-      toolUseResponse("t1", "read_file", { path: "/a.txt" }),
-      textResponse("never reached"),
-    ]);
-    const toolExecutor = async () => ({ content: "ok", isError: false });
-    const loop = new AgentLoop(provider, "system", {
-      tools: dummyTools,
-      toolExecutor: toolExecutor,
-    });
-
-    const compaction: MidLoopCompaction = {
-      postCompactionHook: async () => {
-        throw new Error("postCompactionHook must not run after a timeout");
-      },
-    };
-    const recordOutcomeSpy = spyOn(loop.compactionCircuit, "recordOutcome");
-
-    // WHEN the compaction pipeline throws a PluginTimeoutError
-    const result = await loop.run([userMessage], () => {}, {
-      resolveContextWindow: () => ({
-        maxInputTokens: 10,
-        overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
-      }),
-      compaction,
-      turnContext: timeoutCompactionTurnContext(),
-    });
-
-    // THEN the loop records the timeout as a compaction failure against its
-    // own circuit breaker, and yields for budget so the orchestrator can
-    // escalate.
-    expect(recordOutcomeSpy).toHaveBeenCalledTimes(1);
-    expect(recordOutcomeSpy.mock.calls[0]?.[0]).toBe(true);
-    expect(result.exitReason).toBe("budget");
   });
 
   test("yields 'budget' when inline compaction reports exhausted", async () => {

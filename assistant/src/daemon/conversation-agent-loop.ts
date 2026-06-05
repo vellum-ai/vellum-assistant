@@ -47,7 +47,10 @@ import {
   estimatePromptTokensWithTools,
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
-import type { ContextWindowManager } from "../context/window-manager.js";
+import type {
+  ContextWindowCompactOptions,
+  ContextWindowManager,
+} from "../context/window-manager.js";
 import type { ToolProfiler } from "../events/tool-profiling-listener.js";
 import { writeRelationshipState } from "../home/relationship-state-writer.js";
 import {
@@ -83,20 +86,14 @@ import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrosp
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
-import { defaultCompactionTerminal } from "../plugins/defaults/compaction/terminal.js";
+import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
 import { deepRepairHistory } from "../plugins/defaults/history-repair/terminal.js";
 import postCompactReinject from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
 import userPromptSubmitMemoryRetrieval, {
   type MemoryRetrievalHookContext,
 } from "../plugins/defaults/memory-retrieval/hooks/user-prompt-submit-temp.js";
-import { DEFAULT_TIMEOUTS, runHook, runPipeline } from "../plugins/pipeline.js";
-import { getMiddlewaresFor } from "../plugins/registry.js";
-import type {
-  CompactionArgs,
-  CompactionResult,
-  TurnContext as PluginTurnContext,
-} from "../plugins/types.js";
-import { PluginTimeoutError } from "../plugins/types.js";
+import { runHook } from "../plugins/pipeline.js";
+import type { TurnContext as PluginTurnContext } from "../plugins/types.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import { resolveActorTrust } from "../runtime/actor-trust-resolver.js";
@@ -217,12 +214,12 @@ function formatDiskPressureBlockedMessage(): string {
 // ── Plugin pipeline helpers ──────────────────────────────────────────
 //
 // Canonical {@link PluginTurnContext} builder threaded into every
-// `runPipeline` call inside `runAgentLoopImpl`. The orchestrator composes
+// `runHook` call inside `runAgentLoopImpl`. The orchestrator composes
 // the context on demand at each call site from ambient state rather than
 // carrying a persistent `TurnContext` instance across the turn.
 
 /**
- * Synthetic fallback trust context used when the orchestrator fires a pipeline
+ * Synthetic fallback trust context used when the orchestrator fires a hook
  * before the per-turn trust snapshot has been captured (e.g. invocations that
  * bypass `processMessage` / `drainQueue`). We bias to `unknown` rather than
  * `guardian` so a missing snapshot cannot accidentally grant elevated trust
@@ -234,14 +231,14 @@ const FALLBACK_TURN_TRUST: TrustContext = {
 };
 
 /**
- * Build the {@link TurnContext} passed to {@link runPipeline}.
+ * Build the {@link TurnContext} passed to {@link runHook}.
  *
- * Canonical source of truth for every pipeline call site inside the agent
- * loop. Every `runPipeline` invocation in `runAgentLoopImpl` (and in the
+ * Canonical source of truth for every hook call site inside the agent
+ * loop. Every `runHook` invocation in `runAgentLoopImpl` (and in the
  * handlers that share its ambient state) must route through this helper
  * rather than constructing a `TurnContext` literal inline — this keeps
  * `turnIndex`, trust resolution, and the `contextWindowManager` attachment
- * consistent across pipeline slots, which in turn keeps structured logs
+ * consistent across hooks, which in turn keeps structured logs
  * filtered by `conversationId`/`turnIndex` coherent across slots.
  *
  * Behavior:
@@ -253,9 +250,9 @@ const FALLBACK_TURN_TRUST: TrustContext = {
  *   level context, then {@link FALLBACK_TURN_TRUST}. The cascade matches
  *   the one inside the orchestrator's inline injection assembly so
  *   middleware reads the same trust class the runtime sees.
- * - `contextWindowManager` is attached unconditionally. Pipelines that
- *   don't need it can ignore it; the default compaction plugin reads it
- *   via the typed optional field on `TurnContext`.
+ * - `contextWindowManager` is attached unconditionally. Hooks that
+ *   don't need it can ignore it; it remains available via the typed
+ *   optional field on `TurnContext`.
  */
 function buildPluginTurnContext(
   ctx: AgentLoopConversationContext,
@@ -1021,48 +1018,18 @@ export async function runAgentLoopImpl(
         requestId: reqId,
       });
     }
-    const compactionOptions = {
-      precomputedEstimate: compactCheck.estimatedTokens,
-      overrideProfile: resolveCurrentOverrideProfile() ?? null,
-      actorTrustClass: resolveTurnActorTrustClass(ctx),
-    };
     let compacted: Awaited<
       ReturnType<typeof ctx.contextWindowManager.maybeCompact>
     > | null = null;
     if (autoCompactAllowed) {
-      try {
-        compacted = (await runPipeline<CompactionArgs, CompactionResult>(
-          "compaction",
-          getMiddlewaresFor("compaction"),
-          (args) =>
-            defaultCompactionTerminal(args, buildPluginTurnContext(ctx, reqId)),
-          {
-            messages: messagesForStartOfTurnCompaction,
-            signal: abortController.signal,
-            options: compactionOptions,
-          },
-          buildPluginTurnContext(ctx, reqId),
-          DEFAULT_TIMEOUTS.compaction,
-        )) as Awaited<ReturnType<typeof ctx.contextWindowManager.maybeCompact>>;
-      } catch (err) {
-        if (err instanceof PluginTimeoutError) {
-          // Pipeline exceeded its budget. Record the failure so the circuit
-          // breaker tracks consecutive timeouts (it trips after three),
-          // then degrade gracefully by skipping compaction this turn —
-          // the turn proceeds with the un-compacted history rather than
-          // hard-failing. The inner summary call has been aborted by the
-          // runner's signal-linking, so updateSummary's local fallback
-          // also ran before this catch block is reached.
-          rlog.warn(
-            { err, phase: "start-of-turn-compaction" },
-            "Compaction pipeline timed out — skipping compaction this turn",
-          );
-          await ctx.agentLoop.compactionCircuit.recordOutcome(true, onEvent);
-          compacted = null;
-        } else {
-          throw err;
-        }
-      }
+      compacted = await defaultCompact({
+        manager: ctx.contextWindowManager,
+        messages: messagesForStartOfTurnCompaction,
+        signal: abortController.signal,
+        precomputedEstimate: compactCheck.estimatedTokens,
+        overrideProfile: resolveCurrentOverrideProfile() ?? null,
+        actorTrustClass: resolveTurnActorTrustClass(ctx),
+      });
     }
     // Only track circuit-breaker state when a summary LLM call actually ran.
     // `summaryFailed` is `undefined` on early returns (compaction disabled,
@@ -1468,71 +1435,18 @@ export async function runAgentLoopImpl(
         maxAttempts: resolveCurrentContextBudget().overflowRecovery.maxAttempts,
         abortSignal: abortController.signal,
         compactFn: async (msgs, signal, opts) => {
-          // Route the reducer's forced-compaction tier through the
-          // `compaction` pipeline so registered plugins observe these
-          // invocations. Without this, custom compaction middleware only
-          // sees the three orchestrator-owned call sites and misses the
-          // reducer-initiated forced compactions entirely.
-          //
-          // Pipeline timeouts must be caught locally — a `PluginTimeoutError`
-          // bubbling out of here would abort the overflow-reducer tier loop
-          // entirely, skipping fallback tiers (tool-result truncation, media
-          // stubbing, injection downgrade) and bypassing circuit-breaker
-          // bookkeeping. On timeout, record the failure and return a
-          // `compacted: false` result so the reducer falls through to the
-          // next tier.
-          try {
-            return (await runPipeline<CompactionArgs, CompactionResult>(
-              "compaction",
-              getMiddlewaresFor("compaction"),
-              (args) =>
-                defaultCompactionTerminal(
-                  args,
-                  buildPluginTurnContext(ctx, reqId),
-                ),
-              {
-                messages: msgs,
-                signal,
-                options: {
-                  ...(opts ?? {}),
-                  overrideProfile: resolveCurrentOverrideProfile() ?? null,
-                  actorTrustClass: resolveTurnActorTrustClass(ctx),
-                },
-              },
-              buildPluginTurnContext(ctx, reqId),
-              DEFAULT_TIMEOUTS.compaction,
-            )) as Awaited<
-              ReturnType<typeof ctx.contextWindowManager.maybeCompact>
-            >;
-          } catch (err) {
-            if (err instanceof PluginTimeoutError) {
-              rlog.warn(
-                { err, phase: "overflow-reducer-forced-compaction" },
-                "Compaction pipeline timed out — falling through to next reducer tier",
-              );
-              await ctx.agentLoop.compactionCircuit.recordOutcome(
-                true,
-                onEvent,
-              );
-              return {
-                messages: msgs,
-                compacted: false,
-                previousEstimatedInputTokens: 0,
-                estimatedInputTokens: 0,
-                maxInputTokens: 0,
-                thresholdTokens: 0,
-                compactedMessages: 0,
-                compactedPersistedMessages: 0,
-                summaryCalls: 0,
-                summaryInputTokens: 0,
-                summaryOutputTokens: 0,
-                summaryModel: "",
-                summaryText: "",
-                reason: "compaction pipeline timed out",
-              };
-            }
-            throw err;
-          }
+          // Delegate the reducer's forced-compaction tier to the default
+          // compaction plugin, overlaying the turn's resolved inference
+          // profile and actor trust class onto the reducer-supplied options.
+          const reducerOptions = (opts ?? {}) as ContextWindowCompactOptions;
+          return defaultCompact({
+            manager: ctx.contextWindowManager,
+            messages: msgs,
+            signal,
+            ...reducerOptions,
+            overrideProfile: resolveCurrentOverrideProfile() ?? null,
+            actorTrustClass: resolveTurnActorTrustClass(ctx),
+          });
         },
         emitActivityState: () => {
           ctx.emitActivityState("thinking", "context_compacting", {
@@ -2157,66 +2071,23 @@ export async function runAgentLoopImpl(
           ctx.emitActivityState("thinking", "context_compacting", {
             requestId: reqId,
           });
-          let emergencyCompact: Awaited<
-            ReturnType<typeof ctx.contextWindowManager.maybeCompact>
-          > | null = null;
-          try {
-            emergencyCompact = (await runPipeline<
-              CompactionArgs,
-              CompactionResult
-            >(
-              "compaction",
-              getMiddlewaresFor("compaction"),
-              (args) =>
-                defaultCompactionTerminal(
-                  args,
-                  buildPluginTurnContext(ctx, reqId),
-                ),
-              {
-                messages: ctx.messages,
-                signal: abortController.signal,
-                options: {
-                  force: true,
-                  minKeepRecentUserTurns: 0,
-                  overrideProfile: resolveCurrentOverrideProfile() ?? null,
-                },
-              },
-              buildPluginTurnContext(ctx, reqId),
-              DEFAULT_TIMEOUTS.compaction,
-            )) as Awaited<
-              ReturnType<typeof ctx.contextWindowManager.maybeCompact>
-            >;
-          } catch (err) {
-            if (err instanceof PluginTimeoutError) {
-              // Emergency compaction timed out. Record the circuit-breaker
-              // failure and fall through to the graceful-error path below
-              // (the unsuccessful-compaction fallback) rather than hard-
-              // failing the turn.
-              rlog.warn(
-                { err, phase: "emergency-compaction" },
-                "Emergency compaction pipeline timed out — continuing with overflow fallback",
-              );
-              await ctx.agentLoop.compactionCircuit.recordOutcome(
-                true,
-                onEvent,
-              );
-              emergencyCompact = null;
-            } else {
-              throw err;
-            }
-          }
+          const emergencyCompact = await defaultCompact({
+            manager: ctx.contextWindowManager,
+            messages: ctx.messages,
+            signal: abortController.signal,
+            force: true,
+            minKeepRecentUserTurns: 0,
+            overrideProfile: resolveCurrentOverrideProfile() ?? null,
+          });
           // Only track when the summary LLM actually ran; `force: true`
           // bypasses the auto-threshold gate but not the early-return paths.
-          if (
-            emergencyCompact &&
-            emergencyCompact.summaryFailed !== undefined
-          ) {
+          if (emergencyCompact.summaryFailed !== undefined) {
             await ctx.agentLoop.compactionCircuit.recordOutcome(
               emergencyCompact.summaryFailed,
               onEvent,
             );
           }
-          if (emergencyCompact?.compacted) {
+          if (emergencyCompact.compacted) {
             await applySuccessfulCompaction(emergencyCompact, ctx.messages);
             state.reducerCompacted = true;
           }
