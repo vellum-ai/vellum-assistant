@@ -20,7 +20,8 @@ import type { WorkspaceMigration } from "./types.js";
 // explicitly disabled. It skips profiles that:
 //   - Don't exist (no profile to patch)
 //   - Already have thinking enabled (idempotent)
-//   - Are not source: "managed" (user-created profiles are untouched)
+//   - Are source: "user" (user-created profiles are untouched)
+//   - Have a non-managed, non-absent source (unknown origin)
 //   - Use a non-Anthropic provider (adaptive thinking is Anthropic-specific)
 
 const ADAPTIVE_THINKING = { enabled: true, streamThinking: true } as const;
@@ -65,7 +66,13 @@ export function repairAdaptiveThinkingOnManagedProfiles(
     if (profile === null) continue;
 
     // Only patch managed Anthropic profiles.
-    if (profile.source !== "managed") continue;
+    // Legacy profiles created before the `source` metadata field was introduced
+    // have source=undefined. Treat these as managed when the profile name is one
+    // of the canonical managed names (which TARGET_PROFILES already guarantees)
+    // and the provider is Anthropic (or absent). Explicit `source: "user"`
+    // profiles are always skipped.
+    if (profile.source === "user") continue;
+    if (profile.source !== undefined && profile.source !== "managed") continue;
     if (
       typeof profile.provider === "string" &&
       profile.provider !== "anthropic"
