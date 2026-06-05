@@ -380,14 +380,17 @@ export function ActiveChatView() {
   // gate clears when the first message arrives.
   // -------------------------------------------------------------------------
   if (autoGreet.show) {
+    const turnActive = isSending(useTurnStore.getState());
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4">
         <p className="text-[var(--text-secondary)]">
           {autoGreet.timedOut
-            ? "Your assistant is taking longer than expected."
+            ? turnActive
+              ? "Your assistant is still working…"
+              : "Your assistant is taking longer than expected."
             : "Starting your first conversation…"}
         </p>
-        {autoGreet.timedOut && (
+        {autoGreet.timedOut && !turnActive && (
           <Button
             variant="outlined"
             size="regular"
