@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import type { CreditTier, CreditTierEnum } from "@/generated/api/types.gen";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Typography } from "@vellumai/design-library/components/typography";
-import { formatDelta, formatMonthly } from "./tier-pricing";
+import { formatMonthly } from "./tier-pricing";
 
 /**
  * Sentinel option value for the synthesized "No credit bundle" entry. The
@@ -25,7 +25,6 @@ export interface CreditBundlePickerProps {
   creditTiers: CreditTier[];
   selectedCreditTier: CreditTierEnum | null;
   onCreditTierChange: (tier: CreditTierEnum | null) => void;
-  currentCreditPriceCents?: number | null;
   disabled?: boolean;
 }
 
@@ -33,16 +32,8 @@ export function CreditBundlePicker({
   creditTiers,
   selectedCreditTier,
   onCreditTierChange,
-  currentCreditPriceCents,
   disabled = false,
 }: CreditBundlePickerProps) {
-  const selectedTier = creditTiers.find((t) => t.tier === selectedCreditTier);
-  const selectedPriceCents = selectedTier?.price_cents ?? 0;
-  const delta =
-    currentCreditPriceCents != null
-      ? selectedPriceCents - currentCreditPriceCents
-      : null;
-
   const options = useMemo(() => {
     const noBundle = {
       value: NO_BUNDLE_VALUE as CreditOptionValue,
@@ -56,43 +47,31 @@ export function CreditBundlePicker({
   }, [creditTiers]);
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-col gap-1.5">
-        <div className="flex items-center gap-1">
-          <Typography
-            as="p"
-            variant="label-small-default"
-            className="text-[var(--content-secondary)]"
-          >
-            Credit bundle
-          </Typography>
-          <span title="A monthly allotment of credits added to your Pro Plan subscription">
-            <Info className="h-3 w-3 text-[var(--content-tertiary)]" />
-          </span>
-        </div>
-        <Dropdown<CreditOptionValue>
-          aria-label="Credit bundle"
-          placeholder="Select a credit bundle"
-          disabled={disabled}
-          value={selectedCreditTier ?? NO_BUNDLE_VALUE}
-          onChange={(value) =>
-            onCreditTierChange(
-              value === NO_BUNDLE_VALUE ? null : (value as CreditTierEnum),
-            )
-          }
-          options={options}
-        />
-      </div>
-      {delta != null && delta !== 0 && (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center gap-1">
         <Typography
           as="p"
-          variant="body-small-emphasised"
-          data-testid="credit-bundle-picker-delta"
-          className="text-[var(--content-tertiary)]"
+          variant="label-small-default"
+          className="text-[var(--content-secondary)]"
         >
-          {formatDelta(delta)}
+          Credit bundle
         </Typography>
-      )}
+        <span title="A monthly allotment of credits added to your Pro Plan subscription">
+          <Info className="h-3 w-3 text-[var(--content-tertiary)]" />
+        </span>
+      </div>
+      <Dropdown<CreditOptionValue>
+        aria-label="Credit bundle"
+        placeholder="Select a credit bundle"
+        disabled={disabled}
+        value={selectedCreditTier ?? NO_BUNDLE_VALUE}
+        onChange={(value) =>
+          onCreditTierChange(
+            value === NO_BUNDLE_VALUE ? null : (value as CreditTierEnum),
+          )
+        }
+        options={options}
+      />
     </div>
   );
 }

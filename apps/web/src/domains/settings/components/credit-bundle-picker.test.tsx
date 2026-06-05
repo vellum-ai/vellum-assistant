@@ -153,44 +153,4 @@ describe("CreditBundlePicker", () => {
     expect(onCreditTierChange).toHaveBeenCalledTimes(1);
     expect(onCreditTierChange.mock.calls[0]?.[0]).toBeNull();
   });
-
-  test("shows a positive delta in change mode when upgrading", () => {
-    const { getByTestId } = render(
-      <CreditBundlePicker
-        creditTiers={TIERS}
-        selectedCreditTier="credits_50"
-        onCreditTierChange={() => {}}
-        currentCreditPriceCents={2500}
-      />,
-    );
-    expect(getByTestId("credit-bundle-picker-delta").textContent).toBe(
-      "+$25/mo",
-    );
-  });
-
-  test("shows a negative delta in change mode when dropping to no bundle", () => {
-    const { getByTestId } = render(
-      <CreditBundlePicker
-        creditTiers={TIERS}
-        selectedCreditTier={null}
-        onCreditTierChange={() => {}}
-        currentCreditPriceCents={5000}
-      />,
-    );
-    expect(getByTestId("credit-bundle-picker-delta").textContent).toBe(
-      "−$50/mo",
-    );
-  });
-
-  test("renders no delta when the selection matches the current price", () => {
-    const { queryByTestId } = render(
-      <CreditBundlePicker
-        creditTiers={TIERS}
-        selectedCreditTier="credits_50"
-        onCreditTierChange={() => {}}
-        currentCreditPriceCents={5000}
-      />,
-    );
-    expect(queryByTestId("credit-bundle-picker-delta")).toBeNull();
-  });
 });

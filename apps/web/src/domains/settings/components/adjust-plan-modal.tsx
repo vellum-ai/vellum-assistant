@@ -885,17 +885,15 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                                       )}`
                                     )}
                                   </Typography>
-                                  <span
-                                    title={
-                                      proPickerShown &&
-                                      proTotalDelta != null &&
-                                      proTotalDelta !== 0
-                                        ? `Your Pro Plan subscription will change from ${formatMonthly(proCurrentTotalCents!)} to ${formatMonthly(proLiveTotalCents!)}. Includes a $10/month flat fee for Pro Features.`
-                                        : "Includes a $10/month flat fee for Pro Features."
-                                    }
-                                  >
-                                    <Info className="h-3 w-3 text-[var(--content-tertiary)]" />
-                                  </span>
+                                  {proPickerShown &&
+                                    proTotalDelta != null &&
+                                    proTotalDelta !== 0 && (
+                                      <span
+                                        title={`Your Pro Plan subscription will change from ${formatMonthly(proCurrentTotalCents!)} to ${formatMonthly(proLiveTotalCents!)}.`}
+                                      >
+                                        <Info className="h-3 w-3 text-[var(--content-tertiary)]" />
+                                      </span>
+                                    )}
                                 </div>
                                 <Typography
                                   as="p"
@@ -903,6 +901,15 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                                   className="text-[var(--content-tertiary)]"
                                 >
                                   Billed monthly
+                                </Typography>
+                                <Typography
+                                  as="p"
+                                  variant="body-small-default"
+                                  className="text-[var(--content-tertiary)]"
+                                  data-testid="modal-pro-base-fee"
+                                >
+                                  Includes a {formatMonthly(plan.base_price_cents)}{" "}
+                                  base fee for Pro features.
                                 </Typography>
                               </>
                             )}
@@ -976,9 +983,6 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                                     creditTiers={creditTiers}
                                     selectedCreditTier={displayCreditTier}
                                     onCreditTierChange={setSelectedCreditTier}
-                                    currentCreditPriceCents={
-                                      currentCreditPriceCents
-                                    }
                                     disabled={tierChangePending}
                                   />
                                 )}
