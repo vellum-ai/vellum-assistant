@@ -4,6 +4,8 @@ import path from "node:path";
 
 import JSZip from "jszip";
 
+import { resolveRelativePath } from "./app-protocol";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -58,12 +60,12 @@ export interface BundleScanData {
 // ---------------------------------------------------------------------------
 
 /** Resolve an entry name inside a bundle directory, throwing on escape. */
-export function resolveEntryPath(bundleDir: string, entryName: string): string {
-  const resolved = path.normalize(path.join(bundleDir, entryName));
-  if (!resolved.startsWith(bundleDir + path.sep) && resolved !== bundleDir) {
+function resolveEntryPath(bundleDir: string, entryName: string): string {
+  const result = resolveRelativePath(bundleDir, entryName);
+  if (result.kind === "forbidden") {
     throw new Error(`Path traversal detected: ${entryName}`);
   }
-  return resolved;
+  return result.resolved;
 }
 
 // ---------------------------------------------------------------------------

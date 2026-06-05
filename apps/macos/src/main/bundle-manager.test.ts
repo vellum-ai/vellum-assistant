@@ -9,11 +9,11 @@ import {
   listBundles,
   readBundleMetadata,
   removeBundle,
-  resolveEntryPath,
   stripUnsafeEntries,
   unpackBundle,
   type BundleScanData,
 } from "./bundle-manager";
+import { resolveRelativePath } from "./app-protocol";
 
 let tmpDir: string;
 
@@ -95,21 +95,25 @@ describe("unpackBundle", () => {
   });
 
   test("rejects path traversal entries", () => {
-    // JSZip normalizes ../  in entry names, so we test the guard directly.
+    // JSZip normalizes ../  in entry names, so we test the guard directly
+    // via resolveRelativePath (the shared path-traversal predicate that
+    // bundle-manager delegates to internally).
     const bundleDir = "/bundles/uuid";
-    expect(() => resolveEntryPath(bundleDir, "sub/../../escape.txt")).toThrow(
-      "Path traversal detected",
-    );
-    expect(() => resolveEntryPath(bundleDir, "../../../etc/passwd")).toThrow(
-      "Path traversal detected",
-    );
-    // Safe paths resolve without throwing
-    expect(resolveEntryPath(bundleDir, "index.html")).toBe(
-      "/bundles/uuid/index.html",
-    );
-    expect(resolveEntryPath(bundleDir, "assets/style.css")).toBe(
-      "/bundles/uuid/assets/style.css",
-    );
+    expect(resolveRelativePath(bundleDir, "sub/../../escape.txt")).toEqual({
+      kind: "forbidden",
+    });
+    expect(resolveRelativePath(bundleDir, "../../../etc/passwd")).toEqual({
+      kind: "forbidden",
+    });
+    // Safe paths resolve without error
+    expect(resolveRelativePath(bundleDir, "index.html")).toEqual({
+      kind: "ok",
+      resolved: "/bundles/uuid/index.html",
+    });
+    expect(resolveRelativePath(bundleDir, "assets/style.css")).toEqual({
+      kind: "ok",
+      resolved: "/bundles/uuid/assets/style.css",
+    });
   });
 });
 
