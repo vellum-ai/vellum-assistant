@@ -28,6 +28,7 @@ import {
   groupMessageActivityRuns,
   isSubagentSpawnCall,
   isSuppressedUiTool,
+  renderableToolCalls,
   resolveThinkingContent,
   resolveToolCall,
 } from "@/domains/chat/transcript/message-content";
@@ -544,6 +545,75 @@ export function TranscriptMessageBody({
     );
   };
 
+  // Render the boxed `ActivityRunCard` with the shared ~12-prop block. Both the
+  // merged (interleaved) and legacy branches render an identical card; this
+  // closure is the single source of those props so they cannot drift. `items`
+  // is supplied only by the merged path (ordered thinking/tool interleaving);
+  // the legacy path omits it and the card synthesizes one item per tool call.
+  const renderActivityRunCard = ({
+    toolCalls,
+    items,
+    autoExpand,
+  }: {
+    toolCalls: ChatMessageToolCall[];
+    items?: ToolCallCardItem[];
+    autoExpand: boolean;
+  }): ReactNode => (
+    <div className="w-full">
+      <ActivityRunCard
+        toolCalls={toolCalls}
+        items={items}
+        expandedToolCallIds={expandedToolCallIds}
+        onExpandChange={handleExpandChange}
+        expandedCardIds={expandedCardIds}
+        autoExpand={autoExpand}
+        onOpenRuleEditor={onOpenRuleEditor}
+        isSubmittingConfirmation={isSubmittingConfirmation}
+        onConfirmationSubmit={onConfirmationSubmit}
+        onAllowAndCreateRule={onAllowAndCreateRule}
+        pendingConfirmationToolCallId={pendingConfirmationToolCallId}
+        unknownNudgeToolCallIds={unknownNudgeToolCallIds}
+        onDismissUnknownNudge={onDismissUnknownNudge}
+      />
+    </div>
+  );
+
+  // Outer message shell shared by both render branches: the `group/msg`
+  // wrapper (tap-to-reveal + hover-actions group), the inner flex column, the
+  // Slack attribution, and the hover-actions footer. The `align` prop drives
+  // the user-vs-assistant `justify`/`items` handling — the merged branch is
+  // assistant-only and always passes `"assistant"`; the legacy branch passes
+  // the message role so user messages stay right-aligned.
+  const renderMessageShell = (
+    align: "user" | "assistant",
+    children: ReactNode,
+  ): ReactNode => (
+    <div
+      ref={wrapperRef}
+      onClick={handleBubbleClick}
+      data-revealed={revealed}
+      className={`group/msg flex ${align === "user" ? "justify-end" : "justify-start"}`}
+    >
+      <div
+        className={`flex w-full flex-col gap-2 ${align === "user" ? "items-end" : "items-start"}`}
+      >
+        {children}
+        <SlackMessageAttribution
+          message={message}
+          assistantDisplayName={assistantDisplayName}
+        />
+        <div className="h-6 opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100 has-[:focus-visible]:opacity-100 group-data-[revealed=true]/msg:opacity-100">
+          <MessageHoverActions
+            message={message}
+            openInSlackUrl={slackMessageUrl}
+            onFork={forkHandler}
+            onInspect={inspectHandler}
+          />
+        </div>
+      </div>
+    </div>
+  );
+
   // Render the user-message content from an ordered, tagged list. Walks the
   // items in canonical `contentOrder` sequence, grouping CONTIGUOUS runs of
   // text into one `userBubbleClass` bubble while each non-text element (surface
@@ -677,9 +747,7 @@ export function TranscriptMessageBody({
           cardItems.push({ kind: "toolCall", toolCall: tc });
         }
       }
-      const renderableToolCalls = groupToolCalls.filter(
-        (tc) => !isSubagentSpawnCall(tc),
-      );
+      const renderableCalls = renderableToolCalls(groupToolCalls);
       // Single-tool-inline: a lone run that resolves to exactly ONE simple
       // renderable tool — no thinking, no web rich-rendering, no inline
       // confirmation UI. Render the compact inline chip instead of the boxed
@@ -687,10 +755,10 @@ export function TranscriptMessageBody({
       const loneTool =
         cardItems.length === 1 &&
         cardItems[0]?.kind === "toolCall" &&
-        renderableToolCalls.length === 1 &&
-        !WEB_TOOL_NAMES.has(renderableToolCalls[0]!.name) &&
-        !renderableToolCalls[0]!.pendingConfirmation
-          ? renderableToolCalls[0]!
+        renderableCalls.length === 1 &&
+        !WEB_TOOL_NAMES.has(renderableCalls[0]!.name) &&
+        !renderableCalls[0]!.pendingConfirmation
+          ? renderableCalls[0]!
           : null;
       if (loneTool) {
         return (
@@ -700,30 +768,18 @@ export function TranscriptMessageBody({
           </Fragment>
         );
       }
-      if (renderableToolCalls.length > 0) {
+      if (renderableCalls.length > 0) {
         return (
           <Fragment key={`m-activity-${gi}`}>
-            <div className="w-full">
-              <ActivityRunCard
-                toolCalls={groupToolCalls}
-                items={cardItems}
-                expandedToolCallIds={expandedToolCallIds}
-                onExpandChange={handleExpandChange}
-                expandedCardIds={expandedCardIds}
-                autoExpand={shouldAutoExpandToolCallGroup({
-                  isCurrentGroup: isLastGroup,
-                  isStreaming,
-                  toolCalls: renderableToolCalls,
-                })}
-                onOpenRuleEditor={onOpenRuleEditor}
-                isSubmittingConfirmation={isSubmittingConfirmation}
-                onConfirmationSubmit={onConfirmationSubmit}
-                onAllowAndCreateRule={onAllowAndCreateRule}
-                pendingConfirmationToolCallId={pendingConfirmationToolCallId}
-                unknownNudgeToolCallIds={unknownNudgeToolCallIds}
-                onDismissUnknownNudge={onDismissUnknownNudge}
-              />
-            </div>
+            {renderActivityRunCard({
+              toolCalls: groupToolCalls,
+              items: cardItems,
+              autoExpand: shouldAutoExpandToolCallGroup({
+                isCurrentGroup: isLastGroup,
+                isStreaming,
+                toolCalls: renderableCalls,
+              }),
+            })}
             {renderInlineSubagentCards(groupToolCalls)}
           </Fragment>
         );
@@ -752,40 +808,20 @@ export function TranscriptMessageBody({
         ? renderTextWithInlineSurfaces(messageText, "fallback")
         : null;
 
-    return (
-      <div
-        ref={wrapperRef}
-        onClick={handleBubbleClick}
-        data-revealed={revealed}
-        className={`group/msg flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
-      >
-        <div
-          className={`flex w-full flex-col gap-2 ${message.role === "user" ? "items-end" : "items-start"}`}
-        >
-          <>
-            {mergedGroupElements}
-            {interleavedFallback}
-            {hasAttachments && (
-              <MessageAttachments
-                attachments={message.attachments ?? []}
-                assistantId={assistantId}
-              />
-            )}
-          </>
-          <SlackMessageAttribution
-            message={message}
-            assistantDisplayName={assistantDisplayName}
+    // This branch is assistant-only (tool calls only ever come from the
+    // assistant), so the shell always aligns assistant-start.
+    return renderMessageShell(
+      "assistant",
+      <>
+        {mergedGroupElements}
+        {interleavedFallback}
+        {hasAttachments && (
+          <MessageAttachments
+            attachments={message.attachments ?? []}
+            assistantId={assistantId}
           />
-          <div className="h-6 opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100 has-[:focus-visible]:opacity-100 group-data-[revealed=true]/msg:opacity-100">
-            <MessageHoverActions
-              message={message}
-              openInSlackUrl={slackMessageUrl}
-              onFork={forkHandler}
-              onInspect={inspectHandler}
-            />
-          </div>
-        </div>
-      </div>
+        )}
+      </>,
     );
   }
 
@@ -886,115 +922,81 @@ export function TranscriptMessageBody({
   // `ActivityRunCard` filters the spawns out and renders nothing — so
   // wrapping it in the flex child would emit a stray empty `gap-2` gap before
   // the inline subagent cards.
-  const hasRenderableLegacyToolCall = legacyToolCalls.some(
-    (tc) => !isSubagentSpawnCall(tc),
-  );
+  const hasRenderableLegacyToolCall =
+    renderableToolCalls(legacyToolCalls).length > 0;
   const hasVisibleLegacyContent = contentElements.some((el) => !!el);
 
-  return (
-    <div
-      ref={wrapperRef}
-      onClick={handleBubbleClick}
-      data-revealed={revealed}
-      className={`group/msg flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
-    >
-      <div
-        className={`flex w-full flex-col gap-2 ${message.role === "user" ? "items-end" : "items-start"}`}
-      >
-        {legacyToolCalls.length > 0 && (
-          <>
-            {hasRenderableLegacyToolCall && (
-              <div className="w-full">
-                <ActivityRunCard
-                  toolCalls={legacyToolCalls}
-                  expandedToolCallIds={expandedToolCallIds}
-                  onExpandChange={handleExpandChange}
-                  expandedCardIds={expandedCardIds}
-                  autoExpand={shouldAutoExpandToolCallGroup({
-                    isCurrentGroup: !hasVisibleLegacyContent,
-                    isStreaming,
-                    toolCalls: legacyToolCalls,
-                  })}
-                  onOpenRuleEditor={onOpenRuleEditor}
-                  isSubmittingConfirmation={isSubmittingConfirmation}
-                  onConfirmationSubmit={onConfirmationSubmit}
-                  onAllowAndCreateRule={onAllowAndCreateRule}
-                  pendingConfirmationToolCallId={pendingConfirmationToolCallId}
-                  unknownNudgeToolCallIds={unknownNudgeToolCallIds}
-                  onDismissUnknownNudge={onDismissUnknownNudge}
-                />
-              </div>
-            )}
-            {renderInlineSubagentCards(legacyToolCalls)}
-          </>
-        )}
-        {isUser ? (
-          // User messages render contiguous text runs (plus attachments) inside
-          // surface-lift bubbles; surfaces (rare for user messages) render
-          // outside any bubble in their canonical position so `contentOrder` is
-          // preserved (see `renderUserContent`).
-          renderUserContent(legacyUserItems)
-        ) : (
-          <>
-            {(hasVisibleLegacyContent ||
-              (!message.toolCalls?.length && !hasAttachments)) && (
-              // Layout-only column: the bubble styling (textBubbleClass) is applied
-              // per text segment inside renderTextWithInlineSurfaces, mirroring the
-              // interleaved path above. Applying textBubbleClass here too would
-              // double-wrap text in two nested bubbles (doubled padding/background).
-              <div
-                className={`flex w-full flex-col gap-2 ${message.role === "user" ? "items-end" : "items-start"}`}
-              >
-                {contentElements}
-              </div>
-            )}
-            {hasAttachments && message.attachments && (
-              <MessageAttachments
-                attachments={message.attachments}
-                assistantId={assistantId}
-              />
-            )}
-          </>
-        )}
-        {/* Render surfaces attached to this message that aren't in contentOrder */}
-        {(() => {
-          if (!message.surfaces || message.surfaces.length === 0) return null;
-          const renderedSurfaceIds = new Set(
-            message.contentOrder
-              ?.filter((e) => e.type === "surface")
-              .map((e) => e.id) ?? [],
-          );
-          const unrendered = message.surfaces.filter(
-            (s) => !renderedSurfaceIds.has(s.surfaceId),
-          );
-          if (unrendered.length === 0) return null;
-          return unrendered.map((surface) => (
-            <div key={surface.surfaceId} className="w-full">
-              <SurfaceRouter
-                surface={surface}
-                onAction={onSurfaceAction}
-                onOpenApp={onOpenApp}
-                onOpenDocument={onOpenDocument}
-                assistantId={assistantId}
-                assistantDisplayName={assistantDisplayName}
-                toolCalls={message.toolCalls}
-              />
+  return renderMessageShell(
+    isUser ? "user" : "assistant",
+    <>
+      {legacyToolCalls.length > 0 && (
+        <>
+          {hasRenderableLegacyToolCall &&
+            renderActivityRunCard({
+              toolCalls: legacyToolCalls,
+              autoExpand: shouldAutoExpandToolCallGroup({
+                isCurrentGroup: !hasVisibleLegacyContent,
+                isStreaming,
+                toolCalls: legacyToolCalls,
+              }),
+            })}
+          {renderInlineSubagentCards(legacyToolCalls)}
+        </>
+      )}
+      {isUser ? (
+        // User messages render contiguous text runs (plus attachments) inside
+        // surface-lift bubbles; surfaces (rare for user messages) render
+        // outside any bubble in their canonical position so `contentOrder` is
+        // preserved (see `renderUserContent`).
+        renderUserContent(legacyUserItems)
+      ) : (
+        <>
+          {(hasVisibleLegacyContent ||
+            (!message.toolCalls?.length && !hasAttachments)) && (
+            // Layout-only column: the bubble styling (textBubbleClass) is applied
+            // per text segment inside renderTextWithInlineSurfaces, mirroring the
+            // interleaved path above. Applying textBubbleClass here too would
+            // double-wrap text in two nested bubbles (doubled padding/background).
+            <div
+              className={`flex w-full flex-col gap-2 ${message.role === "user" ? "items-end" : "items-start"}`}
+            >
+              {contentElements}
             </div>
-          ));
-        })()}
-        <SlackMessageAttribution
-          message={message}
-          assistantDisplayName={assistantDisplayName}
-        />
-        <div className="h-6 opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100 has-[:focus-visible]:opacity-100 group-data-[revealed=true]/msg:opacity-100">
-          <MessageHoverActions
-            message={message}
-            openInSlackUrl={slackMessageUrl}
-            onFork={forkHandler}
-            onInspect={inspectHandler}
-          />
-        </div>
-      </div>
-    </div>
+          )}
+          {hasAttachments && message.attachments && (
+            <MessageAttachments
+              attachments={message.attachments}
+              assistantId={assistantId}
+            />
+          )}
+        </>
+      )}
+      {/* Render surfaces attached to this message that aren't in contentOrder */}
+      {(() => {
+        if (!message.surfaces || message.surfaces.length === 0) return null;
+        const renderedSurfaceIds = new Set(
+          message.contentOrder
+            ?.filter((e) => e.type === "surface")
+            .map((e) => e.id) ?? [],
+        );
+        const unrendered = message.surfaces.filter(
+          (s) => !renderedSurfaceIds.has(s.surfaceId),
+        );
+        if (unrendered.length === 0) return null;
+        return unrendered.map((surface) => (
+          <div key={surface.surfaceId} className="w-full">
+            <SurfaceRouter
+              surface={surface}
+              onAction={onSurfaceAction}
+              onOpenApp={onOpenApp}
+              onOpenDocument={onOpenDocument}
+              assistantId={assistantId}
+              assistantDisplayName={assistantDisplayName}
+              toolCalls={message.toolCalls}
+            />
+          </div>
+        ));
+      })()}
+    </>,
   );
 }

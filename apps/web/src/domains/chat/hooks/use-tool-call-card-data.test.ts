@@ -1,11 +1,10 @@
 /**
- * Tests for `computeToolCallCardData` — the pure projection that
- * `useToolCallCardData` wraps.
+ * Tests for `computeToolCallCardDataFromItems` — the pure projection that
+ * `useToolCallCardDataFromItems` wraps.
  *
  * Covered behaviours:
  *   - One case per `ToolCallCardStep` kind (`thinking` /
  *     `web_search` / `web_search_error` / `tool`).
- *   - Leading-thinking text prepending.
  *   - Card-level `state` transitions (loading → complete, mixed
  *     running+completed, denied present, error present).
  *   - Header `currentStepTitle` / `currentStepInfo` for non-web tools.
@@ -13,13 +12,17 @@
  *     through the unified path and produce the same step + state outputs as
  *     the previous web-only hook (regression-checked via the dedicated
  *     "regression vs. legacy web-search hook" suite below).
+ *
+ * Most cases drive the projection from a `toolCalls` array via the local
+ * `computeToolCallCardData` shim, which wraps each call into a `toolCall`
+ * ordered item (the same delegation `useToolCallCardDataFromItems`'s default
+ * callers perform) — there is no leading-thinking item.
  */
 
 import { describe, expect, test } from "bun:test";
 
 import {
   buildWebSearchErrorStep,
-  computeToolCallCardData,
   computeToolCallCardDataFromItems,
   type ToolCallCardItem,
   WEB_SEARCH_BACKEND_FAILURE_MESSAGE,
@@ -30,6 +33,23 @@ import type {
   ToolActivityMetadata,
   WebSearchResultItem,
 } from "@/assistant/web-activity-types";
+
+/**
+ * Test shim mirroring the deleted `computeToolCallCardData(toolCalls, …)`
+ * projection: wrap each tool call into a `toolCall` ordered item and delegate
+ * to `computeToolCallCardDataFromItems`. Keeps the `(toolCalls, liveWebActivity)`
+ * call sites below readable while exercising the single live projection.
+ */
+function computeToolCallCardData(
+  toolCalls: ChatMessageToolCall[],
+  liveWebActivity: Record<string, ToolActivityMetadata>,
+) {
+  const items: ToolCallCardItem[] = toolCalls.map((tc) => ({
+    kind: "toolCall",
+    toolCall: tc,
+  }));
+  return computeToolCallCardDataFromItems(items, liveWebActivity);
+}
 
 function makeResult(
   i: number,

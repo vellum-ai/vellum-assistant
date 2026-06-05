@@ -1,7 +1,7 @@
 /** Pure projection and helpers for the unified tool-call progress card.
  *
- *  Separated from the React hook (`useToolCallCardData`) so they can be
- *  unit-tested without React context plumbing. The hook wires these into the
+ *  Separated from the React hook (`useToolCallCardDataFromItems`) so they can
+ *  be unit-tested without React context plumbing. The hook wires these into the
  *  Zustand turn store; these functions own the data mapping. */
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
@@ -15,7 +15,10 @@ import {
   deriveStepLabel,
   type IconName,
 } from "@/domains/chat/components/tool-progress-card/derive-step-label";
-import { isSubagentSpawnCall } from "@/domains/chat/transcript/message-content";
+import {
+  isSubagentSpawnCall,
+  renderableToolCalls,
+} from "@/domains/chat/transcript/message-content";
 import {
   extractDomain,
   parseWebSearchResultText,
@@ -336,6 +339,29 @@ export function toolDetailPayloadFromToolCall(
   };
 }
 
+/**
+ * Build the thinking-drawer payload for the shared tool-detail side drawer.
+ * Shared by the in-card thinking pill (title `"Thinking"`) and the lone
+ * `ThoughtProcessLink` (title `"Thought process"`) so the hand-written payload
+ * shape lives in one place. Thinking payloads carry an empty `toolCallId` /
+ * `toolName`; consumers match the active drawer on `thinkingText` instead.
+ */
+export function thinkingDetailPayload(
+  text: string,
+  title: string,
+): ToolDetailPayload {
+  return {
+    kind: "thinking",
+    toolCallId: "",
+    toolName: "",
+    title,
+    activity: "",
+    input: {},
+    status: "completed",
+    thinkingText: text,
+  };
+}
+
 function buildToolStep(tc: ChatMessageToolCall): ToolCallCardStep {
   const { title, info, activity, iconName } = deriveStepLabel(tc);
   return {
@@ -476,44 +502,25 @@ function deriveCarouselItems(
 // ---------------------------------------------------------------------------
 
 /**
- * Combine per-call/per-step states into a single card-level state using the
- * canonical precedence (highest first): `denied` > `loading` > `error` >
- * `complete`. Shared so the per-turn activity aggregate (`turn-activity.ts`)
- * and `deriveCardState` below cannot drift.
- */
-export function combineCardStates(
-  states: Array<"loading" | "complete" | "error" | "denied">,
-): "loading" | "complete" | "error" | "denied" {
-  if (states.includes("denied")) return "denied";
-  if (states.includes("loading")) return "loading";
-  if (states.includes("error")) return "error";
-  return "complete";
-}
-
-/**
- * Card-level state derivation. Maps each tool call to its narrowed state and
- * combines them via `combineCardStates`. Precedence (highest first):
+ * Card-level state derivation. Derives each tool call's per-step status via the
+ * shared {@link deriveToolStepStatus} ladder (so the per-call denied/error
+ * precedence lives in ONE place), then applies the aggregate card precedence
+ * (highest first):
  *   1. `denied` — any tool call whose confirmation was denied or timed-out.
- *   2. `loading` — any tool call still running.
+ *   2. `loading` — any tool call still running (`deriveToolStepStatus`'s
+ *      `running`).
  *   3. `error` — any tool ended in `status === "error"` (no still-running).
- *   4. `complete` — every tool call reached a terminal status without error.
+ *   4. `complete` — every tool call reached a terminal status without error
+ *      (`deriveToolStepStatus`'s `completed`).
  */
 function deriveCardState(
   toolCalls: ChatMessageToolCall[],
 ): "loading" | "complete" | "error" | "denied" {
-  return combineCardStates(
-    toolCalls.map((tc) => {
-      if (
-        tc.confirmationDecision === "denied" ||
-        tc.confirmationDecision === "timed_out"
-      ) {
-        return "denied";
-      }
-      if (isToolCallRunning(tc)) return "loading";
-      if (tc.isError) return "error";
-      return "complete";
-    }),
-  );
+  const statuses = toolCalls.map(deriveToolStepStatus);
+  if (statuses.includes("denied")) return "denied";
+  if (statuses.includes("running")) return "loading";
+  if (statuses.includes("error")) return "error";
+  return "complete";
 }
 
 // ---------------------------------------------------------------------------
@@ -533,10 +540,8 @@ export type ToolCallCardItem =
 
 /**
  * Build the per-tool {@link ToolCallCardStep} for a single tool call, mirroring
- * the web/non-web branch logic of {@link computeToolCallCardData}. Returns
- * `null` for a `subagent_spawn` call (rendered inline elsewhere). Shared by
- * both the legacy `(toolCalls, …)` projection and the ordered-items projection
- * so the per-tool behaviour cannot drift.
+ * the web/non-web branch logic of {@link computeToolCallCardDataFromItems}.
+ * Returns `null` for a `subagent_spawn` call (rendered inline elsewhere).
  */
 function buildStepForToolCall(
   tc: ChatMessageToolCall,
@@ -585,9 +590,7 @@ export function computeToolCallCardDataFromItems(
   // `subagent_spawn` calls are rendered inline by `SubagentInlineProgressCard`
   // at the transcript level — surfacing them as steps inside the unified card
   // would render the spawn twice.
-  const renderableToolCalls = toolCalls.filter(
-    (tc) => !isSubagentSpawnCall(tc),
-  );
+  const renderableCalls = renderableToolCalls(toolCalls);
 
   const steps: ToolCallCardStep[] = [];
   // Tracks the text of the most recently pushed step that originated from a
@@ -612,7 +615,7 @@ export function computeToolCallCardDataFromItems(
     }
   }
 
-  const state = deriveCardState(renderableToolCalls);
+  const state = deriveCardState(renderableCalls);
 
   // The collapsed header reflects the LATEST built step. When the run ends in
   // a genuine thinking segment (e.g. `tool → thinking`), the header carousels
@@ -629,18 +632,18 @@ export function computeToolCallCardDataFromItems(
     currentStepKind = "thinking";
   } else {
     currentStepTitle = deriveCurrentStepTitle(
-      renderableToolCalls,
+      renderableCalls,
       liveWebActivity,
     );
     currentStepInfo = deriveCurrentStepInfo(
-      renderableToolCalls,
+      renderableCalls,
       liveWebActivity,
     );
     currentStepKind = "tool";
   }
 
   const carouselItems = deriveCarouselItems(
-    renderableToolCalls,
+    renderableCalls,
     liveWebActivity,
   );
   const stepCount = `${steps.length} step${steps.length === 1 ? "" : "s"}`;
@@ -654,28 +657,4 @@ export function computeToolCallCardDataFromItems(
     state,
     carouselItems,
   };
-}
-
-/**
- * Pure projection of (toolCalls, liveWebActivity) → card data. Split out
- * from the hook so tests can drive it without React context plumbing.
- *
- * Always returns a `ToolCallCardData` (never null) so non-web groups still
- * render the unified card. Callers that need legacy "no web tools → bail
- * to legacy card" behaviour (the PR-6 cutover keeps the legacy card alive
- * for mixed/pending-confirmation groups) should layer that decision on top.
- *
- * Delegates to {@link computeToolCallCardDataFromItems} after wrapping the
- * tool calls into ordered items — producing output identical to the
- * historical inline loop.
- */
-export function computeToolCallCardData(
-  toolCalls: ChatMessageToolCall[],
-  liveWebActivity: Record<string, ToolActivityMetadata>,
-): ToolCallCardData {
-  const items: ToolCallCardItem[] = toolCalls.map((tc) => ({
-    kind: "toolCall",
-    toolCall: tc,
-  }));
-  return computeToolCallCardDataFromItems(items, liveWebActivity);
 }

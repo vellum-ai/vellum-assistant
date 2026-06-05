@@ -2,7 +2,7 @@
  * Best-effort parser for the daemon's `tool_result.result` string when a
  * web_search tool's structured `activityMetadata` is unavailable.
  *
- * Used by `useToolCallCardData` as a fallback for reloaded conversations
+ * Used by `useToolCallCardDataFromItems` as a fallback for reloaded conversations
  * — the daemon doesn't persist `activityMetadata` per its v1 scope, so
  * after a page reload only the legacy `result: string` text dump survives.
  * Parsing it lets us reconstruct minimal `{ title, url, domain }` chips for

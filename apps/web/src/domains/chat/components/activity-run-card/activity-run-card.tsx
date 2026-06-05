@@ -24,6 +24,7 @@ import {
 import { useViewerStore } from "@/stores/viewer-store";
 import {
   WEB_TOOL_NAMES,
+  thinkingDetailPayload,
   toolDetailPayloadFromToolCall,
   type ToolCallCardData,
   type ToolCallCardItem,
@@ -106,8 +107,8 @@ export interface ActivityRunCardProps {
 
 /**
  * Default ordered items for the legacy `(toolCalls)` callers: one `toolCall`
- * item per tool call. Mirrors the delegate in `computeToolCallCardData` so the
- * single-hook path produces identical output to the legacy projection.
+ * item per tool call, so the single hook path (`useToolCallCardDataFromItems`)
+ * produces identical output whether or not the caller supplied ordered items.
  */
 function buildDefaultItems(
   toolCalls: ChatMessageToolCall[],
@@ -119,7 +120,7 @@ function buildDefaultItems(
  * Activity-run card. Renders a contiguous run of interleaved thinking + tool
  * steps as a single combined card. All tool groups — web search, bash, file
  * ops, MCP, computer use, skills — render through the shared
- * {@link ToolProgressCardShell} driven by {@link useToolCallCardData}.
+ * {@link ToolProgressCardShell} driven by {@link useToolCallCardDataFromItems}.
  *
  * Special cases short-circuit before the shell:
  *
@@ -127,7 +128,7 @@ function buildDefaultItems(
  *   render the inline confirmation UI via {@link ToolCallChip} so the
  *   approve/deny path is preserved bit-for-bit from the legacy card.
  * - Zero renderable steps (today: a group made up entirely of
- *   `subagent_spawn` calls, which `useToolCallCardData` filters out) → render
+ *   `subagent_spawn` calls, which `useToolCallCardDataFromItems` filters out) → render
  *   `null`; the spawned subagents render as inline
  *   `SubagentInlineProgressCard`s elsewhere in the transcript.
  */
@@ -271,7 +272,7 @@ function deriveWebShellState(
  * under a single phase header. Mixed groups carry `web_search` /
  * `web_search_error` / `thinking` (the latter from web tools, e.g.
  * `web_fetch` "Reading …") alongside the `tool` variant emitted by
- * `useToolCallCardData` for non-web tools.
+ * `useToolCallCardDataFromItems` for non-web tools.
  */
 function UnifiedActivityRunCard({
   toolCalls,
@@ -378,16 +379,9 @@ function UnifiedActivityRunCard({
                     // state. Persisting the user's intent keeps the accordion
                     // open across that remount (mirrors the tool pill).
                     onCardExpandChange(true);
-                    toggleToolDetail({
-                      kind: "thinking",
-                      toolCallId: "",
-                      toolName: "",
-                      title: "Thinking",
-                      activity: "",
-                      input: {},
-                      status: "completed",
-                      thinkingText: step.text,
-                    });
+                    toggleToolDetail(
+                      thinkingDetailPayload(step.text, "Thinking"),
+                    );
                   }}
                 />
               );
