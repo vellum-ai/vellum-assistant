@@ -22,7 +22,10 @@ import {
   messagesQueuedByIdSteerPost,
   messagesQueuedByIdDelete,
 } from "@/generated/daemon/sdk.gen";
-import type { MessagesPostData } from "@/generated/daemon/types.gen";
+import type {
+  MessagesGetResponse,
+  MessagesPostData,
+} from "@/generated/daemon/types.gen";
 import { assertHasResponse, extractErrorMessage } from "@/utils/api-errors";
 import {
   normalizePreChatOnboardingContext,
@@ -206,14 +209,20 @@ export async function getChatHistory(
 }
 
 /**
- * Fetch the server's authoritative message list for a conversation.
+ * Fetch the server's authoritative `/messages` snapshot for a conversation.
  * Used for post-stream reconciliation to ensure local state matches the
  * backend even if events were dropped or the stream was interrupted.
+ *
+ * Returns the raw daemon response, which carries the persisted
+ * `ConversationMessage` rows alongside the snapshot watermark `seq`. Callers
+ * read `messages` directly and use `seq` for the seq-aware reconcile, which
+ * compares it against the live applied frontier. `seq` is absent on daemons
+ * that predate the seq-on-snapshot contract.
  */
 export async function fetchConversationMessages(
   assistantId: string,
   conversationId: string,
-): Promise<ConversationMessage[]> {
+): Promise<MessagesGetResponse | undefined> {
   const { data, error, response } = await messagesGet({
     path: { assistant_id: assistantId },
     query: { conversationId },
@@ -225,7 +234,7 @@ export async function fetchConversationMessages(
       `Failed to fetch conversation messages (HTTP ${response.status})`,
     );
   }
-  return data?.messages ?? [];
+  return data;
 }
 
 export type PostMessageResult =

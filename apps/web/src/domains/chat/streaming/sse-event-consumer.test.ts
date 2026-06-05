@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import {
+  __resetAppliedSeqForTesting,
+  getAppliedSeq,
+} from "@/lib/streaming/applied-seq";
 import type { AssistantEvent } from "@/types/event-types";
 
 let mockStreamEpoch = 7;
@@ -76,6 +80,7 @@ beforeEach(() => {
   seqGapEnabled = true;
   mockStreamEpoch = 7;
   globalCursor = null;
+  __resetAppliedSeqForTesting();
   recordDiagnosticMock.mockClear();
 });
 
@@ -584,5 +589,105 @@ describe("sse-event-consumer — seq-gap detection", () => {
     // replaced to the new (lower) seq.
     expect(reconcileActive).toHaveBeenCalledTimes(1);
     expect(globalCursor).toBe(6);
+  });
+});
+
+describe("sse-event-consumer — per-conversation idempotent apply", () => {
+  test("an applied event advances the conversation's frontier", () => {
+    /**
+     * The frontier records how far the stream has carried the active
+     * conversation so the snapshot/stream merge knows the live position.
+     */
+    // GIVEN a fresh consumer for the active conversation
+    const { deps, handleStreamEvent } = makeDeps({
+      activeConversationId: "conv-1",
+    });
+    const consumer = createSseEventConsumer(deps);
+
+    // WHEN a conversation-scoped event is applied
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 5,
+        message: { type: "assistant_text_delta", text: "a" },
+      }),
+    );
+
+    // THEN it dispatches and the frontier advances to its seq
+    expect(handleStreamEvent).toHaveBeenCalledTimes(1);
+    expect(getAppliedSeq("conv-1")).toBe(5);
+  });
+
+  test("re-delivering the frontier event is skipped as a replay", () => {
+    /**
+     * A reconnect can re-deliver the boundary event the conversation has
+     * already applied. Re-running the handler would double-append the delta,
+     * so an event whose seq is at or below the frontier is dropped.
+     */
+    // GIVEN an event at seq 5 has already been applied
+    const { deps, handleStreamEvent } = makeDeps({
+      activeConversationId: "conv-1",
+    });
+    const consumer = createSseEventConsumer(deps);
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 5,
+        message: { type: "assistant_text_delta", text: "a" },
+      }),
+    );
+
+    // WHEN the same seq is re-delivered
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 5,
+        message: { type: "assistant_text_delta", text: "a" },
+      }),
+    );
+
+    // THEN the replay is not re-dispatched, is diagnosed, and the frontier
+    // holds steady
+    expect(handleStreamEvent).toHaveBeenCalledTimes(1);
+    expect(recordDiagnosticMock).toHaveBeenCalledWith(
+      "sse_event_seq_replayed",
+      expect.objectContaining({ conversationId: "conv-1", eventSeq: 5 }),
+    );
+    expect(getAppliedSeq("conv-1")).toBe(5);
+  });
+
+  test("with seqGapEnabled=false the frontier is still tracked but replays re-dispatch", () => {
+    /**
+     * Recording the frontier is unconditional in-memory bookkeeping; only the
+     * seq-based replay skip is gated behind the flag. With the flag off the
+     * consumer still advances the frontier but never skips a re-delivered
+     * event.
+     */
+    // GIVEN the seq flag is disabled
+    seqGapEnabled = false;
+    const { deps, handleStreamEvent } = makeDeps({
+      activeConversationId: "conv-1",
+    });
+    const consumer = createSseEventConsumer(deps);
+
+    // WHEN the same seq is delivered twice
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 5,
+        message: { type: "assistant_text_delta", text: "a" },
+      }),
+    );
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 5,
+        message: { type: "assistant_text_delta", text: "a" },
+      }),
+    );
+
+    // THEN both are dispatched (no replay skip) and the frontier is recorded
+    expect(handleStreamEvent).toHaveBeenCalledTimes(2);
+    expect(getAppliedSeq("conv-1")).toBe(5);
   });
 });

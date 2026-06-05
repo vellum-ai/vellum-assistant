@@ -595,16 +595,16 @@ describe("createChatDebugApi.serverMessages", () => {
     );
   });
 
-  test("returns raw ConversationMessage[] from injected historyFetcher", async () => {
+  test("narrows ConversationMessage[] from injected historyFetcher", async () => {
     useConversationStore.setState({ activeConversationId: "conv-1" });
     const serverList = [
       fakeRuntimeMessage({ id: "srv-1" }),
       fakeRuntimeMessage({ id: "srv-2", role: "user" }),
     ];
-    const historyFetcher = async () => serverList;
+    const historyFetcher = async () => ({ messages: serverList, seq: null });
     const api = createChatDebugApi(makeRefs({ historyFetcher }));
     const result = await api.serverMessages();
-    expect(result).toBe(serverList);
+    expect(result).toEqual(serverList);
     expect(result).toHaveLength(2);
     expect(result[0]!.id).toBe("srv-1");
   });
@@ -619,7 +619,7 @@ describe("createChatDebugApi.serverMessages", () => {
     const seen: Array<{ assistantId: string; conversationId: string }> = [];
     const historyFetcher = async (assistantId: string, conversationId: string) => {
       seen.push({ assistantId, conversationId });
-      return [];
+      return { messages: [], seq: null };
     };
     const api = createChatDebugApi(
       makeRefs({

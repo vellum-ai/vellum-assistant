@@ -32,6 +32,7 @@ import { useConversationStore } from "@/stores/conversation-store";
 // ---------------------------------------------------------------------------
 
 let mockFetchResult: ConversationMessage[] = [];
+let mockFetchSeq: number | null = null;
 let mockFetchError: Error | null = null;
 let mockFetchSideEffect: (() => void) | null = null;
 let fetchCallCount = 0;
@@ -60,7 +61,7 @@ mock.module("@/domains/chat/api/messages", () => ({
     fetchCallCount++;
     if (mockFetchSideEffect) mockFetchSideEffect();
     if (mockFetchError) throw mockFetchError;
-    return mockFetchResult;
+    return { messages: mockFetchResult, seq: mockFetchSeq };
   },
   // Stubs for the rest of the real module's surface. Provided so dependent
   // test files that import these still get *something* under the global
@@ -219,6 +220,7 @@ beforeEach(async () => {
   }
   messages = [];
   mockFetchResult = [];
+  mockFetchSeq = null;
   mockFetchError = null;
   mockFetchSideEffect = null;
   fetchCallCount = 0;
@@ -252,7 +254,7 @@ beforeEach(async () => {
 describe("reconcileFromServer", () => {
   test("returns false for empty server messages", () => {
     const { reconcileFromServer } = createHarness();
-    expect(reconcileFromServer([])).toBe(false);
+    expect(reconcileFromServer([], "conv-1", null)).toBe(false);
   });
 
   test("returns true when messages change", () => {
@@ -262,7 +264,7 @@ describe("reconcileFromServer", () => {
       makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
       makeServerMessage({ id: "m2", role: "assistant", ...wireTextBody("World") }),
     ];
-    expect(reconcileFromServer(serverMessages)).toBe(true);
+    expect(reconcileFromServer(serverMessages, "conv-1", null)).toBe(true);
   });
 
   test("completes without error when server messages match local (smoke test)", () => {
@@ -275,7 +277,7 @@ describe("reconcileFromServer", () => {
     // reconcileMessages rebuilds messages from server data, so the array
     // reference changes even when content is identical. This is a smoke
     // test that the round-trip completes without error.
-    const result = reconcileFromServer(serverMessages);
+    const result = reconcileFromServer(serverMessages, "conv-1", null);
     expect(typeof result).toBe("boolean");
   });
 
@@ -286,7 +288,7 @@ describe("reconcileFromServer", () => {
       makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
       makeServerMessage({ id: "m2", role: "assistant", ...wireTextBody("Response") }),
     ];
-    reconcileFromServer(serverMessages);
+    reconcileFromServer(serverMessages, "conv-1", null);
     expect(messages).toHaveLength(2);
     expect(messages[1]).toMatchObject({ id: "m2", role: "assistant", ...textBody("Response") });
   });
@@ -303,7 +305,7 @@ describe("reconcileFromServer", () => {
         surfaces: [{ surfaceId: "surf-1", surfaceType: "form", data: { field: "value" } }],
       }),
     ];
-    reconcileFromServer(serverMessages);
+    reconcileFromServer(serverMessages, "conv-1", null);
     // Surfaces now live directly on messages, not in a separate Map
     const assistantMsg = messages.find((m) => m.id === "m2");
     expect(assistantMsg).toBeDefined();

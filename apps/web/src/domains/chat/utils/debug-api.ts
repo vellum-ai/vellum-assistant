@@ -26,6 +26,7 @@ import type { MutableRefObject } from "react";
 
 import * as assistantApi from "@vellumai/assistant-api";
 import type { ConversationMessage } from "@vellumai/assistant-api";
+import type { MessagesGetResponse } from "@/generated/daemon/types.gen";
 import {
   type ChatDebugEventsApi,
   eventsDebugApi,
@@ -451,7 +452,7 @@ export interface ChatDebugRefs {
   historyFetcher?: (
     assistantId: string,
     conversationId: string,
-  ) => Promise<ConversationMessage[]>;
+  ) => Promise<MessagesGetResponse | undefined>;
 }
 
 /**
@@ -638,7 +639,8 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     }
     const historyFetcher =
       refs.historyFetcher ?? defaultFetchConversationMessages;
-    return await historyFetcher(assistantId, conversationId);
+    const snapshot = await historyFetcher(assistantId, conversationId);
+    return snapshot?.messages ?? [];
   }
 
   function listPendingInteractions(): PendingInteractionsSnapshot {

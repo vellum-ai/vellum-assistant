@@ -3,6 +3,12 @@ import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text
 import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
 import { dedupeDisplayMessages, mergeLatestHistoryMessage, mergeThinkingSegments, messagesEqual } from "@/domains/chat/utils/message-merge";
 import {
+  findDisplayMessageByRuntimeIdentity,
+  hasServerIdentity,
+  indexDisplayMessageByIdentity,
+  messageIdentityKeys,
+} from "@/domains/chat/utils/message-identity";
+import {
   isToolCallRunning,
   toolCallRank,
 } from "@/domains/chat/utils/tool-call-status";
@@ -24,16 +30,9 @@ type MessageIdentity = {
   mergedMessageIds?: string[];
 };
 
-function messageIdentityKeys(message: MessageIdentity): string[] {
-  return [
-    ...new Set(
-      [message.id, ...(message.mergedMessageIds ?? [])].filter(
-        (id): id is string => typeof id === "string" && id.length > 0,
-      ),
-    ),
-  ];
-}
-
+// Index-based identity lookup, used only by the latest-history merge below
+// (which tracks positions in a working array). The object-based variants live
+// in `message-identity.ts`.
 function indexDisplayMessageIdentity(
   indexById: Map<string, number>,
   message: DisplayMessage,
@@ -53,35 +52,6 @@ function findDisplayMessageIndexByIdentity(
     if (index != null) return index;
   }
   return undefined;
-}
-
-function indexDisplayMessageByIdentity(
-  indexById: Map<string, DisplayMessage>,
-  message: DisplayMessage,
-): void {
-  for (const id of messageIdentityKeys(message)) {
-    if (!indexById.has(id)) {
-      indexById.set(id, message);
-    }
-  }
-}
-
-function findDisplayMessageByRuntimeIdentity(
-  indexById: Map<string, DisplayMessage>,
-  message: ConversationMessage,
-): DisplayMessage | undefined {
-  for (const id of messageIdentityKeys(message)) {
-    const existing = indexById.get(id);
-    if (existing) return existing;
-  }
-  return undefined;
-}
-
-function hasServerIdentity(
-  serverIds: Set<string>,
-  message: DisplayMessage,
-): boolean {
-  return messageIdentityKeys(message).some((id) => serverIds.has(id));
 }
 
 function timestampsLikelySameTurn(

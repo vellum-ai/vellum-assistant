@@ -23,8 +23,9 @@ import { routes } from "@/utils/routes";
 import {
   type DisplayAttachment,
   type DisplayMessage,
-  reconcileMessages,
 } from "@/domains/chat/utils/reconcile";
+import { reconcileSnapshot } from "@/domains/chat/utils/reconcile-snapshot";
+import { recordAppliedSeq } from "@/lib/streaming/applied-seq";
 import { isAsyncChatScopeCurrent } from "@/domains/chat/utils/conversation-scope";
 import { resolveEditChatDraftConversationId } from "@/utils/edit-chat-session";
 import { type DiskPressureChatBlockReason, getDiskPressureChatBlockMessage } from "@/assistant/disk-pressure";
@@ -67,7 +68,11 @@ import { useMessageQueue } from "@/domains/chat/hooks/use-message-queue";
 import { conversationsByIdCancelPost } from "@/generated/daemon/sdk.gen";
 import type { Conversation } from "@/types/conversation-types";
 import { getPendingInteractions } from "@/domains/chat/api/interactions";
-import { fetchConversationMessages, postChatMessage, pollForResponse } from "@/domains/chat/api/messages";
+import {
+  fetchConversationMessages,
+  postChatMessage,
+  pollForResponse,
+} from "@/domains/chat/api/messages";
 import type { ConversationMessage } from "@vellumai/assistant-api";
 import { supportsServerMintedConversation } from "@/lib/backwards-compat/server-minted-conversation";
 
@@ -380,19 +385,26 @@ export function useSendMessage({
             return;
           }
           let serverMessages: ConversationMessage[] = [];
+          let snapshotSeq: number | null = null;
           try {
-            serverMessages = await fetchConversationMessages(
+            const snapshot = await fetchConversationMessages(
               postResult.assistantId,
               effectiveConversationId,
             );
+            serverMessages = snapshot?.messages ?? [];
+            snapshotSeq = snapshot?.seq ?? null;
           } catch {
             // Reconciliation is best-effort
           }
           if (!isCurrentSendScope(effectiveConversationId)) return;
+          recordAppliedSeq(effectiveConversationId, snapshotSeq);
           setMessages((prev) => {
             if (!isCurrentSendScope(effectiveConversationId)) return prev;
             if (serverMessages.length > 0) {
-              return reconcileMessages(prev, serverMessages);
+              return reconcileSnapshot(prev, serverMessages, {
+                conversationId: effectiveConversationId,
+                snapshotSeq,
+              });
             }
             const mapped = mapRuntimeToDisplayMessage(reply);
             const existingIdx = prev.findIndex((m) => m.id === reply.id);

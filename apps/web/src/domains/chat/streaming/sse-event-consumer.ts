@@ -48,6 +48,16 @@
  *     handler returns. A thrown handler keeps the cursor pinned so the
  *     next event re-triggers the gap path.
  *
+ * Per-conversation idempotent apply (same flag):
+ *   Past the active-conversation filter, each applied event advances a
+ *   per-conversation frontier (`applied-seq.ts`). An event whose seq is
+ *   at or below that frontier has already been applied to the transcript
+ *   (a replay after reconnect, or overlap with an in-flight reconcile),
+ *   so it is skipped rather than re-applied — re-running a delta handler
+ *   would double-append. This is the stream-side half of the monotonic
+ *   merge: the frontier is what tells the snapshot/stream reconcile how
+ *   far the stream has carried the conversation.
+ *
  * Reconnect handling:
  *   On reconnect the transport sends the cursor as `lastSeenSeq` and
  *   the daemon replays every buffered event with `seq > cursor` from
@@ -60,6 +70,7 @@ import { useStreamStore } from "@/domains/chat/stream-store";
 import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat";
 import { recordDiagnostic } from "@/lib/diagnostics";
 import { isSeqGapDetectionEnabled } from "@/lib/feature-flags/seq-gap-detection-flag";
+import { getAppliedSeq, recordAppliedSeq } from "@/lib/streaming/applied-seq";
 import {
   advanceReconnectCursor,
   getReconnectCursor,
@@ -189,7 +200,36 @@ export function createSseEventConsumer(
         eventConversationId !== undefined &&
         eventConversationId === deps.activeConversationIdRef.current
       ) {
-        deps.handleStreamEvent(event, useStreamStore.getState().streamEpoch);
+        // Idempotent apply: an event whose seq is at or below the
+        // conversation's applied frontier has already been applied to
+        // the transcript (a replay after reconnect, or overlap with an
+        // in-flight reconcile). Re-applying would double-append deltas,
+        // so skip it and leave the frontier untouched.
+        const appliedSeq = getAppliedSeq(eventConversationId);
+        if (
+          seqGapEnabled &&
+          eventSeq != null &&
+          appliedSeq != null &&
+          eventSeq <= appliedSeq
+        ) {
+          recordDiagnostic("sse_event_seq_replayed", {
+            conversationId: eventConversationId,
+            eventType: event.type,
+            eventSeq,
+            appliedSeq,
+          });
+        } else {
+          deps.handleStreamEvent(event, useStreamStore.getState().streamEpoch);
+          // Advance the per-conversation frontier once the event is
+          // applied so the snapshot/stream merge knows how far the
+          // stream has carried this conversation, and so a later replay
+          // of this seq is recognised as a no-op above. Recording the
+          // frontier is unconditional — it is just in-memory bookkeeping;
+          // only the seq-based decisions above are flag-gated.
+          if (eventSeq != null) {
+            recordAppliedSeq(eventConversationId, eventSeq);
+          }
+        }
       } else {
         recordDiagnostic("sse_event_wrong_conversation_filtered", {
           eventConversationId,
