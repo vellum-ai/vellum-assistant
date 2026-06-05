@@ -40,7 +40,6 @@ import {
   updateCallSession,
 } from "./call-store.js";
 import { activeMediaStreamSessions } from "./media-stream-server.js";
-import { activeRelayConnections } from "./relay-server.js";
 import {
   describeCredentialGaps,
   resolveTelephonyCredentialReadiness,
@@ -710,14 +709,6 @@ export async function cancelCall(
         "Failed to terminate call via provider API — proceeding with cleanup",
       );
     }
-  }
-
-  // End the relay connection if active
-  const relayConnection = activeRelayConnections.get(callSessionId);
-  if (relayConnection) {
-    relayConnection.endSession(reason);
-    relayConnection.destroy();
-    activeRelayConnections.delete(callSessionId);
   }
 
   // End the media-stream session if active
