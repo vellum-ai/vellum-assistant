@@ -12,8 +12,7 @@
  * EVERY phone call now routes through the media-stream transport, regardless of
  * `services.stt.provider` or the `routeSetup` outcome: Twilio opens a WebSocket
  * to the daemon, which transcribes raw audio, drives all setup sub-flows, and
- * synthesizes replies. The legacy ConversationRelay TwiML path
- * ({@link buildConversationRelayTwiml}) is unreferenced and removed in a later PR.
+ * synthesizes replies. The legacy ConversationRelay TwiML path has been removed.
  *
  * The ONE exception is the inbound TTS-unavailable case: when neither the
  * configured TTS provider nor the verified-ready default can synthesize audio,
@@ -23,7 +22,6 @@
 
 import {
   buildTwilioMediaStreamUrl,
-  buildTwilioRelayUrl,
   TWILIO_PUBLIC_BASE_URL_PLACEHOLDER,
 } from "@vellumai/service-contracts/twilio-ingress";
 
@@ -53,14 +51,12 @@ import {
   updateCallSession,
 } from "./call-store.js";
 import { routeSetup } from "./relay-setup-router.js";
-import { resolveCallHints } from "./stt-hints.js";
 import {
   describeCredentialGaps,
   resolveTelephonyCredentialReadiness,
   TELEPHONY_SETUP_REQUIRED_MESSAGE,
 } from "./telephony-credential-preflight.js";
 import type { CallSession, CallStatus } from "./types.js";
-import { resolveVoiceQualityProfile } from "./voice-quality.js";
 
 const log = getLogger("twilio-routes");
 
@@ -71,25 +67,6 @@ const log = getLogger("twilio-routes");
  */
 const TWILIO_RELAY_TOKEN_PLACEHOLDER = "__VELLUM_RELAY_TOKEN__";
 
-// ── Speech config type ───────────────────────────────────────────────
-
-/**
- * Twilio ConversationRelay speech-to-text attributes.
- *
- * All values are pre-formatted strings ready for direct insertion into
- * TwiML XML attribute values (XML escaping is the caller's responsibility).
- */
-export interface TwilioRelaySpeechConfig {
-  /** STT provider name (e.g. "Deepgram", "Google"). */
-  transcriptionProvider: string;
-  /** ASR model identifier, or undefined when the provider default should be used. */
-  speechModel: string | undefined;
-  /** Comma-separated vocabulary hints for the STT provider, or undefined when no hints are available. */
-  hints: string | undefined;
-  /** How aggressively the provider detects the start of caller speech. */
-  interruptSensitivity: string;
-}
-
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function escapeXml(str: string): string {
@@ -99,65 +76,6 @@ function escapeXml(str: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&apos;");
-}
-
-export function generateTwiML(
-  callSessionId: string,
-  relayUrl: string,
-  welcomeGreeting: string | null,
-  profile: {
-    language: string;
-    ttsProvider: string;
-    voice: string;
-  },
-  speechConfig: TwilioRelaySpeechConfig,
-  relayToken?: string,
-  customParameters?: Record<string, string>,
-): string {
-  const greetingAttr =
-    welcomeGreeting && welcomeGreeting.trim().length > 0
-      ? `\n      welcomeGreeting="${escapeXml(welcomeGreeting.trim())}"`
-      : "";
-  const tokenParam = relayToken
-    ? `&amp;token=${escapeXml(encodeURIComponent(relayToken))}`
-    : "";
-
-  // Build <Parameter> elements for custom parameters to propagate
-  // through the ConversationRelay setup payload for observability.
-  let parameterElements = "";
-  if (customParameters) {
-    for (const [key, value] of Object.entries(customParameters)) {
-      parameterElements += `\n      <Parameter name="${escapeXml(
-        key,
-      )}" value="${escapeXml(value)}" />`;
-    }
-  }
-
-  // When there are no Parameter children, use self-closing tag to preserve
-  // the original TwiML format. With children, use open/close tags.
-  const hasParameters = parameterElements.length > 0;
-  const relayClose = hasParameters
-    ? `>${parameterElements}\n    </ConversationRelay>`
-    : "/>";
-
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Connect>
-    <ConversationRelay
-      url="${escapeXml(relayUrl)}?callSessionId=${escapeXml(
-        callSessionId,
-      )}${tokenParam}"
-${greetingAttr}
-      voice="${escapeXml(profile.voice)}"
-      language="${escapeXml(profile.language)}"
-      transcriptionProvider="${escapeXml(speechConfig.transcriptionProvider)}"${speechConfig.speechModel ? `\n      speechModel="${escapeXml(speechConfig.speechModel)}"` : ""}
-      ttsProvider="${escapeXml(profile.ttsProvider)}"
-      interruptible="true"
-      dtmfDetection="true"
-      interruptSensitivity="${escapeXml(speechConfig.interruptSensitivity)}"${speechConfig.hints ? `\n      hints="${escapeXml(speechConfig.hints)}"` : ""}
-    ${relayClose}
-  </Connect>
-</Response>`;
 }
 
 /**
@@ -495,67 +413,6 @@ function buildSetupRequiredSayTwiml(): string {
   <Say>${escapeXml(TELEPHONY_SETUP_REQUIRED_MESSAGE)}</Say>
   <Hangup/>
 </Response>`;
-}
-
-/**
- * Build ConversationRelay TwiML for Twilio-native STT providers.
- *
- * Intentionally unreferenced as of the PR 11 routing flip — every call now
- * emits media-stream TwiML. Kept in place so reverting that flip restores CR
- * routing; this helper (and `generateTwiML` / `TwilioRelaySpeechConfig`) is
- * deleted in a later PR of the migration.
- */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- kept for the PR 11 rollback window; removed in a later PR
-function buildConversationRelayTwiml(
-  callSessionId: string,
-  profile: ReturnType<typeof resolveVoiceQualityProfile>,
-  sessionContext: {
-    task: string | null;
-    toNumber: string;
-    fromNumber: string;
-    direction: "inbound" | "outbound";
-    inviteFriendName: string | null;
-    inviteGuardianName: string | null;
-  } | null,
-  verificationSessionId: string | null | undefined,
-  sttAttrs: { transcriptionProvider: string; speechModel: string | undefined },
-): string {
-  const rawHints = resolveCallHints(sessionContext, profile.hints);
-
-  const speechConfig: TwilioRelaySpeechConfig = {
-    transcriptionProvider: sttAttrs.transcriptionProvider,
-    speechModel: sttAttrs.speechModel,
-    hints: rawHints && rawHints.length > 0 ? rawHints : undefined,
-    interruptSensitivity: profile.interruptSensitivity,
-  };
-
-  const relayUrl = buildTwilioRelayUrl(TWILIO_PUBLIC_BASE_URL_PLACEHOLDER);
-  const welcomeGreeting = buildWelcomeGreeting(sessionContext?.task ?? null);
-  const relayToken = TWILIO_RELAY_TOKEN_PLACEHOLDER;
-
-  const customParameters: Record<string, string> | undefined =
-    verificationSessionId ? { verificationSessionId } : undefined;
-
-  const twiml = generateTwiML(
-    callSessionId,
-    relayUrl,
-    welcomeGreeting,
-    profile,
-    speechConfig,
-    relayToken,
-    customParameters,
-  );
-
-  log.info(
-    {
-      callSessionId,
-      strategy: "conversation-relay-native",
-      transcriptionProvider: sttAttrs.transcriptionProvider,
-    },
-    "Returning ConversationRelay TwiML",
-  );
-
-  return twiml;
 }
 
 /**
