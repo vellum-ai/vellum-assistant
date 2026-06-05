@@ -2406,7 +2406,7 @@ jobs:
         run: bun run build
 
       - name: Bundle web dist into Electron resources
-        run: cp -R ../../apps/web/dist resources/web-dist
+        run: mkdir -p resources && cp -R ../../apps/web/dist resources/web-dist
 
       - name: Stamp release version into package.json
         run: jq --arg v "${{ needs.extract-version.outputs.version }}" '.version = $v' package.json > package.json.tmp && mv package.json.tmp package.json
