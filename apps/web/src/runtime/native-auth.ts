@@ -251,9 +251,10 @@ export async function startAuthFlow(
   // Desktop (Electron): open the system browser for OAuth so the user can
   // leverage existing Google/Apple sessions. The main process handles the
   // full flow (nonce, browser, deep-link callback, code exchange, cookie
-  // install) and returns the session token.
-  if (isElectron()) {
-    const result = await window.vellum?.auth?.startOAuth({
+  // install) and returns the session token. Falls through to the web
+  // form-POST path when the bridge method is absent (older preload).
+  if (isElectron() && window.vellum?.auth?.startOAuth) {
+    const result = await window.vellum.auth.startOAuth({
       providerHint: options.providerHint,
       loginHint: options.loginHint,
       intent: options.intent,
