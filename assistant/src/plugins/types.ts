@@ -22,7 +22,6 @@ import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { ContextWindowManager } from "../context/window-manager.js";
 import type {
   ChannelCapabilities,
-  ChannelCommandContext,
   InjectionMode,
 } from "../daemon/conversation-runtime-assembly.js";
 import type { TrustContext } from "../daemon/trust-context.js";
@@ -209,8 +208,6 @@ export interface TurnInjectionInputs {
    * no focus block is appended.
    */
   readonly slackActiveThreadFocusBlock?: string | null;
-  /** Channel command context (e.g. Telegram /start) or null to skip. */
-  readonly channelCommandContext?: ChannelCommandContext | null;
   /** Voice call-control prompt or null to skip. */
   readonly voiceCallControlPrompt?: string | null;
   /** Gateway-provided transport hints (e.g. Slack thread context). */

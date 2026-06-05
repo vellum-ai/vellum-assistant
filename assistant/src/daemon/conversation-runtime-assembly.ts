@@ -1822,19 +1822,18 @@ function applyInjectionBlock(
  * bag attached to the {@link TurnContext} the caller provides (or to an
  * ephemeral {@link TurnContext} synthesized for test call sites). A small
  * number of fields drive hardcoded branches that live outside the injector
- * chain — `channelCommandContext`, `voiceCallControlPrompt`,
- * `transportHints`, and `isNonInteractive` — because they are
- * orchestrator-owned content that never made sense as plugin-overridable
- * default injectors.
+ * chain — `voiceCallControlPrompt`, `transportHints`, and `isNonInteractive`
+ * — because they are orchestrator-owned content that never made sense as
+ * plugin-overridable default injectors.
  *
- * The active workspace surface, the channel capabilities, and the active
- * document list are not on this bag: `applyRuntimeInjections` resolves them
- * from the live conversation itself (its surface state, `channelCapabilities`,
- * and the document store keyed by `conversationId` respectively), so the
+ * The active workspace surface, the channel capabilities, the active document
+ * list, and the channel command context are not on this bag:
+ * `applyRuntimeInjections` resolves them from the live conversation itself
+ * (its surface state, `channelCapabilities`, the document store keyed by
+ * `conversationId`, and its `commandIntent` respectively), so the
  * orchestrator does not compute or thread them per turn.
  */
 export interface RuntimeInjectionOptions {
-  channelCommandContext?: ChannelCommandContext | null;
   unifiedTurnContext?: string | null;
   voiceCallControlPrompt?: string | null;
   subagentStatusBlock?: string | null;
@@ -1918,7 +1917,6 @@ function buildTurnInjectionInputs(
     channelCapabilities,
     slackChronologicalMessages: options.slackChronologicalMessages,
     slackActiveThreadFocusBlock: options.slackActiveThreadFocusBlock,
-    channelCommandContext: options.channelCommandContext,
     voiceCallControlPrompt: options.voiceCallControlPrompt,
     transportHints: options.transportHints,
     isNonInteractive: options.isNonInteractive,
@@ -1980,8 +1978,8 @@ function synthesizeFallbackTurnContext(
  *  6. Run the remaining hardcoded branches (`isNonInteractive`,
  *     `voiceCallControlPrompt`, `activeSurface`, `channelCapabilities`,
  *     `channelCommandContext`, `transportHints`) in their historical order.
- *     `activeSurface` and `channelCapabilities` are sourced from the live
- *     conversation rather than `options`.
+ *     `activeSurface`, `channelCapabilities`, and `channelCommandContext` are
+ *     sourced from the live conversation rather than `options`.
  *  7. Finally, apply the chain's remaining blocks by placement:
  *     `"append-user-tail"` in ascending `order`, then `"prepend-user-tail"`
  *     in descending `order` so the lowest-`order` prepend lands topmost in
@@ -2013,6 +2011,14 @@ export async function applyRuntimeInjections(
   // orchestrator; the `active-documents` and `document-comments` injectors
   // read the result off their per-injector inputs.
   const activeDocuments = buildActiveDocuments(conversationId);
+
+  // Source the channel command intent (e.g. Telegram /start) from the live
+  // conversation rather than a per-turn option. It is set on the conversation
+  // at message-processing start and cleared at turn end, so the same value
+  // drives the `<channel_command_context>` branch on every assembly call
+  // within the turn.
+  const channelCommandContext =
+    findConversationOrSubagent(conversationId)?.commandIntent ?? null;
 
   // Build the per-injector inputs and attach them to the caller's
   // TurnContext (without mutating it). When the caller didn't supply one,
@@ -2241,12 +2247,12 @@ export async function applyRuntimeInjections(
     }
   }
 
-  if (mode === "full" && options.channelCommandContext) {
+  if (mode === "full" && channelCommandContext) {
     const userTail = result[result.length - 1];
     if (userTail && userTail.role === "user") {
       result = [
         ...result.slice(0, -1),
-        injectChannelCommandContext(userTail, options.channelCommandContext),
+        injectChannelCommandContext(userTail, channelCommandContext),
       ];
     }
   }
