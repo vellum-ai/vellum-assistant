@@ -6,6 +6,7 @@ import { DetailCard } from "@/components/detail-card";
 import { assistantsActiveRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
 import { client } from "@/generated/api/client.gen";
 import { fetchAssistantFlagValues } from "@/hooks/use-assistant-feature-flag-sync";
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { useFlagQueryFreshness } from "@/lib/backwards-compat/flag-query-freshness";
 import {
     ALL_FLAGS,
@@ -80,9 +81,11 @@ export function FeatureFlagsPanel() {
     retry: 1,
   });
 
+  const isOrgReady = useIsOrgReady();
   const { data: definitions } = useQuery({
     queryKey: ["feature-flag-definitions"],
     queryFn: fetchFlagDefinitions,
+    enabled: isOrgReady,
     staleTime: 5 * 60 * 1000,
   });
 
@@ -308,7 +311,8 @@ function StringFlagRow({
     }
   };
 
-  const hasDropdown = flag.values && flag.values.length > 0;
+  const hasDropdown =
+    flag.values && flag.values.length > 0 && flag.values.includes(flag.value);
 
   return (
     <div className="flex items-start gap-3 py-3">
