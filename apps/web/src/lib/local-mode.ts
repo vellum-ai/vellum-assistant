@@ -133,6 +133,26 @@ export async function saveLockfileAssistant(
 }
 
 /**
+ * Mark an already-known assistant as the lockfile's active assistant, leaving
+ * its other fields untouched. Used when switching managed assistants so the
+ * lockfile `activeAssistant` — read by the macOS tray, the CLI, and the native
+ * client — tracks the in-app selection. No-ops in the browser (no lockfile
+ * host) and when the id isn't a known entry.
+ */
+export async function setActiveLockfileAssistant(
+  assistantId: string,
+): Promise<void> {
+  const entry = getLockfile().assistants.find(
+    (a) => a.assistantId === assistantId,
+  );
+  if (!entry) return;
+  const result = await saveLockfileAssistantHost({ ...entry }, assistantId);
+  if (result.ok) {
+    commitLockfile(result.lockfile);
+  }
+}
+
+/**
  * Replace all platform-hosted assistant entries in the lockfile with the
  * current set from the API. Removes stale entries and adds new ones atomically.
  */

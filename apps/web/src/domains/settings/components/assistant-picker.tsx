@@ -1,5 +1,6 @@
 import { Check, Monitor } from "lucide-react";
 
+import { selectPlatformAssistant } from "@/assistant/select-platform-assistant";
 import { DetailCard } from "@/components/detail-card";
 import { useCurrentPlatformAssistant } from "@/hooks/use-current-platform-assistant";
 import { Button } from "@vellumai/design-library/components/button";
@@ -9,7 +10,6 @@ import { toast } from "@vellumai/design-library/components/toast";
 export function AssistantPicker() {
   const {
     assistantId: activeAssistantId,
-    setAssistantId,
     isLoading,
     platformAssistants,
   } = useCurrentPlatformAssistant();
@@ -62,7 +62,7 @@ export function AssistantPicker() {
                     size="compact"
                     disabled={a.status !== "active"}
                     onClick={() => {
-                      setAssistantId(a.id);
+                      void selectPlatformAssistant(a.id);
                       toast.success("Switched active assistant.");
                     }}
                   >
