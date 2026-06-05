@@ -1138,18 +1138,16 @@ export async function runAgentLoopImpl(
       }
     };
 
-    // Compute fresh turn timestamp for date grounding.
-    // Absolute "now" is always anchored to assistant host clock, while local
-    // date semantics prefer configured user timezone, then device timezones.
+    // Resolve the turn's timezone cascade up front. It depends only on config
+    // and the inbound request — never on retrieval output — so it can be
+    // settled before context assembly. Local date semantics prefer the
+    // configured user timezone, then device timezones, then the host clock.
     const hostTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const timezoneContext = resolveTurnTimezoneContext({
       configuredUserTimeZone: config.ui.userTimezone ?? null,
       clientTimezone: ctx.clientTimezone ?? null,
       detectedTimezone: config.ui.detectedTimezone ?? null,
       hostTimeZone,
-    });
-    const timestamp = formatTurnTimestamp({
-      timeZone: timezoneContext.effectiveTimezone,
     });
 
     // Memory retrieval — fetches PKB, NOW.md, and memory-graph outputs and
@@ -1255,6 +1253,13 @@ export async function runAgentLoopImpl(
       modelProfileStr = resolved.model ? `${label} (${resolved.model})` : label;
       setLastNotifiedInferenceProfile(ctx.conversationId, effectiveProfileKey);
     }
+
+    // Capture wall-clock "now" at its point of use, after the blocking memory
+    // retrieval, so the injected `<turn_context>` timestamp reflects current
+    // time rather than the moment the turn began.
+    const timestamp = formatTurnTimestamp({
+      timeZone: timezoneContext.effectiveTimezone,
+    });
 
     const baseTurnContext = {
       timestamp,
