@@ -8,6 +8,8 @@ import type {
 } from "./usage-types";
 
 const VISIBLE_LEGEND_ITEM_LIMIT = 6;
+const VALUE_GROUP_PREFIX = "value:";
+const NULL_GROUP_PREFIX = "null:";
 
 export interface UsageSeriesLegendItem {
   seriesKey: string;
@@ -19,6 +21,20 @@ export interface UsageSeriesLegendItem {
 export interface UsageSeriesLegend {
   items: UsageSeriesLegendItem[];
   visibleItems: UsageSeriesLegendItem[];
+}
+
+/**
+ * Mirrors the backend's grouped-series key shape so filtered charts can keep
+ * legend items aligned with the buckets returned by the usage series route.
+ */
+export function usageSeriesKeyForGroupValue(
+  groupKey: string | null,
+  groupBy: UsageSeriesGroupBy = "schedule",
+): string {
+  if (groupKey !== null) {
+    return `${VALUE_GROUP_PREFIX}${groupKey}`;
+  }
+  return `${NULL_GROUP_PREFIX}${groupBy}`;
 }
 
 export function sortUsageSeriesBuckets(
