@@ -54,7 +54,8 @@ import {
 } from "./call-store.js";
 import { resolveCallHints } from "./stt-hints.js";
 import {
-  resolveTelephonyTtsPlayable,
+  describeCredentialGaps,
+  resolveTelephonyCredentialReadiness,
   TELEPHONY_SETUP_REQUIRED_MESSAGE,
 } from "./telephony-credential-preflight.js";
 import type { CallSession, CallStatus } from "./types.js";
@@ -407,12 +408,12 @@ export function outboundWillUseMediaStream(_session: CallSession): boolean {
  * sub-flows, and the credential preflight server-side. This is the single
  * deploy-flip point — reverting this PR restores ConversationRelay routing.
  *
- * The ONE exception is the inbound TTS-unavailable case: when neither the
- * configured TTS provider nor the verified-ready default can synthesize audio,
- * the media-stream `speakSystemPrompt` would emit nothing (a silent call that
- * defeats the preflight), so a Twilio-native `<Say>` setup-required message is
- * returned instead. STT-missing cases are unaffected — TTS can still speak the
- * setup prompt over the media-stream transport.
+ * The ONE exception is the inbound credentials-not-ready case: an interactive
+ * inbound call needs BOTH legs. If TTS cannot synthesize audio the call goes
+ * silent; if STT is missing/unsupported the interactive setup flow waits forever
+ * on transcripts that never arrive (and so never even speaks the setup-required
+ * prompt). In either case a Twilio-native `<Say>` setup-required message is
+ * returned instead of a media-stream that cannot run the call.
  *
  * When `verificationSessionId` is provided, it is included as a `<Parameter>` in
  * the Stream TwiML for observability and compatibility with the Twilio setup
@@ -430,17 +431,23 @@ async function buildVoiceWebhookTwiml(
   } | null,
   verificationSessionId?: string | null,
 ): Promise<string> {
-  // Inbound TTS-unavailable guard: the media-stream transport cannot speak the
-  // setup-required prompt when no TTS provider is playable, so detect that here
-  // and emit a TwiML-level <Say> instead of connecting a stream that would sit
-  // silent. Only inbound calls reach the daemon connected (outbound is gated by
-  // the credential preflight in call-domain.ts before dialing).
+  // Inbound credential-readiness guard: an inbound media-stream call requires
+  // BOTH legs to be usable. If TTS is not playable the media-stream
+  // `speakSystemPrompt` would emit nothing (a silent call). If STT is missing or
+  // unsupported, interactive inbound flows (e.g. name_capture) wait on caller
+  // transcripts that never arrive — the call sits, never speaks the
+  // setup-required prompt, and never ends. In EITHER case, emit a TwiML-level
+  // <Say> setup-required + <Hangup/> instead of connecting a stream that cannot
+  // run an interactive call. Only inbound calls reach the daemon connected
+  // (outbound is gated by the credential preflight in call-domain.ts before
+  // dialing).
   if (sessionContext?.direction === "inbound") {
-    const ttsPlayable = await resolveTelephonyTtsPlayable();
-    if (!ttsPlayable) {
+    const readiness = await resolveTelephonyCredentialReadiness();
+    if (readiness.status !== "ready") {
       log.warn(
-        { callSessionId },
-        "Inbound call: telephony TTS is not playable — returning <Say> setup-required (no media-stream)",
+        { callSessionId, missing: describeCredentialGaps(readiness.missing) },
+        "Inbound call: telephony STT/TTS credentials not ready — returning " +
+          "<Say> setup-required (no media-stream)",
       );
       return buildSetupRequiredSayTwiml();
     }
@@ -450,10 +457,11 @@ async function buildVoiceWebhookTwiml(
 }
 
 /**
- * Twilio-native `<Say>` + `<Hangup/>` TwiML for the inbound TTS-unavailable
- * case. Synthesis is performed by Twilio at the TwiML level (no daemon TTS), so
- * the caller hears an audible setup-required message even when the daemon has no
- * playable TTS provider — then the call ends.
+ * Twilio-native `<Say>` + `<Hangup/>` TwiML for the inbound credentials-not-ready
+ * case (TTS not playable, or STT missing/unsupported). Synthesis is performed by
+ * Twilio at the TwiML level (no daemon TTS), so the caller hears an audible
+ * setup-required message even when the daemon cannot run the media-stream call —
+ * then the call ends.
  */
 function buildSetupRequiredSayTwiml(): string {
   return `<?xml version="1.0" encoding="UTF-8"?>

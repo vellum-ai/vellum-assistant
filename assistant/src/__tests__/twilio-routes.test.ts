@@ -457,10 +457,18 @@ describe("twilio webhook routes", () => {
     mockSecureKeyStore = {
       [credentialKey("twilio", "account_sid")]: "AC_existing",
       [credentialKey("twilio", "auth_token")]: "test-auth-token",
-      // Usable STT (openai) + TTS (elevenlabs) credentials so the telephony TTS
-      // playability check passes by default and inbound webhooks emit
-      // <Connect><Stream>. The TTS-missing test clears the elevenlabs key.
+      // Usable STT (deepgram default + openai for openai-whisper tests) AND TTS
+      // (elevenlabs) credentials so the inbound full-readiness guard
+      // (resolveTelephonyCredentialReadiness: STT + TTS) passes by default and
+      // inbound webhooks emit <Connect><Stream>. The setup-required tests clear
+      // a specific key (TTS or STT) to exercise the <Say> setup-required path.
+      [credentialKey("deepgram", "api_key")]: "sk-deepgram-test",
       [credentialKey("openai", "api_key")]: "sk-openai-test",
+      // STT keys for the remaining providers so the inbound full-readiness
+      // guard (STT + TTS) emits <Stream> across every provider. Credential
+      // providers: google-gemini → "gemini", xai → "xai" (per the STT catalog).
+      [credentialKey("gemini", "api_key")]: "sk-gemini-test",
+      [credentialKey("xai", "api_key")]: "sk-xai-test",
       [credentialKey("elevenlabs", "api_key")]: "sk-eleven-test",
     };
     mockAvailableNumbers = [{ phoneNumber: "+15556667777" }];
@@ -1258,12 +1266,14 @@ describe("twilio webhook routes", () => {
     }
   });
 
-  // ── Inbound TTS-missing → Twilio-native <Say> ───────────────────────
-  // Carried-over fix: when no TTS provider is playable, the media-stream
-  // transport can't synthesize the setup-required message (silent call), so
-  // the inbound webhook emits a TwiML-level <Say> + <Hangup/> instead.
+  // ── Inbound credentials-not-ready → Twilio-native <Say> ─────────────
+  // An interactive inbound call needs BOTH legs. If TTS is not playable the
+  // media-stream transport can't synthesize the setup-required message (silent
+  // call); if STT is missing/unsupported the interactive setup flow waits
+  // forever on transcripts that never arrive. In EITHER case the inbound
+  // webhook emits a TwiML-level <Say> + <Hangup/> instead of <Connect><Stream>.
 
-  describe("inbound TTS-missing setup-required <Say>", () => {
+  describe("inbound credentials-not-ready setup-required <Say>", () => {
     test("inbound: no playable TTS -> audible <Say> + <Hangup/> (no Stream)", async () => {
       mockConfigObj.services.stt.provider = "openai-whisper" as any;
       // Remove the only playable TTS credential (configured + default are
@@ -1285,6 +1295,48 @@ describe("twilio webhook routes", () => {
       expect(twiml).toContain("<Hangup/>");
       expect(twiml).not.toContain("<Stream");
       expect(twiml).not.toContain("<ConversationRelay");
+    });
+
+    test("inbound: missing STT credential (TTS fine) -> <Say> + <Hangup/> (no Stream)", async () => {
+      // STT is openai-whisper (credentialProvider "openai"); remove its key so
+      // the STT leg is not-ready while TTS (elevenlabs) stays playable. The
+      // inbound guard must still divert to <Say> — an interactive inbound flow
+      // with no transcripts would otherwise stream into a dead STT and hang.
+      mockConfigObj.services.stt.provider = "openai-whisper" as any;
+      delete mockSecureKeyStore[credentialKey("openai", "api_key")];
+
+      const req = makeInboundVoiceRequest({
+        CallSid: "CA_stt_missing_in",
+        From: "+14155551234",
+        To: "+15550001111",
+      });
+
+      const res = await handleVoiceWebhook(req);
+      expect(res.status).toBe(200);
+
+      const twiml = await res.text();
+      expect(twiml).toContain("<Say>");
+      expect(twiml).toContain("</Say>");
+      expect(twiml).toContain("<Hangup/>");
+      expect(twiml).not.toContain("<Stream");
+      expect(twiml).not.toContain("<ConversationRelay");
+    });
+
+    test("inbound: both STT + TTS ready -> <Connect><Stream> (no Say)", async () => {
+      // Default beforeEach seeds deepgram (STT) + elevenlabs (TTS) keys, so the
+      // full-readiness guard passes and the webhook streams normally.
+      const req = makeInboundVoiceRequest({
+        CallSid: "CA_both_ready_in",
+        From: "+14155551234",
+        To: "+15550001111",
+      });
+
+      const res = await handleVoiceWebhook(req);
+      expect(res.status).toBe(200);
+
+      const twiml = await res.text();
+      expect(twiml).toContain("<Stream");
+      expect(twiml).not.toContain("<Say>");
     });
 
     test("outbound: no playable TTS still emits Stream (preflight gates outbound before dial)", async () => {
@@ -1353,7 +1405,10 @@ describe("twilio webhook routes", () => {
       },
     ];
 
-    for (const [i, { label, provider, outcome, trustClass }] of cases.entries()) {
+    for (const [
+      i,
+      { label, provider, outcome, trustClass },
+    ] of cases.entries()) {
       test(`${label} → true (preflight runs)`, () => {
         mockConfigObj.services.stt.provider = provider as any;
         mockRouteSetupResult = {

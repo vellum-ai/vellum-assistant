@@ -41,9 +41,13 @@ const DEFAULT_TTS_PROVIDER: TtsProviderId = "elevenlabs";
  * `services.tts.providers.<id>`. No legacy fallback logic.
  */
 export function resolveTtsConfig(config: AssistantConfig): ResolvedTtsConfig {
-  const ttsService = config.services.tts;
+  // Safe access: a partial/edge config (e.g. no `services.tts` block) must not
+  // throw — the telephony preflight relies on the resolver staying non-throwing
+  // so it can report a not-ready gap rather than crash call setup. The default
+  // provider is applied when no provider is configured.
+  const ttsService = config.services?.tts;
 
-  const provider: TtsProviderId = ttsService.provider ?? DEFAULT_TTS_PROVIDER;
+  const provider: TtsProviderId = ttsService?.provider ?? DEFAULT_TTS_PROVIDER;
 
   // Resolve provider-specific config from the canonical providers map.
   const providerConfig = resolveProviderConfig(config, provider);
@@ -82,9 +86,15 @@ function resolveProviderConfig(
   config: AssistantConfig,
   provider: TtsProviderId,
 ): Record<string, unknown> {
-  const ttsProviders = config.services.tts.providers as Record<string, unknown>;
+  // Safe access: a partial/edge config may lack `services.tts` (or its
+  // `providers` map) entirely. Treat a missing map as "no provider-specific
+  // config" rather than throwing, so the telephony preflight can resolve a
+  // not-ready gap instead of crashing.
+  const ttsProviders = config.services?.tts?.providers as
+    | Record<string, unknown>
+    | undefined;
 
-  const providerBlock = ttsProviders[provider];
+  const providerBlock = ttsProviders?.[provider];
   if (providerBlock != null && typeof providerBlock === "object") {
     return { ...providerBlock } as Record<string, unknown>;
   }
