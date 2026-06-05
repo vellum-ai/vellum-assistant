@@ -140,8 +140,6 @@ export interface TurnInjectionInputs {
    * no focus block is appended.
    */
   readonly slackActiveThreadFocusBlock?: string | null;
-  /** Gateway-provided transport hints (e.g. Slack thread context). */
-  readonly transportHints?: string[] | null;
   /**
    * When true, inject the `<non_interactive_context>` block so the model
    * knows no human is present to answer clarification questions.
