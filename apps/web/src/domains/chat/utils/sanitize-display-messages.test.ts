@@ -753,10 +753,11 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
     expect(patched!.toolCalls![0]!.result).toContain(STALE_PREFIX);
   });
 
-  test("does NOT mark stale when pendingConfirmation is set", () => {
+  test("does NOT mark stale when the tool is the active confirmation target", () => {
     // A tool waiting on user approval is correctly stalled — the
     // daemon's execution clock hasn't even started. Could sit here for
-    // arbitrarily long without being dead.
+    // arbitrarily long without being dead. The active prompt's tool-call
+    // id is supplied by the caller (from the interaction store).
     const started = 1_000;
     const now = started + 24 * 60 * 60 * 1_000;
     const m = makeMessage({
@@ -769,16 +770,11 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
           name: "bash",
           status: "running",
           startedAt: started,
-          pendingConfirmation: {
-            requestId: "rq-1",
-            toolName: "bash",
-            input: {},
-          },
         }),
       ],
     });
     mockNow(now);
-    const result = sanitizeDisplayMessages([m]);
+    const result = sanitizeDisplayMessages([m], "tc");
     expect(result[0]).toBe(m);
     expect(isToolCallRunning(result[0]!.toolCalls![0]!)).toBe(true);
   });

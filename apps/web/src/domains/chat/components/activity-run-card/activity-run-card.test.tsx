@@ -40,12 +40,18 @@ const { ActivityRunCard } = await import(
   "@/domains/chat/components/activity-run-card/activity-run-card"
 );
 const { useViewerStore } = await import("@/stores/viewer-store");
+const { useInteractionStore } = await import(
+  "@/domains/chat/interaction-store"
+);
 
 afterEach(() => {
   cleanup();
   // The pill click writes to the real viewer store — reset the drawer state
   // between tests so assertions don't bleed across cases.
   useViewerStore.setState({ activeToolDetail: null, mainView: "chat" });
+  // The confirmation card reads the active prompt from the interaction store;
+  // reset it so a populated prompt doesn't bleed across cases.
+  useInteractionStore.getState().resetAll();
 });
 
 function makeToolCall(
@@ -283,12 +289,14 @@ describe("ActivityRunCard — confirmation short-circuit", () => {
         name: "bash",
         status: "running",
         input: { command: "rm -rf /" },
-        pendingConfirmation: {
-          requestId: "req-1",
-          title: "Allow bash command?",
-        },
       }),
     ];
+    // The inline card reads the active prompt from the interaction store.
+    useInteractionStore.getState().showConfirmation({
+      requestId: "req-1",
+      title: "Allow bash command?",
+    });
+    useInteractionStore.getState().setInlineConfirmationToolCallId("tc-1");
     const { getByText, queryByTestId } = renderCard(toolCalls, {
       pendingConfirmationToolCallId: "tc-1",
       isSubmittingConfirmation: false,

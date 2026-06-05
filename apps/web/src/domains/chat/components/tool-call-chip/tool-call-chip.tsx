@@ -26,6 +26,7 @@ import { formatStartTime, useElapsedTime } from "@/domains/chat/hooks/use-elapse
 import type { ConfirmationDecision } from "@/types/event-types";
 import type { AllowlistOption, DirectoryScopeOption, RiskScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import type { PendingConfirmationState } from "@/domains/chat/types";
 import {
   extractInputSummary,
   friendlyRunningLabel,
@@ -50,6 +51,15 @@ export interface ToolCallChipProps {
   }) => void;
   isSubmittingConfirmation?: boolean;
   isActiveConfirmation?: boolean;
+  /**
+   * The live pending-confirmation prompt for this tool call, read from
+   * `interaction-store` (the single active prompt) by the caller and passed in
+   * only for the active-confirmation target. Drives the inline approve/deny
+   * card. Sourced from the store rather than the tool call so the card no
+   * longer depends on `tc.pendingConfirmation` being synthesized onto the
+   * message.
+   */
+  activeConfirmation?: PendingConfirmationState;
   onConfirmationSubmit?: (decision: ConfirmationDecision) => void;
   onAllowAndCreateRule?: () => void;
   /** When true, skip the outer header row ("Running 1 step") and render
@@ -92,17 +102,17 @@ function StatusIcon({ isRunning, isError }: { isRunning: boolean; isError: boole
 }
 
 /**
- * Inline confirmation card rendered inside the expanded tool call panel
- * when `toolCall.pendingConfirmation` is set. Matches the macOS
- * `PermissionPromptView` layout.
+ * Inline confirmation card rendered inside the expanded tool call panel for the
+ * active pending-confirmation prompt. Matches the macOS `PermissionPromptView`
+ * layout.
  */
 function InlineConfirmationCard({
-  toolCall,
+  confirmation,
   isSubmitting,
   onSubmit,
   onAllowAndCreateRule,
 }: {
-  toolCall: ChatMessageToolCall;
+  confirmation: PendingConfirmationState;
   isSubmitting: boolean;
   onSubmit?: (decision: ConfirmationDecision) => void;
   onAllowAndCreateRule?: () => void;
@@ -122,9 +132,6 @@ function InlineConfirmationCard({
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showSplitMenu]);
-
-  const confirmation = toolCall.pendingConfirmation;
-  if (!confirmation) return null;
 
   const riskBadge = confirmation.riskLevel
     ? getRiskBadgeStyle(confirmation.riskLevel)
@@ -257,6 +264,7 @@ export function ToolCallChip({
   onOpenRuleEditor,
   isSubmittingConfirmation = false,
   isActiveConfirmation = false,
+  activeConfirmation,
   onConfirmationSubmit,
   onAllowAndCreateRule,
   embedded = false,
@@ -268,7 +276,7 @@ export function ToolCallChip({
   const isError = Boolean(toolCall.isError);
   const isRunning =
     !isError && toolCall.result === undefined && toolCall.completedAt == null;
-  const hasPendingConfirmation = !!toolCall.pendingConfirmation;
+  const hasPendingConfirmation = !!activeConfirmation;
   const duration = useElapsedTime(toolCall.startedAt, !isRunning, toolCall.completedAt);
   const startTimeLabel = formatStartTime(toolCall.startedAt);
 
@@ -286,11 +294,11 @@ export function ToolCallChip({
 
   // Auto-expand when a pending confirmation appears for the active tool call
   useEffect(() => {
-    if (toolCall.pendingConfirmation && isActiveConfirmation && !expanded) {
+    if (activeConfirmation && isActiveConfirmation && !expanded) {
       setExpanded(true);
       onExpandChange(true);
     }
-  }, [toolCall.pendingConfirmation, isActiveConfirmation, onExpandChange]);
+  }, [activeConfirmation, isActiveConfirmation, onExpandChange]);
 
   const handleCopyOutput = useCallback(() => {
     if (toolCall.result !== undefined) {
@@ -370,9 +378,9 @@ export function ToolCallChip({
   const detailsPanel = (
     <>
       {/* Inline confirmation card when pending and this is the active confirmation */}
-      {hasPendingConfirmation && isActiveConfirmation && (
+      {activeConfirmation && isActiveConfirmation && (
         <InlineConfirmationCard
-          toolCall={toolCall}
+          confirmation={activeConfirmation}
           isSubmitting={isSubmittingConfirmation}
           onSubmit={onConfirmationSubmit}
           onAllowAndCreateRule={onAllowAndCreateRule}
@@ -475,11 +483,11 @@ export function ToolCallChip({
           {subItemRow}
         </div>
         {expanded && canExpand && (
-          hasPendingConfirmation && isActiveConfirmation ? (
+          activeConfirmation && isActiveConfirmation ? (
             // Confirmation card gets full-width (px-3) to match macOS PermissionPromptView
             <div className="px-3 pt-1 pb-2">
               <InlineConfirmationCard
-                toolCall={toolCall}
+                confirmation={activeConfirmation}
                 isSubmitting={isSubmittingConfirmation}
                 onSubmit={onConfirmationSubmit}
                 onAllowAndCreateRule={onAllowAndCreateRule}

@@ -112,12 +112,17 @@ export function resolveThinkingContent(
 
 /**
  * UI surface tools are rendered by the inline surface widget, not as tool-call
- * chips — unless they carry a pending confirmation, in which case the chip must
- * render so the inline confirmation card is visible.
+ * chips — unless they are the active confirmation target, in which case the chip
+ * must render so the inline confirmation card is visible. The active prompt's
+ * tool-call id comes from `interaction-store` (passed in by the caller) rather
+ * than from `tc.pendingConfirmation`.
  */
-export function isSuppressedUiTool(tc: ChatMessageToolCall): boolean {
+export function isSuppressedUiTool(
+  tc: ChatMessageToolCall,
+  activeConfirmationToolCallId?: string,
+): boolean {
   return (
-    !tc.pendingConfirmation &&
+    tc.id !== activeConfirmationToolCallId &&
     (tc.name === "ui_show" ||
       tc.name === "ui_update" ||
       tc.name === "ui_dismiss")

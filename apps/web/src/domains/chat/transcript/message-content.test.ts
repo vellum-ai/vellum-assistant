@@ -155,15 +155,9 @@ describe("isSuppressedUiTool", () => {
     expect(isSuppressedUiTool(toolCall({ id: "x", name: "ui_dismiss" }))).toBe(true);
   });
 
-  test("does not suppress ui_* with a pending confirmation, or non-ui tools", () => {
+  test("does not suppress the active confirmation target, or non-ui tools", () => {
     expect(
-      isSuppressedUiTool(
-        toolCall({
-          id: "x",
-          name: "ui_show",
-          pendingConfirmation: { requestId: "req-1" },
-        }),
-      ),
+      isSuppressedUiTool(toolCall({ id: "x", name: "ui_show" }), "x"),
     ).toBe(false);
     expect(isSuppressedUiTool(toolCall({ id: "x", name: "bash" }))).toBe(false);
   });

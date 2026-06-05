@@ -672,7 +672,9 @@ export function TranscriptMessageBody({
           }
         } else {
           const tc = resolveToolCall(message, item.id);
-          if (!tc || isSuppressedUiTool(tc)) continue;
+          if (!tc || isSuppressedUiTool(tc, pendingConfirmationToolCallId)) {
+            continue;
+          }
           groupToolCalls.push(tc);
           cardItems.push({ kind: "toolCall", toolCall: tc });
         }
@@ -689,7 +691,7 @@ export function TranscriptMessageBody({
         cardItems[0]?.kind === "toolCall" &&
         renderableToolCalls.length === 1 &&
         !WEB_TOOL_NAMES.has(renderableToolCalls[0]!.name) &&
-        !renderableToolCalls[0]!.pendingConfirmation
+        renderableToolCalls[0]!.id !== pendingConfirmationToolCallId
           ? renderableToolCalls[0]!
           : null;
       if (loneTool) {
@@ -880,7 +882,9 @@ export function TranscriptMessageBody({
     node: e.node,
   }));
   const legacyToolCalls =
-    message.toolCalls?.filter((tc) => !isSuppressedUiTool(tc)) ?? [];
+    message.toolCalls?.filter(
+      (tc) => !isSuppressedUiTool(tc, pendingConfirmationToolCallId),
+    ) ?? [];
   // Render the legacy tool card only when a renderable (non-spawn) tool call
   // exists. A spawn-only legacy turn has no renderable step —
   // `ActivityRunCard` filters the spawns out and renders nothing — so

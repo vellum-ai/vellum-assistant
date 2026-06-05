@@ -22,6 +22,7 @@ import {
   type ToolProgressCardState,
 } from "@/domains/chat/components/tool-progress-card/tool-progress-card-shell";
 import { useViewerStore } from "@/stores/viewer-store";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
 import {
   WEB_TOOL_NAMES,
   toolDetailPayloadFromToolCall,
@@ -573,6 +574,10 @@ function ConfirmationView({
   unknownNudgeToolCallIds,
   onDismissUnknownNudge,
 }: ActivityRunCardProps) {
+  // The active prompt's content lives in the interaction store (the single
+  // source of truth for in-flight confirmations); it is handed to the target
+  // chip rather than read off `tc.pendingConfirmation`.
+  const activeConfirmation = useInteractionStore.use.pendingConfirmation();
   return (
     <div className="my-1 w-full">
       <div className="space-y-0 rounded-lg bg-[var(--surface-overlay)]">
@@ -593,6 +598,7 @@ function ConfirmationView({
                   ? {
                       isSubmittingConfirmation,
                       isActiveConfirmation: true,
+                      activeConfirmation: activeConfirmation ?? undefined,
                       onConfirmationSubmit,
                       onAllowAndCreateRule,
                     }
