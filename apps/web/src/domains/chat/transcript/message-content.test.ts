@@ -135,6 +135,22 @@ describe("resolveThinkingContent", () => {
     expect(resolveThinkingContent(message, ["0", "1"])).toBe("first\nsecond");
     expect(resolveThinkingContent(message, ["1", "9"])).toBe("second");
   });
+
+  test("falls back per index when contentBlocks is shorter than the positional arrays", () => {
+    // GIVEN a row produced by merging adjacent assistant rows: the positional
+    // thinkingSegments are concatenated (survivor + donor) but contentBlocks
+    // carries only the survivor's blocks, so the donor index has no block
+    const message = assistant({
+      contentBlocks: [{ type: "thinking", thinking: "survivor" }],
+      thinkingSegments: ["survivor", "donor"],
+    });
+
+    // WHEN the run references both the survivor (covered by a block) and the
+    // donor (beyond the blocks list) index
+    // THEN the donor reasoning resolves through the positional fallback instead
+    // of being silently dropped
+    expect(resolveThinkingContent(message, ["0", "1"])).toBe("survivor\ndonor");
+  });
 });
 
 describe("isSubagentSpawnCall", () => {

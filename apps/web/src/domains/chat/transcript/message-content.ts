@@ -98,12 +98,15 @@ export function resolveToolCall(
  * ids into a single markdown string (mirrors macOS, which joins adjacent
  * reasoning indices with newlines).
  *
- * Reads from the unified `contentBlocks` projection when the row carries it:
- * thinking blocks appear in the same order as the positional `thinkingSegments`
- * (both are built in lockstep from the model-native content), so a `thinking:i`
- * contentOrder id resolves to the i-th thinking block. The positional
- * `thinkingSegments` lookup is the fallback for in-flight rows whose blocks
- * haven't been populated yet.
+ * Resolves each `thinking:i` contentOrder id to its reasoning text, preferring
+ * the unified `contentBlocks` projection and falling back to the positional
+ * `thinkingSegments` per index. Thinking blocks are built in lockstep with
+ * `thinkingSegments`, so the i-th thinking block carries the same text as
+ * `thinkingSegments[i]`. The per-index fallback covers indices the projection
+ * doesn't span: rows with no `contentBlocks` at all (older daemons, in-flight
+ * streaming rows) and rows whose `contentBlocks` is shorter than the positional
+ * arrays — e.g. one formed by merging adjacent/duplicate messages, where the
+ * positional arrays are concatenated but `contentBlocks` carries only one side.
  */
 export function resolveThinkingContent(
   message: DisplayMessage,
@@ -119,9 +122,7 @@ export function resolveThinkingContent(
       if (isNaN(idx)) {
         return undefined;
       }
-      return thinkingBlocks
-        ? thinkingBlocks[idx]?.thinking
-        : message.thinkingSegments?.[idx];
+      return thinkingBlocks?.[idx]?.thinking ?? message.thinkingSegments?.[idx];
     })
     .filter((s): s is string => Boolean(s))
     .join("\n");
