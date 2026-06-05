@@ -212,7 +212,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-05T12:54:16.000Z"
+      "updatedAt": "2026-06-05T17:22:35.000Z"
     },
     {
       "id": "geo-writing",
@@ -310,6 +310,9 @@
         "vellum": {
           "category": "email",
           "display-name": "Inbox Cleanup",
+          "includes": [
+            "gmail"
+          ],
           "activation-hints": [
             "When the user asks to clean up, organize, or triage their email inbox",
             "When the user wants to archive old or unwanted emails in bulk",
@@ -322,7 +325,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-06-05T22:44:27.000Z"
     },
     {
       "id": "inbox-management",

@@ -50,10 +50,23 @@ function getProviderLabel(
   data: OAuthConnectSurfaceData,
   provider: ManagedOAuthProviderSummary | null,
 ): string {
-  if (data.displayName) return data.displayName;
-  if (provider?.display_name) return provider.display_name;
-  if (data.providerKey) return titleizeProviderKey(data.providerKey);
-  return "this account";
+  const raw =
+    data.displayName ||
+    provider?.display_name ||
+    (data.providerKey ? titleizeProviderKey(data.providerKey) : "this account");
+  // Normalize once at the resolver so the title, description, icon, and
+  // action payloads never double the verb (e.g. "Connect Connect Gmail")
+  // when a caller-supplied displayName already begins with "Connect ".
+  return stripConnectVerb(raw);
+}
+
+/**
+ * Strip a leading "Connect "/"Connected " verb from a provider label so a
+ * caller-supplied `displayName` like "Connect Gmail" doesn't double the verb
+ * when prefixed (e.g. avoids "Connect Connect Gmail").
+ */
+function stripConnectVerb(label: string): string {
+  return label.replace(/^connect(?:ed)?\s+/i, "");
 }
 
 function OAuthApprovalInfo({

@@ -65,6 +65,20 @@ function getStatusConfig(status: string | undefined) {
   return STATUS_CONFIG[status ?? ""] ?? DEFAULT_STATUS;
 }
 
+// Once the overall task is `completed`, treat any lingering `failed` step as
+// recovered: a recoverable step (e.g. a Gmail reconnect) can be left `failed`
+// with no corrective per-step update, which would otherwise show a permanent red
+// glyph on a successful flow.
+function effectiveStepStatus(
+  stepStatus: string | undefined,
+  taskCompleted: boolean,
+): string | undefined {
+  if (taskCompleted && stepStatus === "failed") {
+    return "completed";
+  }
+  return stepStatus;
+}
+
 function normalizedTitle(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -147,11 +161,18 @@ function InProgressDetail({ value }: { value: string }) {
   );
 }
 
-function TaskStepList({ steps }: { steps: TaskStepItem[] }) {
+function TaskStepList({
+  steps,
+  taskCompleted,
+}: {
+  steps: TaskStepItem[];
+  taskCompleted: boolean;
+}) {
   return (
     <div className="mt-5 divide-y divide-[var(--border-base)]">
       {steps.map((step, index) => {
-        const showDetailOnRight = step.status === "in_progress" && !!step.detail;
+        const status = effectiveStepStatus(step.status, taskCompleted);
+        const showDetailOnRight = status === "in_progress" && !!step.detail;
         return (
           <div key={step.id || index} className="flex items-center gap-2.5 py-2 first:pt-0 last:pb-0">
             <span className="inline-flex h-6 min-w-6 shrink-0 items-center justify-center rounded-md bg-[var(--tag-bg-neutral)] px-1.5 text-label-medium-default tabular-nums text-[var(--content-tertiary)]">
@@ -169,7 +190,7 @@ function TaskStepList({ steps }: { steps: TaskStepItem[] }) {
             </div>
             {showDetailOnRight && <InProgressDetail value={step.detail!} />}
             <div className="shrink-0">
-              <StepIcon status={step.status} />
+              <StepIcon status={status} />
             </div>
           </div>
         );
@@ -199,7 +220,7 @@ function TaskProgressDisplay({
           <span className="text-title-small text-[var(--content-strong)]">{title}</span>
           <StatusBadge status={status} />
         </div>
-        <TaskStepList steps={steps} />
+        <TaskStepList steps={steps} taskCompleted={status === "completed"} />
       </div>
     );
   }
