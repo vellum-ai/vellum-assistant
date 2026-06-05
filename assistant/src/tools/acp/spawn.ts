@@ -108,6 +108,19 @@ export async function executeAcpSpawn(
     return { content: '"task" is required.', isError: true };
   }
 
+  // Pure precondition: check for a connected client BEFORE any side effects
+  // (auto-install mutates the host via `npm i -g` and can block for up to
+  // the install timeout). Without a client the spawn cannot succeed anyway.
+  const sendToClient = context.sendToClient as
+    | ((msg: { type: string; [key: string]: unknown }) => void)
+    | undefined;
+  if (!sendToClient) {
+    return {
+      content: "No client connected - cannot spawn ACP agent.",
+      isError: true,
+    };
+  }
+
   let resolved = resolveAcpAgent(agent);
 
   // Missing adapter binary: silently try a global npm install of the mapped
@@ -155,15 +168,6 @@ export async function executeAcpSpawn(
         );
       }
     }
-  }
-  const sendToClient = context.sendToClient as
-    | ((msg: { type: string; [key: string]: unknown }) => void)
-    | undefined;
-  if (!sendToClient) {
-    return {
-      content: "No client connected - cannot spawn ACP agent.",
-      isError: true,
-    };
   }
 
   // Inject required env vars and preflight via the shared helper. Mirrors

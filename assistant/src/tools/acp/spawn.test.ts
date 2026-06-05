@@ -441,6 +441,24 @@ describe("executeAcpSpawn: auto-install on missing binary", () => {
     expect(spawnMock).not.toHaveBeenCalled();
   });
 
+  test("no client connected: no install attempted even when the binary is missing", async () => {
+    // The no-client guard is a pure precondition and must run BEFORE the
+    // auto-install side effect: without a client the spawn fails anyway, so
+    // the host must not be mutated by `npm i -g` (which can also block for
+    // up to the install timeout).
+    which.setWhich({});
+
+    const result = await executeAcpSpawn(
+      { agent: "claude", task: "do something" },
+      { ...makeContext(), sendToClient: undefined },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("No client connected");
+    expect(execFileMock).not.toHaveBeenCalled();
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
+
   test("npm failure: hint and install failure both surface", async () => {
     which.setWhich({});
     execScripts.set("npm i", {
