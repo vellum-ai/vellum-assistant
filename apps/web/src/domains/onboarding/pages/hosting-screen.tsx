@@ -70,6 +70,9 @@ export function HostingScreen() {
       // Local/Docker visit so it can't leak into a later local hatch.
       setPendingProviderKey(null);
       void navigate(routes.onboarding.privacy);
+    } else if (hasPlatformSession) {
+      setPendingProviderKey(null);
+      void navigate(`${routes.onboarding.privacy}?hosting=${selected}`);
     } else {
       void navigate(`${routes.onboarding.apiKey}?hosting=${selected}`);
     }

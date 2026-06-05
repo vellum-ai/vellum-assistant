@@ -4,60 +4,25 @@ import {
 } from "@/generated/daemon/sdk.gen";
 import type { OnboardingProviderId } from "@/domains/onboarding/provider-catalog";
 
-// Model-provider API key collected during onboarding. Held in sessionStorage
-// (consume-once) between the API-key step and the post-hatch application, then
-// written to the freshly hatched assistant. Mirrors the macOS flow, which
-// holds the key in-memory and POSTs it to the daemon once the assistant is up.
-
-const PENDING_KEY_STORAGE = "onboarding.providerKey";
-
 export interface PendingProviderKey {
   provider: OnboardingProviderId;
   /** Empty for keyless providers (e.g. Ollama). */
   key: string;
 }
 
-export function setPendingProviderKey(value: PendingProviderKey | null): void {
-  try {
-    if (value === null) {
-      sessionStorage.removeItem(PENDING_KEY_STORAGE);
-      return;
-    }
-    sessionStorage.setItem(PENDING_KEY_STORAGE, JSON.stringify(value));
-  } catch {
-    // Storage unavailable (private mode / quota) — degrade silently.
-  }
-}
+let pendingKey: PendingProviderKey | null = null;
 
-function isPendingProviderKey(value: unknown): value is PendingProviderKey {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    "provider" in value &&
-    typeof value.provider === "string" &&
-    "key" in value &&
-    typeof value.key === "string"
-  );
+export function setPendingProviderKey(value: PendingProviderKey | null): void {
+  pendingKey = value;
 }
 
 export function peekPendingProviderKey(): PendingProviderKey | null {
-  try {
-    const raw = sessionStorage.getItem(PENDING_KEY_STORAGE);
-    if (!raw) return null;
-    const parsed: unknown = JSON.parse(raw);
-    return isPendingProviderKey(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
+  return pendingKey;
 }
 
 export function consumePendingProviderKey(): PendingProviderKey | null {
-  const value = peekPendingProviderKey();
-  try {
-    sessionStorage.removeItem(PENDING_KEY_STORAGE);
-  } catch {
-    // ignore
-  }
+  const value = pendingKey;
+  pendingKey = null;
   return value;
 }
 
