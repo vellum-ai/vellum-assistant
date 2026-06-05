@@ -1,5 +1,54 @@
 #if os(macOS)
+import AppKit
 import SwiftUI
+
+private enum InlineOAuthProviderLogoBundle {
+    private static var nsImageStore: [String: NSImage] = [:]
+    private static var missStore: Set<String> = []
+    private static let nsImageLock = NSLock()
+
+    static func bundledImage(providerKey: String) -> NSImage? {
+        let key = normalizedProviderKey(providerKey)
+
+        nsImageLock.lock()
+        if let cached = nsImageStore[key] {
+            nsImageLock.unlock()
+            return cached
+        }
+        if missStore.contains(key) {
+            nsImageLock.unlock()
+            return nil
+        }
+        nsImageLock.unlock()
+
+        guard
+            let url = Bundle.vellumShared.url(
+                forResource: key,
+                withExtension: "pdf",
+                subdirectory: "IntegrationLogos"
+            ),
+            let image = NSImage(contentsOf: url)
+        else {
+            nsImageLock.lock()
+            missStore.insert(key)
+            nsImageLock.unlock()
+            return nil
+        }
+
+        nsImageLock.lock()
+        if let existing = nsImageStore[key] {
+            nsImageLock.unlock()
+            return existing
+        }
+        nsImageStore[key] = image
+        nsImageLock.unlock()
+        return image
+    }
+
+    private static func normalizedProviderKey(_ providerKey: String) -> String {
+        providerKey.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+}
 
 public struct InlineChoiceWidget: View {
     public let data: ChoiceSurfaceData
@@ -467,6 +516,12 @@ public struct InlineOAuthConnectWidget: View {
         data.description ?? "Connect \(providerLabel) so I can use it for this task."
     }
 
+    private var logoURL: URL? {
+        guard let logoUrl = data.logoUrl?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !logoUrl.isEmpty else { return nil }
+        return URL(string: logoUrl)
+    }
+
     public var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             HStack(alignment: .top, spacing: VSpacing.md) {
@@ -524,15 +579,51 @@ public struct InlineOAuthConnectWidget: View {
     }
 
     private var providerAvatar: some View {
-        let initials = String(providerLabel.prefix(2)).uppercased()
-        return ZStack {
+        ZStack {
             RoundedRectangle(cornerRadius: VRadius.md)
-                .fill(providerColor.opacity(0.14))
-            Text(initials)
-                .font(.system(size: 14, weight: .semibold, design: .rounded))
-                .foregroundStyle(providerColor)
+                .fill(VColor.surfaceBase)
+
+            if let image = InlineOAuthProviderLogoBundle.bundledImage(providerKey: data.providerKey) {
+                Image(nsImage: image)
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 28, height: 28)
+            } else if let logoURL {
+                VCachedRemoteImage(
+                    url: logoURL,
+                    content: { image in
+                        image
+                            .resizable()
+                            .interpolation(.high)
+                            .aspectRatio(contentMode: .fit)
+                    },
+                    placeholder: {
+                        providerInitialsAvatar
+                    }
+                )
+                .frame(width: 28, height: 28)
+            } else {
+                providerInitialsAvatar
+            }
         }
         .frame(width: 40, height: 40)
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .stroke(VColor.borderBase, lineWidth: 1)
+        )
+    }
+
+    private var providerInitialsAvatar: some View {
+        let initials = String(providerLabel.prefix(2)).uppercased()
+        return ZStack {
+            Circle()
+                .fill(providerColor)
+            Text(initials)
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .foregroundStyle(VColor.auxWhite)
+        }
+        .frame(width: 28, height: 28)
     }
 
     private var providerColor: Color {
