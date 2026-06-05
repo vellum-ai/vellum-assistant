@@ -17,7 +17,13 @@ export type VellumCommand =
   | { kind: "shareFeedback" }
   | { kind: "find" }
   | { kind: "logout" }
-  | { kind: "rePair" };
+  | { kind: "rePair" }
+  | { kind: "sidebarToggle" }
+  | { kind: "home" }
+  | { kind: "popOut" }
+  | { kind: "previousConversation" }
+  | { kind: "nextConversation" }
+  | { kind: "commandPalette" };
 
 export type VellumCommandKind = VellumCommand["kind"];
 
@@ -39,6 +45,22 @@ export const DEFAULT_ACCELERATORS: Record<VellumCommandKind, string> = {
   find: "CmdOrCtrl+F",
   logout: "",
   rePair: "",
+  sidebarToggle: "CmdOrCtrl+\\",
+  home: "CmdOrCtrl+Shift+H",
+  popOut: "CmdOrCtrl+P",
+  previousConversation: "CmdOrCtrl+Up",
+  nextConversation: "CmdOrCtrl+Down",
+  commandPalette: "CmdOrCtrl+K",
+};
+
+/**
+ * Commands whose accelerators are registered as Electron `globalShortcut`s
+ * (system-wide, active even when the app is not focused). Every other
+ * command uses menu accelerators which only fire when the app has focus.
+ */
+export const GLOBAL_SHORTCUT_DEFAULTS: Record<string, string> = {
+  globalHotkey: "CmdOrCtrl+Shift+G",
+  quickInput: "CmdOrCtrl+Shift+/",
 };
 
 /**

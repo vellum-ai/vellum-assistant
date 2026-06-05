@@ -15,7 +15,14 @@ export type VellumCommand =
   | { kind: "openSettings" }
   | { kind: "shareFeedback" }
   | { kind: "find" }
-  | { kind: "logout" };
+  | { kind: "logout" }
+  | { kind: "rePair" }
+  | { kind: "sidebarToggle" }
+  | { kind: "home" }
+  | { kind: "popOut" }
+  | { kind: "previousConversation" }
+  | { kind: "nextConversation" }
+  | { kind: "commandPalette" };
 
 // Surface exposed to the renderer as `window.vellum`. `platform`, `settings`,
 // and `commands` are wired through IPC; `auth` and `helper` are typed stubs

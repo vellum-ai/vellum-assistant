@@ -26,6 +26,7 @@ import {
 import { installAvatarIpc } from "./avatar";
 import { installDock } from "./dock";
 import { installFeedbackIpc } from "./feedback";
+import { installGlobalShortcuts } from "./global-shortcuts";
 import { installLocalMode } from "./local-mode";
 import log from "./logger";
 import {
@@ -316,6 +317,7 @@ app
     installAbout();
     installFeedbackIpc();
     installApplicationMenu();
+    installGlobalShortcuts();
     // Register the avatar channel before the Dock and Tray install so their
     // initial render reflects any avatar the renderer publishes during
     // bootstrap rather than briefly showing the bundled fallback mark.
