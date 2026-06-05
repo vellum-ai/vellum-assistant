@@ -126,8 +126,12 @@ mock.module("./logger", () => ({
   },
 }));
 
-const { installNotifications, NOTIFICATION_CATEGORIES, __resetForTesting } =
-  await import("./notifications");
+const {
+  installNotifications,
+  NOTIFICATION_CATEGORIES,
+  DELIVERY_TIMEOUT_MS,
+  __resetForTesting,
+} = await import("./notifications");
 
 // --- Helpers ---------------------------------------------------------------
 
@@ -146,8 +150,8 @@ const showHandler = (): HandleRegistration => {
 };
 
 /** Invoke the registered show handler the way `./ipc` would (tuple arg). */
-const show = (payload: Record<string, unknown>): ShowResult =>
-  showHandler().fn([payload]) as ShowResult;
+const show = (payload: Record<string, unknown>): Promise<ShowResult> =>
+  showHandler().fn([payload]) as Promise<ShowResult>;
 
 const BASE_TIME = new Date("2026-06-05T12:00:00.000Z").getTime();
 const at = (msOffset: number) => setSystemTime(new Date(BASE_TIME + msOffset));
@@ -199,8 +203,8 @@ describe("category action buttons", () => {
   };
 
   for (const category of NOTIFICATION_CATEGORIES) {
-    test(`${category} posts the expected buttons`, () => {
-      const result = show({
+    test(`${category} posts the expected buttons`, async () => {
+      const result = await show({
         category,
         title: "T",
         body: "B",
@@ -218,7 +222,7 @@ describe("category action buttons", () => {
 // --- Dedup / cooldown ------------------------------------------------------
 
 describe("dedup / cooldown", () => {
-  test("suppresses a duplicate notificationIntent within the cooldown window, then fires again after it elapses", () => {
+  test("suppresses a duplicate notificationIntent within the cooldown window, then fires again after it elapses", async () => {
     const payload = {
       category: "notificationIntent",
       title: "T",
@@ -227,22 +231,22 @@ describe("dedup / cooldown", () => {
     };
 
     at(0);
-    expect(show(payload).success).toBe(true);
+    expect((await show(payload)).success).toBe(true);
     expect(constructed).toHaveLength(1);
 
     // 5s later — still inside the 10s notificationIntent cooldown.
     at(5_000);
-    const suppressed = show(payload);
+    const suppressed = await show(payload);
     expect(suppressed.success).toBe(true); // treated as delivered
     expect(constructed).toHaveLength(1); // but nothing new posted
 
     // 11s after the first — cooldown elapsed, posts again.
     at(11_000);
-    expect(show(payload).success).toBe(true);
+    expect((await show(payload)).success).toBe(true);
     expect(constructed).toHaveLength(2);
   });
 
-  test("toolConfirmation has no cooldown and always posts", () => {
+  test("toolConfirmation has no cooldown and always posts", async () => {
     const payload = {
       category: "toolConfirmation",
       title: "T",
@@ -250,9 +254,9 @@ describe("dedup / cooldown", () => {
       deliveryId: "tool-1",
     };
     at(0);
-    show(payload);
+    await show(payload);
     at(1); // 1ms later
-    show(payload);
+    await show(payload);
     expect(constructed).toHaveLength(2);
   });
 });
@@ -260,9 +264,9 @@ describe("dedup / cooldown", () => {
 // --- Permission state ------------------------------------------------------
 
 describe("permission state", () => {
-  test("returns unsupported without constructing when Notifications are unsupported", () => {
+  test("returns unsupported without constructing when Notifications are unsupported", async () => {
     notificationSupported = false;
-    const result = show({
+    const result = await show({
       category: "notificationIntent",
       title: "T",
       body: "B",
@@ -274,14 +278,23 @@ describe("permission state", () => {
     expect(constructed).toHaveLength(0);
   });
 
-  test("latches to denied after a failed delivery: subsequent calls short-circuit without posting", () => {
+  test("latches to denied after a failed delivery: subsequent calls short-circuit without posting", async () => {
     deliveryOutcome = "failed";
-    // First call posts (and synchronously fails inside the mock).
-    show({ category: "activityComplete", title: "T", body: "B", deliveryId: "a" });
+    // First call posts and awaits the delivery outcome (now correctly reports failure).
+    const first = await show({
+      category: "activityComplete",
+      title: "T",
+      body: "B",
+      deliveryId: "a",
+    });
+    expect(first).toEqual({
+      success: false,
+      errorMessage: "Notification delivery failed",
+    });
     expect(constructed).toHaveLength(1);
 
     // Now latched denied — even a different notification short-circuits.
-    const second = show({
+    const second = await show({
       category: "toolConfirmation",
       title: "T2",
       body: "B2",
@@ -308,8 +321,8 @@ describe("interaction broadcast", () => {
     deepLinkMetadata: { foo: "bar" },
   };
 
-  test("body click brings the window forward and broadcasts a click event with metadata", () => {
-    show(richPayload);
+  test("body click brings the window forward and broadcasts a click event with metadata", async () => {
+    await show(richPayload);
     constructed[0]!.emit("click");
 
     expect(ensureVisibleMock).toHaveBeenCalledTimes(1);
@@ -325,8 +338,8 @@ describe("interaction broadcast", () => {
     });
   });
 
-  test("an action-button press broadcasts the index and resolved button text", () => {
-    show(richPayload);
+  test("an action-button press broadcasts the index and resolved button text", async () => {
+    await show(richPayload);
     constructed[0]!.emit("action", {}, 1); // "Reject"
 
     expect(ensureVisibleMock).toHaveBeenCalledTimes(1);
@@ -342,32 +355,56 @@ describe("interaction broadcast", () => {
   });
 });
 
-// --- Optimistic-success gap (documents the LUM-1873 ack bug) ---------------
+// --- Delivery-awaited success (verifies the LUM-1873 ack bug is fixed) -----
 
-describe("optimistic success reporting", () => {
-  // KNOWN GAP: showNotification hardcodes `return { success: true }` after
-  // calling notif.show(), so the first delivery is reported as a success
-  // even when the platform rejects it. The renderer acks the daemon with
-  // this value, so an undelivered first notification is acked as delivered.
-  // The failure only becomes observable on the *next* call (latched denied).
-  // This test documents the current behavior; tighten it if the bug is fixed.
-  test("reports success for the first notification even when delivery fails", () => {
+describe("delivery-awaited success reporting", () => {
+  test("reports failure for the first notification when delivery fails", async () => {
     deliveryOutcome = "failed";
-    const first = show({
+    const first = await show({
       category: "notificationIntent",
       title: "T",
       body: "B",
       deliveryId: "opt-1",
     });
-    expect(first.success).toBe(true); // <-- optimistic, despite the failure
+    expect(first.success).toBe(false); // correctly awaits the failed event
+    expect(first.errorMessage).toBe("Notification delivery failed");
 
-    // The failure is only surfaced on the following call.
-    const second = show({
+    // Subsequent calls also fail (permission latched to denied).
+    const second = await show({
       category: "notificationIntent",
       title: "T2",
       body: "B2",
       deliveryId: "opt-2",
     });
     expect(second.success).toBe(false);
+    expect(second.errorMessage).toBe("Notification permission denied");
+  });
+
+  test("reports success only after the show event confirms delivery", async () => {
+    deliveryOutcome = "show";
+    const result = await show({
+      category: "activityComplete",
+      title: "T",
+      body: "B",
+      deliveryId: "opt-3",
+    });
+    expect(result.success).toBe(true);
+    expect(result.errorMessage).toBeUndefined();
+  });
+
+  test("falls back to success after timeout when neither event fires", async () => {
+    deliveryOutcome = "none"; // neither show nor failed
+    const resultPromise = show({
+      category: "activityComplete",
+      title: "T",
+      body: "B",
+      deliveryId: "opt-4",
+    });
+
+    // Advance fake timer past the delivery timeout.
+    at(DELIVERY_TIMEOUT_MS + 1);
+
+    const result = await resultPromise;
+    expect(result.success).toBe(true);
   });
 });

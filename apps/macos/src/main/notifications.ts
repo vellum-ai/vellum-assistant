@@ -211,7 +211,12 @@ interface ShowResult {
   errorMessage?: string;
 }
 
-const showNotification = (payload: ShowNotificationPayload): ShowResult => {
+/** How long to wait for macOS to confirm/reject delivery before falling back. */
+export const DELIVERY_TIMEOUT_MS = 5_000;
+
+const showNotification = async (
+  payload: ShowNotificationPayload,
+): Promise<ShowResult> => {
   if (!Notification.isSupported()) {
     return { success: false, errorMessage: "Notifications not supported" };
   }
@@ -247,18 +252,36 @@ const showNotification = (payload: ShowNotificationPayload): ShowResult => {
     deepLinkMetadata: payload.deepLinkMetadata,
   };
 
-  notif.on("show", () => {
-    permissionState = "granted";
-    recordShown(payload);
+  // Await actual delivery confirmation from macOS before reporting
+  // success. The `show` event fires when macOS accepts the notification;
+  // `failed` fires when it's rejected (e.g. unsigned build, user denied).
+  const delivery = new Promise<ShowResult>((resolve) => {
+    const timer = setTimeout(() => {
+      log.warn(
+        "[notifications] Delivery confirmation timed out — assuming success",
+      );
+      permissionState = "granted";
+      recordShown(payload);
+      resolve({ success: true });
+    }, DELIVERY_TIMEOUT_MS);
+
+    notif.on("show", () => {
+      clearTimeout(timer);
+      permissionState = "granted";
+      recordShown(payload);
+      resolve({ success: true });
+    });
+
+    notif.on("failed", (_event, error) => {
+      clearTimeout(timer);
+      log.warn("[notifications] Notification failed:", error);
+      permissionState = "denied";
+      resolve({ success: false, errorMessage: "Notification delivery failed" });
+    });
   });
 
-  notif.on("failed", (_event, error) => {
-    log.warn("[notifications] Notification failed:", error);
-    // On unsigned dev builds, UNNotification always fails. Track as
-    // denied so we stop attempting until next app restart.
-    permissionState = "denied";
-  });
-
+  // Interaction handlers — fire later when the user clicks/taps an
+  // action button, not tied to the delivery outcome.
   notif.on("click", () => {
     void ensureVisible();
     broadcastAction({ kind: "click", ...baseMeta });
@@ -277,12 +300,7 @@ const showNotification = (payload: ShowNotificationPayload): ShowResult => {
 
   notif.show();
 
-  // Optimistically report success — `show` / `failed` events fire
-  // asynchronously. We already returned early for the `denied` case
-  // above, so the first-ever notification is optimistic. If the
-  // `failed` event fires, subsequent calls see `permissionState ===
-  // "denied"` and report failure synchronously.
-  return { success: true };
+  return delivery;
 };
 
 // ---------------------------------------------------------------------------
