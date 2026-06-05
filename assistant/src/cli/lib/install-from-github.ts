@@ -139,12 +139,50 @@ function sourceLabel(source: PluginFetchSource): string {
     : `${source.owner}/${source.repo}`;
 }
 
+/** First-party `experimental/plugins/<name>` coordinates at a given ref. */
+function firstPartySource(name: string, ref: string): PluginFetchSource {
+  return {
+    owner: PLUGIN_SOURCE_OWNER,
+    repo: PLUGIN_SOURCE_REPO,
+    rootPath: `${PLUGIN_SOURCE_PATH_PREFIX}/${name}`,
+    ref,
+  };
+}
+
+/**
+ * Probe whether a first-party plugin directory exists at the given source.
+ *
+ * A transient listing failure resolves to `false` so a marketplace-claimed
+ * name still reaches its external source — the rare collision guarantee gives
+ * way to keeping the common external-only install path working under flaky
+ * network conditions.
+ */
+async function firstPartyPluginExists(
+  source: PluginFetchSource,
+  fetchFn: FetchLike,
+): Promise<boolean> {
+  try {
+    const entries = await listDir(
+      source.owner,
+      source.repo,
+      source.rootPath,
+      source.ref,
+      fetchFn,
+    );
+    return entries !== null && entries.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Resolve a plugin name to concrete GitHub coordinates.
  *
- * Consults the curated marketplace manifest first; a name claimed by the
- * whitelist is fetched from its pinned external repo. Otherwise the name maps
- * to the first-party `experimental/plugins/<name>` convention.
+ * First-party plugins win a name collision: a name claimed by the curated
+ * marketplace is fetched from its pinned external repo only when no
+ * `experimental/plugins/<name>` directory exists in-repo. This mirrors the
+ * search catalog, where an in-repo plugin suppresses a same-named marketplace
+ * entry — install must advertise and install the same source.
  *
  * A missing or malformed manifest degrades to first-party resolution — the
  * whitelist is supplementary and must never block installing a first-party
@@ -166,20 +204,18 @@ async function resolvePluginSource(
     // Degrade to first-party resolution below.
   }
 
-  if (resolved) {
-    return {
-      owner: resolved.owner,
-      repo: resolved.repo,
-      rootPath: resolved.path,
-      ref: resolved.ref,
-    };
+  const firstParty = firstPartySource(name, marketplaceRef);
+  if (!resolved) return firstParty;
+
+  if (await firstPartyPluginExists(firstParty, fetchFn)) {
+    return firstParty;
   }
 
   return {
-    owner: PLUGIN_SOURCE_OWNER,
-    repo: PLUGIN_SOURCE_REPO,
-    rootPath: `${PLUGIN_SOURCE_PATH_PREFIX}/${name}`,
-    ref: marketplaceRef,
+    owner: resolved.owner,
+    repo: resolved.repo,
+    rootPath: resolved.path,
+    ref: resolved.ref,
   };
 }
 

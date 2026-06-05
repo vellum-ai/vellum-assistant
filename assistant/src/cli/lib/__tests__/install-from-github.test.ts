@@ -346,16 +346,28 @@ function marketplaceFixtureFetch(
   manifest: unknown,
   externalRepo: string,
   externalTree: Record<string, string | null>,
+  // First-party plugin trees keyed by their full repo path (e.g.
+  // `experimental/plugins/caveman/package.json`). Anything not defined here
+  // resolves to a 404 so the fallback path surfaces a clean not-found.
+  firstPartyTree: Record<string, string | null> = {},
 ): FetchLike {
   const MANIFEST_URL =
     "https://api.github.com/repos/vellum-ai/vellum-assistant/contents/experimental/plugins/marketplace.json";
   const EXTERNAL_API = `https://api.github.com/repos/${externalRepo}/contents/`;
   const EXTERNAL_RAW = `https://raw.githubusercontent.com/${externalRepo}/`;
+  const FIRST_PARTY_API =
+    "https://api.github.com/repos/vellum-ai/vellum-assistant/contents/";
+  const FIRST_PARTY_RAW =
+    "https://raw.githubusercontent.com/vellum-ai/vellum-assistant/";
 
-  function listing(rel: string): unknown {
+  function listing(
+    rel: string,
+    tree: Record<string, string | null>,
+    rawPrefix: string,
+  ): unknown {
     const prefix = rel ? rel + "/" : "";
     const direct = new Map<string, "file" | "dir">();
-    for (const key of Object.keys(externalTree)) {
+    for (const key of Object.keys(tree)) {
       if (!key.startsWith(prefix)) continue;
       const remainder = key.slice(prefix.length);
       if (!remainder) continue;
@@ -363,7 +375,7 @@ function marketplaceFixtureFetch(
       if (!direct.has(head!)) {
         direct.set(
           head!,
-          rest.length === 0 && externalTree[key] !== null ? "file" : "dir",
+          rest.length === 0 && tree[key] !== null ? "file" : "dir",
         );
       }
     }
@@ -372,13 +384,29 @@ function marketplaceFixtureFetch(
       name,
       path: `${prefix}${name}`,
       type,
-      size:
-        type === "file"
-          ? (externalTree[`${prefix}${name}`] as string).length
-          : 0,
+      size: type === "file" ? (tree[`${prefix}${name}`] as string).length : 0,
       download_url:
-        type === "file" ? `${EXTERNAL_RAW}<ref>/${prefix}${name}` : null,
+        type === "file" ? `${rawPrefix}<ref>/${prefix}${name}` : null,
     }));
+  }
+
+  function rawFile(
+    url: string,
+    rawPrefix: string,
+    tree: Record<string, string | null>,
+  ): Response {
+    // Strip the `<ref>/` segment we baked into download_url.
+    const rel = decodeURIComponent(url.slice(rawPrefix.length)).replace(
+      /^[^/]+\//,
+      "",
+    );
+    const file = tree[rel];
+    if (file === null || file === undefined) {
+      return new Response("not found", { status: 404 });
+    }
+    return new Response(Buffer.from(new TextEncoder().encode(file)), {
+      status: 200,
+    });
   }
 
   return (async (input: RequestInfo | URL) => {
@@ -390,7 +418,11 @@ function marketplaceFixtureFetch(
 
     if (url.startsWith(EXTERNAL_API)) {
       const after = url.slice(EXTERNAL_API.length).split("?")[0]!;
-      const body = listing(decodeURIComponent(after));
+      const body = listing(
+        decodeURIComponent(after),
+        externalTree,
+        EXTERNAL_RAW,
+      );
       if (body === null) {
         return new Response("not found", { status: 404 });
       }
@@ -398,28 +430,25 @@ function marketplaceFixtureFetch(
     }
 
     if (url.startsWith(EXTERNAL_RAW)) {
-      // Strip the `<ref>/` segment we baked into download_url.
-      const rel = decodeURIComponent(url.slice(EXTERNAL_RAW.length)).replace(
-        /^[^/]+\//,
-        "",
-      );
-      const file = externalTree[rel];
-      if (file === null || file === undefined) {
-        return new Response("not found", { status: 404 });
-      }
-      return new Response(Buffer.from(new TextEncoder().encode(file)), {
-        status: 200,
-      });
+      return rawFile(url, EXTERNAL_RAW, externalTree);
     }
 
-    // First-party plugin directories the fixture doesn't define resolve to a
-    // normal 404 (so the fallback path surfaces a clean not-found).
-    if (
-      url.startsWith(
-        "https://api.github.com/repos/vellum-ai/vellum-assistant/contents/experimental/plugins/",
-      )
-    ) {
-      return new Response("not found", { status: 404 });
+    // First-party plugin directory listings, served from the canonical repo.
+    if (url.startsWith(FIRST_PARTY_API)) {
+      const after = url.slice(FIRST_PARTY_API.length).split("?")[0]!;
+      const body = listing(
+        decodeURIComponent(after),
+        firstPartyTree,
+        `${FIRST_PARTY_RAW}`,
+      );
+      if (body === null) {
+        return new Response("not found", { status: 404 });
+      }
+      return new Response(JSON.stringify(body), { status: 200 });
+    }
+
+    if (url.startsWith(FIRST_PARTY_RAW)) {
+      return rawFile(url, FIRST_PARTY_RAW, firstPartyTree);
     }
 
     return new Response("unexpected url: " + url, { status: 500 });
@@ -511,6 +540,44 @@ describe("installPlugin — marketplace resolution", () => {
       constructor: PluginNotFoundError,
       message: expect.stringContaining("vellum-ai/vellum-assistant"),
     });
+  });
+
+  test("first-party plugin wins a name collision with the marketplace", async () => {
+    // GIVEN a manifest whitelisting "caveman" externally
+    // AND an in-repo first-party plugin that also claims the name "caveman"
+    const fetch = marketplaceFixtureFetch(
+      CAVEMAN_MANIFEST,
+      "JuliusBrussee/caveman",
+      {
+        "package.json": '{"name":"external-caveman"}',
+        hooks: null,
+        "hooks/init.ts": "// external",
+      },
+      {
+        "experimental/plugins/caveman/package.json":
+          '{"name":"@vellumai/caveman"}',
+        "experimental/plugins/caveman/hooks": null,
+        "experimental/plugins/caveman/hooks/init.ts": "// first-party",
+      },
+    );
+
+    // WHEN we install by the colliding name
+    const result = await installPlugin(
+      { name: "caveman", ref: "main" },
+      { fetch, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN the in-repo plugin is installed (matching what the search catalog
+    // advertises for the name), not the external repo — the marketplace is
+    // additive and never overrides a first-party plugin
+    const target = join(pluginsDir, "caveman");
+    expect(result.ref).toBe("main");
+    expect(readFileSync(join(target, "package.json"), "utf-8")).toBe(
+      '{"name":"@vellumai/caveman"}',
+    );
+    expect(readFileSync(join(target, "hooks", "init.ts"), "utf-8")).toBe(
+      "// first-party",
+    );
   });
 });
 
