@@ -50,10 +50,14 @@ function getProviderLabel(
   data: OAuthConnectSurfaceData,
   provider: ManagedOAuthProviderSummary | null,
 ): string {
-  if (data.displayName) return data.displayName;
-  if (provider?.display_name) return provider.display_name;
-  if (data.providerKey) return titleizeProviderKey(data.providerKey);
-  return "this account";
+  const raw =
+    data.displayName ||
+    provider?.display_name ||
+    (data.providerKey ? titleizeProviderKey(data.providerKey) : "this account");
+  // Normalize once at the resolver so the title, description, icon, and
+  // action payloads never double the verb (e.g. "Connect Connect Gmail")
+  // when a caller-supplied displayName already begins with "Connect ".
+  return stripConnectVerb(raw);
 }
 
 /**
@@ -187,7 +191,7 @@ export function OAuthConnectSurface({
 
           <div className="min-w-0 flex-1">
             <div className="text-title-small text-[var(--content-strong)]">
-              {surface.title ?? `Connect ${stripConnectVerb(providerLabel)}`}
+              {surface.title ?? `Connect ${providerLabel}`}
             </div>
             <p className="mt-1 text-body-medium-lighter text-[var(--content-quiet)]">
               <span>{description}</span>
