@@ -630,8 +630,9 @@ export function readNowScratchpad(): string | null {
 
 /**
  * The `<NOW.md>` block is emitted by the `now-md` default injector
- * (`plugins/defaults/injectors/register.ts`) as an `after-memory-prefix` placement.
- * Use {@link applyRuntimeInjections} with `options.nowScratchpad` set.
+ * (`plugins/defaults/injectors/register.ts`) as an `after-memory-prefix`
+ * placement. The injector sources its content directly via
+ * {@link readNowScratchpad} behind the personal-memory trust gate.
  */
 
 /** Strip `<NOW.md>` blocks injected by `injectNowScratchpad`. */
@@ -1969,7 +1970,6 @@ export interface RuntimeInjectionOptions {
    * original user message.
    */
   memoryV2Static?: string | null;
-  nowScratchpad?: string | null;
   subagentStatusBlock?: string | null;
   isNonInteractive?: boolean;
   /**
@@ -2063,7 +2063,6 @@ function buildTurnInjectionInputs(
     workspaceTopLevelContext: options.workspaceTopLevelContext,
     unifiedTurnContext: options.unifiedTurnContext,
     memoryV2Static: options.memoryV2Static,
-    nowScratchpad: options.nowScratchpad,
     subagentStatusBlock: options.subagentStatusBlock,
     channelCapabilities: options.channelCapabilities,
     slackChronologicalMessages: options.slackChronologicalMessages,

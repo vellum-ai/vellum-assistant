@@ -1,5 +1,5 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // This test exercises v1 PKB injection. `config.memory.v2.enabled` (default
@@ -77,6 +77,7 @@ import {
 import type { Message } from "../providers/types.js";
 import { wrapUntrustedContent } from "../security/untrusted-content.js";
 import type { SubagentState } from "../subagent/types.js";
+import { getWorkspacePromptPath } from "../util/platform.js";
 
 // `applyRuntimeInjections` is now driven by the default injector chain
 // (PR G2.1). The default-injectors plugin must be registered for the chain
@@ -101,6 +102,21 @@ function seedPkbContent(): void {
 
 function clearPkbContent(): void {
   rmSync(getPkbRoot(), { recursive: true, force: true });
+}
+
+// The now-md injector derives NOW.md state from the workspace itself —
+// `readNowScratchpad()` returning content behind the personal-memory trust gate
+// and the `scratchpadInjection` config toggle — rather than from a threaded
+// option. Seed the file so the injector fires; clear it so suites that assert
+// NOW.md is absent stay unaffected.
+function seedNowScratchpad(content: string): void {
+  const nowPath = getWorkspacePromptPath("NOW.md");
+  mkdirSync(dirname(nowPath), { recursive: true });
+  writeFileSync(nowPath, content, "utf-8");
+}
+
+function clearNowScratchpad(): void {
+  rmSync(getWorkspacePromptPath("NOW.md"), { force: true });
 }
 
 // ---------------------------------------------------------------------------
@@ -767,7 +783,6 @@ describe("applyRuntimeInjections — injection mode", () => {
     } as ChannelCapabilities,
     unifiedTurnContext:
       "<turn_context>\ncurrent_time: 2026-03-04 (Tuesday) 12:00:00 +00:00 (UTC)\ninterface: telegram\n</turn_context>",
-    nowScratchpad: "Current focus: shipping PR 3",
     isNonInteractive: true,
     // Guardian trust so the personal-memory gate admits the actor regardless
     // of the telegram channel capabilities under test, letting the reminder
@@ -783,10 +798,17 @@ describe("applyRuntimeInjections — injection mode", () => {
     },
   };
 
-  // The reminder fires only when the workspace has PKB content; seed it so the
-  // full-mode cases exercise the active branch.
-  beforeEach(seedPkbContent);
-  afterEach(clearPkbContent);
+  // The reminder fires only when the workspace has PKB content, and the now-md
+  // injector only when NOW.md has content; seed both so the full-mode cases
+  // exercise the active branch.
+  beforeEach(() => {
+    seedPkbContent();
+    seedNowScratchpad("Current focus: shipping PR 3");
+  });
+  afterEach(() => {
+    clearPkbContent();
+    clearNowScratchpad();
+  });
 
   test("full mode (default) includes all injections", async () => {
     const { messages: result } = await applyRuntimeInjections(
@@ -1226,10 +1248,14 @@ describe("applyRuntimeInjections with nowScratchpad", () => {
     },
   ];
 
-  test("injects NOW.md block when provided", async () => {
-    const { messages: result } = await applyRuntimeInjections(baseMessages, {
-      nowScratchpad: "Current focus: fix the bug",
-    });
+  // The now-md injector sources NOW.md from the workspace itself rather than
+  // from a threaded option, so seed the file to drive injection and clear it so
+  // the absent-content cases see no block.
+  afterEach(clearNowScratchpad);
+
+  test("injects NOW.md block when the file has content", async () => {
+    seedNowScratchpad("Current focus: fix the bug");
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {});
 
     expect(result.length).toBe(1);
     expect(result[0].content.length).toBe(2);
@@ -1240,9 +1266,8 @@ describe("applyRuntimeInjections with nowScratchpad", () => {
   });
 
   test("scratchpad appears before user's original text content", async () => {
-    const { messages: result } = await applyRuntimeInjections(baseMessages, {
-      nowScratchpad: "scratchpad notes",
-    });
+    seedNowScratchpad("scratchpad notes");
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {});
 
     // Scratchpad comes first (before user content)
     expect(
@@ -1254,16 +1279,7 @@ describe("applyRuntimeInjections with nowScratchpad", () => {
     );
   });
 
-  test("does not inject when nowScratchpad is null", async () => {
-    const { messages: result } = await applyRuntimeInjections(baseMessages, {
-      nowScratchpad: null,
-    });
-
-    expect(result.length).toBe(1);
-    expect(result[0].content.length).toBe(1);
-  });
-
-  test("does not inject when nowScratchpad is omitted", async () => {
+  test("does not inject when the NOW.md file is absent", async () => {
     const { messages: result } = await applyRuntimeInjections(baseMessages, {});
 
     expect(result.length).toBe(1);
@@ -1271,8 +1287,8 @@ describe("applyRuntimeInjections with nowScratchpad", () => {
   });
 
   test("skipped in minimal mode", async () => {
+    seedNowScratchpad("Current focus: fix the bug");
     const { messages: result } = await applyRuntimeInjections(baseMessages, {
-      nowScratchpad: "Current focus: fix the bug",
       mode: "minimal",
     });
 

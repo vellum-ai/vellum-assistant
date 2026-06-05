@@ -378,8 +378,6 @@ export interface TurnInjectionInputs {
    * the user message.
    */
   readonly memoryV2Static?: string | null;
-  /** NOW.md scratchpad content or null to skip. */
-  readonly nowScratchpad?: string | null;
   /** Pre-built `<active_subagents>` block or null to skip. */
   readonly subagentStatusBlock?: string | null;
   /** Channel capabilities — drives slack gating. */
