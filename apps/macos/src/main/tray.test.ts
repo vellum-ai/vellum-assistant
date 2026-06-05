@@ -43,12 +43,17 @@ const appListeners = new Map<string, () => void>();
 // Capture nativeTheme listeners so the appearance-change path is testable.
 const themeListeners = new Map<string, () => void>();
 
+const appRelaunchMock = mock(() => undefined);
+const appExitMock = mock((_code?: number) => undefined);
+
 mock.module("electron", () => ({
   app: {
     name: "Vellum Electron",
     on: (event: string, handler: () => void) => {
       appListeners.set(event, handler);
     },
+    relaunch: appRelaunchMock,
+    exit: appExitMock,
   },
   BrowserWindow: class {
     static getFocusedWindow() {
@@ -158,6 +163,8 @@ beforeEach(() => {
   buildFromTemplateMock.mockClear();
   statusFramesMock.mockClear();
   invalidateIconCacheMock.mockClear();
+  appRelaunchMock.mockClear();
+  appExitMock.mockClear();
   currentStatus = "idle";
   statusListeners.clear();
   intervalCallback = null;
@@ -224,11 +231,66 @@ describe("installTray", () => {
     expect(labels).toContain("New Conversation");
     expect(labels).toContain("Current Conversation");
     expect(labels).toContain("Show / Hide Main Window");
+    expect(labels).toContain("Restart");
     expect(labels).toContain("About Vellum Electron");
     expect(labels).toContain("Quit Vellum Electron");
     expect(
       template.find((item) => item.label?.startsWith("Quit"))?.role,
     ).toBe("quit");
+  });
+
+  test("the Re-pair item appears only when status is authFailed", () => {
+    setStatus("authFailed");
+    installTray(handlers);
+    handlerFor(trays[0], "right-click")?.();
+    const template = buildFromTemplateMock.mock.calls[0]?.[0] as Array<{
+      label?: string;
+    }>;
+    const labels = template.map((item) => item.label).filter(Boolean);
+    expect(labels).toContain("Re-pair Assistant");
+  });
+
+  test("the Re-pair item is absent when status is not authFailed", () => {
+    installTray(handlers);
+    handlerFor(trays[0], "right-click")?.();
+    const template = buildFromTemplateMock.mock.calls[0]?.[0] as Array<{
+      label?: string;
+    }>;
+    const labels = template.map((item) => item.label).filter(Boolean);
+    expect(labels).not.toContain("Re-pair Assistant");
+  });
+
+  test("Re-pair surfaces the window and dispatches rePair command", async () => {
+    setStatus("authFailed");
+    installTray(handlers);
+    handlerFor(trays[0], "right-click")?.();
+    const template = buildFromTemplateMock.mock.calls[0]?.[0] as Array<{
+      label?: string;
+      click?: () => void | Promise<void>;
+    }>;
+    const beforeEnsure = handlers.ensureMainWindow.mock.calls.length;
+    const beforeDispatch = dispatchToMainMock.mock.calls.length;
+
+    await template.find((i) => i.label === "Re-pair Assistant")?.click?.();
+
+    expect(handlers.ensureMainWindow.mock.calls.length).toBe(beforeEnsure + 1);
+    expect(dispatchToMainMock.mock.calls[beforeDispatch]?.[0]).toEqual({
+      kind: "rePair",
+    });
+  });
+
+  test("Restart relaunches the app and exits", () => {
+    installTray(handlers);
+    handlerFor(trays[0], "right-click")?.();
+    const template = buildFromTemplateMock.mock.calls[0]?.[0] as Array<{
+      label?: string;
+      click?: () => void;
+    }>;
+
+    template.find((i) => i.label === "Restart")?.click?.();
+
+    expect(appRelaunchMock).toHaveBeenCalledTimes(1);
+    expect(appExitMock).toHaveBeenCalledWith(0);
   });
 
   test("conversation items surface the window before dispatching", async () => {

@@ -33,7 +33,8 @@ export type VellumCommand =
   | { kind: "currentConversation" }
   | { kind: "markCurrentUnread" }
   | { kind: "openSettings" }
-  | { kind: "logout" };
+  | { kind: "logout" }
+  | { kind: "rePair" };
 
 /**
  * Renderer-side mirror of `AssistantStatus` in

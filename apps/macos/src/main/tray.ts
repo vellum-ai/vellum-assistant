@@ -69,14 +69,33 @@ export interface TrayHandlers {
   openAbout(): void;
 }
 
-const buildTrayMenu = (handlers: TrayHandlers, status: AssistantStatus): Menu =>
-  Menu.buildFromTemplate([
+const buildTrayMenu = (handlers: TrayHandlers, status: AssistantStatus): Menu => {
+  const onboarding = readOnboardingActive();
+
+  const items: Electron.MenuItemConstructorOptions[] = [
     {
       // Status line, matching the Swift status menu's header. Disabled so
       // it reads as a label, not an action.
       label: statusMenuTitle(status),
       enabled: false,
     },
+  ];
+
+  // Re-pair: only visible when the guardian token has expired or the
+  // daemon is unreachable. Dispatches to the renderer which owns the
+  // repair flow (connectLocalAssistant → primeLocalGatewayConnectionWithRepair).
+  // Matches the Swift app's conditional "Re-pair <name>" item.
+  if (status === "authFailed") {
+    items.push({
+      label: "Re-pair Assistant",
+      click: async () => {
+        await handlers.ensureMainWindow();
+        dispatchToMain({ kind: "rePair" });
+      },
+    });
+  }
+
+  items.push(
     { type: "separator" },
     {
       label: "New Conversation",
@@ -107,7 +126,7 @@ const buildTrayMenu = (handlers: TrayHandlers, status: AssistantStatus): Menu =>
     { type: "separator" },
     {
       label: "Settings\u2026",
-      enabled: !readOnboardingActive(),
+      enabled: !onboarding,
       click: async () => {
         await handlers.ensureMainWindow();
         dispatchToMain({ kind: "openSettings" });
@@ -119,6 +138,14 @@ const buildTrayMenu = (handlers: TrayHandlers, status: AssistantStatus): Menu =>
     },
     { type: "separator" },
     {
+      label: "Restart",
+      enabled: !onboarding,
+      click: () => {
+        app.relaunch();
+        app.exit(0);
+      },
+    },
+    {
       label: `Quit ${app.name}`,
       // `role: "quit"` carries its own accelerator on macOS; we still
       // declare it explicitly so the menu reads consistently across
@@ -126,7 +153,10 @@ const buildTrayMenu = (handlers: TrayHandlers, status: AssistantStatus): Menu =>
       accelerator: "CmdOrCtrl+Q",
       role: "quit",
     },
-  ]);
+  );
+
+  return Menu.buildFromTemplate(items);
+};
 
 let installed = false;
 let trayInstance: Tray | null = null;

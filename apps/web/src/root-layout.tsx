@@ -13,6 +13,7 @@ import {
   useHasPlatformSession,
 } from "@/stores/auth-store";
 import { getOnboardingEntrypoint } from "@/domains/onboarding/gate";
+import { getSelectedAssistant } from "@/lib/local-mode";
 import { setMenuPlatformSession } from "@/runtime/menu";
 import { useVellumCommands } from "@/runtime/vellum-commands";
 import { routes } from "@/utils/routes";
@@ -130,6 +131,12 @@ export function RootLayout() {
       ).then(() => {
         navigate(getOnboardingEntrypoint());
       });
+    },
+    rePair: () => {
+      const id = getSelectedAssistant()?.assistantId;
+      if (id) {
+        void useAuthStore.getState().connectLocalAssistant(id);
+      }
     },
   });
 
