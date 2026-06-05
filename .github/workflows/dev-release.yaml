@@ -1865,7 +1865,7 @@ jobs:
       - name: Build web SPA
         working-directory: apps/web
         env:
-          VITE_PLATFORM_MODE: "true"
+          VITE_PLATFORM_MODE: "false"
         run: bun run build
 
       - name: Bundle web dist into Electron resources
@@ -2048,7 +2048,7 @@ jobs:
       - name: Build
         working-directory: apps/web
         env:
-          VITE_PLATFORM_MODE: "true"
+          VITE_PLATFORM_MODE: "false"
         run: bun run build
       - name: Rewrite package.json for publish
         working-directory: apps/web

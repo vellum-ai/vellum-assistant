@@ -1442,7 +1442,7 @@ jobs:
       - name: Build
         working-directory: apps/web
         env:
-          VITE_PLATFORM_MODE: "true"
+          VITE_PLATFORM_MODE: "false"
         run: bun run build
       - name: Rewrite package.json for publish
         working-directory: apps/web
@@ -1486,7 +1486,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --tag staging --access public --no-provenance
 
-  publish-web:
+  publish-web-platform:
     needs: [extract-version, ci-cli, ci-gateway, ci-playwright, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image]
     if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.ci-cli.result == 'success' && needs.ci-gateway.result == 'success' && (needs.ci-playwright.result == 'success' || inputs.playwright_blocks_release != true) && needs.push-assistant-manifest.result == 'success' && needs.push-gateway-manifest.result == 'success' && needs.push-credential-executor-manifest.result == 'success' && needs.push-dockerhub-image.result == 'success' }}
     runs-on: ubuntu-latest
@@ -1561,7 +1561,7 @@ jobs:
           npm publish --access public --no-provenance
 
   publish-meta:
-    needs: [extract-version, publish-npm, publish-web]
+    needs: [extract-version, publish-npm, publish-web-platform]
     if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -2402,7 +2402,7 @@ jobs:
       - name: Build web SPA
         working-directory: apps/web
         env:
-          VITE_PLATFORM_MODE: "true"
+          VITE_PLATFORM_MODE: "false"
         run: bun run build
 
       - name: Bundle web dist into Electron resources
@@ -2522,8 +2522,8 @@ jobs:
           rm -rf ~/.private_keys 2>/dev/null || true
 
   release:
-    needs: [extract-version, publish-npm, publish-web, publish-meta, build-macos-arm64, build-macos-x64, build-electron, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, ci-playwright, build-chrome-extension]
-    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.extract-version.result == 'success' && needs.publish-npm.result == 'success' && needs.publish-web.result == 'success' && needs.publish-meta.result == 'success' && needs.build-macos-arm64.result == 'success' && (needs.ci-playwright.result == 'success' || inputs.playwright_blocks_release != true) && needs.push-assistant-manifest.result == 'success' && needs.push-gateway-manifest.result == 'success' && needs.push-credential-executor-manifest.result == 'success' && needs.push-dockerhub-image.result == 'success' }}
+    needs: [extract-version, publish-npm, publish-web-platform, publish-meta, build-macos-arm64, build-macos-x64, build-electron, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, ci-playwright, build-chrome-extension]
+    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.extract-version.result == 'success' && needs.publish-npm.result == 'success' && needs.publish-web-platform.result == 'success' && needs.publish-meta.result == 'success' && needs.build-macos-arm64.result == 'success' && (needs.ci-playwright.result == 'success' || inputs.playwright_blocks_release != true) && needs.push-assistant-manifest.result == 'success' && needs.push-gateway-manifest.result == 'success' && needs.push-credential-executor-manifest.result == 'success' && needs.push-dockerhub-image.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -2786,7 +2786,7 @@ jobs:
   # ── iOS release (same-repo reusable workflow) ────────────────────────
 
   release-ios:
-    needs: [extract-version, publish-npm, publish-web, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, build-chrome-extension]
+    needs: [extract-version, publish-npm, publish-web-platform, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, build-chrome-extension]
     if: >-
       ${{
         always() && !cancelled()
@@ -2798,7 +2798,7 @@ jobs:
         && needs.push-credential-executor-manifest.result == 'success'
         && (needs.build-chrome-extension.result == 'success' || needs.build-chrome-extension.result == 'skipped')
         && (needs.publish-npm.result == 'success' || needs.publish-npm.result == 'skipped')
-        && (needs.publish-web.result == 'success' || needs.publish-web.result == 'skipped')
+        && (needs.publish-web-platform.result == 'success' || needs.publish-web-platform.result == 'skipped')
         && (needs.publish-meta.result == 'success' || needs.publish-meta.result == 'skipped')
         && (needs.push-dockerhub-image.result == 'success' || needs.push-dockerhub-image.result == 'skipped')
       }}
@@ -3175,7 +3175,7 @@ jobs:
   notify-release:
     name: Slack Notification (Release)
     if: ${{ always() && !cancelled() }}
-    needs: [extract-version, publish-npm, publish-web, publish-meta, build-macos-arm64, build-macos-x64, build-electron, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, pack-cli, trigger-platform-qa, release-ios, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright, build-chrome-extension, publish-chrome-extension]
+    needs: [extract-version, publish-npm, publish-web-platform, publish-meta, build-macos-arm64, build-macos-x64, build-electron, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, pack-cli, trigger-platform-qa, release-ios, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright, build-chrome-extension, publish-chrome-extension]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
