@@ -1,5 +1,7 @@
 import { Menu, Tray, app, nativeTheme } from "electron";
 
+import type { LockfileAssistant } from "@vellumai/local-mode/contract";
+
 import {
   MENU_ICON_CIRCLECHECK,
   MENU_ICON_MESSAGECIRCLE,
@@ -11,8 +13,10 @@ import {
 } from "./assets/menu-icons";
 import { onAvatarChange } from "./avatar";
 import { resolveAccelerator } from "./commands";
+import { getWatchedLockfile } from "./lockfile-watcher";
 import { dispatchToMain } from "./main-window";
 import { menuIcon } from "./menu-icon";
+import { readSetting } from "./settings";
 import {
   getStatus,
   onStatusChange,
@@ -79,6 +83,26 @@ export interface TrayHandlers {
   openAbout(): void;
 }
 
+/**
+ * Resolve a user-facing display title for a lockfile assistant. Uses the
+ * assistant name when present, falling back to a truncated id.
+ */
+const assistantDisplayTitle = (assistant: LockfileAssistant): string => {
+  if (assistant.name) return assistant.name;
+  const id = assistant.assistantId;
+  return id.length > 12 ? `${id.slice(0, 12)}\u2026` : id;
+};
+
+/**
+ * Whether the multi-platform-assistant feature flag is currently enabled.
+ * Checked at menu-build time so toggling the flag takes effect on the next
+ * right-click without requiring an app restart.
+ */
+const isMultiAssistantEnabled = (): boolean => {
+  const flags = readSetting("featureFlags") as Record<string, boolean> | null;
+  return flags?.["multi-platform-assistant"] === true;
+};
+
 const buildTrayMenu = (handlers: TrayHandlers, status: AssistantStatus): Menu => {
   const onboarding = readOnboardingActive();
 
@@ -90,6 +114,64 @@ const buildTrayMenu = (handlers: TrayHandlers, status: AssistantStatus): Menu =>
       enabled: false,
     },
   ];
+
+  // Assistant switcher: gated by the multi-platform-assistant feature flag.
+  // Reads from the lockfile watcher's in-memory cache (no disk I/O).
+  if (isMultiAssistantEnabled() && !onboarding) {
+    const lockfile = getWatchedLockfile();
+    const assistants = lockfile.assistants;
+    const activeId = lockfile.activeAssistant;
+
+    items.push({ type: "separator" });
+    items.push({ label: "Assistants", enabled: false });
+
+    if (assistants.length === 0) {
+      items.push({ label: "No managed assistants", enabled: false });
+    } else {
+      for (const assistant of assistants) {
+        const isActive = assistant.assistantId === activeId;
+        items.push({
+          label: assistantDisplayTitle(assistant),
+          type: "radio",
+          checked: isActive,
+          click: async () => {
+            await handlers.ensureMainWindow();
+            dispatchToMain({
+              kind: "selectAssistant",
+              assistantId: assistant.assistantId,
+            });
+          },
+        });
+      }
+    }
+
+    items.push({ type: "separator" });
+    items.push({
+      label: "New Assistant\u2026",
+      click: async () => {
+        await handlers.ensureMainWindow();
+        dispatchToMain({ kind: "createAssistant" });
+      },
+    });
+
+    if (activeId) {
+      const activeAssistant = assistants.find(
+        (a) => a.assistantId === activeId,
+      );
+      if (activeAssistant) {
+        items.push({
+          label: `Retire ${assistantDisplayTitle(activeAssistant)}\u2026`,
+          click: async () => {
+            await handlers.ensureMainWindow();
+            dispatchToMain({
+              kind: "retireAssistant",
+              assistantId: activeAssistant.assistantId,
+            });
+          },
+        });
+      }
+    }
+  }
 
   // Re-pair: only visible when the guardian token has expired or the
   // daemon is unreachable. Dispatches to the renderer which owns the

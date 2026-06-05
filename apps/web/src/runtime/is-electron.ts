@@ -43,7 +43,10 @@ export type VellumCommand =
   | { kind: "popOut" }
   | { kind: "previousConversation" }
   | { kind: "nextConversation" }
-  | { kind: "commandPalette" };
+  | { kind: "commandPalette" }
+  | { kind: "selectAssistant"; assistantId: string }
+  | { kind: "createAssistant" }
+  | { kind: "retireAssistant"; assistantId: string };
 
 /**
  * Renderer-side mirror of `AssistantStatus` in

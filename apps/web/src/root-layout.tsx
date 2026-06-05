@@ -153,6 +153,17 @@ export function RootLayout() {
       }
     },
     shareFeedback: () => setFeedbackOpen(true),
+    selectAssistant: (command) => {
+      if (command.kind === "selectAssistant") {
+        void useAuthStore.getState().connectLocalAssistant(command.assistantId);
+      }
+    },
+    createAssistant: () => {
+      void navigate(routes.onboarding.prechat);
+    },
+    retireAssistant: () => {
+      void navigate(routes.settings.root);
+    },
   });
 
   const keyboardOpen =

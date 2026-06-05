@@ -28,6 +28,7 @@ import { installDock } from "./dock";
 import { installFeedbackIpc } from "./feedback";
 import { installGlobalShortcuts } from "./global-shortcuts";
 import { installLocalMode } from "./local-mode";
+import { installLockfileWatcher } from "./lockfile-watcher";
 import log from "./logger";
 import {
   ensureVisible as ensureMainWindowVisible,
@@ -324,6 +325,10 @@ app
     const lockfilePaths = resolveLockfilePaths(process.env);
     const runProbe = installConnectivityProbe(lockfilePaths);
     installConnectivityIpc(runProbe);
+    // Start watching the lockfile before the tray installs so the assistant
+    // switcher submenu has data on its first right-click.
+    const teardownLockfileWatcher = installLockfileWatcher();
+    app.on("before-quit", teardownLockfileWatcher);
     installTray({
       toggleMainWindow: toggleMainWindowVisibility,
       ensureMainWindow: ensureMainWindowVisible,
