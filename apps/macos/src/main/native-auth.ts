@@ -2,7 +2,8 @@ import crypto from "node:crypto";
 import { app, net, session, shell } from "electron";
 import { z } from "zod";
 
-import { resolveLocalConfigFromEnv } from "@vellumai/local-mode";
+import { SEEDS } from "@vellumai/environments";
+import { resolveEnvironmentName, resolveLocalConfigFromEnv } from "@vellumai/local-mode";
 
 import { handle } from "./ipc";
 
@@ -101,7 +102,18 @@ function cancelPendingFlows(): void {
   pendingFlows.clear();
 }
 
-function resolvePlatformUrl(): string {
+// The OAuth start/exchange endpoints must hit the remote platform whose
+// redirect URI is registered in WorkOS — not the local dev server, whose
+// localhost URL isn't (and can't practically be) registered.
+function resolveAuthPlatformUrl(): string {
+  const env = resolveEnvironmentName(process.env);
+  const seed = SEEDS[env] ?? SEEDS["production"];
+  return seed!.platformUrl;
+}
+
+// The cookie must be installed against the platform URL the renderer's
+// proxy actually talks to (which may be localhost in dev).
+function resolveProxyPlatformUrl(): string {
   return resolveLocalConfigFromEnv(process.env).platformUrl;
 }
 
@@ -113,10 +125,10 @@ async function startOAuth(options: {
   cancelPendingFlows();
 
   const state = generateState();
-  const platformUrl = resolvePlatformUrl();
+  const authPlatformUrl = resolveAuthPlatformUrl();
   const clientVersion = app.getVersion();
 
-  const url = buildStartUrl(platformUrl, state, {
+  const url = buildStartUrl(authPlatformUrl, state, {
     providerHint: options.providerHint,
     loginHint: options.loginHint,
     clientVersion,
@@ -132,7 +144,7 @@ async function startOAuth(options: {
     void shell.openExternal(url);
   });
 
-  await installSessionCookie(platformUrl, sessionToken);
+  await installSessionCookie(resolveProxyPlatformUrl(), sessionToken);
   return { sessionToken };
 }
 
@@ -158,8 +170,7 @@ export async function handleAuthCallback(
   }
 
   try {
-    const platformUrl = resolvePlatformUrl();
-    const sessionToken = await exchangeCode(platformUrl, code);
+    const sessionToken = await exchangeCode(resolveAuthPlatformUrl(), code);
     flow.resolve(sessionToken);
   } catch (err) {
     flow.reject(err instanceof Error ? err : new Error(String(err)));
