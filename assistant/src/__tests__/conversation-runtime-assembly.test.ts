@@ -60,6 +60,7 @@ import {
 } from "../daemon/conversation-runtime-assembly.js";
 import { buildPkbReminder } from "../daemon/pkb-reminder-builder.js";
 import type { MessageRow } from "../memory/conversation-crud.js";
+import { getPkbRoot } from "../memory/pkb/types.js";
 import {
   type SlackMessageMetadata,
   writeSlackMetadata,
@@ -73,6 +74,7 @@ import {
 import type { Message } from "../providers/types.js";
 import { wrapUntrustedContent } from "../security/untrusted-content.js";
 import type { SubagentState } from "../subagent/types.js";
+import { getWorkspaceDir } from "../util/platform.js";
 
 // `applyRuntimeInjections` is now driven by the default injector chain
 // (PR G2.1). The default-injectors plugin must be registered for the chain
@@ -2032,18 +2034,17 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
 
   const FLAT_REMINDER = buildPkbReminder([]);
 
-  // Use a platform-agnostic absolute workspace root so the tests work on
-  // macOS and Linux runners alike. `pkbRoot` sits under `pkbWorkingDir` to
-  // mirror production, where `pkbRoot = join(workingDir, "pkb")`.
-  const pkbWorkingDir = "/tmp/fake-workspace";
-  const pkbRoot = `${pkbWorkingDir}/pkb`;
+  // The pkb-reminder injector sources the PKB root itself via `getPkbRoot()`,
+  // so the in-context file paths these tests build must resolve against the
+  // same per-test workspace the injector sees.
+  const pkbWorkingDir = getWorkspaceDir();
+  const pkbRoot = getPkbRoot();
 
   function makePkbOptions(overrides: Record<string, unknown> = {}) {
     return {
       pkbActive: true,
       pkbQueryVector: [0.1, 0.2, 0.3],
       pkbConversation: { messages: baseMessages },
-      pkbRoot,
       pkbWorkingDir,
       pkbAutoInjectList: [],
       ...overrides,
@@ -2343,7 +2344,6 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
         pkbActive: true,
         pkbQueryVector: [0.1, 0.2],
         pkbConversation: preCompactionConversation,
-        pkbRoot,
         pkbWorkingDir,
         pkbAutoInjectList: [],
       },
@@ -2388,7 +2388,6 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
         pkbActive: true,
         pkbQueryVector: [0.1, 0.2],
         pkbConversation: postCompactionConversation,
-        pkbRoot,
         pkbWorkingDir,
         pkbAutoInjectList: [],
       },

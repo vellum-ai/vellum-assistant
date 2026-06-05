@@ -390,13 +390,11 @@ export interface TurnInjectionInputs {
    * from hint suggestions.
    */
   readonly pkbConversation?: PkbContextConversation;
-  /** Auto-injected PKB filenames resolved relative to `pkbRoot`. */
+  /** Auto-injected PKB filenames resolved relative to the PKB root. */
   readonly pkbAutoInjectList?: string[];
-  /** Absolute path to the PKB directory (e.g. `<workspace>/pkb`). */
-  readonly pkbRoot?: string;
   /**
    * Working directory against which relative `file_read` paths resolve.
-   * Falls back to `pkbRoot` when omitted.
+   * Falls back to the PKB root when omitted.
    */
   readonly pkbWorkingDir?: string;
   /**

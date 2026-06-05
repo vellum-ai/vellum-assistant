@@ -131,8 +131,22 @@ describe("maybeReseedBootstrap — activation rail template", () => {
     const content = readFileSync(join(TEST_DIR, "BOOTSTRAP.md"), "utf-8");
 
     expect(content).toContain("BOOTSTRAP — Activation Rail");
-    expect(content).toContain("two or three concrete outcomes");
     expect(content).toContain("People don't read");
     expect(content).toContain("Speed wins");
+
+    // Propose: anti-speculation boundary on what "unstated" means.
+    expect(content).toContain("status word");
+    expect(content).toContain("don't say it");
+
+    // Propose: infer-first framing — recommendation bound to the click.
+    expect(content).toContain("You didn't say this");
+    expect(content).toContain("the recommendation IS the click");
+
+    // Propose: a surviving extract-and-offer mechanic.
+    expect(content).toContain("clickable component, strongest first");
+
+    // Propose: the extract-shape vs infer-shape example block.
+    expect(content).toContain("extract-shape");
+    expect(content).toContain("infer-shape");
   });
 });

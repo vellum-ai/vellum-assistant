@@ -1927,14 +1927,12 @@ export interface RuntimeInjectionOptions {
    * suppressed from hint suggestions.
    */
   pkbConversation?: PkbContextConversation;
-  /** Auto-injected PKB filenames (resolved relative to `pkbRoot`). */
+  /** Auto-injected PKB filenames (resolved relative to the PKB root). */
   pkbAutoInjectList?: string[];
-  /** Absolute path to the PKB directory (e.g. `<workspace>/pkb`). */
-  pkbRoot?: string;
   /**
    * Working directory against which relative `file_read` tool paths
    * resolve, used to detect workspace-relative reads like
-   * `pkb/threads.md`. Falls back to `pkbRoot` when omitted.
+   * `pkb/threads.md`. Falls back to the PKB root when omitted.
    */
   pkbWorkingDir?: string;
   /**
@@ -2044,7 +2042,6 @@ function buildTurnInjectionInputs(
     pkbSparseVector: options.pkbSparseVector,
     pkbConversation: options.pkbConversation,
     pkbAutoInjectList: options.pkbAutoInjectList,
-    pkbRoot: options.pkbRoot,
     pkbWorkingDir: options.pkbWorkingDir,
     memoryV2Static: options.memoryV2Static,
     nowScratchpad: options.nowScratchpad,

@@ -6,16 +6,18 @@ import { z } from "zod";
 
 import {
   readAllowedGatewayPorts,
+  resolveLocalConfigFromEnv,
   resolveLockfilePaths,
 } from "@vellumai/local-mode";
 
 import { installAbout, openAboutWindow } from "./about";
-import { APP_PROTOCOL } from "./app-config";
+import { APP_HOST, APP_PROTOCOL } from "./app-config";
 import { installCsp } from "./csp";
 import { ensureWebInstalled, getWebDistPath } from "./cli-installer";
 import { handle } from "./ipc";
 import { resolveAppProtocolPath } from "./app-protocol";
 import { planGatewayForward } from "./gateway-forward";
+import { planPlatformForward } from "./platform-forward";
 import {
   extractDeepLinkFromArgv,
   handleDeepLink,
@@ -121,6 +123,7 @@ const registerAppProtocol = (): void => {
   const lockfilePaths = resolveLockfilePaths(process.env);
   const getAllowedGatewayPorts = (): Set<number> =>
     readAllowedGatewayPorts(lockfilePaths);
+  const { platformUrl } = resolveLocalConfigFromEnv(process.env);
 
   protocol.handle(APP_PROTOCOL, async (request) => {
     // The renderer addresses local gateways at the same `app://` origin via
@@ -130,6 +133,12 @@ const registerAppProtocol = (): void => {
     // Vite dev-server proxy (`apps/web/vite-plugin-local-mode.ts`).
     const proxied = await forwardGatewayRequest(request, getAllowedGatewayPorts);
     if (proxied) return proxied;
+
+    // Platform API routes (`/v1/*`, `/_allauth/*`, `/accounts/*`) forward to
+    // the cloud platform so managed mode works in packaged builds. Mirrors the
+    // Vite dev-server proxy (`apps/web/vite.config.ts` server.proxy entries).
+    const platformProxied = await forwardPlatformRequest(request, platformUrl);
+    if (platformProxied) return platformProxied;
 
     const result = resolveAppProtocolPath(
       rendererRoot,
@@ -190,6 +199,66 @@ const forwardGatewayRequest = async (
         ...(plan.hasBody ? { duplex: "half" } : {}),
         redirect: "manual",
       });
+  }
+};
+
+/**
+ * Forward a platform API request (`/v1/*`, `/_allauth/*`, `/accounts/*`) to
+ * the cloud platform, or return `null` for non-platform paths. Mirrors the
+ * gateway forward: `net.fetch` runs in main so the renderer stays same-origin.
+ *
+ * After a successful response, CSRF cookies from the platform are mirrored
+ * into the renderer's session so `document.cookie` can read the token for
+ * mutating requests.
+ */
+const forwardPlatformRequest = async (
+  request: GlobalRequest,
+  platformUrl: string,
+): Promise<Response | null> => {
+  const plan = planPlatformForward(request, platformUrl);
+  if (plan.kind === "pass") return null;
+
+  let response: Response;
+  try {
+    response = await net.fetch(plan.url, {
+      method: plan.method,
+      headers: plan.headers,
+      body: plan.hasBody ? request.body : undefined,
+      ...(plan.hasBody ? { duplex: "half" } : {}),
+      redirect: "manual",
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Platform unreachable";
+    return new Response(message, { status: 502 });
+  }
+
+  await mirrorCsrfCookie(response);
+  return response;
+};
+
+const CSRF_COOKIE_RE = /(?:__Secure-)?csrftoken=([^;]+)/;
+
+/**
+ * Mirror the CSRF token cookie from a platform response into the renderer's
+ * session cookie store so `document.cookie` can read it. The session cookie
+ * (`sessionid`) stays in `net.fetch`'s own jar for the platform domain —
+ * only the CSRF token needs to be visible to the renderer's JS interceptor.
+ */
+const mirrorCsrfCookie = async (response: Response): Promise<void> => {
+  const setCookies = response.headers.getSetCookie?.() ?? [];
+  for (const raw of setCookies) {
+    const match = CSRF_COOKIE_RE.exec(raw);
+    if (match?.[1]) {
+      const name = raw.startsWith("__Secure-")
+        ? "__Secure-csrftoken"
+        : "csrftoken";
+      await session.defaultSession.cookies.set({
+        url: `app://${APP_HOST}`,
+        name,
+        value: match[1],
+        secure: true,
+      });
+    }
   }
 };
 
