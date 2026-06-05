@@ -97,6 +97,13 @@ export const routeTree = [
     // Logout — standalone page, no app chrome
     { path: "/logout", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/domains/account/pages/logout-page").then((m) => m.LogoutPage) } },
 
+    // Cast — activation-surface prototype. Standalone & public (no auth, no
+    // chrome). Declared as a sibling of `/assistant` (same pattern as About /
+    // bundle / quick-input) so it loads without login and is served by Vite's
+    // SPA fallback in dev (scoped to the `/assistant/` base). Navigable at
+    // `/assistant/cast`. Slated to fold into onboarding later.
+    { path: "/assistant/cast", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/cast-page-route").then((m) => m.CastPageRoute) } },
+
     // About — standalone metadata page rendered inside the Electron
     // About BrowserWindow. Declared as a sibling of `/assistant` (not
     // a child) so React Router's most-specific matcher picks it for
