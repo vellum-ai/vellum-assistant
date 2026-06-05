@@ -1322,6 +1322,36 @@ describe("twilio webhook routes", () => {
       expect(twiml).not.toContain("<ConversationRelay");
     });
 
+    test("inbound: deny outcome + missing STT (TTS fine) -> <Stream> (denial speaks; STT not needed)", async () => {
+      // A blocked/deny caller only needs TTS to voice the denial then hang up —
+      // it never consumes transcripts, so a missing STT must NOT divert to the
+      // generic setup-required <Say>. The deny flow runs over media-stream.
+      mockConfigObj.services.stt.provider = "openai-whisper" as any;
+      delete mockSecureKeyStore[credentialKey("openai", "api_key")];
+      const prevRouteSetup = mockRouteSetupResult;
+      mockRouteSetupResult = {
+        outcome: { action: "deny", isInbound: true } as any,
+        resolved: prevRouteSetup.resolved,
+      };
+      try {
+        const req = makeInboundVoiceRequest({
+          CallSid: "CA_deny_stt_missing_in",
+          From: "+14155551234",
+          To: "+15550001111",
+        });
+
+        const res = await handleVoiceWebhook(req);
+        expect(res.status).toBe(200);
+
+        const twiml = await res.text();
+        expect(twiml).toContain("<Stream");
+        expect(twiml).not.toContain("<Say>");
+        expect(twiml).not.toContain("<ConversationRelay");
+      } finally {
+        mockRouteSetupResult = prevRouteSetup;
+      }
+    });
+
     test("inbound: both STT + TTS ready -> <Connect><Stream> (no Say)", async () => {
       // Default beforeEach seeds deepgram (STT) + elevenlabs (TTS) keys, so the
       // full-readiness guard passes and the webhook streams normally.

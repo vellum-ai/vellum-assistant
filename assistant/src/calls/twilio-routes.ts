@@ -52,6 +52,7 @@ import {
   releaseCallbackClaim,
   updateCallSession,
 } from "./call-store.js";
+import { routeSetup } from "./relay-setup-router.js";
 import { resolveCallHints } from "./stt-hints.js";
 import {
   describeCredentialGaps,
@@ -444,12 +445,37 @@ async function buildVoiceWebhookTwiml(
   if (sessionContext?.direction === "inbound") {
     const readiness = await resolveTelephonyCredentialReadiness();
     if (readiness.status !== "ready") {
-      log.warn(
-        { callSessionId, missing: describeCredentialGaps(readiness.missing) },
-        "Inbound call: telephony STT/TTS credentials not ready — returning " +
-          "<Say> setup-required (no media-stream)",
-      );
-      return buildSetupRequiredSayTwiml();
+      const ttsMissing = readiness.missing.some((g) => g.kind === "tts");
+      const sttMissing = readiness.missing.some((g) => g.kind === "stt");
+
+      // Scope the STT requirement to outcomes that actually consume caller
+      // transcripts. Terminal speak-then-hangup outcomes (`deny`,
+      // `unverified_caller`) need only TTS to voice their message — gating them
+      // on STT would replace the denial/guidance with a generic setup-required
+      // prompt, regressing the relay path (which denies without STT). TTS being
+      // unavailable always blocks, since even those outcomes can't speak then.
+      const session = getCallSession(callSessionId);
+      const { outcome } = routeSetup({
+        callSessionId,
+        session: session ?? null,
+        from: sessionContext.fromNumber,
+        to: sessionContext.toNumber,
+      });
+      const sttConsumed =
+        outcome.action !== "deny" && outcome.action !== "unverified_caller";
+
+      if (ttsMissing || (sttMissing && sttConsumed)) {
+        log.warn(
+          {
+            callSessionId,
+            setupAction: outcome.action,
+            missing: describeCredentialGaps(readiness.missing),
+          },
+          "Inbound call: required telephony credentials not ready — returning " +
+            "<Say> setup-required (no media-stream)",
+        );
+        return buildSetupRequiredSayTwiml();
+      }
     }
   }
 
