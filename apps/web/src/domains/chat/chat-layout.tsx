@@ -515,7 +515,9 @@ export function ChatLayout() {
       startNewConversation();
     },
     currentConversation: () => {
-      if (!activeConversationId) return;
+      if (!activeConversationId) {
+        return;
+      }
       const target = routes.conversation(activeConversationId);
       if (location.pathname !== target) {
         void navigate(target);
@@ -523,11 +525,18 @@ export function ChatLayout() {
       requestComposerFocus();
     },
     markCurrentUnread: () => {
-      if (!activeConversationId) return;
+      if (!activeConversationId) {
+        return;
+      }
       const conversation = conversations.find(
         (c) => c.conversationId === activeConversationId,
       );
-      if (conversation) handleMarkConversationUnread(conversation);
+      if (conversation) {
+        handleMarkConversationUnread(conversation);
+      }
+    },
+    find: () => {
+      useCommandPaletteStore.getState().toggle();
     },
   });
 
