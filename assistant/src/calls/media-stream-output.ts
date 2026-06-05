@@ -39,6 +39,7 @@ import type { CallTransport } from "./call-transport.js";
 import {
   chunkMulawToBase64Frames,
   pcm16ToMulaw,
+  resamplePcm16,
 } from "./media-stream-audio-transcode.js";
 import type {
   MediaStreamClearCommand,
@@ -47,6 +48,104 @@ import type {
 } from "./media-stream-protocol.js";
 
 const log = getLogger("media-stream-output");
+
+/** Twilio media streams expect 8 kHz mono mu-law audio. */
+const TELEPHONY_SAMPLE_RATE = 8000;
+
+/**
+ * Parsed result of a WAV (RIFF) container's `fmt `/`data` chunks.
+ */
+interface ParsedWav {
+  sampleRate: number;
+  numChannels: number;
+  bitsPerSample: number;
+  /** Raw PCM bytes of the `data` chunk (located by scanning, not assumed at offset 44). */
+  data: Buffer;
+}
+
+/**
+ * Parse a WAV (RIFF) buffer to recover the real sample rate and locate the
+ * `data` chunk.
+ *
+ * WAV headers are NOT always exactly 44 bytes — extra chunks (e.g. `LIST`,
+ * `fact`) can precede `data`. So we scan the chunk list rather than slicing
+ * at a fixed offset. Returns `null` if the buffer is not a parseable
+ * PCM/IEEE-float WAV, so callers can fall back to legacy behavior.
+ */
+function parseWav(audio: Buffer): ParsedWav | null {
+  // Minimum: "RIFF"(4) + size(4) + "WAVE"(4) = 12 bytes for the RIFF header.
+  if (audio.length < 12) return null;
+  if (audio.toString("ascii", 0, 4) !== "RIFF") return null;
+  if (audio.toString("ascii", 8, 12) !== "WAVE") return null;
+
+  let sampleRate = 0;
+  let numChannels = 0;
+  let bitsPerSample = 0;
+  let audioFormat = 0;
+  let data: Buffer | null = null;
+
+  // Walk the chunk list starting right after the "WAVE" identifier.
+  let offset = 12;
+  while (offset + 8 <= audio.length) {
+    const chunkId = audio.toString("ascii", offset, offset + 4);
+    const chunkSize = audio.readUInt32LE(offset + 4);
+    const bodyStart = offset + 8;
+
+    if (chunkId === "fmt ") {
+      if (bodyStart + 16 > audio.length) return null;
+      audioFormat = audio.readUInt16LE(bodyStart);
+      numChannels = audio.readUInt16LE(bodyStart + 2);
+      sampleRate = audio.readUInt32LE(bodyStart + 4);
+      bitsPerSample = audio.readUInt16LE(bodyStart + 14);
+    } else if (chunkId === "data") {
+      // Clamp to the actual buffer end in case the declared size is wrong.
+      const dataEnd = Math.min(bodyStart + chunkSize, audio.length);
+      data = audio.subarray(bodyStart, dataEnd);
+    }
+
+    // Chunks are word-aligned: an odd size is followed by a pad byte.
+    offset = bodyStart + chunkSize + (chunkSize % 2);
+  }
+
+  if (sampleRate <= 0 || data === null) return null;
+  // Only handle uncompressed PCM (1) or IEEE float (3, treated as PCM-ish by
+  // bit depth). We currently only decode 16-bit PCM downstream; other depths
+  // are reported so the caller can decide. audioFormat 1 = PCM.
+  if (audioFormat !== 1) return null;
+
+  return { sampleRate, numChannels, bitsPerSample, data };
+}
+
+/**
+ * Extract 16-bit signed LE mono PCM from parsed WAV data.
+ *
+ * Handles the common telephony-TTS case: 16-bit signed LE PCM. If the source
+ * is stereo we take channel 0 (the simplest correct behavior — TTS output is
+ * effectively mono, and dropping to the first channel avoids any mixing
+ * artifacts/clipping). Non-16-bit depths return `null` so the caller can fall
+ * back rather than emit garbage.
+ */
+function wavToMonoPcm16(parsed: ParsedWav): Buffer | null {
+  if (parsed.bitsPerSample !== 16) return null;
+  const channels = parsed.numChannels > 0 ? parsed.numChannels : 1;
+
+  if (channels === 1) {
+    // Already mono — ensure an even byte count (drop a trailing odd byte).
+    const evenLen = parsed.data.length - (parsed.data.length % 2);
+    return parsed.data.subarray(0, evenLen);
+  }
+
+  // Stereo (or more): take channel 0 only.
+  const bytesPerFrame = channels * 2;
+  const frameCount = Math.floor(parsed.data.length / bytesPerFrame);
+  const mono = Buffer.alloc(frameCount * 2);
+  for (let i = 0; i < frameCount; i++) {
+    // Copy the first channel's 16-bit sample from each interleaved frame.
+    mono[i * 2] = parsed.data[i * bytesPerFrame];
+    mono[i * 2 + 1] = parsed.data[i * bytesPerFrame + 1];
+  }
+  return mono;
+}
 
 // ---------------------------------------------------------------------------
 // Connection state
@@ -532,8 +631,12 @@ export class MediaStreamOutput implements CallTransport {
    * returns mp3), this method **sniffs the magic bytes** to detect the
    * real format:
    *
-   * - **WAV** (`RIFF` header, bytes `0x52 0x49 0x46 0x46`): extracts
-   *   raw PCM data from the WAV container and converts to mu-law.
+   * - **WAV** (`RIFF` header, bytes `0x52 0x49 0x46 0x46`): parses the
+   *   `fmt ` chunk for the real sample rate, locates the `data` chunk, then
+   *   resamples the PCM to 8 kHz before mu-law encoding. This is required
+   *   because some providers (e.g. fish-audio) return WAV at a higher rate
+   *   (24/44.1 kHz); encoding those samples as if they were 8 kHz produces
+   *   slowed/garbled telephony audio.
    * - **PCM** (raw 16-bit signed LE at a known sample rate): converts
    *   directly to mu-law, downsampling from 16 kHz to 8 kHz if needed.
    * - **Compressed formats** (mp3, opus): cannot be decoded in this
@@ -555,8 +658,46 @@ export class MediaStreamOutput implements CallTransport {
       audio[3] === 0x46; // F
 
     if (isWav) {
-      // Extract raw PCM from WAV container. Standard WAV has a 44-byte
-      // header; the rest is PCM data (assuming 16-bit signed LE, 8 kHz).
+      // Parse the RIFF/`fmt ` chunk to recover the true sample rate and
+      // locate the `data` chunk (don't assume a fixed 44-byte header), then
+      // resample to 8 kHz before mu-law encoding. Providers like fish-audio
+      // return WAV at 24/44.1 kHz; encoding those as 8 kHz slows/garbles the
+      // audio.
+      const parsed = parseWav(audio);
+      if (parsed !== null) {
+        const monoPcm = wavToMonoPcm16(parsed);
+        if (monoPcm !== null) {
+          if (monoPcm.length < 2) return [];
+          // Resample from the parsed rate to 8 kHz. An 8 kHz source is an
+          // identity pass; a 16 kHz source downsamples just like the
+          // elevenlabs pcm_16000 path; higher rates downsample via linear
+          // interpolation so duration is preserved.
+          const resampled = resamplePcm16(
+            monoPcm,
+            parsed.sampleRate,
+            TELEPHONY_SAMPLE_RATE,
+          );
+          const mulawBuffer = pcm16ToMulaw(resampled);
+          return chunkMulawToBase64Frames(mulawBuffer);
+        }
+        log.warn(
+          {
+            streamSid: this.streamSid,
+            sampleRate: parsed.sampleRate,
+            numChannels: parsed.numChannels,
+            bitsPerSample: parsed.bitsPerSample,
+          },
+          "WAV has unsupported bit depth — falling back to legacy 8 kHz passthrough",
+        );
+      } else {
+        log.warn(
+          { streamSid: this.streamSid, audioBytes: audio.length },
+          "Failed to parse WAV header — falling back to legacy 8 kHz passthrough",
+        );
+      }
+
+      // Fallback (parse failed or unsupported depth): legacy behavior —
+      // strip the standard 44-byte header and mu-law encode as 8 kHz.
       const pcmData = audio.subarray(44);
       if (pcmData.length < 2) return [];
       const mulawBuffer = pcm16ToMulaw(pcmData);

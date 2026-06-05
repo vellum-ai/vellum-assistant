@@ -92,12 +92,19 @@ async function drain(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 10));
 }
 
-/** Generate a minimal valid WAV buffer with PCM data. */
-function makeWavBuffer(pcmSamples: number[]): Buffer {
+/** Generate a minimal valid WAV buffer with PCM data at the given rate. */
+function makeWavBuffer(
+  pcmSamples: number[],
+  sampleRate = 8000,
+  numChannels = 1,
+): Buffer {
   const pcmData = Buffer.alloc(pcmSamples.length * 2);
   for (let i = 0; i < pcmSamples.length; i++) {
     pcmData.writeInt16LE(pcmSamples[i], i * 2);
   }
+  const bitsPerSample = 16;
+  const blockAlign = numChannels * (bitsPerSample / 8);
+  const byteRate = sampleRate * blockAlign;
   // 44-byte WAV header (simplified)
   const header = Buffer.alloc(44);
   header.write("RIFF", 0);
@@ -106,14 +113,25 @@ function makeWavBuffer(pcmSamples: number[]): Buffer {
   header.write("fmt ", 12);
   header.writeUInt32LE(16, 16); // subchunk1 size
   header.writeUInt16LE(1, 20); // PCM
-  header.writeUInt16LE(1, 22); // mono
-  header.writeUInt32LE(8000, 24); // sample rate
-  header.writeUInt32LE(16000, 28); // byte rate
-  header.writeUInt16LE(2, 32); // block align
-  header.writeUInt16LE(16, 34); // bits per sample
+  header.writeUInt16LE(numChannels, 22);
+  header.writeUInt32LE(sampleRate, 24); // sample rate
+  header.writeUInt32LE(byteRate, 28); // byte rate
+  header.writeUInt16LE(blockAlign, 32); // block align
+  header.writeUInt16LE(bitsPerSample, 34); // bits per sample
   header.write("data", 36);
   header.writeUInt32LE(pcmData.length, 40);
   return Buffer.concat([header, pcmData]);
+}
+
+/** Count total mu-law samples (bytes) across all base64 media frames. */
+function totalMulawSamples(sent: string[]): number {
+  return sent
+    .filter((s) => JSON.parse(s).event === "media")
+    .reduce(
+      (sum, s) =>
+        sum + Buffer.from(JSON.parse(s).media.payload, "base64").length,
+      0,
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -564,6 +582,129 @@ describe("MediaStreamOutput", () => {
         expect(typeof parsed.media.payload).toBe("string");
         expect(parsed.media.payload.length).toBeGreaterThan(0);
       }
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // WAV sample-rate resampling (fix for garbled non-8kHz WAV TTS, e.g. fish-audio)
+  // ---------------------------------------------------------------------------
+
+  describe("WAV sample-rate resampling", () => {
+    test("24 kHz WAV resamples to ~8 kHz (duration preserved, not encoded as 24 kHz)", async () => {
+      // 1 second of audio at 24 kHz = 24000 samples. After resampling to
+      // 8 kHz it should be ~8000 mu-law samples (~50 frames of 160 bytes),
+      // NOT 24000. This proves the parsed rate is honored.
+      const sampleRate = 24000;
+      const samples = Array.from({ length: sampleRate }, (_, i) =>
+        Math.round(Math.sin(i * 0.05) * 10000),
+      );
+      const wav = makeWavBuffer(samples, sampleRate);
+      mockSynthesize.mockResolvedValue({
+        audio: wav,
+        contentType: "audio/wav",
+      });
+
+      const { ws, sent } = createMockWs();
+      const output = new MediaStreamOutput(ws, "stream-1");
+      output.sendTextToken("test", true);
+      await drain();
+
+      const total = totalMulawSamples(sent);
+      // ~8000 samples expected (1s @ 8kHz). Allow a small rounding window.
+      expect(total).toBeGreaterThan(7900);
+      expect(total).toBeLessThan(8100);
+      // Sanity: definitely not encoded as 24kHz worth of samples.
+      expect(total).toBeLessThan(12000);
+    });
+
+    test("44.1 kHz WAV resamples to ~8 kHz", async () => {
+      const sampleRate = 44100;
+      const samples = Array.from({ length: sampleRate }, (_, i) =>
+        Math.round(Math.sin(i * 0.02) * 8000),
+      );
+      const wav = makeWavBuffer(samples, sampleRate);
+      mockSynthesize.mockResolvedValue({
+        audio: wav,
+        contentType: "audio/wav",
+      });
+
+      const { ws, sent } = createMockWs();
+      const output = new MediaStreamOutput(ws, "stream-1");
+      output.sendTextToken("test", true);
+      await drain();
+
+      const total = totalMulawSamples(sent);
+      // 1s @ 8kHz ≈ 8000 samples.
+      expect(total).toBeGreaterThan(7900);
+      expect(total).toBeLessThan(8100);
+    });
+
+    test("16 kHz WAV downsamples correctly (regression)", async () => {
+      const sampleRate = 16000;
+      const samples = Array.from({ length: sampleRate }, (_, i) =>
+        Math.round(Math.sin(i * 0.03) * 9000),
+      );
+      const wav = makeWavBuffer(samples, sampleRate);
+      mockSynthesize.mockResolvedValue({
+        audio: wav,
+        contentType: "audio/wav",
+      });
+
+      const { ws, sent } = createMockWs();
+      const output = new MediaStreamOutput(ws, "stream-1");
+      output.sendTextToken("test", true);
+      await drain();
+
+      const total = totalMulawSamples(sent);
+      expect(total).toBeGreaterThan(7900);
+      expect(total).toBeLessThan(8100);
+    });
+
+    test("8 kHz WAV is identity (no rate change)", async () => {
+      const sampleRate = 8000;
+      const samples = Array.from({ length: sampleRate }, (_, i) =>
+        Math.round(Math.sin(i * 0.1) * 10000),
+      );
+      const wav = makeWavBuffer(samples, sampleRate);
+      mockSynthesize.mockResolvedValue({
+        audio: wav,
+        contentType: "audio/wav",
+      });
+
+      const { ws, sent } = createMockWs();
+      const output = new MediaStreamOutput(ws, "stream-1");
+      output.sendTextToken("test", true);
+      await drain();
+
+      const total = totalMulawSamples(sent);
+      // 8000 input samples @ 8kHz -> 8000 mu-law samples exactly.
+      expect(total).toBe(8000);
+    });
+
+    test("stereo WAV at higher rate takes channel 0 and resamples to 8 kHz", async () => {
+      // Interleaved stereo: L,R,L,R... 1s @ 24kHz = 24000 frames = 48000 samples.
+      const sampleRate = 24000;
+      const frames = sampleRate; // 1 second
+      const interleaved: number[] = [];
+      for (let i = 0; i < frames; i++) {
+        interleaved.push(Math.round(Math.sin(i * 0.05) * 10000)); // L
+        interleaved.push(0); // R (silent, proves we take channel 0)
+      }
+      const wav = makeWavBuffer(interleaved, sampleRate, 2);
+      mockSynthesize.mockResolvedValue({
+        audio: wav,
+        contentType: "audio/wav",
+      });
+
+      const { ws, sent } = createMockWs();
+      const output = new MediaStreamOutput(ws, "stream-1");
+      output.sendTextToken("test", true);
+      await drain();
+
+      const total = totalMulawSamples(sent);
+      // 24000 mono frames -> ~8000 mu-law samples after resample.
+      expect(total).toBeGreaterThan(7900);
+      expect(total).toBeLessThan(8100);
     });
   });
 });
