@@ -12,6 +12,14 @@ export interface AcpAgentConfig {
   args: string[];
   description?: string;
   env?: Record<string, string>;
+  /**
+   * Canonical adapter identity (e.g. "claude-agent-acp"), set by the
+   * resolver. It survives the bunx rewrite, where `command` becomes "bun"
+   * and the adapter package moves into `args`. Optional because plain user
+   * configs that bypass the resolver never set it; consumers fall back to
+   * the command basename via `adapterCommandOf` in `resolve-agent.ts`.
+   */
+  adapterCommand?: string;
 }
 
 /**

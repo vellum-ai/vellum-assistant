@@ -1,11 +1,14 @@
 /**
  * Silent auto-install for known ACP adapter binaries.
  *
- * When a spawn fails preflight with `binary_not_found`, callers (the
- * `acp_spawn` tool and the `/v1/acp/spawn` route) call
- * `resolveAgentWithAutoInstall(agentId)`, which tries a global npm install
- * of the mapped adapter package, then re-resolves and continues. On failure
- * they fall back to the existing actionable install hint.
+ * Fallback path: the resolver (`resolve-agent.ts`) already rewrites missing
+ * allowlisted adapters to run via `bun x` when `bun` is on PATH, so
+ * `binary_not_found` only reaches this module when bun is absent (or the
+ * command has no package mapping). When a spawn does fail preflight with
+ * `binary_not_found`, callers (the `acp_spawn` tool and the `/v1/acp/spawn`
+ * route) call `resolveAgentWithAutoInstall(agentId)`, which tries a global
+ * npm install of the mapped adapter package, then re-resolves and continues.
+ * On failure they fall back to the existing actionable install hint.
  *
  * Security boundary: only commands present in `DEFAULT_AGENT_NPM_PACKAGES`
  * are ever installed. The package names are vendored constants, NOT user

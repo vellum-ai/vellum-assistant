@@ -17,7 +17,11 @@ import { getLogger } from "../util/logger.js";
 import { AcpAgentProcess } from "./agent-process.js";
 import { VellumAcpClientHandler } from "./client-handler.js";
 import { prepareAgentEnv } from "./prepare-agent-env.js";
-import { formatResolveFailure, resolveAcpAgent } from "./resolve-agent.js";
+import {
+  adapterCommandOf,
+  formatResolveFailure,
+  resolveAcpAgent,
+} from "./resolve-agent.js";
 import { claudeResumeHint } from "./resume-hint.js";
 import type { AcpAgentConfig, AcpSessionState } from "./types.js";
 
@@ -70,8 +74,10 @@ interface SessionEntry {
   currentPrompt: Promise<unknown> | null;
   parentConversationId: string;
   cwd: string;
-  /** The adapter binary that was spawned. Used to gate resume hints to
-   *  the only adapter (claude-agent-acp) whose CLI accepts `--resume`. */
+  /** Canonical adapter command for the spawned config (e.g.
+   *  "claude-agent-acp" even when the adapter runs via `bun x`). Used to
+   *  gate resume hints to the only adapter (claude-agent-acp) whose CLI
+   *  accepts `--resume`. */
   command: string;
 }
 
@@ -310,7 +316,7 @@ export class AcpSessionManager {
       currentPrompt: null,
       parentConversationId: opts.parentConversationId,
       cwd: opts.cwd,
-      command: opts.agentConfig.command,
+      command: adapterCommandOf(opts.agentConfig),
     };
 
     this.sessions.set(acpSessionId, entry);
