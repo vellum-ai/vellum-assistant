@@ -39,8 +39,6 @@ export interface TranscriptProps {
   items: TranscriptItem[];
   conversationId: string | null;
   assistantDisplayName?: string | null;
-  onSecretSubmit: (requestId: string, value: string) => void;
-  onConfirmationDecision: (requestId: string, decision: string) => void;
   onSurfaceAction: (
     surfaceId: string,
     action: string,
@@ -61,15 +59,10 @@ export interface TranscriptProps {
    *  should pass stable refs (the chat session store's maps). */
   expandedCardIds?: Map<string, boolean>;
   expandedThinkingKeys?: Map<string, boolean>;
-  /** Optional renderer for `kind: "pendingSecret"` items. PR 7 passes the
-   *  real `SecretPromptCard` here. */
-  renderPendingSecret?: (requestId: string) => ReactNode;
-  /** Optional renderer for `kind: "pendingConfirmation"` items. PR 7 passes
-   *  the real `ConfirmationPromptCard` here. */
-  renderPendingConfirmation?: (requestId: string) => ReactNode;
-  /** Optional renderer for `kind: "pendingContactRequest"` items. */
-  renderPendingContactRequest?: (requestId: string) => ReactNode;
-  /** Optional renderer for `kind: "onboardingChoice"` items. */
+  /** Render-prop for `kind: "onboardingChoice"` items. Onboarding depends
+   *  on props from the parent (sendMessage, didOnboarding, etc.) and has a
+   *  different lifecycle than interaction prompts, so it stays as a
+   *  render-prop for now. */
   renderOnboardingChoice?: () => ReactNode;
   /** Click handler on a tool-call risk badge — opens the rule editor. The
    *  ToolCallChip forwards the active tool-call's metadata so the modal can
@@ -239,14 +232,9 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
       expandedCardIds,
       expandedThinkingKeys,
       onSurfaceAction: rest.onSurfaceAction,
-      onSecretSubmit: rest.onSecretSubmit,
-      onConfirmationDecision: rest.onConfirmationDecision,
       onRetryError: rest.onRetryError,
       onForkConversation: rest.onForkConversation,
       onInspectMessage: rest.onInspectMessage,
-      renderPendingSecret: rest.renderPendingSecret,
-      renderPendingConfirmation: rest.renderPendingConfirmation,
-      renderPendingContactRequest: rest.renderPendingContactRequest,
       renderOnboardingChoice: rest.renderOnboardingChoice,
       assistantDisplayName: rest.assistantDisplayName,
       onOpenRuleEditor: rest.onOpenRuleEditor,

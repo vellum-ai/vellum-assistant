@@ -5,20 +5,19 @@ import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import { Notice } from "@vellumai/design-library";
 
+import { PendingConfirmationRow } from "@/domains/chat/transcript/pending-confirmation-row";
+import { PendingContactRequestRow } from "@/domains/chat/transcript/pending-contact-request-row";
+import { PendingSecretRow } from "@/domains/chat/transcript/pending-secret-row";
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
 import type { ConfirmationDecision } from "@/types/event-types";
 
 /**
  * Thin dispatcher: render one `TranscriptItem` using the matching existing
- * component for its `kind`. Never forks the component — the per-kind JSX
- * mirrors the corresponding block in `AssistantPageClient.tsx`.
+ * component for its `kind`.
  *
- * `renderPendingSecret` / `renderPendingConfirmation` are render-prop slots:
- * the pending-prompt cards (`SecretPromptCard`, `ConfirmationPromptCard`)
- * currently live inside `AssistantPageClient.tsx` and depend on local state
- * (submitting, saved, etc). PR 7 passes those renderers in; until then we
- * fall back to a minimal built-in prompt that exercises the public callbacks
- * so the Transcript still produces something sensible in isolation.
+ * Interaction prompt items (`pendingSecret`, `pendingConfirmation`,
+ * `pendingContactRequest`) render focused row components that read
+ * interaction-store directly — no render-prop relay from the parent.
  */
 export interface TranscriptRowProps {
   item: TranscriptItem;
@@ -31,18 +30,13 @@ export interface TranscriptRowProps {
     actionId: string,
     data?: Record<string, unknown>,
   ) => void;
-  onSecretSubmit: (requestId: string, value: string) => void;
-  onConfirmationDecision: (requestId: string, decision: string) => void;
   onRetryError: () => void;
   onForkConversation?: (messageId: string) => void;
   onInspectMessage?: (messageId: string) => void;
-  /** Render-prop override for `kind: "pendingSecret"`. */
-  renderPendingSecret?: (requestId: string) => ReactNode;
-  /** Render-prop override for `kind: "pendingConfirmation"`. */
-  renderPendingConfirmation?: (requestId: string) => ReactNode;
-  /** Render-prop override for `kind: "pendingContactRequest"`. */
-  renderPendingContactRequest?: (requestId: string) => ReactNode;
-  /** Render-prop override for `kind: "onboardingChoice"`. */
+  /** Render-prop for `kind: "onboardingChoice"` items. Onboarding depends on
+   *  props from the parent (sendMessage, didOnboarding, etc.) and has a
+   *  different lifecycle than interaction prompts, so it stays as a render-prop
+   *  for now. */
   renderOnboardingChoice?: () => ReactNode;
   onOpenRuleEditor?: (context: {
     toolName: string;
@@ -86,14 +80,9 @@ export const TranscriptRow = memo(function TranscriptRow({
   expandedCardIds,
   expandedThinkingKeys,
   onSurfaceAction,
-  onSecretSubmit,
-  onConfirmationDecision,
   onRetryError,
   onForkConversation,
   onInspectMessage,
-  renderPendingSecret,
-  renderPendingConfirmation,
-  renderPendingContactRequest,
   renderOnboardingChoice,
   onOpenRuleEditor,
   unknownNudgeToolCallIds,
@@ -186,39 +175,13 @@ export const TranscriptRow = memo(function TranscriptRow({
       );
 
     case "pendingSecret":
-      if (renderPendingSecret) {
-        return <>{renderPendingSecret(item.requestId)}</>;
-      }
-      return (
-        <MinimalSecretPrompt
-          requestId={item.requestId}
-          onSubmit={onSecretSubmit}
-        />
-      );
+      return <PendingSecretRow />;
 
     case "pendingConfirmation":
-      if (renderPendingConfirmation) {
-        return <>{renderPendingConfirmation(item.requestId)}</>;
-      }
-      return (
-        <MinimalConfirmationPrompt
-          requestId={item.requestId}
-          onDecision={onConfirmationDecision}
-        />
-      );
+      return <PendingConfirmationRow />;
 
     case "pendingContactRequest":
-      if (renderPendingContactRequest) {
-        return <>{renderPendingContactRequest(item.requestId)}</>;
-      }
-      // Minimal fallback — full UI provided via renderPendingContactRequest in AssistantPageClient.
-      return (
-        // typography: off-scale — compact card fallback, not prose
-         
-        <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--surface-secondary)] p-4 text-sm text-[var(--content-secondary)]">
-          {item.label ?? "Enter contact info"}
-        </div>
-      );
+      return <PendingContactRequestRow />;
 
     case "error":
       // Mirrors the `{error && <Notice tone="error">{error}</Notice>}` from
@@ -246,77 +209,3 @@ export const TranscriptRow = memo(function TranscriptRow({
     }
   }
 });
-
-// ---------------------------------------------------------------------------
-// Minimal built-in prompts. These are intentionally bare-bones — PR 7 passes
-// the real `SecretPromptCard` / `ConfirmationPromptCard` via render props.
-// ---------------------------------------------------------------------------
-
-function MinimalSecretPrompt({
-  requestId,
-  onSubmit,
-}: {
-  requestId: string;
-  onSubmit: (requestId: string, value: string) => void;
-}) {
-  return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        const form = e.currentTarget;
-        const input = form.elements.namedItem("secret");
-        if (input instanceof HTMLInputElement) {
-          onSubmit(requestId, input.value);
-        }
-      }}
-      className="flex items-center gap-2 rounded-lg border border-[var(--border-base)] bg-[var(--surface-lift)] p-3"
-    >
-      <input
-        type="password"
-        name="secret"
-        // typography: off-scale — minimal stub for isolated rendering; production uses renderPendingSecret slot
-         
-        className="flex-1 rounded-md border border-[var(--border-base)] bg-white px-2 py-1 text-sm"
-      />
-      <button
-        type="submit"
-        // typography: off-scale — minimal stub for isolated rendering; production uses renderPendingSecret slot
-         
-        className="rounded-md bg-[var(--primary-base)] px-3 py-1 text-sm font-medium text-[var(--content-inset)]"
-      >
-        Save
-      </button>
-    </form>
-  );
-}
-
-function MinimalConfirmationPrompt({
-  requestId,
-  onDecision,
-}: {
-  requestId: string;
-  onDecision: (requestId: string, decision: string) => void;
-}) {
-  return (
-    <div className="flex items-center gap-2 rounded-lg border border-[var(--border-base)] bg-[var(--surface-lift)] p-3">
-      <button
-        type="button"
-        onClick={() => onDecision(requestId, "allow")}
-        // typography: off-scale — minimal stub for isolated rendering; production uses renderPendingConfirmation slot
-         
-        className="rounded-md bg-[var(--system-positive-strong)] px-3 py-1 text-sm font-medium text-white"
-      >
-        Allow
-      </button>
-      <button
-        type="button"
-        onClick={() => onDecision(requestId, "deny")}
-        // typography: off-scale — minimal stub for isolated rendering; production uses renderPendingConfirmation slot
-         
-        className="rounded-md border border-[var(--system-negative-strong)] px-3 py-1 text-sm font-medium text-[var(--system-negative-strong)]"
-      >
-        Deny
-      </button>
-    </div>
-  );
-}

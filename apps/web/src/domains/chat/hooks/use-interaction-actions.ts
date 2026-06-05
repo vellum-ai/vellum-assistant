@@ -30,7 +30,7 @@ import {
 import { deriveCommandText } from "@/domains/chat/utils/chat";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import type { ConfirmationDecision } from "@/types/event-types";
-import type { AllowlistOption, DirectoryScopeOption, RiskScopeOption, ScopeOption } from "@/types/interaction-ui-types";
+import type { AllowlistOption, DirectoryScopeOption, PendingConfirmationState, RiskScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 import type { TrustRuleItem, TrustRuleSuggestion } from "@/types/trust-rules";
 import type { QuestionResponseEntry } from "@/domains/chat/api/event-types";
 import { submitConfirmation, submitContactPrompt, submitQuestionResponse, submitSecretResponse } from "@/domains/chat/api/interactions";
@@ -147,6 +147,7 @@ export interface UseInteractionActionsReturn {
   handleSaveRule: (rule: { toolName: string; pattern: string; riskLevel: string; scope: string }) => Promise<void>;
   handleSaveAsNewRule: (rule: { toolName: string; pattern: string; riskLevel: string; scope: string }) => Promise<void>;
   handleQuestionResponse: (responses: QuestionResponseEntry[]) => Promise<void>;
+  handleDismissPendingQuestion: () => void;
   handleSurfaceAction: (surfaceId: string, actionId: string, data?: Record<string, unknown>) => Promise<void>;
   showRuleEditor: boolean;
   setShowRuleEditor: Dispatch<boolean>;
@@ -164,14 +165,6 @@ export interface UseInteractionActionsReturn {
 export function useInteractionActions(): UseInteractionActionsReturn {
   const setMessages = useChatSessionStore.use.setMessages();
   const setError = useChatSessionStore.use.setError();
-  const pendingSecret = useInteractionStore.use.pendingSecret();
-  const isSubmittingSecret = useInteractionStore.use.isSubmittingSecret();
-  const pendingConfirmation = useInteractionStore.use.pendingConfirmation();
-  const isSubmittingConfirmation = useInteractionStore.use.isSubmittingConfirmation();
-  const pendingContactRequest = useInteractionStore.use.pendingContactRequest();
-  const isSubmittingContactRequest = useInteractionStore.use.isSubmittingContactRequest();
-  const pendingQuestion = useInteractionStore.use.pendingQuestion();
-  const isSubmittingQuestion = useInteractionStore.use.isSubmittingQuestion();
 
   const [showRuleEditor, setShowRuleEditor] = useState(false);
   const [ruleEditorContext, setRuleEditorContext] = useState<RuleEditorContext | null>(null);
@@ -185,6 +178,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
 
   const handleSecretSubmit = useCallback(
     async (value: string, delivery: string = "store") => {
+      const { pendingSecret, isSubmittingSecret } = useInteractionStore.getState();
       if (!pendingSecret || isSubmittingSecret) return;
       useInteractionStore.getState().submitSecretStart();
       setError(null);
@@ -227,7 +221,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
         useInteractionStore.getState().submitSecretEnd();
       }
     },
-    [pendingSecret, isSubmittingSecret],
+    [],
   );
 
   const handleSecretCancel = useCallback(() => {
@@ -250,6 +244,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
 
   const handleContactPromptSubmit = useCallback(
     async (address: string, channelType: string) => {
+      const { pendingContactRequest, isSubmittingContactRequest } = useInteractionStore.getState();
       if (!pendingContactRequest || isSubmittingContactRequest) return;
       useInteractionStore.getState().submitContactRequestStart();
       setError(null);
@@ -289,7 +284,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
         useInteractionStore.getState().submitContactRequestEnd();
       }
     },
-    [pendingContactRequest, isSubmittingContactRequest],
+    [],
   );
 
   const handleContactPromptCancel = useCallback(() => {
@@ -311,7 +306,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
    * removes the deterministic mapping entry.
    */
   const cleanupAfterConfirmationDecision = useCallback(
-    (snapshot: NonNullable<typeof pendingConfirmation>, mappedToolCallId: string | undefined, decision: ConfirmationDecision) => {
+    (snapshot: PendingConfirmationState, mappedToolCallId: string | undefined, decision: ConfirmationDecision) => {
       const confirmationDecisionValue = decision === "allow" ? "approved" : "denied";
       useInteractionStore.getState().dismissConfirmation();
       useInteractionStore.getState().setInlineConfirmationToolCallId(null);
@@ -426,8 +421,8 @@ export function useInteractionActions(): UseInteractionActionsReturn {
 
   const handleConfirmationSubmit = useCallback(
     async (decision: ConfirmationDecision) => {
-      const snapshot = pendingConfirmation;
-      if (!pendingConfirmation || isSubmittingConfirmation) return;
+      const { pendingConfirmation: snapshot, isSubmittingConfirmation } = useInteractionStore.getState();
+      if (!snapshot || isSubmittingConfirmation) return;
       useInteractionStore.getState().submitConfirmationStart();
       setError(null);
 
@@ -438,23 +433,23 @@ export function useInteractionActions(): UseInteractionActionsReturn {
         return;
       }
 
-      const mappedToolCallId = snapshot ? useChatSessionStore.getState().confirmationToolCallMap.get(snapshot.requestId) : undefined;
+      const mappedToolCallId = useChatSessionStore.getState().confirmationToolCallMap.get(snapshot.requestId);
 
       try {
         if (
           decision === "allow" &&
-          pendingConfirmation.persistentDecisionsAllowed !== false &&
-          (pendingConfirmation.allowlistOptions?.length ?? 0) > 0
+          snapshot.persistentDecisionsAllowed !== false &&
+          (snapshot.allowlistOptions?.length ?? 0) > 0
         ) {
-          const firstPattern = pendingConfirmation.allowlistOptions![0]!.pattern;
+          const firstPattern = snapshot.allowlistOptions![0]!.pattern;
           const firstScope =
-            (pendingConfirmation.directoryScopeOptions?.[0]?.scope ??
-            pendingConfirmation.scopeOptions?.[0]?.scope) ||
+            (snapshot.directoryScopeOptions?.[0]?.scope ??
+            snapshot.scopeOptions?.[0]?.scope) ||
             "everywhere";
 
           const result = await submitConfirmation(
             ctx.assistantId,
-            pendingConfirmation.requestId,
+            snapshot.requestId,
             decision,
             { selectedPattern: firstPattern, selectedScope: firstScope },
           );
@@ -464,13 +459,13 @@ export function useInteractionActions(): UseInteractionActionsReturn {
             useInteractionStore.getState().submitConfirmationEnd();
             return;
           }
-          cleanupAfterConfirmationDecision(snapshot!, mappedToolCallId, decision);
+          cleanupAfterConfirmationDecision(snapshot, mappedToolCallId, decision);
           return;
         }
 
         const result = await submitConfirmation(
           ctx.assistantId,
-          pendingConfirmation.requestId,
+          snapshot.requestId,
           decision,
         );
 
@@ -479,14 +474,14 @@ export function useInteractionActions(): UseInteractionActionsReturn {
           useInteractionStore.getState().submitConfirmationEnd();
           return;
         }
-        cleanupAfterConfirmationDecision(snapshot!, mappedToolCallId, decision);
+        cleanupAfterConfirmationDecision(snapshot, mappedToolCallId, decision);
       } catch (err) {
         captureError(err, { context: "submit_confirmation" });
         setError({ message: "Failed to submit confirmation. Please try again." });
         useInteractionStore.getState().submitConfirmationEnd();
       }
     },
-    [pendingConfirmation, isSubmittingConfirmation, cleanupAfterConfirmationDecision],
+    [cleanupAfterConfirmationDecision],
   );
 
   // -------------------------------------------------------------------------
@@ -495,7 +490,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
 
   const handleQuestionResponse = useCallback(
     async (responses: QuestionResponseEntry[]) => {
-      const snapshot = pendingQuestion;
+      const { pendingQuestion: snapshot, isSubmittingQuestion } = useInteractionStore.getState();
       if (!snapshot || isSubmittingQuestion) return;
       useInteractionStore.getState().submitQuestionStart();
       setError(null);
@@ -532,8 +527,33 @@ export function useInteractionActions(): UseInteractionActionsReturn {
         useInteractionStore.getState().submitQuestionEnd();
       }
     },
-    [pendingQuestion, isSubmittingQuestion],
+    [],
   );
+
+  const handleDismissPendingQuestion = useCallback(() => {
+    const snapshot = useInteractionStore.getState().pendingQuestion;
+    useInteractionStore.getState().dismissQuestion();
+    if (!snapshot) return;
+    const ctx = useStreamStore.getState().streamContext;
+    if (!ctx) return;
+    submitQuestionResponse(ctx.assistantId, snapshot.requestId, {
+      kind: "close",
+    })
+      .then((result) => {
+        if (!result.ok) {
+          captureError(
+            new Error(`question-response close failed: ${result.error}`),
+            {
+              context: "submit_question_response_close",
+              extra: { status: result.status },
+            },
+          );
+        }
+      })
+      .catch((err) => {
+        captureError(err, { context: "submit_question_response_close" });
+      });
+  }, []);
 
   // -------------------------------------------------------------------------
   // Trust rule suggestion (shared by both rule-editor entry points)
@@ -600,14 +620,14 @@ export function useInteractionActions(): UseInteractionActionsReturn {
   // -------------------------------------------------------------------------
 
   const handleAllowAndCreateRule = useCallback(async () => {
-    if (!pendingConfirmation || isSubmittingConfirmation) return;
+    const { pendingConfirmation: snapshot, isSubmittingConfirmation } = useInteractionStore.getState();
+    if (!snapshot || isSubmittingConfirmation) return;
     const ctx = useStreamStore.getState().streamContext;
     if (!ctx) {
       setError({ message: "No active session. Please try again." });
       return;
     }
 
-    const snapshot = pendingConfirmation;
     useInteractionStore.getState().submitConfirmationStart();
 
     const mappedToolCallId = useChatSessionStore.getState().confirmationToolCallMap.get(snapshot.requestId);
@@ -668,7 +688,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
       setError({ message: "Failed to submit confirmation, but you can still create a rule." });
       useInteractionStore.getState().submitConfirmationEnd();
     }
-  }, [pendingConfirmation, isSubmittingConfirmation, cleanupAfterConfirmationDecision, fireSuggestion]);
+  }, [cleanupAfterConfirmationDecision, fireSuggestion]);
 
   const handleOpenRuleEditorForToolCall = useCallback(
     (context: ToolCallRuleContext) => {
@@ -916,6 +936,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
     handleSaveRule,
     handleSaveAsNewRule,
     handleQuestionResponse,
+    handleDismissPendingQuestion,
     handleSurfaceAction,
     showRuleEditor,
     setShowRuleEditor,
