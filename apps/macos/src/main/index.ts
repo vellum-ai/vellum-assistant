@@ -11,11 +11,12 @@ import {
 } from "@vellumai/local-mode";
 
 import { installAbout, openAboutWindow } from "./about";
-import { APP_HOST, APP_PROTOCOL } from "./app-config";
+import { APP_HOST, APP_PROTOCOL, BUNDLES_DIR_NAME, VELLUMAPP_PROTOCOL } from "./app-config";
 import { installCsp } from "./csp";
 import { ensureWebInstalled, getWebDistPath } from "./cli-installer";
 import { handle, handleSync } from "./ipc";
 import { resolveAppProtocolPath } from "./app-protocol";
+import { registerVellumAppProtocol } from "./vellumapp-protocol";
 import { planGatewayForward } from "./gateway-forward";
 import { planPlatformForward } from "./platform-forward";
 import {
@@ -84,6 +85,16 @@ if (!app.requestSingleInstanceLock()) {
 protocol.registerSchemesAsPrivileged([
   {
     scheme: APP_PROTOCOL,
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+      corsEnabled: true,
+    },
+  },
+  {
+    scheme: VELLUMAPP_PROTOCOL,
     privileges: {
       standard: true,
       secure: true,
@@ -304,6 +315,9 @@ app
       // this await can create a window before the protocol handler exists.
       await ensureWebInstalled();
       registerAppProtocol();
+      registerVellumAppProtocol(
+        path.join(app.getPath("userData"), BUNDLES_DIR_NAME),
+      );
     }
     installPermissionHandler();
     installCsp();
