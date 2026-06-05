@@ -74,13 +74,26 @@ Gemini CLI speaks ACP natively (`gemini --acp`) - there is no separate adapter b
 
 **Authenticate** via either:
 - Browser OAuth: run `gemini` once interactively and complete the sign-in flow.
-- `GEMINI_API_KEY` environment variable. To pass it to spawned sessions, set it under `acp.agents.gemini.env` in the workspace config.
+- `GEMINI_API_KEY` environment variable. The simplest route is to set it in the assistant's own environment - spawned agents inherit it automatically. To set it via the workspace config instead, write a full `acp.agents.gemini` override (a config entry replaces the bundled default entirely, so it must include `command` and `args` - an env-only entry would fail validation or drop the required `--acp` flag):
+  ```json
+  {
+    "acp": {
+      "agents": {
+        "gemini": {
+          "command": "gemini",
+          "args": ["--acp"],
+          "env": { "GEMINI_API_KEY": "..." }
+        }
+      }
+    }
+  }
+  ```
 
 ## Critical: correct agent command
 
 - Three agents are supported out-of-box: `claude` (via the `claude-agent-acp` adapter), `codex` (via the `codex-acp` adapter), and `gemini` (via `gemini --acp` - Gemini speaks ACP natively, no adapter binary).
 - NEVER use `claude`, `claude -p`, `claude --acp`, or the bare `codex` CLI as the ACP `command`. Claude and Codex only speak the protocol through their dedicated `*-acp` adapters. Gemini is the exception: the `gemini` CLI itself speaks ACP when launched with `--acp`.
-- Default profiles for all three ship out-of-box. Users only need an `agents.<id>` entry in config if they want to override the defaults (e.g. point to a custom binary path or pass extra args/env).
+- Default profiles for all three ship out-of-box. Users only need an `agents.<id>` entry in config if they want to override the defaults (e.g. point to a custom binary path or pass extra args/env). An `acp.agents.<id>` entry replaces the bundled default entirely (no field merge), so any override must spell out the full `command` and `args`, not just the field being changed.
 - NEVER change an existing ACP config to use a different command. If the config already has `claude-agent-acp`, `codex-acp`, or `gemini`, leave it alone.
 
 ## Updating an adapter
