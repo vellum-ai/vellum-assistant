@@ -37,7 +37,6 @@
  * user-plugin-loader contract (see `assistant/src/plugins/user-loader.ts`).
  */
 
-import { HOOKS } from "../../../src/plugin-api/constants.js";
 import type {
   PostToolUseContext,
   StopContext,
@@ -84,15 +83,19 @@ const echoPlugin: Plugin = {
     name: PLUGIN_NAME,
     version: "0.1.0",
   },
+  // Hook names are inlined as string literals rather than imported from the
+  // `HOOKS` constant: a value import would be a runtime repo-relative import,
+  // which breaks the documented standalone-copy install (the copied directory
+  // can't resolve `../../../src/...`). Only `import type` survives a copy.
   hooks: {
-    [HOOKS.USER_PROMPT_SUBMIT]: async (ctx: UserPromptSubmitContext) => {
-      emit(HOOKS.USER_PROMPT_SUBMIT, ctx.conversationId);
+    "user-prompt-submit": async (ctx: UserPromptSubmitContext) => {
+      emit("user-prompt-submit", ctx.conversationId);
     },
-    [HOOKS.POST_TOOL_USE]: async (ctx: PostToolUseContext) => {
-      emit(HOOKS.POST_TOOL_USE, ctx.conversationId);
+    "post-tool-use": async (ctx: PostToolUseContext) => {
+      emit("post-tool-use", ctx.conversationId);
     },
-    [HOOKS.STOP]: async (ctx: StopContext) => {
-      emit(HOOKS.STOP, ctx.conversationId);
+    stop: async (ctx: StopContext) => {
+      emit("stop", ctx.conversationId);
     },
   },
 };
