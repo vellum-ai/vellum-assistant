@@ -24,6 +24,7 @@ import {
   handleDeepLink,
   installDeepLinks,
 } from "./deep-links";
+import { handleFileOpen, installFileOpen } from "./file-open";
 import { installAvatarIpc } from "./avatar";
 import { installDock } from "./dock";
 import { installFeedbackIpc } from "./feedback";
@@ -111,6 +112,7 @@ protocol.registerSchemesAsPrivileged([
 // can fire before `whenReady`). Registering in `whenReady` misses
 // the launching URL — the #1 deep-link bug in Electron apps.
 installDeepLinks();
+installFileOpen();
 
 // Serve apps/web/dist/ as static files via `app://vellum.ai/...`. Route-like
 // paths (no file extension, or `.html`) fall back to index.html so React
@@ -374,6 +376,14 @@ app.on("second-instance", (_event, argv) => {
   // / broadcast pipeline is platform-agnostic.
   const deepLink = extractDeepLinkFromArgv(argv);
   if (deepLink) handleDeepLink(deepLink);
+  // Forward .vellum file paths from second-instance argv so the
+  // buffer/broadcast pipeline handles them identically to open-file.
+  for (const arg of argv) {
+    if (/\.vellum$/i.test(arg)) {
+      handleFileOpen(arg);
+      break;
+    }
+  }
 });
 
 app.on("web-contents-created", (_event, contents) => {
