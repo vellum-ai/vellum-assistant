@@ -263,6 +263,25 @@ export interface SttStreamServerFinalEvent {
    * provider does not surface confidence on this chunk.
    */
   readonly confidence?: number;
+  /**
+   * Whether this `final` segment completes the caller's utterance at the
+   * provider's natural pause/endpoint boundary.
+   *
+   * Some providers (e.g. Deepgram) commit multiple per-segment finals
+   * (`is_final`) within a single spoken sentence and only mark the true
+   * end of the utterance separately (`speech_final` / `UtteranceEnd`).
+   * Consumers that turn a completed utterance into a single reply (e.g. the
+   * media-stream call path) should accumulate consecutive `final` segments
+   * and only act when an utterance boundary is reached:
+   *
+   * - `true`  — this final is the end of the utterance; flush now.
+   * - `false` — this is a mid-utterance committed segment; keep accumulating.
+   * - `undefined` — the provider does not distinguish a separate boundary
+   *   signal, so each `final` is treated as a complete utterance (the
+   *   default behavior, e.g. xAI). This keeps non-boundary providers
+   *   unchanged.
+   */
+  readonly endOfUtterance?: boolean;
 }
 
 /** An error occurred during streaming transcription. */

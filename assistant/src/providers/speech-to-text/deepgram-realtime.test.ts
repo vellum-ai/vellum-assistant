@@ -296,6 +296,7 @@ describe("DeepgramRealtimeTranscriber", () => {
     expect(events[0]).toEqual({
       type: "final",
       text: "hello world",
+      endOfUtterance: true,
       confidence: 0.95,
     });
   });
@@ -309,6 +310,7 @@ describe("DeepgramRealtimeTranscriber", () => {
     expect(events[0]).toEqual({
       type: "final",
       text: "",
+      endOfUtterance: false,
       confidence: 0.95,
     });
   });
@@ -327,7 +329,77 @@ describe("DeepgramRealtimeTranscriber", () => {
     expect(events[0]).toEqual({
       type: "final",
       text: "",
+      endOfUtterance: false,
       confidence: 0.5,
+    });
+  });
+
+  test("emits final with endOfUtterance for speech_final even when is_final is false", async () => {
+    const { events } = await startSession();
+
+    // Deepgram can endpoint an utterance (speech_final:true) on a frame whose
+    // is_final is still false. The words in such a frame are the finalized
+    // endpoint, so it must surface as a `final` with endOfUtterance:true —
+    // NOT be swallowed as a partial — or the accumulation buffer never flushes.
+    mockWs.simulateMessage(
+      resultsFrame("hello world", { is_final: false, speech_final: true }),
+    );
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toEqual({
+      type: "final",
+      text: "hello world",
+      endOfUtterance: true,
+      confidence: 0.95,
+    });
+  });
+
+  test("emits exactly one final when both is_final and speech_final are true", async () => {
+    const { events } = await startSession();
+
+    mockWs.simulateMessage(
+      resultsFrame("hello world", { is_final: true, speech_final: true }),
+    );
+
+    // No double-emit: the single final/boundary branch fires once.
+    expect(events).toHaveLength(1);
+    expect(events[0]).toEqual({
+      type: "final",
+      text: "hello world",
+      endOfUtterance: true,
+      confidence: 0.95,
+    });
+  });
+
+  test("emits final with endOfUtterance:false for is_final without speech_final", async () => {
+    const { events } = await startSession();
+
+    // Mid-utterance committed segment — final, but not an utterance boundary.
+    mockWs.simulateMessage(
+      resultsFrame("hello", { is_final: true, speech_final: false }),
+    );
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toEqual({
+      type: "final",
+      text: "hello",
+      endOfUtterance: false,
+      confidence: 0.95,
+    });
+  });
+
+  test("emits partial for a pure interim frame (is_final and speech_final both false)", async () => {
+    const { events } = await startSession();
+
+    mockWs.simulateMessage(
+      resultsFrame("hel", { is_final: false, speech_final: false }),
+    );
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toEqual({
+      type: "partial",
+      text: "hel",
+      confidence: 0.95,
     });
   });
 
@@ -341,7 +413,11 @@ describe("DeepgramRealtimeTranscriber", () => {
     mockWs.simulateMessage(frame);
 
     expect(events).toHaveLength(1);
-    expect(events[0]).toEqual({ type: "final", text: "" });
+    expect(events[0]).toEqual({
+      type: "final",
+      text: "",
+      endOfUtterance: false,
+    });
   });
 
   // ─────────────────────────────────────────────────────────────────
@@ -358,6 +434,7 @@ describe("DeepgramRealtimeTranscriber", () => {
     expect(events[0]).toEqual({
       type: "final",
       text: "hello world",
+      endOfUtterance: false,
       confidence: 0.95,
     });
     // `in` check: the key must not exist at all, not just be undefined.
@@ -382,6 +459,7 @@ describe("DeepgramRealtimeTranscriber", () => {
     expect(events[0]).toEqual({
       type: "final",
       text: "hello world",
+      endOfUtterance: false,
       speakerLabel: "0",
       confidence: 0.95,
     });
@@ -408,6 +486,7 @@ describe("DeepgramRealtimeTranscriber", () => {
     expect(events[0]).toEqual({
       type: "final",
       text: "yes exactly right here",
+      endOfUtterance: false,
       speakerLabel: "1",
       confidence: 0.95,
     });
@@ -434,6 +513,7 @@ describe("DeepgramRealtimeTranscriber", () => {
     expect(events[0]).toEqual({
       type: "final",
       text: "alpha beta gamma delta",
+      endOfUtterance: false,
       speakerLabel: "2",
       confidence: 0.95,
     });
@@ -475,6 +555,7 @@ describe("DeepgramRealtimeTranscriber", () => {
     expect(events[0]).toEqual({
       type: "final",
       text: "no speakers here",
+      endOfUtterance: false,
       confidence: 0.95,
     });
     expect("speakerLabel" in events[0]).toBe(false);
@@ -553,6 +634,7 @@ describe("DeepgramRealtimeTranscriber", () => {
     expect(events[2]).toEqual({
       type: "final",
       text: "hello world",
+      endOfUtterance: true,
       confidence: 0.95,
     });
   });
@@ -561,12 +643,20 @@ describe("DeepgramRealtimeTranscriber", () => {
   // Non-transcript frames
   // ─────────────────────────────────────────────────────────────────
 
-  test("ignores UtteranceEnd frames (no event emitted)", async () => {
+  test("emits a boundary-only final for UtteranceEnd frames", async () => {
     const { events } = await startSession();
 
     mockWs.simulateMessage(utteranceEndFrame());
 
-    expect(events).toHaveLength(0);
+    // UtteranceEnd marks the natural utterance boundary; we surface it as an
+    // empty-text final with endOfUtterance:true so accumulating consumers
+    // flush the committed segments so far.
+    expect(events).toHaveLength(1);
+    expect(events[0]).toEqual({
+      type: "final",
+      text: "",
+      endOfUtterance: true,
+    });
   });
 
   test("ignores Metadata frames (no event emitted)", async () => {

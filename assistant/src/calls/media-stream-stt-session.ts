@@ -30,6 +30,7 @@ import type {
   StreamingTranscriber,
   SttCallContextHints,
   SttStreamServerEvent,
+  SttStreamServerFinalEvent,
 } from "../stt/types.js";
 import { getLogger } from "../util/logger.js";
 import { mulawToPcm16, resamplePcm16 } from "./media-stream-audio-transcode.js";
@@ -198,6 +199,22 @@ export class MediaStreamSttSession {
   private streamingReady = false;
 
   /**
+   * Accumulated committed (`final`) transcript segments for the in-progress
+   * caller utterance, awaiting the provider's utterance boundary.
+   *
+   * Some providers (Deepgram) commit multiple per-segment finals within a
+   * single spoken sentence (`is_final`) and only mark the natural pause
+   * separately (`speech_final` / `UtteranceEnd`, surfaced as
+   * `endOfUtterance: true`). Routing every committed segment to
+   * `onTranscriptFinal` would trigger an assistant reply mid-sentence, so we
+   * buffer segments here and flush a single concatenated `onTranscriptFinal`
+   * at the boundary. Providers without a separate boundary signal emit
+   * `endOfUtterance: undefined`, which flushes immediately — preserving the
+   * one-final-per-utterance behavior.
+   */
+  private streamingUtteranceSegments: string[] = [];
+
+  /**
    * Set when a Twilio `stop` arrives (or {@link dispose} is called) while the
    * session is still in `"streaming-pending"` — i.e. before the streaming
    * resolver/`start()` has settled. Once set, the in-flight
@@ -316,6 +333,14 @@ export class MediaStreamSttSession {
    * Dispose of the session, clearing all timers and buffers.
    */
   dispose(): void {
+    // dispose() is a teardown path: the WS/session is gone, so the call is
+    // over. Do NOT flush buffered accumulated streaming finals here — emitting
+    // onTranscriptFinal during teardown would route to handleCallerUtterance
+    // and start an LLM turn / reply on an already-ended call (no one is left to
+    // hear it). The legitimate end-of-utterance flush happens on the provider
+    // `closed` event (handleStreamingClose), which fires after stop() drains.
+    // The buffer is still cleared below (`streamingUtteranceSegments = []`) so
+    // teardown leaves nothing behind — it just is not emitted.
     this.disposed = true;
     // If a streaming startup is still in flight, mark it aborted so the
     // pending resolver tears down (and does not leak) any late-resolved
@@ -347,6 +372,7 @@ export class MediaStreamSttSession {
     }
     this.streamingReady = false;
     this.streamingStartupBuffer = [];
+    this.streamingUtteranceSegments = [];
   }
 
   // ── Event handlers ─────────────────────────────────────────────────
@@ -516,12 +542,19 @@ export class MediaStreamSttSession {
    * Handle a server event from the streaming transcriber. `onSpeechStart`
    * is driven by local VAD (for barge-in latency), so partials are not
    * surfaced here — only finals, errors, and close.
+   *
+   * `final` segments are gated on the provider's utterance boundary: we
+   * accumulate consecutive committed segments and only flush one
+   * concatenated `onTranscriptFinal` when the segment marks the end of the
+   * utterance (`endOfUtterance !== false`). Providers that do not signal a
+   * separate boundary emit `endOfUtterance: undefined`, so each `final`
+   * flushes immediately — see {@link handleStreamingFinal}.
    */
   private handleStreamingEvent(event: SttStreamServerEvent): void {
     if (this.disposed) return;
     switch (event.type) {
       case "final":
-        this.callbacks.onTranscriptFinal?.(event.text, 0);
+        this.handleStreamingFinal(event);
         break;
       case "error":
         this.callbacks.onError?.(event.category, event.message);
@@ -529,6 +562,9 @@ export class MediaStreamSttSession {
       case "closed":
         // Session-level `onStop` is driven by the Twilio `stop` event
         // (`handleStop`); the provider `closed` event is teardown only.
+        // Treat close as an implicit utterance boundary: flush any buffered
+        // accumulated finals so a mid-utterance hangup is not dropped.
+        this.handleStreamingClose();
         this.streamingReady = false;
         break;
       case "partial":
@@ -536,6 +572,85 @@ export class MediaStreamSttSession {
         // fast local VAD instead of waiting for the first partial.
         break;
     }
+  }
+
+  /**
+   * Gate a streaming `final` event on the provider's utterance boundary.
+   *
+   * - `endOfUtterance === false` — mid-utterance committed segment. Buffer the
+   *   text and wait; do NOT fire onTranscriptFinal yet (avoids a mid-sentence
+   *   assistant reply).
+   * - `endOfUtterance === true` or `undefined` — utterance boundary (or a
+   *   provider with no separate boundary signal). Concatenate any buffered
+   *   segments with this one, reset the buffer, and flush a single
+   *   onTranscriptFinal.
+   *
+   * Empty boundary finals with no buffered text (e.g. a standalone Deepgram
+   * `UtteranceEnd` after silence) are dropped so a bare boundary does not emit
+   * an empty transcript.
+   */
+  private handleStreamingFinal(event: SttStreamServerFinalEvent): void {
+    const text = event.text.trim();
+
+    if (event.endOfUtterance === false) {
+      // Mid-utterance committed segment — accumulate, do not flush.
+      if (text.length > 0) this.streamingUtteranceSegments.push(text);
+      return;
+    }
+
+    // Utterance boundary (true) or a provider with no boundary signal
+    // (undefined): flush the accumulated segments plus this one as a single
+    // transcript.
+    if (text.length > 0) this.streamingUtteranceSegments.push(text);
+    this.flushStreamingUtterance();
+  }
+
+  /**
+   * Flush any accumulated streaming `final` segments as a single
+   * `onTranscriptFinal`, then reset the buffer.
+   *
+   * Used both at a real provider utterance boundary
+   * ({@link handleStreamingFinal}) and on the provider `closed` event
+   * ({@link handleStreamingClose}) — the `closed` event fires after `stop()`
+   * drains, so it is treated as an implicit utterance boundary and the caller's
+   * last partial utterance is not lost if they hang up mid-sentence before the
+   * provider emits its explicit boundary.
+   *
+   * NOTE: {@link dispose} deliberately does NOT flush — once the WS/session is
+   * being torn down the call is over, so emitting the buffered partial would
+   * start a reply on a dead call. dispose() only clears the buffer.
+   *
+   * Guards:
+   * - A bare boundary / close with nothing buffered (e.g. a standalone
+   *   Deepgram `UtteranceEnd` after silence, or a close after a real boundary
+   *   already flushed) carries no transcript — drop it rather than firing an
+   *   empty reply.
+   * - The buffer is reset before invoking the callback so a re-entrant teardown
+   *   path cannot double-flush the same text.
+   */
+  private flushStreamingUtterance(): void {
+    const combined = this.streamingUtteranceSegments.join(" ");
+    this.streamingUtteranceSegments = [];
+
+    if (combined.length === 0) return;
+
+    this.callbacks.onTranscriptFinal?.(combined, 0);
+  }
+
+  /**
+   * Handle the provider `closed` event, which fires after `stop()` drains the
+   * remaining audio. Treats the close as an implicit utterance boundary and
+   * flushes any buffered accumulated `final` segments as one
+   * `onTranscriptFinal` — otherwise a caller who hangs up mid-utterance (before
+   * the provider emits `speech_final`/`UtteranceEnd`) would lose their final
+   * partial utterance. This is the SOLE flush path on teardown; {@link dispose}
+   * does not flush (the call is already over).
+   *
+   * Flushing here resets the buffer, so it is safe to call more than once: a
+   * second call finds an empty buffer and does nothing.
+   */
+  private handleStreamingClose(): void {
+    this.flushStreamingUtterance();
   }
 
   private handleMedia(event: MediaStreamMediaEvent): void {
@@ -673,8 +788,21 @@ export class MediaStreamSttSession {
     // batch, losing the caller's final utterance on short calls / slow
     // handshakes.
     if (this.mode === "streaming") {
-      // Streaming mode: signal end-of-audio. The transcriber may emit a
-      // final transcript and then a `closed` event (which drives onStop).
+      // Streaming mode: signal end-of-audio. Do NOT pre-flush the buffered
+      // accumulated finals here — when Twilio `stop` arrives the provider may
+      // still hold unprocessed audio. Calling stop() makes the provider
+      // finalize it and emit additional post-stop `final` (and boundary)
+      // results, so flushing before stop() would emit the buffered transcript
+      // too early and split the utterance (an early partial reply, then the
+      // leftover finals arriving afterward).
+      //
+      // Instead, let stop() drain: the post-stop finals flow through the
+      // normal handleStreamingFinal accumulation path, and the provider's
+      // `closed` event (which the Deepgram adapter emits after CloseStream
+      // drains, with a grace-timer backstop) performs the single final flush
+      // of the complete utterance. flushStreamingUtterance resets the buffer,
+      // so a normal boundary that already flushed leaves nothing for the
+      // closed-path flush to double-emit. dispose() is the final backstop.
       this.streamingTranscriber?.stop();
       this.callbacks.onStop?.();
       return;
