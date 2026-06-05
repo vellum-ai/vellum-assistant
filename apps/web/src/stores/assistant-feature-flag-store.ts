@@ -81,15 +81,18 @@ function latestConfirmedStringValue(key: string): string {
   return confirmedAssistantStringFlagValues[key] ?? ASSISTANT_STRING_FLAG_DEFAULTS[key] ?? "";
 }
 
-// The store type intersects `Record<string, boolean>` with meta/action
-// interfaces. TypeScript's index signature makes `Partial<Store>` reject
-// `{ stringFlags: Record<string, string> }` because it expects `boolean`
-// for every string key. Casting `set` to accept `any` partials is safe —
-// the public API (selectors, actions) is still fully typed.
+// The store type intersects Record<string, boolean> with meta/action
+// interfaces. Zustand's set() expects Partial<Store>, but the index
+// signature makes { stringFlags: Record<string, string> } incompatible.
+// setStr() bypasses this for string-flag-only partials.
 const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (rawSet: (...args: any[]) => void) => {
-    const set = rawSet;
+  (set) => {
+    const setStr = set as unknown as (
+      partial:
+        | { stringFlags: Record<string, string> }
+        | ((state: AssistantFeatureFlagStore) => { stringFlags: Record<string, string> } | AssistantFeatureFlagStore),
+    ) => void;
+
     return ({
       ...ASSISTANT_FLAG_DEFAULTS,
       hasHydrated: false,
@@ -152,18 +155,14 @@ const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()(
 
       markHydrated: () => set({ hasHydrated: true }),
 
-      resetForAssistantSwitch: () =>
-        set(() => {
-          resetAllConfirmed();
-          return {
-            ...ASSISTANT_FLAG_DEFAULTS,
-            hasHydrated: false,
-            stringFlags: { ...ASSISTANT_STRING_FLAG_DEFAULTS },
-          };
-        }),
+      resetForAssistantSwitch: () => {
+        resetAllConfirmed();
+        set({ ...ASSISTANT_FLAG_DEFAULTS, hasHydrated: false });
+        setStr({ stringFlags: { ...ASSISTANT_STRING_FLAG_DEFAULTS } });
+      },
 
       setStringFlags: (flags: Record<string, string>) =>
-        set((prev) => {
+        setStr((prev) => {
           resetConfirmedStringFlags(flags);
           const prevStr = prev.stringFlags;
           const changed = Object.keys(flags).some(
@@ -180,7 +179,7 @@ const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()(
           }
           delete pendingFlagRequestIds[key];
           const confirmedValue = latestConfirmedStringValue(key);
-          set((prev) => {
+          setStr((prev) => {
             if (prev.stringFlags[key] !== value) {
               return prev;
             }
@@ -212,7 +211,7 @@ const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()(
           confirmedAssistantStringFlagValues[key] = value;
         }
 
-        set((prev) => ({
+        setStr((prev) => ({
           stringFlags: { ...prev.stringFlags, [key]: value },
         }));
       },

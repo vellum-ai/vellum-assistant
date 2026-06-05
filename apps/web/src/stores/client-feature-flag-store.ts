@@ -61,11 +61,15 @@ type ClientFeatureFlagStore = Record<string, boolean> &
   ClientFeatureFlagMeta &
   ClientFeatureFlagActions;
 
-// See assistant-feature-flag-store.ts for why `set` is widened.
+// See assistant-feature-flag-store.ts for why setStr() is needed.
 const useClientFeatureFlagStoreBase = create<ClientFeatureFlagStore>()(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (rawSet: (...args: any[]) => void) => {
-    const set = rawSet;
+  (set) => {
+    const setStr = set as unknown as (
+      partial:
+        | { stringFlags: Record<string, string> }
+        | ((state: ClientFeatureFlagStore) => { stringFlags: Record<string, string> } | ClientFeatureFlagStore),
+    ) => void;
+
     return ({
       ...CLIENT_FLAG_DEFAULTS,
       ...localOverrides,
@@ -103,7 +107,7 @@ const useClientFeatureFlagStoreBase = create<ClientFeatureFlagStore>()(
       },
 
       setStringFlags: (flags: Record<string, string>) =>
-        set((prev) => {
+        setStr((prev) => {
           const overrides = readStringOverrides();
           const merged = { ...flags, ...overrides };
           const prevStr = prev.stringFlags;
@@ -119,7 +123,7 @@ const useClientFeatureFlagStoreBase = create<ClientFeatureFlagStore>()(
         } catch {
           // localStorage unavailable
         }
-        set((prev) => ({
+        setStr((prev) => ({
           stringFlags: { ...prev.stringFlags, [key]: value },
         }));
       },
@@ -131,7 +135,7 @@ const useClientFeatureFlagStoreBase = create<ClientFeatureFlagStore>()(
           // localStorage unavailable
         }
         const defaultValue = CLIENT_STRING_FLAG_DEFAULTS[key];
-        set((prev) => ({
+        setStr((prev) => ({
           stringFlags: {
             ...prev.stringFlags,
             [key]: defaultValue ?? "",
