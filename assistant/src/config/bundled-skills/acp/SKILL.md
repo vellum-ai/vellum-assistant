@@ -74,7 +74,11 @@ Gemini CLI speaks ACP natively (`gemini --acp`) - there is no separate adapter b
 
 **Authenticate** via either:
 - Browser OAuth: run `gemini` once interactively and complete the sign-in flow.
-- `GEMINI_API_KEY` environment variable. The simplest route is to set it in the assistant's own environment - spawned agents inherit it automatically. To set it via the workspace config instead, write a full `acp.agents.gemini` override (a config entry replaces the bundled default entirely, so it must include `command` and `args` - an env-only entry would fail validation or drop the required `--acp` flag):
+- `GEMINI_API_KEY` set in the assistant's own process environment - spawned agents inherit it automatically.
+
+Do NOT put API keys (or any secret) in the workspace config file - secrets never belong in the workspace directory. Use the assistant environment instead.
+
+A workspace `acp.agents.gemini` override is only for non-secret customization (custom binary path, extra args, non-secret env vars). It must spell out the full `command` and `args` - see "Critical: correct agent command" below for the replace-not-merge rule:
   ```json
   {
     "acp": {
@@ -82,7 +86,7 @@ Gemini CLI speaks ACP natively (`gemini --acp`) - there is no separate adapter b
         "gemini": {
           "command": "gemini",
           "args": ["--acp"],
-          "env": { "GEMINI_API_KEY": "..." }
+          "env": { "NO_COLOR": "1" }
         }
       }
     }
