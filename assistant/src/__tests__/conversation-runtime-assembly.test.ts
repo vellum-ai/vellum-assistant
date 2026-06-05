@@ -2046,7 +2046,6 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
       pkbQueryVector: [0.1, 0.2, 0.3],
       pkbConversation: { messages: baseMessages },
       pkbWorkingDir,
-      pkbAutoInjectList: [],
       ...overrides,
     };
   }
@@ -2082,10 +2081,11 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
   test("default auto-injected files (from PKB_DEFAULT_FILES) are filtered out of hints", async () => {
     // Regression test: when `_autoinject.md` is missing, `readPkbContext`
     // falls back to PKB_DEFAULT_FILES — so those files ARE in the prompt.
-    // The tracker must know about them too, otherwise the reminder would
-    // redundantly recommend e.g. `essentials.md` even though its contents
-    // are already injected. The agent-loop passes the effective auto-inject
-    // list (via `getPkbAutoInjectList`) to `applyRuntimeInjections`.
+    // The injector sources the same fallback via `getPkbAutoInjectList`, so
+    // it must know about them too, otherwise the reminder would redundantly
+    // recommend e.g. `essentials.md` even though its contents are already
+    // injected. The per-test workspace has no `_autoinject.md`, so the
+    // injector resolves PKB_DEFAULT_FILES here.
     pkbSearchResults = [
       { path: "essentials.md", denseScore: 0.95 },
       { path: "topics/alpha.md", denseScore: 0.9 },
@@ -2094,16 +2094,7 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
 
     const { messages: result } = await applyRuntimeInjections(
       baseMessages,
-      makePkbOptions({
-        // Simulate the fallback the agent-loop now threads through:
-        // `_autoinject.md` is missing, so defaults are injected.
-        pkbAutoInjectList: [
-          "INDEX.md",
-          "essentials.md",
-          "threads.md",
-          "buffer.md",
-        ],
-      }),
+      makePkbOptions(),
     );
     const texts = extractTexts(result);
     const reminder = texts.find((t) => t.startsWith("<system_reminder>"));
@@ -2345,7 +2336,6 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
         pkbQueryVector: [0.1, 0.2],
         pkbConversation: preCompactionConversation,
         pkbWorkingDir,
-        pkbAutoInjectList: [],
       },
     );
     // Unwrap the injected reminder from the last user message.
@@ -2389,7 +2379,6 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
         pkbQueryVector: [0.1, 0.2],
         pkbConversation: postCompactionConversation,
         pkbWorkingDir,
-        pkbAutoInjectList: [],
       },
     );
     const rebuiltTexts = extractTexts(rebuiltResult);
