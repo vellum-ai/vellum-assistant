@@ -4,7 +4,7 @@ import { getConversation } from "../memory/conversation-crud.js";
 import { resolveConversationDirectoryPaths } from "../memory/conversation-directories.js";
 import { renderWorkspaceTopLevelContext } from "../workspace/top-level-renderer.js";
 import { scanTopLevelDirectories } from "../workspace/top-level-scanner.js";
-import { findConversation } from "./conversation-registry.js";
+import { findConversationOrSubagent } from "./conversation-registry.js";
 
 /**
  * Subset of Conversation state that workspace context helpers need.
@@ -36,7 +36,7 @@ export interface WorkspaceConversationContext {
 export function resolveWorkspaceTopLevelContext(
   conversationId: string | undefined,
 ): string | null {
-  const conversation = findConversation(conversationId);
+  const conversation = findConversationOrSubagent(conversationId);
   if (!conversation) return null;
   refreshWorkspaceTopLevelContextIfNeeded(conversation);
   return conversation.workspaceTopLevelContext;

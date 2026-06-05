@@ -295,6 +295,14 @@ mock.module("../memory/canonical-guardian-store.js", () => ({
 }));
 
 import { Conversation } from "../daemon/conversation.js";
+import {
+  clearConversations,
+  findConversation,
+  removeSubagentConversation,
+  setConversation,
+  setSubagentConversation,
+} from "../daemon/conversation-registry.js";
+import { resolveWorkspaceTopLevelContext } from "../daemon/conversation-workspace.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 
 function makeConversation(): Conversation {
@@ -309,7 +317,7 @@ function makeConversation(): Conversation {
       };
     },
   };
-  return new Conversation(
+  const conversation = new Conversation(
     "conv-1",
     provider,
     "system prompt",
@@ -317,6 +325,10 @@ function makeConversation(): Conversation {
     "/tmp",
     { maxTokens: 4096 },
   );
+  // Mirror production: top-level conversations are registered in the store, so
+  // the workspace injector can resolve them by id via the conversation registry.
+  setConversation(conversation.conversationId, conversation);
+  return conversation;
 }
 
 function messageText(message: Message): string {
@@ -335,6 +347,7 @@ describe("Conversation workspace injection", () => {
     runCalls = [];
     agentLoopScript = () => {};
     scanCallCount = 0;
+    clearConversations();
     resetPluginRegistryAndRegisterDefaults();
   });
 
@@ -417,11 +430,58 @@ describe("Conversation workspace injection", () => {
   });
 });
 
+describe("Conversation workspace injection — subagents", () => {
+  beforeEach(() => {
+    scanCallCount = 0;
+    clearConversations();
+    resetPluginRegistryAndRegisterDefaults();
+  });
+
+  test("workspace context resolves for subagent conversations not in the store", () => {
+    const provider = {
+      name: "mock",
+      async sendMessage(): Promise<ProviderResponse> {
+        return {
+          content: [],
+          model: "mock",
+          usage: { inputTokens: 0, outputTokens: 0 },
+          stopReason: "end_turn",
+        };
+      },
+    };
+    const subagentId = "subagent-conv-1";
+    const conversation = new Conversation(
+      subagentId,
+      provider,
+      "system prompt",
+      () => {},
+      "/tmp",
+      { maxTokens: 4096 },
+    );
+    setSubagentConversation(subagentId, conversation);
+
+    try {
+      // Subagents live only in the manager's index, never in the
+      // eviction-managed store, so the store lookup must not see them.
+      expect(findConversation(subagentId)).toBeUndefined();
+
+      // The per-conversation workspace lookup still resolves them, so subagent
+      // turns retain workspace grounding.
+      const context = resolveWorkspaceTopLevelContext(subagentId);
+      expect(context).not.toBeNull();
+      expect(context).toContain("Root: /tmp");
+    } finally {
+      removeSubagentConversation(subagentId, conversation);
+    }
+  });
+});
+
 describe("Conversation workspace dirty-refresh E2E", () => {
   beforeEach(() => {
     runCalls = [];
     agentLoopScript = () => {};
     scanCallCount = 0;
+    clearConversations();
     resetPluginRegistryAndRegisterDefaults();
   });
 
