@@ -22,9 +22,11 @@ import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import {
   classifyScrollPosition,
   decideItemsChangeAction,
+  captureScrollPositionSnapshot,
   findAnchorIndex,
   findLatestUserAnchorKey,
   PINNED_THRESHOLD_PX,
+  resolveRemountScrollTop,
   SHOW_SCROLL_BUTTON_THRESHOLD_PX,
 } from "@/domains/chat/transcript/transcript-scroll-utils";
 import type { TranscriptHandle } from "@/domains/chat/transcript/transcript";
@@ -235,6 +237,46 @@ describe("classifyScrollPosition — load-older threshold (200 px)", () => {
       { hasMore: true, isLoadingOlder: false, hasConversation: false },
     );
     expect(c.shouldLoadOlder).toBe(false);
+  });
+});
+
+describe("resolveRemountScrollTop", () => {
+  test("restores pinned snapshots to the new bottom", () => {
+    const snapshot = captureScrollPositionSnapshot({
+      scrollTop: 960,
+      scrollHeight: 1800,
+      clientHeight: 800,
+    });
+    expect(snapshot.distanceFromBottom).toBe(40);
+    expect(resolveRemountScrollTop(snapshot, {
+      scrollHeight: 2400,
+      clientHeight: 700,
+    })).toBe(1700);
+  });
+
+  test("restores mid-scroll snapshots by their previous top offset", () => {
+    const snapshot = captureScrollPositionSnapshot({
+      scrollTop: 420,
+      scrollHeight: 1800,
+      clientHeight: 800,
+    });
+    expect(snapshot.distanceFromBottom).toBe(580);
+    expect(resolveRemountScrollTop(snapshot, {
+      scrollHeight: 2400,
+      clientHeight: 700,
+    })).toBe(420);
+  });
+
+  test("clamps mid-scroll snapshots when the new scroll range is smaller", () => {
+    const snapshot = captureScrollPositionSnapshot({
+      scrollTop: 900,
+      scrollHeight: 2200,
+      clientHeight: 800,
+    });
+    expect(resolveRemountScrollTop(snapshot, {
+      scrollHeight: 1000,
+      clientHeight: 500,
+    })).toBe(500);
   });
 });
 

@@ -718,9 +718,10 @@ export function ChatRouteContent({
   // Load older messages
   // -------------------------------------------------------------------------
 
+  const { fetchOlderPage } = historyPagination;
   const loadOlder = useCallback(() => {
-    historyPagination.fetchOlderPage();
-  }, [historyPagination.fetchOlderPage]);
+    fetchOlderPage();
+  }, [fetchOlderPage]);
 
   // -------------------------------------------------------------------------
   // Transcript items (projection of chat state onto flat list)
@@ -785,6 +786,34 @@ export function ChatRouteContent({
   // Scroll coordination
   // -------------------------------------------------------------------------
 
+  const transcriptLayoutKey = useMemo(() => {
+    if (mainView === "app-editing" && openedAppState && editingConversationId) {
+      return `app-editing:${openedAppState.appId}:${editingConversationId}`;
+    }
+    if (mainView === "app" && !isMobile) {
+      return openedAppState ? `app:${openedAppState.appId}` : "app:loading";
+    }
+    if (mainView === "document" && !isMobile && openedDocumentState && assistantId) {
+      return `document:${openedDocumentState.surfaceId}`;
+    }
+    if (mainView === "subagent-detail" && activeSubagentId && !isMobile) {
+      return `subagent-detail:${activeSubagentId}`;
+    }
+    if (mainView === "tool-detail" && activeToolDetail && !isMobile) {
+      return `tool-detail:${activeToolDetail.toolCallId}`;
+    }
+    return "chat";
+  }, [
+    activeSubagentId,
+    activeToolDetail,
+    assistantId,
+    editingConversationId,
+    isMobile,
+    mainView,
+    openedAppState,
+    openedDocumentState,
+  ]);
+
   const scrollCoordinator = useTranscriptScroll({
     transcriptRef,
     items: transcriptItems,
@@ -792,6 +821,7 @@ export function ChatRouteContent({
     hasMore: transcriptPagination.hasMore,
     isLoadingOlder: transcriptPagination.isLoadingOlder,
     onLoadOlder: loadOlder,
+    layoutKey: transcriptLayoutKey,
   });
 
   const handleScrollToLatest = useCallback(() => {

@@ -34,11 +34,19 @@ export interface ScrollMetrics {
   clientHeight: number;
 }
 
+export interface ScrollPositionSnapshot extends ScrollMetrics {
+  distanceFromBottom: number;
+}
+
 export interface ScrollClassification {
   distanceFromBottom: number;
   isPinned: boolean;
   showScrollToLatest: boolean;
   shouldLoadOlder: boolean;
+}
+
+function maxScrollTop(metrics: Pick<ScrollMetrics, "scrollHeight" | "clientHeight">): number {
+  return Math.max(0, metrics.scrollHeight - metrics.clientHeight);
 }
 
 /** Pure classification of a scroll position against the load-bearing
@@ -55,11 +63,7 @@ export function classifyScrollPosition(
   metrics: ScrollMetrics,
   flags: { hasMore: boolean; isLoadingOlder: boolean; hasConversation: boolean },
 ): ScrollClassification {
-  const maxScrollTop = Math.max(
-    0,
-    metrics.scrollHeight - metrics.clientHeight,
-  );
-  const distanceFromBottom = Math.max(0, maxScrollTop - metrics.scrollTop);
+  const distanceFromBottom = Math.max(0, maxScrollTop(metrics) - metrics.scrollTop);
   const distanceFromTop = Math.max(0, metrics.scrollTop);
   const isPinned = distanceFromBottom <= PINNED_THRESHOLD_PX;
   const showScrollToLatest =
@@ -70,6 +74,26 @@ export function classifyScrollPosition(
     !flags.isLoadingOlder &&
     distanceFromTop <= LOAD_OLDER_THRESHOLD_PX;
   return { distanceFromBottom, isPinned, showScrollToLatest, shouldLoadOlder };
+}
+
+export function captureScrollPositionSnapshot(
+  metrics: ScrollMetrics,
+): ScrollPositionSnapshot {
+  return {
+    ...metrics,
+    distanceFromBottom: Math.max(0, maxScrollTop(metrics) - metrics.scrollTop),
+  };
+}
+
+export function resolveRemountScrollTop(
+  snapshot: ScrollPositionSnapshot,
+  nextMetrics: Pick<ScrollMetrics, "scrollHeight" | "clientHeight">,
+): number {
+  const nextMaxScrollTop = maxScrollTop(nextMetrics);
+  if (snapshot.distanceFromBottom <= PINNED_THRESHOLD_PX) {
+    return nextMaxScrollTop;
+  }
+  return Math.max(0, Math.min(snapshot.scrollTop, nextMaxScrollTop));
 }
 
 /** Find the new index of a previously saved anchor key inside a refreshed
