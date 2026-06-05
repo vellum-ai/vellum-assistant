@@ -83,6 +83,20 @@ mock.module("electron", () => ({
   },
 }));
 
+mock.module("./assets/menu-icons", () => ({
+  MENU_ICON_MESSAGESQUARE: { png1x: "", png2x: "" },
+  MENU_ICON_MESSAGECIRCLEPLUS: { png1x: "", png2x: "" },
+  MENU_ICON_CIRCLECHECK: { png1x: "", png2x: "" },
+  MENU_ICON_SETTINGS: { png1x: "", png2x: "" },
+  MENU_ICON_MESSAGECIRCLE: { png1x: "", png2x: "" },
+  MENU_ICON_REFRESHCW: { png1x: "", png2x: "" },
+  MENU_ICON_POWER: { png1x: "", png2x: "" },
+}));
+
+mock.module("./menu-icon", () => ({
+  menuIcon: () => ({ __kind: "template-icon" }),
+}));
+
 mock.module("./settings", () => ({
   readSetting: () => null,
 }));
@@ -230,6 +244,7 @@ describe("installTray", () => {
     const labels = template.map((item) => item.label).filter(Boolean);
     expect(labels).toContain("New Conversation");
     expect(labels).toContain("Current Conversation");
+    expect(labels).toContain("Mark All as Read");
     expect(labels).toContain("Show / Hide Main Window");
     expect(labels).toContain("Restart");
     expect(labels).toContain("About Vellum Electron");
@@ -276,6 +291,24 @@ describe("installTray", () => {
     expect(handlers.ensureMainWindow.mock.calls.length).toBe(beforeEnsure + 1);
     expect(dispatchToMainMock.mock.calls[beforeDispatch]?.[0]).toEqual({
       kind: "rePair",
+    });
+  });
+
+  test("Mark All as Read surfaces the window and dispatches markAllRead command", async () => {
+    installTray(handlers);
+    handlerFor(trays[0], "right-click")?.();
+    const template = buildFromTemplateMock.mock.calls[0]?.[0] as Array<{
+      label?: string;
+      click?: () => void | Promise<void>;
+    }>;
+    const beforeEnsure = handlers.ensureMainWindow.mock.calls.length;
+    const beforeDispatch = dispatchToMainMock.mock.calls.length;
+
+    await template.find((i) => i.label === "Mark All as Read")?.click?.();
+
+    expect(handlers.ensureMainWindow.mock.calls.length).toBe(beforeEnsure + 1);
+    expect(dispatchToMainMock.mock.calls[beforeDispatch]?.[0]).toEqual({
+      kind: "markAllRead",
     });
   });
 

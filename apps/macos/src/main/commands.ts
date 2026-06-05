@@ -16,6 +16,7 @@ export type VellumCommand =
   | { kind: "openSettings" }
   | { kind: "shareFeedback" }
   | { kind: "find" }
+  | { kind: "markAllRead" }
   | { kind: "logout" }
   | { kind: "rePair" };
 
@@ -37,6 +38,7 @@ export const DEFAULT_ACCELERATORS: Record<VellumCommandKind, string> = {
   openSettings: "CmdOrCtrl+,",
   shareFeedback: "",
   find: "CmdOrCtrl+F",
+  markAllRead: "",
   logout: "",
   rePair: "",
 };
