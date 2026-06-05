@@ -27,14 +27,10 @@ mock.module("../config/loader.js", () => ({
 // ---------------------------------------------------------------------------
 
 import {
-  type ConversationRelayNativeStrategy,
   type MediaStreamCustomStrategy,
   resolveTelephonySttRouting,
 } from "../calls/telephony-stt-routing.js";
-import {
-  getProviderEntry,
-  listProviderEntries,
-} from "../providers/speech-to-text/provider-catalog.js";
+import { listProviderEntries } from "../providers/speech-to-text/provider-catalog.js";
 import type { SttProviderId } from "../stt/types.js";
 
 // ---------------------------------------------------------------------------
@@ -65,11 +61,32 @@ describe("resolveTelephonySttRouting", () => {
   });
 
   // -----------------------------------------------------------------------
-  // Deepgram → conversation-relay-native (from catalog)
+  // Every provider resolves to media-stream-custom (from catalog)
   // -----------------------------------------------------------------------
 
-  describe("deepgram", () => {
-    test("resolves to conversation-relay-native with Deepgram transcriptionProvider", () => {
+  describe("media-stream-custom routing", () => {
+    test.each([
+      "deepgram",
+      "google-gemini",
+      "openai-whisper",
+      "xai",
+    ] satisfies SttProviderId[])(
+      "%s resolves to media-stream-custom with its providerId",
+      (provider) => {
+        mockConfig = buildConfig({ provider });
+
+        const result = resolveTelephonySttRouting();
+
+        expect(result.status).toBe("resolved");
+        if (result.status !== "resolved") return;
+
+        expect(result.strategy.strategy).toBe("media-stream-custom");
+        const strategy = result.strategy as MediaStreamCustomStrategy;
+        expect(strategy.providerId).toBe(provider);
+      },
+    );
+
+    test("media-stream-custom strategy carries no Twilio-native fields", () => {
       mockConfig = buildConfig({ provider: "deepgram" });
 
       const result = resolveTelephonySttRouting();
@@ -77,116 +94,9 @@ describe("resolveTelephonySttRouting", () => {
       expect(result.status).toBe("resolved");
       if (result.status !== "resolved") return;
 
-      expect(result.strategy.strategy).toBe("conversation-relay-native");
-      const strategy = result.strategy as ConversationRelayNativeStrategy;
-      expect(strategy.providerId).toBe("deepgram");
-      expect(strategy.transcriptionProvider).toBe("Deepgram");
-    });
-
-    test("defaults speechModel to nova-3", () => {
-      mockConfig = buildConfig({ provider: "deepgram" });
-
-      const result = resolveTelephonySttRouting();
-
-      expect(result.status).toBe("resolved");
-      if (result.status !== "resolved") return;
-
-      const strategy = result.strategy as ConversationRelayNativeStrategy;
-      expect(strategy.speechModel).toBe("nova-3");
-    });
-
-    test("speechModel matches catalog telephonyRouting.twilioNativeMapping.defaultSpeechModel", () => {
-      mockConfig = buildConfig({ provider: "deepgram" });
-      const entry = getProviderEntry("deepgram");
-
-      const result = resolveTelephonySttRouting();
-
-      expect(result.status).toBe("resolved");
-      if (result.status !== "resolved") return;
-
-      const strategy = result.strategy as ConversationRelayNativeStrategy;
-      expect(strategy.speechModel).toBe(
-        entry?.telephonyRouting.twilioNativeMapping?.defaultSpeechModel,
-      );
-    });
-  });
-
-  // -----------------------------------------------------------------------
-  // Google Gemini → conversation-relay-native (from catalog)
-  // -----------------------------------------------------------------------
-
-  describe("google-gemini", () => {
-    test("resolves to conversation-relay-native with Google transcriptionProvider", () => {
-      mockConfig = buildConfig({ provider: "google-gemini" });
-
-      const result = resolveTelephonySttRouting();
-
-      expect(result.status).toBe("resolved");
-      if (result.status !== "resolved") return;
-
-      expect(result.strategy.strategy).toBe("conversation-relay-native");
-      const strategy = result.strategy as ConversationRelayNativeStrategy;
-      expect(strategy.providerId).toBe("google-gemini");
-      expect(strategy.transcriptionProvider).toBe("Google");
-    });
-
-    test("leaves speechModel undefined (uses provider default)", () => {
-      mockConfig = buildConfig({ provider: "google-gemini" });
-
-      const result = resolveTelephonySttRouting();
-
-      expect(result.status).toBe("resolved");
-      if (result.status !== "resolved") return;
-
-      const strategy = result.strategy as ConversationRelayNativeStrategy;
-      expect(strategy.speechModel).toBeUndefined();
-    });
-
-    test("speechModel matches catalog telephonyRouting.twilioNativeMapping.defaultSpeechModel", () => {
-      mockConfig = buildConfig({ provider: "google-gemini" });
-      const entry = getProviderEntry("google-gemini");
-
-      const result = resolveTelephonySttRouting();
-
-      expect(result.status).toBe("resolved");
-      if (result.status !== "resolved") return;
-
-      const strategy = result.strategy as ConversationRelayNativeStrategy;
-      expect(strategy.speechModel).toBe(
-        entry?.telephonyRouting.twilioNativeMapping?.defaultSpeechModel,
-      );
-    });
-  });
-
-  // -----------------------------------------------------------------------
-  // OpenAI Whisper → media-stream-custom (from catalog)
-  // -----------------------------------------------------------------------
-
-  describe("openai-whisper", () => {
-    test("resolves to media-stream-custom strategy", () => {
-      mockConfig = buildConfig({ provider: "openai-whisper" });
-
-      const result = resolveTelephonySttRouting();
-
-      expect(result.status).toBe("resolved");
-      if (result.status !== "resolved") return;
-
-      expect(result.strategy.strategy).toBe("media-stream-custom");
-      const strategy = result.strategy as MediaStreamCustomStrategy;
-      expect(strategy.providerId).toBe("openai-whisper");
-    });
-
-    test("media-stream-custom strategy does not include speechModel", () => {
-      mockConfig = buildConfig({ provider: "openai-whisper" });
-
-      const result = resolveTelephonySttRouting();
-
-      expect(result.status).toBe("resolved");
-      if (result.status !== "resolved") return;
-
-      // media-stream-custom has no speechModel property
       expect(result.strategy.strategy).toBe("media-stream-custom");
       expect("speechModel" in result.strategy).toBe(false);
+      expect("transcriptionProvider" in result.strategy).toBe(false);
     });
   });
 
@@ -218,90 +128,26 @@ describe("resolveTelephonySttRouting", () => {
   });
 
   // -----------------------------------------------------------------------
-  // Strategy discrimination correctness
-  // -----------------------------------------------------------------------
-
-  describe("strategy discrimination", () => {
-    test("conversation-relay-native strategies always have transcriptionProvider", () => {
-      for (const provider of ["deepgram", "google-gemini"]) {
-        mockConfig = buildConfig({ provider });
-
-        const result = resolveTelephonySttRouting();
-        expect(result.status).toBe("resolved");
-        if (result.status !== "resolved") return;
-
-        expect(result.strategy.strategy).toBe("conversation-relay-native");
-        const strategy = result.strategy as ConversationRelayNativeStrategy;
-        expect(strategy.transcriptionProvider).toBeDefined();
-        expect(strategy.transcriptionProvider.length).toBeGreaterThan(0);
-      }
-    });
-
-    test("media-stream-custom strategies never have transcriptionProvider", () => {
-      mockConfig = buildConfig({ provider: "openai-whisper" });
-
-      const result = resolveTelephonySttRouting();
-      expect(result.status).toBe("resolved");
-      if (result.status !== "resolved") return;
-
-      expect(result.strategy.strategy).toBe("media-stream-custom");
-      expect("transcriptionProvider" in result.strategy).toBe(false);
-    });
-
-    test("all resolved strategies include the original providerId", () => {
-      const providers: SttProviderId[] = [
-        "deepgram",
-        "google-gemini",
-        "openai-whisper",
-      ];
-      for (const provider of providers) {
-        mockConfig = buildConfig({ provider });
-
-        const result = resolveTelephonySttRouting();
-        expect(result.status).toBe("resolved");
-        if (result.status !== "resolved") return;
-
-        expect(result.strategy.providerId).toBe(provider);
-      }
-    });
-  });
-
-  // -----------------------------------------------------------------------
   // Catalog-driven mapping verification
   // -----------------------------------------------------------------------
 
   describe("catalog-driven mapping", () => {
-    test("every catalog entry with conversation-relay-native routing resolves to that strategy", () => {
+    test("no catalog entry declares conversation-relay-native routing", () => {
       const nativeEntries = listProviderEntries().filter(
-        (e) => e.telephonyRouting.strategyKind === "conversation-relay-native",
+        (e) =>
+          (e.telephonyRouting.strategyKind as string) ===
+          "conversation-relay-native",
       );
-      expect(nativeEntries.length).toBeGreaterThan(0);
-
-      for (const entry of nativeEntries) {
-        mockConfig = buildConfig({ provider: entry.id });
-
-        const result = resolveTelephonySttRouting();
-        expect(result.status).toBe("resolved");
-        if (result.status !== "resolved") return;
-
-        expect(result.strategy.strategy).toBe("conversation-relay-native");
-        const strategy = result.strategy as ConversationRelayNativeStrategy;
-        expect(strategy.transcriptionProvider).toBe(
-          entry.telephonyRouting.twilioNativeMapping!.provider,
-        );
-        expect(strategy.speechModel).toBe(
-          entry.telephonyRouting.twilioNativeMapping!.defaultSpeechModel,
-        );
-      }
+      expect(nativeEntries).toHaveLength(0);
     });
 
-    test("every catalog entry with media-stream-custom routing resolves to that strategy", () => {
-      const customEntries = listProviderEntries().filter(
-        (e) => e.telephonyRouting.strategyKind === "media-stream-custom",
-      );
-      expect(customEntries.length).toBeGreaterThan(0);
+    test("every catalog entry resolves to media-stream-custom", () => {
+      const entries = listProviderEntries();
+      expect(entries.length).toBeGreaterThan(0);
 
-      for (const entry of customEntries) {
+      for (const entry of entries) {
+        expect(entry.telephonyRouting.strategyKind).toBe("media-stream-custom");
+
         mockConfig = buildConfig({ provider: entry.id });
 
         const result = resolveTelephonySttRouting();
