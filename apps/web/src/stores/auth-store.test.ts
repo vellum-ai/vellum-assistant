@@ -37,6 +37,14 @@ let mockBiometricToken: string | null = null;
 const installSessionCookiesMock = mock((_token: string) => {});
 const retrieveBiometricTokenMock = mock(async () => mockBiometricToken);
 
+// Controls the managed-assistant list returned to the lockfile-sync path and
+// spies on the sync itself. Default `listAssistants` to the legacy `[]` shape
+// (whose missing `.ok` short-circuits the sync) so existing tests are
+// unaffected; the reconciliation tests override it to a well-formed result.
+let mockListAssistantsResult: unknown = [];
+const listAssistantsMock = mock(async () => mockListAssistantsResult);
+const syncPlatformAssistantsToLockfileMock = mock(async (_list: unknown) => {});
+
 mock.module("@/lib/auth/allauth-client", () => ({
   getSession: async () => {
     getSessionCallCount++;
@@ -73,7 +81,7 @@ mock.module("@/lib/local-mode", () => ({
   primeLocalGatewayConnection: primeLocalGatewayConnectionMock,
   primeLocalGatewayConnectionWithRepair:
     primeLocalGatewayConnectionWithRepairMock,
-  syncPlatformAssistantsToLockfile: async () => {},
+  syncPlatformAssistantsToLockfile: syncPlatformAssistantsToLockfileMock,
 }));
 
 mock.module("@/runtime/native-auth", () => ({
@@ -122,7 +130,7 @@ mock.module("@/assistant/lifecycle-service", () => ({
 // `auth-store` actually uses; the real module load would crash
 // before any test runs.
 mock.module("@/assistant/api", () => ({
-  listAssistants: async () => [],
+  listAssistants: listAssistantsMock,
 }));
 
 const { useAuthStore } = await import("@/stores/auth-store");
@@ -159,6 +167,9 @@ beforeEach(() => {
   installSessionCookiesMock.mockClear();
   retrieveBiometricTokenMock.mockClear();
   lifecycleResetForLogoutMock.mockClear();
+  mockListAssistantsResult = [];
+  listAssistantsMock.mockClear();
+  syncPlatformAssistantsToLockfileMock.mockClear();
   resetAuthStore();
 });
 
@@ -179,6 +190,42 @@ describe("auth store onboarding flag reconciliation", () => {
 
     expect(syncOnboardingUserMock).toHaveBeenCalledWith("user-2");
     expect(useAuthStore.getState().user?.id).toBe("user-2");
+  });
+
+  test("refreshSession reconciles the lockfile mirror in local mode", async () => {
+    // Regression: a session refresh (app resume, profile save, provider
+    // callback) must re-sync managed assistants into the lockfile — not only
+    // cold `initSession` — so the macOS tray and CLI don't keep a stale list
+    // until the next full boot.
+    mockIsLocalMode = true;
+    sessionUser = { id: "user-3", email: "user@example.com" };
+    mockListAssistantsResult = {
+      ok: true,
+      status: 200,
+      data: [{ id: "assistant-3", is_local: false, created: "2026-06-05T00:00:00Z" }],
+    };
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
+
+    expect(listAssistantsMock).toHaveBeenCalled();
+    expect(syncPlatformAssistantsToLockfileMock).toHaveBeenCalledWith([
+      { id: "assistant-3", is_local: false, created: "2026-06-05T00:00:00Z" },
+    ]);
+  });
+
+  test("refreshSession skips lockfile sync outside local mode", async () => {
+    // Platform mode has no lockfile host — the sync must not run there.
+    mockIsLocalMode = false;
+    sessionUser = { id: "user-4", email: "user@example.com" };
+    mockListAssistantsResult = {
+      ok: true,
+      status: 200,
+      data: [{ id: "assistant-4", is_local: false, created: "2026-06-05T00:00:00Z" }],
+    };
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
+
+    expect(syncPlatformAssistantsToLockfileMock).not.toHaveBeenCalled();
   });
 
   test("logout clears onboarding flags directly", async () => {
