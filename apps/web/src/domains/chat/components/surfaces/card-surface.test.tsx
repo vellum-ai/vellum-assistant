@@ -77,4 +77,56 @@ describe("CardSurface", () => {
     expect(rendered).toContain("Envelope fallback");
     expect(countOccurrences(rendered, "Envelope fallback")).toBe(1);
   });
+
+  test("does not render an error glyph for a failed step once the overall task completes", () => {
+    const rendered = renderToStaticMarkup(
+      <CardSurface
+        surface={surface({
+          title: "Connect Gmail",
+          data: {
+            title: "Connect Gmail",
+            body: "",
+            template: "task_progress",
+            templateData: {
+              title: "Connect Gmail",
+              status: "completed",
+              steps: [
+                { label: "Verifying Gmail connection", status: "failed" },
+                { label: "Finishing setup", status: "completed" },
+              ],
+            },
+          },
+        })}
+        onAction={() => undefined}
+      />,
+    );
+
+    // lucide CircleX renders an `<svg>` with the `lucide-circle-x` class; a
+    // recovered step must not surface it.
+    expect(rendered).not.toContain("lucide-circle-x");
+    expect(rendered).toContain("Verifying Gmail connection");
+  });
+
+  test("still renders an error glyph for a failed step while the task is in progress", () => {
+    const rendered = renderToStaticMarkup(
+      <CardSurface
+        surface={surface({
+          title: "Connect Gmail",
+          data: {
+            title: "Connect Gmail",
+            body: "",
+            template: "task_progress",
+            templateData: {
+              title: "Connect Gmail",
+              status: "in_progress",
+              steps: [{ label: "Verifying Gmail connection", status: "failed" }],
+            },
+          },
+        })}
+        onAction={() => undefined}
+      />,
+    );
+
+    expect(rendered).toContain("lucide-circle-x");
+  });
 });
