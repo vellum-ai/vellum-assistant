@@ -19,6 +19,7 @@
   "scripts": {
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && cp src/tokens.css dist/tokens.css",
     "test": "vitest",
     "typecheck": "bunx tsc --noEmit"
   },
