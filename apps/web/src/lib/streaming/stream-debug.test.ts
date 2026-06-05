@@ -1,6 +1,7 @@
 import { describe, expect, test, beforeEach } from "bun:test";
 
 import {
+  endSseClient,
   getSseClients,
   getSseEvents,
   markClientEstablished,
@@ -8,7 +9,6 @@ import {
   recordSseTraffic,
   registerSseClient,
   resetSseDebugStateForTests,
-  unregisterSseClient,
 } from "@/lib/streaming/stream-debug";
 import type { AssistantEvent } from "@/types/event-types";
 
@@ -44,36 +44,131 @@ describe("registerSseClient", () => {
     expect(found!.lastDataAt).toBeNull();
     expect(found!.dataFrames).toBe(0);
     expect(found!.keepalives).toBe(0);
+    // AND it starts out live (no end metadata yet)
+    expect(found!.endedAt).toBeNull();
+    expect(found!.endReason).toBeNull();
   });
 
-  test("auto-removes client when signal aborts", () => {
+  test("retains the client (marked ended) when signal aborts", () => {
+    // GIVEN a live registered client
     const ctrl = new AbortController();
     const id = registerSseClient(ctrl.signal);
-    expect(getSseClients().some((c) => c.id === id)).toBe(true);
 
+    // WHEN its abort signal fires
     ctrl.abort();
-    expect(getSseClients().some((c) => c.id === id)).toBe(false);
+
+    // THEN the client is retained for inspection, marked ended via the
+    // safety-net "aborted" reason rather than deleted
+    const found = getSseClients().find((c) => c.id === id);
+    expect(found).toBeDefined();
+    expect(found!.endedAt).not.toBeNull();
+    expect(found!.endReason).toBe("aborted");
   });
 
-  test("immediately removes client if already aborted", () => {
+  test("retains the client (marked ended) if already aborted at register", () => {
+    // GIVEN an already-aborted signal
     const ctrl = new AbortController();
     ctrl.abort();
-    const id = registerSseClient(ctrl.signal);
-    expect(getSseClients().some((c) => c.id === id)).toBe(false);
-  });
 
-  test("unregisterSseClient explicitly removes a live client", () => {
+    // WHEN a client is registered against it
+    const id = registerSseClient(ctrl.signal);
+
+    // THEN it is retained and immediately marked ended
+    const found = getSseClients().find((c) => c.id === id);
+    expect(found).toBeDefined();
+    expect(found!.endReason).toBe("aborted");
+  });
+});
+
+describe("endSseClient", () => {
+  test("marks a live client ended with the given reason", () => {
+    // GIVEN a live registered client
     const ctrl = new AbortController();
     const id = registerSseClient(ctrl.signal);
-    expect(getSseClients().some((c) => c.id === id)).toBe(true);
+    const before = Date.now();
 
-    unregisterSseClient(id);
-    expect(getSseClients().some((c) => c.id === id)).toBe(false);
+    // WHEN it is ended explicitly
+    endSseClient(id, "ended");
+    const after = Date.now();
+
+    // THEN it is retained with end metadata
+    const found = getSseClients().find((c) => c.id === id)!;
+    expect(found.endReason).toBe("ended");
+    expect(found.endedAt!).toBeGreaterThanOrEqual(before);
+    expect(found.endedAt!).toBeLessThanOrEqual(after);
   });
 
-  test("unregisterSseClient is idempotent for unknown ids", () => {
-    // Should not throw
-    unregisterSseClient("sse-nonexistent");
+  test("upgrades the safety-net 'aborted' reason to a precise one", () => {
+    // GIVEN a client whose abort fired first (recording "aborted")
+    const ctrl = new AbortController();
+    const id = registerSseClient(ctrl.signal);
+    ctrl.abort();
+    const endedAt = getSseClients().find((c) => c.id === id)!.endedAt;
+
+    // WHEN the transport later reports the precise reason
+    endSseClient(id, "watchdog");
+
+    // THEN the reason is upgraded but the original end time is preserved
+    const found = getSseClients().find((c) => c.id === id)!;
+    expect(found.endReason).toBe("watchdog");
+    expect(found.endedAt).toBe(endedAt);
+  });
+
+  test("does not downgrade a precise reason back to 'aborted'", () => {
+    // GIVEN a client ended with a precise reason
+    const ctrl = new AbortController();
+    const id = registerSseClient(ctrl.signal);
+    endSseClient(id, "ended");
+
+    // WHEN a later safety-net abort fires
+    endSseClient(id, "aborted");
+
+    // THEN the precise reason is preserved
+    expect(getSseClients().find((c) => c.id === id)!.endReason).toBe("ended");
+  });
+
+  test("is idempotent for unknown ids", () => {
+    // WHEN ending a client that was never registered
+    // THEN it does not throw
+    expect(() => endSseClient("sse-nonexistent", "ended")).not.toThrow();
+  });
+});
+
+describe("getSseClients history retention", () => {
+  test("returns live and recently-ended clients side by side", () => {
+    // GIVEN one ended client and one still-live client
+    const first = registerSseClient(new AbortController().signal);
+    endSseClient(first, "watchdog");
+    const second = registerSseClient(new AbortController().signal);
+
+    // WHEN the snapshot is read
+    const ids = getSseClients().map((c) => c.id);
+
+    // THEN both are present, in registration order
+    expect(ids).toEqual([first, second]);
+  });
+
+  test("evicts oldest ended clients beyond the cap but keeps live ones", () => {
+    // GIVEN a live client registered first
+    const live = registerSseClient(new AbortController().signal);
+
+    // AND more ended clients than the retention cap (15)
+    const endedIds: string[] = [];
+    for (let i = 0; i < 20; i++) {
+      const id = registerSseClient(new AbortController().signal);
+      endSseClient(id, "ended");
+      endedIds.push(id);
+    }
+
+    // WHEN the snapshot is read
+    const clients = getSseClients();
+    const ids = clients.map((c) => c.id);
+
+    // THEN only the 15 most-recent ended clients are retained
+    const retainedEnded = ids.filter((id) => id !== live);
+    expect(retainedEnded).toEqual(endedIds.slice(endedIds.length - 15));
+    // AND the live client is never evicted
+    expect(ids).toContain(live);
   });
 });
 

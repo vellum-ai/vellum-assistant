@@ -36,6 +36,7 @@ interface ShedReport {
   client_id: string | null;
   interface_id: string | null;
   conversation_key: string | null;
+  connection_nonce: string | null;
   subscription_age_ms: number;
 }
 
@@ -54,6 +55,7 @@ function makeReporterCaptor(): {
         client_id: inst.clientId,
         interface_id: inst.interfaceId,
         conversation_key: inst.conversationKey,
+        connection_nonce: inst.nonce,
         subscription_age_ms: Date.now() - inst.subscribedAtMs,
       });
     },
@@ -181,6 +183,10 @@ describe("SSE route — backpressure shed observability", () => {
     expect(reports.length).toBe(1);
     expect(reports[0]?.client_id).toBe("client-abc");
     expect(reports[0]?.interface_id).toBe("macos");
+    // The hub-assigned per-connection nonce is threaded into the shed
+    // report so a shed can be attributed to a specific connection even
+    // when several share a clientId across reconnects.
+    expect(reports[0]?.connection_nonce).toMatch(/^conn-/);
 
     ac.abort();
   });
@@ -195,6 +201,7 @@ describe("buildSseShedSentryContext", () => {
     interfaceId: "macos",
     // Channel-backed conversation key embedding a phone number.
     conversationKey: "asst:self:whatsapp:447123456789",
+    nonce: "conn-1",
   };
   const elDelay = { mean_ms: 1.2, p99_ms: 3.4, max_ms: 5.6 };
 
@@ -224,6 +231,7 @@ describe("buildSseShedSentryContext", () => {
       heartbeats_sent: 3,
       client_id: "client-xyz",
       interface_id: "macos",
+      connection_nonce: "conn-1",
       event_loop_delay_mean_ms: 1.2,
       event_loop_delay_p99_ms: 3.4,
       event_loop_delay_max_ms: 5.6,

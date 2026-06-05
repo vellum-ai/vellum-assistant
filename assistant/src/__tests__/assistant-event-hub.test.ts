@@ -189,6 +189,31 @@ describe("AssistantEventHub — unsubscribe cleanup", () => {
     expect(s.active).toBe(false);
   });
 
+  test("assigns a distinct per-connection nonce to each subscription", () => {
+    const hub = new AssistantEventHub();
+
+    // Two connections sharing one clientId (an old connection and the
+    // reconnect that supersedes it) must be distinguishable by nonce so
+    // logs can be attributed to a specific connection.
+    const first = hub.subscribe({
+      type: "client",
+      clientId: "client-1",
+      interfaceId: "macos",
+      capabilities: [],
+      callback: () => {},
+    });
+    const second = hub.subscribe({
+      type: "client",
+      clientId: "client-1",
+      interfaceId: "macos",
+      capabilities: [],
+      callback: () => {},
+    });
+
+    expect(first.nonce).not.toBe(second.nonce);
+    expect(second.nonce).toMatch(/^conn-/);
+  });
+
   test("subscriberCount reflects live subscriptions only", () => {
     const hub = new AssistantEventHub();
 

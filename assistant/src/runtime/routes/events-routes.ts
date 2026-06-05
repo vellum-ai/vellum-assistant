@@ -143,6 +143,12 @@ export interface SseSubscriberInstrumentation {
   clientId: string | null;
   interfaceId: string | null;
   conversationKey: string | null;
+  /**
+   * Per-connection nonce assigned by the hub. Distinguishes connections
+   * sharing a `clientId` (old vs reconnected) so a shed can be attributed
+   * to a specific connection. `null` until the hub subscription is created.
+   */
+  nonce: string | null;
 }
 
 export type SseShedReason = "callback_backpressure" | "heartbeat_backpressure";
@@ -177,6 +183,7 @@ export function buildSseShedSentryContext(
     heartbeats_sent: inst.heartbeatsSent,
     client_id: inst.clientId,
     interface_id: inst.interfaceId,
+    connection_nonce: inst.nonce,
     event_loop_delay_mean_ms: elDelay.mean_ms,
     event_loop_delay_p99_ms: elDelay.p99_ms,
     event_loop_delay_max_ms: elDelay.max_ms,
@@ -216,6 +223,7 @@ const defaultSseShedReporter: SseShedReporter = (reason, inst) => {
       scope.setTag("sse_shed_reason", reason);
       if (inst.clientId) scope.setTag("client_id", inst.clientId);
       if (inst.interfaceId) scope.setTag("interface_id", inst.interfaceId);
+      if (inst.nonce) scope.setTag("connection_nonce", inst.nonce);
       scope.setContext("sse_shed", sentryContext);
       Sentry.captureMessage(`sse_subscriber_shed:${reason}`);
     });
@@ -371,6 +379,7 @@ export function handleSubscribeAssistantEvents(
     clientId,
     interfaceId,
     conversationKey: scopeConversationKey,
+    nonce: null,
   };
 
   ensureEventLoopDelayMonitorStarted();
@@ -444,6 +453,9 @@ export function handleSubscribeAssistantEvents(
             ...subscriberBase,
             type: "process" as const,
           });
+    // Stamp the hub-assigned nonce so a later backpressure shed can be tied
+    // back to this specific connection in logs and Sentry.
+    instrumentation.nonce = sub.nonce;
   } catch (err) {
     if (err instanceof RangeError) {
       throw new ServiceUnavailableError("Too many concurrent connections");
