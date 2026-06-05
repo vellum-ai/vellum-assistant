@@ -8,6 +8,10 @@ private let oauthSurfaceLog = Logger(
     category: "OAuthConnectSurface"
 )
 
+private struct OAuthWebAuthStartError: LocalizedError {
+    let errorDescription: String? = "Unable to start the authorization session."
+}
+
 public enum OAuthConnectSurfaceResult: Sendable {
     case connected(connection: OAuthConnectionEntry?)
     case cancelled
@@ -86,7 +90,11 @@ public final class OAuthConnectSurfaceCoordinator {
             session.prefersEphemeralWebBrowserSession = false
             session.presentationContextProvider = WebAuthPresentationContext.shared
             activeSession = session
-            session.start()
+            guard session.start() else {
+                activeSession = nil
+                continuation.resume(throwing: OAuthWebAuthStartError())
+                return
+            }
         }
     }
 

@@ -65,6 +65,16 @@ public struct InlineSurfaceRouter: View {
         return false
     }
 
+    private var shouldRenderGenericActionButtons: Bool {
+        guard !surface.actions.isEmpty else { return false }
+        switch surface.data {
+        case .choice, .form, .confirmation, .oauthConnect, .taskPreferences:
+            return false
+        default:
+            return true
+        }
+    }
+
     private var standardWidgetMaxWidth: CGFloat {
         // Tables should use the full chat bubble width before falling back to horizontal scroll.
         isTableSurface ? VSpacing.chatBubbleMaxWidth : 540
@@ -123,7 +133,7 @@ public struct InlineSurfaceRouter: View {
 
             surfaceContent
 
-            if !surface.actions.isEmpty {
+            if shouldRenderGenericActionButtons {
                 actionButtons
             }
         }
