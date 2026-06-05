@@ -30,7 +30,6 @@
 import {
   buildTwilioConnectActionUrl,
   buildTwilioMediaStreamUrl,
-  buildTwilioRelayUrl,
   buildTwilioStatusWebhookUrl,
   buildTwilioVoiceWebhookUrl,
   normalizePublicBaseUrl,
@@ -92,10 +91,7 @@ export function getTwilioVoiceWebhookUrl(
   config: IngressConfig,
   callSessionId?: string,
 ): string {
-  return buildTwilioVoiceWebhookUrl(
-    getPublicBaseUrl(config),
-    callSessionId,
-  );
+  return buildTwilioVoiceWebhookUrl(getPublicBaseUrl(config), callSessionId);
 }
 
 /**
@@ -110,14 +106,6 @@ export function getTwilioStatusCallbackUrl(config: IngressConfig): string {
  */
 export function getTwilioConnectActionUrl(config: IngressConfig): string {
   return buildTwilioConnectActionUrl(getPublicBaseUrl(config));
-}
-
-/**
- * Build the Twilio ConversationRelay WebSocket URL.
- * Converts http:// → ws:// and https:// → wss://.
- */
-export function getTwilioRelayUrl(config: IngressConfig): string {
-  return buildTwilioRelayUrl(getPublicBaseUrl(config));
 }
 
 /**
