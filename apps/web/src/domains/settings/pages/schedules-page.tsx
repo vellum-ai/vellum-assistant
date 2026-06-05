@@ -1024,29 +1024,26 @@ interface SystemTaskRowProps {
   nextRunAt: number | null;
   lastRunAt: number | null;
   usage: ScheduleRowUsage;
-  isRunning: boolean;
   onClick: () => void;
-  onRunNow: () => void;
 }
 
-function SystemTaskRow({
+export function SystemTaskRow({
   name,
   subtitle,
   enabled,
   nextRunAt,
   lastRunAt,
   usage,
-  isRunning,
   onClick,
-  onRunNow,
 }: SystemTaskRowProps) {
   return (
-    <div className="flex flex-wrap items-center gap-3 py-3 first:pt-0 last:pb-0 [&+&]:border-t [&+&]:border-[var(--border-base)]">
-      <button
-        type="button"
-        onClick={onClick}
-        className="min-w-0 flex-1 text-left"
-      >
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={`Open ${name}`}
+      className="flex w-full cursor-pointer flex-wrap items-center gap-3 rounded-md px-2 py-3 text-left transition-colors hover:bg-[var(--surface-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] [&+&]:border-t [&+&]:border-[var(--border-base)]"
+    >
+      <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="truncate text-body-medium-default text-[var(--content-default)]">
             {name}
@@ -1060,27 +1057,9 @@ function SystemTaskRow({
           {nextRunAt ? <span>Next: {formatTimestamp(nextRunAt)}</span> : null}
           {lastRunAt ? <span>Last: {formatTimestamp(lastRunAt)}</span> : null}
         </div>
-      </button>
+      </div>
       <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">
         <ScheduleUsageStats scheduleName={name} usage={usage} />
-        <Button
-          variant="ghost"
-          size="compact"
-          leftIcon={
-            isRunning ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Play className="h-3.5 w-3.5" />
-            )
-          }
-          onClick={(event) => {
-            event.stopPropagation();
-            onRunNow();
-          }}
-          disabled={isRunning}
-        >
-          {isRunning ? "Running…" : "Run now"}
-        </Button>
         <span
           className="h-2 w-2 rounded-full"
           style={{
@@ -1090,12 +1069,9 @@ function SystemTaskRow({
           }}
           aria-label={enabled ? "enabled" : "disabled"}
         />
-        <ChevronRight
-          className="h-4 w-4 text-[var(--content-tertiary)] cursor-pointer"
-          onClick={onClick}
-        />
+        <ChevronRight className="h-4 w-4 text-[var(--content-tertiary)]" />
       </div>
-    </div>
+    </button>
   );
 }
 
@@ -1107,12 +1083,8 @@ interface SystemTasksSectionProps {
   isLoading: boolean;
   hasError: boolean;
   onRetry: () => void;
-  onRunHeartbeatNow: () => void;
-  onRunConsolidationNow: () => void;
   onSelectHeartbeat: () => void;
   onSelectConsolidation: () => void;
-  isHeartbeatRunning: boolean;
-  isConsolidationRunning: boolean;
 }
 
 function SystemTasksSection({
@@ -1123,12 +1095,8 @@ function SystemTasksSection({
   isLoading,
   hasError,
   onRetry,
-  onRunHeartbeatNow,
-  onRunConsolidationNow,
   onSelectHeartbeat,
   onSelectConsolidation,
-  isHeartbeatRunning,
-  isConsolidationRunning,
 }: SystemTasksSectionProps) {
   const showHeartbeat = heartbeatConfig != null;
   const showConsolidation = consolidationConfig?.available === true;
@@ -1167,9 +1135,7 @@ function SystemTasksSection({
               nextRunAt={heartbeatConfig.nextRunAt}
               lastRunAt={heartbeatConfig.lastRunAt}
               usage={heartbeatUsage}
-              isRunning={isHeartbeatRunning}
               onClick={onSelectHeartbeat}
-              onRunNow={onRunHeartbeatNow}
             />
           ) : null}
           {showConsolidation ? (
@@ -1180,9 +1146,7 @@ function SystemTasksSection({
               nextRunAt={consolidationConfig.nextRunAt}
               lastRunAt={consolidationConfig.lastRunAt}
               usage={consolidationUsage}
-              isRunning={isConsolidationRunning}
               onClick={onSelectConsolidation}
-              onRunNow={onRunConsolidationNow}
             />
           ) : null}
           {hasError ? (
@@ -1705,16 +1669,12 @@ export function SchedulesPage() {
         isLoading={isSystemLoading}
         hasError={hasSystemError}
         onRetry={refetchSystemTasks}
-        onRunHeartbeatNow={handleRunHeartbeatNow}
-        onRunConsolidationNow={handleRunConsolidationNow}
         onSelectHeartbeat={() =>
           navigateToSchedule(SYSTEM_TASK_URL_IDS.heartbeat)
         }
         onSelectConsolidation={() =>
           navigateToSchedule(SYSTEM_TASK_URL_IDS.consolidation)
         }
-        isHeartbeatRunning={isHeartbeatRunning}
-        isConsolidationRunning={isConsolidationRunning}
       />
 
       {oneTime.length > 0 && (
