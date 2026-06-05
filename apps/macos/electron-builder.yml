@@ -22,6 +22,11 @@ mac:
   hardenedRuntime: true
   entitlements: ./scripts/entitlements/app.plist
   entitlementsInherit: ./scripts/entitlements/inherit.plist
+  # Required for notification action buttons (View, Approve/Reject, Open) to
+  # appear on macOS. Without this, the banner shows but action buttons are
+  # hidden. Reference: https://www.electronjs.org/docs/latest/api/structures/notification-action#button-support-on-macos
+  extendInfo:
+    NSUserNotificationAlertStyle: alert
   target:
     - target: dmg
       arch:

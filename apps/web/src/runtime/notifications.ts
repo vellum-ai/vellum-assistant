@@ -139,6 +139,23 @@ export async function ensureNotificationPermission(): Promise<PermissionState> {
 async function registerTapListeners(): Promise<void> {
   if (tapListenersRegistered) return;
   tapListenersRegistered = true;
+
+  // Electron path: subscribe to main-process notification action events.
+  // Converts the richer `NotificationActionEvent` into the common
+  // `NotificationTapPayload` so the same `tapHandler` is invoked
+  // regardless of platform. The listener is permanent (app lifetime).
+  if (isElectron() && window.vellum?.notifications) {
+    window.vellum.notifications.onAction((event) => {
+      if (!tapHandler) return;
+      tapHandler({
+        conversationId: event.conversationId,
+        sourceEventName: `electron:${event.category}:${event.kind}`,
+        deliveryId: event.deliveryId,
+      });
+    });
+    return;
+  }
+
   if (!isNativePlatform()) return;
   try {
     await LocalNotifications.addListener(
@@ -157,8 +174,9 @@ async function registerTapListeners(): Promise<void> {
 }
 
 /**
- * Set (or replace) the handler invoked when the user taps a notification.
- * Safe to call on every render — the underlying Capacitor listener is
+ * Set (or replace) the handler invoked when the user taps a notification
+ * or presses an action button. Safe to call on every render — the
+ * underlying platform listener (Capacitor, Electron, or browser) is
  * registered only once and the handler reference is swapped in place so
  * closures always see the latest callback.
  */
