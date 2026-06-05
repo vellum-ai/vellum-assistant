@@ -8,31 +8,30 @@ metadata:
     display-name: "ACP"
     feature-flag: acp
     activation-hints:
-      - "User wants to delegate a coding task to Claude Code, Codex, or another ACP agent"
+      - "User asks to use Claude Code, Codex, or Gemini to do something"
+      - "User wants to delegate a coding task to Claude Code, Codex, Gemini, or another ACP agent"
+      - "User wants to hand a coding task to another agent and check on it later"
       - "User wants to spawn an external coding agent that runs autonomously and streams results back"
-      - "User mentions ACP, claude-agent-acp, codex-acp, or running multiple coding agents in parallel"
+      - "User mentions ACP, claude-agent-acp, codex-acp, gemini --acp, or running multiple coding agents in parallel"
     avoid-when:
-      - "Task is small enough to do inline with the assistant's own tools — no need for an external agent"
+      - "Task is small enough to do inline with the assistant's own tools - no need for an external agent"
 ---
 
-ACP agent orchestration - spawn external coding agents (Claude Code, Codex, etc.) to work on tasks via the Agent Client Protocol. Each agent runs as its own subprocess speaking ACP over stdio and streams results back into the conversation.
+ACP agent orchestration - spawn external coding agents (Claude Code, Codex, Gemini) to work on tasks via the Agent Client Protocol. Each agent runs as its own subprocess speaking ACP over stdio and streams results back into the conversation.
 
 ## Usage
 
 Use `acp_spawn` to delegate a coding task to an external agent. The agent runs as a subprocess speaking the ACP protocol over stdio and streams results back.
 
+Users can refer to agents by natural names: "claude code", "codex cli", "openai codex", "gemini cli", and "google gemini" all resolve to the canonical `claude`, `codex`, and `gemini` ids (unless the user's config defines an agent literally keyed by that name, which always wins).
+
 ## First-time setup
 
-When the user first tries to use ACP and it's not configured, set it up automatically:
+When the user first tries to use ACP and it's not enabled, set it up automatically:
 
-1. **Check if `claude-agent-acp` is installed** by running `which claude-agent-acp`. If not found, install it:
-   ```bash
-   npm i -g @agentclientprotocol/claude-agent-acp
-   ```
+1. **Enable the `acp` feature flag** (the primary enablement path). Either PATCH it via the gateway feature-flags endpoint or direct the user to toggle "ACP Coding Agents" in the client's feature flags UI. Flag changes are hot-refreshed in the assistant - no restart needed.
 
-2. **Enable the `acp` feature flag** (the primary enablement path). Either PATCH it via the gateway feature-flags endpoint or direct the user to toggle "ACP Coding Agents" in the client's feature flags UI. Flag changes are hot-refreshed in the assistant - no restart needed.
-
-   As a supported alternative, edit the workspace config file to add the `acp` section. Default profiles for `claude` and `codex` ship out-of-box, so the minimal config is just:
+   As a supported alternative, edit the workspace config file to add the `acp` section. Default profiles for `claude`, `codex`, and `gemini` ship out-of-box, so the minimal config is just:
    ```json
    {
      "acp": {
@@ -43,35 +42,49 @@ When the user first tries to use ACP and it's not configured, set it up automati
    ```
    If you go the config route, **wait a few seconds** for the config watcher to pick up the change (it hot-reloads automatically - no restart needed).
 
-3. Then retry the `acp_spawn` call. Do NOT run `vellum sleep && vellum wake` - that kills the conversation.
+2. Then retry the `acp_spawn` call. Do NOT run `vellum sleep && vellum wake` - that kills the conversation.
+
+No manual binary installation is needed first: missing adapter binaries are installed automatically (see below).
+
+## Automatic adapter installation
+
+When `acp_spawn` finds the agent's binary missing from PATH, the assistant silently installs the matching npm package globally and proceeds in the same call. Only the allowlisted out-of-box packages are ever auto-installed (`@agentclientprotocol/claude-agent-acp`, `@zed-industries/codex-acp`, `@google/gemini-cli`); user-configured agents with custom commands are never installed automatically.
+
+Manual installation is fallback guidance for unusual setups: npm unavailable, restricted global installs, or an auto-install failure (the failure reason is surfaced in the tool result).
+
+```bash
+npm i -g @agentclientprotocol/claude-agent-acp   # claude
+npm i -g @zed-industries/codex-acp               # codex
+npm i -g @google/gemini-cli                      # gemini
+```
 
 ## Codex setup
 
-To use Codex via ACP, both the `codex-acp` adapter and the underlying `codex` CLI must be on PATH:
+The `codex-acp` adapter is auto-installed, but it shells out to the underlying `codex` CLI, which must also be on PATH:
 
-1. **Install the ACP adapter:**
-   ```bash
-   npm i -g @zed-industries/codex-acp
-   ```
-   This provides the `codex-acp` binary that the assistant spawns.
+1. **Install the Codex CLI** (version 0.111 or higher) via OpenAI's distribution channel of choice. The adapter will fail if `codex` isn't on PATH.
 
-2. **Install the Codex CLI** (version 0.111 or higher) via OpenAI's distribution channel of choice. The `codex-acp` adapter shells out to `codex` under the hood and will fail if it isn't on PATH.
-
-3. **Authenticate.** The `codex-acp` adapter inherits whatever auth the underlying `codex` CLI uses. Typical flows:
+2. **Authenticate.** The `codex-acp` adapter inherits whatever auth the underlying `codex` CLI uses. Typical flows:
    - `codex login` (OAuth)
    - `CODEX_API_KEY` environment variable
    - `OPENAI_API_KEY` environment variable
 
-If `codex-acp` isn't on PATH when the user asks for it, the assistant will surface the install hint via `acp_list_agents`.
+## Gemini setup
+
+Gemini CLI speaks ACP natively (`gemini --acp`) - there is no separate adapter binary. The CLI itself is auto-installed from `@google/gemini-cli` when missing.
+
+**Authenticate** via either:
+- Browser OAuth: run `gemini` once interactively and complete the sign-in flow.
+- `GEMINI_API_KEY` environment variable. To pass it to spawned sessions, set it under `acp.agents.gemini.env` in the workspace config.
 
 ## Critical: correct agent command
 
-- `claude-agent-acp` and `codex-acp` are the two supported adapter binaries today. They are what speak the ACP JSON-RPC protocol.
-- NEVER use `claude`, `claude -p`, `claude --acp`, the bare `codex` CLI, or any other command as the ACP `command`. Only the dedicated `*-acp` adapters speak the protocol.
-- Default profiles for `claude` and `codex` ship out-of-box. Users only need an `agents.<id>` entry in config if they want to override the defaults (e.g. point to a custom binary path or pass extra args).
-- NEVER change an existing ACP config to use a different command. If the config already has `claude-agent-acp` or `codex-acp`, leave it alone.
+- Three agents are supported out-of-box: `claude` (via the `claude-agent-acp` adapter), `codex` (via the `codex-acp` adapter), and `gemini` (via `gemini --acp` - Gemini speaks ACP natively, no adapter binary).
+- NEVER use `claude`, `claude -p`, `claude --acp`, or the bare `codex` CLI as the ACP `command`. Claude and Codex only speak the protocol through their dedicated `*-acp` adapters. Gemini is the exception: the `gemini` CLI itself speaks ACP when launched with `--acp`.
+- Default profiles for all three ship out-of-box. Users only need an `agents.<id>` entry in config if they want to override the defaults (e.g. point to a custom binary path or pass extra args/env).
+- NEVER change an existing ACP config to use a different command. If the config already has `claude-agent-acp`, `codex-acp`, or `gemini`, leave it alone.
 
-## Updating the adapter
+## Updating an adapter
 
 If `acp_spawn` reports that an adapter is outdated, ask the user before updating. To update:
 
@@ -79,18 +92,21 @@ If `acp_spawn` reports that an adapter is outdated, ask the user before updating
 npm i -g @agentclientprotocol/claude-agent-acp@latest
 # or
 npm i -g @zed-industries/codex-acp@latest
+# or
+npm i -g @google/gemini-cli@latest
 ```
 
 Then retry the `acp_spawn` call.
 
 ## When to use acp_steer vs acp_spawn
 
-- **`acp_steer` interrupts the in-flight prompt.** Use it to course-correct a running agent ("stop, do X instead"). It cancels whatever the agent is currently working on and replaces it with the new instruction.
-- **For follow-ups after the current task** ("also do Y when you're done"), do NOT use `acp_steer`. Wait for the `acp_session_completed` notification and call `acp_spawn` again with the new task. Queued follow-ups in the same session are not yet supported.
+- **On a running session, `acp_steer` interrupts the in-flight prompt.** Use it to course-correct ("stop, do X instead"). It cancels whatever the agent is currently working on and replaces it with the new instruction. Queued follow-ups behind a running prompt are not supported - wait for the `acp_session_completed` notification instead.
+- **On a completed (or assistant-restarted) session, `acp_steer` transparently resumes it.** The session is restored from persisted history via ACP session loading when the agent supports it, and the new instruction runs with the agent's full prior context. This is the primary way to do follow-up work on an existing session id - prefer it over spawning a fresh session that would lose context.
+- If resume isn't possible (the session was recorded before resume support and has no working directory, or the agent lacks the capability), the error explains why; fall back to `acp_spawn`. For claude sessions, the completion message also includes a `claude --resume <id>` CLI hint for resuming outside the assistant.
 
 ## Discoverability
 
-Use `acp_list_agents` to see what's set up and what's missing. It returns each available agent profile, whether ACP is enabled, whether the agent's binary is on PATH, and an install hint if not. This is the right tool to call when deciding between `claude` and `codex`, or when the user asks "what coding agents do I have?"
+Use `acp_list_agents` to see what's set up and what's missing. It returns each available agent profile, whether ACP is enabled, whether the agent's binary is on PATH, and an install hint if not. This is the right tool to call when deciding between `claude`, `codex`, and `gemini`, or when the user asks "what coding agents do I have?"
 
 ## Working directory
 
