@@ -143,6 +143,10 @@ Use custom HTML for novel/creative UIs (games, art tools); widgets for standard 
 
 ## Build workflow
 
+### 0. Preflight — optional profile switch
+
+App builds are multi-step and benefit from a stronger model. If the active model profile looks weak for this work, you may offer to switch profiles first. Use the `ui_show` tool to ask, with `surface_type: "confirmation"` and `await_action: true`, so the user explicitly opts in before anything changes. Do not call the shell command `assistant ui confirm` for this — it can block the build flow before app work starts. If the user declines, just proceed on the current profile.
+
 ### 1 — Plan and build, fast
 
 Think (what's the tool, who's the single user), plan in one pass (visual direction, minimal schema, core layout), then build. No wireframes, no mockups, no color questions. Make the creative calls yourself. Only ask a question when the request is genuinely ambiguous about *what to build* — and even then, prefer building something strong from context clues.

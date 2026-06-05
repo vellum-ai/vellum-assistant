@@ -76,9 +76,7 @@ export interface AppCreateInput {
   name: string;
   description?: string;
   schema_json?: string;
-  /**
-   * Lenient alias. Folded into source_files["src/index.html"] when a string.
-   */
+  /** Retired single-file shortcut. Returns a guidance error. */
   html?: unknown;
   /** Retired single-file multi-page shortcut. Returns a guidance error. */
   pages?: unknown;
@@ -98,17 +96,17 @@ export async function executeAppCreate(
   const description = input.description;
   const schemaJson = input.schema_json ?? "{}";
 
-  // Lenient alias: fold a top-level `html` into source_files["src/index.html"]
-  // instead of failing the turn. Models reach for `html` constantly.
-  if (
-    Object.prototype.hasOwnProperty.call(input, "html") &&
-    typeof input.html === "string"
-  ) {
-    input.source_files = {
-      "src/index.html": input.html,
-      ...(input.source_files ?? {}),
+  // Retired shortcut: a top-level `html` is no longer accepted. Reject with a
+  // helpful message (rather than a cryptic schema error) so the model writes a
+  // multi-file TSX app under src/ instead.
+  if (Object.prototype.hasOwnProperty.call(input, "html")) {
+    return {
+      content: JSON.stringify({
+        error:
+          "app_create no longer accepts html. Build a multi-file TSX app under src/ (src/index.html + src/main.tsx + src/App.tsx) instead.",
+      }),
+      isError: true,
     };
-    delete input.html;
   }
 
   if (Object.prototype.hasOwnProperty.call(input, "pages")) {

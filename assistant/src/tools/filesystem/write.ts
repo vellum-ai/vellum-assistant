@@ -1,7 +1,7 @@
 import { join, resolve, sep } from "node:path";
 
-import { enqueuePkbIndexJob } from "../../memory/jobs/embed-pkb-file.js";
 import { getAppsDir } from "../../memory/app-store.js";
+import { enqueuePkbIndexJob } from "../../memory/jobs/embed-pkb-file.js";
 import { PKB_WORKSPACE_SCOPE } from "../../memory/pkb/types.js";
 import { RiskLevel } from "../../permissions/types.js";
 import { getLogger } from "../../util/logger.js";
