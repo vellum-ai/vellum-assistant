@@ -1,4 +1,3 @@
-import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
 import {
   dedupeDisplayMessages,
   messagesEqual,
@@ -15,7 +14,6 @@ import {
 } from "@/domains/chat/utils/message-sorting";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 import type { DisplayMessage } from "@/domains/chat/types/types";
-import type { ConversationMessage } from "@vellumai/assistant-api";
 
 /**
  * Seq-aware snapshot/stream reconciler (the ATL-781 monotonic merge).
@@ -43,9 +41,15 @@ import type { ConversationMessage } from "@vellumai/assistant-api";
  * Idempotent stream apply (events with `seq <= F` are no-ops) is enforced
  * upstream in the SSE consumer, so this merge never has to dedupe replays.
  *
+ * Both sides are already-projected `DisplayMessage[]`: callers project the
+ * wire `ConversationMessage[]` snapshot to display rows at the reconcile
+ * boundary (`reconcile-snapshot.ts`), and the initial-load path already holds
+ * display rows. Keeping the merge display-on-display makes it the single
+ * authoritative reconcile for every snapshot-apply site under the flag.
+ *
  * Gated behind `isSeqGapDetectionEnabled()`. While the flag is off, callers
- * use the legacy `reconcileMessages`; this module is the only path when it is
- * on, and the legacy one is removed when the flag graduates.
+ * use the legacy reconcilers; this module is the only path when it is on, and
+ * the legacy ones are removed when the flag graduates.
  */
 export interface ReconcileWithSeqOptions {
   /** Snapshot watermark `S` — how far `/messages` had persisted. */
@@ -67,7 +71,7 @@ export interface ReconcileWithSeqOptions {
  */
 export function reconcileMessagesWithSeq(
   local: DisplayMessage[],
-  server: ConversationMessage[],
+  server: DisplayMessage[],
   options: ReconcileWithSeqOptions,
 ): DisplayMessage[] {
   if (server.length === 0) {
@@ -126,9 +130,7 @@ export function reconcileMessagesWithSeq(
       // Authoritative snapshot, or a server row with no live local copy: take
       // the server row wholesale, carrying only the client-only blob
       // attachments the snapshot cannot represent.
-      return [
-        preserveClientAttachments(mapRuntimeToDisplayMessage(m), localMsg),
-      ];
+      return [preserveClientAttachments(m, localMsg)];
     });
 
   preserveUnreflectedLocalRows(reconciled, local, serverIds);
@@ -149,7 +151,7 @@ export function reconcileMessagesWithSeq(
  */
 function adoptServerIdentity(
   localMsg: DisplayMessage,
-  server: ConversationMessage,
+  server: DisplayMessage,
 ): DisplayMessage {
   const next: DisplayMessage = { ...localMsg, id: server.id };
 
