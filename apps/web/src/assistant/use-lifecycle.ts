@@ -20,6 +20,9 @@ import { useAssistantQuery } from "@/assistant/queries";
 import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
 import { isLocalMode } from "@/lib/local-mode";
 import { isAuthenticated, type SessionStatus } from "@/stores/session-status";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { useCurrentPlatformAssistantStore } from "@/stores/current-platform-assistant-store";
+import { useOrganizationStore } from "@/stores/organization-store";
 
 interface UseAssistantLifecycleOptions {
   sessionStatus: SessionStatus;
@@ -57,8 +60,29 @@ export function useAssistantLifecycle({
     !isGatewayAuthMode() &&
     (hasPlatformSession || !isLocalMode());
 
+  // Which platform assistant the user has selected, gated by the
+  // multi-platform-assistant flag and to platform mode only. When the flag
+  // is off (or no selection / not platform mode) this stays null, so the
+  // resolution falls back to the default first-listed assistant — identical
+  // to the pre-multi-assistant behavior. A change here flows into the
+  // service via `setInputs` → `respondToInputs` → `checkAssistant`, which
+  // re-resolves and projects the newly selected assistant.
+  const multiAssistantEnabled =
+    useAssistantFeatureFlagStore.use.multiPlatformAssistant();
+  const currentOrganizationId =
+    useOrganizationStore.use.currentOrganizationId();
+  const byOrg = useCurrentPlatformAssistantStore.use.byOrg();
+  const selectedPlatformAssistantId =
+    multiAssistantEnabled &&
+    !isGatewayAuthMode() &&
+    !isLocalMode() &&
+    currentOrganizationId
+      ? (byOrg[currentOrganizationId] ?? null)
+      : null;
+
   const { data: assistantResult } = useAssistantQuery({
     enabled: shouldQueryServer,
+    selectedPlatformAssistantId,
   });
 
   // Push inputs into the service and let it react. The service is a
@@ -74,6 +98,7 @@ export function useAssistantLifecycle({
       onRedirect,
       resolveOnboardingRedirect,
       queryClient,
+      selectedPlatformAssistantId,
     });
     void lifecycleService.respondToInputs();
   }, [
@@ -84,6 +109,7 @@ export function useAssistantLifecycle({
     onRedirect,
     resolveOnboardingRedirect,
     queryClient,
+    selectedPlatformAssistantId,
   ]);
 
   // Hand poll results to the service — it decides whether to

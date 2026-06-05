@@ -39,7 +39,11 @@ import {
   resolveAssistantLifecycleState,
   shouldRecoverFromHatchFailure,
 } from "@/assistant/lifecycle";
-import { ASSISTANT_QUERY_KEY, POLL_INTERVAL_MS } from "@/assistant/queries";
+import {
+  ASSISTANT_QUERY_KEY,
+  assistantQueryKey,
+  POLL_INTERVAL_MS,
+} from "@/assistant/queries";
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import type { AssistantState } from "@/assistant/types";
 import { extractErrorMessage } from "@/utils/api-errors";
@@ -73,6 +77,12 @@ export interface LifecycleServiceInputs {
   }) => string | null;
   /** The TanStack Query client owned by `RootLayout`'s provider. */
   queryClient: QueryClient;
+  /**
+   * The platform assistant the user has selected (multi-assistant). `null`
+   * resolves the default first-listed assistant — the pre-multi-assistant
+   * behavior. Optional so existing `setInputs` callers/tests need no change.
+   */
+  selectedPlatformAssistantId?: string | null;
 }
 
 const NOOP_REDIRECT = (_: string) => {};
@@ -112,6 +122,7 @@ class AssistantLifecycleService {
     onRedirect: NOOP_REDIRECT,
     resolveOnboardingRedirect: NOOP_RESOLVE,
     queryClient: null as unknown as QueryClient,
+    selectedPlatformAssistantId: null,
   };
 
   // ---------------------------------------------------------------------------
@@ -222,9 +233,10 @@ class AssistantLifecycleService {
       // network so a 10s-old cached 404 or initializing result
       // doesn't silently replay. Poll-driven projections go through
       // `applyServerResult` to avoid the read-back loop.
+      const selectedId = this.inputs.selectedPlatformAssistantId ?? null;
       const result = await this.inputs.queryClient.fetchQuery({
-        queryKey: ASSISTANT_QUERY_KEY,
-        queryFn: () => getAssistant(),
+        queryKey: assistantQueryKey(selectedId),
+        queryFn: () => getAssistant(selectedId ?? undefined),
         staleTime: 0,
       });
       if (generation !== this.generation) return;

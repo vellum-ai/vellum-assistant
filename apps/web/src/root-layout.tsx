@@ -41,6 +41,8 @@ import { useElectronStatusSync } from "@/hooks/use-electron-status-sync";
 import { useElectronFeatureFlagBridge } from "@/runtime/electron-feature-flags";
 import { TimezoneSync } from "@/components/timezone-sync";
 import { retireAssistant } from "@/assistant/retire-service";
+import { selectPlatformAssistant } from "@/assistant/select-platform-assistant";
+import { CreateAssistantDialog } from "@/components/create-assistant-dialog";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { toast } from "@vellumai/design-library/components/toast";
 
@@ -146,6 +148,8 @@ export function RootLayout() {
   // the retire can run without first routing the user to settings.
   const [retireId, setRetireId] = useState<string | null>(null);
   const [retirePending, setRetirePending] = useState(false);
+  // Whether the tray "New Assistant…" name-prompt dialog is open.
+  const [createOpen, setCreateOpen] = useState(false);
 
   useVellumCommands({
     openSettings: () => {
@@ -167,11 +171,14 @@ export function RootLayout() {
     shareFeedback: () => setFeedbackOpen(true),
     selectAssistant: (command) => {
       if (command.kind === "selectAssistant") {
-        void useAuthStore.getState().connectLocalAssistant(command.assistantId);
+        // The tray lists managed (platform-hosted) assistants, so switching
+        // goes through the platform selection path — not connectLocalAssistant,
+        // which primes a local gateway and no-ops for managed assistants.
+        void selectPlatformAssistant(command.assistantId);
       }
     },
     createAssistant: () => {
-      void navigate(routes.onboarding.prechat);
+      setCreateOpen(true);
     },
     retireAssistant: (command) => {
       if (command.kind === "retireAssistant") {
@@ -280,6 +287,13 @@ export function RootLayout() {
         isPending={retirePending}
         onConfirm={handleConfirmRetire}
         onCancel={() => setRetireId(null)}
+      />
+
+      {/* Name-prompt for the tray "New Assistant…" command — hatches an
+          additional managed assistant and switches to it. */}
+      <CreateAssistantDialog
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
       />
     </div>
   );

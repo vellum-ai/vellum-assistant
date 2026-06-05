@@ -444,6 +444,22 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       if (result.ok && result.data.user) {
         const user = toAuthUser(result.data.user);
         syncUserScopedState(user?.id ?? null);
+        // Reconcile the lockfile mirror on refresh too — not just cold
+        // `initSession`. App resume, profile save, and the provider callback
+        // all route through here; without this the macOS tray and CLI keep a
+        // stale managed-assistant list until the next full boot. Best-effort
+        // and local-mode only (platform mode has no lockfile host); the
+        // refresh has already succeeded regardless of the sync outcome.
+        if (isLocalMode()) {
+          try {
+            const apiAssistants = await listAssistants();
+            if (apiAssistants.ok) {
+              await syncPlatformAssistantsToLockfile(apiAssistants.data);
+            }
+          } catch {
+            // Sync failed — continue with cached lockfile data.
+          }
+        }
         set(authenticatedPlatformUser(user));
         return true;
       }

@@ -59,9 +59,27 @@ export type AcknowledgeAssistantDiskPressureResult =
   | { ok: true; status: number; data: DiskPressureStatusResponse }
   | { ok: false; status: number; error: Record<string, unknown> };
 
-export async function hatchAssistant(input?: HatchInput): Promise<HatchResult> {
+/**
+ * Hatch a managed assistant.
+ *
+ * `mode` maps to the platform's hatch semantics:
+ *   - `ensure` (server default when omitted): return an existing managed
+ *     assistant when possible, else create one. This is the auto-hatch /
+ *     first-run behavior — callers should leave `mode` unset for it.
+ *   - `create`: provision an *additional* assistant (when multi-assistant
+ *     hatching is enabled). Pass this to actually add a new one rather than
+ *     get handed back the existing assistant.
+ *
+ * `status` distinguishes the outcome: 201 = newly created, 200 = an existing
+ * assistant was returned (a `create` that the server deduped/declined).
+ */
+export async function hatchAssistant(
+  input?: HatchInput,
+  mode?: "create" | "ensure",
+): Promise<HatchResult> {
   const { data, error, response } = await assistantsHatchCreate({
     body: input ?? {},
+    query: mode ? { mode } : undefined,
     throwOnError: false,
   });
 

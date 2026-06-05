@@ -119,7 +119,11 @@ const buildTrayMenu = (handlers: TrayHandlers, status: AssistantStatus): Menu =>
   // Reads from the lockfile watcher's in-memory cache (no disk I/O).
   if (isMultiAssistantEnabled() && !onboarding) {
     const lockfile = getWatchedLockfile();
-    const assistants = lockfile.assistants;
+    // Only managed (platform-hosted) assistants belong in the switcher,
+    // mirroring the native client's `isManaged` filter (cloud === "vellum").
+    // Local/Docker lockfile entries are handled by separate flows and would
+    // mis-route through the platform selection path.
+    const assistants = lockfile.assistants.filter((a) => a.cloud === "vellum");
     const activeId = lockfile.activeAssistant;
 
     items.push({ type: "separator" });

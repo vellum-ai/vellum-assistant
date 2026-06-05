@@ -9,8 +9,29 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { pollIntervalFor, POLL_INTERVAL_MS } from "@/assistant/queries";
+import {
+  ASSISTANT_QUERY_KEY,
+  assistantQueryKey,
+  pollIntervalFor,
+  POLL_INTERVAL_MS,
+} from "@/assistant/queries";
 import type { Assistant, GetAssistantResult } from "@/assistant/api";
+
+describe("assistantQueryKey", () => {
+  test("returns the base key by reference when nothing is selected (off-path is byte-identical)", () => {
+    // Same reference, not just a deep-equal copy — so every existing
+    // setQueryData / invalidate site that uses ASSISTANT_QUERY_KEY keeps
+    // matching when multi-assistant is off.
+    expect(assistantQueryKey()).toBe(ASSISTANT_QUERY_KEY);
+    expect(assistantQueryKey(null)).toBe(ASSISTANT_QUERY_KEY);
+  });
+
+  test("suffixes the selected id so a switch is a distinct cache key", () => {
+    expect(assistantQueryKey("ast-2")).toEqual([...ASSISTANT_QUERY_KEY, "ast-2"]);
+    expect(assistantQueryKey("ast-2")).not.toBe(ASSISTANT_QUERY_KEY);
+    expect(assistantQueryKey("ast-2")).not.toEqual(assistantQueryKey("ast-3"));
+  });
+});
 
 function okResult(
   status: "active" | "initializing" | "to_be_deleted",
