@@ -2,21 +2,22 @@
  * Plugin bootstrap — runs every registered plugin's `init()` hook once during
  * daemon startup.
  *
- * Plugins register themselves via side-effect imports elsewhere in the boot
- * sequence (first-party) or at runtime (hot-reload). By the time
- * {@link bootstrapPlugins} runs, the registry has been fully populated for
- * this boot cycle. This function:
+ * The registry is populated before this runs: first-party defaults are
+ * registered explicitly (step 1 below), user plugins are registered by the
+ * user-plugin loader from the workspace `plugins/` directory, and hot-reload
+ * registers at runtime. By the time {@link bootstrapPlugins} runs, the
+ * registry has been fully populated for this boot cycle. This function:
  *
  * 1. Registers the canonical first-party default plugins via
- *    {@link registerDefaultPlugins} (one per pipeline). Registration is
- *    idempotent so repeat calls (e.g. during integration tests) do not throw.
+ *    {@link registerDefaultPlugins}. Registration is idempotent so repeat
+ *    calls (e.g. during integration tests) do not throw.
  * 2. Walks {@link getRegisteredPlugins} in registration order.
  * 3. For each plugin, consults `manifest.requiresFlag` against
  *    {@link isAssistantFeatureFlagEnabled}. If any listed flag is disabled,
  *    the plugin is skipped wholesale — no `init()`, no tool/route/skill
  *    contributions, no entry in the shutdown hook, and the plugin is also
- *    dropped from the registry via {@link unregisterPlugin} so its middleware
- *    stops participating in pipeline runs. This is the primary mechanism for
+ *    dropped from the registry via {@link unregisterPlugin} so none of its
+ *    hooks participate in the turn lifecycle. This is the primary mechanism for
  *    shipping experimental plugins behind a feature flag.
  * 4. Resolves the plugin's `manifest.requiresCredential` entries via the
  *    credential store helper ({@link getSecureKeyAsync}). In Docker mode
