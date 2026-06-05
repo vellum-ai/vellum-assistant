@@ -5,6 +5,11 @@ import {
   stripInjectionsForCompaction,
 } from "../daemon/conversation-runtime-assembly.js";
 import {
+  registerConversationWorkspace,
+  unregisterConversationWorkspace,
+  type WorkspaceConversationContext,
+} from "../daemon/conversation-workspace.js";
+import {
   DEFAULT_INJECTOR_ORDER,
   defaultInjectorsPlugin,
   DISK_PRESSURE_WARNING_PROMPT,
@@ -15,6 +20,10 @@ import {
 } from "../plugins/registry.js";
 import type { Injector, TurnContext } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
+
+// `makeContext` and the workspace registry seed share this id so the
+// `workspace-context` injector resolves the seeded block for the turn.
+const TEST_CONVERSATION_ID = "conv-test";
 
 function findInjector(name: string): Injector {
   const injector = defaultInjectorsPlugin.injectors?.find(
@@ -29,7 +38,7 @@ function findInjector(name: string): Injector {
 function makeContext(overrides: Partial<TurnContext> = {}): TurnContext {
   return {
     requestId: "req-test",
-    conversationId: "conv-test",
+    conversationId: TEST_CONVERSATION_ID,
     turnIndex: 0,
     trust: { sourceChannel: "vellum", trustClass: "guardian" },
     ...overrides,
@@ -49,10 +58,35 @@ function tailTexts(messages: Message[]): string[] {
 const diskPressureInjector = findInjector("disk-pressure-warning");
 const cleanupContext = { cleanupModeActive: true };
 
+// The workspace-context injector sources its block from the per-conversation
+// workspace registry keyed by `conversationId`. Register a non-dirty context
+// under the id `makeContext()` uses so the injector emits the block;
+// unregister between tests so suites that assert the block is absent stay
+// unaffected.
+let registeredWorkspace: WorkspaceConversationContext | null = null;
+
+function seedWorkspaceContext(text: string): void {
+  registeredWorkspace = {
+    conversationId: TEST_CONVERSATION_ID,
+    workingDir: "/workspace",
+    workspaceTopLevelContext: text,
+    workspaceTopLevelDirty: false,
+  };
+  registerConversationWorkspace(registeredWorkspace);
+}
+
+function clearWorkspaceContext(): void {
+  if (registeredWorkspace) {
+    unregisterConversationWorkspace(registeredWorkspace);
+    registeredWorkspace = null;
+  }
+}
+
 describe("disk-pressure-warning injector", () => {
   beforeEach(() => {
     resetPluginRegistryForTests();
     registerPlugin(defaultInjectorsPlugin);
+    clearWorkspaceContext();
   });
 
   test("emits the exact cleanup prompt during disk pressure cleanup mode", async () => {
@@ -106,10 +140,10 @@ Do not work on unrelated tasks until enough space is freed to clear the lock or 
     const workspace = "<workspace>\nRoot: /workspace\n</workspace>";
     const turnContext = "<turn_context>\ninterface: macos\n</turn_context>";
 
+    seedWorkspaceContext(workspace);
     const result = await applyRuntimeInjections(runMessages, {
       turnContext: makeContext(),
       diskPressureContext: cleanupContext,
-      workspaceTopLevelContext: workspace,
       unifiedTurnContext: turnContext,
     });
 
@@ -133,7 +167,6 @@ Do not work on unrelated tasks until enough space is freed to clear the lock or 
         turnContext: makeContext(),
         mode: "minimal",
         diskPressureContext: cleanupContext,
-        workspaceTopLevelContext: "<workspace>...</workspace>",
         unifiedTurnContext: "<turn_context>...</turn_context>",
       },
     );

@@ -207,8 +207,7 @@ export interface OverflowReduceArgs {
    * Invoked after each reducer step that produced a successful compaction.
    * Handles circuit-breaker tracking, event emission, and context mutation.
    * The pipeline passes back `didCompact` so the orchestrator can flip its
-   * `reducerCompacted` / `shouldInjectWorkspace` flags and the next
-   * re-injection uses the fresh messages.
+   * `reducerCompacted` flag and the next re-injection uses the fresh messages.
    */
   readonly onCompactionResult: (
     result: ContextWindowResult,
@@ -367,8 +366,6 @@ export interface TurnInjectionInputs {
   readonly mode?: InjectionMode;
   /** Disk-pressure cleanup-mode context or null to skip the warning. */
   readonly diskPressureContext?: DiskPressureInjectionContext | null;
-  /** Workspace top-level context text (`<workspace>...`) or null to skip. */
-  readonly workspaceTopLevelContext?: string | null;
   /** Pre-built unified-turn-context text (`<turn_context>...`) or null to skip. */
   readonly unifiedTurnContext?: string | null;
   /** Pre-built `<active_subagents>` block or null to skip. */

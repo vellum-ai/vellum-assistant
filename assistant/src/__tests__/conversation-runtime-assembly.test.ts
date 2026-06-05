@@ -59,6 +59,11 @@ import {
   stripInjectionsForCompaction,
   stripNowScratchpad,
 } from "../daemon/conversation-runtime-assembly.js";
+import {
+  registerConversationWorkspace,
+  unregisterConversationWorkspace,
+  type WorkspaceConversationContext,
+} from "../daemon/conversation-workspace.js";
 import { buildPkbReminder } from "../daemon/pkb-reminder-builder.js";
 import type { MessageRow } from "../memory/conversation-crud.js";
 import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
@@ -116,6 +121,30 @@ function seedNowScratchpad(content: string): void {
 
 function clearNowScratchpad(): void {
   rmSync(getWorkspacePromptPath("NOW.md"), { force: true });
+}
+
+// The workspace-context injector sources its block from the per-conversation
+// workspace registry keyed by `conversationId`. Register a non-dirty context
+// (non-null content, not dirty) so `resolveWorkspaceTopLevelContext` returns it
+// verbatim without rescanning the filesystem; unregister between tests so
+// suites that assert the block is absent stay unaffected.
+let registeredWorkspace: WorkspaceConversationContext | null = null;
+
+function seedWorkspaceContext(conversationId: string, text: string): void {
+  registeredWorkspace = {
+    conversationId,
+    workingDir: "/sandbox",
+    workspaceTopLevelContext: text,
+    workspaceTopLevelDirty: false,
+  };
+  registerConversationWorkspace(registeredWorkspace);
+}
+
+function clearWorkspaceContext(): void {
+  if (registeredWorkspace) {
+    unregisterConversationWorkspace(registeredWorkspace);
+    registeredWorkspace = null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -771,7 +800,6 @@ describe("applyRuntimeInjections — injection mode", () => {
   ];
 
   const fullOptions = {
-    workspaceTopLevelContext: "<workspace>\nRoot: /sandbox\n</workspace>",
     channelCommandContext: { type: "start" } as const,
     activeSurface: { surfaceId: "sf_1", html: "<div>test</div>" },
     channelCapabilities: {
@@ -803,10 +831,15 @@ describe("applyRuntimeInjections — injection mode", () => {
   beforeEach(() => {
     seedPkbContent();
     seedNowScratchpad("Current focus: shipping PR 3");
+    seedWorkspaceContext(
+      "injection-mode-conv",
+      "<workspace>\nRoot: /sandbox\n</workspace>",
+    );
   });
   afterEach(() => {
     clearPkbContent();
     clearNowScratchpad();
+    clearWorkspaceContext();
   });
 
   test("full mode (default) includes all injections", async () => {
@@ -1068,7 +1101,7 @@ describe("stripInjectionsForCompaction preserves persistent blocks", () => {
     ).toContain("<turn_context>");
   });
 
-  test("<workspace> blocks are NOT stripped", () => {
+  test("<workspace> blocks ARE stripped so the injector re-sources them post-compaction", () => {
     const messages: Message[] = [
       {
         role: "user",
@@ -1084,10 +1117,10 @@ describe("stripInjectionsForCompaction preserves persistent blocks", () => {
 
     const result = stripInjectionsForCompaction(messages);
     expect(result.length).toBe(1);
-    expect(result[0].content.length).toBe(2);
-    expect(
-      (result[0].content[0] as { type: "text"; text: string }).text,
-    ).toContain("<workspace>");
+    expect(result[0].content.length).toBe(1);
+    expect((result[0].content[0] as { type: "text"; text: string }).text).toBe(
+      "Hello",
+    );
   });
 
   test("legacy <workspace_top_level> blocks ARE stripped for backward compat", () => {

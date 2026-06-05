@@ -48,6 +48,11 @@ const { applyRuntimeInjections, composeInjectorChain } =
   await import("../daemon/conversation-runtime-assembly.js");
 const { DEFAULT_INJECTOR_ORDER, defaultInjectorsPlugin } =
   await import("../plugins/defaults/injectors/register.js");
+import {
+  registerConversationWorkspace,
+  unregisterConversationWorkspace,
+  type WorkspaceConversationContext,
+} from "../daemon/conversation-workspace.js";
 import { buildPkbReminder } from "../daemon/pkb-reminder-builder.js";
 import { getPkbRoot } from "../memory/pkb/types.js";
 import {
@@ -64,11 +69,15 @@ import type {
 import type { Message } from "../providers/types.js";
 import { getWorkspacePromptPath } from "../util/platform.js";
 
+// `makeTurnContext` and the workspace registry seed share this id so the
+// `workspace-context` injector resolves the seeded block for the turn.
+const TEST_CONVERSATION_ID = "conv-test-1";
+
 /** A fake TurnContext sufficient for driving `composeInjectorChain`. */
 function makeTurnContext(): TurnContext {
   return {
     requestId: "req-test-1",
-    conversationId: "conv-test-1",
+    conversationId: TEST_CONVERSATION_ID,
     turnIndex: 0,
     trust: {
       sourceChannel: "vellum",
@@ -119,11 +128,36 @@ function clearNowScratchpad(): void {
   rmSync(getWorkspacePromptPath("NOW.md"), { force: true });
 }
 
+// The workspace-context injector sources its block from the per-conversation
+// workspace registry keyed by `conversationId`. Register a non-dirty context
+// under the id `makeTurnContext()` uses so the injector emits the block;
+// unregister between tests so suites that assert the workspace block is absent
+// stay unaffected.
+let registeredWorkspace: WorkspaceConversationContext | null = null;
+
+function seedWorkspaceContext(text: string): void {
+  registeredWorkspace = {
+    conversationId: TEST_CONVERSATION_ID,
+    workingDir: "/sandbox",
+    workspaceTopLevelContext: text,
+    workspaceTopLevelDirty: false,
+  };
+  registerConversationWorkspace(registeredWorkspace);
+}
+
+function clearWorkspaceContext(): void {
+  if (registeredWorkspace) {
+    unregisterConversationWorkspace(registeredWorkspace);
+    registeredWorkspace = null;
+  }
+}
+
 describe("injector chain", () => {
   beforeEach(() => {
     resetPluginRegistryForTests();
     clearPkbContent();
     clearNowScratchpad();
+    clearWorkspaceContext();
   });
 
   test("defaultInjectorsPlugin registers the defaults in the documented order", () => {
@@ -402,9 +436,9 @@ describe("injector chain", () => {
     const subagentBlock =
       '<active_subagents>\n- [running] "worker" (sub-1) | elapsed: 5s\n</active_subagents>';
 
+    seedWorkspaceContext(workspaceText);
     const result = await applyRuntimeInjections(runMessages, {
       turnContext: makeTurnContext(),
-      workspaceTopLevelContext: workspaceText,
       unifiedTurnContext: unifiedTurn,
       subagentStatusBlock: subagentBlock,
     });
@@ -476,9 +510,9 @@ describe("injector chain", () => {
     const unifiedTurn =
       "<turn_context>\ncurrent_time: 2026-04-22\n</turn_context>";
 
+    seedWorkspaceContext(workspaceText);
     const result = await applyRuntimeInjections(runMessages, {
       turnContext: makeTurnContext(),
-      workspaceTopLevelContext: workspaceText,
       unifiedTurnContext: unifiedTurn,
     });
 
@@ -579,7 +613,6 @@ describe("injector chain", () => {
       {
         turnContext: makeTurnContext(),
         mode: "minimal",
-        workspaceTopLevelContext: "<workspace>...</workspace>",
         unifiedTurnContext: "<turn_context>...</turn_context>",
         subagentStatusBlock: "<active_subagents>...</active_subagents>",
       },

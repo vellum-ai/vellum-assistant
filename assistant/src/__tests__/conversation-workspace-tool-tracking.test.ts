@@ -273,6 +273,7 @@ mock.module("../memory/canonical-guardian-store.js", () => ({
 }));
 
 import { Conversation } from "../daemon/conversation.js";
+import { refreshWorkspaceTopLevelContextIfNeeded } from "../daemon/conversation-workspace.js";
 
 function makeConversation(): Conversation {
   const provider = {
@@ -310,7 +311,7 @@ describe("Conversation workspace dirty on file mutations", () => {
     await conversation.loadFromDb();
 
     // Prime the cache so dirty=false
-    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+    refreshWorkspaceTopLevelContextIfNeeded(conversation);
     expect(conversation.isWorkspaceTopLevelDirty()).toBe(false);
 
     agentLoopScript = (onEvent) => {
@@ -339,7 +340,7 @@ describe("Conversation workspace dirty on file mutations", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+    refreshWorkspaceTopLevelContextIfNeeded(conversation);
     expect(conversation.isWorkspaceTopLevelDirty()).toBe(false);
 
     agentLoopScript = (onEvent) => {
@@ -370,7 +371,7 @@ describe("Conversation workspace dirty on file mutations", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+    refreshWorkspaceTopLevelContextIfNeeded(conversation);
     expect(conversation.isWorkspaceTopLevelDirty()).toBe(false);
 
     agentLoopScript = (onEvent) => {
@@ -399,7 +400,7 @@ describe("Conversation workspace dirty on file mutations", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+    refreshWorkspaceTopLevelContextIfNeeded(conversation);
     expect(conversation.isWorkspaceTopLevelDirty()).toBe(false);
 
     agentLoopScript = (onEvent) => {
@@ -428,7 +429,7 @@ describe("Conversation workspace dirty on file mutations", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+    refreshWorkspaceTopLevelContextIfNeeded(conversation);
     expect(conversation.isWorkspaceTopLevelDirty()).toBe(false);
 
     agentLoopScript = (onEvent) => {
@@ -457,7 +458,7 @@ describe("Conversation workspace dirty on file mutations", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+    refreshWorkspaceTopLevelContextIfNeeded(conversation);
     expect(conversation.isWorkspaceTopLevelDirty()).toBe(false);
 
     agentLoopScript = (onEvent) => {
