@@ -65,6 +65,16 @@ public struct InlineSurfaceRouter: View {
         return false
     }
 
+    private var shouldRenderGenericActionButtons: Bool {
+        guard !surface.actions.isEmpty else { return false }
+        switch surface.data {
+        case .choice, .form, .confirmation, .oauthConnect, .taskPreferences:
+            return false
+        default:
+            return true
+        }
+    }
+
     private var standardWidgetMaxWidth: CGFloat {
         // Tables should use the full chat bubble width before falling back to horizontal scroll.
         isTableSurface ? VSpacing.chatBubbleMaxWidth : 540
@@ -123,7 +133,7 @@ public struct InlineSurfaceRouter: View {
 
             surfaceContent
 
-            if !surface.actions.isEmpty {
+            if shouldRenderGenericActionButtons {
                 actionButtons
             }
         }
@@ -240,6 +250,23 @@ public struct InlineSurfaceRouter: View {
             let onPopOut: (() -> Void)? = nil
             #endif
             InlineCardWidget(data: data, onPopOut: onPopOut)
+        case .choice(let data):
+            InlineChoiceWidget(data: data) { actionId, payload in
+                onAction(surface.id, actionId, payload)
+            }
+        case .copyBlock(let data):
+            InlineCopyBlockWidget(data: data)
+        case .oauthConnect(let data):
+            InlineOAuthConnectWidget(
+                data: data,
+                title: surface.title
+            ) { actionId, payload in
+                onAction(surface.id, actionId, payload)
+            }
+        case .taskPreferences:
+            InlineTaskPreferencesWidget(title: surface.title) { actionId, payload in
+                onAction(surface.id, actionId, payload)
+            }
         case .documentPreview(let data):
             InlineDocumentPreview(data: data) {
                 NotificationCenter.default.post(
@@ -368,6 +395,8 @@ public struct InlineSurfaceRouter: View {
         #endif
         case .callSummary(let data):
             InlineCallSummaryWidget(data: data)
+        case .workResult(let data):
+            InlineWorkResultWidget(title: surface.title ?? "Work completed", data: data)
         default:
             InlineFallbackChip(surfaceType: surface.surfaceType)
         }

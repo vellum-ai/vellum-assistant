@@ -51,6 +51,9 @@ struct SurfaceContainerView: View {
             switch surface.data {
             case .card(let data):
                 CardSurfaceView(data: data)
+            case .choice, .copyBlock, .oauthConnect, .taskPreferences, .workResult:
+                // These recent surfaces are rendered inline in chat, not in floating panels.
+                EmptyView()
             case .form(let data):
                 FormSurfaceView(data: data, onSubmit: { values in
                     let actionId = surface.actions.first?.id ?? "submit"
@@ -118,7 +121,7 @@ struct SurfaceContainerView: View {
         switch surface.data {
         case .form, .confirmation, .dynamicPage, .fileUpload:
             return true
-        case .card, .list, .table, .documentPreview, .callSummary, .stripped, .strippedFailed:
+        case .card, .choice, .copyBlock, .oauthConnect, .list, .table, .documentPreview, .taskPreferences, .callSummary, .workResult, .stripped, .strippedFailed:
             return false
         }
     }
