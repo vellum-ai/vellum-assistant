@@ -25,6 +25,11 @@
 
 import { z } from "zod";
 
+import {
+  AllowlistOptionSchema,
+  DirectoryScopeOptionSchema,
+  ScopeOptionSchema,
+} from "../events/confirmation-request.js";
 import { ToolActivityMetadataSchema } from "../events/tool-result.js";
 
 // ---------------------------------------------------------------------------
@@ -68,6 +73,36 @@ const RiskDirectoryScopeOptionSchema = z.object({
   scope: z.string(),
   label: z.string(),
 });
+
+/**
+ * In-flight permission prompt awaiting a user decision, mirrored onto a
+ * history tool call so a cold reconnect (or a conversation reopened after the
+ * event-buffer window has elapsed) can restore the inline confirmation card
+ * without replaying the live `confirmation_request` SSE event.
+ *
+ * The daemon stamps this at render time by consulting the in-memory
+ * `pending-interactions` registry (the authoritative store of unresolved
+ * prompts) — it is not persisted to the database, so it appears only while the
+ * prompt is genuinely outstanding and disappears once the interaction
+ * resolves. The shape mirrors the `confirmation_request` event the live path
+ * delivers, so both paths hydrate the same client state.
+ */
+export const PendingToolConfirmationSchema = z.object({
+  requestId: z.string(),
+  title: z.string().optional(),
+  description: z.string().optional(),
+  toolName: z.string().optional(),
+  riskLevel: z.string().optional(),
+  riskReason: z.string().optional(),
+  input: z.record(z.string(), z.unknown()).optional(),
+  allowlistOptions: z.array(AllowlistOptionSchema).optional(),
+  scopeOptions: z.array(ScopeOptionSchema).optional(),
+  directoryScopeOptions: z.array(DirectoryScopeOptionSchema).optional(),
+  persistentDecisionsAllowed: z.boolean().optional(),
+});
+export type PendingToolConfirmation = z.infer<
+  typeof PendingToolConfirmationSchema
+>;
 
 /**
  * Closed set of confirmation outcomes recorded for a tool call. The daemon
@@ -138,6 +173,23 @@ export const ConversationMessageToolCallSchema = z.object({
    * that produced activity as of daemon v0.8.8; absent for older history rows.
    */
   activityMetadata: ToolActivityMetadataSchema.optional(),
+  /**
+   * Confirmation scope ladder (`{label, scope}`) for scope-aware tools
+   * (file/bash). Derived at render time via the permission checker's pure
+   * `generateScopeOptions(workspaceDir, toolName)`, so it is reconstructed for
+   * completed tool calls on history reopen rather than persisted. Feeds the
+   * rule editor's trust-rule suggestion fallback. Distinct from the
+   * regex-flavored `riskScopeOptions` (`{pattern, label}`). Guaranteed present
+   * for scope-aware tools as of daemon v0.8.8; absent for older history rows.
+   */
+  scopeOptions: z.array(ScopeOptionSchema).optional(),
+  /**
+   * In-flight permission prompt, present only while the tool call is awaiting
+   * a user decision (read from the `pending-interactions` registry at render
+   * time). Lets a cold reconnect restore the inline confirmation card.
+   * Guaranteed present for outstanding prompts as of daemon v0.8.8.
+   */
+  pendingConfirmation: PendingToolConfirmationSchema.optional(),
 });
 export type ConversationMessageToolCall = z.infer<
   typeof ConversationMessageToolCallSchema

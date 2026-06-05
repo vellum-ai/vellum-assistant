@@ -339,6 +339,8 @@ export {
   ConversationSlackMessageSchema,
   type ConversationSubagentNotification,
   ConversationSubagentNotificationSchema,
+  type PendingToolConfirmation,
+  PendingToolConfirmationSchema,
 } from "./responses/conversation-message.js";
 export {
   type DiskPressureStatusResponse,

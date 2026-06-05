@@ -6,6 +6,7 @@ import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import type {
   AllowlistOption,
   DirectoryScopeOption,
+  PendingConfirmationState,
   ScopeOption,
 } from "@/types/interaction-ui-types";
 import type {
@@ -280,6 +281,33 @@ export function attachConfirmationToToolCall(
   }
 
   return { updatedMessages: messages, attachedToolCallId: undefined };
+}
+
+/**
+ * Find the in-flight confirmation a history snapshot carries on one of its
+ * tool calls. The daemon stamps `pendingConfirmation` from the
+ * pending-interactions registry at render time, so on a cold reconnect (or a
+ * reopen after the live event buffer aged out) the prompt rides the snapshot
+ * rather than a replayed `confirmation_request` event. Returns the prompt
+ * projected into the interaction-store shape — with `toolUseId` set to the
+ * carrying tool call so the inline card restores on the right chip — or null
+ * when no tool call is awaiting a decision. Scans latest-first since the
+ * outstanding prompt is on the most recent tool call.
+ */
+export function extractWirePendingConfirmation(
+  messages: DisplayMessage[],
+): PendingConfirmationState | null {
+  for (let mi = messages.length - 1; mi >= 0; mi--) {
+    const msg = messages[mi];
+    if (!msg?.toolCalls?.length) continue;
+    for (let ti = msg.toolCalls.length - 1; ti >= 0; ti--) {
+      const tc = msg.toolCalls[ti];
+      if (tc?.pendingConfirmation) {
+        return { ...tc.pendingConfirmation, toolUseId: tc.id };
+      }
+    }
+  }
+  return null;
 }
 
 /**
