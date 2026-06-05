@@ -5,7 +5,7 @@ import {
 } from "@/domains/chat/utils/reconcile";
 import { reconcileMessagesWithSeq } from "@/domains/chat/utils/reconcile-with-seq";
 import { isSeqGapDetectionEnabled } from "@/lib/feature-flags/seq-gap-detection-flag";
-import { getAppliedSeq, recordAppliedSeq } from "@/lib/streaming/applied-seq";
+import { getAppliedSeq } from "@/lib/streaming/applied-seq";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { ConversationMessage } from "@vellumai/assistant-api";
 
@@ -30,8 +30,8 @@ function isStreamAheadOfSnapshot(
  * monotonic merge based on `isSeqGapDetectionEnabled()`.
  *
  * Pure with respect to module state (it only reads the applied frontier), so
- * it is safe to call inside a React state updater. Pair it with
- * `noteSnapshotApplied`, which advances the frontier and must run outside the
+ * it is safe to call inside a React state updater. Advancing the frontier
+ * (`recordAppliedSeq`) is the caller's responsibility and must run outside the
  * updater.
  */
 export interface ReconcileSnapshotOptions {
@@ -95,20 +95,3 @@ export function reconcileLatestHistorySnapshot(
   );
 }
 
-/**
- * Advance the conversation's applied frontier to the snapshot watermark once
- * the snapshot has been applied. After an authoritative snapshot the rendered
- * transcript reflects server state through `S`, so any stream event with
- * `seq <= S` (including replays of deltas a healing snapshot just absorbed) is
- * now a no-op. Monotonic, so a stale snapshot (`S < F`) leaves the frontier
- * untouched. No-op while the seq flag is off.
- */
-export function noteSnapshotApplied(
-  conversationId: string,
-  snapshotSeq: number | null,
-): void {
-  if (!isSeqGapDetectionEnabled()) {
-    return;
-  }
-  recordAppliedSeq(conversationId, snapshotSeq);
-}

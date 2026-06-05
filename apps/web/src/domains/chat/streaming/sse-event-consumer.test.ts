@@ -656,10 +656,12 @@ describe("sse-event-consumer — per-conversation idempotent apply", () => {
     expect(getAppliedSeq("conv-1")).toBe(5);
   });
 
-  test("with seqGapEnabled=false no frontier is tracked and replays re-dispatch", () => {
+  test("with seqGapEnabled=false the frontier is still tracked but replays re-dispatch", () => {
     /**
-     * All seq machinery is gated behind the flag: when it is off the consumer
-     * neither records a frontier nor skips re-delivered events.
+     * Recording the frontier is unconditional in-memory bookkeeping; only the
+     * seq-based replay skip is gated behind the flag. With the flag off the
+     * consumer still advances the frontier but never skips a re-delivered
+     * event.
      */
     // GIVEN the seq flag is disabled
     seqGapEnabled = false;
@@ -684,8 +686,8 @@ describe("sse-event-consumer — per-conversation idempotent apply", () => {
       }),
     );
 
-    // THEN both are dispatched and no frontier is recorded
+    // THEN both are dispatched (no replay skip) and the frontier is recorded
     expect(handleStreamEvent).toHaveBeenCalledTimes(2);
-    expect(getAppliedSeq("conv-1")).toBeNull();
+    expect(getAppliedSeq("conv-1")).toBe(5);
   });
 });

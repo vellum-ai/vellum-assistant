@@ -10,10 +10,8 @@ import {
   summarizeRuntimeMessages,
 } from "@/domains/chat/utils/diagnostics";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
-import {
-  noteSnapshotApplied,
-  reconcileSnapshot,
-} from "@/domains/chat/utils/reconcile-snapshot";
+import { reconcileSnapshot } from "@/domains/chat/utils/reconcile-snapshot";
+import { recordAppliedSeq } from "@/lib/streaming/applied-seq";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 import { runtimeMessagePlainText } from "@/domains/chat/utils/map-runtime-message";
@@ -170,7 +168,7 @@ export function useMessageReconciliation({
       // merge. Kept outside the updater so the updater stays pure; the merge
       // decision is unaffected since advancing F to S only collapses the
       // S >= F case (which is server-authoritative either way).
-      noteSnapshotApplied(conversationId, snapshotSeq);
+      recordAppliedSeq(conversationId, snapshotSeq);
 
       let changed = false;
       let assistantProgress = false;

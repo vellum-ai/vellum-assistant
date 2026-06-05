@@ -223,8 +223,10 @@ export function createSseEventConsumer(
           // Advance the per-conversation frontier once the event is
           // applied so the snapshot/stream merge knows how far the
           // stream has carried this conversation, and so a later replay
-          // of this seq is recognised as a no-op above.
-          if (seqGapEnabled && eventSeq != null) {
+          // of this seq is recognised as a no-op above. Recording the
+          // frontier is unconditional — it is just in-memory bookkeeping;
+          // only the seq-based decisions above are flag-gated.
+          if (eventSeq != null) {
             recordAppliedSeq(eventConversationId, eventSeq);
           }
         }

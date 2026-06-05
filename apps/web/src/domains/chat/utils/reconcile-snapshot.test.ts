@@ -7,11 +7,9 @@ mock.module("@/lib/feature-flags/seq-gap-detection-flag", () => ({
 
 const {
   __resetAppliedSeqForTesting,
-  getAppliedSeq,
   recordAppliedSeq,
 } = await import("@/lib/streaming/applied-seq");
 const {
-  noteSnapshotApplied,
   reconcileLatestHistorySnapshot,
   reconcileSnapshot,
 } = await import("@/domains/chat/utils/reconcile-snapshot");
@@ -173,46 +171,3 @@ describe("reconcileLatestHistorySnapshot", () => {
   });
 });
 
-describe("noteSnapshotApplied", () => {
-  test("flag on: advances the applied frontier to the snapshot watermark", () => {
-    /**
-     * After an authoritative snapshot applies, the frontier moves up so later
-     * replays of absorbed deltas are no-ops.
-     */
-    // GIVEN a conversation with no frontier yet
-    // WHEN an applied snapshot's watermark is noted
-    noteSnapshotApplied("conv-1", 7);
-
-    // THEN the frontier advances to it
-    expect(getAppliedSeq("conv-1")).toBe(7);
-  });
-
-  test("flag on: never regresses the frontier for a stale snapshot", () => {
-    /**
-     * The frontier is monotonic, so a stale snapshot below it leaves it
-     * untouched.
-     */
-    // GIVEN the stream already advanced past the snapshot
-    recordAppliedSeq("conv-1", 10);
-
-    // WHEN a stale snapshot watermark is noted
-    noteSnapshotApplied("conv-1", 5);
-
-    // THEN the frontier holds at the higher value
-    expect(getAppliedSeq("conv-1")).toBe(10);
-  });
-
-  test("flag off: does not record any frontier", () => {
-    /**
-     * All seq state is gated behind the flag.
-     */
-    // GIVEN the flag is off
-    seqEnabled = false;
-
-    // WHEN a snapshot watermark is noted
-    noteSnapshotApplied("conv-1", 7);
-
-    // THEN no frontier is tracked
-    expect(getAppliedSeq("conv-1")).toBeNull();
-  });
-});

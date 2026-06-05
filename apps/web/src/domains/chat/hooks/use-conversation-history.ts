@@ -19,13 +19,11 @@
 import { captureError } from "@/lib/sentry/capture-error";
 import { startTransition, useEffect } from "react";
 
-import {
-  noteSnapshotApplied,
-  reconcileLatestHistorySnapshot,
-} from "@/domains/chat/utils/reconcile-snapshot";
+import { reconcileLatestHistorySnapshot } from "@/domains/chat/utils/reconcile-snapshot";
 import { filterDismissedSurfaces } from "@/domains/chat/utils/dismissed-surfaces-storage";
 import { recordDiagnostic } from "@/lib/diagnostics";
 import { recordSnapshotSeq } from "@/lib/streaming/snapshot-seq";
+import { recordAppliedSeq } from "@/lib/streaming/applied-seq";
 import { summarizeDisplayMessages } from "@/domains/chat/utils/diagnostics";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
@@ -118,7 +116,7 @@ export function useConversationHistory({
     // the same `latestPage`, so re-running here records the same seq.
     const latestPageSeq = pagination.latestPage?.seq ?? null;
     recordSnapshotSeq(activeConversationId, latestPageSeq);
-    noteSnapshotApplied(activeConversationId, latestPageSeq);
+    recordAppliedSeq(activeConversationId, latestPageSeq);
 
     const isFreshSwitch = store.switchResetPending;
     if (isFreshSwitch) {
