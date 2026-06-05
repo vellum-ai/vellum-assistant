@@ -68,6 +68,7 @@ function toPendingConfirmation(
     input: details.input,
     allowlistOptions: details.allowlistOptions,
     scopeOptions: details.scopeOptions,
+    directoryScopeOptions: details.directoryScopeOptions,
     persistentDecisionsAllowed: details.persistentDecisionsAllowed,
   };
 }

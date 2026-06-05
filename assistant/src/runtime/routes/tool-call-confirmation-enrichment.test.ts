@@ -131,6 +131,11 @@ describe("enrichToolCallsWithConfirmation", () => {
     expect(enriched?.pendingConfirmation?.requestId).toBe("req-1");
     expect(enriched?.pendingConfirmation?.toolName).toBe("file_read");
     expect(enriched?.pendingConfirmation?.riskLevel).toBe("high");
+    // AND the directory scope ladder carries through from the registry so a
+    // restored prompt offers the same scope the live event did
+    expect(enriched?.pendingConfirmation?.directoryScopeOptions).toEqual([
+      { label: "Anywhere in project/", scope: "/home/user/project" },
+    ]);
     // AND the derived scope ladder is still present
     expect(enriched?.scopeOptions?.length).toBeGreaterThan(0);
   });
@@ -147,6 +152,9 @@ function collectPendingConfirmationsFixture() {
       riskLevel: "high",
       allowlistOptions: [],
       scopeOptions: [],
+      directoryScopeOptions: [
+        { label: "Anywhere in project/", scope: "/home/user/project" },
+      ],
     },
   });
   return collectPendingConfirmations("conv-fixture");
