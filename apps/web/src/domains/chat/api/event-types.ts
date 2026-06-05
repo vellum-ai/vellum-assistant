@@ -8,7 +8,6 @@
 
 import type {
   ConversationMessageToolCall,
-  PendingToolConfirmation,
   QuestionEntry,
   QuestionRequestEvent,
 } from "@vellumai/assistant-api";
@@ -20,16 +19,13 @@ import type {
  * `confirmationDecision` outcome, the activity metadata, the confirmation
  * `scopeOptions`, and — as of daemon v0.8.8 — the in-flight
  * `pendingConfirmation` read from the pending-interactions registry at render
- * time). Execution state (`running`/`completed`/`error`) is not stored: derive
- * it on demand from `isError`/`result`/`completedAt` via the predicates in
+ * time). The client clears `pendingConfirmation` by setting it back to
+ * `undefined` once a prompt resolves, matching the wire's optional shape.
+ * Execution state (`running`/`completed`/`error`) is not stored: derive it on
+ * demand from `isError`/`result`/`completedAt` via the predicates in
  * `tool-call-status.ts` (`isToolCallRunning`/`isToolCallCompleted`).
- *
- * `pendingConfirmation` is re-declared to also admit `null`: the client uses it
- * as an explicit "cleared" sentinel once a prompt resolves, which the wire
- * (optional-only) does not model.
  */
-export interface ChatMessageToolCall
-  extends Omit<ConversationMessageToolCall, "pendingConfirmation"> {
+export interface ChatMessageToolCall extends ConversationMessageToolCall {
   /**
    * Stable tool-call id, required for the client's keying (React keys, the
    * `expandedToolCallIds` set, the `liveWebActivity` map, reconcile's
@@ -40,7 +36,6 @@ export interface ChatMessageToolCall
    * Drop this narrowing once the wire `id` graduates to non-optional.
    */
   id: string;
-  pendingConfirmation?: PendingToolConfirmation | null;
 }
 
 // ---------------------------------------------------------------------------
