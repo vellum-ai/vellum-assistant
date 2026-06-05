@@ -58,6 +58,7 @@ import { useChatDebugRegistration } from "@/domains/chat/hooks/use-chat-debug-re
 import { useDeepLinkApp } from "@/domains/chat/hooks/use-deep-link-app";
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import { ConnectingToAssistant } from "@/domains/chat/components/connecting-to-assistant";
+import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 import { Button } from "@vellumai/design-library/components/button";
 
 const AddCreditsModal = lazy(() =>
@@ -315,6 +316,7 @@ export function ActiveChatView() {
   const handleAutoGreetRetry = useCallback(() => {
     const message = initialMessageRef.current;
     if (!message) return;
+    if (isSending(useTurnStore.getState())) return;
     lifecycleService.markExpectingFirstMessage();
     void sendMessage(message);
   }, [sendMessage]);
