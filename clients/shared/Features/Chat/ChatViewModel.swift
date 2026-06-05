@@ -1431,6 +1431,14 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// streaming message in flight, and no unfinished tool calls. A genuinely
     /// in-flight turn fails these checks (history tails with the user message or
     /// an unfinished assistant turn), so a real send is never cleared early.
+    ///
+    /// Recovering a missed `message_complete` also means the per-turn accounting
+    /// that completion would have settled never ran, so reset it here too: zero
+    /// `pendingUserTurnCount` and `staleCancelEventsExpected` (otherwise a later
+    /// daemon-initiated completion in this conversation would consume the stale
+    /// user-turn credit and be misclassified as user-initiated, playing the
+    /// task-complete chime) and clear per-turn tracking. Zeroing is correct
+    /// because the guards above establish that no user turn is still in flight.
     private func reconcileStuckSendStateAfterCatchUp() {
         guard reconcileSendStateOnNextCatchUp else { return }
         reconcileSendStateOnNextCatchUp = false
@@ -1441,8 +1449,11 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         let lastAssistantIndex = messages.lastIndex(where: { $0.role == .assistant })
         guard let lastAssistantIndex,
               lastUserIndex == nil || lastAssistantIndex > lastUserIndex else { return }
+        clearCurrentTurnTracking()
         isThinking = false
         isSending = false
+        messageManager.pendingUserTurnCount = 0
+        messageManager.staleCancelEventsExpected = 0
     }
 
     /// Prepare the view model for a notification catch-up history fetch.
