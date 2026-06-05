@@ -57,14 +57,24 @@ mock.module("./main-window", () => ({
   ensureVisible: ensureMainWindowVisibleMock,
 }));
 
-const { __resetForTesting, handleFileOpen, installFileOpen } = await import(
-  "./file-open"
-);
+const {
+  __resetForTesting,
+  handleFileOpen,
+  installFileOpen,
+  onFileOpen,
+} = await import("./file-open");
 const { resolveAllowedOrigin } = await import("./app-origin");
 
 const { protocol: allowedProtocol, host: allowedHost } = resolveAllowedOrigin();
 const allowedSenderFrame = { origin: `${allowedProtocol}//${allowedHost}` };
-const allowedEvent = { senderFrame: allowedSenderFrame };
+const makeAllowedEvent = () => {
+  const { sender, fireDestroyed } = makeSender();
+  return {
+    event: { senderFrame: allowedSenderFrame, sender },
+    fireDestroyed,
+  };
+};
+const allowedEvent = makeAllowedEvent().event;
 
 const makeWindow = (destroyed = false) => ({
   isDestroyed: () => destroyed,
@@ -227,16 +237,18 @@ describe("subscriber lifecycle", () => {
       (c) => c[0] === "vellum:fileOpen:drain",
     )![1] as (event: unknown) => unknown[];
 
-    const s1 = makeSender();
-    subscribeWith(s1);
-    expect(drainHandler(allowedEvent)).toEqual([]);
+    // Drain with a fresh event (also subscribes the drain sender).
+    const d1 = makeAllowedEvent();
+    expect(drainHandler(d1.event)).toEqual([]);
 
-    unsubscribeWith(s1);
+    // Simulate the drain sender going away so subscribers empties.
+    d1.fireDestroyed();
     handleFileOpen("/tmp/post-logout.vellum");
 
-    const s2 = makeSender();
-    subscribeWith(s2);
-    expect(drainHandler(allowedEvent)).toEqual(["/tmp/post-logout.vellum"]);
+    // New drain picks up the buffered path.
+    expect(drainHandler(makeAllowedEvent().event)).toEqual([
+      "/tmp/post-logout.vellum",
+    ]);
   });
 
   test("destroyed webContents auto-clears its subscription", () => {
@@ -245,14 +257,17 @@ describe("subscriber lifecycle", () => {
       (c) => c[0] === "vellum:fileOpen:drain",
     )![1] as (event: unknown) => unknown[];
 
-    const s = makeSender();
-    subscribeWith(s);
-    expect(drainHandler(allowedEvent)).toEqual([]);
+    // Drain subscribes its sender; verify the buffer is empty.
+    const d = makeAllowedEvent();
+    expect(drainHandler(d.event)).toEqual([]);
 
-    s.fireDestroyed();
+    // Simulate the drain sender being destroyed (auto-clears).
+    d.fireDestroyed();
 
     handleFileOpen("/tmp/after-crash.vellum");
-    expect(drainHandler(allowedEvent)).toEqual(["/tmp/after-crash.vellum"]);
+    expect(drainHandler(makeAllowedEvent().event)).toEqual([
+      "/tmp/after-crash.vellum",
+    ]);
   });
 });
 
@@ -288,5 +303,55 @@ describe("installFileOpen", () => {
     openFile?.({ preventDefault } as unknown, "/tmp/example.vellum");
 
     expect(preventDefault).toHaveBeenCalled();
+  });
+});
+
+describe("onFileOpen", () => {
+  test("replays buffered paths to a newly registered callback", () => {
+    handleFileOpen("/tmp/cold-launch.vellum");
+    handleFileOpen("/tmp/cold-launch-2.vellum");
+
+    const received: string[] = [];
+    onFileOpen((p) => received.push(p));
+
+    expect(received).toEqual([
+      "/tmp/cold-launch.vellum",
+      "/tmp/cold-launch-2.vellum",
+    ]);
+  });
+
+  test("does not replay paths that were already drained", () => {
+    installFileOpen();
+
+    handleFileOpen("/tmp/early.vellum");
+
+    const drainHandler = ipcHandleMock.mock.calls.find(
+      (c) => c[0] === "vellum:fileOpen:drain",
+    )![1] as (event: unknown) => unknown[];
+    drainHandler(allowedEvent);
+
+    const received: string[] = [];
+    onFileOpen((p) => received.push(p));
+
+    expect(received).toEqual([]);
+  });
+
+  test("receives live file-open events after registration", () => {
+    const received: string[] = [];
+    onFileOpen((p) => received.push(p));
+
+    handleFileOpen("/tmp/live.vellum");
+
+    expect(received).toEqual(["/tmp/live.vellum"]);
+  });
+
+  test("unsubscribe stops receiving events", () => {
+    const received: string[] = [];
+    const unsub = onFileOpen((p) => received.push(p));
+
+    unsub();
+    handleFileOpen("/tmp/after-unsub.vellum");
+
+    expect(received).toEqual([]);
   });
 });

@@ -318,10 +318,10 @@ app
       // this await can create a window before the protocol handler exists.
       await ensureWebInstalled();
       registerAppProtocol();
-      registerVellumAppProtocol(
-        path.join(app.getPath("userData"), BUNDLES_DIR_NAME),
-      );
     }
+    registerVellumAppProtocol(
+      path.join(app.getPath("userData"), BUNDLES_DIR_NAME),
+    );
     installBundleFlow();
     onFileOpen(handleBundleFile);
     installPermissionHandler();
