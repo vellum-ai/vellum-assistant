@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { EventEmitter } from "node:events";
 
 import { FakeChild } from "./test-helpers";
 
@@ -22,10 +23,26 @@ const appState = { isPackaged: false, appPath: "/repo/apps/macos" };
 const handlers: Record<string, (event: unknown, ...args: unknown[]) => unknown> =
   {};
 const appListeners = new Map<string, () => void>();
-let windows: Array<{
+
+type FakeWebContents = EventEmitter & {
+  id: number;
   isDestroyed: () => boolean;
-  webContents: { send: ReturnType<typeof mock> };
-}> = [];
+  ownerWindow: EventEmitter;
+  send: ReturnType<typeof mock>;
+};
+
+let nextWebContentsId = 1;
+
+const makeWebContents = (): FakeWebContents => {
+  const webContents = new EventEmitter() as FakeWebContents;
+  webContents.id = nextWebContentsId++;
+  webContents.isDestroyed = () => false;
+  webContents.ownerWindow = new EventEmitter();
+  webContents.send = mock(() => undefined);
+  return webContents;
+};
+
+let defaultSender = makeWebContents();
 
 mock.module("electron", () => ({
   app: {
@@ -38,7 +55,8 @@ mock.module("electron", () => ({
     },
   },
   BrowserWindow: {
-    getAllWindows: () => windows,
+    fromWebContents: (webContents: FakeWebContents) => webContents.ownerWindow,
+    getAllWindows: () => [],
   },
   ipcMain: {
     handle: (
@@ -88,7 +106,16 @@ const {
 } = await import("./hotkey-helper");
 
 const invokeFnPushToTalk = (enable: boolean) =>
-  handlers["vellum:helper:hotkey:fnPushToTalk"]({}, enable) as Promise<unknown>;
+  handlers["vellum:helper:hotkey:fnPushToTalk"](
+    { sender: defaultSender },
+    enable,
+  ) as Promise<unknown>;
+
+const invokeFnPushToTalkFrom = (enable: boolean, sender: FakeWebContents) =>
+  handlers["vellum:helper:hotkey:fnPushToTalk"](
+    { sender },
+    enable,
+  ) as Promise<unknown>;
 
 beforeEach(() => {
   __resetForTesting();
@@ -100,7 +127,8 @@ beforeEach(() => {
   exists = true;
   appState.isPackaged = false;
   appState.appPath = "/repo/apps/macos";
-  windows = [];
+  nextWebContentsId = 1;
+  defaultSender = makeWebContents();
 });
 
 afterEach(() => {
@@ -156,10 +184,8 @@ describe("installHotkeyHelper", () => {
     });
   });
 
-  test("broadcasts hotkey-event envelopes to live windows", async () => {
+  test("routes hotkey-event envelopes to the registered owner", async () => {
     installHotkeyHelper();
-    const send = mock(() => undefined);
-    windows = [{ isDestroyed: () => false, webContents: { send } }];
 
     const pending = invokeFnPushToTalk(true);
     lastChild?.stdout.emit(
@@ -174,10 +200,58 @@ describe("installHotkeyHelper", () => {
     );
 
     expect(await pending).toEqual({ ok: true, enabled: true });
-    expect(send).toHaveBeenCalledWith("vellum:helper:hotkey:event", {
+    expect(defaultSender.send).toHaveBeenCalledWith(
+      "vellum:helper:hotkey:event",
+      {
+        kind: "fnPushToTalk",
+        state: "down",
+      },
+    );
+  });
+
+  test("keeps the helper enabled while another owner remains", async () => {
+    installHotkeyHelper();
+    const first = makeWebContents();
+    const second = makeWebContents();
+
+    const firstEnable = invokeFnPushToTalkFrom(true, first);
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from("{\"id\":1,\"ok\":true,\"result\":{\"enabled\":true}}\n"),
+    );
+    expect(await firstEnable).toEqual({ ok: true, enabled: true });
+
+    expect(await invokeFnPushToTalkFrom(true, second)).toEqual({
+      ok: true,
+      enabled: true,
+    });
+    const writesAfterSecondOwner = lastChild?.stdin.writes.length;
+
+    expect(await invokeFnPushToTalkFrom(false, second)).toEqual({
+      ok: true,
+      enabled: true,
+    });
+    expect(lastChild?.stdin.writes.length).toBe(writesAfterSecondOwner);
+
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from(
+        "{\"event\":\"hotkey-event\",\"payload\":{\"kind\":\"fnPushToTalk\",\"state\":\"down\"}}\n",
+      ),
+    );
+    expect(first.send).toHaveBeenCalledWith("vellum:helper:hotkey:event", {
       kind: "fnPushToTalk",
       state: "down",
     });
+    expect(second.send).not.toHaveBeenCalled();
+
+    const firstDisable = invokeFnPushToTalkFrom(false, first);
+    expect(lastChild?.stdin.writes.at(-1)).toContain("\"enable\":false");
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from("{\"id\":2,\"ok\":true,\"result\":{\"enabled\":false}}\n"),
+    );
+    expect(await firstDisable).toEqual({ ok: true, enabled: false });
   });
 
   test("closes helper stdin on app quit so native registrations are cleaned up", async () => {

@@ -1,4 +1,4 @@
-import { BrowserWindow, app } from "electron";
+import { BrowserWindow, app, type WebContents } from "electron";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -66,12 +66,20 @@ class HotkeyHelperClient {
   private stdoutBuffer = "";
   private readonly pending = new Map<number, PendingCall>();
   private readonly listeners = new Set<(event: HotkeyEvent) => void>();
+  private readonly exitListeners = new Set<() => void>();
   private fnIsDown = false;
 
   onEvent(listener: (event: HotkeyEvent) => void): () => void {
     this.listeners.add(listener);
     return () => {
       this.listeners.delete(listener);
+    };
+  }
+
+  onExit(listener: () => void): () => void {
+    this.exitListeners.add(listener);
+    return () => {
+      this.exitListeners.delete(listener);
     };
   }
 
@@ -120,6 +128,7 @@ class HotkeyHelperClient {
     this.stdoutBuffer = "";
     this.fnIsDown = false;
     this.listeners.clear();
+    this.exitListeners.clear();
     for (const [id, pending] of this.pending) {
       clearTimeout(pending.timeout);
       pending.resolve({ ok: false, reason: `hotkey helper reset (${id})` });
@@ -241,6 +250,7 @@ class HotkeyHelperClient {
   }
 
   private handleExit(): void {
+    const hadChild = this.child !== null;
     this.child = null;
     this.stdoutBuffer = "";
 
@@ -259,16 +269,114 @@ class HotkeyHelperClient {
         listener({ kind: "fnPushToTalk", state: "up" });
       }
     }
+
+    if (hadChild) {
+      for (const listener of this.exitListeners) listener();
+    }
   }
 }
 
 const client = new HotkeyHelperClient();
 
-const broadcastHotkeyEvent = (event: HotkeyEvent): void => {
-  for (const win of BrowserWindow.getAllWindows()) {
-    if (win.isDestroyed()) continue;
-    win.webContents.send("vellum:helper:hotkey:event", event);
+interface HotkeyOwner {
+  webContents: WebContents;
+  cleanup: () => void;
+}
+
+const hotkeyOwners = new Map<number, HotkeyOwner>();
+let activeHotkeyOwnerId: number | null = null;
+let helperRegistered = false;
+
+const newestOwnerId = (): number | null => {
+  let id: number | null = null;
+  for (const [ownerId, owner] of hotkeyOwners) {
+    if (!owner.webContents.isDestroyed()) id = ownerId;
   }
+  return id;
+};
+
+const removeHotkeyOwner = (webContentsId: number): void => {
+  const owner = hotkeyOwners.get(webContentsId);
+  if (!owner) return;
+  owner.cleanup();
+  hotkeyOwners.delete(webContentsId);
+  if (activeHotkeyOwnerId === webContentsId) {
+    activeHotkeyOwnerId = newestOwnerId();
+  }
+};
+
+const disableFnPushToTalkForOwner = async (
+  webContents: WebContents,
+): Promise<FnPushToTalkResult> => {
+  removeHotkeyOwner(webContents.id);
+
+  if (hotkeyOwners.size > 0) {
+    return { ok: true, enabled: true };
+  }
+  if (!helperRegistered) {
+    return { ok: true, enabled: false };
+  }
+
+  const result = await client.fnPushToTalk(false);
+  if (result.ok) helperRegistered = false;
+  return result;
+};
+
+const addHotkeyOwner = (webContents: WebContents): void => {
+  const id = webContents.id;
+  if (hotkeyOwners.has(id)) {
+    activeHotkeyOwnerId = id;
+    return;
+  }
+
+  const win = BrowserWindow.fromWebContents(webContents);
+  const markActive = () => {
+    if (hotkeyOwners.has(id)) activeHotkeyOwnerId = id;
+  };
+  const handleDestroyed = () => {
+    void disableFnPushToTalkForOwner(webContents);
+  };
+
+  webContents.once("destroyed", handleDestroyed);
+  win?.on("focus", markActive);
+
+  hotkeyOwners.set(id, {
+    webContents,
+    cleanup: () => {
+      webContents.off("destroyed", handleDestroyed);
+      win?.off("focus", markActive);
+    },
+  });
+  activeHotkeyOwnerId = id;
+};
+
+const enableFnPushToTalkForOwner = async (
+  webContents: WebContents,
+): Promise<FnPushToTalkResult> => {
+  addHotkeyOwner(webContents);
+
+  if (helperRegistered) {
+    return { ok: true, enabled: true };
+  }
+
+  const result = await client.fnPushToTalk(true);
+  if (result.ok) {
+    helperRegistered = result.enabled;
+  } else {
+    removeHotkeyOwner(webContents.id);
+  }
+  return result;
+};
+
+const sendHotkeyEventToOwner = (event: HotkeyEvent): void => {
+  const ownerId = activeHotkeyOwnerId ?? newestOwnerId();
+  const activeOwner = ownerId !== null ? hotkeyOwners.get(ownerId) : null;
+  const owner =
+    activeOwner && !activeOwner.webContents.isDestroyed()
+      ? activeOwner
+      : hotkeyOwners.get(newestOwnerId() ?? -1);
+  if (!owner || owner.webContents.isDestroyed()) return;
+  owner.webContents.send("vellum:helper:hotkey:event", event);
 };
 
 let installed = false;
@@ -276,12 +384,18 @@ export const installHotkeyHelper = (): void => {
   if (installed) return;
   installed = true;
 
-  client.onEvent(broadcastHotkeyEvent);
+  client.onEvent(sendHotkeyEventToOwner);
+  client.onExit(() => {
+    helperRegistered = false;
+  });
 
   handle(
     "vellum:helper:hotkey:fnPushToTalk",
     z.tuple([z.boolean()]),
-    ([enable]) => client.fnPushToTalk(enable),
+    ([enable], event) =>
+      enable
+        ? enableFnPushToTalkForOwner(event.sender)
+        : disableFnPushToTalkForOwner(event.sender),
   );
 
   app.on("will-quit", () => {
@@ -292,6 +406,10 @@ export const installHotkeyHelper = (): void => {
 export const __resetForTesting = (): void => {
   installed = false;
   platformForTesting = null;
+  helperRegistered = false;
+  for (const owner of hotkeyOwners.values()) owner.cleanup();
+  hotkeyOwners.clear();
+  activeHotkeyOwnerId = null;
   client.__resetForTesting();
 };
 
