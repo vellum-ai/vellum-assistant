@@ -41,6 +41,7 @@ import {
   migrate230AcpSessionHistory,
   migrate231RepairMemoryGraphEventDates,
   migrateA2ATasks,
+  migrateAcpSessionHistoryCwd,
   migrateActivationState,
   migrateActivationStateFkCascade,
   migrateAddConversationInferenceProfile,
@@ -478,6 +479,7 @@ export function initializeDb(): void {
     migrateScheduleSourceConversation,
     migrateMessagesRoleCreatedAtIndex,
     createAuthFallbackEventsTable,
+    migrateAcpSessionHistoryCwd,
   ];
 
   // Run each migration step, catching and logging individual failures so one
