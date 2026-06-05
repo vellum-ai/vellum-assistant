@@ -98,6 +98,7 @@ import {
   updateWorkItem,
 } from "../work-items/work-item-store.js";
 import { WorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
+import { repairAdaptiveThinkingOnManagedProfiles } from "../workspace/migrations/097-enable-adaptive-thinking-managed-profiles.js";
 import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
 import { runWorkspaceMigrations } from "../workspace/migrations/runner.js";
 import {
@@ -587,6 +588,26 @@ export async function runDaemon(): Promise<void> {
         { err },
         "Inference profile seeding failed — continuing startup",
       );
+    }
+
+    // Re-run the adaptive thinking repair after overlay merge + profile seeding.
+    // Workspace migration 097 enables adaptive thinking on managed profiles, but
+    // it runs before mergeDefaultWorkspaceConfig() which can overwrite the fix
+    // with overlay profiles that have thinking disabled or absent. On-platform
+    // instances where the overlay supplies "balanced" / "quality-optimized"
+    // profiles without thinking enabled would be stuck permanently because the
+    // migration is already checkpointed as completed. This idempotent repair
+    // ensures thinking is enabled regardless of overlay ordering.
+    if (defaultConfigMerge.hadOverlay) {
+      try {
+        repairAdaptiveThinkingOnManagedProfiles(getWorkspaceDir());
+        log.info("Post-overlay adaptive thinking repair complete");
+      } catch (err) {
+        log.warn(
+          { err },
+          "Post-overlay adaptive thinking repair failed — continuing startup",
+        );
+      }
     }
 
     log.info("Daemon startup: loading config");
