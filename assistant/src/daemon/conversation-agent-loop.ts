@@ -1138,6 +1138,20 @@ export async function runAgentLoopImpl(
       }
     };
 
+    // Compute fresh turn timestamp for date grounding.
+    // Absolute "now" is always anchored to assistant host clock, while local
+    // date semantics prefer configured user timezone, then device timezones.
+    const hostTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const timezoneContext = resolveTurnTimezoneContext({
+      configuredUserTimeZone: config.ui.userTimezone ?? null,
+      clientTimezone: ctx.clientTimezone ?? null,
+      detectedTimezone: config.ui.detectedTimezone ?? null,
+      hostTimeZone,
+    });
+    const timestamp = formatTurnTimestamp({
+      timeZone: timezoneContext.effectiveTimezone,
+    });
+
     // Memory retrieval — fetches PKB, NOW.md, and memory-graph outputs and
     // persists the retrieval's own side effects (injected-block metadata,
     // recall log, `memory_recalled` event). Runs at the early "prompt
@@ -1170,20 +1184,6 @@ export async function runAgentLoopImpl(
     // pair on the graph handle for the PKB-reminder injector to read back; the
     // loop only reuses the injected message list downstream.
     let runMessages = memoryCtx.latestMessages;
-
-    // Compute fresh turn timestamp for date grounding.
-    // Absolute "now" is always anchored to assistant host clock, while local
-    // date semantics prefer configured user timezone, then device timezones.
-    const hostTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const timezoneContext = resolveTurnTimezoneContext({
-      configuredUserTimeZone: config.ui.userTimezone ?? null,
-      clientTimezone: ctx.clientTimezone ?? null,
-      detectedTimezone: config.ui.detectedTimezone ?? null,
-      hostTimeZone,
-    });
-    const timestamp = formatTurnTimestamp({
-      timeZone: timezoneContext.effectiveTimezone,
-    });
 
     // Resolve the inbound actor context for the unified <turn_context> block.
     // When the conversation carries enough identity info, use the unified
