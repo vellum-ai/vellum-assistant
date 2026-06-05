@@ -16244,6 +16244,86 @@ paths:
                                       - durationMs
                                     additionalProperties: false
                                 additionalProperties: false
+                              scopeOptions:
+                                type: array
+                                items:
+                                  type: object
+                                  properties:
+                                    label:
+                                      type: string
+                                    scope:
+                                      type: string
+                                  required:
+                                    - label
+                                    - scope
+                                  additionalProperties: false
+                              pendingConfirmation:
+                                type: object
+                                properties:
+                                  requestId:
+                                    type: string
+                                  title:
+                                    type: string
+                                  description:
+                                    type: string
+                                  toolName:
+                                    type: string
+                                  riskLevel:
+                                    type: string
+                                  riskReason:
+                                    type: string
+                                  input:
+                                    type: object
+                                    propertyNames:
+                                      type: string
+                                    additionalProperties: {}
+                                  allowlistOptions:
+                                    type: array
+                                    items:
+                                      type: object
+                                      properties:
+                                        label:
+                                          type: string
+                                        description:
+                                          type: string
+                                        pattern:
+                                          type: string
+                                      required:
+                                        - label
+                                        - description
+                                        - pattern
+                                      additionalProperties: false
+                                  scopeOptions:
+                                    type: array
+                                    items:
+                                      type: object
+                                      properties:
+                                        label:
+                                          type: string
+                                        scope:
+                                          type: string
+                                      required:
+                                        - label
+                                        - scope
+                                      additionalProperties: false
+                                  directoryScopeOptions:
+                                    type: array
+                                    items:
+                                      type: object
+                                      properties:
+                                        label:
+                                          type: string
+                                        scope:
+                                          type: string
+                                      required:
+                                        - label
+                                        - scope
+                                      additionalProperties: false
+                                  persistentDecisionsAllowed:
+                                    type: boolean
+                                required:
+                                  - requestId
+                                additionalProperties: false
                             required:
                               - name
                               - input
@@ -16529,6 +16609,86 @@ paths:
                                               - redirectCount
                                               - durationMs
                                             additionalProperties: false
+                                        additionalProperties: false
+                                      scopeOptions:
+                                        type: array
+                                        items:
+                                          type: object
+                                          properties:
+                                            label:
+                                              type: string
+                                            scope:
+                                              type: string
+                                          required:
+                                            - label
+                                            - scope
+                                          additionalProperties: false
+                                      pendingConfirmation:
+                                        type: object
+                                        properties:
+                                          requestId:
+                                            type: string
+                                          title:
+                                            type: string
+                                          description:
+                                            type: string
+                                          toolName:
+                                            type: string
+                                          riskLevel:
+                                            type: string
+                                          riskReason:
+                                            type: string
+                                          input:
+                                            type: object
+                                            propertyNames:
+                                              type: string
+                                            additionalProperties: {}
+                                          allowlistOptions:
+                                            type: array
+                                            items:
+                                              type: object
+                                              properties:
+                                                label:
+                                                  type: string
+                                                description:
+                                                  type: string
+                                                pattern:
+                                                  type: string
+                                              required:
+                                                - label
+                                                - description
+                                                - pattern
+                                              additionalProperties: false
+                                          scopeOptions:
+                                            type: array
+                                            items:
+                                              type: object
+                                              properties:
+                                                label:
+                                                  type: string
+                                                scope:
+                                                  type: string
+                                              required:
+                                                - label
+                                                - scope
+                                              additionalProperties: false
+                                          directoryScopeOptions:
+                                            type: array
+                                            items:
+                                              type: object
+                                              properties:
+                                                label:
+                                                  type: string
+                                                scope:
+                                                  type: string
+                                              required:
+                                                - label
+                                                - scope
+                                              additionalProperties: false
+                                          persistentDecisionsAllowed:
+                                            type: boolean
+                                        required:
+                                          - requestId
                                         additionalProperties: false
                                     required:
                                       - name
