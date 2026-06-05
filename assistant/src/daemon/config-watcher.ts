@@ -178,8 +178,8 @@ export class ConfigWatcher {
    * Start all file watchers. `onConversationEvict` is called when watched
    * files change and conversations need to be evicted for reload.
    * `onIdentityChanged` is called when IDENTITY.md changes on disk.
-   * `onIdentityIntroChanged` is called when SOUL.md changes and cached
-   * identity intro greetings should be invalidated.
+   * `onIdentityIntroChanged` is called when SOUL.md changes and identity
+   * intro subscribers should refetch.
    * `onSkillsChanged` is called after skill directory changes evict
    * conversations.
    */

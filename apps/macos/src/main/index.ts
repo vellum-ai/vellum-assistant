@@ -6,15 +6,18 @@ import { z } from "zod";
 
 import {
   readAllowedGatewayPorts,
+  resolveLocalConfigFromEnv,
   resolveLockfilePaths,
 } from "@vellumai/local-mode";
 
 import { installAbout, openAboutWindow } from "./about";
-import { APP_PROTOCOL } from "./app-config";
+import { APP_HOST, APP_PROTOCOL } from "./app-config";
+import { installCsp } from "./csp";
 import { ensureWebInstalled, getWebDistPath } from "./cli-installer";
-import { handle } from "./ipc";
+import { handle, handleSync } from "./ipc";
 import { resolveAppProtocolPath } from "./app-protocol";
 import { planGatewayForward } from "./gateway-forward";
+import { planPlatformForward } from "./platform-forward";
 import {
   extractDeepLinkFromArgv,
   handleDeepLink,
@@ -22,16 +25,20 @@ import {
 } from "./deep-links";
 import { installAvatarIpc } from "./avatar";
 import { installDock } from "./dock";
+import { installFeedbackIpc } from "./feedback";
+import { installGlobalShortcuts } from "./global-shortcuts";
 import { installLocalMode } from "./local-mode";
+import log from "./logger";
 import {
   ensureVisible as ensureMainWindowVisible,
   installMainWindow,
   toggleVisibility as toggleMainWindowVisibility,
 } from "./main-window";
 import { installApplicationMenu } from "./menu";
+import { installConnectivityProbe } from "./connectivity-probe";
 import { installPowerEvents } from "./power-events";
 import { readSetting, writeSetting } from "./settings";
-import { installStatusIpc } from "./status";
+import { installConnectivityIpc, installStatusIpc } from "./status";
 import { installTray } from "./tray";
 
 // Dev-only: override the workspace `name` (`@vellumai/macos`) so the
@@ -120,6 +127,7 @@ const registerAppProtocol = (): void => {
   const lockfilePaths = resolveLockfilePaths(process.env);
   const getAllowedGatewayPorts = (): Set<number> =>
     readAllowedGatewayPorts(lockfilePaths);
+  const { platformUrl } = resolveLocalConfigFromEnv(process.env);
 
   protocol.handle(APP_PROTOCOL, async (request) => {
     // The renderer addresses local gateways at the same `app://` origin via
@@ -129,6 +137,12 @@ const registerAppProtocol = (): void => {
     // Vite dev-server proxy (`apps/web/vite-plugin-local-mode.ts`).
     const proxied = await forwardGatewayRequest(request, getAllowedGatewayPorts);
     if (proxied) return proxied;
+
+    // Platform API routes (`/v1/*`, `/_allauth/*`, `/accounts/*`) forward to
+    // the cloud platform so managed mode works in packaged builds. Mirrors the
+    // Vite dev-server proxy (`apps/web/vite.config.ts` server.proxy entries).
+    const platformProxied = await forwardPlatformRequest(request, platformUrl);
+    if (platformProxied) return platformProxied;
 
     const result = resolveAppProtocolPath(
       rendererRoot,
@@ -192,6 +206,58 @@ const forwardGatewayRequest = async (
   }
 };
 
+const CSRF_COOKIE_RE = /(?:__Secure-)?csrftoken=([^;]+)/;
+
+// `app://` is not a cookieable scheme, so the renderer can't read the CSRF
+// token via `document.cookie`. Main caches it here and injects it into
+// forwarded requests; `net.fetch`'s own cookie jar supplies the cookie side.
+let cachedCsrfToken: string | null = null;
+handleSync("vellum:csrf:getToken", () => cachedCsrfToken);
+
+const captureCsrfToken = (response: Response): void => {
+  const setCookies = response.headers.getSetCookie?.() ?? [];
+  for (const raw of setCookies) {
+    const match = CSRF_COOKIE_RE.exec(raw);
+    if (match?.[1]) {
+      cachedCsrfToken = match[1];
+    }
+  }
+};
+
+/**
+ * Forward a platform API request (`/v1/*`, `/_allauth/*`, `/accounts/*`) to
+ * the cloud platform, or return `null` for non-platform paths. Mirrors the
+ * gateway forward: `net.fetch` runs in main so the renderer stays same-origin.
+ */
+const forwardPlatformRequest = async (
+  request: GlobalRequest,
+  platformUrl: string,
+): Promise<Response | null> => {
+  const plan = planPlatformForward(request, platformUrl);
+  if (plan.kind === "pass") return null;
+
+  if (cachedCsrfToken && !plan.headers.has("X-CSRFToken")) {
+    plan.headers.set("X-CSRFToken", cachedCsrfToken);
+  }
+
+  let response: Response;
+  try {
+    response = await net.fetch(plan.url, {
+      method: plan.method,
+      headers: plan.headers,
+      body: plan.hasBody ? request.body : undefined,
+      ...(plan.hasBody ? { duplex: "half" } : {}),
+      redirect: "manual",
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Platform unreachable";
+    return new Response(message, { status: 502 });
+  }
+
+  captureCsrfToken(response);
+  return response;
+};
+
 // Deny renderer permission requests by default. Specific permissions
 // (microphone for voice input, notifications, etc.) are allowlisted in the
 // follow-up tickets that wire each feature, so the bridge surface stays
@@ -228,10 +294,6 @@ const installSettingsIpc = (): void => {
 // App lifecycle
 // ---------------------------------------------------------------------------
 
-// TODO(security): set a Content Security Policy via session.webRequest.
-// onHeadersReceived once the prod connect-src endpoints (api.vellum.ai,
-// websocket origins, telemetry) are settled in the auth + networking tickets.
-
 app
   .whenReady()
   .then(async () => {
@@ -242,10 +304,13 @@ app
       registerAppProtocol();
     }
     installPermissionHandler();
+    installCsp();
     installSettingsIpc();
     installLocalMode();
     installAbout();
+    installFeedbackIpc();
     installApplicationMenu();
+    installGlobalShortcuts();
     // Register the avatar channel before the Dock and Tray install so their
     // initial render reflects any avatar the renderer publishes during
     // bootstrap rather than briefly showing the bundled fallback mark.
@@ -256,6 +321,9 @@ app
     // initial render reflects any status the renderer publishes during
     // bootstrap rather than briefly showing the default idle dot.
     installStatusIpc();
+    const lockfilePaths = resolveLockfilePaths(process.env);
+    const runProbe = installConnectivityProbe(lockfilePaths);
+    installConnectivityIpc(runProbe);
     installTray({
       toggleMainWindow: toggleMainWindowVisibility,
       ensureMainWindow: ensureMainWindowVisible,
@@ -273,7 +341,7 @@ app
     });
   })
   .catch((err: unknown) => {
-    console.error("[app] whenReady setup failed:", err);
+    log.error("[app] whenReady setup failed:", err);
   });
 
 app.on("second-instance", (_event, argv) => {

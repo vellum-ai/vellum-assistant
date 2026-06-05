@@ -12,18 +12,15 @@
  * No messages are persisted. The conversation's processing flag is never set or checked.
  */
 
-import { existsSync, readFileSync } from "node:fs";
-
 import { z } from "zod";
 
+import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { getConfig } from "../../config/loader.js";
-import { readNowScratchpad } from "../../daemon/conversation-runtime-assembly.js";
 import { getOrCreateConversation } from "../../daemon/conversation-store.js";
-import { parseIdentityFields } from "../../daemon/handlers/identity.js";
+import { readNowScratchpad } from "../../daemon/now-scratchpad.js";
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
 import { getAllToolDefinitions } from "../../tools/registry.js";
 import { getLogger } from "../../util/logger.js";
-import { getWorkspacePromptPath } from "../../util/platform.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { runBtwSidechain } from "../btw-sidechain.js";
 import { BadRequestError, ServiceUnavailableError } from "./errors.js";
@@ -37,6 +34,9 @@ const IDENTITY_INTRO_KEY = "identity-intro";
 
 /** Conversation key used by the client for empty-state greeting generation. */
 const GREETING_KEY = "greeting";
+const EMPTY_STATE_DYNAMIC_GREETINGS_FLAG =
+  "empty-state-dynamic-greetings" as const;
+const STATIC_EMPTY_STATE_GREETING = "What are we working on?";
 
 // ---------------------------------------------------------------------------
 // SSE helpers
@@ -68,26 +68,22 @@ async function handleBtw({
 
   const trimmedContent = content.trim();
 
-  // ----- Identity intro fast-path -----
+  if (
+    conversationKey === GREETING_KEY &&
+    !isAssistantFeatureFlagEnabled(
+      EMPTY_STATE_DYNAMIC_GREETINGS_FLAG,
+      getConfig(),
+    )
+  ) {
+    return streamText(STATIC_EMPTY_STATE_GREETING);
+  }
+
+  // ----- Cached identity intro fast-path -----
   if (conversationKey === IDENTITY_INTRO_KEY) {
-    let fastText: string | undefined;
-    const identityPath = getWorkspacePromptPath("IDENTITY.md");
-    if (existsSync(identityPath)) {
-      const fields = parseIdentityFields(readFileSync(identityPath, "utf-8"));
-      if (fields.name) {
-        fastText = `Hi, I'm ${fields.name}!`;
-      }
-    }
-    fastText ??= getCachedIntro()?.greetings[0];
+    const fastText = getCachedIntro()?.greetings[0];
     if (fastText) {
       log.debug("Returning identity intro fast-path");
-      return new ReadableStream({
-        start(controller) {
-          controller.enqueue(sseEvent("btw_text_delta", { text: fastText }));
-          controller.enqueue(sseEvent("btw_complete", {}));
-          controller.close();
-        },
-      });
+      return streamText(fastText);
     }
   }
 
@@ -167,6 +163,16 @@ async function handleBtw({
           }
         }
       })();
+    },
+  });
+}
+
+function streamText(text: string): ReadableStream<Uint8Array> {
+  return new ReadableStream({
+    start(controller) {
+      controller.enqueue(sseEvent("btw_text_delta", { text }));
+      controller.enqueue(sseEvent("btw_complete", {}));
+      controller.close();
     },
   });
 }

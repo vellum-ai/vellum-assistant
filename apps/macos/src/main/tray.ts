@@ -1,8 +1,18 @@
 import { Menu, Tray, app, nativeTheme } from "electron";
 
+import {
+  MENU_ICON_CIRCLECHECK,
+  MENU_ICON_MESSAGECIRCLE,
+  MENU_ICON_MESSAGECIRCLEPLUS,
+  MENU_ICON_MESSAGESQUARE,
+  MENU_ICON_POWER,
+  MENU_ICON_REFRESHCW,
+  MENU_ICON_SETTINGS,
+} from "./assets/menu-icons";
 import { onAvatarChange } from "./avatar";
 import { resolveAccelerator } from "./commands";
 import { dispatchToMain } from "./main-window";
+import { menuIcon } from "./menu-icon";
 import {
   getStatus,
   onStatusChange,
@@ -69,17 +79,38 @@ export interface TrayHandlers {
   openAbout(): void;
 }
 
-const buildTrayMenu = (handlers: TrayHandlers, status: AssistantStatus): Menu =>
-  Menu.buildFromTemplate([
+const buildTrayMenu = (handlers: TrayHandlers, status: AssistantStatus): Menu => {
+  const onboarding = readOnboardingActive();
+
+  const items: Electron.MenuItemConstructorOptions[] = [
     {
       // Status line, matching the Swift status menu's header. Disabled so
       // it reads as a label, not an action.
       label: statusMenuTitle(status),
       enabled: false,
     },
+  ];
+
+  // Re-pair: only visible when the guardian token has expired or the
+  // daemon is unreachable. Dispatches to the renderer which owns the
+  // repair flow (connectLocalAssistant → primeLocalGatewayConnectionWithRepair).
+  // Matches the Swift app's conditional "Re-pair <name>" item.
+  if (status === "authFailed") {
+    items.push({
+      label: "Re-pair Assistant",
+      icon: menuIcon(MENU_ICON_REFRESHCW),
+      click: async () => {
+        await handlers.ensureMainWindow();
+        dispatchToMain({ kind: "rePair" });
+      },
+    });
+  }
+
+  items.push(
     { type: "separator" },
     {
       label: "New Conversation",
+      icon: menuIcon(MENU_ICON_MESSAGECIRCLEPLUS),
       accelerator: resolveAccelerator("newConversation"),
       click: async () => {
         await handlers.ensureMainWindow();
@@ -93,10 +124,20 @@ const buildTrayMenu = (handlers: TrayHandlers, status: AssistantStatus): Menu =>
     },
     {
       label: "Current Conversation",
+      icon: menuIcon(MENU_ICON_MESSAGESQUARE),
       accelerator: resolveAccelerator("currentConversation"),
       click: async () => {
         await handlers.ensureMainWindow();
         dispatchToMain({ kind: "currentConversation" });
+      },
+    },
+    {
+      label: "Mark All as Read",
+      icon: menuIcon(MENU_ICON_CIRCLECHECK),
+      enabled: !onboarding,
+      click: async () => {
+        await handlers.ensureMainWindow();
+        dispatchToMain({ kind: "markAllRead" });
       },
     },
     { type: "separator" },
@@ -107,10 +148,19 @@ const buildTrayMenu = (handlers: TrayHandlers, status: AssistantStatus): Menu =>
     { type: "separator" },
     {
       label: "Settings\u2026",
-      enabled: !readOnboardingActive(),
+      icon: menuIcon(MENU_ICON_SETTINGS),
+      enabled: !onboarding,
       click: async () => {
         await handlers.ensureMainWindow();
         dispatchToMain({ kind: "openSettings" });
+      },
+    },
+    {
+      label: "Send Feedback\u2026",
+      icon: menuIcon(MENU_ICON_MESSAGECIRCLE),
+      click: async () => {
+        await handlers.ensureMainWindow();
+        dispatchToMain({ kind: "shareFeedback" });
       },
     },
     {
@@ -119,14 +169,27 @@ const buildTrayMenu = (handlers: TrayHandlers, status: AssistantStatus): Menu =>
     },
     { type: "separator" },
     {
+      label: "Restart",
+      icon: menuIcon(MENU_ICON_REFRESHCW),
+      enabled: !onboarding,
+      click: () => {
+        app.relaunch();
+        app.quit();
+      },
+    },
+    {
       label: `Quit ${app.name}`,
+      icon: menuIcon(MENU_ICON_POWER),
       // `role: "quit"` carries its own accelerator on macOS; we still
       // declare it explicitly so the menu reads consistently across
       // locales and Electron version bumps.
       accelerator: "CmdOrCtrl+Q",
       role: "quit",
     },
-  ]);
+  );
+
+  return Menu.buildFromTemplate(items);
+};
 
 let installed = false;
 let trayInstance: Tray | null = null;

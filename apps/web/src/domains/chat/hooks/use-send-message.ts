@@ -69,7 +69,6 @@ import { conversationsByIdCancelPost } from "@/generated/daemon/sdk.gen";
 import type { Conversation } from "@/types/conversation-types";
 import { getPendingInteractions } from "@/domains/chat/api/interactions";
 import {
-  extractRuntimeMessages,
   fetchConversationMessages,
   postChatMessage,
   pollForResponse,
@@ -392,7 +391,7 @@ export function useSendMessage({
               postResult.assistantId,
               effectiveConversationId,
             );
-            serverMessages = extractRuntimeMessages(snapshot);
+            serverMessages = snapshot?.messages ?? [];
             snapshotSeq = snapshot?.seq ?? null;
           } catch {
             // Reconciliation is best-effort

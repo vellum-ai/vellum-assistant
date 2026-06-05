@@ -97,6 +97,7 @@ function getHeartbeatWakeSource(now: number): HeartbeatWakeSource | null {
 
   const service = HeartbeatService.getInstance();
   if (service?.isConsecutiveRunCapReached) return null;
+  if (service?.isDailyCapReached) return null;
 
   const serviceNextRunAt = service?.nextRunAt ?? null;
   let nextRunAt = serviceNextRunAt;

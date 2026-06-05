@@ -45,6 +45,14 @@ const TEST_REGISTRY = {
       description: "Enable user-hosted onboarding flow",
       defaultEnabled: false,
     },
+    {
+      id: "default-model",
+      scope: "assistant",
+      key: "default-model",
+      label: "Default Model",
+      description: "Default LLM model identifier",
+      defaultEnabled: "claude-sonnet-4-6",
+    },
   ],
 };
 
@@ -237,6 +245,28 @@ describe("IPC feature flag routes", () => {
     const flags = res.result as Record<string, boolean>;
     expect(flags["a2a-channel"]).toBe(true);
     expect(flags["browser"]).toBe(true);
+  });
+
+  test("get_feature_flags includes string flag values", async () => {
+    if (existsSync(featureFlagStorePath)) rmSync(featureFlagStorePath);
+    clearFeatureFlagStoreCache();
+
+    await startServerAndConnect();
+    const res = await sendRequest(client, "get_feature_flags");
+
+    expect(res.error).toBeUndefined();
+    const flags = res.result as Record<string, boolean | string>;
+    expect(flags["default-model"]).toBe("claude-sonnet-4-6");
+  });
+
+  test("get_feature_flag returns string value for string flag", async () => {
+    await startServerAndConnect();
+    const res = await sendRequest(client, "get_feature_flag", {
+      flag: "default-model",
+    });
+
+    expect(res.error).toBeUndefined();
+    expect(res.result).toBe("claude-sonnet-4-6");
   });
 
   test("get_feature_flag returns value for a known flag", async () => {

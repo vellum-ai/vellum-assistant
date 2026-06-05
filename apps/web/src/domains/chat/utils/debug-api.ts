@@ -31,10 +31,7 @@ import {
   type ChatDebugEventsApi,
   eventsDebugApi,
 } from "@/domains/chat/api/debug-api";
-import {
-  extractRuntimeMessages,
-  fetchConversationMessages as defaultFetchConversationMessages,
-} from "@/domains/chat/api/messages";
+import { fetchConversationMessages as defaultFetchConversationMessages } from "@/domains/chat/api/messages";
 import { useStreamStore } from "@/domains/chat/stream-store";
 import type {
   PendingConfirmationState,
@@ -643,7 +640,7 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     const historyFetcher =
       refs.historyFetcher ?? defaultFetchConversationMessages;
     const snapshot = await historyFetcher(assistantId, conversationId);
-    return extractRuntimeMessages(snapshot);
+    return snapshot?.messages ?? [];
   }
 
   function listPendingInteractions(): PendingInteractionsSnapshot {

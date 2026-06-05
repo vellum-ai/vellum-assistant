@@ -17,10 +17,7 @@ import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text
 import { runtimeMessagePlainText } from "@/domains/chat/utils/map-runtime-message";
 import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
-import {
-  extractRuntimeMessages,
-  fetchConversationMessages,
-} from "@/domains/chat/api/messages";
+import { fetchConversationMessages } from "@/domains/chat/api/messages";
 import type { ConversationMessage } from "@vellumai/assistant-api";
 import { useConversationStore } from "@/stores/conversation-store";
 import { endTurn } from "@/domains/chat/turn-coordinator";
@@ -374,7 +371,7 @@ export function useMessageReconciliation({
         fetchConversationMessages(ctx.assistantId, ctx.conversationId)
           .then((snapshot) => {
             if (epoch !== useStreamStore.getState().streamEpoch) return;
-            const serverMessages = extractRuntimeMessages(snapshot);
+            const serverMessages = snapshot?.messages ?? [];
             const snapshotSeq = snapshot?.seq ?? null;
             recordDiagnostic("reconciliation_fetch", {
               assistantId: ctx.assistantId,
@@ -467,7 +464,7 @@ export function useMessageReconciliation({
           ctx.assistantId,
           ctx.conversationId,
         );
-        const serverMessages = extractRuntimeMessages(snapshot);
+        const serverMessages = snapshot?.messages ?? [];
         const snapshotSeq = snapshot?.seq ?? null;
         if (useConversationStore.getState().activeConversationId !== ctx.conversationId) return empty;
         // If the epoch changed during the fetch (e.g. page went hidden

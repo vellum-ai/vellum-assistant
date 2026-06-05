@@ -27,6 +27,7 @@ import { sseService } from "@/assistant/sse-service";
 import { subscribeLifecycleDiagnostics } from "@/lib/lifecycle-diagnostics";
 import { publishCapacitorAppStateSource } from "@/runtime/event-sources/capacitor-app-state";
 import { publishVisibilitySource } from "@/runtime/event-sources/dom-visibility";
+import { publishElectronConnectivitySource } from "@/runtime/event-sources/electron-connectivity";
 import { publishElectronDeepLinksSource } from "@/runtime/event-sources/electron-deep-links";
 import { publishElectronPowerSource } from "@/runtime/event-sources/electron-power";
 import { publishWindowOnlineSource } from "@/runtime/event-sources/window-online";
@@ -57,6 +58,7 @@ export function useEventBusInit({
       publishCapacitorAppStateSource(),
       publishElectronPowerSource(),
       publishElectronDeepLinksSource(),
+      publishElectronConnectivitySource(),
       subscribeLifecycleDiagnostics(),
     ];
     return () => {

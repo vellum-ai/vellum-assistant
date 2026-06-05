@@ -15,11 +15,12 @@ import { isSeqGapDetectionEnabled } from "@/lib/feature-flags/seq-gap-detection-
 import { getReconnectCursor } from "@/lib/streaming/reconnect-cursor";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 import {
+  type SseClientEndReason,
+  endSseClient,
   markClientEstablished,
   pushSseEvent,
   recordSseTraffic,
   registerSseClient,
-  unregisterSseClient,
 } from "@/lib/streaming/stream-debug";
 import { createStreamWatchdog } from "@/lib/streaming/stream-watchdog";
 
@@ -393,7 +394,22 @@ export function subscribeEvents(
         );
       }
     } finally {
-      unregisterSseClient(sseDebugClientId);
+      // Report the connection's end reason to the debug registry, which
+      // retains it (with its final counters) for post-hoc diagnosis.
+      // `cancelled` (consumer teardown) and the watchdog are the only
+      // things that abort the signal, so a non-cancel abort is the
+      // watchdog's idle-timeout fire.
+      let endReason: SseClientEndReason;
+      if (cancelled) {
+        endReason = "cancelled";
+      } else if (abortController.signal.aborted) {
+        endReason = "watchdog";
+      } else if (streamError) {
+        endReason = "error";
+      } else {
+        endReason = "ended";
+      }
+      endSseClient(sseDebugClientId, endReason);
     }
   };
 

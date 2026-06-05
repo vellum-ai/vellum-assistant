@@ -70,3 +70,21 @@ export const readSetting = (key: string): unknown => {
 export const writeSetting = (key: string, value: unknown): void => {
   store().set(key as keyof AppSettings, value as never);
 };
+
+/**
+ * Subscribe to changes on a specific settings key. Fires when the value
+ * changes (deep equality check by electron-store). Returns an unsubscribe
+ * function.
+ */
+export const onSettingChange = <K extends keyof AppSettings>(
+  key: K,
+  callback: (newValue: AppSettings[K], oldValue: AppSettings[K]) => void,
+): (() => void) => {
+  return store().onDidChange(
+    key,
+    callback as (
+      newValue: AppSettings[K] | undefined,
+      oldValue: AppSettings[K] | undefined,
+    ) => void,
+  );
+};

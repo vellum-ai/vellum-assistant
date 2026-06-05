@@ -231,7 +231,7 @@ describe("ConfigWatcher workspace file handlers", () => {
     expect(evictCallCount).toBe(1);
   });
 
-  test("SOUL.md change triggers identity intro invalidation", async () => {
+  test("SOUL.md change triggers identity intro refetch notification", async () => {
     let introCallCount = 0;
     watcher.start(
       onConversationEvict,

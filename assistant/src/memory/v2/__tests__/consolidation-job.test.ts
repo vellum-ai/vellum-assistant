@@ -121,7 +121,7 @@ mock.module("../../../config/assistant-feature-flags.js", () => ({
 
 let renderedHealth = "";
 let computeThrows = false;
-mock.module("../../v3/health.js", () => ({
+mock.module("../../../plugins/defaults/memory-v3-shadow/health.js", () => ({
   computeV3Health: () => {
     if (computeThrows) throw new Error("simulated health compute failure");
     return {};
@@ -129,12 +129,12 @@ mock.module("../../v3/health.js", () => ({
   renderV3Health: () => renderedHealth,
 }));
 
-mock.module("../../v3/tree.js", () => ({
+mock.module("../../../plugins/defaults/memory-v3-shadow/tree.js", () => ({
   loadLeafTree: async () => ({ leaves: new Map(), byPage: new Map() }),
   resolveDataDir: () => "/tmp/v3-data-stub",
 }));
 
-mock.module("../../v3/core.js", () => ({
+mock.module("../../../plugins/defaults/memory-v3-shadow/core.js", () => ({
   loadCore: async () => new Set<string>(),
 }));
 
@@ -279,7 +279,7 @@ describe("memoryV2ConsolidateJob — non-empty buffer", () => {
     expect(runnerLastArgs).not.toBeNull();
     expect(runnerLastArgs?.jobName).toBe("memory.consolidate");
     expect(runnerLastArgs?.source).toBe("memory_v2_consolidation");
-    expect(runnerLastArgs?.callSite).toBe("mainAgent");
+    expect(runnerLastArgs?.callSite).toBe("memoryV2Consolidation");
     expect(runnerLastArgs?.origin).toBe("memory_consolidation");
     // The whole point of this PR: opt out of activity.failed notifications
     // because consolidation runs on tight intervals and transient failures

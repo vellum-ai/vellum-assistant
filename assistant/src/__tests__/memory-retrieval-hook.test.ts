@@ -4,23 +4,15 @@
  * Covers the retrieval behavior, the side effects the hook owns (injected-block
  * metadata, recall log, `memory_recalled` event), trust gating, error
  * propagation, and abort-signal forwarding. Uses `mock.module` to stub the
- * workspace PKB/NOW readers and the persistence helpers so the test doesn't
- * touch the developer's real `~/.vellum` or database. The memory graph handle
- * is a hand-rolled fake passed on the hook context — the hook only needs
- * `prepareMemory`.
+ * persistence helpers so the test doesn't touch the developer's real
+ * `~/.vellum` or database. The memory graph handle is a hand-rolled fake
+ * passed on the hook context — the hook only needs `prepareMemory`.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-// Stub PKB/NOW readers and persistence helpers BEFORE importing the module
-// under test so the bindings resolve through the mocks.
-const readPkbContextMock = mock((): string | null => "pkb-default");
-const readNowContextMock = mock((): string | null => "now-default");
-mock.module("../daemon/conversation-runtime-assembly.js", () => ({
-  readPkbContext: readPkbContextMock,
-  readNowScratchpad: readNowContextMock,
-}));
-
+// Stub the persistence helpers BEFORE importing the module under test so the
+// bindings resolve through the mocks.
 const updateMessageMetadataMock = mock((_id: string, _updates: unknown) => {});
 mock.module("../memory/conversation-crud.js", () => ({
   updateMessageMetadata: updateMessageMetadataMock,
@@ -67,8 +59,9 @@ function makeMetrics() {
 
 /**
  * Fake graph-memory whose `prepareMemory` returns a canonical result. The hook
- * unpacks this return value onto `ctx.runMessages` and the PKB query vectors,
- * so tests can assert those outputs by comparing object identity.
+ * unpacks this return value onto `ctx.latestMessages` and records the selected
+ * PKB query pair back onto the handle via `recordPkbQueryVectors`, so tests
+ * can assert those outputs by comparing object identity.
  */
 function makeFakeGraphMemory(overrides?: {
   messages?: Message[];
@@ -82,6 +75,7 @@ function makeFakeGraphMemory(overrides?: {
 }): {
   memory: ConversationGraphMemory;
   prepareMemoryMock: ReturnType<typeof mock>;
+  recordPkbQueryVectorsMock: ReturnType<typeof mock>;
 } {
   const returnValue = {
     runMessages: overrides?.messages ?? [],
@@ -99,10 +93,12 @@ function makeFakeGraphMemory(overrides?: {
     userQuerySparseVector: overrides?.userQuerySparseVector,
   };
   const prepareMemoryMock = mock(async () => returnValue);
+  const recordPkbQueryVectorsMock = mock(() => {});
   const memory = {
     prepareMemory: prepareMemoryMock,
+    recordPkbQueryVectors: recordPkbQueryVectorsMock,
   } as unknown as ConversationGraphMemory;
-  return { memory, prepareMemoryMock };
+  return { memory, prepareMemoryMock, recordPkbQueryVectorsMock };
 }
 
 function makeHookCtx(
@@ -110,7 +106,6 @@ function makeHookCtx(
 ): MemoryRetrievalHookContext {
   const { memory } = makeFakeGraphMemory();
   return {
-    messages: [],
     graphMemory: memory,
     config: {} as AssistantConfig,
     onEvent: () => {},
@@ -121,24 +116,18 @@ function makeHookCtx(
       warn: () => {},
     } as unknown as MemoryRetrievalHookContext["logger"],
     signal: new AbortController().signal,
-    pkbContent: null,
-    nowContent: null,
-    runMessages: [],
+    latestMessages: [],
     ...overrides,
   };
 }
 
 beforeEach(() => {
-  readPkbContextMock.mockReset();
-  readNowContextMock.mockReset();
   updateMessageMetadataMock.mockReset();
   recordMemoryRecallLogMock.mockReset();
-  readPkbContextMock.mockImplementation(() => "pkb-default");
-  readNowContextMock.mockImplementation(() => "now-default");
 });
 
 describe("user-prompt-submit-temp hook (memory retrieval)", () => {
-  test("writes PKB, NOW, and the injected run messages when the actor is trusted", async () => {
+  test("adopts the injected run messages when the actor is trusted", async () => {
     const injected: Message[] = [
       { role: "user", content: [{ type: "text", text: "injected" }] },
     ];
@@ -149,12 +138,10 @@ describe("user-prompt-submit-temp hook (memory retrieval)", () => {
 
     await userPromptSubmitMemoryRetrieval(ctx);
 
-    expect(ctx.pkbContent).toBe("pkb-default");
-    expect(ctx.nowContent).toBe("now-default");
     expect(prepareMemoryMock).toHaveBeenCalledTimes(1);
     // The hook adopts the retriever's injected message array verbatim —
     // consumers in the agent loop rely on that identity.
-    expect(ctx.runMessages).toBe(injected);
+    expect(ctx.latestMessages).toBe(injected);
   });
 
   test("selects the user-query dense/sparse pair when present, else the summary pair", async () => {
@@ -171,9 +158,12 @@ describe("user-prompt-submit-temp hook (memory retrieval)", () => {
     });
     const userCtx = makeHookCtx({ graphMemory: withUserQuery.memory });
     await userPromptSubmitMemoryRetrieval(userCtx);
-    // User-query pair wins — never crossed with the summary signal.
-    expect(userCtx.pkbQueryVector).toBe(userDense);
-    expect(userCtx.pkbSparseVector).toBe(userSparse);
+    // User-query pair wins — never crossed with the summary signal — and is
+    // recorded back onto the graph handle for the PKB-reminder injector.
+    expect(withUserQuery.recordPkbQueryVectorsMock).toHaveBeenCalledWith(
+      userDense,
+      userSparse,
+    );
 
     const summaryOnly = makeFakeGraphMemory({
       queryVector: summaryDense,
@@ -181,24 +171,31 @@ describe("user-prompt-submit-temp hook (memory retrieval)", () => {
     });
     const summaryCtx = makeHookCtx({ graphMemory: summaryOnly.memory });
     await userPromptSubmitMemoryRetrieval(summaryCtx);
-    expect(summaryCtx.pkbQueryVector).toBe(summaryDense);
-    expect(summaryCtx.pkbSparseVector).toBe(summarySparse);
+    expect(summaryOnly.recordPkbQueryVectorsMock).toHaveBeenCalledWith(
+      summaryDense,
+      summarySparse,
+    );
   });
 
   test("skips graph retrieval and side effects for untrusted actors", async () => {
-    const { memory, prepareMemoryMock } = makeFakeGraphMemory();
-    const ctx = makeHookCtx({ graphMemory: memory, isTrustedActor: false });
+    const { memory, prepareMemoryMock, recordPkbQueryVectorsMock } =
+      makeFakeGraphMemory();
+    const seeded: Message[] = [
+      { role: "user", content: [{ type: "text", text: "seeded" }] },
+    ];
+    const ctx = makeHookCtx({
+      graphMemory: memory,
+      isTrustedActor: false,
+      latestMessages: seeded,
+    });
 
     await userPromptSubmitMemoryRetrieval(ctx);
 
     expect(prepareMemoryMock).not.toHaveBeenCalled();
-    // No graph retrieval ran: run messages stay the input array and the PKB
-    // query vectors are left unset.
-    expect(ctx.runMessages).toBe(ctx.messages);
-    expect(ctx.pkbQueryVector).toBeUndefined();
-    expect(ctx.pkbSparseVector).toBeUndefined();
-    expect(ctx.pkbContent).toBe("pkb-default");
-    expect(ctx.nowContent).toBe("now-default");
+    // No graph retrieval ran: the working array stays the seeded input and no
+    // PKB query pair is recorded onto the graph handle.
+    expect(ctx.latestMessages).toBe(seeded);
+    expect(recordPkbQueryVectorsMock).not.toHaveBeenCalled();
     expect(recordMemoryRecallLogMock).not.toHaveBeenCalled();
     expect(updateMessageMetadataMock).not.toHaveBeenCalled();
   });
@@ -264,17 +261,6 @@ describe("user-prompt-submit-temp hook (memory retrieval)", () => {
     );
   });
 
-  test("passes through null PKB and NOW when the files are absent", async () => {
-    readPkbContextMock.mockImplementation(() => null);
-    readNowContextMock.mockImplementation(() => null);
-    const ctx = makeHookCtx();
-
-    await userPromptSubmitMemoryRetrieval(ctx);
-
-    expect(ctx.pkbContent).toBeNull();
-    expect(ctx.nowContent).toBeNull();
-  });
-
   test("forwards the context abort signal into prepareMemory", async () => {
     // The hook hands its `ctx.signal` straight to `prepareMemory` so an
     // external cancel aborts the underlying retrieval.
@@ -299,6 +285,7 @@ describe("user-prompt-submit-temp hook (memory retrieval)", () => {
     );
     const graphMemory = {
       prepareMemory: prepareMemoryMock,
+      recordPkbQueryVectors: mock(() => {}),
     } as unknown as ConversationGraphMemory;
     const controller = new AbortController();
     const ctx = makeHookCtx({ graphMemory, signal: controller.signal });

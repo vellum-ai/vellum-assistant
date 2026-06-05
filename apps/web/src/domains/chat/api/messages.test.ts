@@ -315,20 +315,19 @@ describe("mapRuntimeToolCalls — confirmationDecision", () => {
     expect(mapped).not.toHaveProperty("confirmationDecision");
   });
 
-  test("keeps a known confirmationDecision and narrows it", () => {
-    // GIVEN history rows carrying a known and an unknown decision string
-    const wire: ConversationMessageToolCall[] = [
-      { name: "bash", input: {}, confirmationDecision: "denied" },
-      { name: "bash", input: {}, confirmationDecision: "bogus" },
-    ];
+  test("preserves a confirmationDecision carried on the wire row", () => {
+    // GIVEN a history row carrying a recorded confirmation outcome
+    const wire: ConversationMessageToolCall = {
+      name: "bash",
+      input: {},
+      confirmationDecision: "denied",
+    };
 
-    // WHEN they are projected onto rendered tool calls
-    const [known, unknown] = mapRuntimeToolCalls(wire, "msg-1");
+    // WHEN it is projected onto a rendered tool call
+    const [mapped] = mapRuntimeToolCalls([wire], "msg-1");
 
-    // THEN the known decision survives
-    expect(known.confirmationDecision).toBe("denied");
-    // AND the unknown one is narrowed away rather than leaking a raw string
-    expect(unknown).not.toHaveProperty("confirmationDecision");
+    // THEN the decision survives the projection straight from the wire
+    expect(mapped!.confirmationDecision).toBe("denied");
   });
 });
 

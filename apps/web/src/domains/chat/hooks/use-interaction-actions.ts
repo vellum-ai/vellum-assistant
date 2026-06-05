@@ -329,7 +329,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
           const updatedTcs = msg.toolCalls.map((tc) => {
             if (tc.pendingConfirmation?.requestId === snapshot.requestId) {
               msgChanged = true;
-              return { ...tc, pendingConfirmation: null };
+              return { ...tc, pendingConfirmation: undefined };
             }
             return tc;
           });
@@ -372,7 +372,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
               const updatedToolCalls = [...msg.toolCalls];
               updatedToolCalls[tcIdx] = {
                 ...existingTc,
-                pendingConfirmation: null,
+                pendingConfirmation: undefined,
                 riskLevel: snapshot.riskLevel,
                 riskReason: snapshot.riskReason,
                 riskAllowlistOptions: snapshot.allowlistOptions,
@@ -401,7 +401,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
         const updatedToolCalls = [...msg.toolCalls];
         updatedToolCalls[tcIdx] = {
           ...existingTc,
-          pendingConfirmation: null,
+          pendingConfirmation: undefined,
           riskLevel: snapshot.riskLevel,
           riskReason: snapshot.riskReason,
           riskAllowlistOptions: snapshot.allowlistOptions,

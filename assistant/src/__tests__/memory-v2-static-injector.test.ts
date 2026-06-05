@@ -2,26 +2,46 @@
  * Tests for the `memory-v2-static` runtime injector.
  *
  * Covers:
- *   - Returns null when `memoryV2Static` is missing/empty.
+ *   - Returns null when the v2 static memory files are absent/empty.
  *   - Returns null when `mode === "minimal"`.
  *   - Wraps content in `<info>...</info>` and uses
  *     `after-memory-prefix` placement.
  *   - Escapes any `</info>` substring inside the authored content so the
  *     wrapper cannot be broken out of.
+ *   - Skips (re)injection when the `<info>` block is already present in the
+ *     turn's working messages (presence detection — the block persists in
+ *     history between compactions).
  *
- * Hermetic: drives the injector's `produce()` directly with a synthesized
- * `TurnContext` — no daemon, no filesystem.
+ * The injector sources its content itself via `readMemoryV2StaticContent()`
+ * behind the personal-memory trust gate, so each test seeds the workspace
+ * memory files rather than passing the content in as an option. Mocks
+ * `config/loader` so the v2 gates are on without standing up a full config.
  */
 
-import { describe, expect, test } from "bun:test";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { defaultInjectorsPlugin } from "../plugins/defaults/injectors/register.js";
+const realLoader = await import("../config/loader.js");
+
+mock.module("../config/loader.js", () => ({
+  ...realLoader,
+  loadConfig: () => ({
+    memory: { enabled: true, v2: { enabled: true } },
+  }),
+  getConfig: () => ({
+    memory: { enabled: true, v2: { enabled: true } },
+  }),
+}));
+
+const { defaultInjectors } =
+  await import("../plugins/defaults/memory-retrieval/injectors.js");
 import type { Injector, TurnContext } from "../plugins/types.js";
+import type { Message } from "../providers/types.js";
+import { getWorkspacePromptPath } from "../util/platform.js";
 
 function findInjector(name: string): Injector {
-  const injector = defaultInjectorsPlugin.injectors?.find(
-    (i) => i.name === name,
-  );
+  const injector = defaultInjectors.find((i) => i.name === name);
   if (!injector) {
     throw new Error(`injector '${name}' not registered`);
   }
@@ -34,62 +54,110 @@ function makeContext(overrides: Partial<TurnContext> = {}): TurnContext {
     conversationId: "conv-test",
     turnIndex: 0,
     trust: { sourceChannel: "vellum", trustClass: "guardian" },
+    injectionInputs: {},
     ...overrides,
   };
+}
+
+/** Seed a single v2 static memory section under `## Essentials`. */
+function seedEssentials(body: string): void {
+  const path = getWorkspacePromptPath("memory/essentials.md");
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, body, "utf-8");
+}
+
+function seedThreads(body: string): void {
+  const path = getWorkspacePromptPath("memory/threads.md");
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, body, "utf-8");
+}
+
+function clearV2StaticFiles(): void {
+  for (const file of [
+    "memory/essentials.md",
+    "memory/threads.md",
+    "memory/recent.md",
+    "memory/buffer.md",
+  ]) {
+    rmSync(getWorkspacePromptPath(file), { force: true });
+  }
 }
 
 const memoryV2StaticInjector = findInjector("memory-v2-static");
 
 describe("memory-v2-static injector", () => {
-  test("returns null when memoryV2Static is undefined", async () => {
-    const ctx = makeContext({ injectionInputs: {} });
-    expect(await memoryV2StaticInjector.produce(ctx)).toBeNull();
-  });
+  beforeEach(() => clearV2StaticFiles());
+  afterEach(() => clearV2StaticFiles());
 
-  test("returns null when memoryV2Static is null", async () => {
-    const ctx = makeContext({ injectionInputs: { memoryV2Static: null } });
-    expect(await memoryV2StaticInjector.produce(ctx)).toBeNull();
-  });
-
-  test("returns null when memoryV2Static is an empty string", async () => {
-    const ctx = makeContext({ injectionInputs: { memoryV2Static: "" } });
+  test("returns null when the v2 static memory files are absent", async () => {
+    const ctx = makeContext();
     expect(await memoryV2StaticInjector.produce(ctx)).toBeNull();
   });
 
   test("returns null in minimal mode even with content", async () => {
-    const ctx = makeContext({
-      injectionInputs: {
-        mode: "minimal",
-        memoryV2Static: "## Essentials\n\nAlice prefers VS Code.",
-      },
-    });
+    seedEssentials("Alice prefers VS Code.");
+    const ctx = makeContext({ injectionInputs: { mode: "minimal" } });
     expect(await memoryV2StaticInjector.produce(ctx)).toBeNull();
   });
 
   test("wraps content in <info>...</info> with after-memory-prefix placement", async () => {
-    const content =
-      "## Essentials\n\nAlice prefers VS Code.\n\n## Threads\n\nOpen: ship PR.";
-    const ctx = makeContext({
-      injectionInputs: { memoryV2Static: content },
-    });
+    seedEssentials("Alice prefers VS Code.");
+    seedThreads("Open: ship PR.");
+    const ctx = makeContext();
 
     const block = await memoryV2StaticInjector.produce(ctx);
     expect(block).not.toBeNull();
     expect(block!.id).toBe("memory-v2-static");
     expect(block!.placement).toBe("after-memory-prefix");
-    expect(block!.text).toBe(`<info>\n${content}\n</info>`);
+    expect(block!.text).toBe(
+      "<info>\n## Essentials\n\nAlice prefers VS Code.\n\n## Threads\n\nOpen: ship PR.\n</info>",
+    );
   });
 
   test("escapes inner </info> closing tags so the wrapper cannot be broken out of", async () => {
-    const content = "## Essentials\n\nText with </info> embedded.";
-    const ctx = makeContext({
-      injectionInputs: { memoryV2Static: content },
-    });
+    seedEssentials("Text with </info> embedded.");
+    const ctx = makeContext();
 
     const block = await memoryV2StaticInjector.produce(ctx);
     expect(block).not.toBeNull();
     expect(block!.text).toBe(
       "<info>\n## Essentials\n\nText with &lt;/info&gt; embedded.\n</info>",
     );
+  });
+
+  test("skips (re)injection when the <info> block is already present", async () => {
+    seedEssentials("Alice prefers VS Code.");
+    const ctx = makeContext();
+    const runMessages: Message[] = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "<info>\nstale memory\n</info>" },
+          { type: "text", text: "What next?" },
+        ],
+      },
+    ];
+    expect(await memoryV2StaticInjector.produce(ctx, runMessages)).toBeNull();
+  });
+
+  test("skips (re)injection when a legacy <memory>-wrapped static block is present", async () => {
+    // Rows persisted before the `<info>` switch rehydrate the static block as
+    // `<memory>…</memory>`. Re-injecting a fresh `<info>` copy alongside it
+    // would duplicate the content until the next compaction.
+    seedEssentials("Alice prefers VS Code.");
+    const ctx = makeContext();
+    const runMessages: Message[] = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "<memory>\n## Essentials\n\nAlice prefers VS Code.\n</memory>",
+          },
+          { type: "text", text: "What next?" },
+        ],
+      },
+    ];
+    expect(await memoryV2StaticInjector.produce(ctx, runMessages)).toBeNull();
   });
 });

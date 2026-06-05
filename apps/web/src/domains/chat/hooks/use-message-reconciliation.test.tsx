@@ -63,8 +63,6 @@ mock.module("@/domains/chat/api/messages", () => ({
     if (mockFetchError) throw mockFetchError;
     return { messages: mockFetchResult, seq: mockFetchSeq };
   },
-  extractRuntimeMessages: (snapshot: { messages?: unknown[] } | undefined) =>
-    snapshot?.messages ?? [],
   // Stubs for the rest of the real module's surface. Provided so dependent
   // test files that import these still get *something* under the global
   // mock shadow; calling any of them surfaces a clear error.

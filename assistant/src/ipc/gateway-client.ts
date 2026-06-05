@@ -98,12 +98,12 @@ export function resetPersistentClient(): void {
  */
 export async function ipcGetFeatureFlags(
   timeoutMs?: number,
-): Promise<Record<string, boolean>> {
+): Promise<Record<string, boolean | string>> {
   const result = await ipcCall("get_feature_flags", undefined, timeoutMs);
   if (result && typeof result === "object" && !Array.isArray(result)) {
-    const filtered: Record<string, boolean> = {};
+    const filtered: Record<string, boolean | string> = {};
     for (const [k, v] of Object.entries(result as Record<string, unknown>)) {
-      if (typeof v === "boolean") filtered[k] = v;
+      if (typeof v === "boolean" || typeof v === "string") filtered[k] = v;
     }
     return filtered;
   }

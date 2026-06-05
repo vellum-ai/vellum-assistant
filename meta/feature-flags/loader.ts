@@ -16,13 +16,15 @@ import { join } from 'path';
 
 export type FeatureFlagScope = 'assistant' | 'client' | 'both';
 
+export type FeatureFlagValue = boolean | string;
+
 export interface FeatureFlagDefinition {
   id: string;
   scope: FeatureFlagScope;
   key: string;
   label: string;
   description: string;
-  defaultEnabled: boolean;
+  defaultEnabled: FeatureFlagValue;
 }
 
 export interface FeatureFlagRegistry {

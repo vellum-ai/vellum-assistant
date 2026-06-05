@@ -53,25 +53,6 @@ export interface RuntimeSubagentNotification extends ConversationSubagentNotific
   parentMessageId?: string;
 }
 
-/**
- * Coerce the daemon messages endpoint's `Array<unknown>` rows into the
- * canonical `ConversationMessage` shape. The route declares message items as
- * `unknown` on the wire, so consumers narrow defensively here rather than
- * trusting the element type.
- */
-export function extractRuntimeMessages(
-  data: MessagesGetResponse | undefined,
-): ConversationMessage[] {
-  const raw = Array.isArray(data?.messages) ? data.messages : [];
-  return raw.filter(
-    (m): m is ConversationMessage =>
-      !!m &&
-      typeof m === "object" &&
-      typeof (m as ConversationMessage).id === "string" &&
-      typeof (m as ConversationMessage).role === "string",
-  );
-}
-
 export async function pollForResponse(
   assistantId: string,
   userMessageId: string,
@@ -96,7 +77,7 @@ export async function pollForResponse(
       throw new Error(msg);
     }
 
-    const messages = extractRuntimeMessages(data);
+    const messages = data?.messages ?? [];
 
     // Only consider assistant messages that appear after our sent user
     // message in the list, establishing a causal boundary so delayed
@@ -117,18 +98,6 @@ export async function pollForResponse(
 }
 
 /**
- * Narrow the wire's free-form `confirmationDecision` string to the closed set
- * the client renders. Unknown values collapse to `undefined`.
- */
-function narrowConfirmationDecision(
-  value: string | undefined,
-): ChatMessageToolCall["confirmationDecision"] {
-  return value === "approved" || value === "denied" || value === "timed_out"
-    ? value
-    : undefined;
-}
-
-/**
  * Project a canonical wire tool call onto the `ChatMessageToolCall` rendered in
  * the transcript. The wire base already carries every shared field (`name`,
  * `input`, `result`, the risk/approval fields, the `risk*Options` ladders), so
@@ -145,13 +114,12 @@ export function mapRuntimeToolCalls(
   messageId: string,
 ): ChatMessageToolCall[] {
   return toolCalls.map((tc, idx) => {
-    // Drop the wire's free-form `confirmationDecision` from the spread and add
-    // it back only when it narrows to a known value. A history row that omits
-    // it must not materialize `confirmationDecision: undefined`, or
-    // reconciliation would spread that over a live `"denied"`/`"timed_out"`
-    // decision set locally by `useInteractionActions`.
-    const { confirmationDecision: wireDecision, ...rest } = tc;
-    const confirmationDecision = narrowConfirmationDecision(wireDecision);
+    // Drop `confirmationDecision` from the spread and re-add it only when the
+    // wire row actually carries one. A history row that omits it must not
+    // materialize `confirmationDecision: undefined`, or reconciliation would
+    // spread that over a live `"denied"`/`"timed_out"` decision set locally by
+    // `useInteractionActions`.
+    const { confirmationDecision, ...rest } = tc;
     return {
       ...rest,
       id: tc.id ?? `tool-history-${messageId}-${idx}`,
@@ -228,9 +196,7 @@ export async function getChatHistory(
       };
     }
 
-    const messages = extractRuntimeMessages(data)
-      .filter((m) => m.role === "user" || m.role === "assistant")
-      .map(mapRuntimeToDisplayMessage);
+    const messages = (data?.messages ?? []).map(mapRuntimeToDisplayMessage);
 
     return { ok: true, messages };
   } catch (err) {
@@ -247,11 +213,11 @@ export async function getChatHistory(
  * Used for post-stream reconciliation to ensure local state matches the
  * backend even if events were dropped or the stream was interrupted.
  *
- * Returns the raw daemon response, which carries the persisted rows alongside
- * the snapshot watermark `seq`. Callers narrow the rows with
- * {@link extractRuntimeMessages} and read `seq` for the seq-aware reconcile,
- * which compares it against the live applied frontier. `seq` is absent on
- * daemons that predate the seq-on-snapshot contract.
+ * Returns the raw daemon response, which carries the persisted
+ * `ConversationMessage` rows alongside the snapshot watermark `seq`. Callers
+ * read `messages` directly and use `seq` for the seq-aware reconcile, which
+ * compares it against the live applied frontier. `seq` is absent on daemons
+ * that predate the seq-on-snapshot contract.
  */
 export async function fetchConversationMessages(
   assistantId: string,

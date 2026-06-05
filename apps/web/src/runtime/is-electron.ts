@@ -33,7 +33,17 @@ export type VellumCommand =
   | { kind: "currentConversation" }
   | { kind: "markCurrentUnread" }
   | { kind: "openSettings" }
-  | { kind: "logout" };
+  | { kind: "shareFeedback" }
+  | { kind: "find" }
+  | { kind: "markAllRead" }
+  | { kind: "logout" }
+  | { kind: "rePair" }
+  | { kind: "sidebarToggle" }
+  | { kind: "home" }
+  | { kind: "popOut" }
+  | { kind: "previousConversation" }
+  | { kind: "nextConversation" }
+  | { kind: "commandPalette" };
 
 /**
  * Renderer-side mirror of `AssistantStatus` in
@@ -50,6 +60,18 @@ export type AssistantStatus =
   | "disconnected"
   | "authFailed";
 
+/**
+ * Renderer-side mirror of `ConnectivityState` in
+ * `apps/macos/src/main/status.ts`. Inline for the same reason as
+ * `AssistantStatus`. Main is the source of truth — it fuses device-level
+ * online/offline and backend health-probe signals, then broadcasts to
+ * all windows.
+ */
+export type ConnectivityState =
+  | "online"
+  | "device-offline"
+  | "backend-unreachable";
+
 declare global {
   interface Window {
     vellum?: {
@@ -63,6 +85,9 @@ declare global {
           website: string;
         }>;
         openWebsite(): Promise<void>;
+      };
+      csrf?: {
+        getToken(): string | null;
       };
       settings: {
         get<T = unknown>(key: string): Promise<T | null>;
@@ -141,6 +166,18 @@ declare global {
               | { kind: "unknown"; url: string },
           ) => void,
         ): () => void;
+      };
+      feedback?: {
+        diagnostics(): Promise<Record<string, unknown>>;
+        logs(): Promise<string>;
+      };
+      // Optional: older Electron shells predate the connectivity channel.
+      connectivity?: {
+        onState(
+          callback: (state: ConnectivityState) => void,
+        ): () => void;
+        setDevice(online: boolean): void;
+        retry(): void;
       };
     };
   }

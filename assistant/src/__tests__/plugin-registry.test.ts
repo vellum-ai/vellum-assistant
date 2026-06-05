@@ -10,7 +10,6 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
   closeRegistration,
-  getInjectors,
   getMiddlewaresFor,
   getRegisteredPlugins,
   registerPlugin,
@@ -19,7 +18,6 @@ import {
 import {
   type CompactionArgs,
   type CompactionResult,
-  type Injector,
   type Middleware,
   type Plugin,
   PluginExecutionError,
@@ -147,31 +145,6 @@ describe("plugin registry", () => {
       },
     } as unknown as Plugin;
     expect(() => registerPlugin(bad)).toThrow(/manifest\.version is required/);
-  });
-
-  test("getInjectors returns injectors sorted by order ascending", () => {
-    const high: Injector = {
-      name: "high-order",
-      order: 20,
-      async produce() {
-        return null;
-      },
-    };
-    const low: Injector = {
-      name: "low-order",
-      order: 10,
-      async produce() {
-        return null;
-      },
-    };
-
-    // Register the higher-order plugin first so registration order alone
-    // would produce the wrong sequence — the test proves sort-by-order wins.
-    registerPlugin(buildPlugin("high", { injectors: [high] }));
-    registerPlugin(buildPlugin("low", { injectors: [low] }));
-
-    const injectors = getInjectors();
-    expect(injectors.map((i) => i.name)).toEqual(["low-order", "high-order"]);
   });
 
   test("getMiddlewaresFor returns middleware in registration order", () => {

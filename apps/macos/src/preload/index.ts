@@ -13,7 +13,17 @@ export type VellumCommand =
   | { kind: "currentConversation" }
   | { kind: "markCurrentUnread" }
   | { kind: "openSettings" }
-  | { kind: "logout" };
+  | { kind: "shareFeedback" }
+  | { kind: "find" }
+  | { kind: "markAllRead" }
+  | { kind: "logout" }
+  | { kind: "rePair" }
+  | { kind: "sidebarToggle" }
+  | { kind: "home" }
+  | { kind: "popOut" }
+  | { kind: "previousConversation" }
+  | { kind: "nextConversation" }
+  | { kind: "commandPalette" };
 
 // Surface exposed to the renderer as `window.vellum`. `platform`, `settings`,
 // and `commands` are wired through IPC; `auth` and `helper` are typed stubs
@@ -81,6 +91,16 @@ export type AssistantStatus =
   | "disconnected"
   | "authFailed";
 
+/**
+ * Mirror of `ConnectivityState` in `apps/macos/src/main/status.ts`. Main is
+ * the source of truth for connectivity (health probes + renderer device
+ * signals fused), and broadcasts state changes to all windows.
+ */
+export type ConnectivityState =
+  | "online"
+  | "device-offline"
+  | "backend-unreachable";
+
 export interface VellumBridge {
   platform: "electron";
   app: {
@@ -97,6 +117,9 @@ export interface VellumBridge {
      * itself; this routes through main.
      */
     openWebsite(): Promise<void>;
+  };
+  csrf: {
+    getToken(): string | null;
   };
   auth: {
     signIn(): Promise<void>;
@@ -286,6 +309,20 @@ export interface VellumBridge {
      */
     onLink(callback: (link: DeepLink) => void): () => void;
   };
+  feedback: {
+    /** Collect Electron-specific diagnostics (versions, platform, metrics). */
+    diagnostics(): Promise<Record<string, unknown>>;
+    /** Read redacted log file content. */
+    logs(): Promise<string>;
+  };
+  connectivity: {
+    /** Subscribe to connectivity state changes broadcast by main. */
+    onState(callback: (state: ConnectivityState) => void): () => void;
+    /** Report browser online/offline to main. */
+    setDevice(online: boolean): void;
+    /** User-triggered retry — kicks an immediate health probe. */
+    retry(): void;
+  };
 }
 
 const notImplemented = (name: string) => (): Promise<never> =>
@@ -298,6 +335,10 @@ const bridge: VellumBridge = {
       ipcRenderer.invoke("vellum:app:versionInfo") as Promise<AppVersionInfo>,
     openWebsite: (): Promise<void> =>
       ipcRenderer.invoke("vellum:app:openWebsite") as Promise<void>,
+  },
+  csrf: {
+    getToken: (): string | null =>
+      ipcRenderer.sendSync("vellum:csrf:getToken") as string | null,
   },
   auth: {
     signIn: notImplemented("auth.signIn"),
@@ -427,6 +468,39 @@ const bridge: VellumBridge = {
         ipcRenderer.off("vellum:deepLinks:event", handler);
         ipcRenderer.send("vellum:deepLinks:unsubscribe");
       };
+    },
+  },
+  feedback: {
+    diagnostics: () =>
+      ipcRenderer.invoke("vellum:feedback:diagnostics") as Promise<
+        Record<string, unknown>
+      >,
+    logs: () =>
+      ipcRenderer.invoke("vellum:feedback:logs") as Promise<string>,
+  },
+  connectivity: {
+    onState: (callback) => {
+      const handler = (
+        _event: IpcRendererEvent,
+        state: ConnectivityState,
+      ) => {
+        callback(state);
+      };
+      ipcRenderer.on("vellum:connectivity:state", handler);
+      // Emit the current state so late subscribers (window loaded after
+      // the first probe) don't wait for the next state transition.
+      void (
+        ipcRenderer.invoke("vellum:connectivity:get") as Promise<ConnectivityState>
+      ).then(callback);
+      return () => {
+        ipcRenderer.off("vellum:connectivity:state", handler);
+      };
+    },
+    setDevice: (online: boolean): void => {
+      ipcRenderer.send("vellum:connectivity:device", online);
+    },
+    retry: (): void => {
+      ipcRenderer.send("vellum:connectivity:retry");
     },
   },
 };

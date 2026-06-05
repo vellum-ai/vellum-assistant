@@ -19,8 +19,8 @@ const ALLOWED_KEY_RE = /^[a-z0-9][a-z0-9-]*$/;
 export type FeatureFlagEntry = {
   key: string;
   label: string;
-  enabled: boolean;
-  defaultEnabled: boolean;
+  enabled: boolean | string;
+  defaultEnabled: boolean | string;
   description: string;
 };
 
@@ -31,7 +31,6 @@ export function createFeatureFlagsGetHandler() {
       const persisted = readPersistedFeatureFlags();
       const remote = readRemoteFeatureFlags();
 
-      // Build entries for ALL declared flags, merging persisted values.
       const entries: FeatureFlagEntry[] = [];
       for (const [key, def] of Object.entries(defaults)) {
         const persistedValue = persisted[key];
@@ -106,9 +105,9 @@ export function createFeatureFlagsPatchHandler() {
     }
 
     const { enabled } = body as { enabled?: unknown };
-    if (typeof enabled !== "boolean") {
+    if (typeof enabled !== "boolean" && typeof enabled !== "string") {
       return Response.json(
-        { error: '"enabled" must be a boolean' },
+        { error: '"enabled" must be a boolean or string' },
         { status: 400 },
       );
     }

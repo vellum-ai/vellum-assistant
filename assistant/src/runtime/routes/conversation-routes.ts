@@ -10,6 +10,7 @@ import {
   createAssistantMessage,
   createUserMessage,
 } from "../../agent/message-types.js";
+import { ConversationMessageSchema } from "../../api/responses/conversation-message.js";
 import {
   CHANNEL_IDS,
   INTERFACE_IDS,
@@ -109,7 +110,10 @@ import type { Provider } from "../../providers/types.js";
 import { checkIngressForSecrets } from "../../security/secret-ingress.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { getLogger } from "../../util/logger.js";
-import { getWorkspacePromptPath } from "../../util/platform.js";
+import {
+  getWorkspaceDir,
+  getWorkspacePromptPath,
+} from "../../util/platform.js";
 import { silentlyWithLog } from "../../util/silently.js";
 import { assistantEventHub, broadcastMessage } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
@@ -139,6 +143,10 @@ import {
   NotFoundError,
   RouteError,
 } from "./errors.js";
+import {
+  collectPendingConfirmations,
+  enrichToolCallsWithConfirmation,
+} from "./tool-call-confirmation-enrichment.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 import { RouteResponse } from "./types.js";
 
@@ -672,7 +680,14 @@ export function handleListMessages({
   // assistant message has tool_use blocks but its matching user tool_result
   // is left visible, the result will render as a standalone orphan because
   // `mergeToolResultsIntoAssistantMessages` has nothing to merge it into.
-  const visibleFilter = (m: MessageRow) => !isHiddenMessage(m.metadata);
+  //
+  // Only renderable roles reach this UI-facing transcript. `system` rows (a
+  // permitted `MessageRole`, e.g. skill-authored context) are agent-context
+  // scaffolding, never a displayed turn, so they are dropped here at the
+  // source rather than narrowed away per-client.
+  const visibleFilter = (m: MessageRow) =>
+    !isHiddenMessage(m.metadata) &&
+    (m.role === "user" || m.role === "assistant");
 
   if (isPaginated) {
     const result = getMessagesPaginated(
@@ -764,9 +779,15 @@ export function handleListMessages({
       },
     );
 
+    // `visibleFilter` has already dropped every non-renderable role, so the
+    // only values reaching here are `user` and `assistant`; narrow the raw DB
+    // `string` to the wire union.
+    const role: "user" | "assistant" =
+      msg.role === "assistant" ? "assistant" : "user";
+
     return {
       id: msg.id,
-      role: msg.role,
+      role,
       content,
       createdAt: msg.createdAt,
       sentAt,
@@ -774,6 +795,15 @@ export function handleListMessages({
       slackMessage,
     };
   });
+
+  // Confirmation context layered onto rendered tool calls at render time: the
+  // derived scope ladder for scope-aware tools, and any in-flight prompt read
+  // from the pending-interactions registry. Both are computed once per request
+  // and applied per message below.
+  const workspaceDir = getWorkspaceDir();
+  const pendingConfirmations = collectPendingConfirmations(
+    resolvedConversationId,
+  );
 
   const messages: RuntimeMessagePayload[] = parsed.map((m) => {
     const mergedMessageIds = m.id ? (mergedIdMap.get(m.id) ?? []) : [];
@@ -836,6 +866,11 @@ export function handleListMessages({
       attachmentBlocks,
       m.id ?? undefined,
     );
+
+    const toolCalls = enrichToolCallsWithConfirmation(rendered.toolCalls, {
+      workspaceDir,
+      pendingConfirmations,
+    });
 
     // Strip <no_response/> markers from assistant messages so web/API clients
     // never see the raw sentinel. Only assistant messages produce it; user
@@ -900,9 +935,7 @@ export function handleListMessages({
       content: text,
       timestamp: new Date(displayTimestamp).toISOString(),
       attachments: msgAttachments,
-      ...(rendered.toolCalls.length > 0
-        ? { toolCalls: rendered.toolCalls }
-        : {}),
+      ...(toolCalls.length > 0 ? { toolCalls } : {}),
       ...(rendered.surfaces.length > 0 ? { surfaces: rendered.surfaces } : {}),
       ...(textSegments.length > 0 ? { textSegments } : {}),
       ...(rendered.thinkingSegments.length > 0
@@ -2568,7 +2601,9 @@ export const ROUTES: RouteDefinition[] = [
       },
     ],
     responseBody: z.object({
-      messages: z.array(z.unknown()).describe("Array of message objects"),
+      messages: z
+        .array(ConversationMessageSchema)
+        .describe("Array of message objects"),
       hasMore: z
         .boolean()
         .optional()

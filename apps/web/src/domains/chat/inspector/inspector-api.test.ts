@@ -66,8 +66,6 @@ mock.module("@/generated/daemon/client.gen", () => ({
 
 mock.module("@/domains/chat/api/messages", () => ({
   fetchConversationMessages: async () => ({ messages: mockMessages, seq: null }),
-  extractRuntimeMessages: (snapshot: { messages?: unknown[] } | undefined) =>
-    snapshot?.messages ?? [],
 }));
 
 // Subject imported after mocks.

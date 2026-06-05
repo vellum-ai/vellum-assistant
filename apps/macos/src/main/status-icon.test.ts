@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // `./status` transitively imports `./ipc` (→ `ipcMain`) at module load; stub
 // it so this test only needs the `nativeImage` surface, mocked below.
-mock.module("./ipc", () => ({ on: () => undefined }));
+mock.module("./ipc", () => ({ on: () => undefined, handle: () => undefined }));
 
 const setTemplateImageMock = mock((_flag: boolean) => undefined);
 const createFromBitmapMock = mock((_buf: unknown, _opts: unknown) => ({
@@ -20,6 +20,7 @@ const createFromBufferMock = mock((_buf: unknown) => ({ resize: resizeMock }));
 const getSystemColorMock = mock((_name: string) => "#34c759ff");
 
 mock.module("electron", () => ({
+  BrowserWindow: { getAllWindows: () => [] },
   nativeImage: {
     createFromBuffer: createFromBufferMock,
     createFromBitmap: createFromBitmapMock,

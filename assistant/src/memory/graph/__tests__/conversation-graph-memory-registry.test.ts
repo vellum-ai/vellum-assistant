@@ -93,4 +93,27 @@ describe("ConversationGraphMemory live registry", () => {
     // THEN the registry still resolves to the current handle
     expect(getLiveGraphMemory(conversationId)).toBe(current);
   });
+
+  test("records and exposes the PKB query vector pair from the registry", () => {
+    /**
+     * Tests that the dense/sparse PKB query pair recorded during retrieval is
+     * readable off the same live handle the PKB-reminder injector looks up.
+     */
+
+    // GIVEN a registered graph handle with no recorded vectors yet
+    const conversationId = `conv-registry-${crypto.randomUUID()}`;
+    const handle = new ConversationGraphMemory(conversationId);
+    expect(handle.pkbQueryVector).toBeUndefined();
+    expect(handle.pkbSparseVector).toBeUndefined();
+
+    // WHEN a retrieval records the turn's dense/sparse pair
+    const dense = [0.1, 0.2, 0.3];
+    const sparse = { indices: [0, 2], values: [0.5, 0.9] };
+    handle.recordPkbQueryVectors(dense, sparse);
+
+    // THEN a registry consumer reads back the same pair by conversation id
+    const looked = getLiveGraphMemory(conversationId);
+    expect(looked?.pkbQueryVector).toBe(dense);
+    expect(looked?.pkbSparseVector).toBe(sparse);
+  });
 });

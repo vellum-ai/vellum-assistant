@@ -223,10 +223,6 @@ mock.module("../daemon/conversation-runtime-assembly.js", () => ({
     blocks: {},
   }),
   stripInjectionsForCompaction: (msgs: Message[]) => msgs,
-  findLastInjectedNowContent: () => null,
-  readNowScratchpad: () => null,
-  readPkbContext: () => null,
-  getPkbAutoInjectList: () => [],
   isSlackChannelConversation: () => false,
   getSlackCompactionWatermarkForPrefix: () => null,
   loadSlackChronologicalContext: () => null,
@@ -439,8 +435,6 @@ function makeCtx(
     currentTurnSurfaces: [],
 
     workingDir: "/tmp",
-    workspaceTopLevelContext: null,
-    workspaceTopLevelDirty: false,
     channelCapabilities: undefined,
     commandIntent: undefined,
     trustContext: undefined,
@@ -477,7 +471,6 @@ function makeCtx(
     getWorkspaceGitService: () => ({ ensureInitialized: async () => {} }),
     commitTurnChanges: async () => {},
 
-    refreshWorkspaceTopLevelContextIfNeeded: () => {},
     markWorkspaceTopLevelDirty: () => {},
     emitActivityState: () => {},
     getQueueDepth: () => 0,
@@ -503,6 +496,7 @@ function makeCtx(
         injectedTokens: 0,
       }),
       retrackCachedNodes: () => {},
+      recordPkbQueryVectors: () => {},
     } as unknown as AgentLoopConversationContext["graphMemory"],
 
     ...overrides,

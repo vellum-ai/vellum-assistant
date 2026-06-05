@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // This test exercises v1 PKB injection. `config.memory.v2.enabled` (default
 // `true`) makes the PKB injector go silent — force it off here so the v1
@@ -44,7 +46,6 @@ import {
   assembleSlackChronologicalMessages,
   buildSubagentStatusBlock,
   buildUnifiedTurnContextBlock,
-  findLastInjectedNowContent,
   getSlackCompactionWatermarkForPrefix,
   injectChannelCapabilityContext,
   injectChannelCommandContext,
@@ -58,31 +59,78 @@ import {
   stripInjectionsForCompaction,
   stripNowScratchpad,
 } from "../daemon/conversation-runtime-assembly.js";
+import {
+  registerConversationWorkspace,
+  unregisterConversationWorkspace,
+  type WorkspaceConversationContext,
+} from "../daemon/conversation-workspace.js";
 import { buildPkbReminder } from "../daemon/pkb-reminder-builder.js";
 import type { MessageRow } from "../memory/conversation-crud.js";
+import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
+import { getPkbRoot } from "../memory/pkb/types.js";
 import {
   type SlackMessageMetadata,
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
 import { parentAlias } from "../messaging/providers/slack/render-transcript.js";
-import { defaultInjectorsPlugin } from "../plugins/defaults/injectors/register.js";
-import {
-  registerPlugin,
-  resetPluginRegistryForTests,
-} from "../plugins/registry.js";
 import type { Message } from "../providers/types.js";
 import { wrapUntrustedContent } from "../security/untrusted-content.js";
 import type { SubagentState } from "../subagent/types.js";
+import { getWorkspacePromptPath } from "../util/platform.js";
 
-// `applyRuntimeInjections` is now driven by the default injector chain
-// (PR G2.1). The default-injectors plugin must be registered for the chain
-// to emit workspace, PKB, NOW.md, subagent, Slack, and thread-focus blocks.
-// Each test gets a clean registry so a test that registers its own plugin
-// doesn't leak into the next one.
-beforeEach(() => {
-  resetPluginRegistryForTests();
-  registerPlugin(defaultInjectorsPlugin);
-});
+// The pkb-reminder injector derives PKB-active state from the workspace itself
+// — `readPkbContext()` returning content behind the personal-memory trust gate
+// — rather than from a threaded flag. Tests that need the reminder to fire seed
+// a default auto-injected PKB file under the workspace pkb root; tests that
+// need it suppressed leave the pkb dir empty.
+function seedPkbContent(): void {
+  const root = getPkbRoot();
+  mkdirSync(root, { recursive: true });
+  writeFileSync(join(root, "INDEX.md"), "workspace knowledge index", "utf-8");
+}
+
+function clearPkbContent(): void {
+  rmSync(getPkbRoot(), { recursive: true, force: true });
+}
+
+// The now-md injector derives NOW.md state from the workspace itself —
+// `readNowScratchpad()` returning content behind the personal-memory trust gate
+// and the `scratchpadInjection` config toggle — rather than from a threaded
+// option. Seed the file so the injector fires; clear it so suites that assert
+// NOW.md is absent stay unaffected.
+function seedNowScratchpad(content: string): void {
+  const nowPath = getWorkspacePromptPath("NOW.md");
+  mkdirSync(dirname(nowPath), { recursive: true });
+  writeFileSync(nowPath, content, "utf-8");
+}
+
+function clearNowScratchpad(): void {
+  rmSync(getWorkspacePromptPath("NOW.md"), { force: true });
+}
+
+// The workspace-context injector sources its block from the per-conversation
+// workspace registry keyed by `conversationId`. Register a non-dirty context
+// (non-null content, not dirty) so `resolveWorkspaceTopLevelContext` returns it
+// verbatim without rescanning the filesystem; unregister between tests so
+// suites that assert the block is absent stay unaffected.
+let registeredWorkspace: WorkspaceConversationContext | null = null;
+
+function seedWorkspaceContext(conversationId: string, text: string): void {
+  registeredWorkspace = {
+    conversationId,
+    workingDir: "/sandbox",
+    workspaceTopLevelContext: text,
+    workspaceTopLevelDirty: false,
+  };
+  registerConversationWorkspace(registeredWorkspace);
+}
+
+function clearWorkspaceContext(): void {
+  if (registeredWorkspace) {
+    unregisterConversationWorkspace(registeredWorkspace);
+    registeredWorkspace = null;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // resolveChannelCapabilities
@@ -737,7 +785,6 @@ describe("applyRuntimeInjections — injection mode", () => {
   ];
 
   const fullOptions = {
-    workspaceTopLevelContext: "<workspace>\nRoot: /sandbox\n</workspace>",
     channelCommandContext: { type: "start" } as const,
     activeSurface: { surfaceId: "sf_1", html: "<div>test</div>" },
     channelCapabilities: {
@@ -748,11 +795,37 @@ describe("applyRuntimeInjections — injection mode", () => {
     } as ChannelCapabilities,
     unifiedTurnContext:
       "<turn_context>\ncurrent_time: 2026-03-04 (Tuesday) 12:00:00 +00:00 (UTC)\ninterface: telegram\n</turn_context>",
-    nowScratchpad: "Current focus: shipping PR 3",
-    pkbContext: "essentials content here",
-    pkbActive: true,
     isNonInteractive: true,
+    // Guardian trust so the personal-memory gate admits the actor regardless
+    // of the telegram channel capabilities under test, letting the reminder
+    // gate hinge purely on PKB content presence.
+    turnContext: {
+      requestId: "injection-mode-req",
+      conversationId: "injection-mode-conv",
+      turnIndex: 0,
+      trust: {
+        sourceChannel: "vellum" as const,
+        trustClass: "guardian" as const,
+      },
+    },
   };
+
+  // The reminder fires only when the workspace has PKB content, and the now-md
+  // injector only when NOW.md has content; seed both so the full-mode cases
+  // exercise the active branch.
+  beforeEach(() => {
+    seedPkbContent();
+    seedNowScratchpad("Current focus: shipping PR 3");
+    seedWorkspaceContext(
+      "injection-mode-conv",
+      "<workspace>\nRoot: /sandbox\n</workspace>",
+    );
+  });
+  afterEach(() => {
+    clearPkbContent();
+    clearNowScratchpad();
+    clearWorkspaceContext();
+  });
 
   test("full mode (default) includes all injections", async () => {
     const { messages: result } = await applyRuntimeInjections(
@@ -860,12 +933,10 @@ describe("applyRuntimeInjections — injection mode", () => {
   });
 });
 
-// The standalone `injectNowScratchpad` helper was removed in G2.1. The
-// now-md default injector (registered by `defaultInjectorsPlugin`) emits
-// the `<NOW.md>` block as an `after-memory-prefix` placement during
-// `applyRuntimeInjections`. The suites below (`applyRuntimeInjections with
-// nowScratchpad` and the injection-mode tests) cover that behaviour
-// end-to-end.
+// The now-md default injector emits the `<NOW.md>` block as an
+// `after-memory-prefix` placement during `applyRuntimeInjections`. The suites
+// below (`applyRuntimeInjections with nowScratchpad` and the injection-mode
+// tests) cover that behaviour end-to-end.
 
 // ---------------------------------------------------------------------------
 // stripNowScratchpad
@@ -1013,7 +1084,7 @@ describe("stripInjectionsForCompaction preserves persistent blocks", () => {
     ).toContain("<turn_context>");
   });
 
-  test("<workspace> blocks are NOT stripped", () => {
+  test("<workspace> blocks ARE stripped so the injector re-sources them post-compaction", () => {
     const messages: Message[] = [
       {
         role: "user",
@@ -1029,10 +1100,10 @@ describe("stripInjectionsForCompaction preserves persistent blocks", () => {
 
     const result = stripInjectionsForCompaction(messages);
     expect(result.length).toBe(1);
-    expect(result[0].content.length).toBe(2);
-    expect(
-      (result[0].content[0] as { type: "text"; text: string }).text,
-    ).toContain("<workspace>");
+    expect(result[0].content.length).toBe(1);
+    expect((result[0].content[0] as { type: "text"; text: string }).text).toBe(
+      "Hello",
+    );
   });
 
   test("legacy <workspace_top_level> blocks ARE stripped for backward compat", () => {
@@ -1192,10 +1263,14 @@ describe("applyRuntimeInjections with nowScratchpad", () => {
     },
   ];
 
-  test("injects NOW.md block when provided", async () => {
-    const { messages: result } = await applyRuntimeInjections(baseMessages, {
-      nowScratchpad: "Current focus: fix the bug",
-    });
+  // The now-md injector sources NOW.md from the workspace itself rather than
+  // from a threaded option, so seed the file to drive injection and clear it so
+  // the absent-content cases see no block.
+  afterEach(clearNowScratchpad);
+
+  test("injects NOW.md block when the file has content", async () => {
+    seedNowScratchpad("Current focus: fix the bug");
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {});
 
     expect(result.length).toBe(1);
     expect(result[0].content.length).toBe(2);
@@ -1206,9 +1281,8 @@ describe("applyRuntimeInjections with nowScratchpad", () => {
   });
 
   test("scratchpad appears before user's original text content", async () => {
-    const { messages: result } = await applyRuntimeInjections(baseMessages, {
-      nowScratchpad: "scratchpad notes",
-    });
+    seedNowScratchpad("scratchpad notes");
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {});
 
     // Scratchpad comes first (before user content)
     expect(
@@ -1220,16 +1294,7 @@ describe("applyRuntimeInjections with nowScratchpad", () => {
     );
   });
 
-  test("does not inject when nowScratchpad is null", async () => {
-    const { messages: result } = await applyRuntimeInjections(baseMessages, {
-      nowScratchpad: null,
-    });
-
-    expect(result.length).toBe(1);
-    expect(result[0].content.length).toBe(1);
-  });
-
-  test("does not inject when nowScratchpad is omitted", async () => {
+  test("does not inject when the NOW.md file is absent", async () => {
     const { messages: result } = await applyRuntimeInjections(baseMessages, {});
 
     expect(result.length).toBe(1);
@@ -1237,8 +1302,8 @@ describe("applyRuntimeInjections with nowScratchpad", () => {
   });
 
   test("skipped in minimal mode", async () => {
+    seedNowScratchpad("Current focus: fix the bug");
     const { messages: result } = await applyRuntimeInjections(baseMessages, {
-      nowScratchpad: "Current focus: fix the bug",
       mode: "minimal",
     });
 
@@ -1783,85 +1848,6 @@ describe("applyRuntimeInjections blocks.unifiedTurnContext", () => {
 });
 
 // ---------------------------------------------------------------------------
-// findLastInjectedNowContent
-// ---------------------------------------------------------------------------
-
-describe("findLastInjectedNowContent", () => {
-  test("extracts NOW.md content from the last user message", () => {
-    const messages: Message[] = [
-      {
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: "<NOW.md Always keep this up to date>\nCurrent focus: fix the bug\n</NOW.md>",
-          },
-          { type: "text", text: "Hello" },
-        ],
-      },
-    ];
-
-    expect(findLastInjectedNowContent(messages)).toBe(
-      "Current focus: fix the bug",
-    );
-  });
-
-  test("returns null when no NOW.md injection exists", () => {
-    const messages: Message[] = [
-      {
-        role: "user",
-        content: [{ type: "text", text: "Hello" }],
-      },
-    ];
-
-    expect(findLastInjectedNowContent(messages)).toBeNull();
-  });
-
-  test("returns the most recent injection when multiple exist", () => {
-    const messages: Message[] = [
-      {
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: "<NOW.md Always keep this up to date>\nOld focus\n</NOW.md>",
-          },
-        ],
-      },
-      { role: "assistant", content: [{ type: "text", text: "OK" }] },
-      {
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: "<NOW.md Always keep this up to date>\nNew focus\n</NOW.md>",
-          },
-        ],
-      },
-    ];
-
-    expect(findLastInjectedNowContent(messages)).toBe("New focus");
-  });
-
-  test("skips assistant messages", () => {
-    const messages: Message[] = [
-      {
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: "<NOW.md Always keep this up to date>\nUser focus\n</NOW.md>",
-          },
-        ],
-      },
-      { role: "assistant", content: [{ type: "text", text: "response" }] },
-    ];
-
-    expect(findLastInjectedNowContent(messages)).toBe("User focus");
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Subagent status injection
 // ---------------------------------------------------------------------------
 
@@ -2032,20 +2018,33 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
 
   const FLAT_REMINDER = buildPkbReminder([]);
 
-  // Use a platform-agnostic absolute workspace root so the tests work on
-  // macOS and Linux runners alike. `pkbRoot` sits under `pkbWorkingDir` to
-  // mirror production, where `pkbRoot = join(workingDir, "pkb")`.
-  const pkbWorkingDir = "/tmp/fake-workspace";
-  const pkbRoot = `${pkbWorkingDir}/pkb`;
+  // The pkb-reminder injector sources the PKB root itself via `getPkbRoot()`,
+  // so the in-context file paths these tests build must resolve against the
+  // same per-test workspace the injector sees.
+  const pkbRoot = getPkbRoot();
+
+  // The pkb-reminder injector reads the dense/sparse PKB query pair off the
+  // conversation's live graph handle (the memory-retrieval hook records it
+  // there during retrieval), not from the injection options. Register a handle
+  // for the fallback conversation id `applyRuntimeInjections` synthesizes and
+  // seed it with a query vector so the hint-search branch runs.
+  let graphHandle: ConversationGraphMemory;
+  beforeEach(() => {
+    graphHandle = new ConversationGraphMemory("runtime-assembly-fallback");
+    graphHandle.recordPkbQueryVectors([0.1, 0.2, 0.3], undefined);
+  });
+  afterEach(() => {
+    graphHandle.dispose();
+  });
+
+  // PKB content makes `readPkbContext()` non-null so the (vellum/guardian-
+  // equivalent) fallback trust gate admits the reminder; cleared after each
+  // test to avoid leaking into suites that assert the reminder is absent.
+  beforeEach(seedPkbContent);
+  afterEach(clearPkbContent);
 
   function makePkbOptions(overrides: Record<string, unknown> = {}) {
     return {
-      pkbActive: true,
-      pkbQueryVector: [0.1, 0.2, 0.3],
-      pkbConversation: { messages: baseMessages },
-      pkbRoot,
-      pkbWorkingDir,
-      pkbAutoInjectList: [],
       ...overrides,
     };
   }
@@ -2081,10 +2080,11 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
   test("default auto-injected files (from PKB_DEFAULT_FILES) are filtered out of hints", async () => {
     // Regression test: when `_autoinject.md` is missing, `readPkbContext`
     // falls back to PKB_DEFAULT_FILES — so those files ARE in the prompt.
-    // The tracker must know about them too, otherwise the reminder would
-    // redundantly recommend e.g. `essentials.md` even though its contents
-    // are already injected. The agent-loop passes the effective auto-inject
-    // list (via `getPkbAutoInjectList`) to `applyRuntimeInjections`.
+    // The injector sources the same fallback via `getPkbAutoInjectList`, so
+    // it must know about them too, otherwise the reminder would redundantly
+    // recommend e.g. `essentials.md` even though its contents are already
+    // injected. The per-test workspace has no `_autoinject.md`, so the
+    // injector resolves PKB_DEFAULT_FILES here.
     pkbSearchResults = [
       { path: "essentials.md", denseScore: 0.95 },
       { path: "topics/alpha.md", denseScore: 0.9 },
@@ -2093,16 +2093,7 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
 
     const { messages: result } = await applyRuntimeInjections(
       baseMessages,
-      makePkbOptions({
-        // Simulate the fallback the agent-loop now threads through:
-        // `_autoinject.md` is missing, so defaults are injected.
-        pkbAutoInjectList: [
-          "INDEX.md",
-          "essentials.md",
-          "threads.md",
-          "buffer.md",
-        ],
-      }),
+      makePkbOptions(),
     );
     const texts = extractTexts(result);
     const reminder = texts.find((t) => t.startsWith("<system_reminder>"));
@@ -2142,27 +2133,26 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
     ];
     pkbSearchThrows = null;
 
-    // Build a conversation that has already read topics/beta.md via file_read.
-    const conversationWithRead: { messages: Message[] } = {
-      messages: [
-        ...baseMessages,
-        {
-          role: "assistant",
-          content: [
-            {
-              type: "tool_use",
-              id: "tu_1",
-              name: "file_read",
-              input: { path: `${pkbRoot}/topics/beta.md` },
-            },
-          ],
-        },
-      ],
-    };
+    // Working messages where topics/beta.md was already read via file_read on
+    // an earlier turn, followed by the current user prompt as the tail.
+    const conversationWithRead: Message[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "tu_1",
+            name: "file_read",
+            input: { path: `${pkbRoot}/topics/beta.md` },
+          },
+        ],
+      },
+      ...baseMessages,
+    ];
 
     const { messages: result } = await applyRuntimeInjections(
-      baseMessages,
-      makePkbOptions({ pkbConversation: conversationWithRead }),
+      conversationWithRead,
+      makePkbOptions(),
     );
     const texts = extractTexts(result);
     const reminder = texts.find((t) => t.startsWith("<system_reminder>"));
@@ -2200,10 +2190,13 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
 
   test("missing query vector → flat fallback, search is not attempted", async () => {
     pkbSearchThrows = new Error("should not be called");
+    // No dense vector was recorded on the graph handle this turn, so the
+    // injector must skip the hint search entirely.
+    graphHandle.recordPkbQueryVectors(undefined, undefined);
 
     const { messages: result } = await applyRuntimeInjections(
       baseMessages,
-      makePkbOptions({ pkbQueryVector: undefined }),
+      makePkbOptions(),
     );
     const texts = extractTexts(result);
     const reminder = texts.find((t) => t.startsWith("<system_reminder>"));
@@ -2317,36 +2310,28 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
     ];
     pkbSearchThrows = null;
 
-    // Pre-compaction conversation: beta was already read.
-    const preCompactionConversation: { messages: Message[] } = {
-      messages: [
-        ...baseMessages,
-        {
-          role: "assistant",
-          content: [
-            {
-              type: "tool_use",
-              id: "tu_pre",
-              name: "file_read",
-              input: { path: `${pkbRoot}/topics/beta.md` },
-            },
-          ],
-        },
-      ],
-    };
+    // Pre-compaction working messages: beta was already read on an earlier
+    // turn, followed by the current user prompt as the tail.
+    const preCompactionMessages: Message[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "tu_pre",
+            name: "file_read",
+            input: { path: `${pkbRoot}/topics/beta.md` },
+          },
+        ],
+      },
+      ...baseMessages,
+    ];
 
     // 1. Initial injection sees the pre-compaction state — beta should be
     // filtered out.
     const { messages: initialResult } = await applyRuntimeInjections(
-      baseMessages,
-      {
-        pkbActive: true,
-        pkbQueryVector: [0.1, 0.2],
-        pkbConversation: preCompactionConversation,
-        pkbRoot,
-        pkbWorkingDir,
-        pkbAutoInjectList: [],
-      },
+      preCompactionMessages,
+      {},
     );
     // Unwrap the injected reminder from the last user message.
     const initialTexts = extractTexts(initialResult);
@@ -2358,40 +2343,29 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
     expect(initialReminder).toBeDefined();
     expect(initialReminder).not.toContain("- topics/beta.md");
 
-    // 2. Simulate compaction: strip all runtime injections, rebuild
-    // conversation to reflect the post-compaction state (tool_use blocks
-    // are serialized into summary text, so the only live file_read is the
-    // newly-read gamma).
-    const postCompactionConversation: { messages: Message[] } = {
-      messages: [
-        ...baseMessages,
-        {
-          role: "assistant",
-          content: [
-            {
-              type: "tool_use",
-              id: "tu_post",
-              name: "file_read",
-              input: { path: `${pkbRoot}/topics/gamma.md` },
-            },
-          ],
-        },
-      ],
-    };
-    const postCompactionMessages = stripInjectionsForCompaction(initialResult);
+    // 2. After compaction the working messages reflect the post-compaction
+    // state: beta's tool_use was serialized into summary text and dropped,
+    // so the only live file_read is the newly-read gamma.
+    const postCompactionMessages: Message[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "tu_post",
+            name: "file_read",
+            input: { path: `${pkbRoot}/topics/gamma.md` },
+          },
+        ],
+      },
+      ...baseMessages,
+    ];
 
-    // 3. Re-inject with the new conversation — gamma (now in context)
+    // 3. Re-inject over the post-compaction messages — gamma (now in context)
     // should be filtered, and beta (no longer "in context") should appear.
     const { messages: rebuiltResult } = await applyRuntimeInjections(
       postCompactionMessages,
-      {
-        pkbActive: true,
-        pkbQueryVector: [0.1, 0.2],
-        pkbConversation: postCompactionConversation,
-        pkbRoot,
-        pkbWorkingDir,
-        pkbAutoInjectList: [],
-      },
+      {},
     );
     const rebuiltTexts = extractTexts(rebuiltResult);
     const rebuiltReminder = rebuiltTexts.find(
@@ -5097,11 +5071,15 @@ describe("applyRuntimeInjections blocks.pkbSystemReminder", () => {
     },
   ];
 
+  // The reminder gate hinges on PKB content presence; clear it after each test
+  // so the "PKB inactive" case starts from an empty workspace pkb dir.
+  afterEach(clearPkbContent);
+
   test("captures exact reminder bytes when full mode and PKB active", async () => {
+    seedPkbContent();
     pkbSearchResults = [];
     pkbSearchThrows = null;
     const { blocks } = await applyRuntimeInjections(baseMessages, {
-      pkbActive: true,
       mode: "full",
     });
 
@@ -5110,8 +5088,8 @@ describe("applyRuntimeInjections blocks.pkbSystemReminder", () => {
   });
 
   test("not captured in minimal mode", async () => {
+    seedPkbContent();
     const { blocks } = await applyRuntimeInjections(baseMessages, {
-      pkbActive: true,
       mode: "minimal",
     });
 
@@ -5120,7 +5098,6 @@ describe("applyRuntimeInjections blocks.pkbSystemReminder", () => {
 
   test("not captured when PKB inactive", async () => {
     const { blocks } = await applyRuntimeInjections(baseMessages, {
-      pkbActive: false,
       mode: "full",
     });
 

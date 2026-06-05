@@ -11,14 +11,12 @@ import {
   type InterfaceId,
   supportsHostProxy,
 } from "../channels/types.js";
-import { isHttpAuthDisabled } from "../config/env.js";
 import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { getBindingByConversation } from "../memory/external-conversation-store.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
-import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
 import type { ToolExecutor } from "../tools/executor.js";
@@ -48,26 +46,9 @@ import {
 } from "./doordash-steps.js";
 import type { ServerMessage, UiSurfaceShow } from "./message-protocol.js";
 import { runPostExecutionSideEffects } from "./tool-side-effects.js";
-import type { TrustContext } from "./trust-context.js";
+import { resolveTrustClass } from "./trust-context.js";
 
 const log = getLogger("conversation-tool-setup");
-
-/**
- * Resolve the effective trust class for tool execution.
- *
- * When HTTP auth is disabled (dev bypass), always returns `'guardian'`
- * so that control-plane gates don't block local development.
- *
- * When no trust context is available (e.g. desktop-only conversations that
- * don't go through channel trust resolution), defaults to `'unknown'`
- * to fail-closed.
- */
-export function resolveTrustClass(
-  trustContext: TrustContext | undefined,
-): TrustClass {
-  if (isHttpAuthDisabled()) return "guardian";
-  return trustContext?.trustClass ?? "unknown";
-}
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { AUTO_PROFILE_KEY } from "../config/seed-inference-profiles.js";

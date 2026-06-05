@@ -2,7 +2,11 @@ import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
 import { client } from "@/generated/api/client.gen";
-import { ASSISTANT_FLAG_DEFAULTS, storeKeyToFlagKey } from "@/lib/feature-flags/feature-flag-catalog";
+import {
+  ASSISTANT_FLAG_DEFAULTS,
+  ASSISTANT_STRING_FLAG_DEFAULTS,
+  storeKeyToFlagKey,
+} from "@/lib/feature-flags/feature-flag-catalog";
 
 /**
  * Internal store fields that are NOT feature flag values. Surfaces that
@@ -19,6 +23,7 @@ interface AssistantFeatureFlagMeta {
    * before treating a `false` flag as authoritative.
    */
   hasHydrated: boolean;
+  stringFlags: Record<string, string>;
 }
 
 interface AssistantFeatureFlagActions {
@@ -35,6 +40,8 @@ interface AssistantFeatureFlagActions {
   markHydrated: () => void;
   /** Called on assistant switch: resets to defaults + clears hasHydrated. */
   resetForAssistantSwitch: () => void;
+  setStringFlags: (flags: Record<string, string>) => void;
+  setStringFlag: (key: string, value: string, assistantId: string | null) => void;
 }
 
 type AssistantFeatureFlagStore = Record<string, boolean> &
@@ -43,6 +50,9 @@ type AssistantFeatureFlagStore = Record<string, boolean> &
 
 let confirmedAssistantFlagValues: Record<string, boolean> = {
   ...ASSISTANT_FLAG_DEFAULTS,
+};
+let confirmedAssistantStringFlagValues: Record<string, string> = {
+  ...ASSISTANT_STRING_FLAG_DEFAULTS,
 };
 let nextFlagRequestId = 0;
 const pendingFlagRequestIds: Record<string, number> = {};
@@ -54,15 +64,39 @@ function resetConfirmedFlags(flags: Record<string, boolean> = {}) {
   }
 }
 
+function resetConfirmedStringFlags(flags: Record<string, string> = {}) {
+  confirmedAssistantStringFlagValues = { ...ASSISTANT_STRING_FLAG_DEFAULTS, ...flags };
+}
+
+function resetAllConfirmed() {
+  resetConfirmedFlags();
+  resetConfirmedStringFlags();
+}
+
 function latestConfirmedValue(key: string): boolean {
   return confirmedAssistantFlagValues[key] ?? ASSISTANT_FLAG_DEFAULTS[key] ?? false;
 }
 
+function latestConfirmedStringValue(key: string): string {
+  return confirmedAssistantStringFlagValues[key] ?? ASSISTANT_STRING_FLAG_DEFAULTS[key] ?? "";
+}
+
+// The store type intersects Record<string, boolean> with meta/action
+// interfaces. Zustand's set() expects Partial<Store>, but the index
+// signature makes { stringFlags: Record<string, string> } incompatible.
+// setStr() bypasses this for string-flag-only partials.
 const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()(
-  (set) =>
-    ({
+  (set) => {
+    const setStr = set as unknown as (
+      partial:
+        | { stringFlags: Record<string, string> }
+        | ((state: AssistantFeatureFlagStore) => { stringFlags: Record<string, string> } | AssistantFeatureFlagStore),
+    ) => void;
+
+    return ({
       ...ASSISTANT_FLAG_DEFAULTS,
       hasHydrated: false,
+      stringFlags: { ...ASSISTANT_STRING_FLAG_DEFAULTS },
 
       setFlags: (flags: Record<string, boolean>) =>
         set((prev) => {
@@ -121,12 +155,68 @@ const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()(
 
       markHydrated: () => set({ hasHydrated: true }),
 
-      resetForAssistantSwitch: () =>
-        set(() => {
-          resetConfirmedFlags();
-          return { ...ASSISTANT_FLAG_DEFAULTS, hasHydrated: false };
+      resetForAssistantSwitch: () => {
+        resetAllConfirmed();
+        set({ ...ASSISTANT_FLAG_DEFAULTS, hasHydrated: false });
+        setStr({ stringFlags: { ...ASSISTANT_STRING_FLAG_DEFAULTS } });
+      },
+
+      setStringFlags: (flags: Record<string, string>) =>
+        setStr((prev) => {
+          resetConfirmedStringFlags(flags);
+          const prevStr = prev.stringFlags;
+          const changed = Object.keys(flags).some(
+            (k) => flags[k] !== prevStr[k],
+          );
+          return changed ? { stringFlags: flags } : prev;
         }),
-    }) as AssistantFeatureFlagStore,
+
+      setStringFlag: (key: string, value: string, assistantId: string | null) => {
+        const requestId = ++nextFlagRequestId;
+        const revertIfLatestRejectedRequest = () => {
+          if (pendingFlagRequestIds[key] !== requestId) {
+            return;
+          }
+          delete pendingFlagRequestIds[key];
+          const confirmedValue = latestConfirmedStringValue(key);
+          setStr((prev) => {
+            if (prev.stringFlags[key] !== value) {
+              return prev;
+            }
+            return { stringFlags: { ...prev.stringFlags, [key]: confirmedValue } };
+          });
+        };
+        const flagKey = storeKeyToFlagKey(key);
+        if (assistantId && flagKey) {
+          pendingFlagRequestIds[key] = requestId;
+          void client
+            .patch({
+              url: `/v1/assistants/${assistantId}/feature-flags/${flagKey}`,
+              body: { enabled: value },
+              throwOnError: false,
+            } as Parameters<typeof client.patch>[0])
+            .then((result) => {
+              const response = (result as { response?: Response }).response;
+              if (response?.ok) {
+                confirmedAssistantStringFlagValues[key] = value;
+                if (pendingFlagRequestIds[key] === requestId) {
+                  delete pendingFlagRequestIds[key];
+                }
+              } else {
+                revertIfLatestRejectedRequest();
+              }
+            })
+            .catch(revertIfLatestRejectedRequest);
+        } else {
+          confirmedAssistantStringFlagValues[key] = value;
+        }
+
+        setStr((prev) => ({
+          stringFlags: { ...prev.stringFlags, [key]: value },
+        }));
+      },
+    }) as AssistantFeatureFlagStore;
+  },
 );
 
 export const useAssistantFeatureFlagStore = createSelectors(

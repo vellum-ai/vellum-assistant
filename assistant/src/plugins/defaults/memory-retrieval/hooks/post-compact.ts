@@ -29,6 +29,7 @@ import {
   type RuntimeInjectionOptions,
   type RuntimeInjectionResult,
 } from "../../../../daemon/conversation-runtime-assembly.js";
+import { resolveTrustClass } from "../../../../daemon/trust-context.js";
 import { stripHistoricalWebSearchResults } from "../../../../daemon/web-search-history.js";
 import { getLiveGraphMemory } from "../../../../memory/graph/conversation-graph-memory.js";
 import type { PluginLogger } from "../../../../plugin-api/types.js";
@@ -51,15 +52,14 @@ export interface PostCompactionHookInput {
 /**
  * Everything the hook needs in a single context: the loop-supplied
  * {@link PostCompactionHookInput}, the resolved {@link RuntimeInjectionOptions}
- * (spread top-level so each field stays individually addressable), and the
- * conversation-scoped state the options bag cannot carry (actor trust and a
- * turn-scoped logger). The memory graph handle is not part of this context —
- * the hook sources it internally via {@link getLiveGraphMemory}.
+ * (spread top-level so each field stays individually addressable), and a
+ * turn-scoped logger. The memory graph handle is not part of this context —
+ * the hook sources it internally via {@link getLiveGraphMemory} — and the
+ * actor's trust class is derived from {@link PostCompactionHookInput.turnContext}
+ * rather than threaded in.
  */
 export interface PostCompactContext
   extends RuntimeInjectionOptions, PostCompactionHookInput {
-  /** True when the actor for this turn is trusted (guardian-class). */
-  isTrustedActor: boolean;
   /** Turn-scoped logger for diagnostics emitted while re-injecting. */
   logger: PluginLogger;
 }
@@ -67,14 +67,18 @@ export interface PostCompactContext
 export default async function postCompactReinject(
   ctx: PostCompactContext,
 ): Promise<RuntimeInjectionResult> {
-  const { history, isTrustedActor, logger, ...options } = ctx;
+  const { history, logger, ...options } = ctx;
   const result = await applyRuntimeInjections(history, options);
   // Re-track the nodes the memory graph last injected so they survive against
   // the re-injected history. Untrusted actors and minimal-mode turns never
   // received a memory-graph injection, so there is nothing to re-track. The
+  // actor's trust class is derived from the turn's own trust context (the same
+  // value the injector chain resolves), not threaded in from the loop. The
   // live graph handle is looked up from the plugin's own registry by the
   // turn's conversation id — the same instance the turn's retrieval mutated,
   // so re-tracking sees the real cached-node state.
+  const isTrustedActor =
+    resolveTrustClass(options.turnContext?.trust) === "guardian";
   if (isTrustedActor && options.mode !== "minimal") {
     getLiveGraphMemory(
       options.turnContext?.conversationId,

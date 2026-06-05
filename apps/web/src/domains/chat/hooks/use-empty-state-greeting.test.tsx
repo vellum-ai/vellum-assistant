@@ -7,15 +7,23 @@ import { assistantIdentityIntroQueryKey } from "@/lib/sync/query-tags";
 
 interface CapturedQueryOptions {
   queryKey: readonly unknown[];
-  queryFn: () => Promise<readonly string[] | null>;
+  queryFn: () => Promise<EmptyStateGreetingQueryResult | null>;
   enabled: boolean;
   staleTime: number;
+  refetchInterval?: (query: {
+    state: { data?: EmptyStateGreetingQueryResult | null };
+  }) => number | false;
 }
 
 let lastCapturedOptions: CapturedQueryOptions | null = null;
 
+interface EmptyStateGreetingQueryResult {
+  candidates: readonly string[];
+  refreshing: boolean;
+}
+
 interface UseQueryStub {
-  data: readonly string[] | null | undefined;
+  data: EmptyStateGreetingQueryResult | null | undefined;
 }
 
 let useQueryStub: UseQueryStub = { data: undefined };
@@ -106,10 +114,40 @@ describe("useEmptyStateGreeting", () => {
   });
 
   test("selects one greeting candidate from the daemon response", () => {
-    useQueryStub = { data: ["First greeting", "Second greeting"] };
+    useQueryStub = {
+      data: {
+        candidates: ["First greeting", "Second greeting"],
+        refreshing: false,
+      },
+    };
     Math.random = () => 0.99;
 
     expect(runHook("asst-1")).toBe("Second greeting");
+  });
+
+  test("polls while fallback greetings are refreshing", () => {
+    runHook("asst-1");
+
+    expect(
+      lastCapturedOptions?.refetchInterval?.({
+        state: {
+          data: {
+            candidates: ["What are we working on?"],
+            refreshing: true,
+          },
+        },
+      })
+    ).toBe(1500);
+    expect(
+      lastCapturedOptions?.refetchInterval?.({
+        state: {
+          data: {
+            candidates: ["Generated greeting"],
+            refreshing: false,
+          },
+        },
+      })
+    ).toBe(false);
   });
 
   test("queryFn returns trimmed greetings from the daemon array", async () => {
@@ -125,7 +163,10 @@ describe("useEmptyStateGreeting", () => {
     runHook("asst-1");
     const result = await lastCapturedOptions!.queryFn();
 
-    expect(result).toEqual(["First greeting", "Second greeting"]);
+    expect(result).toEqual({
+      candidates: ["First greeting", "Second greeting"],
+      refreshing: false,
+    });
     expect(identityIntroCalls).toHaveLength(1);
     expect(
       (identityIntroCalls[0] as { path: { assistant_id: string } }).path
@@ -142,6 +183,9 @@ describe("useEmptyStateGreeting", () => {
     runHook("asst-1");
     const result = await lastCapturedOptions!.queryFn();
 
-    expect(result).toEqual(["Legacy greeting"]);
+    expect(result).toEqual({
+      candidates: ["Legacy greeting"],
+      refreshing: false,
+    });
   });
 });

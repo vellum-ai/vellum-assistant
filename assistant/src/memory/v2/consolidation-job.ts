@@ -63,6 +63,19 @@ import { dirname, join } from "node:path";
 
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../../config/types.js";
+import { loadCore } from "../../plugins/defaults/memory-v3-shadow/core.js";
+import {
+  computeV3Health,
+  renderV3Health,
+} from "../../plugins/defaults/memory-v3-shadow/health.js";
+import {
+  loadLeafTree,
+  resolveDataDir,
+} from "../../plugins/defaults/memory-v3-shadow/tree.js";
+import type {
+  LeafPath,
+  Slug,
+} from "../../plugins/defaults/memory-v3-shadow/types.js";
 import { runBackgroundJob } from "../../runtime/background-job-runner.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
@@ -74,10 +87,6 @@ import {
   type MemoryJobType,
 } from "../jobs-store.js";
 import { getPageIndex } from "../v2/page-index.js";
-import { loadCore } from "../v3/core.js";
-import { computeV3Health, renderV3Health } from "../v3/health.js";
-import { loadLeafTree, resolveDataDir } from "../v3/tree.js";
-import type { LeafPath, Slug } from "../v3/types.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "./constants.js";
 import { resolveConsolidationPrompt } from "./prompts/consolidation.js";
 
@@ -197,7 +206,7 @@ export async function memoryV2ConsolidateJob(
       source: MEMORY_V2_CONSOLIDATION_SOURCE,
       prompt,
       trustContext: { sourceChannel: "vellum", trustClass: "guardian" },
-      callSite: "mainAgent",
+      callSite: "memoryV2Consolidation",
       timeoutMs: CONSOLIDATION_TIMEOUT_MS,
       origin: "memory_consolidation",
       suppressFailureNotifications: true,

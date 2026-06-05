@@ -137,6 +137,21 @@ describe("host.memory.addMessage", () => {
       }),
     ).rejects.toThrow();
   });
+
+  test("rejects the non-renderable system role", async () => {
+    // GIVEN the messages store is UI-facing (ConversationMessage), so only
+    // renderable turns may be persisted via this facet
+    // WHEN a skill attempts to add a system row
+    // THEN the route rejects it instead of persisting agent-context scaffolding
+    await expect(
+      memoryAddMessageRoute.handler({
+        conversationId: "c",
+        role: "system",
+        content: "agent-context scaffolding",
+      }),
+    ).rejects.toThrow();
+    expect(addMessageSpy).not.toHaveBeenCalled();
+  });
 });
 
 describe("host.memory.wakeAgentForOpportunity", () => {

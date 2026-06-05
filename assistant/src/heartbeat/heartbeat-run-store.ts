@@ -24,7 +24,8 @@ export type HeartbeatSkipReason =
   | "outside_active_hours"
   | "overlap"
   | "pre_first_user_message"
-  | "max_consecutive_runs";
+  | "max_consecutive_runs"
+  | "max_daily_runs";
 
 export interface HeartbeatRunRecord {
   id: string;
@@ -213,6 +214,27 @@ export function countCompletedHeartbeatRuns(): number {
     .select({ count: sql<number>`count(*)` })
     .from(heartbeatRuns)
     .where(eq(heartbeatRuns.status, "ok"))
+    .get();
+  return row?.count ?? 0;
+}
+
+/**
+ * Count heartbeat runs that completed with status `ok` today (local midnight).
+ */
+export function countCompletedRunsToday(): number {
+  const db = getDb();
+  const now = new Date();
+  const startOfDay = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+  ).getTime();
+  const row = db
+    .select({ count: sql<number>`count(*)` })
+    .from(heartbeatRuns)
+    .where(
+      sql`${heartbeatRuns.status} = 'ok' AND ${heartbeatRuns.scheduledFor} >= ${startOfDay}`,
+    )
     .get();
   return row?.count ?? 0;
 }

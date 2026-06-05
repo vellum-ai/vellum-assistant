@@ -1241,6 +1241,39 @@ final class ConversationListStore {
         conversations[index] = conversation
     }
 
+    /// Patch a single conversation row in place from a server item, used for
+    /// narrow `conversation:<id>:metadata` sync tags (seen / rename /
+    /// attention / title). Rebuilds the row from the item — preserving the
+    /// local identity, creation time, and archive state — then reconciles
+    /// attention, mirroring the existing-row branch of `appendConversations`.
+    ///
+    /// This is the cheap alternative to draining the full paginated list (3
+    /// parallel streams over every conversation) when only one existing row's
+    /// content changed. No-ops when the row isn't loaded locally: a narrow
+    /// metadata tag only updates a row that already exists, and brand-new rows
+    /// arrive via the shape-changing `conversations:list` tag instead.
+    func mergeConversationRow(from item: ConversationListResponseItem) {
+        guard let index = conversations.firstIndex(where: { $0.conversationId == item.id }) else { return }
+        let existing = conversations[index]
+        var updated = conversationModel(
+            from: item,
+            localId: existing.id,
+            createdAt: existing.createdAt,
+            isArchived: existing.isArchived
+        )
+        // Preserve a user-set local title, adopting the server title only when
+        // the local row still has the placeholder name. Matches the existing-row
+        // merge in `handleConversationListResponse` and avoids clobbering an
+        // optimistic local rename the daemon hasn't persisted yet; genuine
+        // renames arrive via the dedicated `conversation_title_updated` event.
+        if existing.title != "New Conversation" {
+            updated.title = existing.title
+        }
+        applyAssistantAttention(from: item, into: &updated)
+        guard updated != existing else { return }
+        conversations[index] = updated
+    }
+
     // MARK: - Signal Emission
 
     /// Send a `conversation_seen_signal` message to the daemon.

@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   buildProviderCallbackUrl,
   readAuthCallbackIntent,
+  requiresFullPageNavigation,
   resolvePostAuthDestination,
 } from "@/domains/account/login-flow";
 import { routes } from "@/utils/routes";
@@ -47,5 +48,28 @@ describe("login flow routing", () => {
       destination: routes.home,
       requiresFullPageNavigation: false,
     });
+  });
+
+  test("resolves CLI login callback returnTo with full-page navigation", () => {
+    const cliCallback = "/accounts/cli/callback?port=54321&state=abc123";
+    expect(
+      resolvePostAuthDestination({
+        returnTo: cliCallback,
+        fallback: routes.assistant,
+        authIntent: "login",
+      }),
+    ).toEqual({
+      destination: cliCallback,
+      requiresFullPageNavigation: true,
+    });
+  });
+
+  test("requiresFullPageNavigation for /accounts/ paths", () => {
+    expect(requiresFullPageNavigation("/accounts/cli/callback?port=12345&state=xyz")).toBe(true);
+    expect(requiresFullPageNavigation("/accounts/native/callback?scheme=vellum&state=abc")).toBe(true);
+    expect(requiresFullPageNavigation("/v1/some-api")).toBe(true);
+    expect(requiresFullPageNavigation("https://www.vellum.ai/assistant")).toBe(true);
+    expect(requiresFullPageNavigation("/assistant")).toBe(false);
+    expect(requiresFullPageNavigation("/onboarding/privacy")).toBe(false);
   });
 });

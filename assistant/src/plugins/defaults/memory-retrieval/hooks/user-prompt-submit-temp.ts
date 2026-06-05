@@ -1,20 +1,18 @@
 /**
- * Default `user-prompt-submit-temp` hook: performs the three retrievals the
+ * Default `user-prompt-submit-temp` hook: runs the memory-graph retrieval the
  * agent loop needs before building a turn's runtime-injection block.
  *
- * 1. **PKB context** via {@link readPkbContext} — always-loaded workspace
- *    notes (INDEX.md, essentials.md, …) that precede the user's message.
- * 2. **NOW.md scratchpad** via {@link readNowScratchpad} — the short
- *    user-maintained note the assistant keeps up to date.
- * 3. **Memory graph** via {@link ConversationGraphMemory.prepareMemory} —
- *    dispatches to context-load or per-turn retrieval depending on
- *    initialization state; gated on the actor being trusted (guardian).
+ * **Memory graph** via {@link ConversationGraphMemory.prepareMemory} —
+ * dispatches to context-load or per-turn retrieval depending on initialization
+ * state; gated on the actor being trusted (guardian).
  *
  * The hook also owns the retrieval's side effects — persisting the injected
  * block onto the user message's metadata, writing the recall log, and emitting
  * the `memory_recalled` event — so the loop only consumes the turn-scoped
- * outputs written back onto the context (`pkbContent`, `nowContent`,
- * `runMessages`, and the PKB query vectors).
+ * `latestMessages` written back onto the context. The PKB query-vector pair is
+ * recorded on the conversation's graph handle for the PKB-reminder injector to
+ * read back. PKB context and NOW.md are sourced directly by their injectors
+ * (gated on block presence), not produced here.
  *
  * This fires at the early "prompt submitted, before context assembly" moment,
  * distinct from the canonical late `user-prompt-submit` hook (history repair,
@@ -28,28 +26,23 @@ import type { PluginHookFn } from "@vellumai/plugin-api";
 import type { Logger } from "pino";
 
 import type { AssistantConfig } from "../../../../config/schema.js";
-import {
-  readNowScratchpad,
-  readPkbContext,
-} from "../../../../daemon/conversation-runtime-assembly.js";
 import type { ServerMessage } from "../../../../daemon/message-protocol.js";
 import type { MemoryRecalled } from "../../../../daemon/message-types/memory.js";
 import { updateMessageMetadata } from "../../../../memory/conversation-crud.js";
 import type { ConversationGraphMemory } from "../../../../memory/graph/conversation-graph-memory.js";
 import { recordMemoryRecallLog } from "../../../../memory/memory-recall-log-store.js";
-import type { QdrantSparseVector } from "../../../../memory/qdrant-client.js";
 import type { Message } from "../../../../providers/types.js";
 import type { GraphMemoryResult } from "../../../types.js";
 
 /**
- * Context threaded through the `user-prompt-submit-temp` hook. The input
+ * Context threaded through the `user-prompt-submit-temp` hook. The readonly
  * fields carry the conversation-scoped state the retriever needs (graph
- * handle, event sink, live message list, abort signal); the output fields are
- * populated by the hook and read back by the agent loop.
+ * handle, event sink, abort signal); the output fields are populated by the
+ * hook and read back by the agent loop. `latestMessages` straddles both: the
+ * loop seeds it with the pre-injection array and the hook overwrites it with
+ * the injected result.
  */
 export interface MemoryRetrievalHookContext {
-  /** Live message list for this turn (pre-injection). */
-  readonly messages: Message[];
   /** Per-conversation memory graph handle. */
   readonly graphMemory: ConversationGraphMemory;
   /** Assistant config snapshot. */
@@ -70,33 +63,13 @@ export interface MemoryRetrievalHookContext {
    */
   readonly signal: AbortSignal;
   /**
-   * Trimmed PKB file contents ready for injection, or `null` when the file is
-   * missing/empty. Written by the hook.
+   * Working message list for the turn. Seeded by the loop with the
+   * pre-injection messages and consumed as the retrieval input; the hook
+   * overwrites it with the memory-graph block injected, or leaves it
+   * unchanged when no graph retrieval ran (untrusted actor, or a no-op
+   * retrieval). Read back by the loop.
    */
-  pkbContent: string | null;
-  /**
-   * Trimmed NOW.md contents ready for injection, or `null` when the file is
-   * missing/empty. Written by the hook.
-   */
-  nowContent: string | null;
-  /**
-   * Working message list for the turn: the input messages with the
-   * memory-graph block injected, or the unchanged input messages when no
-   * graph retrieval ran (untrusted actor, or a no-op retrieval). Written by
-   * the hook.
-   */
-  runMessages: Message[];
-  /**
-   * Dense query vector for downstream PKB hybrid search, selected as a matched
-   * pair with `pkbSparseVector`. `undefined` when no graph retrieval ran.
-   * Written by the hook.
-   */
-  pkbQueryVector?: number[];
-  /**
-   * Sparse (TF-IDF) query vector paired with `pkbQueryVector` for PKB hybrid
-   * search. `undefined` when no graph retrieval ran. Written by the hook.
-   */
-  pkbSparseVector?: QdrantSparseVector;
+  latestMessages: Message[];
 }
 
 /**
@@ -187,10 +160,10 @@ function recordRecallSideEffects(
 }
 
 /**
- * Run the default retrieval, writing `pkbContent` / `nowContent` /
- * `runMessages` and the PKB query vectors back onto the context. Skips the
- * memory-graph call entirely (leaving `runMessages` as the input messages and
- * the query vectors `undefined`) when the actor is not trusted.
+ * Run the default retrieval, writing `latestMessages` back onto the context and
+ * recording the PKB query-vector pair on the graph handle. Skips the
+ * memory-graph call entirely (leaving `latestMessages` as the seeded input
+ * messages and no query pair recorded) when the actor is not trusted.
  *
  * Memory retrieval blocks the turn — there is no soft timeout here. Memory is
  * critical context, and silently dropping it produces a worse outcome than a
@@ -200,19 +173,13 @@ function recordRecallSideEffects(
 const userPromptSubmitMemoryRetrieval: PluginHookFn<
   MemoryRetrievalHookContext
 > = async (ctx) => {
-  // NOW.md and PKB are read unconditionally — the agent loop decides whether
-  // to inject them based on first-turn / post-compaction gating.
-  ctx.pkbContent = readPkbContext();
-  ctx.nowContent = readNowScratchpad();
-  ctx.runMessages = ctx.messages;
-
   if (!ctx.isTrustedActor) {
     // Untrusted actors skip memory-graph retrieval entirely.
     return;
   }
 
   const graphResult = await ctx.graphMemory.prepareMemory(
-    ctx.messages,
+    ctx.latestMessages,
     ctx.config,
     ctx.signal,
     ctx.onEvent,
@@ -220,7 +187,7 @@ const userPromptSubmitMemoryRetrieval: PluginHookFn<
 
   recordRecallSideEffects(graphResult, ctx);
 
-  ctx.runMessages = graphResult.runMessages;
+  ctx.latestMessages = graphResult.runMessages;
   // Select dense+sparse as a matched pair so RRF fusion combines two signals
   // aligned to the same query text:
   //   1. Context-load with a user query: user-query dense + user-query sparse
@@ -230,12 +197,19 @@ const userPromptSubmitMemoryRetrieval: PluginHookFn<
   //      themselves co-aligned (both summary-derived in context-load, both
   //      user-last-message-derived in per-turn).
   // Never pair a user-query dense with a summary-aligned sparse.
+  // The PKB-reminder injector reads this pair back off the same graph handle
+  // (looked up by conversation id) rather than receiving it threaded through
+  // the agent loop.
   if (graphResult.userQueryVector) {
-    ctx.pkbQueryVector = graphResult.userQueryVector;
-    ctx.pkbSparseVector = graphResult.userQuerySparseVector;
+    ctx.graphMemory.recordPkbQueryVectors(
+      graphResult.userQueryVector,
+      graphResult.userQuerySparseVector,
+    );
   } else {
-    ctx.pkbQueryVector = graphResult.queryVector;
-    ctx.pkbSparseVector = graphResult.sparseVector;
+    ctx.graphMemory.recordPkbQueryVectors(
+      graphResult.queryVector,
+      graphResult.sparseVector,
+    );
   }
 };
 

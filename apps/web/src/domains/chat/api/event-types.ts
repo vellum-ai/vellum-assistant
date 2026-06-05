@@ -6,39 +6,23 @@
  * composer, and interaction-handler modules within the chat domain.
  */
 
-import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
 import type {
-  AllowlistOption,
   ConversationMessageToolCall,
-  DirectoryScopeOption,
   QuestionEntry,
   QuestionRequestEvent,
-  ScopeOption,
 } from "@vellumai/assistant-api";
-
-/** Data needed to render an inline permission prompt inside a ToolCallChip. */
-export interface PendingToolConfirmation {
-  requestId: string;
-  title?: string;
-  description?: string;
-  toolName?: string;
-  riskLevel?: string;
-  riskReason?: string;
-  input?: Record<string, unknown>;
-  allowlistOptions?: AllowlistOption[];
-  scopeOptions?: ScopeOption[];
-  directoryScopeOptions?: DirectoryScopeOption[];
-  persistentDecisionsAllowed?: boolean;
-}
 
 /**
  * A tool call as rendered in the transcript. Extends the canonical wire
  * `ConversationMessageToolCall` (carrying `name`, `input`, `result`, the
- * risk/approval fields, and the `risk*Options` rule-editor ladders) with the
- * client-only live state the wire deliberately omits — the in-flight
- * confirmation prompt and activity metadata accumulated from SSE events.
- * Execution state (`running`/`completed`/`error`) is not stored: derive it
- * on demand from `isError`/`result`/`completedAt` via the predicates in
+ * risk/approval fields, the `risk*Options` rule-editor ladders, the
+ * `confirmationDecision` outcome, the activity metadata, the confirmation
+ * `scopeOptions`, and — as of daemon v0.8.8 — the in-flight
+ * `pendingConfirmation` read from the pending-interactions registry at render
+ * time). The client clears `pendingConfirmation` by setting it back to
+ * `undefined` once a prompt resolves, matching the wire's optional shape.
+ * Execution state (`running`/`completed`/`error`) is not stored: derive it on
+ * demand from `isError`/`result`/`completedAt` via the predicates in
  * `tool-call-status.ts` (`isToolCallRunning`/`isToolCallCompleted`).
  */
 export interface ChatMessageToolCall extends ConversationMessageToolCall {
@@ -52,26 +36,6 @@ export interface ChatMessageToolCall extends ConversationMessageToolCall {
    * Drop this narrowing once the wire `id` graduates to non-optional.
    */
   id: string;
-  /**
-   * Scope ladder offered by the confirmation flow (`{label, scope}`). Sourced
-   * from the `confirmation_request` event — distinct from the inherited
-   * regex-flavored `riskScopeOptions` (`{pattern, label}`) the rule editor uses.
-   */
-  scopeOptions?: ScopeOption[];
-  pendingConfirmation?: PendingToolConfirmation | null;
-  workingDir?: string;
-  /** Explicit decision made during the confirmation flow. */
-  confirmationDecision?: "approved" | "denied" | "timed_out";
-  /**
-   * Structured tool activity metadata (e.g. web_search, web_fetch) persisted
-   * alongside the tool call so the `WebSearchProgressCard` can keep
-   * rendering after the active turn ends and the live `liveWebActivity`
-   * map is cleared. Set by `applyToolResult` when the `tool_result` event
-   * carries `activityMetadata`. Absent on historical reopens that arrive
-   * via reconcile (the server snapshot doesn't carry this field). See
-   * `web-activity-types.ts`.
-   */
-  activityMetadata?: ToolActivityMetadata;
 }
 
 // ---------------------------------------------------------------------------

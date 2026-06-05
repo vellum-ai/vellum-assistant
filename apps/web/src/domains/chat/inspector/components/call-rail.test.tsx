@@ -48,6 +48,7 @@ function makeRealEntry(overrides: Partial<LLMRequestLogEntry> = {}): LLMRequestL
     summary: {
       provider: "anthropic",
       model: "claude-sonnet-4",
+      estimatedCostUsd: 0.0123,
     },
     ...overrides,
   };
@@ -84,6 +85,8 @@ describe("CallRail — synthetic vs real rows", () => {
     // title-cases the known providers, so we assert on "Anthropic".
     expect(html).toContain("Anthropic");
     expect(html).toContain("claude-sonnet-4");
+    expect(html).toContain("Cost");
+    expect(html).toContain("$0.0123");
     // The warning border token must NOT appear for a real call.
     expect(html).not.toContain("var(--system-negative-strong)");
   });
@@ -136,6 +139,8 @@ describe("CallRail — synthetic vs real rows", () => {
       makeRealEntry({ summary: null, callSite: "mainAgent" }),
     ]);
     expect(html).toContain("Unrecognized call");
+    expect(html).toContain("Cost");
+    expect(html).toContain("Unavailable");
     expect(html).not.toContain("var(--system-negative-strong)");
   });
 });

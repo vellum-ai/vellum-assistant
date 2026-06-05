@@ -381,6 +381,24 @@ async function buildClientLogsFile(
     // chat page hasn't mounted the API yet.
   }
 
+  if (isElectron() && window.vellum?.feedback) {
+    try {
+      const electronDiagnostics = await window.vellum.feedback.diagnostics();
+      const diagBytes = new TextEncoder().encode(
+        JSON.stringify(electronDiagnostics, null, 2),
+      );
+      tarParts.push(buildTarEntry("electron-diagnostics.json", diagBytes));
+    } catch { /* best-effort */ }
+
+    try {
+      const redactedLogs = await window.vellum.feedback.logs();
+      if (redactedLogs) {
+        const logBytes = new TextEncoder().encode(redactedLogs);
+        tarParts.push(buildTarEntry("electron-main-logs.txt", logBytes));
+      }
+    } catch { /* best-effort */ }
+  }
+
   if (assistantId) {
     const platformLogsData = await fetchPlatformLogs(assistantId, {
       window: { startTime, endTime },
@@ -452,6 +470,7 @@ export function ShareFeedbackModal({
   const [attachments, setAttachments] = useState<File[]>([]);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [includeConversation, setIncludeConversation] = useState(false);
 
   const mutation = useMutation(feedbackCreateMutation());
   const [isBuildingLogs, setIsBuildingLogs] = useState(false);
@@ -476,6 +495,7 @@ export function ShareFeedbackModal({
     setHasManuallyToggledLogs(false);
     setLogTimeRange("past_hour");
     setAttachments([]);
+    setIncludeConversation(false);
     setSubmitError(null);
     setIsBuildingLogs(false);
     mutation.reset();
@@ -586,7 +606,7 @@ export function ShareFeedbackModal({
           ? await buildClientLogsFile(
               logTimeRange,
               assistantId ?? null,
-              activeConversationId ?? null,
+              isElectron() ? (includeConversation ? (activeConversationId ?? null) : null) : (activeConversationId ?? null),
               getDiagnosticsSnapshot,
             )
           : null;
@@ -797,6 +817,19 @@ export function ShareFeedbackModal({
                 />
               )}
             </div>
+          )}
+
+          {isElectron() && activeConversationId && selectedReason !== "feature_request" && (
+            <label className="flex cursor-pointer items-center gap-2.5">
+              <Toggle
+                checked={includeConversation}
+                onChange={() => setIncludeConversation((v) => !v)}
+                aria-label="Include the most recent conversation"
+              />
+              <span className="text-body-medium-lighter leading-6 text-[var(--content-default)]">
+                Include the most recent conversation
+              </span>
+            </label>
           )}
 
           <div className="flex flex-col gap-2">

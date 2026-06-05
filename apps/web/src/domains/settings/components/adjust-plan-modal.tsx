@@ -1,4 +1,11 @@
-import { AlertTriangle, ArrowLeft, Crown, Loader2, Palmtree } from "lucide-react";
+import {
+    AlertTriangle,
+    ArrowLeft,
+    Crown,
+    Info,
+    Loader2,
+    Palmtree,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -43,6 +50,7 @@ import { CreditBundlePicker } from "./credit-bundle-picker";
 import { DowngradeReconfirmModal } from "./downgrade-reconfirm-modal";
 import { PlanFeatureList } from "./plan-feature-list";
 import { TierPicker, isTierDisabled } from "./tier-picker";
+import { formatDelta, formatMonthly } from "./tier-pricing";
 
 
 /**
@@ -282,6 +290,15 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
   const priceForCredit = (tier: CreditTierEnum | null): number =>
     creditTiers.find((t) => t.tier === tier)?.price_cents ?? 0;
   const currentCreditPriceCents = priceForCredit(currentCreditTier);
+  // A held bundle that is no longer in the live catalog has no resolvable price
+  // (`priceForCredit` returns 0), so any total that folds it in understates what
+  // the subscriber actually pays. In the no-picker header — where the price is
+  // presented as authoritative — we surface "unavailable" rather than a
+  // confidently-wrong lower number. (In the change picker this is the documented
+  // accepted limitation.)
+  const currentCreditPriceUnknown =
+    currentCreditTier != null &&
+    !creditTiers.some((t) => t.tier === currentCreditTier);
 
   // The picker and the mutation bodies require `CreditTierEnum | null` — never
   // the un-seeded `undefined` sentinel. While un-seeded, fall back to the
@@ -290,9 +307,10 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
   const displayCreditTier: CreditTierEnum | null =
     selectedCreditTier === undefined ? currentCreditTier : selectedCreditTier;
 
-  // Folds into TierPicker's headline Total. `priceForCredit` returns 0 for "No
-  // bundle" and for catalogs without credit_tiers (empty `creditTiers`), so the
-  // total stays byte-identical to before when the feature is off.
+  // Folds into the Pro card-header live total (`proLiveTotalCents`).
+  // `priceForCredit` returns 0 for "No bundle" and for catalogs without
+  // credit_tiers (empty `creditTiers`), so the total stays byte-identical to
+  // before when the feature is off.
   const selectedCreditPriceCents = priceForCredit(displayCreditTier);
 
   // For an active Pro subscriber, disable any storage tier strictly below the
@@ -482,6 +500,7 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
   // A machine downgrade (cheaper than current) routes through the reconfirm
   // modal first; an upgrade fires immediately.
   const nextMachinePrice = priceForMachine(selectedMachineTier);
+  const nextStoragePrice = priceForStorage(selectedStorageTier);
   const currentMachinePrice = priceForMachine(currentMachineTier);
   const currentStoragePrice = priceForStorage(currentStorageTier);
   const isMachineDowngrade =
@@ -704,6 +723,41 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                     // that path shows only reactivation).
                     const showProTierChange =
                       isProCard && isCurrent && proTierChangeMode;
+                    // A tier picker is actually rendered on the Pro card only in
+                    // the Base→Pro upgrade flow or the active-Pro change flow.
+                    // When neither is shown (e.g. a current Pro card with a
+                    // pending cancellation), the live, selection-driven total
+                    // must not be displayed — the seeded cheapest tiers don't
+                    // reflect what keeping the plan retains.
+                    const proPickerShown =
+                      (!isCurrent && isProCard) || showProTierChange;
+                    // Live running total for the Pro card header: base + the
+                    // selected machine/storage/credit prices. Updates as the
+                    // user changes any dimension. The delta is shown when this
+                    // new total differs from the current subscription (i.e. when
+                    // a current total exists).
+                    const proLiveTotalCents =
+                      isProCard &&
+                      nextMachinePrice != null &&
+                      nextStoragePrice != null
+                        ? plan.base_price_cents +
+                          nextMachinePrice +
+                          nextStoragePrice +
+                          selectedCreditPriceCents
+                        : null;
+                    const proCurrentTotalCents =
+                      isProCard &&
+                      currentMachinePrice != null &&
+                      currentStoragePrice != null
+                        ? plan.base_price_cents +
+                          currentMachinePrice +
+                          currentStoragePrice +
+                          currentCreditPriceCents
+                        : null;
+                    const proTotalDelta =
+                      proLiveTotalCents != null && proCurrentTotalCents != null
+                        ? proLiveTotalCents - proCurrentTotalCents
+                        : null;
                     return (
                       <Card
                         key={plan.id}
@@ -761,39 +815,88 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                                   Forever
                                 </Typography>
                               </>
-                            ) : proTierChangeMode &&
-                              currentMachinePrice != null &&
-                              currentStoragePrice != null ? (
-                              <>
-                                <Typography as="p" variant="title-medium">
-                                  Currently $
-                                  {Math.round(
-                                    (plan.base_price_cents +
-                                      currentMachinePrice +
-                                      currentStoragePrice +
-                                      currentCreditPriceCents) /
-                                      100,
-                                  )}
-                                </Typography>
+                            ) : isCurrent &&
+                              !(proPickerShown && proLiveTotalCents != null) &&
+                              (proCurrentTotalCents == null ||
+                                currentCreditPriceUnknown) ? (
+                              // Current Pro card whose current total isn't
+                              // reliably known — onboarding hasn't resolved, or
+                              // the held bundle is no longer priceable. Showing
+                              // the cheapest `From $X` (or an understated
+                              // `Currently $X`) would misstate what this
+                              // subscriber pays. While onboarding is actively
+                              // loading, show a neutral spinner; otherwise (a
+                              // settled error or an unpriceable held bundle) show
+                              // a distinct "unavailable" fallback — an infinite
+                              // spinner would misleadingly imply the price is
+                              // still on its way.
+                              onboardingQuery.isLoading ? (
+                                <div className="flex items-center gap-2 text-[var(--content-tertiary)]">
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                  <Typography
+                                    as="span"
+                                    variant="body-medium-lighter"
+                                  >
+                                    Loading your plan...
+                                  </Typography>
+                                </div>
+                              ) : (
                                 <Typography
                                   as="p"
-                                  variant="body-small-default"
+                                  variant="body-medium-lighter"
                                   className="text-[var(--content-tertiary)]"
+                                  data-testid="modal-pro-price-unavailable"
                                 >
-                                  Billed monthly
+                                  Current plan pricing unavailable
                                 </Typography>
-                              </>
+                              )
                             ) : (
                               <>
-                                <Typography as="p" variant="title-medium">
-                                  From $
-                                  {Math.round(
-                                    (plan.base_price_cents +
-                                      minTierPriceCents(plan.machine_tiers) +
-                                      minTierPriceCents(plan.storage_tiers)) /
-                                      100,
-                                  )}
-                                </Typography>
+                                <div className="flex items-center gap-1">
+                                  <Typography
+                                    as="p"
+                                    variant="title-medium"
+                                    data-testid="modal-pro-price"
+                                  >
+                                    {proPickerShown &&
+                                    proLiveTotalCents != null ? (
+                                      <>
+                                        {formatMonthly(proLiveTotalCents)}
+                                        {proTotalDelta != null &&
+                                          proTotalDelta !== 0 && (
+                                            <span className="ml-1 text-[var(--content-tertiary)]">
+                                              ({formatDelta(proTotalDelta)})
+                                            </span>
+                                          )}
+                                      </>
+                                    ) : proCurrentTotalCents != null ? (
+                                      `Currently ${formatMonthly(
+                                        proCurrentTotalCents,
+                                      )}`
+                                    ) : (
+                                      // Reachable only for the prospective
+                                      // upgrade card (!isCurrent); the current
+                                      // Pro card shows the loading placeholder
+                                      // above instead of this cheapest price.
+                                      `From ${formatMonthly(
+                                        plan.base_price_cents +
+                                          minTierPriceCents(plan.machine_tiers) +
+                                          minTierPriceCents(plan.storage_tiers),
+                                      )}`
+                                    )}
+                                  </Typography>
+                                  <span
+                                    title={
+                                      proPickerShown &&
+                                      proTotalDelta != null &&
+                                      proTotalDelta !== 0
+                                        ? `Your Pro Plan subscription will change from ${formatMonthly(proCurrentTotalCents!)} to ${formatMonthly(proLiveTotalCents!)}. Includes a $10/month flat fee for Pro Features.`
+                                        : "Includes a $10/month flat fee for Pro Features."
+                                    }
+                                  >
+                                    <Info className="h-3 w-3 text-[var(--content-tertiary)]" />
+                                  </span>
+                                </div>
                                 <Typography
                                   as="p"
                                   variant="body-small-default"
@@ -808,11 +911,12 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                             features={plan.included_features}
                             variant="checklist"
                           />
-                          {isProCard && (
+                          {isProCard && !creditTiersEnabled && (
                             <Typography
                               as="p"
                               variant="body-small-default"
                               className="text-[var(--content-tertiary)]"
+                              data-testid="modal-credits-not-included"
                             >
                               *Credits not included
                             </Typography>
@@ -822,16 +926,6 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                           {!isCurrent && isProCard && (
                             <>
                               <hr className="border-t border-[var(--border-base)]" />
-                              <TierPicker
-                                machineTiers={plan.machine_tiers}
-                                storageTiers={plan.storage_tiers}
-                                basePriceCents={plan.base_price_cents}
-                                selectedMachineTier={selectedMachineTier}
-                                selectedStorageTier={selectedStorageTier}
-                                onMachineTierChange={setSelectedMachineTier}
-                                onStorageTierChange={setSelectedStorageTier}
-                                creditPriceCents={selectedCreditPriceCents}
-                              />
                               {creditTiersEnabled && (
                                 <CreditBundlePicker
                                   creditTiers={creditTiers}
@@ -840,6 +934,14 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                                   disabled={upgradeMutation.isPending}
                                 />
                               )}
+                              <TierPicker
+                                machineTiers={plan.machine_tiers}
+                                storageTiers={plan.storage_tiers}
+                                selectedMachineTier={selectedMachineTier}
+                                selectedStorageTier={selectedStorageTier}
+                                onMachineTierChange={setSelectedMachineTier}
+                                onStorageTierChange={setSelectedStorageTier}
+                              />
                               <Button
                                 variant="primary"
                                 className="w-full"
@@ -869,21 +971,6 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                             ) : (
                               <>
                                 <hr className="border-t border-[var(--border-base)]" />
-                                <TierPicker
-                                  machineTiers={machineTiersForPicker}
-                                  storageTiers={storageTiersForPicker}
-                                  basePriceCents={plan.base_price_cents}
-                                  selectedMachineTier={selectedMachineTier}
-                                  selectedStorageTier={selectedStorageTier}
-                                  onMachineTierChange={setSelectedMachineTier}
-                                  onStorageTierChange={setSelectedStorageTier}
-                                  currentMachinePriceCents={currentMachinePrice}
-                                  currentStoragePriceCents={currentStoragePrice}
-                                  creditPriceCents={selectedCreditPriceCents}
-                                  currentCreditPriceCents={
-                                    currentCreditPriceCents
-                                  }
-                                />
                                 {creditTiersEnabled && (
                                   <CreditBundlePicker
                                     creditTiers={creditTiers}
@@ -895,6 +982,16 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                                     disabled={tierChangePending}
                                   />
                                 )}
+                                <TierPicker
+                                  machineTiers={machineTiersForPicker}
+                                  storageTiers={storageTiersForPicker}
+                                  selectedMachineTier={selectedMachineTier}
+                                  selectedStorageTier={selectedStorageTier}
+                                  onMachineTierChange={setSelectedMachineTier}
+                                  onStorageTierChange={setSelectedStorageTier}
+                                  currentMachinePriceCents={currentMachinePrice}
+                                  currentStoragePriceCents={currentStoragePrice}
+                                />
                                 {(changeMachineTierMutation.isError ||
                                   changeStorageTierMutation.isError ||
                                   changeCreditTierMutation.isError) && (

@@ -15,25 +15,37 @@
 
 import { z } from "zod";
 
-import { getConfig } from "../../config/loader.js";
+import {
+  getConfig,
+  invalidateConfigCache,
+  loadRawConfig,
+  saveRawConfig,
+} from "../../config/loader.js";
+import type { AssistantConfig } from "../../config/schema.js";
 import { getMemoryCheckpoint } from "../../memory/checkpoints.js";
 import {
   getMessageRoleStatsByConversation,
   listConversationsBySource,
 } from "../../memory/conversation-queries.js";
 import {
+  cancelPendingAutomaticConsolidationJobs,
   enqueueMemoryJob,
   hasActiveJobOfType,
+  MEMORY_V2_CONSOLIDATION_JOB_TRIGGERS,
 } from "../../memory/jobs-store.js";
 import { GRAPH_MAINTENANCE_CHECKPOINTS } from "../../memory/jobs-worker.js";
 import { getUsageCostForConversationWindow } from "../../memory/llm-usage-store.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../memory/v2/constants.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
-import { BadRequestError } from "./errors.js";
+import { BadRequestError, InternalError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 function isConsolidationAvailable(): boolean {
   return getConfig().memory.v2.enabled;
+}
+
+function isAutomaticConsolidationEnabled(config: AssistantConfig): boolean {
+  return config.memory.v2.enabled && config.memory.v2.consolidation_enabled;
 }
 
 function consolidationIntervalMs(): number {
@@ -47,6 +59,61 @@ function readLastRunAt(): number | null {
   if (!raw) return null;
   const parsed = Number.parseInt(raw, 10);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function readConsolidationConfigResponse() {
+  const config = getConfig();
+  const available = config.memory.v2.enabled;
+  const enabled = isAutomaticConsolidationEnabled(config);
+  const intervalMs = consolidationIntervalMs();
+  const lastRunAt = readLastRunAt();
+  const nextRunAt =
+    enabled && lastRunAt != null ? lastRunAt + intervalMs : null;
+  return {
+    available,
+    enabled,
+    intervalMs,
+    nextRunAt,
+    lastRunAt,
+    success: true,
+  };
+}
+
+function handleUpdateConfig(body: Record<string, unknown>) {
+  const consolidationPatch: Record<string, unknown> = {};
+  const disablingAutomaticConsolidation = body.enabled === false;
+  if ("enabled" in body && typeof body.enabled === "boolean") {
+    consolidationPatch.consolidation_enabled = body.enabled;
+  }
+
+  try {
+    const raw = loadRawConfig() as Record<string, unknown>;
+    const memory =
+      raw.memory != null && typeof raw.memory === "object"
+        ? (raw.memory as Record<string, unknown>)
+        : {};
+    const v2 =
+      memory.v2 != null && typeof memory.v2 === "object"
+        ? (memory.v2 as Record<string, unknown>)
+        : {};
+
+    raw.memory = {
+      ...memory,
+      v2: {
+        ...v2,
+        ...consolidationPatch,
+      },
+    };
+    saveRawConfig(raw);
+    invalidateConfigCache();
+    if (disablingAutomaticConsolidation) {
+      cancelPendingAutomaticConsolidationJobs();
+    }
+  } catch {
+    throw new InternalError("Failed to save consolidation config");
+  }
+
+  return readConsolidationConfigResponse();
 }
 
 // ---------------------------------------------------------------------------
@@ -75,18 +142,36 @@ export const ROUTES: RouteDefinition[] = [
       success: z.boolean(),
     }),
     handler: async (_args: RouteHandlerArgs) => {
-      const enabled = getConfig().memory.v2.enabled;
-      const intervalMs = consolidationIntervalMs();
-      const lastRunAt = readLastRunAt();
-      const nextRunAt = lastRunAt != null ? lastRunAt + intervalMs : null;
-      return {
-        available: enabled,
-        enabled,
-        intervalMs,
-        nextRunAt,
-        lastRunAt,
-        success: true,
-      };
+      return readConsolidationConfigResponse();
+    },
+  },
+  {
+    operationId: "updateConsolidationConfig",
+    endpoint: "consolidation/config",
+    method: "PUT",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Update consolidation config",
+    description: "Update the memory v2 consolidation schedule configuration.",
+    tags: ["consolidation"],
+    requestBody: z.object({
+      enabled: z
+        .boolean()
+        .optional()
+        .describe("Enable or disable automatic consolidation"),
+    }),
+    responseBody: z.object({
+      available: z.boolean(),
+      enabled: z.boolean(),
+      intervalMs: z.number(),
+      nextRunAt: z.number().nullable(),
+      lastRunAt: z.number().nullable(),
+      success: z.boolean(),
+    }),
+    handler: async ({ body = {} }: RouteHandlerArgs) => {
+      return handleUpdateConfig(body);
     },
   },
   {
@@ -118,7 +203,9 @@ export const ROUTES: RouteDefinition[] = [
       if (hasActiveJobOfType("memory_v2_consolidate")) {
         return { success: true, ran: false, jobId: null };
       }
-      const jobId = enqueueMemoryJob("memory_v2_consolidate", {});
+      const jobId = enqueueMemoryJob("memory_v2_consolidate", {
+        trigger: MEMORY_V2_CONSOLIDATION_JOB_TRIGGERS.manual,
+      });
       return { success: true, ran: true, jobId };
     },
   },
