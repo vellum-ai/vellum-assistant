@@ -246,6 +246,14 @@ export class Conversation {
   /** @internal */ loadedHistoryPersonalMemoryAllowed?: boolean;
   /** @internal */ voiceCallControlPrompt?: string;
   /** @internal */ transportHints?: string[];
+  /**
+   * Whether the in-flight turn has no human present to answer clarification
+   * questions, set at turn start from the resolved interactivity signal.
+   * Read back by runtime assembly to drive the `<non_interactive_context>`
+   * branch and the `background-turn` injector.
+   * @internal
+   */
+  currentTurnIsNonInteractive?: boolean;
   /** @internal */ assistantId?: string;
   /** @internal */ commandIntent?: {
     type: string;

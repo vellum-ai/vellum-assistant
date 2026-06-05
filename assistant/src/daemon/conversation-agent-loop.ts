@@ -266,7 +266,6 @@ function buildPluginTurnContext(
     trust,
     contextWindowManager: ctx.contextWindowManager,
     callSite: ctx.currentCallSite,
-    isNonInteractive: ctx.currentTurnIsNonInteractive,
   };
 }
 
@@ -326,10 +325,10 @@ export interface AgentLoopConversationContext {
    * Whether the in-flight turn has no human present to answer clarification
    * questions, set at turn start from the resolved interactivity signal
    * (`options?.isInteractive` override, falling back to `hasNoClient` /
-   * `headlessLock`). Read by {@link buildPluginTurnContext} so runtime
-   * assembly can drive the `<non_interactive_context>` branch and the
-   * `background-turn` injector. Per-turn mutable, mirroring
-   * {@link currentCallSite}.
+   * `headlessLock`). Read back from the live conversation by runtime assembly
+   * to drive the `<non_interactive_context>` branch and the `background-turn`
+   * injector, so the orchestrator does not thread it per turn. Per-turn
+   * mutable, mirroring {@link currentCallSite}.
    */
   currentTurnIsNonInteractive?: boolean;
 

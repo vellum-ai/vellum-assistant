@@ -221,19 +221,6 @@ export interface TurnContext {
    * absence conservatively.
    */
   callSite?: LLMCallSite;
-  /**
-   * True when no human is present to answer clarification questions on this
-   * turn (scheduled jobs, work items, channel turns with no client attached).
-   *
-   * Resolved by the orchestrator from the per-turn interactivity signal
-   * (`options.isInteractive` override, falling back to the conversation's
-   * client/headless state) and carried here so runtime assembly can drive the
-   * `<non_interactive_context>` branch and the `background-turn` injector
-   * without the orchestrator threading a separate injection option. Omitted by
-   * call sites that don't tag interactivity; consumers treat absence as
-   * interactive.
-   */
-  isNonInteractive?: boolean;
 }
 
 // ─── Injectors ───────────────────────────────────────────────────────────────

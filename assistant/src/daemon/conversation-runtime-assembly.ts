@@ -1823,14 +1823,15 @@ function applyInjectionBlock(
  * ephemeral {@link TurnContext} synthesized for test call sites).
  *
  * The active workspace surface, the channel capabilities, the active document
- * list, the channel command context, the voice call-control prompt, and the
- * transport hints are not on this bag: `applyRuntimeInjections` resolves them
- * from the live conversation itself (its surface state, `channelCapabilities`,
- * the document store keyed by `conversationId`, its `commandIntent`, its
- * `voiceCallControlPrompt`, and its `transportHints` respectively). The
- * turn's interactivity drives the `<non_interactive_context>` branch and the
- * `background-turn` injector from {@link TurnContext.isNonInteractive}, so the
- * orchestrator does not compute or thread any of them per turn.
+ * list, the channel command context, the voice call-control prompt, the
+ * transport hints, and the turn's interactivity are not on this bag:
+ * `applyRuntimeInjections` resolves them from the live conversation itself
+ * (its surface state, `channelCapabilities`, the document store keyed by
+ * `conversationId`, its `commandIntent`, its `voiceCallControlPrompt`, its
+ * `transportHints`, and its `currentTurnIsNonInteractive` respectively — the
+ * last driving the `<non_interactive_context>` branch and the `background-turn`
+ * injector), so the orchestrator does not compute or thread any of them per
+ * turn.
  */
 export interface RuntimeInjectionOptions {
   unifiedTurnContext?: string | null;
@@ -2032,13 +2033,15 @@ export async function applyRuntimeInjections(
   const transportHints =
     findConversationOrSubagent(conversationId)?.transportHints ?? null;
 
-  // Source the turn's interactivity from the caller's TurnContext rather than a
+  // Source the turn's interactivity from the live conversation rather than a
   // per-turn option. The orchestrator resolves it once at turn start (the
   // `isInteractive` override, falling back to the conversation's client /
-  // headless state) and carries it on the context, so the same value drives the
-  // `<non_interactive_context>` branch and the `background-turn` injector on
-  // every assembly call within the turn.
-  const isNonInteractive = options.turnContext?.isNonInteractive ?? false;
+  // headless state) and records it on the conversation, so the same value
+  // drives the `<non_interactive_context>` branch and the `background-turn`
+  // injector on every assembly call within the turn.
+  const isNonInteractive =
+    findConversationOrSubagent(conversationId)?.currentTurnIsNonInteractive ??
+    false;
 
   // Build the per-injector inputs and attach them to the caller's
   // TurnContext (without mutating it). When the caller didn't supply one,

@@ -123,6 +123,7 @@ function seedActiveSurfaceConversation(
   data: SurfaceData,
   channelCapabilities?: ChannelCapabilities,
   commandIntent?: { type: string; payload?: string; languageCode?: string },
+  currentTurnIsNonInteractive?: boolean,
 ): void {
   setConversation(conversationId, {
     conversationId,
@@ -136,6 +137,7 @@ function seedActiveSurfaceConversation(
     >([[surfaceId, { surfaceType: "dynamic_page", data }]]),
     channelCapabilities: channelCapabilities ?? undefined,
     commandIntent,
+    currentTurnIsNonInteractive,
   } as never);
 }
 
@@ -836,7 +838,6 @@ describe("applyRuntimeInjections — injection mode", () => {
         sourceChannel: "vellum" as const,
         trustClass: "guardian" as const,
       },
-      isNonInteractive: true,
     },
   };
 
@@ -853,6 +854,8 @@ describe("applyRuntimeInjections — injection mode", () => {
       { html: "<div>test</div>" },
       channelCapabilities,
       { type: "start" },
+      // Non-interactive turn so the `<non_interactive_context>` branch fires.
+      true,
     );
   });
   afterEach(() => {
