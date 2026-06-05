@@ -24,10 +24,12 @@ mock.module("electron", () => ({
   BrowserWindow: class {},
 }));
 
-const getLockfileDataMock = mock((_paths: string[]) => ({
-  ok: false as const,
-  status: 500,
-}));
+const getLockfileDataMock = mock(
+  (_paths: string[]): { ok: true; data: unknown } | { ok: false; status: number } => ({
+    ok: false as const,
+    status: 500,
+  }),
+);
 const resolveLockfilePathsMock = mock((_env: NodeJS.ProcessEnv) => [
   "/fake/lockfile",
 ]);
