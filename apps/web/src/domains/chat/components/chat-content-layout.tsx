@@ -26,7 +26,6 @@ import { useViewerStore } from "@/stores/viewer-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useEditApp } from "@/hooks/use-edit-app";
 import { useIsMobile } from "@/hooks/use-is-mobile";
-import { subagentsByIdAbortPost } from "@/generated/daemon/sdk.gen";
 import { routes } from "@/utils/routes";
 
 const SubagentDetailPanel = lazy(() =>
@@ -58,7 +57,6 @@ export function ChatContentLayout(props: ChatRouteContentProps) {
   const isDeploying = useDeployStore.use.isDeploying();
   const deployToVercel = useAssistantFeatureFlagStore.use.deployToVercel();
   const assistantId = useAssistantSelectionStore.use.activeAssistantId();
-  const activeConversationId = useConversationStore.use.activeConversationId();
 
   const isMobile = useIsMobile();
   const navigate = useNavigate();
@@ -85,13 +83,15 @@ export function ChatContentLayout(props: ChatRouteContentProps) {
 
   const handleShareApp = useCallback(() => {
     const app = useViewerStore.getState().openedAppState;
-    if (app && assistantId) void useDeployStore.getState().shareApp(assistantId, app.appId, app.name);
-  }, [assistantId]);
+    const aid = useAssistantSelectionStore.getState().activeAssistantId;
+    if (app && aid) void useDeployStore.getState().shareApp(aid, app.appId, app.name);
+  }, []);
 
   const handleDeployApp = useCallback(() => {
     const app = useViewerStore.getState().openedAppState;
-    if (app && assistantId) void useDeployStore.getState().deployApp(assistantId, app.appId, app.name, app.html);
-  }, [assistantId]);
+    const aid = useAssistantSelectionStore.getState().activeAssistantId;
+    if (app && aid) void useDeployStore.getState().deployApp(aid, app.appId, app.name, app.html);
+  }, []);
 
   const handleCloseDocument = useCallback(() => {
     useViewerStore.getState().closeDocument();
@@ -101,23 +101,16 @@ export function ChatContentLayout(props: ChatRouteContentProps) {
     useViewerStore.getState().closeSubagentDetail();
   }, []);
 
-  const onStopSubagent = useCallback(async (subagentId: string) => {
-    if (!assistantId || !activeConversationId) return;
-    try {
-      await subagentsByIdAbortPost({
-        path: { assistant_id: assistantId, id: subagentId },
-        body: { conversationId: activeConversationId },
-        throwOnError: true,
-      });
-    } catch {
-      // Best-effort abort
-    }
-  }, [assistantId, activeConversationId]);
+  const onStopSubagent = useCallback(
+    (subagentId: string) => void useSubagentStore.getState().abortSubagent(subagentId),
+    [],
+  );
 
   const onRequestSubagentDetail = useCallback((id: string) => {
-    if (!assistantId) return;
-    void useSubagentStore.getState().fetchDetailIfNeeded(assistantId, id);
-  }, [assistantId]);
+    const aid = useAssistantSelectionStore.getState().activeAssistantId;
+    if (!aid) return;
+    void useSubagentStore.getState().fetchDetailIfNeeded(aid, id);
+  }, []);
 
   // -------------------------------------------------------------------------
   // Layout routing

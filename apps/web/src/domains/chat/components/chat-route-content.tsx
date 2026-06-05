@@ -48,7 +48,7 @@ import { usePullRefresh } from "@/domains/chat/hooks/use-pull-refresh";
 import type { TranscriptHandle, TranscriptProps } from "@/domains/chat/transcript/transcript";
 import { useTranscriptScroll } from "@/domains/chat/transcript/use-transcript-scroll";
 import { hasAnyInteractiveSurface, hasPendingAssistantResponse, toolCallToRuleContext } from "@/domains/chat/utils/chat";
-import { conversationsByIdUndoPost, subagentsByIdAbortPost } from "@/generated/daemon/sdk.gen";
+import { conversationsByIdUndoPost } from "@/generated/daemon/sdk.gen";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { getLocalBool, removeLocalSetting, setLocalBool } from "@/utils/local-settings";
 import { Button, Notice } from "@vellumai/design-library";
@@ -82,6 +82,7 @@ import { DiskPressureBanner, type DiskPressureBannerMode } from "@/components/di
 import { submitQuestionResponse } from "@/domains/chat/api/interactions";
 import { useActiveProfileModel } from "@/domains/chat/hooks/use-active-profile-model";
 import { useStreamStore } from "@/domains/chat/stream-store";
+import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { type TurnState, useTurnStore } from "@/domains/chat/turn-store";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { useViewerStore } from "@/stores/viewer-store";
@@ -285,18 +286,10 @@ export function ChatRouteContent({
     useViewerStore.getState().openSubagentDetail(id);
   }, []);
 
-  const onStopSubagent = useCallback(async (subagentId: string) => {
-    if (!assistantId || !activeConversationId) return;
-    try {
-      await subagentsByIdAbortPost({
-        path: { assistant_id: assistantId, id: subagentId },
-        body: { conversationId: activeConversationId },
-        throwOnError: true,
-      });
-    } catch {
-      // Best-effort abort
-    }
-  }, [assistantId, activeConversationId]);
+  const onStopSubagent = useCallback(
+    (subagentId: string) => void useSubagentStore.getState().abortSubagent(subagentId),
+    [],
+  );
 
   const pushToAiSettings = useCallback(() => {
     void navigate(routes.settings.ai);
@@ -1314,7 +1307,10 @@ export function ChatRouteContent({
   // -------------------------------------------------------------------------
 
   // Determine variant: app-editing mode renders as a compact side panel.
-  const isSidePanel = mainView === "app-editing" && !!openedAppState;
+  // Must match ChatContentLayout's three-way guard (mainView + openedAppState
+  // + editingConversationId) so the variant stays consistent with the layout.
+  const editingConversationId = useConversationStore.use.editingConversationId();
+  const isSidePanel = mainView === "app-editing" && !!openedAppState && !!editingConversationId;
   const variant = isSidePanel ? "side-panel" : "main";
 
   return (

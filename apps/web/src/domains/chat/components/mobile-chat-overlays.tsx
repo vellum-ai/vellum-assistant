@@ -16,7 +16,6 @@ import { useConversationStore } from "@/stores/conversation-store";
 import { useDeployStore } from "@/stores/deploy-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useViewerStore } from "@/stores/viewer-store";
-import { subagentsByIdAbortPost } from "@/generated/daemon/sdk.gen";
 import { routes } from "@/utils/routes";
 
 import { MobileAppOverlay } from "@/domains/chat/components/mobile-app-overlay";
@@ -30,7 +29,6 @@ export function MobileChatOverlays() {
   const navigate = useNavigate();
 
   const assistantId = useAssistantSelectionStore.use.activeAssistantId();
-  const activeConversationId = useConversationStore.use.activeConversationId();
   const mainView = useViewerStore.use.mainView();
   const openedAppState = useViewerStore.use.openedAppState();
   const openedDocumentState = useViewerStore.use.openedDocumentState();
@@ -49,13 +47,15 @@ export function MobileChatOverlays() {
 
   const handleShareApp = useCallback(() => {
     const app = useViewerStore.getState().openedAppState;
-    if (app && assistantId) void useDeployStore.getState().shareApp(assistantId, app.appId, app.name);
-  }, [assistantId]);
+    const aid = useAssistantSelectionStore.getState().activeAssistantId;
+    if (app && aid) void useDeployStore.getState().shareApp(aid, app.appId, app.name);
+  }, []);
 
   const handleDeployApp = useCallback(() => {
     const app = useViewerStore.getState().openedAppState;
-    if (app && assistantId) void useDeployStore.getState().deployApp(assistantId, app.appId, app.name, app.html);
-  }, [assistantId]);
+    const aid = useAssistantSelectionStore.getState().activeAssistantId;
+    if (app && aid) void useDeployStore.getState().deployApp(aid, app.appId, app.name, app.html);
+  }, []);
 
   const handleCloseDocument = useCallback(() => {
     useViewerStore.getState().closeDocument();
@@ -74,23 +74,16 @@ export function MobileChatOverlays() {
     useViewerStore.getState().closeSubagentDetail();
   }, []);
 
-  const handleStopSubagent = useCallback(async (subagentId: string) => {
-    if (!assistantId || !activeConversationId) return;
-    try {
-      await subagentsByIdAbortPost({
-        path: { assistant_id: assistantId, id: subagentId },
-        body: { conversationId: activeConversationId },
-        throwOnError: true,
-      });
-    } catch {
-      // Best-effort — the daemon may have already completed
-    }
-  }, [assistantId, activeConversationId]);
+  const handleStopSubagent = useCallback(
+    (subagentId: string) => void useSubagentStore.getState().abortSubagent(subagentId),
+    [],
+  );
 
   const handleRequestSubagentDetail = useCallback((subagentId: string) => {
-    if (!assistantId) return;
-    void useSubagentStore.getState().fetchDetailIfNeeded(assistantId, subagentId);
-  }, [assistantId]);
+    const aid = useAssistantSelectionStore.getState().activeAssistantId;
+    if (!aid) return;
+    void useSubagentStore.getState().fetchDetailIfNeeded(aid, subagentId);
+  }, []);
 
   const handleCloseToolDetail = useCallback(() => {
     useViewerStore.getState().closeToolDetail();
