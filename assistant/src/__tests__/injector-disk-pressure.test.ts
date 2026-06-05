@@ -4,6 +4,7 @@ import {
   clearConversations,
   setConversation,
 } from "../daemon/conversation-registry.js";
+import type { ChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
 import {
   applyRuntimeInjections,
   stripInjectionsForCompaction,
@@ -65,6 +66,7 @@ let liveConversation: {
   workspaceTopLevelContext: string | null;
   workspaceTopLevelDirty: boolean;
   diskPressureCleanupModeActive: boolean;
+  channelCapabilities?: ChannelCapabilities;
 };
 
 function resetLiveConversation(): void {
@@ -75,6 +77,11 @@ function resetLiveConversation(): void {
     workspaceTopLevelDirty: false,
     diskPressureCleanupModeActive: false,
   };
+}
+
+function seedChannelCapabilities(caps: ChannelCapabilities): void {
+  liveConversation.channelCapabilities = caps;
+  setConversation(TEST_CONVERSATION_ID, liveConversation as never);
 }
 
 function seedDiskPressure(cleanupModeActive: boolean): void {
@@ -192,15 +199,15 @@ Do not work on unrelated tasks until enough space is freed to clear the lock or 
     ];
 
     seedDiskPressure(true);
+    seedChannelCapabilities({
+      channel: "slack",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+      chatType: "channel",
+    });
     const result = await applyRuntimeInjections(originalRun, {
       turnContext: makeContext(),
-      channelCapabilities: {
-        channel: "slack",
-        dashboardCapable: false,
-        supportsDynamicUi: false,
-        supportsVoiceInput: false,
-        chatType: "channel",
-      },
       slackChronologicalMessages: slackTranscript,
     });
 
