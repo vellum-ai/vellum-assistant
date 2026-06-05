@@ -197,7 +197,7 @@ mock.module("../security/secure-keys.js", () => ({
 }));
 
 mock.module("../calls/twilio-provider.js", () => ({
-  TwilioConversationRelayProvider: class {
+  TwilioVoiceProvider: class {
     readonly name = "twilio";
     static getAuthToken(): string | null {
       return null;

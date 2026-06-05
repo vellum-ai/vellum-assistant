@@ -14,12 +14,14 @@ import type { InitiateCallOptions, VoiceProvider } from "./voice-provider.js";
 const log = getLogger("twilio-provider");
 
 /**
- * Twilio ConversationRelay voice provider.
+ * Twilio voice provider.
  *
- * Uses the Twilio REST API directly via fetch() — no twilio npm package.
- * Credentials are resolved lazily from config on each call.
+ * Owns the generic Twilio integration: outbound call initiation via the
+ * Twilio REST API (no twilio npm package — direct fetch()) and inbound
+ * webhook HMAC signature verification. Credentials are resolved lazily
+ * from config on each call.
  */
-export class TwilioConversationRelayProvider implements VoiceProvider {
+export class TwilioVoiceProvider implements VoiceProvider {
   readonly name = "twilio";
 
   // ── Credential helpers ──────────────────────────────────────────────
