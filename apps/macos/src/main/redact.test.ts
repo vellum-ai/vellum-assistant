@@ -12,13 +12,18 @@ describe("redactText", () => {
     expect(redactText(input)).toBe("Using key [REDACTED_API_KEY]");
   });
 
+  test("redacts hyphenated sk-* API keys", () => {
+    const input = "OPENAI_API_KEY=sk-proj-abc123def456ghi789jklmnopqrst";
+    expect(redactText(input)).toBe("OPENAI_API_KEY=[REDACTED_API_KEY]");
+  });
+
   test("redacts email addresses", () => {
     const input = "Contact user.name+tag@example.co.uk for details";
     expect(redactText(input)).toBe("Contact [REDACTED_EMAIL] for details");
   });
 
   test("redacts /Users/<name>/ paths", () => {
-    const input = "Reading /Users/noaflaherty/Library/Application Support/config";
+    const input = "Reading /Users/alice/Library/Application Support/config";
     expect(redactText(input)).toBe("Reading ~/Library/Application Support/config");
   });
 
