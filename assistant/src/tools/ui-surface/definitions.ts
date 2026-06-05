@@ -73,11 +73,10 @@ function isDynamicPageAppSubstitute(input: Record<string, unknown>): boolean {
   return isSubstantialInteractiveHtml(input);
 }
 
-const INTERACTIVE_HTML_RE = /<script\b|on[a-z]+\s*=|addEventListener|new Chart\b|window\.vellum\b/i;
+const INTERACTIVE_HTML_RE =
+  /<script\b|on[a-z]+\s*=|addEventListener|new Chart\b|window\.vellum\b/i;
 
-function isSubstantialInteractiveHtml(
-  input: Record<string, unknown>,
-): boolean {
+function isSubstantialInteractiveHtml(input: Record<string, unknown>): boolean {
   const data = asRecord(input.data);
   const html = data?.html;
   if (typeof html !== "string") {
@@ -137,7 +136,7 @@ export const uiShowTool = {
     "- file_upload: { prompt, acceptedTypes?, maxFiles? }\n" +
     "- task_preferences: {} (no data needed — categories are rendered client-side)\n" +
     '- work_result: { eyebrow?, status?: "completed"|"partial"|"failed"|"in_progress", summary?, metrics?: [{ label, value, detail?, tone?: "neutral"|"positive"|"warning"|"negative" }], sections?: [{ id?, title, description?, type?: "items"|"timeline"|"diff"|"artifacts"|"warnings", items?: [{ id?, title, description?, status?, tone?, metadata?: [{ label, value }], href? }], diffs?: [{ label?, before?, after? }] }] }. Shows a structured receipt after real work: what changed, what was skipped, proof points, and next actions. Keep display-only unless explicit follow-up buttons are needed.\n\n' +
-    "Proactively show a task_progress card before multi-step or long-running work (web searches, file operations, research). Show it before your first tool call, then update steps as work progresses.",
+    "Emit a task_progress card BEFORE your first tool call on any multi-step, long-running, or post-form turn (web searches, file operations, research), and keep its steps updated as work progresses. Skills that estimate >30s of work should declare progress upfront with concrete step labels (and counts when known).",
   category: "ui-surface",
   defaultRiskLevel: RiskLevel.Low,
   executionTarget: "host",
