@@ -100,6 +100,9 @@ export interface VellumBridge {
      */
     openWebsite(): Promise<void>;
   };
+  csrf: {
+    getToken(): string | null;
+  };
   auth: {
     signIn(): Promise<void>;
     signOut(): Promise<void>;
@@ -306,6 +309,10 @@ const bridge: VellumBridge = {
       ipcRenderer.invoke("vellum:app:versionInfo") as Promise<AppVersionInfo>,
     openWebsite: (): Promise<void> =>
       ipcRenderer.invoke("vellum:app:openWebsite") as Promise<void>,
+  },
+  csrf: {
+    getToken: (): string | null =>
+      ipcRenderer.sendSync("vellum:csrf:getToken") as string | null,
   },
   auth: {
     signIn: notImplemented("auth.signIn"),

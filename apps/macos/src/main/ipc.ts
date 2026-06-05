@@ -60,6 +60,20 @@ export const handle = <Args extends unknown[], R>(
  * the accounting messages that use this path (there's no promise to
  * reject).
  */
+/**
+ * Register a synchronous (`ipcRenderer.sendSync`) handler. Same sender
+ * validation as `handle`/`on`; returns `null` for rejected senders so the
+ * renderer's `sendSync` never hangs.
+ */
+export const handleSync = <R>(
+  channel: string,
+  fn: () => R,
+): void => {
+  ipcMain.on(channel, (event) => {
+    event.returnValue = isAllowedSender(event) ? fn() : null;
+  });
+};
+
 export const on = <Args extends unknown[]>(
   channel: string,
   schema: z.ZodType<Args>,

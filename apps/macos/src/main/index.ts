@@ -14,7 +14,7 @@ import { installAbout, openAboutWindow } from "./about";
 import { APP_HOST, APP_PROTOCOL } from "./app-config";
 import { installCsp } from "./csp";
 import { ensureWebInstalled, getWebDistPath } from "./cli-installer";
-import { handle } from "./ipc";
+import { handle, handleSync } from "./ipc";
 import { resolveAppProtocolPath } from "./app-protocol";
 import { planGatewayForward } from "./gateway-forward";
 import { planPlatformForward } from "./platform-forward";
@@ -210,6 +210,7 @@ const CSRF_COOKIE_RE = /(?:__Secure-)?csrftoken=([^;]+)/;
 // token via `document.cookie`. Main caches it here and injects it into
 // forwarded requests; `net.fetch`'s own cookie jar supplies the cookie side.
 let cachedCsrfToken: string | null = null;
+handleSync("vellum:csrf:getToken", () => cachedCsrfToken);
 
 const captureCsrfToken = (response: Response): void => {
   const setCookies = response.headers.getSetCookie?.() ?? [];

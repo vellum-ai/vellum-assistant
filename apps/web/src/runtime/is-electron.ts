@@ -67,6 +67,9 @@ declare global {
         }>;
         openWebsite(): Promise<void>;
       };
+      csrf?: {
+        getToken(): string | null;
+      };
       settings: {
         get<T = unknown>(key: string): Promise<T | null>;
         set<T = unknown>(key: string, value: T): Promise<void>;
