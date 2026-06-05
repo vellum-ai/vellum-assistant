@@ -1,5 +1,4 @@
 import { BrowserWindow, type WebContents, app, shell } from "electron";
-import path from "node:path";
 import { z } from "zod";
 
 import { getRendererRootUrl } from "./app-config";
@@ -7,6 +6,7 @@ import { resolveAllowedOrigin } from "./app-origin";
 import { advanceAuthFlow, decideNavigation } from "./auth-nav";
 import { type VellumCommand } from "./commands";
 import { handle } from "./ipc";
+import { createWindow } from "./windows";
 import {
   readOnboardingActive,
   restoreBounds,
@@ -192,7 +192,7 @@ const installSameOriginNavigationGuard = (win: BrowserWindow): void => {
   });
 };
 
-const createWindow = (): BrowserWindow => {
+const createMainWindow = (): BrowserWindow => {
   // The prod load target is the renderer base itself (no `/index.html`
   // suffix). The `app://` protocol handler in `index.ts` falls back
   // to `index.html` for paths without a file extension, so this
@@ -216,19 +216,13 @@ const createWindow = (): BrowserWindow => {
     ? { ...ONBOARDING_CONTENT_SIZE, useContentSize: true }
     : restoreBounds("main", MAIN_DEFAULT_BOUNDS);
 
-  const win = new BrowserWindow({
-    ...sizing,
-    show: false,
-    webPreferences: {
-      preload: path.join(__dirname, "../preload/index.js"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      webSecurity: true,
-      allowRunningInsecureContent: false,
-      experimentalFeatures: false,
-      devTools: !app.isPackaged,
-    },
+  // The main window relaxes same-origin navigation during the OAuth sign-in
+  // chain, so it hands the seam its own guard rather than the static
+  // `deny-all` policy; `window.open` stays governed by the global
+  // `web-contents-created` handler in `index.ts`.
+  const win = createWindow({
+    browserWindow: { ...sizing, show: false },
+    navigation: { installGuard: installSameOriginNavigationGuard },
   });
 
   // Persist bounds only when NOT in onboarding mode. Both layouts are
@@ -279,8 +273,6 @@ const createWindow = (): BrowserWindow => {
     fireVisibilityChange();
   });
 
-  installSameOriginNavigationGuard(win);
-
   win.loadURL(loadTarget).catch((err: unknown) => {
     console.error(`[main-window] loadURL failed for ${loadTarget}:`, err);
   });
@@ -311,7 +303,7 @@ const createWindow = (): BrowserWindow => {
  */
 export const ensureVisible = (): Promise<void> => {
   if (!mainWindow || mainWindow.isDestroyed()) {
-    const win = createWindow();
+    const win = createMainWindow();
     return readyStates.get(win)?.promise ?? ALREADY_READY;
   }
   if (mainWindow.isMinimized()) mainWindow.restore();

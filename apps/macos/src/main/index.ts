@@ -40,6 +40,7 @@ import { installPowerEvents } from "./power-events";
 import { readSetting, writeSetting } from "./settings";
 import { installConnectivityIpc, installStatusIpc } from "./status";
 import { installTray } from "./tray";
+import { hardenedWebPreferences } from "./windows";
 
 // Dev-only: override the workspace `name` (`@vellumai/macos`) so the
 // menu bar's first submenu reads "Vellum Electron", and — more
@@ -384,18 +385,14 @@ app.on("web-contents-created", (_event, contents) => {
     // callbacks, so allow these as in-app child windows that inherit the
     // hardened webPreferences from the parent.
     if (disposition === "new-window") {
+      // Child popups inherit the same hardened baseline as every window. The
+      // preload is intentionally omitted (these are OAuth/connect popups, not
+      // Vellum-bridge surfaces), which is why `hardenedWebPreferences()`
+      // leaves it out for the caller to add.
       return {
         action: "allow",
         overrideBrowserWindowOptions: {
-          webPreferences: {
-            contextIsolation: true,
-            nodeIntegration: false,
-            sandbox: true,
-            webSecurity: true,
-            allowRunningInsecureContent: false,
-            experimentalFeatures: false,
-            devTools: isDev,
-          },
+          webPreferences: hardenedWebPreferences(),
         },
       };
     }
