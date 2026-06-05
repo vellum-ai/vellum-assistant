@@ -74,6 +74,17 @@
           "change_summary": {
             "type": "string",
             "description": "Short summary of what changed, using git conventional commit format (e.g. 'feat: add coin flip app', 'fix: correct button alignment'). Used as the version history entry."
+          },
+          "icon": {
+            "type": "string",
+            "description": "Lenient alias. Prefer preview.icon. An emoji or image URL passed here is folded into preview.icon automatically."
+          },
+          "html": {
+            "type": "string",
+            "description": "Lenient alias. Prefer source_files. Raw HTML passed here is folded into source_files['src/index.html'] automatically."
+          },
+          "pages": {
+            "description": "Retired. Multi-page apps route inside the Preact app under src/components/. Passing this returns a guidance error."
           }
         },
         "required": ["name"]
