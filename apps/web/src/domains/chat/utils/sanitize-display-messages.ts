@@ -19,15 +19,13 @@ import type { DisplayMessage } from "@/domains/chat/types/types";
 
 export function sanitizeDisplayMessages(
   messages: DisplayMessage[],
-  activeConfirmationToolCallId?: string,
 ): DisplayMessage[] {
   const pipeline = [
     sortByTimestamp,
     removeInvalidMessages,
     removeDuplicateTrailingAssistant,
     repairDanglingToolCalls,
-    (msgs: DisplayMessage[]) =>
-      failStaleToolCalls(msgs, activeConfirmationToolCallId),
+    failStaleToolCalls,
   ];
   return pipeline.reduce((msgs, step) => step(msgs), messages);
 }
@@ -291,11 +289,10 @@ function repairIfDangling(tc: ChatMessageToolCall): ChatMessageToolCall {
 //   - `tool_call.startedAt` is set (else we have no clock to measure
 //     against; typically only happens for tool calls hydrated from a
 //     pre-stamping history boundary),
-//   - the tool call is not the active confirmation target (a tool waiting on
+//   - `tool_call.pendingConfirmation` is null/undefined (a tool waiting on
 //     user approval is correctly stalled and must not be marked stale —
 //     the daemon's own execution timeout doesn't start until approval
-//     lands). The active prompt's tool-call id comes from `interaction-store`,
-//     passed in by the caller,
+//     lands),
 //   - `now - startedAt > DEFAULT_TOOL_EXECUTION_TIMEOUT_MS + STALE_GRACE_MS`.
 //
 // The timeout uses `DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC` (the canonical
@@ -335,10 +332,7 @@ const SYNTHETIC_STALE_RESULT =
  */
 const STALE_GRACE_MS = 30_000;
 
-function failStaleToolCalls(
-  messages: DisplayMessage[],
-  activeConfirmationToolCallId?: string,
-): DisplayMessage[] {
+function failStaleToolCalls(messages: DisplayMessage[]): DisplayMessage[] {
   // Read the wall clock once at the top of this step so every tool
   // call in this pass is evaluated against the same instant. Tests
   // mock `Date.now` via `spyOn(Date, "now")` for deterministic
@@ -347,55 +341,37 @@ function failStaleToolCalls(
   let result: DisplayMessage[] | null = null;
   for (let i = 0; i < messages.length; i++) {
     const m = messages[i]!;
-    if (
-      m.role !== "assistant" ||
-      !hasStaleToolCall(m, nowMs, activeConfirmationToolCallId)
-    ) {
+    if (m.role !== "assistant" || !hasStaleToolCall(m, nowMs)) {
       if (result) result.push(m);
       continue;
     }
     if (!result) result = messages.slice(0, i);
-    result.push(
-      withStaleToolCallsFailed(m, nowMs, activeConfirmationToolCallId),
-    );
+    result.push(withStaleToolCallsFailed(m, nowMs));
   }
   return result ?? messages;
 }
 
-function hasStaleToolCall(
-  message: DisplayMessage,
-  nowMs: number,
-  activeConfirmationToolCallId?: string,
-): boolean {
-  return (
-    message.toolCalls?.some((tc) =>
-      isStale(tc, nowMs, activeConfirmationToolCallId),
-    ) ?? false
-  );
+function hasStaleToolCall(message: DisplayMessage, nowMs: number): boolean {
+  return message.toolCalls?.some((tc) => isStale(tc, nowMs)) ?? false;
 }
 
 function withStaleToolCallsFailed(
   message: DisplayMessage,
   nowMs: number,
-  activeConfirmationToolCallId?: string,
 ): DisplayMessage {
   return {
     ...message,
     toolCalls: message.toolCalls!.map((tc) =>
-      isStale(tc, nowMs, activeConfirmationToolCallId) ? markStale(tc) : tc,
+      isStale(tc, nowMs) ? markStale(tc) : tc,
     ),
   };
 }
 
-function isStale(
-  tc: ChatMessageToolCall,
-  nowMs: number,
-  activeConfirmationToolCallId?: string,
-): boolean {
+function isStale(tc: ChatMessageToolCall, nowMs: number): boolean {
   if (!isToolCallRunning(tc)) {
     return false;
   }
-  if (tc.id === activeConfirmationToolCallId) {
+  if (tc.pendingConfirmation) {
     return false;
   }
   if (tc.startedAt === undefined) return false;

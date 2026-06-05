@@ -734,12 +734,8 @@ export function ChatRouteContent({
   // trailing assistant drop). See `sanitize-display-messages.ts` for the
   // rationale and removal triggers for each sub-step.
   const sanitizedMessages = useMemo(
-    () =>
-      sanitizeDisplayMessages(
-        messages,
-        inlineConfirmationToolCallId ?? undefined,
-      ),
-    [messages, inlineConfirmationToolCallId],
+    () => sanitizeDisplayMessages(messages),
+    [messages],
   );
 
   useLayoutEffect(() => { sanitizedMessagesRef.current = sanitizedMessages; });
