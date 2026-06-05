@@ -33,7 +33,7 @@ function writeToMainProcess(): void {
     }
   }
 
-  window.vellum?.featureFlags.set(flags);
+  window.vellum?.featureFlags?.set(flags);
 }
 
 /**

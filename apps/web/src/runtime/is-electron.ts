@@ -165,12 +165,16 @@ declare global {
       csrf?: {
         getToken(): string | null;
       };
-      hotkeys: {
+      // Optional: an older preload predates the hotkeys/featureFlags channels.
+      // The macOS app and web bundle don't release together, so a newer
+      // renderer can run against an older preload; callers must guard on
+      // presence (see `status`/`icon` below for the same pattern).
+      hotkeys?: {
         get(): Promise<ResolvedHotkey[]>;
         set(key: string, accelerator: string | null): Promise<void>;
         onChange(callback: (catalog: ResolvedHotkey[]) => void): () => void;
       };
-      featureFlags: {
+      featureFlags?: {
         set(flags: Record<string, boolean>): void;
       };
       commands: {

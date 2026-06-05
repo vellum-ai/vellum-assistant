@@ -11,7 +11,10 @@ import { isElectron, type ResolvedHotkey } from "@/runtime/is-electron";
  * no-op off Electron: `getHotkeys` resolves to an empty catalog, `setHotkey`
  * resolves without doing anything, and `onHotkeysChange` returns a no-op
  * unsubscribe. The settings route is itself platform-gated, so these
- * fallbacks only guard against accidental off-host calls.
+ * fallbacks guard against accidental off-host calls and against an older
+ * preload that predates the `hotkeys` channel (the macOS app and web bundle
+ * don't release together, so a newer renderer can run against an older
+ * preload).
  */
 export type { ResolvedHotkey };
 
@@ -19,7 +22,7 @@ export type { ResolvedHotkey };
 export async function getHotkeys(): Promise<ResolvedHotkey[]> {
   if (!isElectron()) return [];
   const bridge = window.vellum;
-  if (!bridge) return [];
+  if (!bridge?.hotkeys) return [];
   return bridge.hotkeys.get();
 }
 
@@ -35,7 +38,7 @@ export async function setHotkey(
 ): Promise<void> {
   if (!isElectron()) return;
   const bridge = window.vellum;
-  if (!bridge) return;
+  if (!bridge?.hotkeys) return;
   await bridge.hotkeys.set(key, accelerator);
 }
 
@@ -49,6 +52,6 @@ export function onHotkeysChange(
 ): () => void {
   if (!isElectron()) return () => {};
   const bridge = window.vellum;
-  if (!bridge) return () => {};
+  if (!bridge?.hotkeys) return () => {};
   return bridge.hotkeys.onChange(callback);
 }
