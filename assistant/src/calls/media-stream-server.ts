@@ -77,6 +77,7 @@ import { routeSetup } from "./relay-setup-router.js";
 import {
   describeCredentialGaps,
   resolveTelephonyCredentialReadiness,
+  TELEPHONY_SETUP_REQUIRED_MESSAGE,
 } from "./telephony-credential-preflight.js";
 import type { CallEventType } from "./types.js";
 
@@ -785,7 +786,7 @@ export class MediaStreamCallSession {
       this.runFinalizationAndGrantCleanup(session);
       void speakSystemPrompt(
         this.output,
-        "Sorry, this assistant isn't set up to take calls right now. Please try again later. Goodbye.",
+        TELEPHONY_SETUP_REQUIRED_MESSAGE,
       ).finally(() => {
         setTimeout(
           () =>

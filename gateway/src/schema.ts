@@ -483,7 +483,7 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Twilio voice verification callback",
           description:
-            "Receives DTMF digits from Twilio <Gather> during gateway-owned voice verification. Validates the verification code, creates the guardian binding on success, and returns TwiML to either re-prompt or forward to the assistant for ConversationRelay setup.",
+            "Receives DTMF digits from Twilio <Gather> during gateway-owned voice verification. Validates the verification code, creates the guardian binding on success, and returns TwiML to either re-prompt or forward to the assistant for media-stream setup.",
           operationId: "twilioVoiceVerifyCallback",
           security: [{ TwilioSignature: [] }],
           parameters: [
@@ -509,7 +509,7 @@ export function buildSchema(): Record<string, unknown> {
           responses: {
             "200": {
               description:
-                "TwiML response — either a re-prompt <Gather>, a failure <Say>, or forwarded ConversationRelay setup.",
+                "TwiML response — either a re-prompt <Gather>, a failure <Say>, or forwarded media-stream setup.",
               content: {
                 "text/xml": {
                   schema: { type: "string" },
