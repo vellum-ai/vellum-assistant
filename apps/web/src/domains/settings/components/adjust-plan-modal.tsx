@@ -810,20 +810,33 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                               proCurrentTotalCents == null &&
                               !(proPickerShown && proLiveTotalCents != null) ? (
                               // Current Pro card whose current total isn't
-                              // available yet (onboarding still loading or
-                              // errored). Showing the cheapest `From $X` here
+                              // available. Showing the cheapest `From $X` here
                               // would understate what this subscriber actually
-                              // pays, so render the same neutral placeholder
-                              // used by the tier-change block instead.
-                              <div className="flex items-center gap-2 text-[var(--content-tertiary)]">
-                                <Loader2 className="h-4 w-4 animate-spin" />
+                              // pays. While onboarding is still loading, show a
+                              // neutral spinner; once it has settled in an error
+                              // state, show a distinct fallback instead — an
+                              // infinite spinner would misleadingly imply the
+                              // price is still on its way.
+                              onboardingQuery.isError ? (
                                 <Typography
-                                  as="span"
+                                  as="p"
                                   variant="body-medium-lighter"
+                                  className="text-[var(--content-tertiary)]"
+                                  data-testid="modal-pro-price-unavailable"
                                 >
-                                  Loading your plan...
+                                  Current plan pricing unavailable
                                 </Typography>
-                              </div>
+                              ) : (
+                                <div className="flex items-center gap-2 text-[var(--content-tertiary)]">
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                  <Typography
+                                    as="span"
+                                    variant="body-medium-lighter"
+                                  >
+                                    Loading your plan...
+                                  </Typography>
+                                </div>
+                              )
                             ) : (
                               <>
                                 <div className="flex items-center gap-1">

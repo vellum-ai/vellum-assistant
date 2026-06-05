@@ -631,11 +631,12 @@ describe("AdjustPlanModal Pro header total — no picker shown", () => {
     expect(queryByTestId("modal-upgrade-to-pro-button")).toBeNull();
   });
 
-  test("a current Pro card shows a loading placeholder (not the cheapest price) when onboarding has not resolved", async () => {
+  test("a current Pro card shows a distinct fallback (not a perpetual spinner, not the cheapest price) when onboarding errors", async () => {
     // A cancellation-pending Pro subscriber whose onboarding query errors (so
     // the current total is never available). The header must NOT fall back to
-    // the cheapest seeded `From $35/mo` — that understates what the subscriber
-    // pays. Instead it shows the neutral "Loading your plan..." placeholder.
+    // the cheapest seeded `From $35/mo` (it understates what the subscriber
+    // pays), and must NOT show a perpetual "Loading your plan..." spinner for a
+    // settled error — it shows a distinct "pricing unavailable" fallback.
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false, staleTime: Infinity } },
     });
@@ -649,17 +650,19 @@ describe("AdjustPlanModal Pro header total — no picker shown", () => {
     );
     // Deliberately leave the onboarding query unseeded: it fires, the mocked
     // SDK fn rejects, and with retry:false it settles into an error state.
-    const { findByText, queryByTestId } = render(
+    const { findByTestId, queryByText, queryByTestId } = render(
       <QueryClientProvider client={client}>
         <AdjustPlanModal open onClose={() => {}} />
       </QueryClientProvider>,
     );
 
-    await findByText("Loading your plan...");
+    // Settled error → distinct fallback, not the infinite spinner.
+    await findByTestId("modal-pro-price-unavailable");
+    expect(queryByText("Loading your plan...")).toBeNull();
 
     // The cheapest fallback price must never render for a current Pro card.
     const price = queryByTestId("modal-pro-price");
-    expect(price?.textContent ?? "").not.toContain("$35/mo");
+    expect(price).toBeNull();
   });
 });
 
