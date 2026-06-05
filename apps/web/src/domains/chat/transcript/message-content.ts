@@ -1,10 +1,9 @@
 // Pure, leaf helpers for projecting and rendering a `DisplayMessage`'s ordered
 // content. NO React/DOM imports so this can be exercised with `bun test` and
-// imported by both the pure activity projection (`turn-activity.ts`) and the
-// React render path (`transcript-message-body.tsx`) WITHOUT a circular
-// dependency. This module is the single source of truth for the grouping /
-// anchor / suppression logic so the projection and the rendered DOM anchors
-// cannot drift.
+// imported by the React render path (`transcript-message-body.tsx`) WITHOUT a
+// circular dependency. This module is the single source of truth for the
+// grouping / anchor / suppression logic so the projection and the rendered DOM
+// anchors cannot drift.
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { Surface } from "@/domains/chat/types/types";
@@ -15,7 +14,7 @@ import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
  * A `thinking` item carries the contentOrder ids of a contiguous reasoning
  * run; a `tool` item carries a single tool-call/contentOrder id.
  */
-export type ActivityRunItem =
+type ActivityRunItem =
   | { kind: "thinking"; ids: string[] }
   | { kind: "tool"; id: string };
 
@@ -24,7 +23,7 @@ export type ActivityRunItem =
  * thinking + tool entries merge into one `activity` group (broken only by a
  * `text` or `surface` entry); `text`/`surface` pass through individually.
  */
-export type MergedContentGroup =
+type MergedContentGroup =
   | { type: "text"; id: string }
   | { type: "surface"; id: string }
   | { type: "activity"; items: ActivityRunItem[] };
@@ -140,6 +139,19 @@ export function isSubagentSpawnCall(toolCall: ChatMessageToolCall): boolean {
   const input = toolCall.input;
   if (input == null || typeof input !== "object") return false;
   return (input as Record<string, unknown>).tool === "subagent_spawn";
+}
+
+/**
+ * Filter a tool-call list down to the calls that render as steps inside the
+ * unified activity card. `subagent_spawn` calls are rendered inline by
+ * `SubagentInlineProgressCard` at the transcript level, so surfacing them as
+ * card steps would render the spawn twice — they are dropped here. Single
+ * source of truth shared by the card projection and the transcript render path.
+ */
+export function renderableToolCalls(
+  toolCalls: ChatMessageToolCall[],
+): ChatMessageToolCall[] {
+  return toolCalls.filter((tc) => !isSubagentSpawnCall(tc));
 }
 
 /**

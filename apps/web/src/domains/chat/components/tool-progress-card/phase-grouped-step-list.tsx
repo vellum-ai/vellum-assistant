@@ -66,7 +66,7 @@ export const ICON_MAP: Record<IconName, LucideIcon> = {
  *   - Any other title falls back to the title itself so unrecognized tools
  *     still produce a sensible section heading.
  */
-export function phaseFromStep(step: ToolCallCardStep): string {
+function phaseFromStep(step: ToolCallCardStep): string {
   if (step.kind === "thinking") return "Thinking";
   if (step.kind === "web_search" || step.kind === "web_search_error") {
     return "Searching the web";
@@ -127,7 +127,7 @@ type PhaseHeaderStatus = "completed" | "failed" | "running";
  * (`tool_error` / `web_search_error` / `tool` status `error`|`denied`) →
  * "failed"; otherwise → "completed".
  *
- * `web_search` steps carry no explicit status field — `useToolCallCardData`
+ * `web_search` steps carry no explicit status field — the card projection
  * encodes "in-flight" via the present-tense title ("Searching the web" vs
  * "Searched the web"), so we treat any `web_search` step with that title
  * as in-flight. `thinking` is always neutral (no in-flight signal carried).
@@ -143,7 +143,7 @@ function phaseHeaderStatus(steps: ToolCallCardStep[]): PhaseHeaderStatus {
     }
     if (step.kind === "web_search") {
       // Title is the canonical in-flight signal — see `webSearchStepTitle`
-      // in `use-tool-call-card-data.ts`.
+      // in `tool-call-card-utils.ts`.
       if (step.title === "Searching the web") return "running";
       continue;
     }
@@ -162,7 +162,7 @@ interface PhaseSection {
 }
 
 /** Collapse contiguous same-phase steps into sections preserving order. */
-export function groupStepsByPhase(steps: ToolCallCardStep[]): PhaseSection[] {
+function groupStepsByPhase(steps: ToolCallCardStep[]): PhaseSection[] {
   const sections: PhaseSection[] = [];
   for (const step of steps) {
     const label = phaseFromStep(step);
@@ -364,7 +364,7 @@ function TimelinePhaseSection({
         className="flex items-center justify-between gap-2 py-[2px]"
       >
         <span className="flex min-w-0 items-center gap-2">
-          <TimelineNode status={status} />
+          <TimelineNodeIcon status={status} testId="phase-header-status-icon" />
           <Typography
             variant="body-medium-default"
             className="text-[var(--content-default)]"
@@ -394,15 +394,6 @@ function TimelinePhaseSection({
       </div>
     </div>
   );
-}
-
-/**
- * A timeline status node — the circular status icon. The connector lines start
- * below / end above each node (with a small gap), so the icon never needs to
- * mask the line passing behind it.
- */
-function TimelineNode({ status }: { status: PhaseHeaderStatus }) {
-  return <TimelineNodeIcon status={status} testId="phase-header-status-icon" />;
 }
 
 /**

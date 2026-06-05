@@ -12,6 +12,7 @@
 import { Brain } from "lucide-react";
 
 import { InlineActivityLink } from "@/domains/chat/components/inline-activity-link/inline-activity-link";
+import { thinkingDetailPayload } from "@/domains/chat/hooks/tool-call-card-utils";
 import { useViewerStore } from "@/stores/viewer-store";
 
 export interface ThoughtProcessLinkProps {
@@ -43,16 +44,7 @@ export function ThoughtProcessLink({
       label={isStreaming ? "Thinking…" : "Thought process"}
       active={isActive}
       onClick={() =>
-        toggleToolDetail({
-          kind: "thinking",
-          toolCallId: "",
-          toolName: "",
-          title: "Thought process",
-          activity: "",
-          input: {},
-          status: "completed",
-          thinkingText: content,
-        })
+        toggleToolDetail(thinkingDetailPayload(content, "Thought process"))
       }
     />
   );

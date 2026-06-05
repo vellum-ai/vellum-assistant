@@ -3,8 +3,8 @@
  *
  * Covers the post-unification rendering contract:
  *  - Non-web tool groups (bash, read, MCP, etc.) render via the shared
- *    `ToolProgressCardShell` with `useToolCallCardData`-derived header text
- *    and step pill.
+ *    `ToolProgressCardShell` with `useToolCallCardDataFromItems`-derived header
+ *    text and step pill.
  *  - Web-only groups continue to render through `WebSearchProgressCard` for
  *    regression parity.
  *  - Mixed groups (web + non-web) render through the unified shell with one
