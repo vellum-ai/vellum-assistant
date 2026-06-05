@@ -298,9 +298,10 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
   const displayCreditTier: CreditTierEnum | null =
     selectedCreditTier === undefined ? currentCreditTier : selectedCreditTier;
 
-  // Folds into TierPicker's headline Total. `priceForCredit` returns 0 for "No
-  // bundle" and for catalogs without credit_tiers (empty `creditTiers`), so the
-  // total stays byte-identical to before when the feature is off.
+  // Folds into the Pro card-header live total (`proLiveTotalCents`).
+  // `priceForCredit` returns 0 for "No bundle" and for catalogs without
+  // credit_tiers (empty `creditTiers`), so the total stays byte-identical to
+  // before when the feature is off.
   const selectedCreditPriceCents = priceForCredit(displayCreditTier);
 
   // For an active Pro subscriber, disable any storage tier strictly below the
@@ -713,10 +714,19 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                     // that path shows only reactivation).
                     const showProTierChange =
                       isProCard && isCurrent && proTierChangeMode;
+                    // A tier picker is actually rendered on the Pro card only in
+                    // the Base→Pro upgrade flow or the active-Pro change flow.
+                    // When neither is shown (e.g. a current Pro card with a
+                    // pending cancellation), the live, selection-driven total
+                    // must not be displayed — the seeded cheapest tiers don't
+                    // reflect what keeping the plan retains.
+                    const proPickerShown =
+                      (!isCurrent && isProCard) || showProTierChange;
                     // Live running total for the Pro card header: base + the
                     // selected machine/storage/credit prices. Updates as the
-                    // user changes any dimension. In change mode it also carries
-                    // a delta vs. the current subscription.
+                    // user changes any dimension. The delta is shown when this
+                    // new total differs from the current subscription (i.e. when
+                    // a current total exists).
                     const proLiveTotalCents =
                       isProCard &&
                       nextMachinePrice != null &&
@@ -804,7 +814,8 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                                     variant="title-medium"
                                     data-testid="modal-pro-price"
                                   >
-                                    {proLiveTotalCents != null ? (
+                                    {proPickerShown &&
+                                    proLiveTotalCents != null ? (
                                       <>
                                         {formatMonthly(proLiveTotalCents)}
                                         {proTotalDelta != null &&
@@ -814,6 +825,10 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                                             </span>
                                           )}
                                       </>
+                                    ) : proCurrentTotalCents != null ? (
+                                      `Currently ${formatMonthly(
+                                        proCurrentTotalCents,
+                                      )}`
                                     ) : (
                                       `From ${formatMonthly(
                                         plan.base_price_cents +
@@ -824,6 +839,7 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                                   </Typography>
                                   <span
                                     title={
+                                      proPickerShown &&
                                       proTotalDelta != null &&
                                       proTotalDelta !== 0
                                         ? `Your Pro Plan subscription will change from ${formatMonthly(proCurrentTotalCents!)} to ${formatMonthly(proLiveTotalCents!)}. Includes a $10/month flat fee for Pro Features.`
