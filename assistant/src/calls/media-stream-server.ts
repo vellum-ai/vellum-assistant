@@ -536,6 +536,17 @@ export class MediaStreamCallSession {
     // The setup phase is over — stop routing caller input into the flow.
     this.setupFlow = null;
 
+    // Guard against a completion that resolves AFTER the transport already
+    // closed. An interactive flow can still be awaiting async work (e.g.
+    // outbound verification awaiting postPointer) when the caller hangs up;
+    // handleTransportClosed() disposes the flow and finalizes the session, but
+    // CallSetupFlow.dispose() can't cancel an already-scheduled completion.
+    // Without this guard a late completion would create/register a new
+    // CallController and start a greeting on an already-closed/terminal call.
+    if (this.disposed) return;
+    const currentSession = getCallSession(this.callSessionId);
+    if (currentSession && isTerminalState(currentSession.status)) return;
+
     if (result.kind === "ended") {
       // Terminal setup outcome (deny / unverified / verification failure /
       // guardian denial or timeout). The flow has already spoken the copy and

@@ -1285,7 +1285,7 @@ describe("media-stream setup outcome scenarios", () => {
       // The caller speaks their name → access request opened → guardian wait
       // starts. The mocked canonical request is already "approved" so the first
       // poll resolves the wait.
-      lastSttCallbacks.onTranscriptFinal?.("Sam Rivera", 1200);
+      lastSttCallbacks.onTranscriptFinal?.("Example User", 1200);
       // Drive the wait poll timer (fake timers) and let callbacks settle.
       jest.advanceTimersByTime(60_000);
       await flushMicrotasks();
@@ -1404,7 +1404,7 @@ describe("media-stream setup outcome scenarios", () => {
 
       // Caller speaks name → access request opened → guardian wait → first poll
       // resolves "denied".
-      lastSttCallbacks.onTranscriptFinal?.("Sam Rivera", 1200);
+      lastSttCallbacks.onTranscriptFinal?.("Example User", 1200);
       jest.advanceTimersByTime(60_000);
       await flushMicrotasks();
 
@@ -1449,7 +1449,7 @@ describe("media-stream setup outcome scenarios", () => {
 
       // Caller speaks name → access request → guardian wait → markWaitingOnUser
       // drives the session to waiting_on_user.
-      lastSttCallbacks.onTranscriptFinal?.("Sam Rivera", 1200);
+      lastSttCallbacks.onTranscriptFinal?.("Example User", 1200);
       expect(mockSessions.get("call-approve-1")?.status).toBe(
         "waiting_on_user",
       );
