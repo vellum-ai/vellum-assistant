@@ -174,24 +174,29 @@ export function normalizeContentOrder(
  *
  * The daemon emits `contentBlocks` directly from the model-native content
  * (`renderHistoryContent`) as the authoritative, single-ordered list of
- * text / thinking / tool_use / surface / attachment blocks. When the wire
- * carries it, it is returned verbatim — the renderer consumes the canonical
- * wire shape with no client-side reshaping.
+ * text / thinking / tool_use / surface / attachment blocks. Any defined value
+ * — including an empty array — is returned verbatim: the server having sent
+ * the field at all means it is authoritative (an empty list is a genuinely
+ * contentless message, not a missing projection), so the renderer consumes
+ * the canonical wire shape with no client-side reshaping.
  *
- * Daemons predating the projection ship only the positional
+ * The reconstruction path below exists solely for assistants versioned
+ * `< 0.8.8`, which predate the projection and omit `contentBlocks` entirely.
+ * Those ship only the positional
  * `contentOrder`/`textSegments`/`thinkingSegments`/`toolCalls`/`surfaces`/
- * `attachments` arrays. For those we reconstruct the same discriminated-union
- * list from the positional arrays so the renderer always has a wire-shaped
- * list regardless of daemon version. The reconstruction mirrors the daemon's
- * own builder: text segments are stripped of their inlined `[File attachment]`
- * summary lines (attachments surface as `attachment` blocks, not text) and
- * fully-consumed (empty) text segments are dropped, so a reconstructed row is
- * indistinguishable from a daemon-provided one.
+ * `attachments` arrays, so we rebuild the same discriminated-union list from
+ * them and the renderer always has a wire-shaped list regardless of daemon
+ * version. The reconstruction mirrors the daemon's own builder: text segments
+ * are stripped of their inlined `[File attachment]` summary lines (attachments
+ * surface as `attachment` blocks, not text) and fully-consumed (empty) text
+ * segments are dropped, so a reconstructed row is indistinguishable from a
+ * daemon-provided one. It can be deleted once `< 0.8.8` assistants are no
+ * longer supported.
  */
 export function normalizeContentBlocks(
   m: ConversationMessage,
 ): ConversationContentBlock[] | undefined {
-  if (m.contentBlocks && m.contentBlocks.length > 0) {
+  if (m.contentBlocks !== undefined) {
     return m.contentBlocks;
   }
 

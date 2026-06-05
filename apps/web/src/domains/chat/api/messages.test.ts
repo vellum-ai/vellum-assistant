@@ -193,6 +193,26 @@ describe("normalizeContentBlocks", () => {
     expect(result).toBe(contentBlocks);
   });
 
+  test("trusts an empty contentBlocks array over reconstructing from positional arrays", () => {
+    // GIVEN a daemon that emits the projection but for a contentless message,
+    // so contentBlocks is a defined-but-empty array
+    const contentBlocks: ConversationContentBlock[] = [];
+    const message = wireMessage({
+      contentBlocks,
+      // AND positional arrays that would otherwise be reconstructed from
+      contentOrder: ["text:0"],
+      textSegments: ["should be ignored"],
+    });
+
+    // WHEN we resolve the message's content blocks
+    const result = normalizeContentBlocks(message);
+
+    // THEN the authoritative empty projection wins; positional arrays are not
+    // reconstructed (a sent-but-empty field is a genuinely contentless message,
+    // not a missing projection)
+    expect(result).toBe(contentBlocks);
+  });
+
   test("reconstructs blocks from positional arrays for daemons that omit them", () => {
     // GIVEN a pre-projection message carrying only positional arrays
     const toolCall: ConversationMessageToolCall = {
