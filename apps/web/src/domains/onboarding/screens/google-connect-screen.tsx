@@ -17,6 +17,7 @@ import {
     type OAuthCompletePayload,
 } from "@/lib/auth/oauth-popup";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
+import { isElectron } from "@/runtime/is-electron";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import type { OAuthCompleteDeepLinkPayload } from "@/runtime/native-deep-link";
 import { publicAsset } from "@/utils/public-asset";
@@ -57,6 +58,7 @@ export function GoogleConnectScreen({
   onSkip,
   onBack,
 }: GoogleConnectScreenProps) {
+  const electron = isElectron();
   const queryClient = useQueryClient();
   const isNative = useIsNativePlatform();
 
@@ -373,7 +375,7 @@ export function GoogleConnectScreen({
 
   return (
     <OnboardingLayout>
-      <div className="mx-auto flex w-full max-w-md flex-col items-center px-6 pb-40 pt-12 text-[var(--content-default)]">
+      <div className={`mx-auto flex w-full max-w-md flex-col items-center ${electron ? "px-8 pt-6" : "px-6 pt-12"} pb-40 text-[var(--content-default)]`}>
         <div
           className="grid w-full grid-cols-[auto_1fr_auto] items-center"
           style={{ animation: "fadeInUp 0.3s ease-out 0.1s both" }}

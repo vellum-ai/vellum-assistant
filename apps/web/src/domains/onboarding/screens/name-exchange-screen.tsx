@@ -1,6 +1,7 @@
 import { ChevronLeft } from "lucide-react";
 
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
+import { isElectron } from "@/runtime/is-electron";
 import {
     PERSONALITY_GROUPS,
     type PersonalityGroup,
@@ -33,10 +34,12 @@ export function NameExchangeScreen({
   onComplete,
   onSkip,
 }: NameExchangeScreenProps) {
+  const electron = isElectron();
+
   return (
     <OnboardingLayout>
       <div
-        className="mx-auto flex w-full max-w-md flex-col items-center px-6 pb-40 text-[var(--content-default)]"
+        className={`mx-auto flex w-full max-w-md flex-col items-center ${electron ? "px-8" : "px-6"} pb-40 text-[var(--content-default)]`}
         style={{
           paddingTop:
             "calc(var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) + 1.5rem)",
@@ -70,7 +73,7 @@ export function NameExchangeScreen({
         </p>
 
         <div
-          className="mt-8 flex w-full flex-col gap-6"
+          className={`${electron ? "mt-6" : "mt-8"} flex w-full flex-col ${electron ? "gap-4" : "gap-6"}`}
           style={{ animation: "fadeInUp 0.3s ease-out 0.3s both" }}
         >
           <Input
