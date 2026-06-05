@@ -158,6 +158,7 @@ import {
   buildActiveSurfaceContext,
   buildSubagentStatusBlock,
   buildUnifiedTurnContextBlock,
+  buildWorkspaceTopLevelContext,
   findLastInjectedNowContent,
   getSlackCompactionWatermarkForPrefix,
   inboundActorContextFromTrust,
@@ -1170,8 +1171,6 @@ export async function runAgentLoopImpl(
     // loop only reuses the injected message list downstream.
     let runMessages = memoryCtx.latestMessages;
 
-    ctx.refreshWorkspaceTopLevelContextIfNeeded();
-
     // Compute fresh turn timestamp for date grounding.
     // Absolute "now" is always anchored to assistant host clock, while local
     // date semantics prefer configured user timezone, then device timezones.
@@ -1402,9 +1401,10 @@ export async function runAgentLoopImpl(
       // Resolved here, where the runtime injector is the only consumer of the
       // active-documents block.
       activeDocuments: buildActiveDocuments(ctx.conversationId),
-      workspaceTopLevelContext: state.shouldInjectWorkspace
-        ? ctx.workspaceTopLevelContext
-        : null,
+      workspaceTopLevelContext: buildWorkspaceTopLevelContext(
+        ctx,
+        state.shouldInjectWorkspace,
+      ),
       channelCapabilities: ctx.channelCapabilities ?? null,
       channelCommandContext: ctx.commandIntent ?? null,
       unifiedTurnContext: unifiedTurnContextStr,
@@ -1661,9 +1661,10 @@ export async function runAgentLoopImpl(
             ...(stepCompacted && { pkbContext: currentPkbContent }),
             ...(stepCompacted && { memoryV2Static: currentMemoryV2Static }),
             ...(stepCompacted && { nowScratchpad: currentNowContent }),
-            workspaceTopLevelContext: state.shouldInjectWorkspace
-              ? ctx.workspaceTopLevelContext
-              : null,
+            workspaceTopLevelContext: buildWorkspaceTopLevelContext(
+              ctx,
+              state.shouldInjectWorkspace,
+            ),
             // Once ANY iteration has compacted `ctx.messages`, the captured
             // `slackChronologicalMessages` snapshot (built from the full
             // persisted transcript) would overwrite the compacted history
@@ -1815,9 +1816,10 @@ export async function runAgentLoopImpl(
           pkbContext: currentPkbContent,
           memoryV2Static: currentMemoryV2Static,
           nowScratchpad: currentNowContent,
-          workspaceTopLevelContext: state.shouldInjectWorkspace
-            ? ctx.workspaceTopLevelContext
-            : null,
+          workspaceTopLevelContext: buildWorkspaceTopLevelContext(
+            ctx,
+            state.shouldInjectWorkspace,
+          ),
           // Suppress the chronological-transcript snapshot once the reducer
           // has collapsed `ctx.messages`; the captured snapshot reflects the
           // full persisted transcript and would overwrite compaction.
@@ -2213,9 +2215,10 @@ export async function runAgentLoopImpl(
           pkbContext: currentPkbContent,
           memoryV2Static: convergenceStripped ? currentMemoryV2Static : null,
           nowScratchpad: convergenceStripped ? currentNowContent : null,
-          workspaceTopLevelContext: state.shouldInjectWorkspace
-            ? ctx.workspaceTopLevelContext
-            : null,
+          workspaceTopLevelContext: buildWorkspaceTopLevelContext(
+            ctx,
+            state.shouldInjectWorkspace,
+          ),
           slackChronologicalMessages: state.reducerCompacted
             ? null
             : injectionOpts.slackChronologicalMessages,
@@ -2353,9 +2356,10 @@ export async function runAgentLoopImpl(
             pkbContext: currentPkbContent,
             memoryV2Static: convergenceStripped ? currentMemoryV2Static : null,
             nowScratchpad: convergenceStripped ? currentNowContent : null,
-            workspaceTopLevelContext: state.shouldInjectWorkspace
-              ? ctx.workspaceTopLevelContext
-              : null,
+            workspaceTopLevelContext: buildWorkspaceTopLevelContext(
+              ctx,
+              state.shouldInjectWorkspace,
+            ),
             slackChronologicalMessages: state.reducerCompacted
               ? null
               : injectionOpts.slackChronologicalMessages,
