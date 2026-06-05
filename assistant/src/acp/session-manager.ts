@@ -232,7 +232,8 @@ export class AcpSessionManager {
       );
     } catch (err) {
       log.error({ acpSessionId, agentId, err }, "ACP spawn failed");
-      this.cleanupFailedStartup(acpSessionId, agentProcess);
+      // No prompt has fired yet, so no permissions can be pending.
+      this.teardownSession(acpSessionId, entry);
       throw err;
     }
 
@@ -314,21 +315,6 @@ export class AcpSessionManager {
 
     this.sessions.set(acpSessionId, entry);
     return entry;
-  }
-
-  /**
-   * Failure cleanup shared by spawn() and the resume path: kill the
-   * orphaned child process and remove the reserved slot. A subset of
-   * teardownSession: at startup time no prompt has fired, so there are no
-   * pending permission requests to deny.
-   */
-  private cleanupFailedStartup(
-    acpSessionId: string,
-    agentProcess: AcpAgentProcess,
-  ): void {
-    agentProcess.kill();
-    this.sessions.delete(acpSessionId);
-    this.eventBuffers.delete(acpSessionId);
   }
 
   /**
@@ -518,7 +504,8 @@ export class AcpSessionManager {
         { acpSessionId, agentId: row.agentId, err },
         "ACP resume failed",
       );
-      this.cleanupFailedStartup(acpSessionId, agentProcess);
+      // No prompt has fired yet, so no permissions can be pending.
+      this.teardownSession(acpSessionId, entry);
       throw err;
     }
 
@@ -597,7 +584,17 @@ export class AcpSessionManager {
       await this.steer(acpSessionId, instruction);
       return { resumed: false };
     } catch (err) {
-      if (!(err instanceof AcpSessionNotFoundError)) throw err;
+      // Fall through to the in-flight-resume handling both when the session
+      // is entirely unknown and when a concurrent resume has already
+      // registered its entry but is still initializing: steer rejects with a
+      // plain not-running error in that window, yet the resume reservation
+      // is live and the retry below will land once it settles.
+      if (
+        !(err instanceof AcpSessionNotFoundError) &&
+        !this.pendingResumes.has(acpSessionId)
+      ) {
+        throw err;
+      }
     }
 
     // Another caller's resume of this id may already be in flight (the

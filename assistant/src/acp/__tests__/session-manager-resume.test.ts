@@ -31,6 +31,12 @@ const fakeCaps = { loadSession: false, resume: false };
 let replayChunks: string[] = [];
 /** When set, prompt() throws synchronously (steerOrResume teardown tests). */
 let promptThrowsSync = false;
+/**
+ * When set, resumeSession() stalls on this gate. Lets tests observe the
+ * post-registration "initializing" window where the SessionEntry exists but
+ * the resume has not yet settled.
+ */
+let resumeSessionGate: Promise<void> | null = null;
 const fakeInstances: FakeAcpAgentProcess[] = [];
 
 class FakeAcpAgentProcess {
@@ -77,6 +83,7 @@ class FakeAcpAgentProcess {
   }
 
   async resumeSession(sessionId: string, cwd: string): Promise<void> {
+    if (resumeSessionGate) await resumeSessionGate;
     this.resumeSessionCalls.push({ sessionId, cwd });
   }
 
@@ -184,6 +191,7 @@ beforeEach(() => {
   replayChunks = [];
   promptThrowsSync = false;
   prepareAgentEnvGate = null;
+  resumeSessionGate = null;
   resolveImpl = () => ({
     ok: true,
     agent: { command: "claude-agent-acp", args: [] },
@@ -604,6 +612,65 @@ describe("AcpSessionManager.steerOrResume", () => {
       1,
     );
     expect((manager.getStatus("sor-race-1") as AcpSessionState).status).toBe(
+      "running",
+    );
+  });
+
+  test("steerOrResume arriving in the initializing window awaits the in-flight resume and steers", async () => {
+    fakeCaps.resume = true;
+    insertHistoryRow({ id: "sor-init-1" });
+    let release!: () => void;
+    resumeSessionGate = new Promise((res) => {
+      release = res;
+    });
+
+    const manager = new AcpSessionManager(4);
+    const sent: ServerMessage[] = [];
+    const first = manager.steerOrResume("sor-init-1", "first instruction", (msg) =>
+      sent.push(msg),
+    );
+
+    // Advance microtasks until the first call's resume has registered its
+    // SessionEntry but is still gated inside resumeSession: the session
+    // exists in memory with status "initializing".
+    while (!internals(manager).sessions.has("sor-init-1")) {
+      await Promise.resolve();
+    }
+    expect((manager.getStatus("sor-init-1") as AcpSessionState).status).toBe(
+      "initializing",
+    );
+
+    // A steerOrResume in this window previously rethrew the plain
+    // "is not running (status: initializing)" error and dropped the
+    // instruction. It must instead await the in-flight resume and retry.
+    const second = manager.steerOrResume(
+      "sor-init-1",
+      "second instruction",
+      (msg) => sent.push(msg),
+    );
+    // Let the second call hit the initializing steer failure and park on
+    // the in-flight resume before releasing the gate.
+    await Promise.resolve();
+    await Promise.resolve();
+    release();
+
+    const [a, b] = await Promise.all([first, second]);
+    expect(a).toEqual({ resumed: true });
+    expect(b).toEqual({ resumed: true });
+
+    // Exactly one process was constructed and one resume happened; both
+    // instructions landed on the single resumed session after it settled.
+    expect(fakeInstances).toHaveLength(1);
+    const fake = fakeInstances[0]!;
+    expect(fake.resumeSessionCalls).toHaveLength(1);
+    expect(fake.promptCalls.map((c) => c.text).sort()).toEqual([
+      "first instruction",
+      "second instruction",
+    ]);
+    expect(sent.filter((m) => m.type === "acp_session_spawned")).toHaveLength(
+      1,
+    );
+    expect((manager.getStatus("sor-init-1") as AcpSessionState).status).toBe(
       "running",
     );
   });
