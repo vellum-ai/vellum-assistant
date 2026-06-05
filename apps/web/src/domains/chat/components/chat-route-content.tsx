@@ -96,6 +96,7 @@ import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversat
 import { useAppNudges } from "@/domains/chat/hooks/use-app-nudges";
 import { useGhostTextSuggestion } from "@/domains/chat/hooks/use-ghost-text-suggestion";
 import { useInteractionActions } from "@/domains/chat/hooks/use-interaction-actions";
+import { useRuleEditorStore } from "@/domains/chat/rule-editor-store";
 import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
 import { useVoiceInput } from "@/domains/chat/hooks/use-voice-input";
 import { useConversationListQuery } from "@/hooks/conversation-queries";
@@ -256,14 +257,13 @@ export function ChatRouteContent({
     handleOpenRuleEditorForToolCall,
     handleSaveRule,
     handleSaveAsNewRule,
-    showRuleEditor,
-    ruleEditorContext,
-    dismissRuleEditor,
-    isSavingRule,
     handleSurfaceAction,
-    unknownNudgeToolCallIds,
-    setUnknownNudgeToolCallIds,
   } = useInteractionActions();
+
+  const showRuleEditor = useRuleEditorStore.use.showRuleEditor();
+  const ruleEditorContext = useRuleEditorStore.use.ruleEditorContext();
+  const isSavingRule = useRuleEditorStore.use.isSavingRule();
+  const unknownNudgeToolCallIds = useInteractionStore.use.unknownNudgeToolCallIds();
 
   const handleOpenApp = useOpenAppFromChat();
 
@@ -546,7 +546,7 @@ export function ChatRouteContent({
         isSaving={isSavingRule}
         onSave={handleSaveRule}
         onSaveAsNew={handleSaveAsNewRule}
-        onDismiss={dismissRuleEditor}
+        onDismiss={useRuleEditorStore.getState().dismissRuleEditor}
       />
     ) : null;
 
@@ -1026,11 +1026,7 @@ export function ChatRouteContent({
     assistantId,
     unknownNudgeToolCallIds,
     onDismissUnknownNudge: (toolCallId) =>
-      setUnknownNudgeToolCallIds((ids) => {
-        const next = new Set(ids);
-        next.delete(toolCallId);
-        return next;
-      }),
+      useInteractionStore.getState().removeUnknownNudgeToolCallId(toolCallId),
     onSurfaceAction: (surfaceId, action, input) => {
       void handleSurfaceAction(
         surfaceId,

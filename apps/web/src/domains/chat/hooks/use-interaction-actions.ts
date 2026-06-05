@@ -12,7 +12,7 @@
  */
 
 import { captureError } from "@/lib/sentry/capture-error";
-import { type Dispatch, type SetStateAction, useCallback, useRef, useState } from "react";
+import { useCallback } from "react";
 
 import { addTrustRule, fetchTrustRules, suggestTrustRule, updateTrustRule } from "@/lib/trust-rules-api";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
@@ -22,6 +22,7 @@ import { useStreamStore } from "@/domains/chat/stream-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useTurnStore } from "@/domains/chat/turn-store";
 import { endTurn } from "@/domains/chat/turn-coordinator";
+import { useRuleEditorStore } from "@/domains/chat/rule-editor-store";
 
 import {
   clearConfirmationByRequestId,
@@ -149,13 +150,6 @@ export interface UseInteractionActionsReturn {
   handleQuestionResponse: (responses: QuestionResponseEntry[]) => Promise<void>;
   handleDismissPendingQuestion: () => void;
   handleSurfaceAction: (surfaceId: string, actionId: string, data?: Record<string, unknown>) => Promise<void>;
-  showRuleEditor: boolean;
-  setShowRuleEditor: Dispatch<boolean>;
-  ruleEditorContext: RuleEditorContext | null;
-  dismissRuleEditor: () => void;
-  isSavingRule: boolean;
-  unknownNudgeToolCallIds: Set<string>;
-  setUnknownNudgeToolCallIds: Dispatch<SetStateAction<Set<string>>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -165,12 +159,6 @@ export interface UseInteractionActionsReturn {
 export function useInteractionActions(): UseInteractionActionsReturn {
   const setMessages = useChatSessionStore.use.setMessages();
   const setError = useChatSessionStore.use.setError();
-
-  const [showRuleEditor, setShowRuleEditor] = useState(false);
-  const [ruleEditorContext, setRuleEditorContext] = useState<RuleEditorContext | null>(null);
-  const [isSavingRule, setIsSavingRule] = useState(false);
-  const [unknownNudgeToolCallIds, setUnknownNudgeToolCallIds] = useState<Set<string>>(new Set());
-  const suggestionAbortRef = useRef<AbortController | null>(null);
 
   // -------------------------------------------------------------------------
   // Secret handlers
@@ -410,7 +398,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
       });
 
       if (nudgeTcId) {
-        setUnknownNudgeToolCallIds((ids) => new Set([...ids, nudgeTcId]));
+        useInteractionStore.getState().addUnknownNudgeToolCallId(nudgeTcId);
       }
 
       useChatSessionStore.getState().confirmationToolCallMap.delete(snapshot.requestId);
@@ -578,9 +566,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
       directoryScopeOptions: DirectoryScopeOption[];
       existingRule?: TrustRuleItem;
     }) => {
-      suggestionAbortRef.current?.abort();
-      const abortController = new AbortController();
-      suggestionAbortRef.current = abortController;
+      const abortController = useRuleEditorStore.getState().newSuggestionController();
 
       const scopeOpts =
         params.resolvedAllowlistOptions.length > 0
@@ -605,7 +591,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
               : undefined,
           });
           if (!abortController.signal.aborted) {
-            setRuleEditorContext((prev) => (prev ? { ...prev, suggestion } : null));
+            useRuleEditorStore.getState().updateRuleEditorContext({ suggestion });
           }
         } catch {
           // Suggestion is best-effort — silently ignore failures.
@@ -647,8 +633,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
     // suggestion, matching macOS `fetchSuggestionAndOpenEditor`. The confirmation
     // snapshot carries no `matchedTrustRuleId`, so this path is always create-only.
     const openCreateEditor = (context: RuleEditorContext) => {
-      setRuleEditorContext(context);
-      setShowRuleEditor(true);
+      useRuleEditorStore.getState().openRuleEditor(context);
       fireSuggestion({
         assistantId: ctx.assistantId,
         toolName: snapshot.toolName ?? "",
@@ -698,8 +683,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
       }
 
       // Cancel any previous suggestion fetch.
-      suggestionAbortRef.current?.abort();
-      suggestionAbortRef.current = null;
+      useRuleEditorStore.getState().abortSuggestion();
 
       // Only `riskAllowlistOptions` (minimatch globs) are valid save-path
       // patterns. Per the `tool_result` wire contract, `riskScopeOptions` are a
@@ -740,8 +724,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
         }
 
         const editorContext: RuleEditorContext = { ...baseContext, existingRule };
-        setRuleEditorContext(editorContext);
-        setShowRuleEditor(true);
+        useRuleEditorStore.getState().openRuleEditor(editorContext);
 
         // Fire LLM suggestion in the background.
         fireSuggestion({
@@ -765,16 +748,16 @@ export function useInteractionActions(): UseInteractionActionsReturn {
   const handleSaveRule = useCallback(
     async (rule: { toolName: string; pattern: string; riskLevel: string; scope: string }) => {
       const ctx = useStreamStore.getState().streamContext;
-      const context = ruleEditorContext;
+      const { ruleEditorContext: context, isSavingRule: saving } = useRuleEditorStore.getState();
       if (!ctx || !context) {
         return;
       }
-      if (isSavingRule) {
+      if (saving) {
         return;
       }
 
       if (!context.requestId) {
-        setIsSavingRule(true);
+        useRuleEditorStore.getState().setIsSavingRule(true);
         try {
           if (context.existingRule) {
             // Edit mode: update the existing rule's risk level.
@@ -794,14 +777,13 @@ export function useInteractionActions(): UseInteractionActionsReturn {
           captureError(err, { context: "save_trust_rule_direct" });
           setError({ message: "Failed to save trust rule. Please try again." });
         } finally {
-          setIsSavingRule(false);
-          setShowRuleEditor(false);
-          setRuleEditorContext(null);
+          useRuleEditorStore.getState().setIsSavingRule(false);
+          useRuleEditorStore.getState().dismissRuleEditor();
         }
         return;
       }
 
-      setIsSavingRule(true);
+      useRuleEditorStore.getState().setIsSavingRule(true);
       useInteractionStore.getState().submitConfirmationStart();
       try {
         const result = await submitConfirmation(
@@ -812,19 +794,17 @@ export function useInteractionActions(): UseInteractionActionsReturn {
         );
 
         if (!result.ok) {
-          setShowRuleEditor(false);
-          setRuleEditorContext(null);
+          useRuleEditorStore.getState().dismissRuleEditor();
           setError({ message: result.error });
           return;
         }
       } catch (err) {
         captureError(err, { context: "save_trust_rule" });
-        setShowRuleEditor(false);
-        setRuleEditorContext(null);
+        useRuleEditorStore.getState().dismissRuleEditor();
         setError({ message: "Failed to save trust rule. Please try again." });
         return;
       } finally {
-        setIsSavingRule(false);
+        useRuleEditorStore.getState().setIsSavingRule(false);
         useInteractionStore.getState().submitConfirmationEnd();
       }
 
@@ -832,24 +812,23 @@ export function useInteractionActions(): UseInteractionActionsReturn {
       useInteractionStore.getState().setInlineConfirmationToolCallId(null);
       useChatSessionStore.getState().confirmationToolCallMap.delete(context.requestId);
       setMessages((prev: DisplayMessage[]) => clearConfirmationByRequestId(prev, context.requestId));
-      setShowRuleEditor(false);
-      setRuleEditorContext(null);
+      useRuleEditorStore.getState().dismissRuleEditor();
     },
-    [ruleEditorContext, isSavingRule],
+    [],
   );
 
   const handleSaveAsNewRule = useCallback(
     async (rule: { toolName: string; pattern: string; riskLevel: string; scope: string }) => {
       const ctx = useStreamStore.getState().streamContext;
-      const context = ruleEditorContext;
+      const { ruleEditorContext: context, isSavingRule: saving } = useRuleEditorStore.getState();
       if (!ctx || !context) {
         return;
       }
-      if (isSavingRule) {
+      if (saving) {
         return;
       }
 
-      setIsSavingRule(true);
+      useRuleEditorStore.getState().setIsSavingRule(true);
       try {
         await addTrustRule(ctx.assistantId, {
           tool: rule.toolName,
@@ -862,12 +841,11 @@ export function useInteractionActions(): UseInteractionActionsReturn {
         captureError(err, { context: "save_as_new_trust_rule" });
         setError({ message: "Failed to save trust rule. Please try again." });
       } finally {
-        setIsSavingRule(false);
-        setShowRuleEditor(false);
-        setRuleEditorContext(null);
+        useRuleEditorStore.getState().setIsSavingRule(false);
+        useRuleEditorStore.getState().dismissRuleEditor();
       }
     },
-    [ruleEditorContext, isSavingRule],
+    [],
   );
 
   // -------------------------------------------------------------------------
@@ -918,13 +896,6 @@ export function useInteractionActions(): UseInteractionActionsReturn {
     [],
   );
 
-  const dismissRuleEditor = useCallback(() => {
-    suggestionAbortRef.current?.abort();
-    suggestionAbortRef.current = null;
-    setShowRuleEditor(false);
-    setRuleEditorContext(null);
-  }, []);
-
   return {
     handleSecretSubmit,
     handleSecretCancel,
@@ -938,12 +909,5 @@ export function useInteractionActions(): UseInteractionActionsReturn {
     handleQuestionResponse,
     handleDismissPendingQuestion,
     handleSurfaceAction,
-    showRuleEditor,
-    setShowRuleEditor,
-    ruleEditorContext,
-    dismissRuleEditor,
-    isSavingRule,
-    unknownNudgeToolCallIds,
-    setUnknownNudgeToolCallIds,
   };
 }
