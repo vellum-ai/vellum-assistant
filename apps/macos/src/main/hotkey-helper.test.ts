@@ -47,6 +47,7 @@ mock.module("electron", () => ({
     ) => {
       handlers[channel] = handler;
     },
+    on: mock(() => undefined),
   },
 }));
 
@@ -61,6 +62,17 @@ mock.module("node:child_process", () => ({
     lastChild = new FakeHotkeyChild();
     return lastChild;
   },
+}));
+
+mock.module("./logger", () => ({
+  default: {
+    warn: mock(() => undefined),
+  },
+}));
+
+mock.module("./app-origin", () => ({
+  isAllowedOrigin: () => true,
+  resolveAllowedOrigin: () => ({ protocol: "app:", host: "vellum.ai" }),
 }));
 
 Object.defineProperty(process, "resourcesPath", {
