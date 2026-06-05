@@ -34,6 +34,7 @@ export type AcpClientFactory = (agent: Agent) => Client;
 export class AcpAgentProcess {
   private proc: ChildProcess | null = null;
   private connection: acp.ClientSideConnection | null = null;
+  private initializeResponse: InitializeResponse | null = null;
 
   constructor(
     public readonly agentId: string,
@@ -99,7 +100,7 @@ export class AcpAgentProcess {
 
     log.info({ agentId: this.agentId }, "Initializing ACP connection");
 
-    return this.connection.initialize({
+    const response = await this.connection.initialize({
       protocolVersion: acp.PROTOCOL_VERSION,
       clientInfo: { name: "vellum", version: "1.0.0" },
       clientCapabilities: {
@@ -107,6 +108,28 @@ export class AcpAgentProcess {
         terminal: true,
       },
     });
+
+    this.initializeResponse = response;
+    return response;
+  }
+
+  /**
+   * Whether the agent advertised support for `session/load` at initialize.
+   * Returns false before initialize() resolves.
+   */
+  get supportsLoadSession(): boolean {
+    return this.initializeResponse?.agentCapabilities?.loadSession === true;
+  }
+
+  /**
+   * Whether the agent advertised support for `session/resume` at initialize.
+   * Returns false before initialize() resolves.
+   */
+  get supportsSessionResume(): boolean {
+    return (
+      this.initializeResponse?.agentCapabilities?.sessionCapabilities?.resume !=
+      null
+    );
   }
 
   /**
@@ -175,6 +198,7 @@ export class AcpAgentProcess {
       this.proc = null;
     }
     this.connection = null;
+    this.initializeResponse = null;
   }
 
   /**
@@ -205,5 +229,6 @@ export class AcpAgentProcess {
 
     this.proc = null;
     this.connection = null;
+    this.initializeResponse = null;
   }
 }

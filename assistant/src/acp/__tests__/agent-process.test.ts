@@ -1,0 +1,101 @@
+/**
+ * Unit tests for AcpAgentProcess capability getters.
+ *
+ * The getters reflect the InitializeResponse captured during initialize();
+ * before that resolves (or after kill()) they must report false. The
+ * connection is stubbed directly so no child process is spawned.
+ */
+
+import { describe, expect, test } from "bun:test";
+
+import type { InitializeResponse } from "@agentclientprotocol/sdk";
+
+import { AcpAgentProcess } from "../agent-process.js";
+
+function makeProcess(): AcpAgentProcess {
+  return new AcpAgentProcess(
+    "test-agent",
+    { command: "echo", args: [] },
+    () => {
+      throw new Error("client factory should not be called in this test");
+    },
+  );
+}
+
+/** Injects a stub connection whose initialize() resolves with `response`. */
+function stubConnection(
+  proc: AcpAgentProcess,
+  response: InitializeResponse,
+): void {
+  (
+    proc as unknown as {
+      connection: { initialize: () => Promise<InitializeResponse> };
+    }
+  ).connection = {
+    initialize: () => Promise.resolve(response),
+  };
+}
+
+describe("AcpAgentProcess capability getters", () => {
+  test("both getters return false before initialize() resolves", () => {
+    const proc = makeProcess();
+    expect(proc.supportsLoadSession).toBe(false);
+    expect(proc.supportsSessionResume).toBe(false);
+  });
+
+  test("supportsLoadSession reflects agentCapabilities.loadSession", async () => {
+    const proc = makeProcess();
+    stubConnection(proc, {
+      protocolVersion: 1,
+      agentCapabilities: { loadSession: true },
+    });
+
+    await proc.initialize();
+
+    expect(proc.supportsLoadSession).toBe(true);
+    expect(proc.supportsSessionResume).toBe(false);
+  });
+
+  test("supportsSessionResume reflects agentCapabilities.sessionCapabilities.resume", async () => {
+    const proc = makeProcess();
+    stubConnection(proc, {
+      protocolVersion: 1,
+      agentCapabilities: { sessionCapabilities: { resume: {} } },
+    });
+
+    await proc.initialize();
+
+    expect(proc.supportsSessionResume).toBe(true);
+    expect(proc.supportsLoadSession).toBe(false);
+  });
+
+  test("both getters return false when the agent advertises no capabilities", async () => {
+    const proc = makeProcess();
+    stubConnection(proc, { protocolVersion: 1 });
+
+    await proc.initialize();
+
+    expect(proc.supportsLoadSession).toBe(false);
+    expect(proc.supportsSessionResume).toBe(false);
+  });
+
+  test("kill() clears the captured initialize response", async () => {
+    const proc = makeProcess();
+    stubConnection(proc, {
+      protocolVersion: 1,
+      agentCapabilities: {
+        loadSession: true,
+        sessionCapabilities: { resume: {} },
+      },
+    });
+
+    await proc.initialize();
+    expect(proc.supportsLoadSession).toBe(true);
+    expect(proc.supportsSessionResume).toBe(true);
+
+    proc.kill();
+
+    expect(proc.supportsLoadSession).toBe(false);
+    expect(proc.supportsSessionResume).toBe(false);
+  });
+});
