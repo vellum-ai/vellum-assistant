@@ -357,9 +357,10 @@ export function buildActiveDocuments(conversationId: string): Array<{
 
 /**
  * Resolves the `<workspace>` top-level block for the runtime injector, or
- * `null` when the turn isn't injecting it. The underlying refresh is
- * dirty-guarded, so it scans the workspace only on the first injection or
- * after a workspace-mutating tool marks the cache dirty.
+ * `null` when the turn isn't injecting it. The refresh runs every turn so a
+ * workspace-mutating tool's `markWorkspaceTopLevelDirty` is picked up on the
+ * following turn; it is dirty-guarded, so it only rescans when the cache is
+ * stale.
  */
 export function buildWorkspaceTopLevelContext(
   ctx: {
@@ -368,9 +369,8 @@ export function buildWorkspaceTopLevelContext(
   },
   shouldInject: boolean,
 ): string | null {
-  if (!shouldInject) return null;
   ctx.refreshWorkspaceTopLevelContextIfNeeded();
-  return ctx.workspaceTopLevelContext;
+  return shouldInject ? ctx.workspaceTopLevelContext : null;
 }
 
 const MAX_CONTEXT_LENGTH = 100_000;
