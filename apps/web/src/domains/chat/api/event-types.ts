@@ -36,7 +36,7 @@ export interface PendingToolConfirmation {
  * risk/approval fields, the `risk*Options` rule-editor ladders, the
  * `confirmationDecision` outcome, and the activity metadata) with the
  * client-only live state the wire deliberately omits — the in-flight
- * confirmation prompt and its scope/working-directory context. Execution
+ * confirmation prompt and its scope context. Execution
  * state (`running`/`completed`/`error`) is not stored: derive it on demand
  * from `isError`/`result`/`completedAt` via the predicates in
  * `tool-call-status.ts` (`isToolCallRunning`/`isToolCallCompleted`).
@@ -59,7 +59,6 @@ export interface ChatMessageToolCall extends ConversationMessageToolCall {
    */
   scopeOptions?: ScopeOption[];
   pendingConfirmation?: PendingToolConfirmation | null;
-  workingDir?: string;
 }
 
 // ---------------------------------------------------------------------------
