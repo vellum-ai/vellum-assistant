@@ -49,7 +49,11 @@ class FakeAcpAgentProcess {
 
   constructor(
     public readonly agentId: string,
-    public readonly config: { command: string },
+    public readonly config: {
+      command: string;
+      args: string[];
+      adapterCommand?: string;
+    },
     private readonly clientFactory: (agent: unknown) => FakeClient,
   ) {
     fakeInstances.push(this);
@@ -132,7 +136,10 @@ mock.module("../prepare-agent-env.js", () => ({
 
 // Resolver stub: defaults to resolving every id to the claude adapter.
 type ResolveResult =
-  | { ok: true; agent: { command: string; args: string[] } }
+  | {
+      ok: true;
+      agent: { command: string; args: string[]; adapterCommand?: string };
+    }
   | { ok: false; reason: "binary_not_found"; hint: string; command: string };
 let resolveImpl: (id: string) => ResolveResult = () => ({
   ok: true,
@@ -172,7 +179,7 @@ function countHistoryRows(): number {
 // ---------------------------------------------------------------------------
 
 type ManagerInternals = {
-  sessions: Map<string, { clientHandler: FakeClient }>;
+  sessions: Map<string, { clientHandler: FakeClient; command: string }>;
   eventBuffers: Map<string, Array<{ update: AcpSessionUpdate }>>;
   pendingResumes: Map<string, Promise<void>>;
 };
@@ -320,6 +327,40 @@ describe("AcpSessionManager.resumeFromHistory", () => {
     expect(fake.killed).toBe(true);
     expect(internals(manager).sessions.has("no-caps-1")).toBe(false);
     expect(internals(manager).eventBuffers.has("no-caps-1")).toBe(false);
+  });
+
+  test("bunx-rewritten resolver output flows through resume with the canonical adapter command", async () => {
+    // resolveAcpAgent rewrites a missing claude-agent-acp binary to run via
+    // `bun x --bun <pkg>`; resumeFromHistory re-resolves through it, so the
+    // rewritten config must reach the agent process while the SessionEntry
+    // keeps the canonical adapter command (resume hints gate on it).
+    fakeCaps.resume = true;
+    insertHistoryRow({ id: "bunx-resume-1" });
+    resolveImpl = () => ({
+      ok: true,
+      agent: {
+        command: "bun",
+        args: ["x", "--bun", "@agentclientprotocol/claude-agent-acp"],
+        adapterCommand: "claude-agent-acp",
+      },
+    });
+
+    const manager = new AcpSessionManager(4);
+    await manager.resumeFromHistory("bunx-resume-1", () => {});
+
+    const fake = fakeInstances[0]!;
+    expect(fake.config.command).toBe("bun");
+    expect(fake.config.args).toEqual([
+      "x",
+      "--bun",
+      "@agentclientprotocol/claude-agent-acp",
+    ]);
+    expect(fake.resumeSessionCalls).toEqual([
+      { sessionId: "proto-old", cwd: "/tmp/proj" },
+    ]);
+    expect(
+      internals(manager).sessions.get("bunx-resume-1")!.command,
+    ).toBe("claude-agent-acp");
   });
 
   test("resolver failures surface the actionable hint", async () => {

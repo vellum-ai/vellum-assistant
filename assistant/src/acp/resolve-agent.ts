@@ -13,10 +13,21 @@
  * acp_list_agents, and the `/v1/acp/spawn` HTTP route) get a single source
  * of truth and matching actionable hints.
  *
+ * When the adapter binary is NOT on PATH but `bun` is and the command has a
+ * vendored entry in `DEFAULT_AGENT_NPM_PACKAGES`, the resolver rewrites the
+ * agent to run via `bun x --bun <package>` instead of failing. bunx fetches
+ * the package into its cache on first use, so platform-hosted assistants
+ * whose image ships bun (but no node and no npm) work out of the box with
+ * no global install. The original command is preserved as `adapterCommand`
+ * so downstream consumers (env injection, resume hints, version probe) keep
+ * gating on the canonical adapter identity.
+ *
  * `listAcpAgents()` exposes the merged catalog with availability info for
  * the `acp_list_agents` tool — same merge semantics, plus per-entry
- * `available` / `setupHint` derived from `Bun.which` + `DEFAULT_AGENT_NPM_PACKAGES`.
+ * `available` / `setupHint` derived from the same binary-or-bunx resolution.
  */
+
+import { basename } from "node:path";
 
 import {
   DEFAULT_ACP_AGENT_PROFILES,
@@ -33,8 +44,48 @@ import { isAcpEnabled } from "./feature-gate.js";
  */
 type AcpAgentSource = "config" | "default";
 
+/**
+ * A resolver-produced agent config, ready to spawn. `adapterCommand` carries
+ * the canonical adapter identity (e.g. "claude-agent-acp") even when the
+ * spawn command was rewritten to run via `bun x`, so consumers that gate
+ * behavior on the adapter (env injection in `prepare-agent-env.ts`, resume
+ * hints, the version probe in `tools/acp/spawn.ts`) stay correct for
+ * bunx-resolved agents.
+ */
+export interface ResolvedAcpAgent extends AcpAgentConfig {
+  adapterCommand: string;
+}
+
+/**
+ * Canonical adapter identity for a (possibly rewritten) agent config.
+ * Resolver-produced configs carry `adapterCommand` explicitly; plain configs
+ * that never went through the resolver fall back to the command basename so
+ * user-supplied agent configs keep working.
+ */
+export function adapterCommandOf(config: {
+  command: string;
+  adapterCommand?: string;
+}): string {
+  return config.adapterCommand ?? basename(config.command);
+}
+
+/**
+ * Whether the config was rewritten by the resolver to run through `bun x`
+ * (the only path where the canonical adapter identity diverges from the
+ * actual spawn command).
+ */
+export function runsViaBunx(config: {
+  command: string;
+  adapterCommand?: string;
+}): boolean {
+  return (
+    config.adapterCommand !== undefined &&
+    config.adapterCommand !== basename(config.command)
+  );
+}
+
 export type ResolveAcpAgentResult =
-  | { ok: true; agent: AcpAgentConfig }
+  | { ok: true; agent: ResolvedAcpAgent }
   | ResolveAcpAgentFailure;
 
 export type ResolveAcpAgentFailure =
@@ -100,14 +151,49 @@ function installHintFor(command: string): string {
 }
 
 /**
- * Resolve the binary using the same PATH the spawn will see. `AcpAgentProcess`
+ * Resolve a binary using the same PATH the spawn will see. `AcpAgentProcess`
  * spawns with `{ ...process.env, ...config.env }`, so a per-agent `env.PATH`
- * override wins over the daemon's PATH. Mirror that here so a config that
- * relies on a custom PATH to locate the binary doesn't fail preflight.
+ * override wins over the assistant's PATH. Mirror that here so a config that
+ * relies on a custom PATH to locate the binary (or `bun`, for the bunx
+ * rewrite) doesn't fail preflight.
  */
-function findAgentBinary(agent: AcpAgentConfig): string | null {
+function whichOnAgentPath(
+  agent: AcpAgentConfig,
+  command: string,
+): string | null {
   const PATH = agent.env?.PATH ?? process.env.PATH;
-  return Bun.which(agent.command, PATH != null ? { PATH } : undefined);
+  return Bun.which(command, PATH != null ? { PATH } : undefined);
+}
+
+/**
+ * Resolve an agent config to its runnable form, or `null` when it cannot
+ * spawn. The ONLY place the bunx rewrite happens:
+ *
+ * 1. Binary on PATH → use it directly (`adapterCommand` = command basename).
+ * 2. Binary missing, command has a vendored npm package mapping, and `bun`
+ *    is on PATH → rewrite to `bun x --bun <package> <original args>`. bunx
+ *    fetches the package on first use, preserving the
+ *    install-latest-on-first-use design with no global install.
+ * 3. Otherwise → null (callers fall back to npm auto-install or surface the
+ *    install hint).
+ *
+ * Security boundary (mirrors `auto-install.ts`): only commands present in
+ * `DEFAULT_AGENT_NPM_PACKAGES` are ever rewritten. The package names are
+ * vendored constants, NOT user input: an arbitrary command from user config
+ * must never be turned into a `bun x <attacker-controlled-name>` execution.
+ */
+function resolveRunnableAgent(agent: AcpAgentConfig): ResolvedAcpAgent | null {
+  if (whichOnAgentPath(agent, agent.command)) {
+    return { ...agent, adapterCommand: basename(agent.command) };
+  }
+  const packageName = DEFAULT_AGENT_NPM_PACKAGES[agent.command];
+  if (!packageName || !whichOnAgentPath(agent, "bun")) return null;
+  return {
+    ...agent,
+    command: "bun",
+    args: ["x", "--bun", packageName, ...agent.args],
+    adapterCommand: agent.command,
+  };
 }
 
 /**
@@ -185,7 +271,8 @@ function mergedAgentIds(userAgents: Record<string, AcpAgentConfig>): string[] {
  * Order of checks:
  * 1. ACP must be enabled (feature flag or config; see `isAcpEnabled`).
  * 2. The id must resolve to an agent (user config wins; falls back to defaults).
- * 3. The agent's `command` must be discoverable via `Bun.which` (PATH lookup).
+ * 3. The agent must be runnable: its `command` on PATH, or the bunx rewrite
+ *    applies (see `resolveRunnableAgent`).
  *
  * Each failure mode carries an actionable hint so callers can surface a
  * single user-facing message without re-deriving the remediation.
@@ -207,7 +294,8 @@ export function resolveAcpAgent(id: string): ResolveAcpAgentResult {
   }
 
   const { agent } = found;
-  if (!findAgentBinary(agent)) {
+  const runnable = resolveRunnableAgent(agent);
+  if (!runnable) {
     return {
       ok: false,
       reason: "binary_not_found",
@@ -216,7 +304,7 @@ export function resolveAcpAgent(id: string): ResolveAcpAgentResult {
     };
   }
 
-  return { ok: true, agent };
+  return { ok: true, agent: runnable };
 }
 
 /**
@@ -242,7 +330,9 @@ export function listAcpAgents(): {
   const agents: AcpAgentEntry[] = mergedAgentIds(userAgents).map((id) => {
     // Non-null: ids come from `mergedAgentIds` so the lookup always resolves.
     const { agent, source } = lookupAgent(userAgents, id)!;
-    const available = findAgentBinary(agent) !== null;
+    // Same binary-or-bunx resolution as `resolveAcpAgent`: an agent whose
+    // binary is missing but would spawn via `bun x` IS available.
+    const available = resolveRunnableAgent(agent) !== null;
     const entry: AcpAgentEntry = {
       id,
       command: agent.command,

@@ -1414,6 +1414,7 @@ jobs:
           npm publish --tag staging --access public --no-provenance
 
   publish-web-staging:
+    name: publish-npm-staging (web)
     needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
     if: ${{ needs.extract-version.outputs.is_staging == 'true' }}
     runs-on: ubuntu-latest
@@ -1469,6 +1470,7 @@ jobs:
           npm publish --tag staging --access public --no-provenance
 
   publish-meta-staging:
+    name: publish-npm-staging (meta)
     needs: [extract-version, publish-npm-staging, publish-web-staging]
     if: ${{ needs.extract-version.outputs.is_staging == 'true' }}
     runs-on: ubuntu-latest
@@ -1507,6 +1509,7 @@ jobs:
           npm publish --tag staging --access public --no-provenance
 
   publish-web-prod:
+    name: publish-npm-prod (web)
     needs: [extract-version, ci-cli, ci-gateway, ci-playwright, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image]
     if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.ci-cli.result == 'success' && needs.ci-gateway.result == 'success' && (needs.ci-playwright.result == 'success' || inputs.playwright_blocks_release != true) && needs.push-assistant-manifest.result == 'success' && needs.push-gateway-manifest.result == 'success' && needs.push-credential-executor-manifest.result == 'success' && needs.push-dockerhub-image.result == 'success' }}
     runs-on: ubuntu-latest
@@ -1578,6 +1581,7 @@ jobs:
           npm publish --access public --no-provenance
 
   publish-meta-prod:
+    name: publish-npm-prod (meta)
     needs: [extract-version, publish-npm-prod, publish-web-prod]
     if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest
@@ -2343,7 +2347,8 @@ jobs:
   # DMG, and uploads it as a release asset. Non-blocking (continue-on-error)
   # while the Electron client is WIP.
   build-electron:
-    needs: [extract-version]
+    needs: [extract-version, publish-meta-prod, publish-meta-staging]
+    if: ${{ always() && !cancelled() && (needs.publish-meta-prod.result == 'success' || needs.publish-meta-staging.result == 'success') }}
     runs-on: macos-26
     timeout-minutes: 30
     continue-on-error: true

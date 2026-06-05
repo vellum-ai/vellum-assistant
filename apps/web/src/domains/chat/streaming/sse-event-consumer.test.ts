@@ -32,6 +32,9 @@ mock.module("@/lib/streaming/reconnect-cursor", () => ({
   replaceReconnectCursor: (seq: number) => {
     globalCursor = seq;
   },
+  resetReconnectCursor: () => {
+    globalCursor = null;
+  },
 }));
 
 const recordDiagnosticMock = mock(() => {});

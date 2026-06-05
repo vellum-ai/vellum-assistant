@@ -18,7 +18,7 @@ import type { AllowlistOption, DirectoryScopeOption, QuestionEntry, ScopeOption 
 export type AssistantStateKind = AssistantState["kind"];
 
 // ---------------------------------------------------------------------------
-// State shapes used by AssistantPageClient for prompt / error UI
+// State shapes for prompt / error UI
 // ---------------------------------------------------------------------------
 
 export interface ChatError {

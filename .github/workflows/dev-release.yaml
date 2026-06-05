@@ -1234,7 +1234,7 @@ jobs:
   # SLACK_RELEASES_WEBHOOK_URL (releases). The job no-ops if the secret is unset.
 
   notify-dev-release:
-    needs: [compute-version, register-release, register-preview-release]
+    needs: [compute-version, register-release, register-preview-release, build-electron]
     # Run on success and failure alike, but not when the run was cancelled
     # (e.g. superseded by a newer hourly run via cancel-in-progress) — a
     # cancelled run is not a real failure and should not alert the channel.
@@ -1789,10 +1789,9 @@ jobs:
   # ── Electron DMG ──────────────────────────────────────────────────────
 
   build-electron:
-    needs: [compute-version]
+    needs: [compute-version, publish-meta-dev]
     runs-on: macos-26
     timeout-minutes: 30
-    continue-on-error: true
     defaults:
       run:
         working-directory: apps/macos
@@ -2021,6 +2020,7 @@ jobs:
           npm publish --tag dev --access public --no-provenance
 
   publish-web-dev:
+    name: publish-npm-dev (web)
     needs: [compute-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -2075,6 +2075,7 @@ jobs:
           npm publish --tag dev --access public --no-provenance
 
   publish-meta-dev:
+    name: publish-npm-dev (meta)
     needs: [compute-version, publish-npm-dev, publish-web-dev]
     runs-on: ubuntu-latest
     timeout-minutes: 5

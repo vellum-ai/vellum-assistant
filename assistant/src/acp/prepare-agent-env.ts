@@ -20,45 +20,76 @@
  * owns the plaintext read boundary.
  */
 
-import { basename } from "node:path";
-
 import { FailedDependencyError } from "../runtime/routes/errors.js";
 import { credentialBroker } from "../tools/credentials/broker.js";
 import {
   getCredentialMetadata,
   upsertCredentialMetadata,
 } from "../tools/credentials/metadata-store.js";
+import { getLogger } from "../util/logger.js";
+import { adapterCommandOf } from "./resolve-agent.js";
 import type { AcpAgentConfig } from "./types.js";
 
+const log = getLogger("acp:prepare-agent-env");
+
 const ACP_SPAWN_TOOL = "acp_spawn";
+const ACP_SERVICE = "acp";
 
 /**
- * Ensure the `acp/claude_oauth_token` credential has metadata that allows
- * the `acp_spawn` tool to read it, but only for legacy/unmanaged cases:
+ * Ensure an `acp/<field>` credential has metadata that allows the
+ * `acp_spawn` tool to read it, but only for legacy/unmanaged cases:
  *
- * - No metadata at all → create with `allowedTools: ["acp_spawn"]`.
- * - Metadata exists with an empty `allowedTools` → default provisioning
+ * - No metadata at all: create with `allowedTools: ["acp_spawn"]`.
+ * - Metadata exists with an empty `allowedTools`: default provisioning
  *   path (user ran `credentials set` without `--allowed-tools`), add it.
- * - Metadata exists with a non-empty `allowedTools` → explicit policy set
- *   by the user/admin. Respect it even if `acp_spawn` is absent — the
- *   broker will deny the read and the preflight will throw.
+ * - Metadata exists with a non-empty `allowedTools`: explicit policy set
+ *   by the user/admin. Respect it even if `acp_spawn` is absent; the
+ *   broker will deny the read and the caller decides whether that's fatal.
  */
-function ensureAcpTokenPolicy(): void {
-  const meta = getCredentialMetadata("acp", "claude_oauth_token");
+function ensureAcpCredentialPolicy(
+  field: string,
+  usageDescription: string,
+): void {
+  const meta = getCredentialMetadata(ACP_SERVICE, field);
   if (!meta) {
-    upsertCredentialMetadata("acp", "claude_oauth_token", {
+    upsertCredentialMetadata(ACP_SERVICE, field, {
       allowedTools: [ACP_SPAWN_TOOL],
-      usageDescription:
-        "Claude OAuth token for ACP agent authentication",
+      usageDescription,
     });
     return;
   }
   const tools = meta.allowedTools ?? [];
   if (tools.length === 0) {
-    upsertCredentialMetadata("acp", "claude_oauth_token", {
+    upsertCredentialMetadata(ACP_SERVICE, field, {
       allowedTools: [ACP_SPAWN_TOOL],
     });
   }
+}
+
+/**
+ * Read an `acp/<field>` credential through the broker and inject it into
+ * `env` under `envVar`. Returns the broker's failure reason when the value
+ * was not injected (missing credential, denied policy, no stored value),
+ * or undefined on success. Never throws: `serverUse` signals every failure
+ * mode, including a simply-absent credential, as `{ success: false,
+ * reason }`, so callers choose whether a miss is fatal.
+ */
+async function injectCredential(
+  env: Record<string, string>,
+  field: string,
+  envVar: string,
+  usageDescription: string,
+): Promise<string | undefined> {
+  ensureAcpCredentialPolicy(field, usageDescription);
+  const result = await credentialBroker.serverUse<void>({
+    service: ACP_SERVICE,
+    field,
+    toolName: ACP_SPAWN_TOOL,
+    execute: async (value) => {
+      env[envVar] = value;
+    },
+  });
+  return result.success ? undefined : result.reason;
 }
 
 /**
@@ -67,9 +98,13 @@ function ensureAcpTokenPolicy(): void {
  * credential is missing from both the user-supplied env override and the
  * secure store.
  *
- * Gating is keyed off the resolved agent COMMAND (basename), not the
- * user-facing agent id, so a custom `acp.agents.my-claude = { command:
- * "claude-agent-acp", ... }` alias still gets the env it needs.
+ * Gating is keyed off the canonical adapter identity (`adapterCommand` set
+ * by the resolver, falling back to the command basename for plain configs),
+ * not the user-facing agent id. A custom `acp.agents.my-claude = { command:
+ * "claude-agent-acp", ... }` alias still gets the env it needs, and so does
+ * the bunx-rewritten claude adapter (whose `command` is "bun"). Without
+ * the adapterCommand gate, bunx-resolved spawns would start with no auth
+ * and die as zombies on the first prompt.
  *
  * For `claude-agent-acp` the only required env var is
  * `CLAUDE_CODE_OAUTH_TOKEN`. Two provisioning routes converge on it, with
@@ -84,6 +119,11 @@ function ensureAcpTokenPolicy(): void {
  * before spawning. The "fail-fast" throw is symmetric with the existing
  * `binary_not_found` preflight in `resolveAcpAgent` and strictly better
  * than a `warn` + zombie subprocess 10 seconds later.
+ *
+ * For `gemini` the env var is `GEMINI_API_KEY`, provisioned the same two
+ * ways (config.json override wins, vault field `gemini_api_key` second),
+ * but it is OPTIONAL: the Gemini CLI supports its own OAuth login, so a
+ * vault miss proceeds without the key instead of failing the spawn.
  */
 export async function prepareAgentEnv(
   agentConfig: AcpAgentConfig,
@@ -92,19 +132,16 @@ export async function prepareAgentEnv(
   // agent reference. The local `env` binding sidesteps TS narrowing
   // limitations on the optional `AcpAgentConfig.env` field.
   const env: Record<string, string> = { ...(agentConfig.env ?? {}) };
-  const commandBasename = basename(agentConfig.command);
+  const adapterCommand = adapterCommandOf(agentConfig);
 
-  if (commandBasename === "claude-agent-acp") {
+  if (adapterCommand === "claude-agent-acp") {
     if (!env.CLAUDE_CODE_OAUTH_TOKEN) {
-      ensureAcpTokenPolicy();
-      await credentialBroker.serverUse<void>({
-        service: "acp",
-        field: "claude_oauth_token",
-        toolName: ACP_SPAWN_TOOL,
-        execute: async (token) => {
-          env.CLAUDE_CODE_OAUTH_TOKEN = token;
-        },
-      });
+      await injectCredential(
+        env,
+        "claude_oauth_token",
+        "CLAUDE_CODE_OAUTH_TOKEN",
+        "Claude OAuth token for ACP agent authentication",
+      );
     }
     if (!env.CLAUDE_CODE_OAUTH_TOKEN) {
       throw new FailedDependencyError(
@@ -112,6 +149,23 @@ export async function prepareAgentEnv(
           "Run: assistant credentials set --service acp --field claude_oauth_token <token> " +
           "(or set it under acp.agents.<id>.env in config.json).",
       );
+    }
+  } else if (adapterCommand === "gemini") {
+    if (!env.GEMINI_API_KEY) {
+      const missReason = await injectCredential(
+        env,
+        "gemini_api_key",
+        "GEMINI_API_KEY",
+        "Gemini API key for ACP agent authentication",
+      );
+      if (missReason !== undefined) {
+        // Optional credential: Gemini CLI can authenticate via its own
+        // OAuth login, so a vault miss must not fail the spawn.
+        log.debug(
+          { reason: missReason },
+          "Gemini API key unavailable from the vault; spawning without GEMINI_API_KEY",
+        );
+      }
     }
   }
 

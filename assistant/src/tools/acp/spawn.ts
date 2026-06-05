@@ -4,7 +4,11 @@ import {
 } from "../../acp/auto-install.js";
 import { getAcpSessionManager } from "../../acp/index.js";
 import { prepareAgentEnv } from "../../acp/prepare-agent-env.js";
-import { formatResolveFailure } from "../../acp/resolve-agent.js";
+import {
+  adapterCommandOf,
+  formatResolveFailure,
+  runsViaBunx,
+} from "../../acp/resolve-agent.js";
 import { claudeResumeHint } from "../../acp/resume-hint.js";
 import { DEFAULT_AGENT_NPM_PACKAGES } from "../../config/acp-defaults.js";
 import { getLogger } from "../../util/logger.js";
@@ -147,8 +151,12 @@ export async function executeAcpSpawn(
   }
 
   // Best-effort version check — never blocks the spawn. If outdated, we
-  // append a non-blocking warning to the success payload.
-  const versionInfo = await checkAdapterVersion(agentConfig.command);
+  // append a non-blocking warning to the success payload. Skipped for
+  // bunx-resolved agents: there is no global npm install to compare (bun
+  // fetches the package on first use), and npm may not exist on the host.
+  const versionInfo = runsViaBunx(agentConfig)
+    ? null
+    : await checkAdapterVersion(adapterCommandOf(agentConfig));
 
   try {
     const manager = getAcpSessionManager();
@@ -162,9 +170,14 @@ export async function executeAcpSpawn(
       sendToClient,
     );
 
-    // Claude Code-only resume hint; empty for other adapters. See
+    // Claude Code-only resume hint; empty for other adapters. Keyed off the
+    // canonical adapter command so it survives the bunx rewrite. See
     // acp/resume-hint.ts for the gating rationale.
-    const hint = claudeResumeHint(agentConfig.command, cwd, protocolSessionId);
+    const hint = claudeResumeHint(
+      adapterCommandOf(agentConfig),
+      cwd,
+      protocolSessionId,
+    );
     const resumeHint = hint ? ` ${hint}` : "";
     const installNote = autoInstalledPackage
       ? ` Installed ${autoInstalledPackage} automatically.`

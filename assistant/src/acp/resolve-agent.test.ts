@@ -13,7 +13,8 @@ afterAll(() => {
   setOverridesForTesting({});
 });
 
-const { resolveAcpAgent, listAcpAgents } = await import("./resolve-agent.js");
+const { resolveAcpAgent, listAcpAgents, adapterCommandOf, runsViaBunx } =
+  await import("./resolve-agent.js");
 
 beforeEach(() => {
   config.setConfig({});
@@ -298,6 +299,158 @@ describe("resolveAcpAgent", () => {
     if (!result.ok) return;
     expect(result.agent.args).toEqual(["--verbose"]);
   });
+
+  test("direct resolution sets adapterCommand to the command basename", () => {
+    config.setConfig({
+      agents: {
+        custom: { command: "/opt/bin/claude-agent-acp", args: [] },
+      },
+    });
+
+    const direct = resolveAcpAgent("claude");
+    expect(direct.ok).toBe(true);
+    if (!direct.ok) return;
+    expect(direct.agent.adapterCommand).toBe("claude-agent-acp");
+    expect(runsViaBunx(direct.agent)).toBe(false);
+
+    const fullPath = resolveAcpAgent("custom");
+    expect(fullPath.ok).toBe(true);
+    if (!fullPath.ok) return;
+    expect(fullPath.agent.adapterCommand).toBe("claude-agent-acp");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveAcpAgent - bunx fallback for missing binaries
+// ---------------------------------------------------------------------------
+
+describe("resolveAcpAgent - bunx fallback", () => {
+  test("binary missing + bun present: rewrites to `bun x --bun <pkg>` with adapterCommand preserved", () => {
+    config.setConfig({ agents: {} });
+    which.setWhich({ bun: "/usr/local/bin/bun" });
+
+    const result = resolveAcpAgent("claude");
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.agent.command).toBe("bun");
+    expect(result.agent.args).toEqual([
+      "x",
+      "--bun",
+      "@agentclientprotocol/claude-agent-acp",
+    ]);
+    expect(result.agent.adapterCommand).toBe("claude-agent-acp");
+    expect(runsViaBunx(result.agent)).toBe(true);
+    expect(adapterCommandOf(result.agent)).toBe("claude-agent-acp");
+  });
+
+  test("bunx rewrite appends the original args after the package (gemini --acp)", () => {
+    config.setConfig({ agents: {} });
+    which.setWhich({ bun: "/usr/local/bin/bun" });
+
+    const result = resolveAcpAgent("gemini");
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.agent.command).toBe("bun");
+    expect(result.agent.args).toEqual([
+      "x",
+      "--bun",
+      "@google/gemini-cli",
+      "--acp",
+    ]);
+    expect(result.agent.adapterCommand).toBe("gemini");
+  });
+
+  test("bunx rewrite leaves env unchanged", () => {
+    config.setConfig({
+      agents: {
+        claude: {
+          command: "claude-agent-acp",
+          args: [],
+          env: { KEEP_ME: "yes" },
+        },
+      },
+    });
+    which.setWhich({ bun: "/usr/local/bin/bun" });
+
+    const result = resolveAcpAgent("claude");
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.agent.command).toBe("bun");
+    expect(result.agent.env).toEqual({ KEEP_ME: "yes" });
+  });
+
+  test("bun lookup honors agent.env.PATH override (matches spawn env)", () => {
+    config.setConfig({
+      agents: {
+        claude: {
+          command: "claude-agent-acp",
+          args: [],
+          env: { PATH: "/opt/custom/bin" },
+        },
+      },
+    });
+    which.setWhich((cmd, options) =>
+      cmd === "bun" && options?.PATH === "/opt/custom/bin"
+        ? "/opt/custom/bin/bun"
+        : null,
+    );
+
+    const result = resolveAcpAgent("claude");
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.agent.command).toBe("bun");
+  });
+
+  test("user-config command without a package mapping is NOT rewritten even when bun is present", () => {
+    config.setConfig({
+      agents: {
+        custom: { command: "unknown-binary", args: [] },
+      },
+    });
+    which.setWhich({ bun: "/usr/local/bin/bun" });
+
+    const result = resolveAcpAgent("custom");
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toBe("binary_not_found");
+  });
+
+  test("binary missing + bun missing: binary_not_found with the npm hint", () => {
+    config.setConfig({ agents: {} });
+    which.setWhich({});
+
+    const result = resolveAcpAgent("claude");
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toBe("binary_not_found");
+    if (result.reason !== "binary_not_found") return;
+    expect(result.hint).toBe("npm i -g @agentclientprotocol/claude-agent-acp");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// adapterCommandOf - fallback for plain configs
+// ---------------------------------------------------------------------------
+
+describe("adapterCommandOf", () => {
+  test("falls back to the command basename for configs without adapterCommand", () => {
+    expect(adapterCommandOf({ command: "/opt/bin/claude-agent-acp" })).toBe(
+      "claude-agent-acp",
+    );
+    expect(adapterCommandOf({ command: "codex-acp" })).toBe("codex-acp");
+  });
+
+  test("prefers an explicit adapterCommand over the command", () => {
+    expect(
+      adapterCommandOf({ command: "bun", adapterCommand: "claude-agent-acp" }),
+    ).toBe("claude-agent-acp");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -368,6 +521,25 @@ describe("listAcpAgents", () => {
     expect(claude?.command).toBe("my-claude");
     expect(claude?.description).toBe("custom");
     expect(codex?.source).toBe("default");
+  });
+
+  test("missing binaries with bun present are listed available (bunx fallback)", () => {
+    config.setConfig({ agents: {} });
+    which.setWhich({ bun: "/usr/local/bin/bun" });
+
+    const result = listAcpAgents();
+
+    for (const entry of result.agents) {
+      expect(entry.available).toBe(true);
+      expect(entry.unavailableReason).toBeUndefined();
+      expect(entry.setupHint).toBeUndefined();
+    }
+    // The catalog keeps the canonical adapter commands, not the rewrite.
+    expect(result.agents.map((a) => a.command)).toEqual([
+      "claude-agent-acp",
+      "codex-acp",
+      "gemini",
+    ]);
   });
 
   test("unavailable agent surfaces install hint derived from DEFAULT_AGENT_NPM_PACKAGES", () => {

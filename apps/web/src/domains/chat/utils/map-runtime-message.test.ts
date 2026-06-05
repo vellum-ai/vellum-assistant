@@ -151,6 +151,49 @@ describe("mapRuntimeToDisplayMessage", () => {
     ]);
   });
 
+  test("passes a daemon-provided contentBlocks projection through verbatim", () => {
+    // GIVEN a history message that already ships the unified contentBlocks list
+    const contentBlocks = [
+      { type: "thinking" as const, thinking: "reason" },
+      { type: "text" as const, text: "answer" },
+    ];
+    const m = makeMessage({
+      id: "msg-blocks",
+      role: "assistant",
+      textSegments: ["answer"],
+      thinkingSegments: ["reason"],
+      contentOrder: ["thinking:0", "text:0"],
+      contentBlocks,
+    });
+
+    // WHEN it is mapped into a display message
+    const display = mapRuntimeToDisplayMessage(m);
+
+    // THEN the wire projection is carried onto the display row unchanged
+    expect(display.contentBlocks).toEqual(contentBlocks);
+  });
+
+  test("reconstructs contentBlocks from positional arrays for older daemons", () => {
+    // GIVEN a pre-projection assistant message with only positional arrays
+    const m = makeMessage({
+      id: "msg-noblocks",
+      role: "assistant",
+      textSegments: ["answer"],
+      thinkingSegments: ["reason"],
+      contentOrder: ["thinking:0", "text:0"],
+    });
+
+    // WHEN it is mapped into a display message
+    const display = mapRuntimeToDisplayMessage(m);
+
+    // THEN an equivalent contentBlocks list is synthesized at ingest so the
+    // renderer always has a wire-shaped ordering regardless of daemon version
+    expect(display.contentBlocks).toEqual([
+      { type: "thinking", thinking: "reason" },
+      { type: "text", text: "answer" },
+    ]);
+  });
+
   test("preserves Slack message metadata alongside mapped message fields", () => {
     const m = makeMessage({
       id: "msg-slack",

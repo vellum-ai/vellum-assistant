@@ -1,11 +1,10 @@
 {
   "name": "@vellumai/plugin-echo-example",
   "version": "0.1.0",
-  "description": "Example plugin that observes every assistant pipeline and logs one structured line per invocation to stderr. Meant as an authoring reference — not shipped with the assistant runtime.",
+  "description": "Example plugin that observes every assistant turn-lifecycle hook and logs one structured line per invocation to stderr. Meant as an authoring reference — not shipped with the assistant runtime.",
   "private": true,
   "license": "MIT",
   "type": "module",
-  "main": "./register.ts",
   "engines": {
     "node": ">=20.12.0"
   },

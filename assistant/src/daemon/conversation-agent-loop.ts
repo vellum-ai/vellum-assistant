@@ -388,8 +388,6 @@ export interface AgentLoopConversationContext {
   /** Task-run scope for the current turn. Cleared at turn end so queued/drained turns don't inherit it. */
   taskRunId?: string;
   assistantId?: string;
-  voiceCallControlPrompt?: string;
-  transportHints?: string[];
   clientTimezone?: string;
 
   readonly coreToolNames: Set<string>;
@@ -1304,8 +1302,6 @@ export async function runAgentLoopImpl(
     // Shared injection options — reused whenever we need to re-inject after reduction.
     const injectionOpts = {
       unifiedTurnContext: unifiedTurnContextStr,
-      voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
-      transportHints: ctx.transportHints ?? null,
       isNonInteractive: !isInteractiveResolved,
       isBackgroundConversation: isBackgroundConversationType(
         turnStartConversation?.conversationType,

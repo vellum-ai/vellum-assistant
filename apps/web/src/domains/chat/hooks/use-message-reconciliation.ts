@@ -177,7 +177,7 @@ export function useMessageReconciliation({
         assistantProgress = serverHasAssistantProgress(
           prev,
           serverMessages,
-          isSending(useTurnStore.getState()),
+          isSending(useTurnStore.getState().phase),
         );
         const next = reconcileSnapshot(prev, serverMessages, {
           conversationId,
@@ -261,7 +261,7 @@ export function useMessageReconciliation({
         changed &&
         assistantProgress &&
         snapshotTurnId &&
-        isSending(useTurnStore.getState()) &&
+        isSending(useTurnStore.getState().phase) &&
         useTurnStore.getState().activeTurnId === snapshotTurnId;
       if (wasStuck) {
         // The rescue must clear BOTH the turn-store (so the local
@@ -306,7 +306,7 @@ export function useMessageReconciliation({
       // Force-complete stale running tool calls. After onPollReconciled the
       // turn is idle. With Zustand, getState() reflects the update
       // immediately.
-      if (wasStuck || !isSending(useTurnStore.getState())) {
+      if (wasStuck || !isSending(useTurnStore.getState().phase)) {
         setMessages((prev) => {
           const hasStaleToolCalls = prev.some((m) =>
             m.toolCalls?.some((tc) => isToolCallRunning(tc)),

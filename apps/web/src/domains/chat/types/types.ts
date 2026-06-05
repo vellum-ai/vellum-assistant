@@ -3,6 +3,7 @@
  */
 
 import type {
+  ConversationContentBlock,
   ConversationMessage,
   ConversationMessageSurface,
 } from "@vellumai/assistant-api";
@@ -74,6 +75,18 @@ export interface DisplayMessage {
    */
   role: ConversationMessage["role"];
   surfaces?: Surface[];
+  /**
+   * Unified, single-ordered list of content blocks (text / thinking /
+   * tool_use / surface / attachment), carried straight through from the wire
+   * `ConversationMessage["contentBlocks"]`. Populated at the ingest boundary
+   * by `normalizeContentBlocks`, which returns the daemon's projection
+   * verbatim when present and reconstructs it from the positional arrays for
+   * daemons that predate it. This is the canonical ordering the transcript
+   * renders from; the positional arrays below (`contentOrder` /
+   * `textSegments` / `thinkingSegments`) are the legacy transport this
+   * supersedes and are retired once every renderer reads `contentBlocks`.
+   */
+  contentBlocks?: ConversationContentBlock[];
   /** Ordered text bodies, matching the wire `textSegments: string[]`. Each
    *  entry is referenced positionally by a `text:N` entry in `contentOrder`. */
   textSegments?: string[];

@@ -1822,20 +1822,19 @@ function applyInjectionBlock(
  * bag attached to the {@link TurnContext} the caller provides (or to an
  * ephemeral {@link TurnContext} synthesized for test call sites). A small
  * number of fields drive hardcoded branches that live outside the injector
- * chain — `voiceCallControlPrompt`, `transportHints`, and `isNonInteractive`
- * — because they are orchestrator-owned content that never made sense as
- * plugin-overridable default injectors.
+ * chain — `isNonInteractive` — because it is orchestrator-owned content that
+ * never made sense as a plugin-overridable default injector.
  *
  * The active workspace surface, the channel capabilities, the active document
- * list, and the channel command context are not on this bag:
- * `applyRuntimeInjections` resolves them from the live conversation itself
- * (its surface state, `channelCapabilities`, the document store keyed by
- * `conversationId`, and its `commandIntent` respectively), so the
+ * list, the channel command context, the voice call-control prompt, and the
+ * transport hints are not on this bag: `applyRuntimeInjections` resolves them
+ * from the live conversation itself (its surface state, `channelCapabilities`,
+ * the document store keyed by `conversationId`, its `commandIntent`, its
+ * `voiceCallControlPrompt`, and its `transportHints` respectively), so the
  * orchestrator does not compute or thread them per turn.
  */
 export interface RuntimeInjectionOptions {
   unifiedTurnContext?: string | null;
-  voiceCallControlPrompt?: string | null;
   subagentStatusBlock?: string | null;
   isNonInteractive?: boolean;
   /**
@@ -1845,7 +1844,6 @@ export interface RuntimeInjectionOptions {
    * configured reminder.
    */
   isBackgroundConversation?: boolean;
-  transportHints?: string[] | null;
   /**
    * Pre-rendered Slack chronological transcript that replaces the
    * default `runMessages` history for any Slack conversation (channels
@@ -1917,8 +1915,6 @@ function buildTurnInjectionInputs(
     channelCapabilities,
     slackChronologicalMessages: options.slackChronologicalMessages,
     slackActiveThreadFocusBlock: options.slackActiveThreadFocusBlock,
-    voiceCallControlPrompt: options.voiceCallControlPrompt,
-    transportHints: options.transportHints,
     isNonInteractive: options.isNonInteractive,
     isBackgroundConversation: options.isBackgroundConversation,
     activeDocuments,
@@ -1978,8 +1974,9 @@ function synthesizeFallbackTurnContext(
  *  6. Run the remaining hardcoded branches (`isNonInteractive`,
  *     `voiceCallControlPrompt`, `activeSurface`, `channelCapabilities`,
  *     `channelCommandContext`, `transportHints`) in their historical order.
- *     `activeSurface`, `channelCapabilities`, and `channelCommandContext` are
- *     sourced from the live conversation rather than `options`.
+ *     `voiceCallControlPrompt`, `activeSurface`, `channelCapabilities`,
+ *     `channelCommandContext`, and `transportHints` are sourced from the live
+ *     conversation rather than `options`.
  *  7. Finally, apply the chain's remaining blocks by placement:
  *     `"append-user-tail"` in ascending `order`, then `"prepend-user-tail"`
  *     in descending `order` so the lowest-`order` prepend lands topmost in
@@ -2019,6 +2016,22 @@ export async function applyRuntimeInjections(
   // within the turn.
   const channelCommandContext =
     findConversationOrSubagent(conversationId)?.commandIntent ?? null;
+
+  // Source the voice call-control prompt from the live conversation rather
+  // than a per-turn option. The voice-session bridge sets it on the
+  // conversation when a call attaches and clears it when the call ends, so
+  // the same value drives the `<voice_call_control>` branch on every assembly
+  // call within the turn.
+  const voiceCallControlPrompt =
+    findConversationOrSubagent(conversationId)?.voiceCallControlPrompt ?? null;
+
+  // Source the transport hints from the live conversation rather than a
+  // per-turn option. They are set on the conversation from the inbound
+  // message's transport when the message is processed, so the same value
+  // drives the `<transport_hints>` branch on every assembly call within the
+  // turn.
+  const transportHints =
+    findConversationOrSubagent(conversationId)?.transportHints ?? null;
 
   // Build the per-injector inputs and attach them to the caller's
   // TurnContext (without mutating it). When the caller didn't supply one,
@@ -2203,12 +2216,12 @@ export async function applyRuntimeInjections(
     }
   }
 
-  if (options.voiceCallControlPrompt) {
+  if (voiceCallControlPrompt) {
     const userTail = result[result.length - 1];
     if (userTail && userTail.role === "user") {
       result = [
         ...result.slice(0, -1),
-        injectVoiceCallControlContext(userTail, options.voiceCallControlPrompt),
+        injectVoiceCallControlContext(userTail, voiceCallControlPrompt),
       ];
     }
   }
@@ -2266,14 +2279,14 @@ export async function applyRuntimeInjections(
   if (
     mode === "full" &&
     !slackConversation &&
-    options.transportHints &&
-    options.transportHints.length > 0
+    transportHints &&
+    transportHints.length > 0
   ) {
     const userTail = result[result.length - 1];
     if (userTail && userTail.role === "user") {
       result = [
         ...result.slice(0, -1),
-        injectTransportHints(userTail, options.transportHints),
+        injectTransportHints(userTail, transportHints),
       ];
     }
   }

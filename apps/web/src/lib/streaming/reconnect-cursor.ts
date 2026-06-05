@@ -20,6 +20,12 @@
  * Held in memory only. A fresh page load opens a cold (non-reconnect)
  * connection that omits the cursor, so there is nothing to persist
  * across loads; the daemon's ring is bounded to a short window anyway.
+ *
+ * `seq` is per-assistant, so the cursor is only meaningful within one
+ * assistant-scoped connection. Switching assistants is a new seq space:
+ * `sse-service` resets the cursor when it attaches a connection so the
+ * next assistant starts cold (like a fresh page load) rather than
+ * carrying the previous assistant's seq onto an unrelated stream.
  */
 
 let reconnectCursor: number | null = null;
@@ -51,7 +57,15 @@ export function replaceReconnectCursor(seq: number): void {
   reconnectCursor = seq;
 }
 
-/** Reset state. Test-only. */
-export function __resetReconnectCursorForTesting(): void {
+/**
+ * Clear the cursor back to its cold (`null`) state.
+ *
+ * Called by `sse-service` when a connection is attached for an
+ * assistant: `seq` is per-assistant, so a cursor populated under the
+ * previous assistant is meaningless on the new one and must not be sent
+ * as `lastSeenSeq` or block cold-start anchoring. Starting cold lets the
+ * snapshot watermark re-seed the cursor for the new assistant.
+ */
+export function resetReconnectCursor(): void {
   reconnectCursor = null;
 }

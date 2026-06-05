@@ -151,6 +151,7 @@ function clearWorkspaceContext(): void {
 // between tests keeps suites asserting absence unaffected.
 function seedChannelCapabilitiesConversation(
   caps: ChannelCapabilities | null,
+  transportHints?: string[],
 ): void {
   setConversation("runtime-assembly-fallback", {
     conversationId: "runtime-assembly-fallback",
@@ -159,6 +160,7 @@ function seedChannelCapabilitiesConversation(
     workspaceTopLevelDirty: false,
     surfaceState: new Map(),
     channelCapabilities: caps ?? undefined,
+    transportHints,
   } as never);
 }
 
@@ -3046,12 +3048,13 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       { loader: () => rows, trustClass: "guardian" },
     );
 
-    seedChannelCapabilitiesConversation(slackChannelCaps);
+    seedChannelCapabilitiesConversation(slackChannelCaps, [
+      "thread context: ...",
+    ]);
     const { messages: result } = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "current turn" }] }],
       {
         slackChronologicalMessages,
-        transportHints: ["thread context: ..."],
       },
     );
 
@@ -3076,12 +3079,10 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       chatType: "im",
     };
 
-    seedChannelCapabilitiesConversation(slackDmCaps);
+    seedChannelCapabilitiesConversation(slackDmCaps, ["dm context: ..."]);
     const { messages: result } = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "hi DM" }] }],
-      {
-        transportHints: ["dm context: ..."],
-      },
+      {},
     );
 
     const allText = result
@@ -3095,18 +3096,19 @@ describe("Slack channel chronological rendering — multi-thread", () => {
 
   // ── transport_hints kept for non-slack channels ───────────────────────
   test("non-slack conversations still receive <transport_hints>", async () => {
-    seedChannelCapabilitiesConversation({
-      channel: "telegram",
-      dashboardCapable: false,
-      supportsDynamicUi: false,
-      supportsVoiceInput: false,
-      chatType: "private",
-    });
+    seedChannelCapabilitiesConversation(
+      {
+        channel: "telegram",
+        dashboardCapable: false,
+        supportsDynamicUi: false,
+        supportsVoiceInput: false,
+        chatType: "private",
+      },
+      ["please answer concisely"],
+    );
     const { messages: result } = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "hi" }] }],
-      {
-        transportHints: ["please answer concisely"],
-      },
+      {},
     );
     const allText = result
       .flatMap((m) => m.content)

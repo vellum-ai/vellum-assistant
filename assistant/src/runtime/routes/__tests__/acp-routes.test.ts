@@ -434,6 +434,36 @@ const SPAWN_BODY = {
 };
 
 describe("POST /v1/acp/spawn: auto-install on missing binary", () => {
+  test("binary missing + bun present: spawn proceeds via bunx without npm", async () => {
+    which.setWhich({ bun: "/usr/local/bin/bun" });
+
+    const handler = getSpawnHandler();
+    const body = (await handler({ body: SPAWN_BODY })) as Record<
+      string,
+      unknown
+    >;
+
+    expect(body).toEqual({
+      acpSessionId: "acp-route-session",
+      protocolSessionId: "proto-route-session",
+      agent: "claude",
+    });
+    expect(execFileMock).not.toHaveBeenCalled();
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    const agentConfigArg = (spawnMock.mock.calls[0] as unknown[])[1] as {
+      command: string;
+      args: string[];
+      adapterCommand?: string;
+    };
+    expect(agentConfigArg.command).toBe("bun");
+    expect(agentConfigArg.args).toEqual([
+      "x",
+      "--bun",
+      "@agentclientprotocol/claude-agent-acp",
+    ]);
+    expect(agentConfigArg.adapterCommand).toBe("claude-agent-acp");
+  });
+
   test("known command: installs the mapped package and spawn proceeds", async () => {
     // Binary appears on PATH only after `npm i -g` runs, simulating a
     // successful global install.
