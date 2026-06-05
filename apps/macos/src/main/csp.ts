@@ -12,7 +12,7 @@ export const CSP_POLICY = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline'",
-  "connect-src 'self' https://*.vellum.ai wss://*.vellum.ai https://*.ingest.sentry.io",
+  "connect-src 'self' https://*.vellum.ai wss://*.vellum.ai https://*.ingest.sentry.io https://api.elevenlabs.io https://api.deepgram.com",
   "img-src 'self' https: data: blob:",
   "media-src 'self' blob:",
   "worker-src 'self' blob: https://cdn.jsdelivr.net",
