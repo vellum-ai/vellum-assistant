@@ -566,6 +566,32 @@ describe("CallSetupFlow verification sub-flows", () => {
     await Promise.resolve();
   });
 
+  test("callee: detached setup side-effect rejection fails closed (ended), no hang", async () => {
+    const transport = makeTransport();
+    const ctx = makeDeps(SESSION, {
+      // The detached TTS/code-post side effects reject (e.g. DB write fails).
+      // This must not become an unhandled rejection or leave start() hung in
+      // collecting_code — the flow fails closed and ends the call.
+      async postCalleeVerificationCode() {
+        throw new Error("code-post DB write failed");
+      },
+    });
+    const flow = new CallSetupFlow("call_1", transport.transport, ctx.deps);
+
+    const result = await flow.start(
+      {
+        action: "callee_verification",
+        verificationConfig: { maxAttempts: 3, codeLength: 4 },
+      },
+      RESOLVED,
+    );
+
+    expect(result.kind).toBe("ended");
+    expect(result).toMatchObject({
+      reason: "Callee verification setup failed",
+    });
+  });
+
   // ── Best-effort pointer writes (P1: rejection must not strand flow) ──
   // A pointer write into the originating conversation can reject (origin
   // conversation deleted, DB write fails). It must never propagate out of the

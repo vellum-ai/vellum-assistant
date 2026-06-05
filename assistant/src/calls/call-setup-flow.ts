@@ -613,7 +613,24 @@ export class CallSetupFlow implements SetupFlowInput {
     // Flush any completion that landed before the resolver was installed.
     this.flushPendingCollectionResult();
 
-    void this.runCalleeSetupSideEffects(code);
+    void this.runCalleeSetupSideEffects(code).catch((err) => {
+      // The side effects are detached so `start()` resolves as soon as the code
+      // lands, but that means a rejection (e.g. postCalleeVerificationCode DB
+      // write fails, or a TTS dependency throws) would otherwise become an
+      // unhandled promise rejection while the call sits in `collecting_code`.
+      // Fail closed: end the call. Guard on `collecting` so we don't
+      // double-resolve if the caller already entered the code. Do NOT re-speak
+      // (TTS may be exactly what failed) — just tear down after the deferral.
+      log.warn(
+        { callSessionId: this.callSessionId, err },
+        "Callee verification setup side effects failed — failing closed",
+      );
+      if (this.collecting) {
+        const reason = "Callee verification setup failed";
+        this.finishWith({ kind: "ended", reason });
+        this.scheduleHangup(() => this.transport.endSession(reason));
+      }
+    });
 
     return pending;
   }
