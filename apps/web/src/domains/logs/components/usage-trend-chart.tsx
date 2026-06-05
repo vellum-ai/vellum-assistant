@@ -237,6 +237,7 @@ function StackedBar({
   ) => void;
   onSegmentLeave: () => void;
 }) {
+  const hasGroupedData = Object.keys(bucket.groups).length > 0;
   const activeLegendItems = legendItems.filter(
     (item) => (item.state ?? "active") === "active",
   );
@@ -248,7 +249,7 @@ function StackedBar({
     return [{ item, value }];
   });
 
-  if (nonEmptyGroups.length === 0) {
+  if (nonEmptyGroups.length === 0 && !hasGroupedData) {
     const bucketLabel = formatBucketLabel(bucket);
     const tooltipContent = {
       label: "Total",
@@ -270,6 +271,9 @@ function StackedBar({
         data-usage-fallback-segment="true"
       />
     );
+  }
+  if (nonEmptyGroups.length === 0) {
+    return null;
   }
 
   return (

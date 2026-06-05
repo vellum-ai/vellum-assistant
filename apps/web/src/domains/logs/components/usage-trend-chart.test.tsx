@@ -153,4 +153,68 @@ describe("UsageTrendChart", () => {
       activeDot!.getAttribute("data-usage-series-color-index"),
     );
   });
+
+  test("does not render a fallback segment when selected active series have no bucket data", () => {
+    const activeSeriesKey = "value:schedule-a";
+    const inactiveSeriesKey = "value:schedule-b";
+    const buckets = [
+      bucket("2026-04-01", 0.02, {
+        [inactiveSeriesKey]: group("Beta schedule", "schedule-b", 0.02),
+      }),
+    ];
+
+    const { container } = render(
+      <UsageTrendChart
+        buckets={buckets}
+        isHourly={false}
+        legendItems={[
+          {
+            seriesKey: inactiveSeriesKey,
+            label: "Beta schedule",
+            totalEstimatedCostUsd: 0,
+            colorIndex: 0,
+            state: "inactive",
+          },
+          {
+            seriesKey: activeSeriesKey,
+            label: "Alpha schedule",
+            totalEstimatedCostUsd: 0,
+            colorIndex: 1,
+            state: "active",
+          },
+        ]}
+      />,
+    );
+
+    const bar = container.querySelector(
+      `[data-usage-series-bar="${buckets[0]!.bucketId}"]`,
+    );
+    expect(bar).not.toBeNull();
+    expect(bar!.querySelector("[data-usage-fallback-segment]")).toBeNull();
+    expect(bar!.querySelector("[data-usage-series-segment]")).toBeNull();
+    expect(
+      bar!.querySelector(
+        `[data-usage-series-segment="${activeSeriesKey}"]`,
+      ),
+    ).toBeNull();
+  });
+
+  test("renders the total fallback segment for ungrouped buckets", () => {
+    const buckets = [bucket("2026-04-01", 0.02, {})];
+
+    const { container } = render(
+      <UsageTrendChart buckets={buckets} isHourly={false} />,
+    );
+
+    const bar = container.querySelector(
+      `[data-usage-series-bar="${buckets[0]!.bucketId}"]`,
+    );
+    const fallbackSegment = bar?.querySelector(
+      "[data-usage-fallback-segment]",
+    );
+    expect(fallbackSegment).not.toBeNull();
+    expect(
+      fallbackSegment?.getAttribute("data-usage-series-segment-label"),
+    ).toBe("Total");
+  });
 });
