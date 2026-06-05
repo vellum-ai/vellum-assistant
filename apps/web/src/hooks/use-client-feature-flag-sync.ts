@@ -7,12 +7,14 @@ import { assertHasResponse } from "@/utils/api-errors";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import {
   CLIENT_FLAG_DEFAULTS,
+  CLIENT_STRING_FLAG_DEFAULTS,
   flagKeyToStoreKey,
 } from "@/lib/feature-flags/feature-flag-catalog";
 import { useFlagQueryFreshness } from "@/lib/backwards-compat/flag-query-freshness";
 import { CLIENT_FLAG_QUERY_KEY } from "@/lib/sync/query-tags";
 
-const VALID_KEYS = new Set(Object.keys(CLIENT_FLAG_DEFAULTS));
+const VALID_BOOL_KEYS = new Set(Object.keys(CLIENT_FLAG_DEFAULTS));
+const VALID_STRING_KEYS = new Set(Object.keys(CLIENT_STRING_FLAG_DEFAULTS));
 
 async function fetchClientFlagValues(): Promise<ClientFeatureFlagsResponse> {
   const { data, error, response } = await featureFlagsClientFlagValuesRetrieve({
@@ -27,16 +29,18 @@ async function fetchClientFlagValues(): Promise<ClientFeatureFlagsResponse> {
 
 function mapFlags(
   serverFlags: Record<string, boolean | string>,
-): Record<string, boolean> {
-  const mapped: Record<string, boolean> = {};
+): { boolFlags: Record<string, boolean>; stringFlags: Record<string, string> } {
+  const boolFlags: Record<string, boolean> = {};
+  const stringFlags: Record<string, string> = {};
   for (const [flagKey, value] of Object.entries(serverFlags)) {
-    if (typeof value !== "boolean") continue;
     const storeKey = flagKeyToStoreKey(flagKey);
-    if (VALID_KEYS.has(storeKey)) {
-      mapped[storeKey] = value;
+    if (typeof value === "boolean" && VALID_BOOL_KEYS.has(storeKey)) {
+      boolFlags[storeKey] = value;
+    } else if (typeof value === "string" && VALID_STRING_KEYS.has(storeKey)) {
+      stringFlags[storeKey] = value;
     }
   }
-  return mapped;
+  return { boolFlags, stringFlags };
 }
 
 export function useClientFeatureFlagSync(enabled: boolean) {
@@ -51,7 +55,12 @@ export function useClientFeatureFlagSync(enabled: boolean) {
 
   useEffect(() => {
     if (data?.flags) {
-      useClientFeatureFlagStore.getState().setFlags(mapFlags(data.flags));
+      const { boolFlags, stringFlags } = mapFlags(data.flags);
+      const store = useClientFeatureFlagStore.getState();
+      store.setFlags(boolFlags);
+      if (Object.keys(stringFlags).length > 0) {
+        store.setStringFlags(stringFlags);
+      }
     }
   }, [data]);
 }

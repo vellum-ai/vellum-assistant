@@ -49,8 +49,21 @@ function buildScopeDefaults(scope: SingleScope): Record<string, boolean> {
   return defaults;
 }
 
+function buildStringScopeDefaults(scope: SingleScope): Record<string, string> {
+  const defaults: Record<string, string> = {};
+  for (const flag of flags) {
+    if (typeof flag.defaultEnabled !== "string") continue;
+    if (scopeIncludes(flag.scope, scope)) {
+      defaults[kebabToStoreKey(flag.key)] = flag.defaultEnabled;
+    }
+  }
+  return defaults;
+}
+
 export const CLIENT_FLAG_DEFAULTS = buildScopeDefaults("client");
 export const ASSISTANT_FLAG_DEFAULTS = buildScopeDefaults("assistant");
+export const CLIENT_STRING_FLAG_DEFAULTS = buildStringScopeDefaults("client");
+export const ASSISTANT_STRING_FLAG_DEFAULTS = buildStringScopeDefaults("assistant");
 
 export type ClientFeatureFlags = Record<string, boolean>;
 export type AssistantFeatureFlags = Record<string, boolean>;

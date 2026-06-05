@@ -6,6 +6,7 @@ import { assertHasResponse } from "@/utils/api-errors";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import {
   ASSISTANT_FLAG_DEFAULTS,
+  ASSISTANT_STRING_FLAG_DEFAULTS,
   flagKeyToStoreKey,
 } from "@/lib/feature-flags/feature-flag-catalog";
 import { useFlagQueryFreshness } from "@/lib/backwards-compat/flag-query-freshness";
@@ -23,20 +24,23 @@ interface AssistantFlagValuesResponse {
   flags: FeatureFlagEntry[];
 }
 
-const VALID_KEYS = new Set(Object.keys(ASSISTANT_FLAG_DEFAULTS));
+const VALID_BOOL_KEYS = new Set(Object.keys(ASSISTANT_FLAG_DEFAULTS));
+const VALID_STRING_KEYS = new Set(Object.keys(ASSISTANT_STRING_FLAG_DEFAULTS));
 
 function mapFlags(
   entries: FeatureFlagEntry[],
-): Record<string, boolean> {
-  const mapped: Record<string, boolean> = {};
+): { boolFlags: Record<string, boolean>; stringFlags: Record<string, string> } {
+  const boolFlags: Record<string, boolean> = {};
+  const stringFlags: Record<string, string> = {};
   for (const entry of entries) {
-    if (typeof entry.enabled !== "boolean") continue;
     const storeKey = flagKeyToStoreKey(entry.key);
-    if (VALID_KEYS.has(storeKey)) {
-      mapped[storeKey] = entry.enabled;
+    if (typeof entry.enabled === "boolean" && VALID_BOOL_KEYS.has(storeKey)) {
+      boolFlags[storeKey] = entry.enabled;
+    } else if (typeof entry.enabled === "string" && VALID_STRING_KEYS.has(storeKey)) {
+      stringFlags[storeKey] = entry.enabled;
     }
   }
-  return mapped;
+  return { boolFlags, stringFlags };
 }
 
 export async function fetchAssistantFlagValues(
@@ -93,7 +97,11 @@ export function useAssistantFeatureFlagSync(assistantId: string | null) {
   useEffect(() => {
     if (data?.flags) {
       const store = useAssistantFeatureFlagStore.getState();
-      store.setFlags(mapFlags(data.flags));
+      const { boolFlags, stringFlags } = mapFlags(data.flags);
+      store.setFlags(boolFlags);
+      if (Object.keys(stringFlags).length > 0) {
+        store.setStringFlags(stringFlags);
+      }
       // Mark hydrated AFTER values are written so a consumer subscribing
       // to both fields sees the real flag in the same render that
       // hasHydrated flips to true.
