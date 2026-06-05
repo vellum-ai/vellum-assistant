@@ -17,6 +17,7 @@ describe("CSP_POLICY", () => {
       "connect-src",
       "img-src",
       "media-src",
+      "worker-src",
       "font-src",
       "object-src",
       "base-uri",
@@ -28,11 +29,15 @@ describe("CSP_POLICY", () => {
     }
   });
 
-  test("script-src does not allow unsafe-inline or unsafe-eval", () => {
+  test("script-src does not allow unsafe-eval", () => {
     const scriptSrc = directiveValue("script-src");
     expect(scriptSrc).toBeDefined();
-    expect(scriptSrc).not.toContain("unsafe-inline");
     expect(scriptSrc).not.toContain("unsafe-eval");
+  });
+
+  test("script-src allows unsafe-inline for srcdoc bridge scripts", () => {
+    const scriptSrc = directiveValue("script-src");
+    expect(scriptSrc).toContain("'unsafe-inline'");
   });
 
   test("object-src is 'none'", () => {
