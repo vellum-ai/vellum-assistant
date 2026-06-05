@@ -198,6 +198,19 @@ servers** declared in `.mcp.json`:
   (`.lsp.json`) that surface diagnostics, go-to-definition, and hover info —
   there is no analog in our loader.
 
+### Tool naming & namespacing
+
+MCP tools are exposed to the model as `mcp__<server>__<tool>` (double
+underscore) in the Claude Code CLI / Agent SDK — the server name is the
+namespace, so two servers can each expose `create_issue` without colliding.
+MCP-provided slash commands follow the same scheme (`/mcp__<server>__<prompt>`).
+Note the convention is **not** universal: Agent Skills and the direct Messages
+API instead use the colon form `<Server>:<tool>`
+([anthropics/claude-code#18763](https://github.com/anthropics/claude-code/issues/18763)).
+Same `mcp__server__tool` namespacing as our own MCP tools, but ours is the only
+collision-safe surface — Claude Code has no flat plugin-tool registry to clash
+with because every plugin tool *is* an MCP tool.
+
 ---
 
 ## Conventions
@@ -214,3 +227,11 @@ servers** declared in `.mcp.json`:
   user's responsibility; the plugin only declares how to launch them.
 - **Security carve-outs.** Plugin-shipped agents cannot declare `hooks`,
   `mcpServers`, or `permissionMode`; the only `isolation` value is `"worktree"`.
+- **Plugins are a bundle, not a requirement.** Both MCP servers and skills can
+  be added standalone, outside any plugin: MCP via `claude mcp add` or a
+  `.mcp.json` (`local` / `user` / `project` scope), and skills by dropping a
+  `SKILL.md` into `~/.claude/skills/` (personal) or `.claude/skills/` (project).
+  A plugin is just one of four skill locations (enterprise / personal / project
+  / plugin) — the bundle adds distribution, not new capability. Sources:
+  [MCP](https://code.claude.com/docs/en/mcp),
+  [Skills](https://code.claude.com/docs/en/skills).

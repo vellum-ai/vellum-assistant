@@ -227,6 +227,18 @@ and image/music/video generation — which the host routes to the owning plugin.
 This capability-ownership model has no analog in our loader, where a plugin only
 contributes hooks and tools.
 
+### Tool naming & namespacing
+
+Tool names are **explicit and static**, not prefixed by plugin id: a tool sets
+its own `name`, and a factory can override or fan out names via
+`registerTool(tool, { name })` / `{ names: [...] }`. Instead of name-prefix
+namespacing, OpenClaw tracks **ownership** per plugin — cold in the manifest's
+`contracts.tools`, hot at runtime registration — so the host knows which plugin
+owns a given tool name and `openclaw plugins build` derives `contracts.tools`
+from the declared tools. This differs from our (and Claude Code's / Codex's)
+`mcp__<server>__<tool>` server-prefix scheme. Source:
+[Tools](https://docs.openclaw.ai/plugins/tools).
+
 ---
 
 ## Conventions
@@ -245,3 +257,10 @@ contributes hooks and tools.
 - **Foreign-bundle compatibility.** Claude/Codex/Cursor plugin layouts are
   auto-detected for skills, commands, settings/LSP defaults, and hook packs —
   but not validated against the native schema.
+- **MCP and skills don't require a plugin.** OpenClaw keeps its own MCP client
+  registry (`openclaw mcp add` / `set`, stored under `mcp.servers` in
+  `~/.openclaw/openclaw.json`) and projects those servers into the runtimes it
+  launches — independent of the plugin system. Skills load from declared skill
+  roots (and the auto-detected foreign bundles above). Plugins are reserved for
+  the richer capability surfaces (providers, channels, harnesses, generation
+  backends). Source: [MCP](https://docs.openclaw.ai/cli/mcp).

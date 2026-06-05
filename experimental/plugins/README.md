@@ -349,6 +349,17 @@ defaults when an author omits a field:
 individual tools never block plugin load; misconfigurations surface at
 call time.
 
+### Tool naming & namespacing
+
+Plugin tool names come straight from the file basename (`tools/recall.ts` →
+`recall`) and land in the **same flat registry as built-in tools** — there is
+**no per-plugin namespace prefix**, so a plugin tool name can collide with a
+built-in or another plugin's tool. (Duplicate *plugin* names fail registration,
+but tool names themselves are not scoped by plugin.) Contrast **MCP** tools,
+which are namespaced `mcp__<serverId>__<tool>` precisely to avoid cross-server
+and core-tool collisions — see
+[`mcp-tool-factory.ts`](../../assistant/src/tools/mcp/mcp-tool-factory.ts).
+
 ---
 
 ## Conventions
@@ -363,3 +374,10 @@ call time.
 - **Cooperative cancellation.** Long-running tools should check
   `ctx.signal?.aborted` or forward `ctx.signal` to `fetch` / `spawn`
   options.
+- **MCP lives outside the plugin loader.** This convention contributes only
+  `hooks/` and `tools/`; there is no in-plugin MCP or skill bundle the way
+  Claude Code / Codex plugins package one. MCP servers are registered
+  separately in assistant config (not in a plugin), and their tools join the
+  catalog under the `mcp__<server>__<tool>` namespace — see
+  [`assistant/src/mcp`](../../assistant/src/mcp) and
+  [`mcp-tool-factory.ts`](../../assistant/src/tools/mcp/mcp-tool-factory.ts).

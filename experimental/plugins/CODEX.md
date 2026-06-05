@@ -214,6 +214,15 @@ Built-in tool *behavior* is shaped by the sandbox/approval model in
 `config.toml` (`approval_policy`, `sandbox_mode`, granular approval rules),
 which is configuration rather than a plugin surface.
 
+### Tool naming & namespacing
+
+MCP tools are namespaced by server before they reach the model — the (sanitized)
+server name forms the tool namespace, so identically named tools on different
+servers don't collide. Per-server `enabled_tools` / `disabled_tools` allow/deny
+lists filter by the raw tool name, and `tools.<tool>.approval_mode` overrides
+approval per tool. Same server-namespacing idea as our `mcp__<server>__<tool>`
+tools. Source: [MCP](https://developers.openai.com/codex/mcp).
+
 ---
 
 ## Conventions
@@ -231,3 +240,12 @@ which is configuration rather than a plugin surface.
   Codex app ("Created by you" → Share), or distribute by repo/CLI via a
   marketplace; admins can disable sharing with `plugin_sharing = false` in
   `requirements.toml`.
+- **Plugins are a distribution unit, not a requirement.** MCP servers, skills,
+  and hooks can all be added standalone, with no plugin: MCP servers under
+  `[mcp_servers]` in `~/.codex/config.toml` (or a project `.codex/config.toml`)
+  or via `codex mcp add`; skills in `$HOME/.agents/skills` (user),
+  `.agents/skills` (repo), or `/etc/codex/skills` (admin); hooks in
+  `~/.codex/hooks.json` or project `.codex/hooks.json`. A plugin bundles these
+  for distribution. Sources:
+  [Skills](https://developers.openai.com/codex/skills),
+  [MCP](https://developers.openai.com/codex/mcp).

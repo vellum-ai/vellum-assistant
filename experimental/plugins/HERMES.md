@@ -222,6 +222,17 @@ Handler rules:
 - Tools are grouped into a **`toolset`** and can be invoked from slash commands
   via `ctx.dispatch_tool(name, args)`.
 
+### Tool naming & namespacing
+
+Tools are keyed by a **unique `name`** in a singleton registry and grouped into
+a `toolset` (the toolset is a bundle label for enable/disable, *not* a name
+prefix). On a name collision across toolsets a warning is logged and the
+**later registration wins** — there is no per-plugin namespace for tool names,
+so a plugin can shadow a core tool. Bundled *skills*, by contrast, **are**
+namespaced `plugin:skill`. This is the inverse of our model, where MCP tools are
+namespaced (`mcp__<server>__<tool>`) but skills are not. Source:
+[Tools runtime](https://hermes-agent.nousresearch.com/docs/developer-guide/tools-runtime).
+
 ---
 
 ## Conventions
@@ -240,3 +251,9 @@ Handler rules:
 - **Far wider backend surface.** Beyond tools/hooks, a plugin can register chat
   platforms, image/video generation, context-compression engines, and memory
   backends — backend categories our loader does not expose.
+- **Not every extension is a Python plugin.** MCP servers are configured under
+  `mcp_servers.<name>` in `config.yaml`, gateway hooks are drop-in
+  `HOOK.yaml` + `handler.py` directories under `~/.hermes/hooks/`, and shell
+  hooks live in `config.yaml` — none of these is a `register(ctx)` plugin. A
+  plugin is the path for Python-imperative tools/hooks/commands/backends.
+  Source: [Plugins](https://hermes-agent.nousresearch.com/docs/user-guide/features/plugins).
