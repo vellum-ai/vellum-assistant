@@ -609,7 +609,7 @@ export function ShareFeedbackModal({
           ? await buildClientLogsFile(
               logTimeRange,
               assistantId ?? null,
-              includeConversation ? (activeConversationId ?? null) : null,
+              isElectron() ? (includeConversation ? (activeConversationId ?? null) : null) : (activeConversationId ?? null),
               getDiagnosticsSnapshot,
             )
           : null;
