@@ -768,7 +768,6 @@ describe("applyRuntimeInjections — injection mode", () => {
     unifiedTurnContext:
       "<turn_context>\ncurrent_time: 2026-03-04 (Tuesday) 12:00:00 +00:00 (UTC)\ninterface: telegram\n</turn_context>",
     nowScratchpad: "Current focus: shipping PR 3",
-    pkbContext: "essentials content here",
     isNonInteractive: true,
     // Guardian trust so the personal-memory gate admits the actor regardless
     // of the telegram channel capabilities under test, letting the reminder

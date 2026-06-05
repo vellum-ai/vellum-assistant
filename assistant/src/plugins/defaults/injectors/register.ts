@@ -252,20 +252,32 @@ const unifiedTurnContextInjector: Injector = {
  *
  * Gating:
  *  - `mode === "full"`.
- *  - Non-null, non-empty `pkbContext`.
+ *  - The personal-memory trust gate admits the actor and the workspace has
+ *    PKB content (see {@link readGatedPkbContext}).
+ *  - The `<knowledge_base>` block is not already present in the turn's working
+ *    messages. The big block is injected once and then persists in history, so
+ *    it only needs (re)injecting on the first turn and right after compaction
+ *    strips it — both of which leave the working messages without the block.
+ *    Skipping when it is present keeps the conversation prefix stable for
+ *    Anthropic's prefix caching and avoids a duplicate splice.
  */
 const pkbContextInjector: Injector = {
   name: "pkb-context",
   order: DEFAULT_INJECTOR_ORDER.pkbContext,
-  async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
+  async produce(
+    ctx: TurnContext,
+    runMessages?: Message[],
+  ): Promise<InjectionBlock | null> {
     const inputs = readInjectionInputs(ctx);
     const mode = inputs.mode ?? "full";
     if (mode !== "full") return null;
     if (isPkbInjectionSilencedByV2()) return null;
-    if (!inputs.pkbContext) return null;
+    const content = readGatedPkbContext(ctx.trust);
+    if (!content) return null;
+    if (hasKnowledgeBaseBlock(runMessages)) return null;
     return {
       id: "pkb-context",
-      text: buildPkbContextBlock(inputs.pkbContext),
+      text: buildPkbContextBlock(content),
       placement: "after-memory-prefix",
     };
   },
@@ -306,18 +318,45 @@ const pkbReminderInjector: Injector = {
 };
 
 /**
- * Whether PKB is active for the turn: the personal-memory trust gate admits
- * the actor and the workspace has PKB content to surface. Both inputs are
- * sourced from the turn's trust context and the PKB files directly, so the
- * reminder gate stays internal to the memory domain rather than being
- * threaded in from the agent loop.
+ * Read the auto-injected PKB content for the turn, gated behind the
+ * personal-memory trust gate. Returns the content string when the gate admits
+ * the actor and the workspace has PKB content, otherwise `null`. Both the gate
+ * and the content are sourced from the turn's trust context and the PKB files
+ * directly, so the memory-domain injectors source their own inputs rather than
+ * having them threaded in from the agent loop.
  */
-function isPkbActive(trust: TrustContext): boolean {
+function readGatedPkbContext(trust: TrustContext): string | null {
   const personalMemoryAllowed = shouldExposePersonalMemory({
     sourceChannel: trust.sourceChannel,
     isTrustedActor: resolveTrustClass(trust) === "guardian",
   });
-  return personalMemoryAllowed && readPkbContext() !== null;
+  return personalMemoryAllowed ? readPkbContext() : null;
+}
+
+/**
+ * Whether PKB is active for the turn: the personal-memory trust gate admits
+ * the actor and the workspace has PKB content to surface.
+ */
+function isPkbActive(trust: TrustContext): boolean {
+  return readGatedPkbContext(trust) !== null;
+}
+
+/**
+ * Whether the `<knowledge_base>` block is already present in the turn's working
+ * messages. Mirrors the matcher `stripInjectionsForCompaction` uses for the
+ * block (a user-message text block whose content starts with the opening tag),
+ * so detection stays in lockstep with what compaction strips.
+ */
+function hasKnowledgeBaseBlock(runMessages?: Message[]): boolean {
+  if (!runMessages) return false;
+  return runMessages.some(
+    (message) =>
+      message.role === "user" &&
+      message.content.some(
+        (block) =>
+          block.type === "text" && block.text.startsWith("<knowledge_base>"),
+      ),
+  );
 }
 
 /**

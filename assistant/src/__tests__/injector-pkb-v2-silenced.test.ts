@@ -58,7 +58,6 @@ function tailTexts(messages: Message[]): string[] {
     .map((b) => b.text);
 }
 
-const PKB_CONTEXT = "essentials of the project";
 const NOW_CONTENT = "Current focus: shipping G2.1";
 const RUN_MESSAGES: Message[] = [
   { role: "user", content: [{ type: "text", text: "What next?" }] },
@@ -87,7 +86,6 @@ describe("PKB injector v2 cutover behavior", () => {
   test("v2 inactive → pkb-context, pkb-reminder, and now-md all produce blocks", async () => {
     const result = await applyRuntimeInjections(RUN_MESSAGES, {
       turnContext: makeTurnContext(),
-      pkbContext: PKB_CONTEXT,
       nowScratchpad: NOW_CONTENT,
     });
 
@@ -101,7 +99,6 @@ describe("PKB injector v2 cutover behavior", () => {
     v2Active = true;
     const result = await applyRuntimeInjections(RUN_MESSAGES, {
       turnContext: makeTurnContext(),
-      pkbContext: PKB_CONTEXT,
       nowScratchpad: NOW_CONTENT,
     });
 

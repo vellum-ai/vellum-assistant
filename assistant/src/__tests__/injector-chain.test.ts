@@ -24,6 +24,8 @@
  *    content.
  */
 
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // This test exercises v1 PKB injection. `config.memory.v2.enabled`
@@ -46,6 +48,8 @@ const { applyRuntimeInjections, composeInjectorChain } =
   await import("../daemon/conversation-runtime-assembly.js");
 const { DEFAULT_INJECTOR_ORDER, defaultInjectorsPlugin } =
   await import("../plugins/defaults/injectors/register.js");
+import { buildPkbReminder } from "../daemon/pkb-reminder-builder.js";
+import { getPkbRoot } from "../memory/pkb/types.js";
 import {
   getInjectors,
   registerPlugin,
@@ -83,9 +87,26 @@ function wrapInPlugin(name: string, injectors: Injector[]): Plugin {
   };
 }
 
+// The pkb-context and pkb-reminder injectors both derive PKB-active state from
+// the workspace itself — `readPkbContext()` returning content behind the
+// personal-memory trust gate — rather than from a threaded flag. Seed the file
+// with exactly the content the test expects so the `<knowledge_base>` block
+// renders deterministically; clear it between tests so suites that assert the
+// PKB injectors are absent stay unaffected.
+function seedPkbContent(content: string): void {
+  const root = getPkbRoot();
+  mkdirSync(root, { recursive: true });
+  writeFileSync(join(root, "INDEX.md"), content, "utf-8");
+}
+
+function clearPkbContent(): void {
+  rmSync(getPkbRoot(), { recursive: true, force: true });
+}
+
 describe("injector chain", () => {
   beforeEach(() => {
     resetPluginRegistryForTests();
+    clearPkbContent();
   });
 
   test("defaultInjectorsPlugin registers the defaults in the documented order", () => {
@@ -335,14 +356,21 @@ describe("injector chain", () => {
     //   [workspace]            ← prepend order 10 (topmost)
     //   [unified-turn]         ← prepend order 20
     //   [now-md]               ← after-memory-prefix order 40 (highest order, closest to memory)
-    //   [pkb-reminder]         ← after-memory-prefix order 35 (skipped when pkbActive=false)
+    //   [pkb-reminder]         ← after-memory-prefix order 35
     //   [pkb-context]          ← after-memory-prefix order 30
     //   [user text]
     //   [subagent]             ← append order 50
     //
     // No memory prefix blocks in this scenario, so after-memory-prefix
-    // lands right at the head of the user-text cluster.
+    // lands right at the head of the user-text cluster. The pkb-context and
+    // pkb-reminder injectors both fire off the seeded PKB content under the
+    // guardian trust on `makeTurnContext()` — pkb-context renders the seeded
+    // `<knowledge_base>` body, pkb-reminder the flat `<system_reminder>`
+    // (no graph handle is registered, so it has no search hints).
     registerPlugin(defaultInjectorsPlugin);
+
+    const pkbContent = "essentials of the project";
+    seedPkbContent(pkbContent);
 
     const runMessages: Message[] = [
       { role: "user", content: [{ type: "text", text: "What next?" }] },
@@ -352,7 +380,6 @@ describe("injector chain", () => {
       "<workspace>\nRoot: /sandbox\nDirectories: src, lib\n</workspace>";
     const unifiedTurn =
       "<turn_context>\ncurrent_time: 2026-04-22\ninterface: macos\n</turn_context>";
-    const pkbContent = "essentials of the project";
     const nowContent = "Current focus: shipping G2.1";
     const subagentBlock =
       '<active_subagents>\n- [running] "worker" (sub-1) | elapsed: 5s\n</active_subagents>';
@@ -361,9 +388,6 @@ describe("injector chain", () => {
       turnContext: makeTurnContext(),
       workspaceTopLevelContext: workspaceText,
       unifiedTurnContext: unifiedTurn,
-      pkbContext: pkbContent,
-      // No PKB files seeded in this suite, so the reminder gate stays closed
-      // and the positional snapshot stays small.
       nowScratchpad: nowContent,
       subagentStatusBlock: subagentBlock,
     });
@@ -379,14 +403,17 @@ describe("injector chain", () => {
     // placement says it does.
     expect(texts[0]).toBe(workspaceText); // prepend order 10
     expect(texts[1]).toBe(unifiedTurn); // prepend order 20
-    // NOW and PKB are both after-memory-prefix; NOW runs later so sits above PKB.
+    // NOW, pkb-reminder and pkb-context are all after-memory-prefix; higher
+    // order splices closer to the memory prefix, so NOW sits above the
+    // reminder, which sits above the knowledge_base.
     expect(texts[2]).toBe(
       `<NOW.md Always keep this up to date; keep under 10 lines>\n${nowContent}\n</NOW.md>`,
     );
-    expect(texts[3]).toBe(`<knowledge_base>\n${pkbContent}\n</knowledge_base>`);
-    expect(texts[4]).toBe("What next?"); // user's typed text
-    expect(texts[5]).toBe(subagentBlock); // append order 50
-    expect(texts).toHaveLength(6);
+    expect(texts[3]).toBe(buildPkbReminder([])); // pkb-reminder order 35
+    expect(texts[4]).toBe(`<knowledge_base>\n${pkbContent}\n</knowledge_base>`);
+    expect(texts[5]).toBe("What next?"); // user's typed text
+    expect(texts[6]).toBe(subagentBlock); // append order 50
+    expect(texts).toHaveLength(7);
 
     // Block metadata captures for DB persistence — one field per default
     // injector whose output the loader rehydrates from message metadata.
@@ -537,7 +564,6 @@ describe("injector chain", () => {
         mode: "minimal",
         workspaceTopLevelContext: "<workspace>...</workspace>",
         unifiedTurnContext: "<turn_context>...</turn_context>",
-        pkbContext: "kbody",
         nowScratchpad: "nowbody",
         subagentStatusBlock: "<active_subagents>...</active_subagents>",
       },
