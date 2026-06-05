@@ -355,6 +355,24 @@ export function buildActiveDocuments(conversationId: string): Array<{
     : null;
 }
 
+/**
+ * Resolves the `<workspace>` top-level block for the runtime injector, or
+ * `null` when the turn isn't injecting it. The underlying refresh is
+ * dirty-guarded, so it scans the workspace only on the first injection or
+ * after a workspace-mutating tool marks the cache dirty.
+ */
+export function buildWorkspaceTopLevelContext(
+  ctx: {
+    refreshWorkspaceTopLevelContextIfNeeded(): void;
+    workspaceTopLevelContext: string | null;
+  },
+  shouldInject: boolean,
+): string | null {
+  if (!shouldInject) return null;
+  ctx.refreshWorkspaceTopLevelContextIfNeeded();
+  return ctx.workspaceTopLevelContext;
+}
+
 const MAX_CONTEXT_LENGTH = 100_000;
 
 function truncateHtml(html: string, budget: number): string {
