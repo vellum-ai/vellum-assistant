@@ -20,14 +20,13 @@
  * owns the plaintext read boundary.
  */
 
-import { basename } from "node:path";
-
 import { FailedDependencyError } from "../runtime/routes/errors.js";
 import { credentialBroker } from "../tools/credentials/broker.js";
 import {
   getCredentialMetadata,
   upsertCredentialMetadata,
 } from "../tools/credentials/metadata-store.js";
+import { adapterCommandOf } from "./resolve-agent.js";
 import type { AcpAgentConfig } from "./types.js";
 
 const ACP_SPAWN_TOOL = "acp_spawn";
@@ -67,9 +66,13 @@ function ensureAcpTokenPolicy(): void {
  * credential is missing from both the user-supplied env override and the
  * secure store.
  *
- * Gating is keyed off the resolved agent COMMAND (basename), not the
- * user-facing agent id, so a custom `acp.agents.my-claude = { command:
- * "claude-agent-acp", ... }` alias still gets the env it needs.
+ * Gating is keyed off the canonical adapter identity (`adapterCommand` set
+ * by the resolver, falling back to the command basename for plain configs),
+ * not the user-facing agent id. A custom `acp.agents.my-claude = { command:
+ * "claude-agent-acp", ... }` alias still gets the env it needs, and so does
+ * the bunx-rewritten claude adapter (whose `command` is "bun"). Without
+ * the adapterCommand gate, bunx-resolved spawns would start with no auth
+ * and die as zombies on the first prompt.
  *
  * For `claude-agent-acp` the only required env var is
  * `CLAUDE_CODE_OAUTH_TOKEN`. Two provisioning routes converge on it, with
@@ -92,9 +95,8 @@ export async function prepareAgentEnv(
   // agent reference. The local `env` binding sidesteps TS narrowing
   // limitations on the optional `AcpAgentConfig.env` field.
   const env: Record<string, string> = { ...(agentConfig.env ?? {}) };
-  const commandBasename = basename(agentConfig.command);
 
-  if (commandBasename === "claude-agent-acp") {
+  if (adapterCommandOf(agentConfig) === "claude-agent-acp") {
     if (!env.CLAUDE_CODE_OAUTH_TOKEN) {
       ensureAcpTokenPolicy();
       await credentialBroker.serverUse<void>({

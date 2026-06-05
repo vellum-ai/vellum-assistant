@@ -3,14 +3,24 @@
  *
  * `execFile` is stubbed via the shared `installExecFileStub` helper: a
  * process-global `mock.module("node:child_process", ...)` driven by per-call
- * scripted responses keyed on `${command} ${args[0]}`.
+ * scripted responses keyed on `${command} ${args[0]}`. The
+ * `resolveAgentWithAutoInstall` ordering suite additionally stubs the ACP
+ * config and `Bun.which` so it can flip bun / adapter-binary presence.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { installAcpConfigStub } from "./__tests__/helpers/acp-config-stub.js";
 import { installExecFileStub } from "./__tests__/helpers/exec-file-stub.js";
+import { installWhichStub } from "./__tests__/helpers/which-stub.js";
 
 const { execScripts, execFileMock, reset } = installExecFileStub();
+const config = await installAcpConfigStub();
+const which = installWhichStub();
+
+afterAll(() => {
+  which.restore();
+});
 
 // Spread the real module so other test files that load logger consumers
 // (e.g. `truncateForLog` importers) after this process-global mock still
@@ -24,12 +34,17 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-const { ensureAdapterInstalled, _resetAdapterInstallCacheForTests } =
-  await import("./auto-install.js");
+const {
+  ensureAdapterInstalled,
+  resolveAgentWithAutoInstall,
+  _resetAdapterInstallCacheForTests,
+} = await import("./auto-install.js");
 
 beforeEach(() => {
   reset();
   _resetAdapterInstallCacheForTests();
+  config.setConfig({ agents: {} });
+  which.setWhich({});
 });
 
 describe("ensureAdapterInstalled", () => {
@@ -121,5 +136,61 @@ describe("ensureAdapterInstalled", () => {
       "@agentclientprotocol/claude-agent-acp",
       "@zed-industries/codex-acp",
     ]);
+  });
+});
+
+describe("resolveAgentWithAutoInstall - resolution order", () => {
+  test("binary missing + bun present: resolves via bunx without invoking npm", async () => {
+    which.setWhich({ bun: "/usr/local/bin/bun" });
+
+    const result = await resolveAgentWithAutoInstall("claude");
+
+    expect(result.resolved.ok).toBe(true);
+    if (!result.resolved.ok) return;
+    expect(result.resolved.agent.command).toBe("bun");
+    expect(result.resolved.agent.adapterCommand).toBe("claude-agent-acp");
+    expect(result.autoInstalledPackage).toBeUndefined();
+    expect(result.failureMessage).toBeUndefined();
+    expect(execFileMock).not.toHaveBeenCalled();
+  });
+
+  test("binary + bun missing, npm install succeeds: falls back to the npm flow", async () => {
+    let installed = false;
+    which.setWhich((cmd) =>
+      installed && cmd === "claude-agent-acp"
+        ? "/usr/local/bin/claude-agent-acp"
+        : null,
+    );
+    execScripts.set("npm i", {
+      stdout: "",
+      onCall: () => {
+        installed = true;
+      },
+    });
+
+    const result = await resolveAgentWithAutoInstall("claude");
+
+    expect(result.resolved.ok).toBe(true);
+    if (!result.resolved.ok) return;
+    expect(result.resolved.agent.command).toBe("claude-agent-acp");
+    expect(result.autoInstalledPackage).toBe(
+      "@agentclientprotocol/claude-agent-acp",
+    );
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("binary, bun, and npm all missing: failure message carries the hint and install error", async () => {
+    execScripts.set("npm i", { error: new Error("spawn npm ENOENT") });
+
+    const result = await resolveAgentWithAutoInstall("claude");
+
+    expect(result.resolved.ok).toBe(false);
+    expect(result.failureMessage).toContain(
+      "claude-agent-acp is not on PATH",
+    );
+    expect(result.failureMessage).toContain(
+      "npm i -g @agentclientprotocol/claude-agent-acp",
+    );
+    expect(result.failureMessage).toContain("ENOENT");
   });
 });

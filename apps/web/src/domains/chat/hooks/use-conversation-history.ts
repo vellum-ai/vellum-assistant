@@ -25,6 +25,7 @@ import { filterDismissedSurfaces } from "@/domains/chat/utils/dismissed-surfaces
 import { recordDiagnostic } from "@/lib/diagnostics";
 import { recordSnapshotSeq } from "@/lib/streaming/snapshot-seq";
 import { recordAppliedSeq } from "@/lib/streaming/applied-seq";
+import { anchorColdStartReplay } from "@/lib/streaming/cold-anchor";
 import { summarizeDisplayMessages } from "@/domains/chat/utils/diagnostics";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
@@ -118,6 +119,11 @@ export function useConversationHistory({
     const latestPageSeq = pagination.latestPage?.seq ?? null;
     recordSnapshotSeq(activeConversationId, latestPageSeq);
     recordAppliedSeq(activeConversationId, latestPageSeq);
+    // On a cold session, anchor the live SSE connection at this snapshot
+    // watermark so the daemon ring-replays events emitted between the
+    // snapshot and the stream attaching. No-op past the first cold load
+    // and when seq gap detection is off.
+    anchorColdStartReplay(latestPageSeq);
 
     const isFreshSwitch = store.switchResetPending;
     if (isFreshSwitch) {

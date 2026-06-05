@@ -140,8 +140,6 @@ export interface TurnInjectionInputs {
    * no focus block is appended.
    */
   readonly slackActiveThreadFocusBlock?: string | null;
-  /** Voice call-control prompt or null to skip. */
-  readonly voiceCallControlPrompt?: string | null;
   /** Gateway-provided transport hints (e.g. Slack thread context). */
   readonly transportHints?: string[] | null;
   /**

@@ -1448,7 +1448,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         let lastUserIndex = messages.lastIndex(where: { $0.role == .user })
         let lastAssistantIndex = messages.lastIndex(where: { $0.role == .assistant })
         guard let lastAssistantIndex,
-              lastUserIndex == nil || lastAssistantIndex > lastUserIndex else { return }
+              lastUserIndex.map({ lastAssistantIndex > $0 }) ?? true else { return }
         clearCurrentTurnTracking()
         isThinking = false
         isSending = false

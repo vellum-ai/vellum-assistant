@@ -20,6 +20,8 @@
 
 export const APP_PROTOCOL = "app";
 export const APP_HOST = "vellum.ai";
+export const VELLUMAPP_PROTOCOL = "vellumapp";
+export const BUNDLES_DIR_NAME = "bundles";
 
 const DEV_SERVER_FALLBACK_URL = "http://localhost:5173/assistant";
 

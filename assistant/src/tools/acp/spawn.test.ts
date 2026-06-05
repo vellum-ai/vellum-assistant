@@ -481,6 +481,54 @@ describe("executeAcpSpawn: auto-install on missing binary", () => {
   });
 });
 
+describe("executeAcpSpawn - bunx fallback when binary missing", () => {
+  test("binary missing + bun present: spawns via `bun x` with env injection and resume hint, no npm calls", async () => {
+    // Only bun is on PATH - the platform-hosted image (bun, no node/npm).
+    which.setWhich({ bun: "/usr/local/bin/bun" });
+
+    const result = await executeAcpSpawn(
+      { agent: "claude", task: "do something" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    // No npm install AND no npm version probe: bunx fetches the package on
+    // first use and there is no global install to compare.
+    expect(execFileMock).not.toHaveBeenCalled();
+    expect(result.content).not.toContain("outdated");
+
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    const agentConfigArg = spawnMock.mock.calls[0][1] as {
+      command: string;
+      args: string[];
+      adapterCommand?: string;
+      env?: Record<string, string>;
+    };
+    expect(agentConfigArg.command).toBe("bun");
+    expect(agentConfigArg.args).toEqual([
+      "x",
+      "--bun",
+      "@agentclientprotocol/claude-agent-acp",
+    ]);
+    expect(agentConfigArg.adapterCommand).toBe("claude-agent-acp");
+    // CLAUDE_CODE_OAUTH_TOKEN injection still applies to the bunx-resolved
+    // claude adapter (gated on adapterCommand, not the spawn command).
+    expect(agentConfigArg.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe(
+      "default-test-token",
+    );
+
+    const [payloadJson] = result.content.split("\n\n");
+    const payload = JSON.parse(payloadJson);
+    // No auto-install happened; the claude resume hint still fires.
+    expect(payload.message).not.toContain("Installed");
+    expect(payload.message).toContain("claude --resume");
+  });
+
+  // The bun-absent npm fallback is covered by the existing auto-install
+  // suite below ("known command: installs the mapped package..."), whose
+  // which-stub leaves bun off PATH until the install completes.
+});
+
 describe("executeAcpSpawn — per-agent resume hint", () => {
   test("claude payload includes the `claude --resume` hint", async () => {
     execScripts.set("npm ls", { error: new Error("npm not installed") });

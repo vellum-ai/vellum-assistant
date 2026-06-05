@@ -36,6 +36,7 @@
     "@vellumai/local-mode": "file:../../packages/local-mode",
     "electron-log": "5.4.4",
     "electron-store": "11.0.2",
+    "jszip": "3.10.1",
     "zod": "4.3.6"
   }
 }

@@ -6,6 +6,12 @@
  *
  *   - `"fresh"`  — first open per assistant; the regular history-load
  *                  path owns the initial fetch, no reconcile here.
+ *   - `"anchor"` — cold-start anchored-replay reopen (see
+ *                  `cold-anchor.ts`); the connection re-attaches at the
+ *                  snapshot watermark `S` so the daemon ring-replays the
+ *                  snapshot→attach gap. No reconcile here: the ring
+ *                  replay is the catch-up, and ring eviction falls back
+ *                  to the consumer's seq-gap reconcile.
  *   - `"resume"` — visibility-driven reopen; standalone reconcile +
  *                  start the reconciliation loop on the new epoch.
  *   - `"debug"`  — manual `_vellumDebug.events.reconnectClient()`
@@ -77,7 +83,7 @@ export function createReconcileOnReopen(
         epoch,
         cause,
       });
-      if (cause === "fresh") return;
+      if (cause === "fresh" || cause === "anchor") return;
       if (cause === "watchdog" || cause === "error") {
         void runTransportRecoveryReconcile(deps, epoch, cause);
         return;
