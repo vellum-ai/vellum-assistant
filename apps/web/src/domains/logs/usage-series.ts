@@ -1,3 +1,4 @@
+import { isLlmUsageDimension, toDaemonGroupBy } from "@/utils/llm-dimension";
 import type { UsageGroupLabelMetadata } from "./group-labels";
 import { resolveUsageGroupLabel } from "./group-labels";
 import type {
@@ -34,7 +35,10 @@ export function usageSeriesKeyForGroupValue(
   if (groupKey !== null) {
     return `${VALUE_GROUP_PREFIX}${groupKey}`;
   }
-  return `${NULL_GROUP_PREFIX}${groupBy}`;
+  const backendGroupBy = isLlmUsageDimension(groupBy)
+    ? toDaemonGroupBy(groupBy)
+    : groupBy;
+  return `${NULL_GROUP_PREFIX}${backendGroupBy}`;
 }
 
 export function sortUsageSeriesBuckets(

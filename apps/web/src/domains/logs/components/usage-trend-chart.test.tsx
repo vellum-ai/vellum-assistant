@@ -50,8 +50,15 @@ describe("usageSeriesKeyForGroupValue", () => {
     expect(usageSeriesKeyForGroupValue(null, "schedule")).toBe(
       "null:schedule",
     );
+    expect(usageSeriesKeyForGroupValue(null, "task")).toBe("null:call_site");
+    expect(usageSeriesKeyForGroupValue(null, "profile")).toBe(
+      "null:inference_profile",
+    );
     expect(usageSeriesKeyForGroupValue("null:schedule")).toBe(
       "value:null:schedule",
+    );
+    expect(usageSeriesKeyForGroupValue("profile-123", "profile")).toBe(
+      "value:profile-123",
     );
   });
 });
@@ -88,8 +95,9 @@ describe("UsageTrendChart", () => {
     const activeSeriesKey = "value:schedule-a";
     const inactiveSeriesKey = "value:schedule-b";
     const buckets = [
-      bucket("2026-04-01", 0.01, {
+      bucket("2026-04-01", 0.03, {
         [activeSeriesKey]: group("Alpha schedule", "schedule-a", 0.01),
+        [inactiveSeriesKey]: group("Beta schedule", "schedule-b", 0.02),
       }),
     ];
 
@@ -126,6 +134,9 @@ describe("UsageTrendChart", () => {
       `[data-usage-series-segment="${inactiveSeriesKey}"]`,
     );
     expect(inactiveSegment).toBeNull();
+    expect(
+      container.querySelectorAll("[data-usage-series-segment]"),
+    ).toHaveLength(1);
 
     const activeLabel = getByText("Alpha schedule");
     const activeItem = activeLabel.closest("[data-usage-legend-state]");

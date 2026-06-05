@@ -237,7 +237,10 @@ function StackedBar({
   ) => void;
   onSegmentLeave: () => void;
 }) {
-  const nonEmptyGroups = legendItems.flatMap((item) => {
+  const activeLegendItems = legendItems.filter(
+    (item) => (item.state ?? "active") === "active",
+  );
+  const nonEmptyGroups = activeLegendItems.flatMap((item) => {
     const value = bucket.groups[item.seriesKey];
     if (!value || value.totalEstimatedCostUsd <= 0) {
       return [];
