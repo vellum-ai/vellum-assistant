@@ -1818,8 +1818,37 @@ jobs:
         with:
           packages: packages/environments packages/local-mode
 
+      - name: Install design-library dependencies
+        working-directory: packages/design-library
+        run: bun install --frozen-lockfile
+
+      - name: Install web dependencies
+        working-directory: apps/web
+        run: |
+          if ! bun install --frozen-lockfile; then
+            rm -f bun.lock && rm -rf node_modules && bun install
+          fi
+
+      - name: Generate API clients
+        working-directory: apps/web
+        run: bun run openapi-ts
+
+      - name: Build web SPA
+        working-directory: apps/web
+        env:
+          VITE_PLATFORM_MODE: "true"
+        run: bun run build
+
+      - name: Bundle web dist into Electron resources
+        run: cp -R ../../apps/web/dist resources/web-dist
+
       - name: Stamp dev version into package.json
         run: jq --arg v "${{ needs.compute-version.outputs.version }}" '.version = $v' package.json > package.json.tmp && mv package.json.tmp package.json
+
+      - name: Stamp PINNED_CLI_VERSION for dev
+        run: |
+          VERSION="${{ needs.compute-version.outputs.version }}"
+          sed -i '' "s/export const PINNED_CLI_VERSION = \".*\"/export const PINNED_CLI_VERSION = \"$VERSION\"/" src/main/cli-installer.ts
 
       - name: Build and package Electron app
         env:
