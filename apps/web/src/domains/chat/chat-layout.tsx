@@ -161,7 +161,13 @@ interface SideMenuRenderArgs {
 export function ChatLayout() {
   const navigate = useNavigate();
   const location = useLocation();
-  const isPopout = location.search.includes("popout=1");
+
+  // Capture pop-out mode once at mount so it persists across in-window
+  // navigations (e.g. conversation switching via Cmd+Up/Down). ChatLayout is a
+  // persistent layout route — it stays mounted when child routes change, so
+  // this initial value remains stable for the window's lifetime.
+  const [isPopout] = useState(() => location.search.includes("popout=1"));
+
   const assistantId = useAssistantSelectionStore.use.activeAssistantId();
   const assistantStateKind = useAssistantLifecycleStore(
     (s) => s.assistantState.kind,
