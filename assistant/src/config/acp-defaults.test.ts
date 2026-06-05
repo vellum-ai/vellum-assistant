@@ -10,6 +10,7 @@ describe("DEFAULT_ACP_AGENT_PROFILES", () => {
     expect(Object.keys(DEFAULT_ACP_AGENT_PROFILES).sort()).toEqual([
       "claude",
       "codex",
+      "gemini",
     ]);
   });
 
@@ -29,6 +30,14 @@ describe("DEFAULT_ACP_AGENT_PROFILES", () => {
     });
   });
 
+  test("gemini profile speaks native ACP via gemini --acp (no adapter binary)", () => {
+    expect(DEFAULT_ACP_AGENT_PROFILES.gemini).toEqual({
+      command: "gemini",
+      args: ["--acp"],
+      description: "Google Gemini CLI (native ACP via gemini --acp)",
+    });
+  });
+
   test("is deeply frozen so mutation throws in strict mode", () => {
     expect(Object.isFrozen(DEFAULT_ACP_AGENT_PROFILES)).toBe(true);
     for (const profile of Object.values(DEFAULT_ACP_AGENT_PROFILES)) {
@@ -39,6 +48,18 @@ describe("DEFAULT_ACP_AGENT_PROFILES", () => {
       expect(Object.isFrozen(profile.args)).toBe(true);
     }
   });
+
+  test("mutating gemini's non-empty args throws in strict mode", () => {
+    // gemini is the one default with non-empty args, frozen via a dedicated
+    // array rather than the shared FROZEN_EMPTY_ARGS: verify the deep-freeze
+    // invariant actually rejects writes, not just that isFrozen reports true.
+    const args = DEFAULT_ACP_AGENT_PROFILES.gemini.args;
+    expect(() => args.push("--oops")).toThrow();
+    expect(() => {
+      args[0] = "--mutated";
+    }).toThrow();
+    expect(args).toEqual(["--acp"]);
+  });
 });
 
 describe("DEFAULT_AGENT_NPM_PACKAGES", () => {
@@ -46,6 +67,7 @@ describe("DEFAULT_AGENT_NPM_PACKAGES", () => {
     expect(DEFAULT_AGENT_NPM_PACKAGES).toEqual({
       "claude-agent-acp": "@agentclientprotocol/claude-agent-acp",
       "codex-acp": "@zed-industries/codex-acp",
+      gemini: "@google/gemini-cli",
     });
   });
 
