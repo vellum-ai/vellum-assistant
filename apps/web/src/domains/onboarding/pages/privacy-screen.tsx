@@ -9,7 +9,7 @@ import {
     emitOnboardingFunnelStepCompleted,
     getOnboardingFunnelSessionId,
     ONBOARDING_FUNNEL_STEPS,
-    onboardingFunnelVariantFromCondensedFlag,
+    onboardingFunnelVariantFromExperiment,
     resolveOnboardingFunnelVariant,
 } from "@/domains/onboarding/funnel-events";
 import {
@@ -73,10 +73,10 @@ export function PrivacyScreen() {
   const isReplay = searchParams.get("replay") === "1";
   const userId = useAuthStore.use.user()?.id ?? null;
   const isNative = useIsNativePlatform();
-  const condensedPrechatFlag =
-    useClientFeatureFlagStore.use.prechatOnboardingCondensedFlow();
+  const preChatExperimentArm =
+    useClientFeatureFlagStore.use.stringFlags().preChatOnboardingExperiment20260606 ?? "control";
   const preferredFunnelVariant =
-    onboardingFunnelVariantFromCondensedFlag(condensedPrechatFlag);
+    onboardingFunnelVariantFromExperiment(preChatExperimentArm);
   const [shareAnalytics, setShareAnalytics] = useShareAnalytics();
   const [shareDiagnostics, setShareDiagnostics] = useShareDiagnostics();
   const [tosAccepted, setTosAccepted] = useTosAccepted();
