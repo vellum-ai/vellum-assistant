@@ -34,11 +34,18 @@ import {
 } from "bun:test";
 
 import { installAcpConfigStub } from "../../acp/__tests__/helpers/acp-config-stub.js";
+import { installExecFileStub } from "../../acp/__tests__/helpers/exec-file-stub.js";
 import { installWhichStub } from "../../acp/__tests__/helpers/which-stub.js";
 import type { AcpSessionState } from "../../acp/index.js";
 
 const config = await installAcpConfigStub();
 const which = installWhichStub();
+
+// Stub `execFile` so the spawn route's auto-install path (`npm i -g ...` in
+// acp/auto-install.ts) never shells out to real npm. The binary-missing test
+// scripts the install to fail so the route falls through to the augmented
+// FailedDependencyError hint.
+const { execScripts, reset: resetExecFileStub } = installExecFileStub();
 
 afterAll(() => {
   which.restore();
@@ -169,6 +176,9 @@ import { initializeDb } from "../../memory/db-init.js";
 import { acpSessionHistory } from "../../memory/schema.js";
 
 const { ROUTES } = await import("./acp-routes.js");
+const { _resetAdapterInstallCacheForTests } = await import(
+  "../../acp/auto-install.js"
+);
 
 function getSpawnHandler() {
   const route = ROUTES.find(
@@ -185,6 +195,8 @@ beforeEach(() => {
   capturedSpawns.length = 0;
   vaultStore.clear();
   metadataStore.clear();
+  resetExecFileStub();
+  _resetAdapterInstallCacheForTests();
 });
 
 // ---------------------------------------------------------------------------
@@ -229,6 +241,13 @@ describe("POST /v1/acp/spawn", () => {
   test("throws FailedDependencyError when the agent binary is missing", async () => {
     config.setConfig({ agents: {} });
     which.setWhich({});
+    // codex-acp is an allowlisted adapter, so the route attempts a silent
+    // `npm i -g @zed-industries/codex-acp` before failing. Script that
+    // install to fail so the augmented hint path is exercised without ever
+    // shelling out to real npm.
+    execScripts.set("npm i", {
+      error: new Error("EACCES: permission denied"),
+    });
 
     const handler = getSpawnHandler();
     await expect(
@@ -239,7 +258,9 @@ describe("POST /v1/acp/spawn", () => {
           conversationId: "conv-1",
         },
       }),
-    ).rejects.toThrow("codex-acp is not on PATH");
+    ).rejects.toThrow(
+      /codex-acp is not on PATH.*auto-install failed.*EACCES/,
+    );
   });
 
   test("body-shape guard short-circuits before the resolver runs", async () => {

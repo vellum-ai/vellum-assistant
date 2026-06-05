@@ -7,6 +7,7 @@
 import { desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
+import { ensureAdapterInstalled } from "../../acp/auto-install.js";
 import { getAcpSessionManager } from "../../acp/index.js";
 import { prepareAgentEnv } from "../../acp/prepare-agent-env.js";
 import { resolveAcpAgent } from "../../acp/resolve-agent.js";
@@ -61,7 +62,32 @@ async function spawnSession({ body }: RouteHandlerArgs) {
     throw new BadRequestError("agent, task, and conversationId are required");
   }
 
-  const resolved = resolveAcpAgent(agent);
+  let resolved = resolveAcpAgent(agent);
+
+  // Missing adapter binary: silently try a global npm install of the mapped
+  // package (allowlisted commands only; see acp/auto-install.ts), then
+  // re-resolve and continue. Failures degrade to the existing install hint
+  // augmented with the failure reason. Mirrors the skill-tool path in
+  // tools/acp/spawn.ts.
+  if (!resolved.ok && resolved.reason === "binary_not_found") {
+    const { command, hint } = resolved;
+    const install = await ensureAdapterInstalled(command);
+    if (install.installed) {
+      const retried = resolveAcpAgent(agent);
+      if (retried.ok) {
+        log.info(
+          { agent, command },
+          "Auto-installed missing ACP adapter binary",
+        );
+        resolved = retried;
+      }
+    } else if (install.error) {
+      throw new FailedDependencyError(
+        `${command} is not on PATH. ${hint} (auto-install failed: ${install.error})`,
+      );
+    }
+  }
+
   if (!resolved.ok) {
     switch (resolved.reason) {
       case "acp_disabled":

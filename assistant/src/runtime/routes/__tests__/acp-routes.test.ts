@@ -1,13 +1,23 @@
 /**
- * Tests for `GET /v1/acp/sessions`.
+ * Tests for ACP route handlers.
  *
- * The handler merges in-memory `AcpSessionManager.getStatus()` output with
- * persisted `acp_session_history` rows, deduping by id (in-memory wins),
- * filtering by `?conversationId`, sorting newest-first, and truncating to
- * `?limit` (default 50, max 500).
+ * `GET /v1/acp/sessions`: the handler merges in-memory
+ * `AcpSessionManager.getStatus()` output with persisted
+ * `acp_session_history` rows, deduping by id (in-memory wins), filtering by
+ * `?conversationId`, sorting newest-first, and truncating to `?limit`
+ * (default 50, max 500).
+ *
+ * `POST /v1/acp/spawn`: when the adapter binary is missing, the handler
+ * silently auto-installs allowlisted adapter packages before failing with
+ * the install hint. `execFile` is stubbed via the shared
+ * `installExecFileStub` helper so tests can script `npm i -g` outcomes.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+
+import { installAcpConfigStub } from "../../../acp/__tests__/helpers/acp-config-stub.js";
+import { installExecFileStub } from "../../../acp/__tests__/helpers/exec-file-stub.js";
+import { installWhichStub } from "../../../acp/__tests__/helpers/which-stub.js";
 
 mock.module("../../../util/logger.js", () => ({
   getLogger: () =>
@@ -15,6 +25,12 @@ mock.module("../../../util/logger.js", () => ({
       get: () => () => {},
     }),
 }));
+
+const {
+  execScripts,
+  execFileMock,
+  reset: resetExecFileStub,
+} = installExecFileStub();
 
 // ---------------------------------------------------------------------------
 // Stub the ACP session manager so tests control the in-memory side without
@@ -37,17 +53,41 @@ interface FakeSessionState {
 
 let fakeInMemorySessions: FakeSessionState[] = [];
 
+const spawnMock = mock(async () => ({
+  acpSessionId: "acp-route-session",
+  protocolSessionId: "proto-route-session",
+}));
+
 mock.module("../../../acp/index.js", () => ({
   getAcpSessionManager: () => ({
     getStatus: () => fakeInMemorySessions,
+    spawn: spawnMock,
   }),
 }));
 
+// Identity env-prep: the credential-broker plumbing it wraps is exercised in
+// its own suite; spawn tests here only care about the resolve/install flow.
+mock.module("../../../acp/prepare-agent-env.js", () => ({
+  prepareAgentEnv: async (agentConfig: unknown) => agentConfig,
+}));
+
+const config = await installAcpConfigStub();
+const which = installWhichStub();
+
 import { getSqlite } from "../../../memory/db-connection.js";
 import { initializeDb } from "../../../memory/db-init.js";
-import { ROUTES } from "../acp-routes.js";
+import { FailedDependencyError } from "../errors.js";
+
+const { ROUTES } = await import("../acp-routes.js");
+const { _resetAdapterInstallCacheForTests } = await import(
+  "../../../acp/auto-install.js"
+);
 
 initializeDb();
+
+afterAll(() => {
+  which.restore();
+});
 
 function clearHistory(): void {
   getSqlite().run("DELETE FROM acp_session_history");
@@ -122,6 +162,11 @@ interface ResponseShape {
 beforeEach(() => {
   fakeInMemorySessions = [];
   clearHistory();
+  resetExecFileStub();
+  spawnMock.mockClear();
+  _resetAdapterInstallCacheForTests();
+  config.setConfig({});
+  which.setWhich((cmd) => `/usr/local/bin/${cmd}`);
 });
 
 describe("GET /v1/acp/sessions — merged in-memory + history", () => {
@@ -390,5 +435,88 @@ describe("GET /v1/acp/sessions — merged in-memory + history", () => {
       queryParams: { limit: "9999" },
     })) as ResponseShape;
     expect(body.sessions).toHaveLength(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /v1/acp/spawn: auto-install on missing adapter binary
+// ---------------------------------------------------------------------------
+
+function getSpawnHandler() {
+  const route = ROUTES.find(
+    (r) => r.endpoint === "acp/spawn" && r.method === "POST",
+  );
+  if (!route) throw new Error("acp/spawn POST route not found");
+  return route.handler;
+}
+
+const SPAWN_BODY = {
+  agent: "claude",
+  task: "do something",
+  conversationId: "conv-1",
+};
+
+describe("POST /v1/acp/spawn: auto-install on missing binary", () => {
+  test("known command: installs the mapped package and spawn proceeds", async () => {
+    // Binary appears on PATH only after `npm i -g` runs, simulating a
+    // successful global install.
+    let binaryOnPath = false;
+    which.setWhich((cmd) => (binaryOnPath ? `/usr/local/bin/${cmd}` : null));
+    execScripts.set("npm i", {
+      stdout: "",
+      onCall: () => {
+        binaryOnPath = true;
+      },
+    });
+
+    const handler = getSpawnHandler();
+    const body = (await handler({ body: SPAWN_BODY })) as Record<
+      string,
+      unknown
+    >;
+
+    expect(body).toEqual({
+      acpSessionId: "acp-route-session",
+      protocolSessionId: "proto-route-session",
+      agent: "claude",
+    });
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+    expect(execFileMock.mock.calls[0][1]).toEqual([
+      "i",
+      "-g",
+      "@agentclientprotocol/claude-agent-acp",
+    ]);
+  });
+
+  test("npm failure: FailedDependencyError carries hint and failure reason", async () => {
+    which.setWhich({});
+    execScripts.set("npm i", {
+      error: new Error("EACCES: permission denied"),
+    });
+
+    const handler = getSpawnHandler();
+    const promise = handler({ body: SPAWN_BODY });
+    await expect(promise).rejects.toBeInstanceOf(FailedDependencyError);
+    await expect(promise).rejects.toThrow(
+      /claude-agent-acp is not on PATH.*npm i -g @agentclientprotocol\/claude-agent-acp.*auto-install failed.*EACCES/,
+    );
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
+
+  test("unknown command: never installs, plain hint surfaces", async () => {
+    config.setConfig({
+      agents: { custom: { command: "custom-bin", args: [] } },
+    });
+    which.setWhich({});
+
+    const handler = getSpawnHandler();
+    const promise = handler({ body: { ...SPAWN_BODY, agent: "custom" } });
+    await expect(promise).rejects.toBeInstanceOf(FailedDependencyError);
+    await expect(promise).rejects.toThrow(
+      "custom-bin is not on PATH. Install 'custom-bin' and ensure it is on PATH.",
+    );
+    expect(execFileMock).not.toHaveBeenCalled();
+    expect(spawnMock).not.toHaveBeenCalled();
   });
 });
