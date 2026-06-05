@@ -206,10 +206,11 @@ function preserveClientAttachments(
 
 /**
  * Append local rows not yet reflected on the server so they don't vanish:
- *   1. Optimistic user rows (client UUID, never in `serverIds`) — matched by
- *      content to a reconciled server row; on a hit the client timestamp and
- *      blob attachments transfer to the server row and the optimistic row is
- *      dropped, otherwise it is preserved until the server echoes it back.
+ *   1. Optimistic rows (client UUID, never in `serverIds`) — matched by
+ *      content to a reconciled server row of the same role; on a hit the
+ *      client timestamp and blob attachments transfer to the server row and
+ *      the optimistic row is dropped, otherwise it is preserved until the
+ *      server echoes it back.
  *   2. Non-optimistic local rows whose id isn't on the server yet (brief
  *      replication lag or pagination) — preserved as-is.
  */
@@ -223,13 +224,8 @@ function preserveUnreflectedLocalRows(
       continue;
     }
 
-    if (m.isOptimistic && m.role === "user") {
-      const optimisticText = segmentsToPlainText(m.textSegments);
-      const match = reconciled.find(
-        (r) =>
-          r.role === "user" &&
-          segmentsToPlainText(r.textSegments) === optimisticText,
-      );
+    if (m.isOptimistic) {
+      const match = findOptimisticEcho(reconciled, m);
       if (match) {
         if (!match.timestamp && m.timestamp) {
           match.timestamp = m.timestamp;
@@ -237,11 +233,47 @@ function preserveUnreflectedLocalRows(
         if (m.attachments && m.attachments.length > 0) {
           match.attachments = m.attachments;
         }
-      } else {
-        reconciled.push(m);
+        continue;
       }
-    } else {
-      reconciled.push(m);
     }
+
+    reconciled.push(m);
   }
+}
+
+/**
+ * Resolve an optimistic local row to the reconciled server row it echoes:
+ *   - user rows match on exact derived text (the echo of what was sent before
+ *     the POST resolved);
+ *   - assistant rows match when the streamed local text is a non-empty prefix
+ *     of the server row's content — the live tail rendered before the daemon
+ *     assigned the row an id (only against pre-anchor-protocol daemons that
+ *     stream deltas without a `messageId`).
+ */
+function findOptimisticEcho(
+  reconciled: DisplayMessage[],
+  optimistic: DisplayMessage,
+): DisplayMessage | undefined {
+  if (optimistic.role === "user") {
+    const optimisticText = segmentsToPlainText(optimistic.textSegments);
+    return reconciled.find(
+      (r) =>
+        r.role === "user" &&
+        segmentsToPlainText(r.textSegments) === optimisticText,
+    );
+  }
+
+  if (optimistic.role === "assistant") {
+    const optimisticText = segmentsToPlainText(optimistic.textSegments).trim();
+    if (!optimisticText) {
+      return undefined;
+    }
+    return reconciled.find(
+      (r) =>
+        r.role === "assistant" &&
+        segmentsToPlainText(r.textSegments).trim().startsWith(optimisticText),
+    );
+  }
+
+  return undefined;
 }

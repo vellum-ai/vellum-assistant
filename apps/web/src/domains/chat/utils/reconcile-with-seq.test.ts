@@ -239,4 +239,47 @@ describe("reconcileMessagesWithSeq", () => {
     expect(result.find((m) => m.id === "old")).toBeUndefined();
     expect(result).toHaveLength(1);
   });
+
+  test("folds an optimistic assistant tail into the confirmed server row", () => {
+    /**
+     * Against pre-anchor-protocol daemons a streamed assistant delta arrives
+     * with no `messageId`, so the live row stays optimistic with a client
+     * UUID. When the snapshot carries the same turn under its server id the
+     * optimistic prefix must collapse into it, not render as a second bubble.
+     */
+    // GIVEN an optimistic assistant tail (client UUID) holding a streamed prefix
+    const local = [
+      makeRow({ id: "u1", role: "user", ...textBody("hi"), timestamp: 1000 }),
+      makeRow({
+        id: "client-uuid",
+        isOptimistic: true,
+        role: "assistant",
+        ...textBody("Hello"),
+        timestamp: 1001,
+      }),
+    ];
+
+    // AND a snapshot carrying the same assistant turn under its server id
+    const server = [
+      makeRow({ id: "u1", role: "user", ...textBody("hi"), timestamp: 1000 }),
+      makeRow({
+        id: "srv-a1",
+        role: "assistant",
+        ...textBody("Hello there"),
+        timestamp: 1001,
+      }),
+    ];
+
+    // WHEN the merge runs with no honest seq (snapshot authoritative)
+    const result = reconcileMessagesWithSeq(local, server, {
+      snapshotSeq: null,
+      appliedSeq: null,
+    });
+
+    // THEN the optimistic prefix collapses into the single server row
+    const assistants = result.filter((m) => m.role === "assistant");
+    expect(assistants).toHaveLength(1);
+    expect(assistants[0]!.id).toBe("srv-a1");
+    expect(messageText(assistants[0])).toBe("Hello there");
+  });
 });
