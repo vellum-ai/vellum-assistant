@@ -22,6 +22,7 @@ import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 // resolving to a `.ts` file the Electron main process can't load at runtime;
 // inlining lets Rollup compile the source into the bundle.
 const DEPS_TO_INLINE = [
+  "electron-log",
   "electron-store",
   "conf",
   "@vellumai/local-mode",

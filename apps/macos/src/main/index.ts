@@ -25,6 +25,7 @@ import {
 import { installAvatarIpc } from "./avatar";
 import { installDock } from "./dock";
 import { installLocalMode } from "./local-mode";
+import log from "./logger";
 import {
   ensureVisible as ensureMainWindowVisible,
   installMainWindow,
@@ -342,7 +343,7 @@ app
     });
   })
   .catch((err: unknown) => {
-    console.error("[app] whenReady setup failed:", err);
+    log.error("[app] whenReady setup failed:", err);
   });
 
 app.on("second-instance", (_event, argv) => {
