@@ -3629,12 +3629,6 @@ describe("session-agent-loop", () => {
         // Yield a microtask so any (incorrectly) fire-and-forget
         // pipeline call has a chance to land before message_complete.
         await new Promise((resolve) => setImmediate(resolve));
-        onEvent({
-          type: "tool_result",
-          toolUseId: "tu-no-flush",
-          content: "ok",
-          isError: false,
-        });
         await onEvent({
           type: "message_complete",
           message: {
