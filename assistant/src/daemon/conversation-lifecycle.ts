@@ -30,14 +30,13 @@ import { unregisterCallNotifiers } from "./conversation-notifiers.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
 import { stripInjectionsForCompaction } from "./conversation-runtime-assembly.js";
 import { resetSkillToolProjection } from "./conversation-skill-tools.js";
-import { resolveTrustClass } from "./conversation-tool-setup.js";
 import type {
   SurfaceData,
   SurfaceType,
   UsageStats,
 } from "./message-protocol.js";
 import { filterMessagesForUntrustedActor } from "./message-provenance.js";
-import type { TrustContext } from "./trust-context.js";
+import { resolveTrustClass, type TrustContext } from "./trust-context.js";
 
 const log = getLogger("conversation-lifecycle");
 

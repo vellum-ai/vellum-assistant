@@ -1,3 +1,5 @@
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // This test exercises v1 PKB injection. `config.memory.v2.enabled` (default
@@ -85,6 +87,21 @@ beforeEach(() => {
   resetPluginRegistryForTests();
   registerPlugin(defaultInjectorsPlugin);
 });
+
+// The pkb-reminder injector derives PKB-active state from the workspace itself
+// — `readPkbContext()` returning content behind the personal-memory trust gate
+// — rather than from a threaded flag. Tests that need the reminder to fire seed
+// a default auto-injected PKB file under the workspace pkb root; tests that
+// need it suppressed leave the pkb dir empty.
+function seedPkbContent(): void {
+  const root = getPkbRoot();
+  mkdirSync(root, { recursive: true });
+  writeFileSync(join(root, "INDEX.md"), "workspace knowledge index", "utf-8");
+}
+
+function clearPkbContent(): void {
+  rmSync(getPkbRoot(), { recursive: true, force: true });
+}
 
 // ---------------------------------------------------------------------------
 // resolveChannelCapabilities
@@ -752,9 +769,25 @@ describe("applyRuntimeInjections — injection mode", () => {
       "<turn_context>\ncurrent_time: 2026-03-04 (Tuesday) 12:00:00 +00:00 (UTC)\ninterface: telegram\n</turn_context>",
     nowScratchpad: "Current focus: shipping PR 3",
     pkbContext: "essentials content here",
-    pkbActive: true,
     isNonInteractive: true,
+    // Guardian trust so the personal-memory gate admits the actor regardless
+    // of the telegram channel capabilities under test, letting the reminder
+    // gate hinge purely on PKB content presence.
+    turnContext: {
+      requestId: "injection-mode-req",
+      conversationId: "injection-mode-conv",
+      turnIndex: 0,
+      trust: {
+        sourceChannel: "vellum" as const,
+        trustClass: "guardian" as const,
+      },
+    },
   };
+
+  // The reminder fires only when the workspace has PKB content; seed it so the
+  // full-mode cases exercise the active branch.
+  beforeEach(seedPkbContent);
+  afterEach(clearPkbContent);
 
   test("full mode (default) includes all injections", async () => {
     const { messages: result } = await applyRuntimeInjections(
@@ -2053,9 +2086,14 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
     graphHandle.dispose();
   });
 
+  // PKB content makes `readPkbContext()` non-null so the (vellum/guardian-
+  // equivalent) fallback trust gate admits the reminder; cleared after each
+  // test to avoid leaking into suites that assert the reminder is absent.
+  beforeEach(seedPkbContent);
+  afterEach(clearPkbContent);
+
   function makePkbOptions(overrides: Record<string, unknown> = {}) {
     return {
-      pkbActive: true,
       ...overrides,
     };
   }
@@ -2342,7 +2380,7 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
     // filtered out.
     const { messages: initialResult } = await applyRuntimeInjections(
       preCompactionMessages,
-      { pkbActive: true },
+      {},
     );
     // Unwrap the injected reminder from the last user message.
     const initialTexts = extractTexts(initialResult);
@@ -2376,7 +2414,7 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
     // should be filtered, and beta (no longer "in context") should appear.
     const { messages: rebuiltResult } = await applyRuntimeInjections(
       postCompactionMessages,
-      { pkbActive: true },
+      {},
     );
     const rebuiltTexts = extractTexts(rebuiltResult);
     const rebuiltReminder = rebuiltTexts.find(
@@ -5082,11 +5120,15 @@ describe("applyRuntimeInjections blocks.pkbSystemReminder", () => {
     },
   ];
 
+  // The reminder gate hinges on PKB content presence; clear it after each test
+  // so the "PKB inactive" case starts from an empty workspace pkb dir.
+  afterEach(clearPkbContent);
+
   test("captures exact reminder bytes when full mode and PKB active", async () => {
+    seedPkbContent();
     pkbSearchResults = [];
     pkbSearchThrows = null;
     const { blocks } = await applyRuntimeInjections(baseMessages, {
-      pkbActive: true,
       mode: "full",
     });
 
@@ -5095,8 +5137,8 @@ describe("applyRuntimeInjections blocks.pkbSystemReminder", () => {
   });
 
   test("not captured in minimal mode", async () => {
+    seedPkbContent();
     const { blocks } = await applyRuntimeInjections(baseMessages, {
-      pkbActive: true,
       mode: "minimal",
     });
 
@@ -5105,7 +5147,6 @@ describe("applyRuntimeInjections blocks.pkbSystemReminder", () => {
 
   test("not captured when PKB inactive", async () => {
     const { blocks } = await applyRuntimeInjections(baseMessages, {
-      pkbActive: false,
       mode: "full",
     });
 

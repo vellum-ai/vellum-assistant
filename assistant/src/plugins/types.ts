@@ -374,11 +374,6 @@ export interface TurnInjectionInputs {
   /** PKB auto-injected content (`<knowledge_base>...`) or null to skip. */
   readonly pkbContext?: string | null;
   /**
-   * Whether PKB is active for this turn — drives the `<system_reminder>` /
-   * hybrid-search relevance-hint branch.
-   */
-  readonly pkbActive?: boolean;
-  /**
    * Pre-rendered v2 static memory content (essentials/threads/recent/buffer
    * concatenated, header-wrapped) or null to skip. The agent loop only
    * passes this on full-mode turns; the injector wraps it in `<memory>` for

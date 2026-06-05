@@ -169,7 +169,6 @@ import {
 } from "./conversation-runtime-assembly.js";
 import type { SkillProjectionCache } from "./conversation-skill-tools.js";
 import { markSurfaceCompleted } from "./conversation-surfaces.js";
-import { resolveTrustClass } from "./conversation-tool-setup.js";
 import { recordUsage } from "./conversation-usage.js";
 import {
   formatTurnTimestamp,
@@ -190,7 +189,7 @@ import {
   UNSENDABLE_IMAGE_NOTE,
 } from "./persist-unsendable-image.js";
 import type { TraceEmitter } from "./trace-emitter.js";
-import type { TrustContext } from "./trust-context.js";
+import { resolveTrustClass, type TrustContext } from "./trust-context.js";
 import { stripHistoricalWebSearchResults } from "./web-search-history.js";
 
 const log = getLogger("conversation-agent-loop");
@@ -1305,7 +1304,6 @@ export async function runAgentLoopImpl(
       ? memoryCtx.pkbContent
       : null;
     const pkbContext = shouldInjectNowAndPkb ? currentPkbContent : null;
-    const pkbActive = currentPkbContent !== null;
 
     // V2 static memory block (essentials/threads/recent/buffer).
     // `currentMemoryV2Static` is the trust-gated content reused by every
@@ -1409,7 +1407,6 @@ export async function runAgentLoopImpl(
       channelCommandContext: ctx.commandIntent ?? null,
       unifiedTurnContext: unifiedTurnContextStr,
       pkbContext,
-      pkbActive,
       memoryV2Static,
       nowScratchpad,
       voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,

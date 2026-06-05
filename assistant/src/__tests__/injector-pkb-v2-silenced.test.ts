@@ -12,7 +12,9 @@
  * search so the reminder-with-hints branch can resolve deterministically
  * when called.
  */
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 let v2Active = false;
 
@@ -33,6 +35,7 @@ const { defaultInjectorsPlugin } =
   await import("../plugins/defaults/injectors/register.js");
 const { registerPlugin, resetPluginRegistryForTests } =
   await import("../plugins/registry.js");
+import { getPkbRoot } from "../memory/pkb/types.js";
 import type { TurnContext } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
 
@@ -62,17 +65,29 @@ const RUN_MESSAGES: Message[] = [
 ];
 
 describe("PKB injector v2 cutover behavior", () => {
+  // The pkb-reminder gate derives PKB-active state from the workspace
+  // (`readPkbContext()` returning content) behind the guardian trust on
+  // `makeTurnContext()`, so seed a default auto-injected PKB file rather than
+  // passing a flag.
   beforeEach(() => {
     resetPluginRegistryForTests();
     registerPlugin(defaultInjectorsPlugin);
     v2Active = false;
+    mkdirSync(getPkbRoot(), { recursive: true });
+    writeFileSync(
+      join(getPkbRoot(), "INDEX.md"),
+      "workspace knowledge index",
+      "utf-8",
+    );
+  });
+  afterEach(() => {
+    rmSync(getPkbRoot(), { recursive: true, force: true });
   });
 
   test("v2 inactive → pkb-context, pkb-reminder, and now-md all produce blocks", async () => {
     const result = await applyRuntimeInjections(RUN_MESSAGES, {
       turnContext: makeTurnContext(),
       pkbContext: PKB_CONTEXT,
-      pkbActive: true,
       nowScratchpad: NOW_CONTENT,
     });
 
@@ -87,7 +102,6 @@ describe("PKB injector v2 cutover behavior", () => {
     const result = await applyRuntimeInjections(RUN_MESSAGES, {
       turnContext: makeTurnContext(),
       pkbContext: PKB_CONTEXT,
-      pkbActive: true,
       nowScratchpad: NOW_CONTENT,
     });
 

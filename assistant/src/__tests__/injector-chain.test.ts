@@ -362,7 +362,8 @@ describe("injector chain", () => {
       workspaceTopLevelContext: workspaceText,
       unifiedTurnContext: unifiedTurn,
       pkbContext: pkbContent,
-      pkbActive: false, // disable reminder-branch to keep the snapshot small
+      // No PKB files seeded in this suite, so the reminder gate stays closed
+      // and the positional snapshot stays small.
       nowScratchpad: nowContent,
       subagentStatusBlock: subagentBlock,
     });
@@ -537,7 +538,6 @@ describe("injector chain", () => {
         workspaceTopLevelContext: "<workspace>...</workspace>",
         unifiedTurnContext: "<turn_context>...</turn_context>",
         pkbContext: "kbody",
-        pkbActive: true,
         nowScratchpad: "nowbody",
         subagentStatusBlock: "<active_subagents>...</active_subagents>",
       },

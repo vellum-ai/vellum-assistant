@@ -48,13 +48,19 @@
 import { resolve } from "node:path";
 
 import { getConfig } from "../../../config/loader.js";
+import { readPkbContext } from "../../../daemon/conversation-runtime-assembly.js";
 import { getInContextPkbPaths } from "../../../daemon/pkb-context-tracker.js";
 import { buildPkbReminder } from "../../../daemon/pkb-reminder-builder.js";
+import {
+  resolveTrustClass,
+  type TrustContext,
+} from "../../../daemon/trust-context.js";
 import { listComments } from "../../../documents/document-comments-store.js";
 import { getLiveGraphMemory } from "../../../memory/graph/conversation-graph-memory.js";
 import { getPkbAutoInjectList } from "../../../memory/pkb/autoinject.js";
 import { searchPkbFiles } from "../../../memory/pkb/pkb-search.js";
 import { getPkbRoot, PKB_WORKSPACE_SCOPE } from "../../../memory/pkb/types.js";
+import { shouldExposePersonalMemory } from "../../../memory/v2/static-context.js";
 import type { Message } from "../../../providers/types.js";
 import { getLogger } from "../../../util/logger.js";
 import { getSandboxWorkingDir } from "../../../util/platform.js";
@@ -276,7 +282,7 @@ const pkbContextInjector: Injector = {
  *
  * Gating:
  *  - `mode === "full"`.
- *  - `pkbActive === true`.
+ *  - PKB is active for the turn (see {@link isPkbActive}).
  */
 const pkbReminderInjector: Injector = {
   name: "pkb-reminder",
@@ -288,7 +294,7 @@ const pkbReminderInjector: Injector = {
     const inputs = readInjectionInputs(ctx);
     const mode = inputs.mode ?? "full";
     if (mode !== "full") return null;
-    if (!inputs.pkbActive) return null;
+    if (!isPkbActive(ctx.trust)) return null;
     if (isPkbInjectionSilencedByV2()) return null;
     const reminder = await buildPkbReminderWithHints(ctx, runMessages);
     return {
@@ -298,6 +304,21 @@ const pkbReminderInjector: Injector = {
     };
   },
 };
+
+/**
+ * Whether PKB is active for the turn: the personal-memory trust gate admits
+ * the actor and the workspace has PKB content to surface. Both inputs are
+ * sourced from the turn's trust context and the PKB files directly, so the
+ * reminder gate stays internal to the memory domain rather than being
+ * threaded in from the agent loop.
+ */
+function isPkbActive(trust: TrustContext): boolean {
+  const personalMemoryAllowed = shouldExposePersonalMemory({
+    sourceChannel: trust.sourceChannel,
+    isTrustedActor: resolveTrustClass(trust) === "guardian",
+  });
+  return personalMemoryAllowed && readPkbContext() !== null;
+}
 
 /**
  * Render the PKB context block — wraps the raw content in
