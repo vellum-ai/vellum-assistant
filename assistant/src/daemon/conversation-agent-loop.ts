@@ -1172,12 +1172,6 @@ export async function runAgentLoopImpl(
     const pkbQueryVector = memoryCtx.pkbQueryVector;
     const pkbSparseVector = memoryCtx.pkbSparseVector;
 
-    const activeSurface = buildActiveSurfaceContext({
-      currentActiveSurfaceId: ctx.currentActiveSurfaceId,
-      currentPage: ctx.currentPage,
-      surfaceState: ctx.surfaceState,
-    });
-
     // Query active documents for this conversation so the injector chain
     // can surface them to the assistant (prevents duplicate document_create
     // calls when existing documents should be targeted with document_update).
@@ -1420,7 +1414,13 @@ export async function runAgentLoopImpl(
     const injectionOpts = {
       suppressV2MemoryForV3: memoryV3Live,
       diskPressureContext,
-      activeSurface,
+      // Resolved from the conversation's surface state here, where the
+      // runtime injector is the only consumer of the active-surface block.
+      activeSurface: buildActiveSurfaceContext({
+        currentActiveSurfaceId: ctx.currentActiveSurfaceId,
+        currentPage: ctx.currentPage,
+        surfaceState: ctx.surfaceState,
+      }),
       activeDocuments,
       workspaceTopLevelContext: state.shouldInjectWorkspace
         ? ctx.workspaceTopLevelContext
