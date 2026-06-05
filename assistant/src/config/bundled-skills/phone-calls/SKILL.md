@@ -25,7 +25,7 @@ When speaking on behalf of your user during calls, refer to yourself as an "assi
 
 # Overview
 
-The calling system uses Twilio's ConversationRelay for both **outbound** and **inbound** voice calls. The text-to-speech voice is provided by the globally configured TTS provider (set via `services.tts.provider`, default: ElevenLabs). After Twilio setup, the assistant prompts the user to choose a voice from a curated list of supported options.
+The calling system uses Twilio Media Streams for both **outbound** and **inbound** voice calls: Twilio streams raw call audio to the daemon over a WebSocket, and the daemon performs speech-to-text and text-to-speech itself. The text-to-speech voice is provided by the globally configured TTS provider (set via `services.tts.provider`, default: ElevenLabs); its audio is synthesized by the daemon and streamed back to the caller. After Twilio setup, the assistant prompts the user to choose a voice from a curated list of supported options.
 
 # Initial Setup
 
@@ -77,7 +77,6 @@ assistant channel-verification-sessions status --channel phone --json
 After they are verified, ask them what they think of your voice and offer to let them change it. Load up the `elevenlabs-voice` skill and follow the instructions there to see what voices are available and how to update your configured voice. Say something like:
 
 > Great, you're verified! What did you think of my voice? We can update it if you'd like.
-
 
 # Making Outbound Calls
 

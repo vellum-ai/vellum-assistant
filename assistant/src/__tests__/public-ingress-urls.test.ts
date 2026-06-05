@@ -31,7 +31,6 @@ import {
   getOAuthCallbackUrl,
   getPublicBaseUrl,
   getTelegramWebhookUrl,
-  getTwilioConnectActionUrl,
   getTwilioMediaStreamUrl,
   getTwilioStatusCallbackUrl,
   getTwilioVoiceWebhookUrl,
@@ -212,9 +211,6 @@ describe("Twilio URL builders use publicBaseUrl", () => {
     expect(getTwilioStatusCallbackUrl(config)).toBe(
       "https://example.com/webhooks/twilio/status",
     );
-    expect(getTwilioConnectActionUrl(config)).toBe(
-      "https://example.com/webhooks/twilio/connect-action",
-    );
     expect(getTwilioMediaStreamUrl(config)).toBe(
       "wss://example.com/webhooks/twilio/media-stream",
     );
@@ -283,19 +279,6 @@ describe("getTwilioStatusCallbackUrl", () => {
       ingress: { publicBaseUrl: "https://example.com" },
     });
     expect(url).toBe("https://example.com/webhooks/twilio/status");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// getTwilioConnectActionUrl
-// ---------------------------------------------------------------------------
-
-describe("getTwilioConnectActionUrl", () => {
-  test("builds correct URL", () => {
-    const url = getTwilioConnectActionUrl({
-      ingress: { publicBaseUrl: "https://example.com" },
-    });
-    expect(url).toBe("https://example.com/webhooks/twilio/connect-action");
   });
 });
 

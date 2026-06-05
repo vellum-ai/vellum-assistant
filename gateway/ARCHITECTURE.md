@@ -10,7 +10,7 @@ This boundary is enforced at three layers:
 
 1. **Gateway routing:** The gateway's `fetch()` handler matches `/webhooks/*` paths to dedicated handlers before the runtime-proxy fallthrough. Webhook traffic is validated (signature checks, payload limits) and forwarded to internal runtime endpoints.
 2. **Runtime-proxy guard:** The runtime-proxy handler rejects any `/webhooks/*` path with a 404, preventing accidental forwarding of webhook traffic to the runtime even if a new webhook path is added to the gateway without a dedicated handler.
-3. **Runtime server:** The runtime HTTP server does not register any `/webhooks/telegram` routes. Direct Twilio webhook routes (`/webhooks/twilio/*`) return 410 with a `GATEWAY_ONLY` error code, and relay WebSocket upgrades are restricted to private network peers.
+3. **Runtime server:** The runtime HTTP server does not register any `/webhooks/telegram` routes. Direct Twilio webhook routes (`/webhooks/twilio/*`) return 410 with a `GATEWAY_ONLY` error code, and media-stream WebSocket upgrades are restricted to private network peers.
 
 ```
 Internet
@@ -320,7 +320,7 @@ Local platform smoke-test flow:
 4. Re-hatch or restart the assistant so the gateway receives the new environment.
 5. Confirm gateway logs show `Velay tunnel connected` and `Velay tunnel registered`.
 6. Verify HTTP forwarding by requesting `${VELAY_PUBLIC_BASE_URL}/<assistant-id>/healthz` and `${VELAY_PUBLIC_BASE_URL}/<assistant-id>/schema`. When validating a JSON webhook route under active development, POST a small JSON body through the same Velay public URL and confirm it reaches the loopback gateway.
-7. Verify Twilio WebSocket forwarding with a synthetic local WebSocket client against `${VELAY_PUBLIC_BASE_URL}/<assistant-id>/webhooks/twilio/relay?callSessionId=...&token=...`, then with a real Twilio call after the gateway has registered with Velay.
+7. Verify Twilio WebSocket forwarding with a synthetic local WebSocket client against `${VELAY_PUBLIC_BASE_URL}/<assistant-id>/webhooks/twilio/media-stream/<callSessionId>/<token>`, then with a real Twilio call after the gateway has registered with Velay.
 
 ### URL Builders
 
@@ -331,8 +331,8 @@ All public-facing URLs are constructed by `assistant/src/inbound/public-ingress-
 | `getPublicBaseUrl()`           | Resolves the canonical base URL from `ingress.publicBaseUrl` in workspace config or module-level state (assistant-side; the gateway reads via `ConfigFileCache`) |
 | `getTwilioVoiceWebhookUrl()`   | `${base}/webhooks/twilio/voice?callSessionId=...`, using `ingress.publicBaseUrl`                                                                                 |
 | `getTwilioStatusCallbackUrl()` | `${base}/webhooks/twilio/status`, using `ingress.publicBaseUrl`                                                                                                  |
-| `getTwilioConnectActionUrl()`  | `${base}/webhooks/twilio/connect-action`, using `ingress.publicBaseUrl`                                                                                          |
-| `getTwilioRelayUrl()`          | `ws(s)://.../webhooks/twilio/relay`, using `ingress.publicBaseUrl`                                                                                               |
+| `getTwilioVoiceVerifyUrl()`    | `${base}/webhooks/twilio/voice-verify`, using `ingress.publicBaseUrl`                                                                                            |
+| `getTwilioMediaStreamUrl()`    | `ws(s)://.../webhooks/twilio/media-stream/<callSessionId>/<token>`, using `ingress.publicBaseUrl`                                                                |
 | `getOAuthCallbackUrl()`        | `${base}/webhooks/oauth/callback`                                                                                                                                |
 | `getTelegramWebhookUrl()`      | `${base}/webhooks/telegram`                                                                                                                                      |
 
@@ -783,7 +783,7 @@ Any persistent-stream transport that does not buffer events for disconnected cli
 
 ## AI Phone Calls — Twilio Voice
 
-The Calls subsystem supports both **outbound** and **inbound** voice calls via Twilio. The Twilio integration path is provider-conditional: `services.stt.provider` determines whether calls use ConversationRelay (Twilio-native STT for Deepgram/Google) or Media Streams (daemon-side STT for OpenAI Whisper). The assistant uses an LLM-driven conversation loop to speak in real time. Voice is a first-class channel with its own per-call conversation (outbound key: `asst:${assistantId}:voice:call:${callSessionId}`, inbound key: `asst:${assistantId}:voice:inbound:${callSid}`). When the AI needs guardian input during a call, it dispatches ASK_GUARDIAN requests cross-channel to mac/telegram via the guardian dispatch engine. Answer resolution uses first-writer-wins semantics -- the first channel to respond provides the answer, and remaining channels receive a "already answered" notice.
+The Calls subsystem supports both **outbound** and **inbound** voice calls via Twilio. All calls use the **Media Streams** transport: the voice webhook returns TwiML `<Connect><Stream>` and Twilio opens a WebSocket to the gateway, which bidirectionally proxies raw audio to the daemon. The daemon performs both STT and TTS itself — it streams transcription via the configured STT provider and synthesizes TTS to PCM, then transcodes to mu-law for Twilio. STT and TTS provider credentials are therefore required. The assistant uses an LLM-driven conversation loop to speak in real time. Voice is a first-class channel with its own per-call conversation (outbound key: `asst:${assistantId}:voice:call:${callSessionId}`, inbound key: `asst:${assistantId}:voice:inbound:${callSid}`). When the AI needs guardian input during a call, it dispatches ASK_GUARDIAN requests cross-channel to mac/telegram via the guardian dispatch engine. Answer resolution uses first-writer-wins semantics -- the first channel to respond provides the answer, and remaining channels receive a "already answered" notice.
 
 ### Outbound Call Flow
 
@@ -795,7 +795,7 @@ sequenceDiagram
     participant TwilioAPI as Twilio REST API
     participant Gateway as Gateway (public)
     participant Routes as twilio-routes.ts (runtime)
-    participant WS as RelayConnection (WebSocket)
+    participant WS as MediaStreamConnection (WebSocket)
     participant Ctrl as CallController
     participant Bridge as voice-session-bridge
     participant RunOrch as RunOrchestrator
@@ -818,12 +818,12 @@ sequenceDiagram
     Gateway->>Gateway: validateTwilioWebhookRequest()
     Gateway->>Routes: forward to runtime /v1/internal/twilio/voice-webhook (+ params, originalUrl)
     Routes->>CallStore: getCallSession()
-    Routes-->>Gateway: TwiML (ConversationRelay connect)
+    Routes-->>Gateway: TwiML (media-stream `<Connect><Stream>`)
     Gateway-->>TwilioAPI: TwiML response
 
-    TwilioAPI->>Gateway: WebSocket /webhooks/twilio/relay
-    Gateway->>WS: proxy WS to runtime /v1/calls/relay
-    WS->>WS: setup message (callSid)
+    TwilioAPI->>Gateway: WebSocket /webhooks/twilio/media-stream/<callSessionId>/<token>
+    Gateway->>WS: proxy WS to runtime /v1/calls/media-stream
+    WS->>WS: start message (callSid); daemon STT on inbound audio, TTS → mu-law on output
     WS->>Ctrl: new CallController()
     Ctrl->>State: registerCallController()
 
@@ -868,7 +868,7 @@ sequenceDiagram
 
 ### Inbound Call Flow
 
-Inbound calls are triggered when someone dials the assistant's Twilio phone number. The gateway resolves which assistant owns the number, the runtime bootstraps a session keyed by CallSid, and the relay connection optionally gates the call behind guardian voice verification before handing off to the CallController.
+Inbound calls are triggered when someone dials the assistant's Twilio phone number. The gateway resolves which assistant owns the number, the runtime bootstraps a session keyed by CallSid, and the media-stream connection optionally gates the call behind guardian voice verification before handing off to the CallController.
 
 ```mermaid
 sequenceDiagram
@@ -878,7 +878,7 @@ sequenceDiagram
     participant Routes as twilio-routes.ts (runtime)
     participant CallDomain as CallDomain
     participant CallStore as CallStore (SQLite)
-    participant WS as RelayConnection (WebSocket)
+    participant WS as MediaStreamConnection (WebSocket)
     participant GuardianSvc as ChannelGuardianService
     participant Ctrl as CallController
     participant Bridge as voice-session-bridge
@@ -905,12 +905,12 @@ sequenceDiagram
     Routes->>CallDomain: createInboundVoiceSession(callSid, from, to, assistantId)
     CallDomain->>CallStore: getOrCreateConversation(voice:inbound:${callSid})
     CallDomain->>CallStore: createCallSession() — task=null for inbound
-    Routes-->>Gateway: TwiML (ConversationRelay connect)
+    Routes-->>Gateway: TwiML (media-stream `<Connect><Stream>`)
     Gateway-->>TwilioAPI: TwiML response
 
-    TwilioAPI->>Gateway: WebSocket /webhooks/twilio/relay
-    Gateway->>WS: proxy WS to runtime /v1/calls/relay
-    WS->>WS: setup message (callSid)
+    TwilioAPI->>Gateway: WebSocket /webhooks/twilio/media-stream/<callSessionId>/<token>
+    Gateway->>WS: proxy WS to runtime /v1/calls/media-stream
+    WS->>WS: start message (callSid); daemon STT on inbound audio, TTS → mu-law on output
     WS->>WS: detect isInbound (`session.initiatedFromConversationId == null`)
 
     alt Pending voice guardian challenge exists
@@ -960,7 +960,7 @@ sequenceDiagram
     end
 ```
 
-**Inbound vs. outbound detection**: The relay server determines call direction by checking `session.initiatedFromConversationId`. Outbound calls are initiated from an existing conversation (`initiatedFromConversationId` set). Inbound calls are bootstrapped from Twilio webhooks and therefore have `initiatedFromConversationId == null`.
+**Inbound vs. outbound detection**: The media-stream server determines call direction by checking `session.initiatedFromConversationId`. Outbound calls are initiated from an existing conversation (`initiatedFromConversationId` set). Inbound calls are bootstrapped from Twilio webhooks and therefore have `initiatedFromConversationId == null`.
 
 **Inbound system prompt**: The session pipeline (via voice-session-bridge) generates system prompts appropriate for the voice channel context. For inbound calls, this produces a receptionist-style prompt that greets the caller warmly and helps them with what they need.
 
@@ -980,11 +980,11 @@ sequenceDiagram
 | `assistant/src/calls/call-state-machine.ts`                      | Deterministic state transition validator with allowed-transition table and terminal-state enforcement                                                                                                                  |
 | `assistant/src/calls/call-recovery.ts`                           | Startup reconciliation of non-terminal calls: fetches provider status and transitions stale sessions                                                                                                                   |
 | `assistant/src/calls/twilio-provider.ts`                         | Twilio Voice REST API integration (initiateCall, endCall, getCallStatus) using direct fetch — no Twilio SDK dependency                                                                                                 |
-| `assistant/src/calls/twilio-routes.ts`                           | HTTP webhook handlers: voice webhook (returns TwiML with WS-A/WS-B guardrails), status callback, connect action                                                                                                        |
-| `assistant/src/calls/relay-server.ts`                            | WebSocket handler for the Twilio ConversationRelay protocol; manages RelayConnection instances per call                                                                                                                |
+| `assistant/src/calls/twilio-routes.ts`                           | HTTP webhook handlers: voice webhook (returns media-stream `<Connect><Stream>` TwiML), status callback, and the gateway-owned `<Gather>` voice-verify callback                                                         |
+| `assistant/src/calls/media-stream-server.ts`                     | WebSocket handler for the Twilio Media Streams protocol; manages MediaStreamConnection instances per call, running daemon-side STT on inbound audio and TTS (PCM → mu-law) on output                                   |
 | `assistant/src/calls/speaker-identification.ts`                  | Reusable speaker recognition primitive for voice prompts: extracts provider speaker metadata (top-level and nested fields), resolves stable per-call speaker identities, and emits speaker context for personalization |
 | `assistant/src/calls/call-controller.ts`                         | Session-backed voice controller: routes voice turns through the daemon session pipeline via voice-session-bridge, detects ASK_GUARDIAN and END_CALL control markers                                                    |
-| `assistant/src/calls/voice-session-bridge.ts`                    | Bridge between voice relay and the daemon session/run pipeline: wraps RunOrchestrator.startRun() with voice-specific defaults, translating agent-loop events into callbacks for real-time TTS streaming                |
+| `assistant/src/calls/voice-session-bridge.ts`                    | Bridge between the voice media-stream and the daemon session/run pipeline: wraps RunOrchestrator.startRun() with voice-specific defaults, translating agent-loop events into callbacks for real-time TTS streaming     |
 | `assistant/src/calls/call-state.ts`                              | Notifier pattern (Maps with register/unregister/fire helpers) for cross-component communication: question notifiers, completion notifiers, and controller registry                                                     |
 | `assistant/src/calls/call-constants.ts`                          | Config-backed constants: max call duration, user consultation timeout, silence timeout, denied emergency numbers                                                                                                       |
 | `assistant/src/calls/voice-provider.ts`                          | Abstract VoiceProvider interface for provider-agnostic call initiation                                                                                                                                                 |
@@ -993,7 +993,7 @@ sequenceDiagram
 | `assistant/src/calls/types.ts`                                   | TypeScript type definitions: CallSession, CallEvent, CallPendingQuestion, CallStatus, CallEventType                                                                                                                    |
 | `gateway/src/http/routes/twilio-voice-webhook.ts`                | Gateway route: validates Twilio signature, forwards voice webhook to runtime                                                                                                                                           |
 | `gateway/src/http/routes/twilio-status-webhook.ts`               | Gateway route: validates Twilio signature, forwards status callback to runtime                                                                                                                                         |
-| `gateway/src/http/routes/twilio-connect-action-webhook.ts`       | Gateway route: validates Twilio signature, forwards connect-action to runtime                                                                                                                                          |
+| `gateway/src/http/routes/twilio-voice-verify-webhook.ts`         | Gateway route: validates Twilio signature, forwards the `<Gather>` voice-verify callback (inbound guardian DTMF/spoken-code gate) to runtime                                                                           |
 | `gateway/src/http/routes/twilio-media-websocket.ts`              | Gateway route: WebSocket proxy for Media Streams frames between Twilio and runtime                                                                                                                                     |
 | `gateway/src/twilio/validate-webhook.ts`                         | Twilio webhook validation: HMAC-SHA1 signature verification, payload size limits, fail-closed when auth token missing                                                                                                  |
 
@@ -1067,11 +1067,10 @@ Internet-facing Twilio callbacks terminate at the gateway, which validates signa
 | ---------------------------------------------------------- | --------------------------------- | ---------------------------------------------------------------------------------------- |
 | `POST /webhooks/twilio/voice`                              | HMAC-SHA1 signature, payload size | `POST /v1/internal/twilio/voice-webhook` (JSON: `{ params, originalUrl, assistantId? }`) |
 | `POST /webhooks/twilio/status`                             | HMAC-SHA1 signature, payload size | `POST /v1/internal/twilio/status` (JSON: `{ params }`)                                   |
-| `POST /webhooks/twilio/connect-action`                     | HMAC-SHA1 signature, payload size | `POST /v1/internal/twilio/connect-action` (JSON: `{ params }`)                           |
-| `WS /webhooks/twilio/relay`                                | WebSocket upgrade                 | `WS /v1/calls/relay` (bidirectional proxy) — ConversationRelay path                      |
+| `POST /webhooks/twilio/voice-verify`                       | HMAC-SHA1 signature, payload size | `POST /v1/internal/twilio/voice-verify` (JSON: `{ params }`) — inbound guardian gate     |
 | `WS /webhooks/twilio/media-stream/<callSessionId>/<token>` | WebSocket upgrade                 | `WS /v1/calls/media-stream` (bidirectional proxy) — Media Streams path                   |
 
-In gateway-fronted deployments, the TwiML WebSocket URL (returned by the voice webhook) should point to the gateway's `/webhooks/twilio/relay` (ConversationRelay) or `/webhooks/twilio/media-stream/<callSessionId>/<token>` (Media Streams) endpoint rather than directly to the runtime. The gateway proxies frames bidirectionally between Twilio and the runtime, preserving close and error semantics for proper cleanup.
+In gateway-fronted deployments, the TwiML WebSocket URL (returned by the voice webhook) points to the gateway's `/webhooks/twilio/media-stream/<callSessionId>/<token>` (Media Streams) endpoint rather than directly to the runtime. The gateway proxies frames bidirectionally between Twilio and the runtime, preserving close and error semantics for proper cleanup.
 
 **Media Streams handshake metadata:** Twilio Media Streams does not reliably preserve URL query parameters across the WebSocket upgrade, so handshake metadata (`callSessionId` and auth `token`) is encoded as **URL path segments** (primary transport). The gateway also supports legacy query-parameter-based handshake as a fallback for backward compatibility. The metadata extractor in `twilio-media-websocket.ts` resolves values from path segments first, falling back to query parameters.
 
@@ -1079,7 +1078,7 @@ Signature validation is **fail-closed**: if the Twilio auth token is not configu
 
 **Webhook base URL resolution:** Public ingress URL construction is centralized in `public-ingress-urls.ts`:
 
-- Twilio voice/status/connect-action/relay/media-stream URLs use `ingress.publicBaseUrl`.
+- Twilio voice/status/voice-verify/media-stream URLs use `ingress.publicBaseUrl`.
 - Velay registration publishes its public assistant URL to `ingress.publicBaseUrl` with `ingress.publicBaseUrlManagedBy: "velay"`.
 - Telegram webhooks, OAuth callbacks, email callbacks, and normal JSON webhook URLs also use `ingress.publicBaseUrl`; Velay-managed URL changes are tagged so unrelated reconciliation can be skipped when appropriate.
 - Module-level assistant state remains a fallback for legacy tunnel start/stop flows.
@@ -1106,9 +1105,8 @@ This makes ingress URL updates smoother in local tunnel workflows because Twilio
 | POST   | `/v1/calls/:callSessionId/answer`      | Answer a pending question via HTTP (alternative to in-conversation bridge)                                                             |
 | POST   | `/v1/calls/:callSessionId/instruction` | Relay a steering instruction to an active call's controller (alternative to in-conversation bridge)                                    |
 | POST   | `/v1/internal/twilio/status`           | Internal status callback used by gateway; accepts JSON `{ params }`                                                                    |
-| POST   | `/v1/internal/twilio/connect-action`   | Internal connect action callback used by gateway; accepts JSON `{ params }`                                                            |
-| WS     | `/v1/calls/relay`                      | ConversationRelay WebSocket (bidirectional: prompt/interrupt/dtmf from Twilio, text tokens/end to Twilio) — Deepgram/Google path       |
-| WS     | `/v1/calls/media-stream`               | Media Streams WebSocket (raw audio from Twilio, daemon-side STT) — OpenAI Whisper path                                                 |
+| POST   | `/v1/internal/twilio/voice-verify`     | Internal voice-verify callback used by gateway for the inbound guardian `<Gather>` gate; accepts JSON `{ params }`                     |
+| WS     | `/v1/calls/media-stream`               | Media Streams WebSocket (raw audio from Twilio; daemon-side STT and TTS for all calls)                                                 |
 
 ### Tools
 
@@ -1118,7 +1116,7 @@ This makes ingress URL updates smoother in local tunnel workflows because Twilio
 | `call_status` | Retrieves the current status of a call session                                           |
 | `call_end`    | Terminates an active call                                                                |
 
-Both tools and HTTP routes delegate to the same domain functions in `call-domain.ts` (`startCall`, `getCallStatus`, `cancelCall`, `answerCall`, `relayInstruction`), ensuring consistent validation and behavior. Inbound calls do not use tools — they are initiated by the external caller and bootstrapped automatically by the voice webhook and relay server.
+Both tools and HTTP routes delegate to the same domain functions in `call-domain.ts` (`startCall`, `getCallStatus`, `cancelCall`, `answerCall`, `relayInstruction`), ensuring consistent validation and behavior. Inbound calls do not use tools — they are initiated by the external caller and bootstrapped automatically by the voice webhook and media-stream server.
 
 ### Control Markers
 
@@ -1144,20 +1142,20 @@ Malformed or unprocessable provider callback payloads are logged as dead-letter 
 
 Call behavior is controlled via the `calls` config block in the assistant configuration (`config/schema.ts`). All values have sensible defaults and are validated via Zod:
 
-| Field                             | Type     | Default                                       | Description                                                                                                                                                                                     |
-| --------------------------------- | -------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `calls.enabled`                   | boolean  | `true`                                        | Master toggle for the calls feature. When `false`, call routes return 403 and tools return errors.                                                                                              |
-| `calls.provider`                  | enum     | `'twilio'`                                    | Voice provider to use (currently only Twilio is supported).                                                                                                                                     |
-| `calls.maxDurationSeconds`        | int      | `3600`                                        | Maximum allowed duration per call.                                                                                                                                                              |
-| `calls.userConsultTimeoutSeconds` | int      | `120`                                         | How long to wait for a user answer before timing out a pending question.                                                                                                                        |
-| `calls.disclosure.enabled`        | boolean  | `true`                                        | Whether the AI should disclose it is an AI at the start of the call.                                                                                                                            |
-| `calls.disclosure.text`           | string   | _(default disclosure prompt)_                 | The disclosure instruction included in the system prompt.                                                                                                                                       |
-| `calls.safety.denyCategories`     | string[] | `[]`                                          | Categories of calls to deny (e.g., emergency numbers are always denied regardless of this setting).                                                                                             |
-| `llm.callSites.callAgent.model`   | string   | _(unset — falls back to `llm.default.model`)_ | Optional override for the LLM model used in voice call conversations.                                                                                                                           |
-| `calls.voice.language`            | string   | `'en-US'`                                     | Language code for TTS and transcription.                                                                                                                                                        |
-| `services.stt.provider`           | enum     | `'deepgram'`                                  | STT provider for all boundaries including telephony. Determines the Twilio integration path (ConversationRelay-native for `deepgram`/`google-gemini`, media-stream for `openai-whisper`/`xai`). |
-| `services.tts.provider`           | enum     | `'elevenlabs'`                                | Active TTS provider for speech synthesis (catalog-driven; see [TTS Provider Abstraction](../assistant/ARCHITECTURE.md#tts-provider-abstraction-servicestts)).                                   |
-| `services.tts.providers.<id>.*`   | object   | _(per-provider defaults)_                     | Provider-specific settings block. One block per catalog entry (e.g. `elevenlabs`, `fish-audio`).                                                                                                |
+| Field                             | Type     | Default                                       | Description                                                                                                                                                                          |
+| --------------------------------- | -------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `calls.enabled`                   | boolean  | `true`                                        | Master toggle for the calls feature. When `false`, call routes return 403 and tools return errors.                                                                                   |
+| `calls.provider`                  | enum     | `'twilio'`                                    | Voice provider to use (currently only Twilio is supported).                                                                                                                          |
+| `calls.maxDurationSeconds`        | int      | `3600`                                        | Maximum allowed duration per call.                                                                                                                                                   |
+| `calls.userConsultTimeoutSeconds` | int      | `120`                                         | How long to wait for a user answer before timing out a pending question.                                                                                                             |
+| `calls.disclosure.enabled`        | boolean  | `true`                                        | Whether the AI should disclose it is an AI at the start of the call.                                                                                                                 |
+| `calls.disclosure.text`           | string   | _(default disclosure prompt)_                 | The disclosure instruction included in the system prompt.                                                                                                                            |
+| `calls.safety.denyCategories`     | string[] | `[]`                                          | Categories of calls to deny (e.g., emergency numbers are always denied regardless of this setting).                                                                                  |
+| `llm.callSites.callAgent.model`   | string   | _(unset — falls back to `llm.default.model`)_ | Optional override for the LLM model used in voice call conversations.                                                                                                                |
+| `calls.voice.language`            | string   | `'en-US'`                                     | Language code for TTS and transcription.                                                                                                                                             |
+| `services.stt.provider`           | enum     | `'deepgram'`                                  | STT provider for all boundaries including telephony. The daemon runs streaming STT via this provider over the media-stream transport for every call (provider credentials required). |
+| `services.tts.provider`           | enum     | `'elevenlabs'`                                | Active TTS provider for speech synthesis (catalog-driven; see [TTS Provider Abstraction](../assistant/ARCHITECTURE.md#tts-provider-abstraction-servicestts)).                        |
+| `services.tts.providers.<id>.*`   | object   | _(per-provider defaults)_                     | Provider-specific settings block. One block per catalog entry (e.g. `elevenlabs`, `fish-audio`).                                                                                     |
 
 ### Caller Identity Resolution
 
@@ -1178,20 +1176,22 @@ Voice and TTS settings are configurable via the `calls.voice` and `services.tts`
 
 The active TTS provider is determined by `services.tts.provider` (default: `"elevenlabs"`). Provider-specific settings (voice ID, model, tuning parameters) are read from `services.tts.providers.<id>`. The call mode (`native-twilio` or `synthesized-play`) is resolved from the canonical provider catalog via `resolveCallStrategy()` in `tts-call-strategy.ts` — it reads the provider's declared `callMode` rather than inferring behavior from runtime capabilities.
 
-For `native-twilio` providers (e.g. ElevenLabs), the voice quality profile looks up a registered `NativeTwilioVoiceSpecBuilder` to construct the provider-specific voice spec string for the ConversationRelay `voice` attribute. New native providers plug in by registering their own voice spec builder — no edits to core call routing logic required. For `synthesized-play` providers (e.g. Fish Audio), `ttsProvider` is set to `"Google"` as a placeholder in TwiML and actual audio is delivered via `play` messages — the assistant synthesises audio via the provider's HTTP API.
+The voice quality profile selects the TTS provider, voice spec, and language used by the daemon when it synthesizes speech for the call. The daemon renders TTS to PCM and transcodes it to mu-law before streaming it back to Twilio over the media-stream WebSocket. New TTS providers plug in by registering their own voice spec builder — no edits to core call routing logic required.
 
-The voice webhook in `twilio-routes.ts` calls `resolveVoiceQualityProfile()` for TTS settings and separately resolves the telephony STT strategy via `resolveTelephonySttRouting()`. The routing result determines which TwiML generator to use: `generateTwiML()` for Twilio-native ConversationRelay, or `generateStreamTwiML()` for the media-stream path. This separation keeps TTS and STT resolution independent — the voice quality profile controls the TTS provider, voice, and language, while the routing strategy controls the STT integration path.
+The voice webhook in `twilio-routes.ts` calls `resolveVoiceQualityProfile()` for TTS settings and generates media-stream `<Connect><Stream>` TwiML via `generateStreamTwiML()`. This separation keeps TTS and STT resolution independent — the voice quality profile controls the TTS provider, voice, and language used by the daemon's synthesizer, while the daemon's streaming STT handles inbound transcription.
 
 For full details on the catalog-driven TTS architecture, provider catalog, call strategy abstraction, and the provider-add checklist, see the [TTS Provider Abstraction](../assistant/ARCHITECTURE.md#tts-provider-abstraction-servicestts) section in the assistant architecture docs.
 
-### Telephony STT: Provider-Conditional Hybrid Routing
+### Telephony STT/TTS: Daemon-Side Media-Stream Processing
 
-Telephony STT is unified under `services.stt.provider`. The voice webhook in `twilio-routes.ts` calls `resolveTelephonySttRouting()` to determine the Twilio integration path based on the active provider:
+Telephony STT is unified under `services.stt.provider`, and all calls use the media-stream transport regardless of provider. The voice webhook in `twilio-routes.ts` emits `<Connect><Stream>` TwiML pointing to the gateway's media-stream proxy (`/webhooks/twilio/media-stream/<callSessionId>/<token>`). The gateway forwards raw audio frames bidirectionally between Twilio and the daemon's media-stream server.
 
-- **Deepgram / Google** (`conversation-relay-native` strategy) — TwiML emits `<Connect><ConversationRelay>` with Twilio-native `transcriptionProvider` and `speechModel` attributes. The gateway proxies ConversationRelay frames via `/webhooks/twilio/relay`. The daemon receives transcribed text, not raw audio.
+The daemon performs both transcription and synthesis itself:
 
-- **OpenAI Whisper** (`media-stream-custom` strategy) — TwiML emits `<Connect><Stream>` pointing to the gateway's media-stream proxy (`/webhooks/twilio/media-stream`). The gateway forwards raw audio frames to the daemon's media-stream server, which transcribes server-side.
+- **Inbound (caller → assistant)** — The daemon runs streaming STT via the configured `services.stt.provider` on the raw mu-law audio it receives from Twilio. It receives raw audio, not Twilio-transcribed text. STT provider credentials are required.
 
-Both paths are active in production. The strategy selection happens at call setup time based on the current `services.stt.provider` value. See `docs/internal-reference.md` for a provider-specific troubleshooting matrix.
+- **Outbound (assistant → caller)** — The daemon synthesizes TTS via the configured `services.tts.provider` to PCM, then transcodes it to mu-law before streaming it back to Twilio over the same WebSocket.
+
+See `docs/internal-reference.md` for a provider-specific troubleshooting matrix.
 
 ---

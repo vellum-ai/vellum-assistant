@@ -5,7 +5,6 @@ import {
   normalizePublicBaseUrl,
 } from "../ingress.js";
 import {
-  buildTwilioConnectActionUrl,
   buildTwilioMediaStreamUrl,
   buildTwilioPhoneNumberWebhookUrls,
   buildTwilioVoiceWebhookUrl,
@@ -73,9 +72,12 @@ describe("Twilio ingress helpers", () => {
       }),
     ).toBeUndefined();
     expect(
-      resolveTwilioPublicBaseUrl({
-        publicBaseUrl: " ",
-      }, "https://fallback.example.test/"),
+      resolveTwilioPublicBaseUrl(
+        {
+          publicBaseUrl: " ",
+        },
+        "https://fallback.example.test/",
+      ),
     ).toBe("https://fallback.example.test");
     expect(
       resolveTwilioPublicBaseUrl({}, "https://fallback.example.test/"),
@@ -88,9 +90,6 @@ describe("Twilio ingress helpers", () => {
     );
     expect(buildTwilioVoiceWebhookUrl("https://example.test", "call-123")).toBe(
       "https://example.test/webhooks/twilio/voice?callSessionId=call-123",
-    );
-    expect(buildTwilioConnectActionUrl("https://example.test")).toBe(
-      "https://example.test/webhooks/twilio/connect-action",
     );
     expect(buildTwilioMediaStreamUrl("http://example.test")).toBe(
       "ws://example.test/webhooks/twilio/media-stream",

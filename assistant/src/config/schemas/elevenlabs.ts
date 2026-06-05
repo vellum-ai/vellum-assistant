@@ -1,5 +1,5 @@
 // Default ElevenLabs voice — "Amelia" (expressive, enthusiastic, British English).
-// Used by both in-app TTS and phone calls (via Twilio ConversationRelay).
+// Used by both in-app TTS and phone calls (daemon-synthesized over the Twilio media-stream).
 // Mirrored in: clients/macos/.../OpenAIVoiceService.swift (defaultVoiceId)
 export const DEFAULT_ELEVENLABS_VOICE_ID = "ZF6FPAbjXT4488VcRRnw";
 
