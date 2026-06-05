@@ -60,7 +60,7 @@ const BASE_SCHEMES = ["vellum:", "vellum-assistant:"] as const;
 const SCHEME_BY_ENV: Record<string, string> = {
   production: "vellum-assistant",
   staging: "vellum-assistant-staging",
-  development: "vellum-assistant-dev",
+  dev: "vellum-assistant-dev",
   local: "vellum-assistant-local",
 };
 

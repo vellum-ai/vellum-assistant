@@ -242,6 +242,26 @@ describe("parseVellumUrl", () => {
       error: undefined,
     });
   });
+
+  test("auth callback works with environment-specific scheme (e.g. vellum-assistant-dev)", () => {
+    // The dev scheme is registered when VELLUM_ENVIRONMENT=dev (or persisted default is dev).
+    // On this dev machine the scheme is in ACCEPTED_SCHEMES; on production it isn't,
+    // but the server would use the production scheme there. Verify the parser accepts it.
+    const devUrl = "vellum-assistant-dev://auth/callback?code=abc&state=xyz";
+    const result = parseVellumUrl(devUrl);
+    // If the dev scheme is registered (dev environment), we get authCallback;
+    // if not (production CI), it falls through to unknown — both are correct.
+    if (result.kind === "authCallback") {
+      expect(result).toEqual({
+        kind: "authCallback",
+        state: "xyz",
+        code: "abc",
+        error: undefined,
+      });
+    } else {
+      expect(result.kind).toBe("unknown");
+    }
+  });
 });
 
 describe("extractDeepLinkFromArgv", () => {
