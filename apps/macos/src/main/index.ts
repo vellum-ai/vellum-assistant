@@ -36,6 +36,7 @@ import {
 } from "./main-window";
 import { installApplicationMenu } from "./menu";
 import { installConnectivityProbe } from "./connectivity-probe";
+import { installNotifications } from "./notifications";
 import { installPowerEvents } from "./power-events";
 import { readSetting, writeSetting } from "./settings";
 import { installConnectivityIpc, installStatusIpc } from "./status";
@@ -318,6 +319,7 @@ app
     installAvatarIpc();
     installDock();
     installPowerEvents();
+    installNotifications();
     // Register the status channel before the tray installs so the tray's
     // initial render reflects any status the renderer publishes during
     // bootstrap rather than briefly showing the default idle dot.

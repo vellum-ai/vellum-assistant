@@ -72,6 +72,49 @@ export type ConnectivityState =
   | "device-offline"
   | "backend-unreachable";
 
+/**
+ * Renderer-side mirror of `NotificationCategory` in
+ * `apps/macos/src/main/notifications.ts`. Each variant maps to a set of
+ * macOS action buttons (View, Approve/Reject, Open) that the Web
+ * Notification API cannot provide.
+ */
+export type NotificationCategory =
+  | "activityComplete"
+  | "toolConfirmation"
+  | "voiceResponseComplete"
+  | "notificationIntent";
+
+/**
+ * Renderer → main payload for posting a native notification.
+ * Mirror of `ShowNotificationPayload` in
+ * `apps/macos/src/main/notifications.ts`.
+ */
+export interface ElectronShowNotificationPayload {
+  category: NotificationCategory;
+  title: string;
+  body: string;
+  deliveryId?: string;
+  conversationId?: string;
+  toolCallId?: string;
+  deepLinkMetadata?: Record<string, unknown>;
+}
+
+/**
+ * Main → renderer event when the user interacts with a native
+ * notification. Mirror of `NotificationActionEvent` in
+ * `apps/macos/src/main/notifications.ts`.
+ */
+export interface ElectronNotificationActionEvent {
+  kind: "click" | "action";
+  category: NotificationCategory;
+  actionIndex?: number;
+  actionText?: string;
+  deliveryId?: string;
+  conversationId?: string;
+  toolCallId?: string;
+  deepLinkMetadata?: Record<string, unknown>;
+}
+
 declare global {
   interface Window {
     vellum?: {
@@ -178,6 +221,15 @@ declare global {
         ): () => void;
         setDevice(online: boolean): void;
         retry(): void;
+      };
+      // Optional: older Electron shells predate the notifications channel.
+      notifications?: {
+        show(
+          payload: ElectronShowNotificationPayload,
+        ): Promise<{ success: boolean; errorMessage?: string }>;
+        onAction(
+          callback: (event: ElectronNotificationActionEvent) => void,
+        ): () => void;
       };
     };
   }

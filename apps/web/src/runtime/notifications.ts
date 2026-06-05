@@ -2,8 +2,19 @@
  * Local notification bridge for `notification_intent` events from the
  * daemon. Mirrors the macOS client's
  * `AppDelegate+Notifications.postNotificationIntent()` so users get a
- * native banner on Capacitor iOS and a system Notification on desktop
- * browsers without any server-side push infrastructure.
+ * native banner on Capacitor iOS, an `electron.Notification` on the
+ * Electron desktop shell, or a system Notification on desktop browsers
+ * without any server-side push infrastructure.
+ *
+ * Three host paths:
+ *
+ *   1. **Electron** — routes through `window.vellum.notifications.show()`
+ *      which IPC-invokes `electron.Notification` in the main process.
+ *      Supports macOS action buttons (View, Approve/Reject, Open) that
+ *      the Web Notification API cannot provide.
+ *   2. **Capacitor iOS** — schedules via `UNUserNotificationCenter`
+ *      through `@capacitor/local-notifications`.
+ *   3. **Desktop browser** — falls back to the Web Notification API.
  *
  * Key tradeoff vs. APNs remote push: local notifications only fire while
  * the app's JS runtime is alive (foreground or recently backgrounded on
@@ -19,6 +30,7 @@ import {
 
 import { notificationintentresultPost } from "@/generated/daemon/sdk.gen";
 import type { NotificationintentresultPostData } from "@/generated/daemon/types.gen";
+import { isElectron } from "@/runtime/is-electron";
 import { isNativePlatform } from "@/runtime/native-auth";
 
 /**
@@ -41,11 +53,13 @@ let tapListenersRegistered = false;
 let tapHandler: ((payload: NotificationTapPayload) => void) | null = null;
 
 /**
- * True when the current host supports system notifications at all (either
- * via Capacitor LocalNotifications or the browser Notification API).
+ * True when the current host supports system notifications at all (Electron
+ * main-process Notification, Capacitor LocalNotifications, or the browser
+ * Notification API).
  */
 export function isNotificationsSupported(): boolean {
   if (typeof window === "undefined") return false;
+  if (isElectron()) return !!window.vellum?.notifications;
   if (isNativePlatform()) return true;
   return "Notification" in window;
 }
@@ -125,6 +139,23 @@ export async function ensureNotificationPermission(): Promise<PermissionState> {
 async function registerTapListeners(): Promise<void> {
   if (tapListenersRegistered) return;
   tapListenersRegistered = true;
+
+  // Electron path: subscribe to main-process notification action events.
+  // Converts the richer `NotificationActionEvent` into the common
+  // `NotificationTapPayload` so the same `tapHandler` is invoked
+  // regardless of platform. The listener is permanent (app lifetime).
+  if (isElectron() && window.vellum?.notifications) {
+    window.vellum.notifications.onAction((event) => {
+      if (!tapHandler) return;
+      tapHandler({
+        conversationId: event.conversationId,
+        sourceEventName: `electron:${event.category}:${event.kind}`,
+        deliveryId: event.deliveryId,
+      });
+    });
+    return;
+  }
+
   if (!isNativePlatform()) return;
   try {
     await LocalNotifications.addListener(
@@ -143,8 +174,9 @@ async function registerTapListeners(): Promise<void> {
 }
 
 /**
- * Set (or replace) the handler invoked when the user taps a notification.
- * Safe to call on every render — the underlying Capacitor listener is
+ * Set (or replace) the handler invoked when the user taps a notification
+ * or presses an action button. Safe to call on every render — the
+ * underlying platform listener (Capacitor, Electron, or browser) is
  * registered only once and the handler reference is swapped in place so
  * closures always see the latest callback.
  */
@@ -254,6 +286,39 @@ export async function postLocalNotification(
         args.deliveryId,
         false,
         "Notifications not supported on this client",
+      );
+    }
+    return;
+  }
+
+  // Electron path: route through the main-process bridge which uses
+  // `electron.Notification` (supports macOS action buttons). Permission
+  // is handled by the main process — we skip the renderer permission
+  // dance entirely.
+  if (isElectron() && window.vellum?.notifications) {
+    let success = true;
+    let errorMessage: string | undefined;
+    try {
+      const result = await window.vellum.notifications.show({
+        category: "notificationIntent",
+        title: args.title,
+        body: args.body,
+        deliveryId: args.deliveryId,
+        conversationId: extractConversationId(args.deepLinkMetadata),
+        deepLinkMetadata: args.deepLinkMetadata,
+      });
+      success = result.success;
+      errorMessage = result.errorMessage;
+    } catch (err) {
+      success = false;
+      errorMessage = err instanceof Error ? err.message : String(err);
+    }
+    if (args.assistantId && args.deliveryId) {
+      await sendNotificationIntentAck(
+        args.assistantId,
+        args.deliveryId,
+        success,
+        errorMessage,
       );
     }
     return;
