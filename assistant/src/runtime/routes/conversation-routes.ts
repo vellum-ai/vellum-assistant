@@ -318,6 +318,50 @@ function emitCannedMessageComplete(
 }
 
 /**
+ * How long the canned first-greeting broadcast waits for a connected SSE
+ * subscriber before emitting anyway. Aligned with the macOS client's 60 s
+ * `isSending` watchdog: if no client connects within the window we fall through
+ * to the (lossy) immediate broadcast — exactly the pre-existing behavior — and
+ * the client watchdog remains the final backstop.
+ */
+export const CANNED_GREETING_SUBSCRIBER_WAIT_MS = 60_000;
+
+/**
+ * Resolve once an SSE subscriber that would receive events for
+ * `conversationId` is connected, or after `timeoutMs` elapses — whichever comes
+ * first. Returns whether a subscriber was observed.
+ *
+ * The canned first-greeting turn (see {@link emitCannedMessageComplete})
+ * finishes within microseconds of the daemon accepting the hatch request,
+ * typically before the freshly-launched client has wired up its SSE
+ * subscription. Its terminal `message_complete` is a fire-and-once live event:
+ * broadcast with no subscriber present it is lost — a cold-starting client
+ * (no `Last-Event-ID`, so the replay ring is bypassed) restores message
+ * *content* from the `/messages` snapshot but never re-derives the
+ * turn-complete transition, leaving the send spinner stuck until the watchdog.
+ * Waiting for a subscriber before broadcasting lets the terminal event land on
+ * a live stream exactly like every other turn. Resolves immediately when a
+ * subscriber is already present, so the common (already-connected) case is
+ * unchanged.
+ */
+export async function waitForConversationSubscriber(
+  conversationId: string,
+  timeoutMs: number,
+  pollIntervalMs = 100,
+  hub: Pick<
+    typeof assistantEventHub,
+    "hasSubscribersForEvent"
+  > = assistantEventHub,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (!hub.hasSubscribersForEvent({ conversationId })) {
+    if (Date.now() >= deadline) return false;
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+  }
+  return true;
+}
+
+/**
  * True when a message's persisted metadata explicitly flags it as hidden.
  * Used to suppress internal scaffolding messages from UI history while
  * leaving them in the LLM-side context.
@@ -1605,31 +1649,43 @@ export async function handleSendMessage(
       }
 
       setTimeout(() => {
-        broadcastMessage({
-          type: "user_message_echo",
-          text: rawContent,
-          conversationId,
-          messageId: persisted.id,
-          clientMessageId,
-        });
-        broadcastMessage({
-          type: "assistant_text_delta",
-          text: cannedGreeting,
-          conversationId,
-        });
-        emitCannedMessageComplete(
-          broadcastMessage,
-          conversationId,
-          persistedAssistant.id,
-        );
-        publishConversationMessagesChanged(conversationId, originClientId);
-        conversation.setProcessing(false);
-        silentlyWithLog(
-          conversation.drainQueue(),
-          "canned-greeting queue drain",
-        );
+        void (async () => {
+          // Hold the canned greeting's terminal events until the freshly-hatched
+          // client's SSE subscription exists, so `message_complete` lands on a
+          // live stream and clears the send spinner instead of broadcasting into
+          // the void. Resolves immediately when a subscriber is already present;
+          // falls through after the cap (the client's own watchdog covers the
+          // never-connects case).
+          await waitForConversationSubscriber(
+            conversationId,
+            CANNED_GREETING_SUBSCRIBER_WAIT_MS,
+          );
+          broadcastMessage({
+            type: "user_message_echo",
+            text: rawContent,
+            conversationId,
+            messageId: persisted.id,
+            clientMessageId,
+          });
+          broadcastMessage({
+            type: "assistant_text_delta",
+            text: cannedGreeting,
+            conversationId,
+          });
+          emitCannedMessageComplete(
+            broadcastMessage,
+            conversationId,
+            persistedAssistant.id,
+          );
+          publishConversationMessagesChanged(conversationId, originClientId);
+          conversation.setProcessing(false);
+          silentlyWithLog(
+            conversation.drainQueue(),
+            "canned-greeting queue drain",
+          );
 
-        conversation.warmPromptCache();
+          conversation.warmPromptCache();
+        })();
       }, 0);
 
       log.info(
