@@ -950,6 +950,7 @@ export async function startLocalDaemon(
         "GATEWAY_SECURITY_DIR",
         "CREDENTIAL_SECURITY_DIR",
         "VELLUM_ENVIRONMENT",
+        "VELLUM_FIRST_PARTY_SKILLS_DIR",
         "VELLUM_PLATFORM_URL",
         "QDRANT_HTTP_PORT",
         "QDRANT_URL",

@@ -1,4 +1,5 @@
 import { app, net, protocol, session, shell } from "electron";
+import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
@@ -305,6 +306,10 @@ app
   .whenReady()
   .then(async () => {
     if (!isDev) {
+      const skillsDir = path.join(process.resourcesPath, "first-party-skills");
+      if (existsSync(skillsDir)) {
+        process.env.VELLUM_FIRST_PARTY_SKILLS_DIR = skillsDir;
+      }
       // TODO(LUM-2214): a deep-link or second-instance activation during
       // this await can create a window before the protocol handler exists.
       await ensureWebInstalled();

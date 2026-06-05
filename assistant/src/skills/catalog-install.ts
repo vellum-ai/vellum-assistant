@@ -85,6 +85,11 @@ export function getRepoSkillsDir(): string | undefined {
     return undefined;
   }
 
+  const envSkillsDir = process.env.VELLUM_FIRST_PARTY_SKILLS_DIR;
+  if (envSkillsDir && existsSync(join(envSkillsDir, "catalog.json"))) {
+    return envSkillsDir;
+  }
+
   if (!process.env.VELLUM_DEV) return undefined;
 
   // assistant/src/skills/catalog-install.ts -> ../../../skills/

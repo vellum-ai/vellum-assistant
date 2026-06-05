@@ -10,6 +10,8 @@ extraResources:
   # "reset to bundle icon" API). Source is produced by scripts/generate-icon.sh.
   - from: build/icon.icns
     to: icon.icns
+  - from: resources/first-party-skills
+    to: first-party-skills
 afterPack: ./scripts/afterPack.js
 protocols:
   - name: Vellum Deep Links
