@@ -63,6 +63,7 @@ import {
   stripInjectionsForCompaction,
   stripNowScratchpad,
 } from "../daemon/conversation-runtime-assembly.js";
+import type { SurfaceData, SurfaceType } from "../daemon/message-protocol.js";
 import { buildPkbReminder } from "../daemon/pkb-reminder-builder.js";
 import type { MessageRow } from "../memory/conversation-crud.js";
 import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
@@ -108,16 +109,29 @@ function clearNowScratchpad(): void {
 }
 
 // The workspace-context injector sources its block off the live `Conversation`
-// looked up by `conversationId`. Seed a fake instance with a non-dirty context
-// (non-null content, not dirty) so `resolveWorkspaceTopLevelContext` returns it
-// verbatim without rescanning the filesystem; `clearConversations()` between
-// tests keeps suites that assert the block is absent unaffected.
-function seedWorkspaceContext(conversationId: string, text: string): void {
+// looked up by `conversationId`. Register a fake instance carrying both a
+// non-dirty workspace context (non-null content, not dirty) so
+// `resolveWorkspaceTopLevelContext` returns it verbatim without rescanning the
+// filesystem, and an active dynamic-page surface, so `applyRuntimeInjections`
+// resolves the `<workspace>` and `<active_workspace>` blocks from it;
+// `clearConversations()` between tests keeps suites that assert the blocks are
+// absent unaffected.
+function seedActiveSurfaceConversation(
+  conversationId: string,
+  workspaceText: string,
+  surfaceId: string,
+  data: SurfaceData,
+): void {
   setConversation(conversationId, {
     conversationId,
     workingDir: "/sandbox",
-    workspaceTopLevelContext: text,
+    workspaceTopLevelContext: workspaceText,
     workspaceTopLevelDirty: false,
+    currentActiveSurfaceId: surfaceId,
+    surfaceState: new Map<
+      string,
+      { surfaceType: SurfaceType; data: SurfaceData }
+    >([[surfaceId, { surfaceType: "dynamic_page", data }]]),
   } as never);
 }
 
@@ -779,7 +793,6 @@ describe("applyRuntimeInjections — injection mode", () => {
 
   const fullOptions = {
     channelCommandContext: { type: "start" } as const,
-    activeSurface: { surfaceId: "sf_1", html: "<div>test</div>" },
     channelCapabilities: {
       channel: "telegram",
       dashboardCapable: false,
@@ -809,9 +822,11 @@ describe("applyRuntimeInjections — injection mode", () => {
   beforeEach(() => {
     seedPkbContent();
     seedNowScratchpad("Current focus: shipping PR 3");
-    seedWorkspaceContext(
+    seedActiveSurfaceConversation(
       "injection-mode-conv",
       "<workspace>\nRoot: /sandbox\n</workspace>",
+      "sf_1",
+      { html: "<div>test</div>" },
     );
   });
   afterEach(() => {

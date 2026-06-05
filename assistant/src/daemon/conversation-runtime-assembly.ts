@@ -59,6 +59,7 @@ import { channelStatusToMemberStatus } from "../runtime/routes/inbound-stages/ac
 import type { SubagentState } from "../subagent/types.js";
 import { TERMINAL_STATUSES } from "../subagent/types.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
+import { findConversationOrSubagent } from "./conversation-registry.js";
 import type {
   DynamicPageSurfaceData,
   SurfaceData,
@@ -269,8 +270,8 @@ export function isGroupChatType(chatType?: string): boolean {
   }
 }
 
-/** Context about the active workspace surface, passed to applyRuntimeInjections. */
-export interface ActiveSurfaceContext {
+/** Context about the active workspace surface, rendered into the `<active_workspace>` block. */
+interface ActiveSurfaceContext {
   surfaceId: string;
   html: string;
   /** When set, the surface is backed by a persisted app. */
@@ -1821,19 +1822,17 @@ function applyInjectionBlock(
  * bag attached to the {@link TurnContext} the caller provides (or to an
  * ephemeral {@link TurnContext} synthesized for test call sites). A small
  * number of fields drive hardcoded branches that live outside the injector
- * chain — `activeSurface`, `channelCapabilities`, `channelCommandContext`,
+ * chain — `channelCapabilities`, `channelCommandContext`,
  * `voiceCallControlPrompt`, `transportHints`, and `isNonInteractive` —
  * because they are orchestrator-owned content that never made sense as
  * plugin-overridable default injectors.
+ *
+ * The active workspace surface is not on this bag: `applyRuntimeInjections`
+ * resolves it from the live conversation's surface state itself (see the
+ * `<active_workspace>` branch), so the orchestrator does not compute or thread
+ * it per turn.
  */
 export interface RuntimeInjectionOptions {
-  /**
-   * Active dashboard-surface context (read from `<active_workspace>`). Kept
-   * on the options bag rather than an injector because it is a
-   * channel-capability concern that has never been gated as a default
-   * injector.
-   */
-  activeSurface?: ActiveSurfaceContext | null;
   channelCapabilities?: ChannelCapabilities | null;
   channelCommandContext?: ChannelCommandContext | null;
   unifiedTurnContext?: string | null;
@@ -1918,7 +1917,6 @@ function buildTurnInjectionInputs(
     channelCapabilities: options.channelCapabilities,
     slackChronologicalMessages: options.slackChronologicalMessages,
     slackActiveThreadFocusBlock: options.slackActiveThreadFocusBlock,
-    activeSurface: options.activeSurface,
     channelCommandContext: options.channelCommandContext,
     voiceCallControlPrompt: options.voiceCallControlPrompt,
     transportHints: options.transportHints,
@@ -2180,13 +2178,27 @@ export async function applyRuntimeInjections(
     }
   }
 
-  if (mode === "full" && options.activeSurface) {
-    const userTail = result[result.length - 1];
-    if (userTail && userTail.role === "user") {
-      result = [
-        ...result.slice(0, -1),
-        injectActiveSurfaceContext(userTail, options.activeSurface),
-      ];
+  if (mode === "full") {
+    // Source the active workspace surface from the live conversation's surface
+    // state rather than from a per-turn option computed by the orchestrator.
+    const surfaceConversation = findConversationOrSubagent(
+      turnCtx.conversationId,
+    );
+    const activeSurface = surfaceConversation
+      ? buildActiveSurfaceContext({
+          currentActiveSurfaceId: surfaceConversation.currentActiveSurfaceId,
+          currentPage: surfaceConversation.currentPage,
+          surfaceState: surfaceConversation.surfaceState,
+        })
+      : null;
+    if (activeSurface) {
+      const userTail = result[result.length - 1];
+      if (userTail && userTail.role === "user") {
+        result = [
+          ...result.slice(0, -1),
+          injectActiveSurfaceContext(userTail, activeSurface),
+        ];
+      }
     }
   }
 

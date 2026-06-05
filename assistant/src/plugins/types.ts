@@ -21,7 +21,6 @@ import type { CompactionCircuitOpenEvent } from "../api/events/compaction-circui
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { ContextWindowManager } from "../context/window-manager.js";
 import type {
-  ActiveSurfaceContext,
   ChannelCapabilities,
   ChannelCommandContext,
   InjectionMode,
@@ -210,12 +209,6 @@ export interface TurnInjectionInputs {
    * no focus block is appended.
    */
   readonly slackActiveThreadFocusBlock?: string | null;
-  /**
-   * Active dashboard-surface context (read from `<active_workspace>`). Kept
-   * on the injection inputs bag (not its own injector) because it is
-   * orchestrator-owned surface state, not a default-chain element.
-   */
-  readonly activeSurface?: ActiveSurfaceContext | null;
   /** Channel command context (e.g. Telegram /start) or null to skip. */
   readonly channelCommandContext?: ChannelCommandContext | null;
   /** Voice call-control prompt or null to skip. */
