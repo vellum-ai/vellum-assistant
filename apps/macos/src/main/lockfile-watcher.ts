@@ -33,21 +33,9 @@ let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 const listeners = new Set<LockfileChangeListener>();
 
 /**
- * Resolve the first lockfile path that exists on disk, or the first
- * candidate when none exist yet (the CLI creates it on first hatch).
+ * Read and parse the lockfile from the watched path. Falls back to
+ * EMPTY_LOCKFILE on any error (file missing, invalid JSON, etc.).
  */
-const resolveExistingPath = (candidates: string[]): string => {
-  for (const candidate of candidates) {
-    try {
-      fs.accessSync(candidate, fs.constants.R_OK);
-      return candidate;
-    } catch {
-      // continue
-    }
-  }
-  return candidates[0]!;
-};
-
 const readAndParse = (): Lockfile => {
   if (!lockfilePath) return EMPTY_LOCKFILE;
   try {
@@ -55,6 +43,23 @@ const readAndParse = (): Lockfile => {
     return parseLockfile(JSON.parse(raw));
   } catch {
     return EMPTY_LOCKFILE;
+  }
+};
+
+/**
+ * Seed the cache from the first readable candidate. Used only during
+ * initial install so that legacy-only installs still populate the cache
+ * before the canonical file is created by the first write.
+ */
+const seedFromExistingCandidate = (candidates: string[]): void => {
+  for (const candidate of candidates) {
+    try {
+      const raw = fs.readFileSync(candidate, "utf-8");
+      cachedLockfile = parseLockfile(JSON.parse(raw));
+      return;
+    } catch {
+      // continue
+    }
   }
 };
 
@@ -113,14 +118,20 @@ export const onLockfileChange = (listener: LockfileChangeListener): (() => void)
  */
 export const installLockfileWatcher = (): (() => void) => {
   const candidates = resolveLockfilePaths(process.env);
-  lockfilePath = resolveExistingPath(candidates);
+
+  // Always poll the canonical (first) path — write helpers always target
+  // candidates[0], so watching a legacy candidate would miss updates once
+  // the canonical file is created.
+  lockfilePath = candidates[0]!;
 
   // Initial read — synchronous so the tray menu has data from frame one.
   try {
     lastMtimeMs = fs.statSync(lockfilePath).mtimeMs;
     cachedLockfile = readAndParse();
   } catch {
-    // No lockfile yet — leave EMPTY_LOCKFILE.
+    // Canonical file doesn't exist yet — seed cache from any existing
+    // candidate (legacy path) so pre-migration installs still show data.
+    seedFromExistingCandidate(candidates);
   }
 
   pollTimer = setInterval(checkForChanges, POLL_INTERVAL_MS);

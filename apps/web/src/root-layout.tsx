@@ -36,6 +36,7 @@ import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useDynamicFavicon } from "@/hooks/use-dynamic-favicon";
 import { useElectronIconSync } from "@/hooks/use-electron-icon-sync";
 import { useElectronStatusSync } from "@/hooks/use-electron-status-sync";
+import { useElectronFeatureFlagBridge } from "@/runtime/electron-feature-flags";
 import { TimezoneSync } from "@/components/timezone-sync";
 
 const ShareFeedbackModal = lazy(() =>
@@ -117,6 +118,7 @@ export function RootLayout() {
   // the live connection status to the menu-bar dot. Both no-op off Electron.
   useElectronIconSync(avatar.customImageUrl, avatar.components, avatar.traits);
   useElectronStatusSync();
+  useElectronFeatureFlagBridge();
 
   // Size the Electron main window to the onboarding layout (440×630
   // default) while on an onboarding step, and back to the main-app size

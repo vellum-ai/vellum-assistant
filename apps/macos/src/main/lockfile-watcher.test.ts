@@ -3,10 +3,12 @@ import fs from "node:fs";
 
 import type { Lockfile } from "@vellumai/local-mode/contract";
 
-// Stub @vellumai/local-mode so we control the resolved path.
-const LOCKFILE_PATH = "/tmp/test-lockfile.json";
+// Stub @vellumai/local-mode so we control the resolved paths.
+const CANONICAL_PATH = "/tmp/test-lockfile.json";
+const LEGACY_PATH = "/tmp/test-lockfile-legacy.json";
+let mockPaths = [CANONICAL_PATH];
 mock.module("@vellumai/local-mode", () => ({
-  resolveLockfilePaths: () => [LOCKFILE_PATH],
+  resolveLockfilePaths: () => mockPaths,
 }));
 
 // Stub @vellumai/local-mode/contract — passthrough the real parseLockfile.
@@ -30,25 +32,29 @@ const SAMPLE_LOCKFILE: Lockfile = {
   activeAssistant: "ast-1",
 };
 
-const writeLockfile = (data: Lockfile): void => {
-  fs.writeFileSync(LOCKFILE_PATH, JSON.stringify(data), "utf-8");
+const writeLockfile = (data: Lockfile, path = CANONICAL_PATH): void => {
+  fs.writeFileSync(path, JSON.stringify(data), "utf-8");
 };
 
 const removeLockfile = (): void => {
-  try {
-    fs.unlinkSync(LOCKFILE_PATH);
-  } catch {
-    // already gone
+  for (const p of [CANONICAL_PATH, LEGACY_PATH]) {
+    try {
+      fs.unlinkSync(p);
+    } catch {
+      // already gone
+    }
   }
 };
 
 beforeEach(() => {
   __resetForTesting();
+  mockPaths = [CANONICAL_PATH];
   removeLockfile();
 });
 
 afterEach(() => {
   __resetForTesting();
+  mockPaths = [CANONICAL_PATH];
   removeLockfile();
 });
 
@@ -140,7 +146,7 @@ describe("lockfile-watcher", () => {
       };
       writeLockfile(updated);
       const now = new Date();
-      fs.utimesSync(LOCKFILE_PATH, now, new Date(now.getTime() + 1000));
+      fs.utimesSync(CANONICAL_PATH, now, new Date(now.getTime() + 1000));
 
       // THEN after waiting for poll + debounce (500ms + 100ms + buffer)
       await new Promise((resolve) => setTimeout(resolve, 750));
@@ -200,6 +206,63 @@ describe("lockfile-watcher", () => {
       // THEN it's the empty default
       expect(cached.assistants).toHaveLength(0);
       expect(cached.activeAssistant).toBeNull();
+    });
+  });
+
+  describe("legacy path migration", () => {
+    test("seeds cache from legacy path when canonical does not exist", () => {
+      /**
+       * Tests that installs with only the legacy lockfile still populate
+       * the cache on startup, even though polling targets the canonical path.
+       */
+
+      // GIVEN two candidates where only the legacy path has data
+      mockPaths = [CANONICAL_PATH, LEGACY_PATH];
+      writeLockfile(SAMPLE_LOCKFILE, LEGACY_PATH);
+
+      // WHEN the watcher is installed
+      const teardown = installLockfileWatcher();
+
+      // THEN the cache is seeded from the legacy file
+      const cached = getWatchedLockfile();
+      expect(cached.assistants).toHaveLength(2);
+      expect(cached.activeAssistant).toBe("ast-1");
+
+      teardown();
+    });
+
+    test("detects writes to canonical path after initial legacy-only seed", async () => {
+      /**
+       * Tests that after seeding from legacy, the watcher picks up new
+       * writes to the canonical path (where all write helpers target).
+       */
+
+      // GIVEN two candidates where only the legacy path has data initially
+      mockPaths = [CANONICAL_PATH, LEGACY_PATH];
+      writeLockfile(SAMPLE_LOCKFILE, LEGACY_PATH);
+      const teardown = installLockfileWatcher();
+
+      const received: Lockfile[] = [];
+      onLockfileChange((lockfile) => {
+        received.push(lockfile);
+      });
+
+      // WHEN a write creates the canonical file (simulating a CLI write)
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const updated: Lockfile = {
+        assistants: [{ assistantId: "ast-new", name: "NewAssistant" }],
+        activeAssistant: "ast-new",
+      };
+      writeLockfile(updated, CANONICAL_PATH);
+
+      // THEN after poll + debounce the change is detected
+      await new Promise((resolve) => setTimeout(resolve, 750));
+
+      expect(received).toHaveLength(1);
+      expect(received[0]?.assistants[0]?.name).toBe("NewAssistant");
+      expect(getWatchedLockfile().activeAssistant).toBe("ast-new");
+
+      teardown();
     });
   });
 });
