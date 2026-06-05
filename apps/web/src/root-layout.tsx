@@ -29,6 +29,8 @@ import { useFeatureFlagBusSync } from "@/hooks/use-feature-flag-bus-sync";
 import { useClientFeatureFlagSync } from "@/hooks/use-client-feature-flag-sync";
 import { useAssistantFeatureFlagSync } from "@/hooks/use-assistant-feature-flag-sync";
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { useConversationStore } from "@/stores/conversation-store";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useDynamicFavicon } from "@/hooks/use-dynamic-favicon";
 import { useElectronIconSync } from "@/hooks/use-electron-icon-sync";
@@ -91,6 +93,8 @@ export function RootLayout() {
   });
 
   const assistantId = useAssistantSelectionStore.use.activeAssistantId();
+  const assistantVersion = useAssistantIdentityStore.use.version();
+  const activeConversationId = useConversationStore.use.activeConversationId();
   const assistantStateKind = useAssistantLifecycleStore(
     (s) => s.assistantState.kind,
   );
@@ -198,6 +202,9 @@ export function RootLayout() {
           <ShareFeedbackModal
             open={feedbackOpen}
             onClose={() => setFeedbackOpen(false)}
+            assistantId={assistantId}
+            assistantVersion={assistantVersion}
+            activeConversationId={activeConversationId}
           />
         </LazyBoundary>
       ) : null}
