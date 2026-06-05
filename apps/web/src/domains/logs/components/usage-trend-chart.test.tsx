@@ -246,6 +246,33 @@ describe("UsageTrendChart", () => {
     ).toBeNull();
   });
 
+  test("does not render a fallback segment for empty grouped buckets with a legend override", () => {
+    const activeSeriesKey = "value:schedule-a";
+    const buckets = [bucket("2026-04-01", 0.02, {})];
+
+    const { container } = render(
+      <UsageTrendChart
+        buckets={buckets}
+        isHourly={false}
+        legendItems={[
+          {
+            seriesKey: activeSeriesKey,
+            label: "Alpha schedule",
+            colorIndex: 0,
+            state: "active",
+          },
+        ]}
+      />,
+    );
+
+    const bar = container.querySelector(
+      `[data-usage-series-bar="${buckets[0]!.bucketId}"]`,
+    );
+    expect(bar).not.toBeNull();
+    expect(bar!.querySelector("[data-usage-fallback-segment]")).toBeNull();
+    expect(bar!.querySelector("[data-usage-series-segment]")).toBeNull();
+  });
+
   test("renders the total fallback segment for ungrouped buckets", () => {
     const buckets = [bucket("2026-04-01", 0.02, {})];
 

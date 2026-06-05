@@ -167,6 +167,7 @@ export function UsageTrendChart({
                   bucket={bucket}
                   height={height}
                   legendItems={stackLegendItems}
+                  hasLegendOverride={legendItems != null}
                   onSegmentHover={showTooltip}
                   onSegmentLeave={hideTooltip}
                 />
@@ -237,12 +238,14 @@ function StackedBar({
   bucket,
   height,
   legendItems,
+  hasLegendOverride,
   onSegmentHover,
   onSegmentLeave,
 }: {
   bucket: UsageSeriesBucket;
   height: number;
   legendItems: UsageTrendChartLegendItem[];
+  hasLegendOverride: boolean;
   onSegmentHover: (
     event: MouseEvent<HTMLElement>,
     content: SegmentTooltipContent,
@@ -261,7 +264,7 @@ function StackedBar({
     return [{ item, value }];
   });
 
-  if (nonEmptyGroups.length === 0 && !hasGroupedData) {
+  if (nonEmptyGroups.length === 0 && !hasGroupedData && !hasLegendOverride) {
     const bucketLabel = formatBucketLabel(bucket);
     const tooltipContent = {
       label: "Total",
