@@ -26,10 +26,11 @@ async function fetchClientFlagValues(): Promise<ClientFeatureFlagsResponse> {
 }
 
 function mapFlags(
-  serverFlags: Record<string, boolean>,
+  serverFlags: Record<string, boolean | string>,
 ): Record<string, boolean> {
   const mapped: Record<string, boolean> = {};
   for (const [flagKey, value] of Object.entries(serverFlags)) {
+    if (typeof value !== "boolean") continue;
     const storeKey = flagKeyToStoreKey(flagKey);
     if (VALID_KEYS.has(storeKey)) {
       mapped[storeKey] = value;

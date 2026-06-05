@@ -32,7 +32,7 @@ const log = getLogger("feature-flag-remote-store");
 
 interface FeatureFlagFileData {
   version: 1;
-  values: Record<string, boolean>;
+  values: Record<string, boolean | string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -47,9 +47,9 @@ export function getRemoteFeatureFlagStorePath(): string {
 // Disk I/O with caching
 // ---------------------------------------------------------------------------
 
-let cachedRemoteValues: Record<string, boolean> | null = null;
+let cachedRemoteValues: Record<string, boolean | string> | null = null;
 
-export function readRemoteFeatureFlags(): Record<string, boolean> {
+export function readRemoteFeatureFlags(): Record<string, boolean | string> {
   if (cachedRemoteValues != null) return cachedRemoteValues;
 
   const path = getRemoteFeatureFlagStorePath();
@@ -76,9 +76,9 @@ export function readRemoteFeatureFlags(): Record<string, boolean> {
       typeof data.values === "object" &&
       !Array.isArray(data.values)
     ) {
-      const filtered: Record<string, boolean> = {};
+      const filtered: Record<string, boolean | string> = {};
       for (const [k, v] of Object.entries(data.values)) {
-        if (typeof v === "boolean") filtered[k] = v;
+        if (typeof v === "boolean" || typeof v === "string") filtered[k] = v;
       }
       cachedRemoteValues = filtered;
     } else {
@@ -97,7 +97,7 @@ export function readRemoteFeatureFlags(): Record<string, boolean> {
  * Returns `true` when the new values differ from the previous cache.
  */
 export function writeRemoteFeatureFlags(
-  values: Record<string, boolean>,
+  values: Record<string, boolean | string>,
 ): boolean {
   const path = getRemoteFeatureFlagStorePath();
   const dir = dirname(path);
@@ -130,8 +130,8 @@ export function writeRemoteFeatureFlags(
  * cached. Only used for log-level gating — correctness doesn't depend on it.
  */
 function shallowEqual(
-  a: Record<string, boolean> | null,
-  b: Record<string, boolean>,
+  a: Record<string, boolean | string> | null,
+  b: Record<string, boolean | string>,
 ): boolean {
   if (a == null) return false;
   const aKeys = Object.keys(a);
