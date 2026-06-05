@@ -20,6 +20,7 @@ const createFromBufferMock = mock((_buf: unknown) => ({ resize: resizeMock }));
 const getSystemColorMock = mock((_name: string) => "#34c759ff");
 
 mock.module("electron", () => ({
+  BrowserWindow: { getAllWindows: () => [] },
   nativeImage: {
     createFromBuffer: createFromBufferMock,
     createFromBitmap: createFromBitmapMock,
