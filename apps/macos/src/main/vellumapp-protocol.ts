@@ -73,8 +73,9 @@ export const resolveBundlePath = (
   return { kind: "ok", uuid, resolved: result.resolved };
 };
 
-export const registerVellumAppProtocol = (bundlesRoot: string): void => {
-  protocol.handle(VELLUMAPP_PROTOCOL, async (request) => {
+export const createVellumAppHandler =
+  (bundlesRoot: string) =>
+  async (request: Request): Promise<Response> => {
     const result = resolveBundlePath(bundlesRoot, request.url);
     if (result.kind === "forbidden") {
       return new Response("Forbidden", { status: 403 });
@@ -98,5 +99,8 @@ export const registerVellumAppProtocol = (bundlesRoot: string): void => {
         "Content-Type": mimeTypeForPath(resolved),
       },
     });
-  });
+  };
+
+export const registerVellumAppProtocol = (bundlesRoot: string): void => {
+  protocol.handle(VELLUMAPP_PROTOCOL, createVellumAppHandler(bundlesRoot));
 };

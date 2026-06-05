@@ -11,9 +11,11 @@
  * origin, and `window.open` is blocked outright, so a bundle cannot
  * reach another bundle's content or escape into arbitrary web pages.
  */
-import { BrowserWindow, session } from "electron";
+import { BrowserWindow, app, session } from "electron";
+import path from "node:path";
 
-import { VELLUMAPP_PROTOCOL } from "./app-config";
+import { BUNDLES_DIR_NAME, VELLUMAPP_PROTOCOL } from "./app-config";
+import { createVellumAppHandler } from "./vellumapp-protocol";
 import { hardenedWebPreferences } from "./windows";
 
 const openBundleWindows = new Map<string, BrowserWindow>();
@@ -32,6 +34,12 @@ export const openBundleWindow = (
   const bundleSession = session.fromPartition(`persist:bundle-${uuid}`, {
     cache: true,
   });
+
+  const bundlesRoot = path.join(app.getPath("userData"), BUNDLES_DIR_NAME);
+  bundleSession.protocol.handle(
+    VELLUMAPP_PROTOCOL,
+    createVellumAppHandler(bundlesRoot),
+  );
 
   const win = new BrowserWindow({
     width: 1024,
