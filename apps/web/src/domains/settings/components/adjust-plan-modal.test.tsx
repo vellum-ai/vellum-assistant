@@ -64,6 +64,11 @@ mock.module("@/generated/api/sdk.gen", () => ({
     changeStorageTierCall = opts;
     return Promise.resolve({ data: { status: "ok" }, response: { ok: true } });
   },
+  // The onboarding query carries the current tiers. Tests that need it pre-seed
+  // the cache (so this never runs). When a test deliberately leaves it unseeded
+  // to exercise the error path, this rejection keeps it hermetic.
+  organizationsBillingSubscriptionOnboardingRetrieve: () =>
+    Promise.reject(new Error("onboarding unavailable")),
 }));
 
 // Avoid pulling the real billing-portal hook's network fan-out; the downgrade /
@@ -624,6 +629,37 @@ describe("AdjustPlanModal Pro header total — no picker shown", () => {
     ).toBeNull();
     expect(queryByTestId("modal-change-tier-button")).toBeNull();
     expect(queryByTestId("modal-upgrade-to-pro-button")).toBeNull();
+  });
+
+  test("a current Pro card shows a loading placeholder (not the cheapest price) when onboarding has not resolved", async () => {
+    // A cancellation-pending Pro subscriber whose onboarding query errors (so
+    // the current total is never available). The header must NOT fall back to
+    // the cheapest seeded `From $35/mo` — that understates what the subscriber
+    // pays. Instead it shows the neutral "Loading your plan..." placeholder.
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+    });
+    client.setQueryData(
+      organizationsBillingSubscriptionRetrieveQueryKey(),
+      subscription("pro", null, { cancel_at_period_end: true }),
+    );
+    client.setQueryData(
+      organizationsBillingPlansRetrieveQueryKey(),
+      proPlansResponse(CREDIT_TIERS),
+    );
+    // Deliberately leave the onboarding query unseeded: it fires, the mocked
+    // SDK fn rejects, and with retry:false it settles into an error state.
+    const { findByText, queryByTestId } = render(
+      <QueryClientProvider client={client}>
+        <AdjustPlanModal open onClose={() => {}} />
+      </QueryClientProvider>,
+    );
+
+    await findByText("Loading your plan...");
+
+    // The cheapest fallback price must never render for a current Pro card.
+    const price = queryByTestId("modal-pro-price");
+    expect(price?.textContent ?? "").not.toContain("$35/mo");
   });
 });
 

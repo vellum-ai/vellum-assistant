@@ -806,6 +806,24 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                                   Forever
                                 </Typography>
                               </>
+                            ) : isCurrent &&
+                              proCurrentTotalCents == null &&
+                              !(proPickerShown && proLiveTotalCents != null) ? (
+                              // Current Pro card whose current total isn't
+                              // available yet (onboarding still loading or
+                              // errored). Showing the cheapest `From $X` here
+                              // would understate what this subscriber actually
+                              // pays, so render the same neutral placeholder
+                              // used by the tier-change block instead.
+                              <div className="flex items-center gap-2 text-[var(--content-tertiary)]">
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                <Typography
+                                  as="span"
+                                  variant="body-medium-lighter"
+                                >
+                                  Loading your plan...
+                                </Typography>
+                              </div>
                             ) : (
                               <>
                                 <div className="flex items-center gap-1">
@@ -830,6 +848,10 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                                         proCurrentTotalCents,
                                       )}`
                                     ) : (
+                                      // Reachable only for the prospective
+                                      // upgrade card (!isCurrent); the current
+                                      // Pro card shows the loading placeholder
+                                      // above instead of this cheapest price.
                                       `From ${formatMonthly(
                                         plan.base_price_cents +
                                           minTierPriceCents(plan.machine_tiers) +
