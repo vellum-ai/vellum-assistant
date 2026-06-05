@@ -1763,6 +1763,12 @@ export interface RuntimeInjectionResult {
  * Run every registered {@link Injector}'s `produce()` in ascending `order`
  * and return every non-null block the chain produced.
  *
+ * `runMessages` is the turn's working message array, forwarded to each
+ * injector so producers that need the current prompt contents read it from a
+ * parameter rather than the shared {@link TurnContext}. Omitted by text-only
+ * callers ({@link composeInjectorChain}) that drive the chain without a
+ * message array.
+ *
  * Injectors returning `null` are omitted from the result. The returned array
  * preserves ascending-`order` sort so downstream callers (notably
  * {@link applyRuntimeInjections}) can group blocks by `placement` and apply
@@ -1770,12 +1776,13 @@ export interface RuntimeInjectionResult {
  */
 async function collectInjectorBlocks(
   ctx: TurnContext,
+  runMessages?: Message[],
 ): Promise<InjectionBlock[]> {
   const injectors = getInjectors();
   if (injectors.length === 0) return [];
   const out: InjectionBlock[] = [];
   for (const injector of injectors) {
-    const block = await injector.produce(ctx);
+    const block = await injector.produce(ctx, runMessages);
     if (block) out.push(block);
   }
   return out;
@@ -2036,7 +2043,6 @@ function buildTurnInjectionInputs(
 /** Minimal synthetic TurnContext used when the caller omits one. */
 function synthesizeFallbackTurnContext(
   inputs: TurnInjectionInputs,
-  runMessages: Message[],
 ): TurnContext {
   return {
     requestId: "runtime-assembly-fallback",
@@ -2049,7 +2055,6 @@ function synthesizeFallbackTurnContext(
       trustClass: "unknown",
     },
     injectionInputs: inputs,
-    runMessages,
   };
 }
 
@@ -2105,10 +2110,10 @@ export async function applyRuntimeInjections(
   // continue to work.
   const injectionInputs = buildTurnInjectionInputs(options);
   const turnCtx: TurnContext = options.turnContext
-    ? { ...options.turnContext, injectionInputs, runMessages }
-    : synthesizeFallbackTurnContext(injectionInputs, runMessages);
+    ? { ...options.turnContext, injectionInputs }
+    : synthesizeFallbackTurnContext(injectionInputs);
 
-  const chainBlocks = await collectInjectorBlocks(turnCtx);
+  const chainBlocks = await collectInjectorBlocks(turnCtx, runMessages);
 
   // Split the chain output by placement so the downstream assembly can
   // process each slot with the correct ordering rule.

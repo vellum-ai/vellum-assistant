@@ -498,15 +498,6 @@ export interface TurnContext {
    */
   injectionInputs?: TurnInjectionInputs;
   /**
-   * The turn's working message array — the same `runMessages` the injector
-   * chain is assembling onto. Attached during runtime injection so injectors
-   * that need the current prompt contents (e.g. the PKB reminder, which scans
-   * for already-loaded `file_read` paths) read them off the context instead
-   * of receiving a separately-threaded copy. Omitted by call sites that don't
-   * drive runtime injection.
-   */
-  runMessages?: Message[];
-  /**
    * The {@link LLMCallSite} this turn's pipeline work belongs to —
    * `"mainAgent"` for the user-facing conversational reply, or the specific
    * background/utility site (`"compactionAgent"`, `"subagentSpawn"`,
@@ -599,8 +590,21 @@ export interface Injector {
   name: string;
   /** Ascending sort key — lower runs first. */
   order: number;
-  /** Produce a block, or `null` to contribute nothing on this turn. */
-  produce(ctx: TurnContext): Promise<InjectionBlock | null>;
+  /**
+   * Produce a block, or `null` to contribute nothing on this turn.
+   *
+   * `runMessages` is the turn's working message array — the same array the
+   * chain's blocks are spliced onto — passed explicitly so injectors that
+   * need the current prompt contents (e.g. the PKB reminder, which scans for
+   * already-loaded `file_read` paths) read it from a parameter rather than a
+   * field on the shared {@link TurnContext}. Absent for text-only chain
+   * consumers ({@link composeInjectorChain}) that drive injectors without a
+   * message array.
+   */
+  produce(
+    ctx: TurnContext,
+    runMessages?: Message[],
+  ): Promise<InjectionBlock | null>;
 }
 
 // ─── Model-visible capability slots ──────────────────────────────────────────
