@@ -97,6 +97,79 @@ describe("resolveAcpAgent", () => {
     expect(result.agent.command).toBe("claude-agent-acp");
   });
 
+  test("falls back to the gemini default profile when no user entry", () => {
+    config.setConfig({ agents: {} });
+
+    const result = resolveAcpAgent("gemini");
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.agent.command).toBe("gemini");
+    expect(result.agent.args).toEqual(["--acp"]);
+  });
+
+  test.each([
+    ["claude code", "claude-agent-acp"],
+    ["Claude Code", "claude-agent-acp"],
+    ["claude-code", "claude-agent-acp"],
+    ["claude_code", "claude-agent-acp"],
+    ["codex cli", "codex-acp"],
+    ["OpenAI Codex", "codex-acp"],
+    ["gemini cli", "gemini"],
+    ["Gemini CLI", "gemini"],
+    ["google gemini", "gemini"],
+  ])("alias %p resolves to the %p profile", (alias, command) => {
+    config.setConfig({ agents: {} });
+
+    const result = resolveAcpAgent(alias);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.agent.command).toBe(command);
+  });
+
+  test("user config entry literally keyed 'claude code' beats the alias", () => {
+    config.setConfig({
+      agents: {
+        "claude code": {
+          command: "my-claude-fork",
+          args: [],
+          description: "user-defined agent that happens to share an alias",
+        },
+      },
+    });
+
+    const result = resolveAcpAgent("claude code");
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.agent.command).toBe("my-claude-fork");
+  });
+
+  test("alias re-runs the normal lookup, so a user override of the canonical id wins", () => {
+    config.setConfig({
+      agents: {
+        claude: { command: "my-custom-claude", args: [] },
+      },
+    });
+
+    const result = resolveAcpAgent("claude code");
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.agent.command).toBe("my-custom-claude");
+  });
+
+  test("non-alias unknown id still returns unknown_agent", () => {
+    config.setConfig({ agents: {} });
+
+    const result = resolveAcpAgent("cursor cli");
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toBe("unknown_agent");
+  });
+
   test("returns unknown_agent with merged available list when id not found", () => {
     config.setConfig({
       agents: {
@@ -111,7 +184,12 @@ describe("resolveAcpAgent", () => {
     expect(result.reason).toBe("unknown_agent");
     if (result.reason !== "unknown_agent") return;
     // Defaults plus user-only ids, deduped, in stable order (defaults first).
-    expect(result.available).toEqual(["claude", "codex", "user-only"]);
+    expect(result.available).toEqual([
+      "claude",
+      "codex",
+      "gemini",
+      "user-only",
+    ]);
   });
 
   test("unknown_agent available list contains both defaults when user config is empty", () => {
@@ -125,6 +203,7 @@ describe("resolveAcpAgent", () => {
     if (result.reason !== "unknown_agent") return;
     expect(result.available).toContain("claude");
     expect(result.available).toContain("codex");
+    expect(result.available).toContain("gemini");
   });
 
   test("returns binary_not_found with the registered install hint", () => {
@@ -242,17 +321,21 @@ describe("listAcpAgents", () => {
     const result = listAcpAgents();
 
     expect(result.enabled).toBe(true);
-    expect(result.agents.map((a) => a.id)).toEqual(["claude", "codex"]);
+    expect(result.agents.map((a) => a.id)).toEqual([
+      "claude",
+      "codex",
+      "gemini",
+    ]);
   });
 
-  test("includes both bundled defaults when user config is empty", () => {
+  test("includes all bundled defaults when user config is empty", () => {
     config.setConfig({ agents: {} });
 
     const result = listAcpAgents();
 
     expect(result.enabled).toBe(true);
     const ids = result.agents.map((a) => a.id);
-    expect(ids).toEqual(["claude", "codex"]);
+    expect(ids).toEqual(["claude", "codex", "gemini"]);
     for (const entry of result.agents) {
       expect(entry.source).toBe("default");
       expect(entry.available).toBe(true);
@@ -274,6 +357,7 @@ describe("listAcpAgents", () => {
     which.setWhich({
       "my-claude": "/usr/bin/my-claude",
       "codex-acp": "/usr/bin/codex-acp",
+      gemini: "/usr/bin/gemini",
     });
 
     const result = listAcpAgents();
@@ -298,6 +382,32 @@ describe("listAcpAgents", () => {
     expect(codex?.setupHint).toBe("npm i -g @zed-industries/codex-acp");
   });
 
+  test("unavailable gemini surfaces the @google/gemini-cli install hint", () => {
+    config.setConfig({ agents: {} });
+    which.setWhich({
+      "claude-agent-acp": "/usr/bin/claude-agent-acp",
+      "codex-acp": "/usr/bin/codex-acp",
+    });
+
+    const result = listAcpAgents();
+
+    const gemini = result.agents.find((a) => a.id === "gemini");
+    expect(gemini?.available).toBe(false);
+    expect(gemini?.unavailableReason).toBe("'gemini' is not on PATH");
+    expect(gemini?.setupHint).toBe("npm i -g @google/gemini-cli");
+  });
+
+  test("aliases are resolution sugar, not catalog entries", () => {
+    config.setConfig({ agents: {} });
+
+    // "gemini cli" resolves via the alias...
+    expect(resolveAcpAgent("gemini cli").ok).toBe(true);
+
+    // ...but the catalog lists only canonical ids.
+    const ids = listAcpAgents().agents.map((a) => a.id);
+    expect(ids).toEqual(["claude", "codex", "gemini"]);
+  });
+
   test("user-only agent appended after defaults in stable order", () => {
     config.setConfig({
       agents: {
@@ -311,6 +421,7 @@ describe("listAcpAgents", () => {
     which.setWhich({
       "claude-agent-acp": "/x",
       "codex-acp": "/x",
+      gemini: "/x",
       "my-binary": "/x",
     });
 
@@ -319,9 +430,10 @@ describe("listAcpAgents", () => {
     expect(result.agents.map((a) => a.id)).toEqual([
       "claude",
       "codex",
+      "gemini",
       "my-agent",
     ]);
-    const userOnly = result.agents[2];
+    const userOnly = result.agents[3];
     expect(userOnly.source).toBe("config");
     expect(userOnly.description).toBe("user-only");
   });

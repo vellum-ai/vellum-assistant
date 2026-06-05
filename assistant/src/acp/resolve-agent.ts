@@ -5,7 +5,9 @@
  * overlap) with the bundled `DEFAULT_ACP_AGENT_PROFILES` so common agents like
  * `claude` and `codex` Just Work whenever ACP is enabled (the `acp` feature
  * flag or `acp.enabled: true`; see `feature-gate.ts`), with no per-user
- * config required. The result is a discriminated union covering every reason
+ * config required. Natural names ("claude code", "Gemini CLI") resolve via
+ * `AGENT_ID_ALIASES` when the raw id misses both maps. The result is a
+ * discriminated union covering every reason
  * a spawn might fail before we even start the agent process: ACP disabled,
  * unknown agent id, or binary missing from PATH. Callers (acp_spawn,
  * acp_list_agents, and the `/v1/acp/spawn` HTTP route) get a single source
@@ -79,11 +81,51 @@ function findAgentBinary(agent: AcpAgentConfig): string | null {
 }
 
 /**
+ * Natural-name aliases for the bundled agent ids, keyed by normalized form
+ * (see `normalizeAgentId`). Resolution sugar only: aliases are consulted as a
+ * last-resort fallback in `lookupAgent` and never appear in the
+ * `listAcpAgents` catalog.
+ */
+const AGENT_ID_ALIASES: Record<string, string> = {
+  claudecode: "claude",
+  codexcli: "codex",
+  openaicodex: "codex",
+  geminicli: "gemini",
+  googlegemini: "gemini",
+};
+
+/**
+ * Normalize a raw agent id for alias matching: lowercase and strip spaces,
+ * underscores, and hyphens so "Claude Code", "claude-code", and
+ * "claude_code" all hit the same alias entry.
+ */
+function normalizeAgentId(id: string): string {
+  return id.toLowerCase().replace(/[\s_-]/g, "");
+}
+
+/**
  * Resolve an id against user config first, then bundled defaults. Returns the
  * resolved entry plus a `source` label so callers can surface "user override
  * vs bundled default" without re-deriving it.
+ *
+ * When the raw id misses both maps, fall back to `AGENT_ID_ALIASES` so
+ * natural names like "claude code" or "Gemini CLI" resolve to the canonical
+ * id. The alias is consulted ONLY after both direct lookups miss, so a user
+ * config entry literally keyed "claude code" always wins over the alias.
  */
 function lookupAgent(
+  userAgents: Record<string, AcpAgentConfig>,
+  id: string,
+): { agent: AcpAgentConfig; source: AcpAgentSource } | undefined {
+  const direct = directLookup(userAgents, id);
+  if (direct) return direct;
+  const canonicalId = AGENT_ID_ALIASES[normalizeAgentId(id)];
+  return canonicalId !== undefined
+    ? directLookup(userAgents, canonicalId)
+    : undefined;
+}
+
+function directLookup(
   userAgents: Record<string, AcpAgentConfig>,
   id: string,
 ): { agent: AcpAgentConfig; source: AcpAgentSource } | undefined {
