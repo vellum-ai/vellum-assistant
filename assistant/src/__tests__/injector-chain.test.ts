@@ -350,8 +350,11 @@ describe("injector chain", () => {
       },
     ];
 
-    const result = await applyRuntimeInjections(originalRun, {
-      turnContext: makeTurnContext(),
+    setConversation(TEST_CONVERSATION_ID, {
+      conversationId: TEST_CONVERSATION_ID,
+      workingDir: "/sandbox",
+      workspaceTopLevelContext: "",
+      workspaceTopLevelDirty: false,
       channelCapabilities: {
         channel: "slack",
         dashboardCapable: false,
@@ -359,6 +362,9 @@ describe("injector chain", () => {
         supportsVoiceInput: false,
         chatType: "channel",
       },
+    } as never);
+    const result = await applyRuntimeInjections(originalRun, {
+      turnContext: makeTurnContext(),
       slackChronologicalMessages: slackTranscript,
     });
 

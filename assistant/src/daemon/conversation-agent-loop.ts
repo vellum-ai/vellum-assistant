@@ -1340,7 +1340,6 @@ export async function runAgentLoopImpl(
       // Resolved here, where the runtime injector is the only consumer of the
       // active-documents block.
       activeDocuments: buildActiveDocuments(ctx.conversationId),
-      channelCapabilities: ctx.channelCapabilities ?? null,
       channelCommandContext: ctx.commandIntent ?? null,
       unifiedTurnContext: unifiedTurnContextStr,
       voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
