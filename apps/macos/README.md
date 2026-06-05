@@ -143,7 +143,8 @@ apps/macos/
 ├── scripts/
 │   └── dev.ts                # probes vel-up at :3000, dispatches to standalone or electron-only
 ├── src/
-│   ├── main/index.ts         # window creation, app:// protocol, app lifecycle
+│   ├── main/index.ts         # app:// protocol, app lifecycle, popup hardening
+│   ├── main/windows.ts       # hardened window-creation seam (webPreferences + nav policy)
 │   ├── main/commands.ts      # typed command bus + accelerator resolver
 │   ├── main/settings.ts      # electron-store schema + IPC-backed accessors
 │   ├── main/menu.ts          # macOS application menu
