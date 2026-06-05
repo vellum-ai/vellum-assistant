@@ -1,5 +1,7 @@
-import { execFile } from "node:child_process";
-
+import {
+  ensureAdapterInstalled,
+  execFileWithTimeout,
+} from "../../acp/auto-install.js";
 import { getAcpSessionManager } from "../../acp/index.js";
 import { prepareAgentEnv } from "../../acp/prepare-agent-env.js";
 import { resolveAcpAgent } from "../../acp/resolve-agent.js";
@@ -23,35 +25,6 @@ interface AdapterVersionInfo {
   installed: string;
   latest: string;
   packageName: string;
-}
-
-/**
- * Run `execFile` with an AbortController-driven timeout. Returns the stdout
- * on success; throws on error or timeout. Caller treats any throw as a
- * best-effort skip.
- */
-function execFileWithTimeout(
-  command: string,
-  args: string[],
-  timeoutMs: number,
-): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    execFile(
-      command,
-      args,
-      { signal: controller.signal, encoding: "utf8" },
-      (err, stdout) => {
-        clearTimeout(timer);
-        if (err) {
-          reject(err);
-          return;
-        }
-        resolve(stdout);
-      },
-    );
-  });
 }
 
 /**
@@ -135,7 +108,30 @@ export async function executeAcpSpawn(
     return { content: '"task" is required.', isError: true };
   }
 
-  const resolved = resolveAcpAgent(agent);
+  let resolved = resolveAcpAgent(agent);
+
+  // Missing adapter binary: silently try a global npm install of the mapped
+  // package (allowlisted commands only; see acp/auto-install.ts), then
+  // re-resolve and continue. Failures degrade to the existing install hint
+  // augmented with the failure reason.
+  let autoInstalledPackage: string | null = null;
+  if (!resolved.ok && resolved.reason === "binary_not_found") {
+    const { command, hint } = resolved;
+    const install = await ensureAdapterInstalled(command);
+    if (install.installed) {
+      const retried = resolveAcpAgent(agent);
+      if (retried.ok) {
+        autoInstalledPackage = DEFAULT_AGENT_NPM_PACKAGES[command] ?? null;
+        resolved = retried;
+      }
+    } else if (install.error) {
+      return {
+        content: `${command} is not on PATH. ${hint} (auto-install failed: ${install.error})`,
+        isError: true,
+      };
+    }
+  }
+
   if (!resolved.ok) {
     switch (resolved.reason) {
       case "acp_disabled":
@@ -208,6 +204,9 @@ export async function executeAcpSpawn(
       agentConfig.command === "claude-agent-acp"
         ? ` To resume this session later, run: cd ${cwd} && claude --resume ${protocolSessionId}`
         : "";
+    const installNote = autoInstalledPackage
+      ? ` Installed ${autoInstalledPackage} automatically.`
+      : "";
     const payload = JSON.stringify({
       acpSessionId,
       protocolSessionId,
@@ -216,7 +215,8 @@ export async function executeAcpSpawn(
       status: "running",
       message:
         `ACP agent "${agent}" spawned (session: ${protocolSessionId}). ` +
-        `Results stream back via SSE. You will be notified when it completes.${resumeHint}`,
+        `Results stream back via SSE. You will be notified when it completes.` +
+        `${installNote}${resumeHint}`,
     });
 
     let content = payload;
