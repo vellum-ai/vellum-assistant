@@ -287,6 +287,12 @@ export interface VellumBridge {
      */
     onLink(callback: (link: DeepLink) => void): () => void;
   };
+  feedback: {
+    /** Collect Electron-specific diagnostics (versions, platform, metrics). */
+    diagnostics(): Promise<Record<string, unknown>>;
+    /** Read redacted log file content for the given time range. */
+    logs(timeRange: { startMs: number | null; endMs: number }): Promise<string>;
+  };
 }
 
 const notImplemented = (name: string) => (): Promise<never> =>
@@ -429,6 +435,14 @@ const bridge: VellumBridge = {
         ipcRenderer.send("vellum:deepLinks:unsubscribe");
       };
     },
+  },
+  feedback: {
+    diagnostics: () =>
+      ipcRenderer.invoke("vellum:feedback:diagnostics") as Promise<
+        Record<string, unknown>
+      >,
+    logs: (timeRange: { startMs: number | null; endMs: number }) =>
+      ipcRenderer.invoke("vellum:feedback:logs", timeRange) as Promise<string>,
   },
 };
 
