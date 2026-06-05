@@ -23,14 +23,12 @@
  * registration work.
  */
 
-import { memoryV3ShadowPlugin } from "../../memory/v3/shadow-plugin.js";
 import { registerPlugin, resetPluginRegistryForTests } from "../registry.js";
 import { type Plugin, PluginExecutionError } from "../types.js";
 import { defaultCircuitBreakerPlugin } from "./circuit-breaker/register.js";
 import { defaultCompactionPlugin } from "./compaction/register.js";
 import { defaultEmptyResponsePlugin } from "./empty-response/register.js";
 import { defaultHistoryRepairPlugin } from "./history-repair/register.js";
-import { defaultInjectorsPlugin } from "./injectors/register.js";
 import { defaultOverflowReducePlugin } from "./overflow-reduce/register.js";
 import { defaultTitleGeneratePlugin } from "./title-generate/register.js";
 import { defaultToolErrorPlugin } from "./tool-error/register.js";
@@ -51,13 +49,11 @@ function getAllDefaultPlugins(): readonly Plugin[] {
     defaultToolResultTruncatePlugin,
     defaultEmptyResponsePlugin,
     defaultToolErrorPlugin,
-    defaultInjectorsPlugin,
     defaultOverflowReducePlugin,
     defaultHistoryRepairPlugin,
     defaultCompactionPlugin,
     defaultCircuitBreakerPlugin,
     defaultTitleGeneratePlugin,
-    memoryV3ShadowPlugin,
   ];
 }
 

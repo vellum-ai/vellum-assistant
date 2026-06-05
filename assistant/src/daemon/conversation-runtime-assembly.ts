@@ -42,7 +42,7 @@ import {
   type RenderedSlackTranscriptMessage,
   renderSlackTranscriptWithProvenance,
 } from "../messaging/providers/slack/render-transcript.js";
-import { getInjectors } from "../plugins/registry.js";
+import { getInjectorChain } from "../plugins/defaults/memory-retrieval/injector-chain.js";
 import type {
   DiskPressureInjectionContext,
   InjectionBlock,
@@ -1802,8 +1802,8 @@ export interface RuntimeInjectionResult {
 }
 
 /**
- * Run every registered {@link Injector}'s `produce()` in ascending `order`
- * and return every non-null block the chain produced.
+ * Run every {@link Injector} in the chain ({@link getInjectorChain}, already
+ * sorted by ascending `order`) and return every non-null block it produced.
  *
  * `runMessages` is the turn's working message array, forwarded to each
  * injector so producers that need the current prompt contents read it from a
@@ -1820,10 +1820,8 @@ async function collectInjectorBlocks(
   ctx: TurnContext,
   runMessages?: Message[],
 ): Promise<InjectionBlock[]> {
-  const injectors = getInjectors();
-  if (injectors.length === 0) return [];
   const out: InjectionBlock[] = [];
-  for (const injector of injectors) {
+  for (const injector of getInjectorChain()) {
     const block = await injector.produce(ctx, runMessages);
     if (block) out.push(block);
   }

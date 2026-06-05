@@ -31,10 +31,6 @@ mock.module("../memory/pkb/pkb-search.js", () => ({
 
 const { applyRuntimeInjections } =
   await import("../daemon/conversation-runtime-assembly.js");
-const { defaultInjectorsPlugin } =
-  await import("../plugins/defaults/injectors/register.js");
-const { registerPlugin, resetPluginRegistryForTests } =
-  await import("../plugins/registry.js");
 import { getPkbRoot } from "../memory/pkb/types.js";
 import type { TurnContext } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
@@ -69,8 +65,6 @@ describe("PKB injector v2 cutover behavior", () => {
   // `makeTurnContext()`, so seed a default auto-injected PKB file rather than
   // passing a flag.
   beforeEach(() => {
-    resetPluginRegistryForTests();
-    registerPlugin(defaultInjectorsPlugin);
     v2Active = false;
     mkdirSync(getPkbRoot(), { recursive: true });
     writeFileSync(

@@ -15,13 +15,11 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { defaultInjectorsPlugin } from "../plugins/defaults/injectors/register.js";
+import { defaultInjectors } from "../plugins/defaults/injectors/register.js";
 import type { Injector, TurnContext } from "../plugins/types.js";
 
 function findInjector(name: string): Injector {
-  const injector = defaultInjectorsPlugin.injectors?.find(
-    (i) => i.name === name,
-  );
+  const injector = defaultInjectors.find((i) => i.name === name);
   if (!injector) {
     throw new Error(`injector '${name}' not registered`);
   }

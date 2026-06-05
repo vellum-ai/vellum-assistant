@@ -1,7 +1,7 @@
 /**
- * Memory v3 — flag-gated shadow/live plugin.
+ * Memory v3 — flag-gated shadow/live injector.
  *
- * Registered as an {@link Injector} that runs the v3 orchestrator each turn and
+ * An {@link Injector} that runs the v3 orchestrator each turn and
  * records its selection set to `memory_v3_selections`. Two flags gate its
  * injection behavior:
  *
@@ -40,7 +40,6 @@ import { stringifyMessageContent } from "../../memory/message-content.js";
 import {
   type InjectionBlock,
   type Injector,
-  type Plugin,
   type TurnContext as PluginTurnContext,
 } from "../../plugins/types.js";
 import { getLogger } from "../../util/logger.js";
@@ -371,7 +370,7 @@ export async function runShadowObservation(
  * (failure or empty selection) falls back to v2 memory rather than dropping all
  * memory.
  */
-const memoryV3Injector: Injector = {
+export const memoryV3Injector: Injector = {
   name: "memory-v3-shadow",
   // High order so it sorts last; the live `<memory>` block uses the
   // after-memory-prefix placement so it lands at the memory boundary regardless
@@ -410,12 +409,4 @@ const memoryV3Injector: Injector = {
       return null;
     }
   },
-};
-
-export const memoryV3ShadowPlugin: Plugin = {
-  manifest: {
-    name: "memory-v3-shadow",
-    version: "0.0.1",
-  },
-  injectors: [memoryV3Injector],
 };

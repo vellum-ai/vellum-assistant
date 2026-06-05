@@ -684,7 +684,7 @@ export type PluginHooks = Record<string, PluginHookFn<any>>;
 
 /**
  * A registered plugin. Every field besides `manifest` is optional — a plugin
- * may contribute any combination of middleware, injectors, and model-visible
+ * may contribute any combination of middleware and model-visible
  * capabilities. Lifecycle hooks live under `hooks`.
  */
 export interface Plugin {
@@ -706,8 +706,6 @@ export interface Plugin {
   routes?: PluginRouteRegistration[];
   /** Skill registrations loaded at startup. */
   skills?: PluginSkillRegistration[];
-  /** Prompt-time injectors contributed by this plugin. */
-  injectors?: Injector[];
   /**
    * Named middleware slots. At most one middleware per slot per plugin.
    * The registry composes multiple plugins' middleware for a slot in

@@ -15,20 +15,22 @@
  * load-bearing regression guard.
  */
 
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import {
-  getInjectors,
-  registerPlugin,
-  resetPluginRegistryForTests,
-} from "../plugins/registry.js";
 import type {
   InjectionBlock,
   Injector,
-  Plugin,
   TurnContext,
 } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
+
+// Drive the suppression branch by controlling the static injector chain that
+// `applyRuntimeInjections` walks. The slot is mutated per-test to stand in for
+// the memory-v3 injector producing (or not producing) a block.
+const injectorChainSlot: Injector[] = [];
+mock.module("../plugins/defaults/memory-retrieval/injector-chain.js", () => ({
+  getInjectorChain: () => injectorChainSlot,
+}));
 
 const { applyRuntimeInjections } =
   await import("../daemon/conversation-runtime-assembly.js");
@@ -40,10 +42,6 @@ function makeTurnContext(): TurnContext {
     turnIndex: 0,
     trust: { sourceChannel: "vellum", trustClass: "guardian" },
   };
-}
-
-function wrapInPlugin(name: string, injectors: Injector[]): Plugin {
-  return { manifest: { name, version: "0.0.1" }, injectors };
 }
 
 /**
@@ -88,11 +86,11 @@ function tailTexts(messages: Message[]): string[] {
 
 describe("memory-v3-live v2 suppression", () => {
   beforeEach(() => {
-    resetPluginRegistryForTests();
+    injectorChainSlot.length = 0;
   });
 
   test("flag ON + v3 produced a block → v2 stripped from all turns, exactly one <memory> (the v3 block)", async () => {
-    registerPlugin(wrapInPlugin("v3", [v3Injector("v3 working set")]));
+    injectorChainSlot.push(v3Injector("v3 working set"));
 
     // History: a prior user turn that still carries a v2 block (rehydrated),
     // plus the current tail user turn with its own v2 block.
@@ -138,7 +136,7 @@ describe("memory-v3-live v2 suppression", () => {
   });
 
   test("flag ON but v3 produced NOTHING → v2 block left intact (fallback-to-v2)", async () => {
-    registerPlugin(wrapInPlugin("v3", [v3Injector(null)]));
+    injectorChainSlot.push(v3Injector(null));
 
     const runMessages: Message[] = [
       userMsgWithV2Memory("fresh recalled fact", "current question"),
@@ -158,7 +156,7 @@ describe("memory-v3-live v2 suppression", () => {
   });
 
   test("flag OFF → byte-for-byte identical to today even when v3 would have produced a block", async () => {
-    registerPlugin(wrapInPlugin("v3", [v3Injector("v3 working set")]));
+    injectorChainSlot.push(v3Injector("v3 working set"));
 
     const runMessages: Message[] = [
       userMsgWithV2Memory("old recalled fact", "earlier question"),
@@ -193,8 +191,8 @@ describe("memory-v3-live v2 suppression", () => {
 
     // Strongest guard: omitting the option entirely yields the SAME result as
     // passing it false — the default path is untouched by this PR.
-    resetPluginRegistryForTests();
-    registerPlugin(wrapInPlugin("v3", [v3Injector("v3 working set")]));
+    injectorChainSlot.length = 0;
+    injectorChainSlot.push(v3Injector("v3 working set"));
     const defaultResult = await applyRuntimeInjections(runMessages, {
       turnContext: makeTurnContext(),
     });
@@ -204,7 +202,7 @@ describe("memory-v3-live v2 suppression", () => {
   test("no v3 injector registered + flag ON → no stripping, messages untouched", async () => {
     // No injector named memory-v3 at all (e.g. plugin not loaded): the
     // suppression branch keys off the produced block, so nothing is stripped.
-    expect(getInjectors()).toHaveLength(0);
+    expect(injectorChainSlot).toHaveLength(0);
 
     const runMessages: Message[] = [
       userMsgWithV2Memory("fresh recalled fact", "current question"),
