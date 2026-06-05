@@ -71,7 +71,6 @@ mock.module("../config/loader.js", () => ({
 mock.module("../config/skill-state.js", () => ({
   resolveSkillStates: () => [],
   skillFlagKey: () => null,
-  isSkillFeatureFlagEnabled: () => true,
 }));
 
 mock.module("../skills/clawhub.js", () => ({

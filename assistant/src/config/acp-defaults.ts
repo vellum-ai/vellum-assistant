@@ -32,9 +32,6 @@ export const DEFAULT_ACP_AGENT_PROFILES: Readonly<
   }),
   gemini: Object.freeze({
     command: "gemini",
-    // Dedicated frozen array (not FROZEN_EMPTY_ARGS): gemini is the one
-    // default profile with non-empty args, and it must uphold the same
-    // deep-freeze invariant documented above.
     args: Object.freeze(["--acp"]) as unknown as string[],
     description: "Google Gemini CLI (native ACP via gemini --acp)",
   }),

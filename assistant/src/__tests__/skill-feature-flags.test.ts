@@ -2,11 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../config/schema.js";
-import {
-  isSkillFeatureFlagEnabled,
-  resolveSkillStates,
-  skillFlagKey,
-} from "../config/skill-state.js";
+import { resolveSkillStates, skillFlagKey } from "../config/skill-state.js";
 import type { SkillSummary } from "../config/skills.js";
 import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
@@ -279,78 +275,6 @@ describe("resolveSkillStates with feature flags", () => {
 
     // a2a-channel and deploy explicitly false; one unrelated skill explicitly true
     expect(ids).toEqual([ENABLED_UNDECLARED_SKILL_ID]);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Per-flag predicate overrides (config-aware gating)
-// ---------------------------------------------------------------------------
-
-describe("skill flag predicate overrides (acp)", () => {
-  /** Config with the `acp` section the ACP gate reads. */
-  function makeAcpConfig(acpEnabled: boolean): AssistantConfig {
-    return makeConfig({
-      acp: { enabled: acpEnabled, maxConcurrentSessions: 4, agents: {} },
-    } as Partial<AssistantConfig>);
-  }
-
-  test("isSkillFeatureFlagEnabled: acp flag routes through isAcpEnabled (config-on, flag-off)", () => {
-    // Flag at registry default (false), but config.acp.enabled is true:
-    // the OR semantics must keep the gate open.
-    expect(isSkillFeatureFlagEnabled("acp", makeAcpConfig(true))).toBe(true);
-  });
-
-  test("isSkillFeatureFlagEnabled: acp gate closed when both flag and config are off", () => {
-    expect(isSkillFeatureFlagEnabled("acp", makeAcpConfig(false))).toBe(false);
-  });
-
-  test("isSkillFeatureFlagEnabled: acp gate open when flag is on and config is off", () => {
-    setOverridesForTesting({ acp: true });
-    expect(isSkillFeatureFlagEnabled("acp", makeAcpConfig(false))).toBe(true);
-  });
-
-  test("isSkillFeatureFlagEnabled: non-overridden flags fall back to the flag resolver", () => {
-    setOverridesForTesting({ [DECLARED_FLAG_KEY]: true });
-    expect(
-      isSkillFeatureFlagEnabled(DECLARED_FLAG_KEY, makeAcpConfig(false)),
-    ).toBe(true);
-    setOverridesForTesting({ [DECLARED_FLAG_KEY]: false });
-    expect(
-      isSkillFeatureFlagEnabled(DECLARED_FLAG_KEY, makeAcpConfig(true)),
-    ).toBe(false);
-  });
-
-  test("resolveSkillStates keeps the ACP skill when config.acp.enabled is true and the flag is off", () => {
-    const catalog = [makeSkill("acp", "bundled", "acp")];
-
-    const resolved = resolveSkillStates(catalog, makeAcpConfig(true));
-    const ids = resolved.map((r) => r.summary.id);
-    expect(ids).toContain("acp");
-  });
-
-  test("resolveSkillStates drops the ACP skill when both the flag and config.acp.enabled are off", () => {
-    const catalog = [makeSkill("acp", "bundled", "acp")];
-
-    const resolved = resolveSkillStates(catalog, makeAcpConfig(false));
-    expect(resolved.length).toBe(0);
-  });
-
-  test("resolveSkillStates keeps the ACP skill when the flag is on and config.acp.enabled is off", () => {
-    setOverridesForTesting({ acp: true });
-    const catalog = [makeSkill("acp", "bundled", "acp")];
-
-    const resolved = resolveSkillStates(catalog, makeAcpConfig(false));
-    const ids = resolved.map((r) => r.summary.id);
-    expect(ids).toContain("acp");
-  });
-
-  test("explicit acp flag-off override does not defeat config.acp.enabled", () => {
-    setOverridesForTesting({ acp: false });
-    const catalog = [makeSkill("acp", "bundled", "acp")];
-
-    const resolved = resolveSkillStates(catalog, makeAcpConfig(true));
-    const ids = resolved.map((r) => r.summary.id);
-    expect(ids).toContain("acp");
   });
 });
 

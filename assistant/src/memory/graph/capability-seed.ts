@@ -8,11 +8,9 @@
 import { and, eq, like, sql } from "drizzle-orm";
 
 import { buildCliProgram } from "../../cli/program.js";
+import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { getConfig } from "../../config/loader.js";
-import {
-  isSkillFeatureFlagEnabled,
-  resolveSkillStates,
-} from "../../config/skill-state.js";
+import { resolveSkillStates } from "../../config/skill-state.js";
 import { loadSkillCatalog } from "../../config/skills.js";
 import {
   getCachedCatalogSync,
@@ -137,7 +135,8 @@ export function seedSkillGraphNodes(): void {
     } else {
       for (const entry of cachedCatalog) {
         const flagKey = entry.metadata?.vellum?.["feature-flag"];
-        if (flagKey && !isSkillFeatureFlagEnabled(flagKey, config)) continue;
+        if (flagKey && !isAssistantFeatureFlagEnabled(flagKey, config))
+          continue;
         seenKeys.add(`${SKILL_SOURCE_PREFIX}${entry.id}`);
       }
       pruneStaleCapabilities(SKILL_SOURCE_PREFIX, seenKeys);
@@ -192,7 +191,7 @@ export async function seedUninstalledCatalogSkillMemories(): Promise<void> {
       if (installedIds.has(entry.id)) continue;
 
       const flagKey = entry.metadata?.vellum?.["feature-flag"];
-      if (flagKey && !isSkillFeatureFlagEnabled(flagKey, config)) continue;
+      if (flagKey && !isAssistantFeatureFlagEnabled(flagKey, config)) continue;
 
       upsertSkillCapabilityNode(entry.id, fromCatalogSkill(entry));
     }
