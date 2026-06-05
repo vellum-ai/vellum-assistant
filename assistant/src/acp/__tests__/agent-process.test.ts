@@ -99,3 +99,63 @@ describe("AcpAgentProcess capability getters", () => {
     expect(proc.supportsSessionResume).toBe(false);
   });
 });
+
+describe("AcpAgentProcess loadSession/resumeSession", () => {
+  /** Injects a stub connection that records loadSession/resumeSession params. */
+  function stubSessionConnection(proc: AcpAgentProcess): {
+    loadCalls: unknown[];
+    resumeCalls: unknown[];
+  } {
+    const loadCalls: unknown[] = [];
+    const resumeCalls: unknown[] = [];
+    (proc as unknown as { connection: unknown }).connection = {
+      loadSession: (params: unknown) => {
+        loadCalls.push(params);
+        return Promise.resolve({});
+      },
+      resumeSession: (params: unknown) => {
+        resumeCalls.push(params);
+        return Promise.resolve({});
+      },
+    };
+    return { loadCalls, resumeCalls };
+  }
+
+  test("loadSession forwards { sessionId, cwd, mcpServers: [] } to the connection", async () => {
+    const proc = makeProcess();
+    const { loadCalls } = stubSessionConnection(proc);
+
+    await proc.loadSession("session-1", "/tmp/project");
+
+    expect(loadCalls).toEqual([
+      { sessionId: "session-1", cwd: "/tmp/project", mcpServers: [] },
+    ]);
+  });
+
+  test("resumeSession forwards { sessionId, cwd, mcpServers: [] } to the connection", async () => {
+    const proc = makeProcess();
+    const { resumeCalls } = stubSessionConnection(proc);
+
+    await proc.resumeSession("session-2", "/tmp/project");
+
+    expect(resumeCalls).toEqual([
+      { sessionId: "session-2", cwd: "/tmp/project", mcpServers: [] },
+    ]);
+  });
+
+  test("loadSession throws when the process is not spawned", async () => {
+    const proc = makeProcess();
+
+    await expect(proc.loadSession("session-1", "/tmp/project")).rejects.toThrow(
+      'ACP agent "test-agent" is not spawned',
+    );
+  });
+
+  test("resumeSession throws when the process is not spawned", async () => {
+    const proc = makeProcess();
+
+    await expect(
+      proc.resumeSession("session-1", "/tmp/project"),
+    ).rejects.toThrow('ACP agent "test-agent" is not spawned');
+  });
+});
