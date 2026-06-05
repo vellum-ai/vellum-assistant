@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { AnimatePresence, motion } from "motion/react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion, useAnimationControls } from "motion/react";
 
 import { CastAvatar } from "@/cast/cast-avatar";
 import { REACTIONS } from "@/cast/cast-reactions";
@@ -219,7 +219,8 @@ function Billboard({
 
 /* ---------------- Beat 2: focus ---------------- */
 
-type ReactionPhase = "enter" | "intro" | "loop";
+/** Rest between autonomous reaction replays, seconds. */
+const REACTION_REST = 2.2;
 
 function CastFocus({
   character,
@@ -234,21 +235,39 @@ function CastFocus({
   onRename: (next: string) => void;
   onBack: () => void;
 }) {
-  const [phase, setPhase] = useState<ReactionPhase>("enter");
   const [editing, setEditing] = useState(false);
+  const [burst, setBurst] = useState(0);
+  const controls = useAnimationControls();
   const reaction = REACTIONS[character.reaction];
+  const introDur =
+    typeof reaction.intro.transition.duration === "number"
+      ? reaction.intro.transition.duration
+      : 1.5;
 
-  // The clone has already landed; start the autonomous reaction (and slide the
-  // name in on the same beat).
+  // One play() drives both the autonomous loop and click-to-react. `burst`
+  // bumps so the yawn's Zzz replays in sync with each reaction. (CastFocus is
+  // keyed by character id, so `reaction` is stable for its lifetime.)
+  const play = useCallback(() => {
+    setBurst((b) => b + 1);
+    return controls.start(reaction.intro.animate, reaction.intro.transition);
+  }, [controls, reaction]);
+
+  // Autonomous: the character keeps doing its "one small thing" on a loop with
+  // a rest gap (constant drift underneath keeps it alive between reps).
   useEffect(() => {
-    const t = setTimeout(() => setPhase("intro"), 120);
-    return () => clearTimeout(t);
-  }, []);
-
-  const reactionAnimate =
-    phase === "intro" ? reaction.intro.animate : phase === "loop" ? reaction.loop.animate : {};
-  const reactionTransition =
-    phase === "intro" ? reaction.intro.transition : reaction.loop.transition;
+    let alive = true;
+    void (async () => {
+      await new Promise((r) => setTimeout(r, 320));
+      while (alive) {
+        await play();
+        if (!alive) break;
+        await new Promise((r) => setTimeout(r, REACTION_REST * 1000));
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [play]);
 
   return (
     <motion.div
@@ -261,35 +280,47 @@ function CastFocus({
         ‹
       </button>
 
-      {/* avatar pinned to the clone's landing box for a seamless hand-off */}
+      {/* avatar pinned to the clone's landing box for a seamless hand-off.
+          Layered motion so it's never static:
+          - .cast-focus-alive: a constant gentle drift (CSS), always running
+          - .cast-hover: replays the character's grid move on hover (CSS)
+          - motion.div: the eyes-tied reaction, looped with a rest gap so the
+            character keeps doing its "one small thing" on its own */}
       <div
         className="cast-focus__avatar"
+        role="button"
+        tabIndex={0}
+        aria-label={`Make ${name} react`}
+        onClick={() => void play()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            void play();
+          }
+        }}
         style={{ left: target.left, top: target.top, width: target.size, height: target.size }}
       >
-        <motion.div
-          style={{ width: "100%", height: "100%" }}
-          animate={reactionAnimate}
-          transition={reactionTransition}
-          onAnimationComplete={() => {
-            if (phase === "intro") setPhase("loop");
-          }}
-        >
-          <CastAvatar character={character} />
-        </motion.div>
+        <div className="cast-focus-alive">
+          <div className="cast-hover" data-anim={character.hover}>
+            <motion.div style={{ width: "100%", height: "100%" }} animate={controls}>
+              <CastAvatar character={character} />
+            </motion.div>
+          </div>
+        </div>
 
-        <AnimatePresence>
-          {character.reaction === "yawn" && phase === "intro" && (
+        {character.reaction === "yawn" && (
+          <AnimatePresence>
             <motion.div
+              key={burst}
               className="cast-zzz"
-              initial={{ opacity: 0, y: 0, scale: 0.6 }}
-              animate={{ opacity: [0, 1, 1, 0], y: -34, scale: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 1.5, ease: "easeOut" }}
+              initial={{ opacity: 0, y: -4, scale: 0.6 }}
+              animate={{ opacity: [0, 1, 1, 0], y: -42, scale: 1 }}
+              transition={{ duration: introDur, ease: "easeOut" }}
             >
               z z Z
             </motion.div>
-          )}
-        </AnimatePresence>
+          </AnimatePresence>
+        )}
       </div>
 
       <motion.div
@@ -315,12 +346,25 @@ function CastFocus({
             }}
           />
         ) : (
-          <>
-            <button className="cast-name__text" onClick={() => setEditing(true)}>
-              {name}
-            </button>
-            <p className="cast-name__hint">tap to rename</p>
-          </>
+          <button
+            className="cast-name__edit"
+            onClick={() => setEditing(true)}
+            aria-label={`Rename ${name}`}
+          >
+            <span className="cast-name__text">{name}</span>
+            <svg
+              className="cast-name__pencil"
+              width="17"
+              height="17"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <path
+                fill="currentColor"
+                d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
+              />
+            </svg>
+          </button>
         )}
       </motion.div>
 

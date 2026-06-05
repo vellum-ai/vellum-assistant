@@ -151,16 +151,22 @@
   transform-style: preserve-3d;
 }
 
-.cast-cell:hover .cast-hover[data-anim="jump"] {
+/* grid tiles replay their signature move on hover; the detail view reuses the
+   same moves on hover too */
+.cast-cell:hover .cast-hover[data-anim="jump"],
+.cast-focus__avatar:hover .cast-hover[data-anim="jump"] {
   animation: cast-jump 0.6s ease;
 }
-.cast-cell:hover .cast-hover[data-anim="flip"] {
+.cast-cell:hover .cast-hover[data-anim="flip"],
+.cast-focus__avatar:hover .cast-hover[data-anim="flip"] {
   animation: cast-flip 0.7s ease;
 }
-.cast-cell:hover .cast-hover[data-anim="wiggle"] {
+.cast-cell:hover .cast-hover[data-anim="wiggle"],
+.cast-focus__avatar:hover .cast-hover[data-anim="wiggle"] {
   animation: cast-wiggle 0.6s ease;
 }
-.cast-cell:hover .cast-hover[data-anim="spin"] {
+.cast-cell:hover .cast-hover[data-anim="spin"],
+.cast-focus__avatar:hover .cast-hover[data-anim="spin"] {
   animation: cast-spin 0.7s ease;
 }
 
@@ -194,6 +200,22 @@
 .cast-focus__avatar {
   position: absolute;
   filter: drop-shadow(0 14px 30px rgba(0, 0, 0, 0.5));
+  cursor: pointer;
+  outline: none;
+}
+.cast-focus__avatar:focus-visible {
+  border-radius: 18px;
+  outline: 2px solid rgba(255, 255, 255, 0.28);
+  outline-offset: 10px;
+}
+
+/* constant gentle drift so the focused character is never frozen between
+   autonomous reactions */
+.cast-focus-alive {
+  display: block;
+  width: 100%;
+  height: 100%;
+  animation: cast-drift 4.2s ease-in-out infinite;
 }
 
 .cast-name {
@@ -203,27 +225,42 @@
   text-align: center;
 }
 
+.cast-name__edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  background: none;
+  border: none;
+  color: #f4f4f6;
+  cursor: pointer;
+  padding: 2px 8px;
+  outline: none;
+}
+
 .cast-name__text {
   font-size: 30px;
   font-weight: 680;
   letter-spacing: -0.02em;
-  background: none;
-  border: none;
-  color: #f4f4f6;
-  cursor: text;
-  padding: 2px 8px;
-  border-radius: 8px;
-}
-.cast-name__text:hover {
-  background: rgba(255, 255, 255, 0.06);
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 5px;
+  transition: text-decoration-color 140ms ease;
 }
 
-.cast-name__hint {
-  margin: 4px 0 0;
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: rgba(244, 244, 246, 0.32);
+/* pencil is the affordance; hover/focus also underlines the name */
+.cast-name__pencil {
+  flex-shrink: 0;
+  opacity: 0.5;
+  transition: opacity 140ms ease;
+}
+.cast-name__edit:hover .cast-name__text,
+.cast-name__edit:focus-visible .cast-name__text {
+  text-decoration-color: rgba(244, 244, 246, 0.55);
+}
+.cast-name__edit:hover .cast-name__pencil,
+.cast-name__edit:focus-visible .cast-name__pencil {
+  opacity: 0.95;
 }
 
 .cast-name__input {
@@ -366,6 +403,19 @@
   }
 }
 
+@keyframes cast-drift {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  30% {
+    transform: translateY(-5px) rotate(-1.1deg);
+  }
+  65% {
+    transform: translateY(-1px) rotate(1.1deg);
+  }
+}
+
 @keyframes cast-jump {
   0% {
     transform: translateY(0) scale(1, 1);
@@ -423,6 +473,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .cast-idle,
+  .cast-focus-alive,
   .cast-cell:hover .cast-hover {
     animation: none !important;
   }
