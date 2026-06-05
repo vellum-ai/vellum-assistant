@@ -10,14 +10,18 @@ import { type MenuIconPair } from "./assets/menu-icons";
  * the Swift app's `VIcon.nsImage()` which sets `isTemplate = true` on every
  * menu-item icon.
  *
- * The 2x variant is added as a representation so Retina displays get a
- * crisp rendition without any runtime resizing.
+ * Both the 1x (16px) and 2x (32px) representations are registered so the
+ * image resolves crisply on both standard and Retina displays.
  */
 export const menuIcon = (pair: MenuIconPair): NativeImage => {
   const img = nativeImage.createFromBuffer(
-    Buffer.from(pair.png2x, "base64"),
-    { scaleFactor: 2 },
+    Buffer.from(pair.png1x, "base64"),
+    { scaleFactor: 1 },
   );
+  img.addRepresentation({
+    scaleFactor: 2,
+    buffer: Buffer.from(pair.png2x, "base64"),
+  });
   img.setTemplateImage(true);
   return img;
 };
