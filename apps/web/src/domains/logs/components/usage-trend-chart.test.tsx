@@ -64,6 +64,59 @@ describe("usageSeriesKeyForGroupValue", () => {
 });
 
 describe("UsageTrendChart", () => {
+  test("renders selected-series legend overrides in the empty state", () => {
+    const { container, getByText } = render(
+      <UsageTrendChart
+        buckets={[]}
+        isHourly={false}
+        legendItems={[
+          {
+            seriesKey: "value:schedule-123",
+            label: "Morning digest",
+            totalEstimatedCostUsd: 0,
+            colorIndex: 0,
+            state: "active",
+          },
+          {
+            seriesKey: "value:schedule-456",
+            label: "Evening digest",
+            totalEstimatedCostUsd: 0,
+            colorIndex: 1,
+            state: "inactive",
+          },
+        ]}
+      />,
+    );
+
+    expect(getByText("No daily data")).toBeTruthy();
+    const legendItems = Array.from(
+      container.querySelectorAll("[data-usage-legend-state]"),
+    );
+    expect(legendItems.map((item) => item.textContent)).toEqual([
+      "Morning digest",
+      "Evening digest",
+    ]);
+    expect(
+      legendItems.map((item) =>
+        item.getAttribute("data-usage-legend-state"),
+      ),
+    ).toEqual(["active", "inactive"]);
+
+    const activeLabel = getByText("Morning digest");
+    const inactiveLabel = getByText("Evening digest");
+    expect(activeLabel.className).not.toContain("line-through");
+    expect(inactiveLabel.className).toContain("line-through");
+  });
+
+  test("keeps the default empty state legend-free without overrides", () => {
+    const { container, getByText } = render(
+      <UsageTrendChart buckets={[]} isHourly={false} />,
+    );
+
+    expect(getByText("No daily data")).toBeTruthy();
+    expect(container.querySelector("[data-usage-legend-state]")).toBeNull();
+  });
+
   test("renders the bucket-derived legend as active by default", () => {
     const buckets = [
       bucket("2026-04-01", 0.03, {

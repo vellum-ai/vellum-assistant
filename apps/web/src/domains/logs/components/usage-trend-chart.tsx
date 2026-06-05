@@ -112,11 +112,20 @@ export function UsageTrendChart({
   const hideTooltip = useCallback(() => setTooltip(null), []);
 
   if (sorted.length === 0) {
-    return (
+    const emptyState = (
       <EmptyState
         title={isHourly ? "No hourly data" : "No daily data"}
         subtitle="No usage recorded in this time range"
       />
+    );
+    if (visibleLegendItems.length === 0) {
+      return emptyState;
+    }
+    return (
+      <div className="flex flex-col gap-2">
+        {emptyState}
+        <UsageSeriesLegendDisplay items={visibleLegendItems} />
+      </div>
     );
   }
 
